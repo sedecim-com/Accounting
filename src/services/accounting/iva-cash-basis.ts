@@ -688,6 +688,57 @@ export async function receivedVatStillParked(
 }
 
 /**
+ * MNE-001-575 · What an issued invoice still has in 2125: what it parked,
+ * less what its live collections released and what its earlier credit notes
+ * already took back. The twin of `receivedVatStillParked`, and for the same
+ * reason: `ivaStillParked` sees only the entries whose source is the invoice,
+ * and a receipt's entry or a note's has its own document as source.
+ *
+ * A live allocation that stored no release (NULL, written before MNE-001-459)
+ * counts at its pro-rata share, the estimate an unapply makes too: counting it
+ * as zero would read a collected invoice as parked. `estimated` says so.
+ */
+export async function issuedVatStillParked(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string
+): Promise<{ parked: string; estimated: boolean }> {
+  const parked = new Decimal(await ivaStillParked(client, 'issued', entityId, invoiceId));
+  const { from } = reclassRoles('issued');
+  const { rows: [taken] } = await client.query<{
+    released: string; unknown: string; notes: string; tax: string; total: string;
+  }>(
+    `SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released,
+            COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown,
+            COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                        FROM credit_notes cn
+                        JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note'
+                                               AND je.source_id = cn.id AND je.status = 'posted'
+                                               AND je.reversed_by_entry_id IS NULL
+                        JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                        JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                                             AND ar.role = $3 AND ar.qualifier IS NULL
+                       WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+      WHERE i.id = $2 AND i.entity_id = $1`,
+    [entityId, invoiceId, from]
+  );
+  if (!taken) return { parked: new Decimal(0).toFixed(SCALE), estimated: false };
+  const estimate = new Decimal(ivaToReclassify({
+    ivaTotal: taken.tax, documentTotal: taken.total, priorApplied: '0', appliedNow: taken.unknown,
+  }));
+  const left = parked.minus(taken.released).minus(estimate).minus(taken.notes);
+  return { parked: Decimal.max(left, 0).toFixed(SCALE), estimated: estimate.greaterThan(0) };
+}
+
+/**
  * What the payment that settles a bill lowered by a credit note releases.
  *
  * The pro rata reads the bill's total, and such a bill is settled below it, so

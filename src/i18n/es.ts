@@ -37,6 +37,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.INVOICE_CHANGED': '{invoice} cambió bajo este cobro; no se escribió nada.',
   'error.BILL_CHANGED': '{bill} cambió mientras se aplicaba el pago; no se escribió nada.',
   'error.FX_REVALUATION_PLAN_CHANGED':
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
@@ -548,13 +549,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_isr_subsidy.question':
     'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
   'policy.usmo_isr_subsidy.impact':
-    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), cuyo ISR de la separación retiene la parte gravada a esa tasa. Neto del subsidio baja la tasa, así que se retiene menos.',
   'policy.usmo_isr_subsidy.rationale':
-    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95 (el antepenúltimo; el art. 172 RLISR descuenta de esos pagos la exención), divide «el impuesto correspondiente al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
   'policy.usmo_isr_subsidy.why':
     'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
   'policy.usmo_isr_subsidy.what':
-    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, y el finiquito retiene la parte gravada de la separación a ese ISR entre el sueldo.',
   'policy.usmo_isr_subsidy.if_skipped':
     'Lo tomo bruto de tarifa, sin restar el subsidio.',
   'policy.usmo_isr_subsidy.option.gross_of_tariff':
@@ -565,19 +566,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_days_per_month.question':
     '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
   'policy.usmo_days_per_month.impact':
-    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, en su párrafo de los pagos del art. 95. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose, compara con él los pagos por separación y divide entre él. Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
   'policy.usmo_days_per_month.rationale':
-    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, en su párrafo de los pagos del art. 95, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
   'policy.usmo_days_per_month.why':
     'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
   'policy.usmo_days_per_month.what':
-    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+    'Calculo el USMO como salario diario × 30; el finiquito compara con él los pagos por separación y arma sobre él la tasa de retención.',
   'policy.usmo_days_per_month.if_skipped':
     'Uso 30 días.',
   'policy.usmo_days_per_month.option.30':
     'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
   'policy.usmo_days_per_month.option.30_4':
     'Salario diario × 30.4 (el mes de la tarifa mensual)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'Para el ISR de la separación, ¿con qué se compara el último sueldo mensual ordinario (USMO) para elegir entre la tarifa mensual y la tasa del USMO: con el total pagado por la separación, o sólo con su parte gravada?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene una prima de antigüedad o una indemnización al ISR del USMO entre el USMO, y aplica en su lugar la tarifa mensual cuando «los pagos» son inferiores al USMO. Lo lee el ISR de la separación del finiquito (separation-isr.ts). Cuando la parte gravada queda debajo del USMO y el total pagado no, comparar el total retiene a la tasa, más que la tarifa sobre la parte gravada sola.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'El art. 96 LISR aplica la tasa a «el ingreso total por este concepto» y pasa a la tarifa «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: la palabra es los pagos, así que el total pagado es la lectura literal, y, bruto de tarifa, nunca retiene de menos, porque la tasa media de la tarifa sube con el ingreso. Comparar sólo la parte gravada sigue al art. 172 RLISR, que descuenta del total del art. 95 la exención del art. 93 fr. XIII LISR, como arma el CFDI de nómina su IngresoAcumulable; es la otra práctica común. Es el valor conservador, por ADR-0006; lo retenido de más se acredita en el cálculo anual.',
+  'policy.separation_isr_usmo_comparison.why':
+    'La ley compara «los pagos» con el último sueldo mensual sin decir si cuenta su parte exenta. Comparar el total retiene más veces a la tasa del USMO; comparar sólo la parte gravada aplica más veces la tarifa mensual. Lo decide tu despacho.',
+  'policy.separation_isr_usmo_comparison.what':
+    'Comparo el total pagado por la separación con el USMO: debajo de él, la tarifa mensual sobre la parte gravada; si no, la tasa del USMO sobre la parte gravada.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'Comparo el total pagado.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'El total pagado por la separación, con su parte exenta (los «pagos» literales del art. 96 LISR)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Sólo la parte gravada, después de la exención de 90 UMA (art. 172 RLISR)',
 
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
@@ -1814,6 +1832,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
   confirm_yes_no_suffix: '[s/N]',
+  confirm_yes_no_suffix_default_yes: '[S/n]',
 
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
@@ -2892,9 +2911,32 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
   // Same blocks, same order as en.ts.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  'report.cashflow.gross_unavailable':
+    'El estado en términos BRUTOS (NIF B-2 §40 / ASC 230-10-45-7) no se puede construir con estos datos, y no se devuelve el neto rotulado como bruto. Lo bruto exige cobros y pagos separados, y eso es un dato de la OPERACIÓN, no de la cuenta: el motor publica un neto por cuenta, y partirlo en su cargo y su abono no da flujos —la baja de un activo abona a valor en libros mientras el efectivo cobrado es otro importe—. La salida por omisión ya muestra cada cuenta de cada sección, que es el detalle que estos libros sí sostienen. Vuelve a correr sin --gross.',
+  'report.cashflow_reconcile.derived_concept': 'Estado de flujos, neto (método {method})',
+  'report.cashflow_reconcile.ledger_concept': 'Caja y bancos, variación en el mayor',
+  'report.cashflow_reconcile.residue_concept': 'Residuo (derivado − real)',
+  'report.cashflow_reconcile.cash_accounts':
+    'Efectivo: {accounts} ({defaulted, select, yes {criterio «{criterion}», por omisión} other {criterio «{criterion}»}}) · {opening} → {closing}',
+  'report.cashflow_reconcile.ties':
+    'Amarra: el estado de flujos equivale al movimiento real de efectivo.',
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# sospechoso} other {# sospechosos}} — es una LISTA DE SOSPECHOSOS, no un veredicto: son movimientos de efectivo que ninguna sección del estado parece reclamar, o que puede estar contando dos veces. Verifícalos antes de tocar nada.',
+  'report.cashflow_reconcile.coverage':
+    'Explican {explained} del residuo {amount}; quedan {unexplained} que no explica ninguno.',
+  'report.cashflow_reconcile.no_suspects':
+    'Sin sospechosos que ofrecer: todo movimiento de efectivo del periodo cae en una sección del estado, así que el residuo está en CÓMO se suman, no en qué se omitió.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  'root.ingest.auto_post_ignored':
+    'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
+  'root.ingest.auto_post_turn_on':
+    'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====

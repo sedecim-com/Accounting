@@ -14,6 +14,7 @@ import {
   type UsmoDaysPerMonth,
 } from './finiquito-math.js';
 import { getTaxParameters } from '../tax-engine/tax-tables.js';
+import { calculateSeparationIsr, type SeparationIsr } from './separation-isr.js';
 
 // ============================================================
 // MX — Finiquito (termination settlement)
@@ -94,6 +95,14 @@ export interface FiniquitoResult {
   seniority_premium_amount: string;
   /** Por qué vale lo que vale — o por qué no se pudo calcular. */
   seniority_premium_note: string;
+  /**
+   * The separation ISR (MNE-001-375, MNE-001-579): the exemption of LISR
+   * art. 93 fr. XIII and the withholding of LISR art. 96 on the separation
+   * payments ONLY. The ordinary items above keep the ordinary route, with
+   * their own exemptions, on the payroll run that pays them; `total` stays
+   * gross, and no net is given, since the ordinary ISR is not in it.
+   */
+  separation_isr: SeparationIsr;
   total: string;
   /** Cómo se llegó al número: qué antigüedad, qué tabla y qué salario diario. */
   basis: {
@@ -106,13 +115,13 @@ export interface FiniquitoResult {
     prima_vacacional_pct: string;
     aguinaldo_days_worked: number;
     /**
-     * The last ordinary monthly salary (LISR art. 96, last paragraph): the
-     * daily wage × `usmo_days_per_month`. Reported, not yet used: the
-     * separation ISR that divides by it is MNE-001-375.
+     * The last ordinary monthly salary (LISR art. 96, the paragraph on the
+     * payments of art. 95): the daily wage × `usmo_days_per_month`. The
+     * separation ISR compares the payments with it and divides by it.
      */
     last_ordinary_monthly_salary: string;
     usmo_days_per_month: UsmoDaysPerMonth;
-    /** How the ISR of the USMO will be taken (`usmo_isr_subsidy`). */
+    /** How the ISR of the USMO is taken (`usmo_isr_subsidy`). */
     usmo_isr_subsidy: UsmoIsrSubsidy;
   };
 }
@@ -120,8 +129,9 @@ export interface FiniquitoResult {
 // ============================================================
 // THE TWO READINGS OF THE USMO (MNE-001-374, #194)
 //
-// The separation ISR of LISR art. 96, last paragraph, is the ISR of the last
-// ordinary monthly salary divided by that salary. MNE-001-373 put its two open
+// The separation ISR of LISR art. 96 (the paragraph on the payments of art.
+// 95, third from the end) is the ISR of the last ordinary monthly salary
+// divided by that salary. MNE-001-373 put its two open
 // readings in the panel (ADR-0006): whether that ISR is gross of the tariff or
 // net of the employment subsidy, and whether the USMO is the daily wage × 30
 // or × 30.4. Both readers are CLOSED ON DECLARING, like
@@ -327,6 +337,21 @@ export async function calculateFiniquito(
     salario_minimo_diario: salarioMinimo,
   });
 
+  // THE SEPARATION ISR (MNE-001-375, MNE-001-579): on the seniority premium
+  // ALONE, the only separation payment this settlement computes. A premium
+  // «SIN CALCULAR» (a base of null with days owed) goes as null, never as
+  // zero. The USMO is the one `basis` reports, and the panel the employee's.
+  const usmo = lastOrdinaryMonthlySalary(d.salario_diario, usmoDays);
+  const separationIsr = await calculateSeparationIsr({
+    payments:
+      d.prima_antiguedad_base_diaria === null && d.prima_antiguedad_dias > 0 ? null : d.prima_antiguedad_importe,
+    hireDate: e.hire_date,
+    terminationDate: input.termination_date,
+    usmo,
+    usmoIsrSubsidy,
+    panel,
+  });
+
   return {
     salary_pending_days: d.salario_pendiente_dias,
     salary_pending_amount: d.salario_pendiente_importe,
@@ -339,6 +364,7 @@ export async function calculateFiniquito(
     seniority_premium_daily_base: d.prima_antiguedad_base_diaria,
     seniority_premium_amount: d.prima_antiguedad_importe,
     seniority_premium_note: d.prima_antiguedad_nota,
+    separation_isr: separationIsr,
     total: d.total,
     basis: {
       years_of_service: d.antiguedad_anios_cumplidos,
@@ -349,7 +375,7 @@ export async function calculateFiniquito(
       aguinaldo_days_per_year: diasAguinaldo,
       prima_vacacional_pct: primaPct,
       aguinaldo_days_worked: d.aguinaldo_dias_trabajados,
-      last_ordinary_monthly_salary: lastOrdinaryMonthlySalary(d.salario_diario, usmoDays),
+      last_ordinary_monthly_salary: usmo,
       usmo_days_per_month: usmoDays,
       usmo_isr_subsidy: usmoIsrSubsidy,
     },

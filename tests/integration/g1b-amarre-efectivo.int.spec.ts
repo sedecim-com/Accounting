@@ -17,6 +17,7 @@ import {
 import { registerCashFlowReconcile } from '../../src/cli/cashflow-reconcile-command.js';
 import { palette } from '../../src/cli/palette.js';
 import { JournalEntryType } from '../../src/types/index.js';
+import { LOCALE_ENV_VAR } from '../../src/i18n/locale.js';
 
 // ============================================================
 // G1b · EL AMARRE CONTRA EL EFECTIVO REAL
@@ -659,6 +660,11 @@ describe('mnemosine cashflow reconcile · la puerta', () => {
       }) as unknown as typeof process.stdout.write;
     const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(escribir(out));
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(escribir(err));
+    // Las aserciones de esta puerta leen las notas en español: desde I8.1
+    // (MNE-001-218) la salida humana sigue el idioma del usuario y el inglés
+    // es el de omisión, así que la prueba fija es-MX y lo devuelve al salir.
+    const localeOutside = process.env[LOCALE_ENV_VAR];
+    process.env[LOCALE_ENV_VAR] = 'es-MX';
     try {
       registerCashFlowReconcile(cashflow, {
         palette: palette(process.stdout),
@@ -683,6 +689,8 @@ describe('mnemosine cashflow reconcile · la puerta', () => {
     } finally {
       stdout.mockRestore();
       stderr.mockRestore();
+      if (localeOutside === undefined) delete process.env[LOCALE_ENV_VAR];
+      else process.env[LOCALE_ENV_VAR] = localeOutside;
     }
     return { code, out: out.join(''), err: err.join('') };
   }
