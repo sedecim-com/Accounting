@@ -123,11 +123,14 @@ Examples:
   // añade --dry-run, -y/--yes, --idempotency-key y --live.
   declareRisk(sweep, {
     risk: 'externo',
-    llave: { innecesaria: 'cada entrega ya lleva su propia llave estable (X-Webhook-ID), y deduplicar barridos enteros SALTARÍA entregas vencidas' },
+    llave: {
+      innecesaria:
+        'each delivery already carries its own stable key (X-Webhook-ID), and deduplicating whole sweeps WOULD SKIP due deliveries',
+    },
     agent: false,
     writes:
       'webhook_deliveries (status, attempt_count, next_retry_at, error_message); ' +
-      'y hace POST a la URL de cada suscripción con el evento original',
+      "and POSTs the original event to each subscription's URL",
   });
 
   sweep.action(async (opts: SweepOpts) => {

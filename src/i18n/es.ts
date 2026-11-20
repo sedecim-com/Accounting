@@ -64,6 +64,36 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-152 · el 422 de validateBody y validateQuery, una clave por issue de Zod; see en.ts ----
+  'error.VALIDATION_ERROR.body': 'Cuerpo de la petición inválido: {issues}',
+  'error.VALIDATION_ERROR.query': 'Parámetro de consulta inválido: {name}: {issues}',
+  'error.VALIDATION_ERROR.issue.required': 'Obligatorio',
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Se esperaba un número entero y llegó uno con decimales',
+  'error.VALIDATION_ERROR.issue.not_finite': 'El número debe ser finito',
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Se esperaba {expected} y llegó {received}',
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Valor literal inválido: se esperaba {expected}',
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Valor no admitido. Se esperaba {expected} y llegó '{received}'",
+  'error.VALIDATION_ERROR.issue.invalid_format':
+    '{format, select, regex {Formato inválido} other {Formato {format} inválido}}',
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Entrada inválida: debe {affix, select, starts_with {empezar con} ends_with {terminar con} other {incluir}} "{value}"',
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'El número debe ser {bound, select, exact {exactamente igual a} inclusive {mayor o igual que} other {mayor que}} {minimum}',
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'El número debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'El BigInt debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'El número debe ser múltiplo de {divisor}',
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Claves que el objeto no admite: {keys}',
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Entrada inválida',
   // ---- MNE-001-150 · a path no route serves; see en.ts ----
   'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================
@@ -3155,6 +3185,42 @@ export const ES: Record<keyof typeof EN, string> = {
   'platform.backup.restore.previous_intact':
     'La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.',
   'platform.backup.restore.check_first': 'Compruébala antes: mnemosine backup verify {file} --restore',
+
+
+  'platform.audit.user_not_found':
+    'Usuario «{email}» en este inquilino. El rastro no se filtró: un correo que no existe devolvería cero filas y se leería como que esa persona no hizo nada.',
+  'platform.audit.list.limit_invalid': '--limit debe ser un entero positivo; llegó «{value}».',
+  'platform.audit.list.action_unknown':
+    'Acción desconocida «{action}». El vocabulario lo fija el CHECK de audit_log (migración 001): {actions}.',
+  'platform.audit.list.actor_agent_unsupported':
+    'El rastro no distingue todavía al agente: `audit_log` no tiene columna de actor y cada fila se atribuye a un `user_id` humano. Filtrar por «{actor}» devolvería cero filas, que se leería como que el agente no hizo nada. Falta la columna `actor` (y `agent_session_id`) y que el puente del agente la escriba; hasta entonces, `--actor human` o sin bandera es todo lo que hay.',
+  'platform.audit.list.actor_invalid': '--actor sólo admite «human», «agent» o «agent:<session>»; llegó «{actor}».',
+  'platform.audit.list.object_unknown':
+    'Familia de objeto desconocida «{object}». Conocidas: {families}. Para un valor exacto de la columna usa --entity-type.',
+  'platform.audit.list.object_type_disjoint':
+    '--object «{object}» y --entity-type «{type}» no se cruzan: la familia no contiene ese tipo. Da una de las dos.',
+  'platform.audit.list.user_removed': '(usuario dado de baja)',
+  'platform.audit.list.no_rows':
+    'Sin filas. El rastro es del INQUILINO: `audit_log` no tiene columna de entidad legal, así que --entity sólo eligió a qué inquilino mirar.',
+  'platform.audit.show.when': 'cuándo',
+  'platform.audit.show.who': 'quién',
+  'platform.audit.show.why': 'por qué',
+  'platform.audit.show.user_unknown': '(usuario desconocido: la bitácora es de sólo agregar y sobrevive al alta)',
+  'platform.audit.show.no_reason': '(sin razón registrada)',
+  'platform.audit.show.no_values': 'sin valores: la fila registra el acto, no el antes y el después',
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# borrador} other {# borradores}}, {decided, plural, one {# decidido} other {# decididos}}',
+  'platform.ai.stats.human_intervention':
+    'intervención humana {rate} ({human} aprobados + {rejected} rechazados de {decided} decididos; {policy} por política, {auto} auto-posteados)',
+  'platform.ai.stats.ingest':
+    'ingesta: {runs, plural, one {# corrida} other {# corridas}}, {drafts, plural, one {# borrador} other {# borradores}}{priced, select, yes {, ~${perDraft} USD por borrador (total ${total})} other {, costo no estimable (modelo sin precio)}}',
+  'platform.ai.stats.latency':
+    'latencia del modelo: {average} ms promedio, {p95} ms p95 ({calls, plural, one {# llamada medida} other {# llamadas medidas}})',
+  'platform.ai.stats.events':
+    'eventos: {suspicions, plural, one {# sospecha de inyección} other {# sospechas de inyección}}, {nudges, plural, one {# nudge de grounding} other {# nudges de grounding}}, {failovers, plural, one {# failover} other {# failovers}}',
+  'platform.ai.stats.shadow':
+    'sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por humano, acuerdo {agreement} (encender «on» exige ≥{minDays} días, ≥{minDecided} decididos y ≥{minAgreement})',
+  'platform.jobs.run_due.retry_reruns': 'un reintento vuelve a ejecutar los trabajos vencidos',
 
   // ==== end of I8.6 ====
 

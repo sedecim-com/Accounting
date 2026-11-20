@@ -53,6 +53,7 @@ vi.mock('../../../src/ai/question-service.js', async (importOriginal) => ({
 
 import aiRouter from '../../../src/api/rest/routes/ai.js';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
+import { negotiateLocale } from '../../../src/api/rest/middleware/locale.js';
 import { listDrafts, approveDraft, rejectDraft } from '../../../src/ai/draft-service.js';
 import { listQuestions, answerQuestion, searchPrecedents } from '../../../src/ai/question-service.js';
 
@@ -68,6 +69,9 @@ let baseUrl: string;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  // As src/index.ts mounts it. `fetch` sends `accept-language: *`, which names
+  // no language, so the 422s below read the English they always did.
+  app.use(negotiateLocale);
   app.use((req, _res, next) => {
     req.headers['x-request-id'] = 'req-315';
     req.tenantId = 'tenant-a';
@@ -91,10 +95,15 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-async function call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; json: Envelope }> {
+async function call(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+  headers: Record<string, string> = {}
+): Promise<{ status: number; json: Envelope }> {
   const res = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, json: (await res.json()) as Envelope };
@@ -115,6 +124,20 @@ describe('/v1/ai query strings: invalid input is a 422 in the envelope, not a 50
     expect(status).toBe(422);
     expectValidationEnvelope(json, /^Invalid query parameter: status: /);
     expect(json.errors?.[0].field).toBe('status');
+    expect(listDrafts).not.toHaveBeenCalled();
+  });
+
+  it('GET /drafts?status=bogus under Accept-Language: es reads Spanish, with the same code and field (MNE-001-152)', async () => {
+    const { status, json } = await call('GET', '/v1/ai/drafts?status=bogus', undefined, { 'accept-language': 'es' });
+    expect(status).toBe(422);
+    expect(json.errors).toEqual([
+      {
+        code: 'VALIDATION_ERROR',
+        field: 'status',
+        message:
+          "Parámetro de consulta inválido: status: Valor no admitido. Se esperaba 'pending_review' | 'approved' | 'rejected' y llegó 'bogus'",
+      },
+    ]);
     expect(listDrafts).not.toHaveBeenCalled();
   });
 

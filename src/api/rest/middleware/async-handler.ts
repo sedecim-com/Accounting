@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type { z } from 'zod';
-import { ValidationError } from '../../../utils/errors.js';
-import { parseForClient } from '../../../utils/zod-client-errors.js';
+import { RequestValidationError } from '../../../utils/errors.js';
+import { parseForClientKeyed } from '../../../utils/zod-client-errors.js';
+import { answerUnrequestedIn } from './locale.js';
 
 /**
  * The request a route handler receives. @types/express 5 widens `req.params`
@@ -76,19 +77,27 @@ export function esquemaDeCuerpo(h: unknown): z.ZodType | undefined {
  *
  * CONTRACT: an invalid body answers HTTP 422 with code `VALIDATION_ERROR`
  * in the standard error envelope of errorHandler (`errors[0]` with `code`
- * and `message` only, `meta` with request_id, timestamp and version), and
- * the message `Invalid request body: <path>: <message>` for each issue,
- * joined with '; ', where `<path>` is the dotted field path or `<root>`.
- * The issues are worded and ordered as zod 3.25.76 did, by
- * src/utils/zod-client-errors.ts (#367); tests/api/golden/rest-body.golden.json
- * and tests/api/rest/body-contract.spec.ts pin every byte of it.
+ * and `message` only, `meta` with request_id, timestamp, version and
+ * language). The message is written by catalog key (MNE-001-152, #151): in
+ * English it is `Invalid request body: <path>: <message>` for each issue,
+ * joined with '; ', where `<path>` is the dotted field path or `<root>`,
+ * worded and ordered as zod 3.25.76 did by src/utils/zod-client-errors.ts
+ * (#367). That English is `err.message` and the logs, byte for byte, and it
+ * is what the client reads unless the request named a supported language
+ * (no header, `*` and only unsupported languages all read English: the one
+ * exception to DEFAULT_LOCALE, `answerUnrequestedIn`). A request that names
+ * `es` reads the frame and every keyed issue in Spanish. Either way the
+ * response declares `Content-Language`, `Vary: Accept-Language` and
+ * `meta.language`, and code, field, paths and issue order do not change.
+ * tests/api/golden/rest-body.golden.json and
+ * tests/api/rest/body-contract.spec.ts pin it.
  */
 export function validateBody<S extends z.ZodType>(schema: S): RequestHandler {
-  const validador: ManejadorConEsquema = (req, _res, next) => {
-    const parsed = parseForClient<unknown>(schema, req.body);
+  const validador: ManejadorConEsquema = (req, res, next) => {
+    const parsed = parseForClientKeyed<unknown>(schema, req.body);
     if (!parsed.success) {
-      const details = parsed.issues.map((issue) => `${issue.path || '<root>'}: ${issue.message}`);
-      return next(new ValidationError(`Invalid request body: ${details.join('; ')}`));
+      answerUnrequestedIn(res, 'en');
+      return next(new RequestValidationError({ kind: 'body' }, parsed.issues));
     }
     req.body = parsed.data;
     next();
@@ -133,18 +142,21 @@ export function queryParameterOf(h: unknown): QueryParameter | undefined {
  * schema. On success the parsed value replaces the raw one.
  *
  * CONTRACT: an invalid parameter answers what `validateBody` answers for a bad
- * body (#315): HTTP 422 `VALIDATION_ERROR` in the error envelope, with the
- * message `Invalid query parameter: <name>: <message>` (issues joined with
- * '; ', worded by src/utils/zod-client-errors.ts) and `field` set to the
- * parameter's name. A bare `.parse()` inside the handler threw a ZodError,
- * which is not an AppError, and errorHandler answered 500 to a client typo.
+ * body (#315): HTTP 422 `VALIDATION_ERROR` in the error envelope, with
+ * `field` set to the parameter's name and the message, in English,
+ * `Invalid query parameter: <name>: <message>` (issues joined with '; ',
+ * worded by src/utils/zod-client-errors.ts). It is keyed and answers in the
+ * same language as `validateBody` (MNE-001-152): English unless the request
+ * names a supported language. A bare `.parse()` inside the handler threw a
+ * ZodError, which is not an AppError, and errorHandler answered 500 to a
+ * client typo.
  */
 export function validateQuery(name: string, schema: z.ZodType): RequestHandler {
-  const validator: HandlerWithQuery = (req, _res, next) => {
-    const parsed = parseForClient<unknown>(schema, req.query[name]);
+  const validator: HandlerWithQuery = (req, res, next) => {
+    const parsed = parseForClientKeyed<unknown>(schema, req.query[name]);
     if (!parsed.success) {
-      const details = parsed.issues.map((issue) => issue.message).join('; ');
-      return next(new ValidationError(`Invalid query parameter: ${name}: ${details}`, name));
+      answerUnrequestedIn(res, 'en');
+      return next(new RequestValidationError({ kind: 'query', name }, parsed.issues));
     }
     if (parsed.data !== undefined) {
       // NOTE: Express 5 makes `req.query` a getter that parses the URL again on

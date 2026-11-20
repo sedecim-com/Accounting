@@ -99,6 +99,59 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-152 · the 422 of validateBody and validateQuery, one key per Zod issue (issue #151) ----
+  // The English is the zod 3.25.76 wording the 422 has always had, byte for
+  // byte (tests/api/golden/rest-body.golden.json pins it): `(s)` stays, because
+  // it is the contract. Paths, enum values, bounds, formats, keys and the JSON
+  // type names are interpolated raw and are never translated.
+  /** `RequestValidationError` of `validateBody`: `issues` is the `<path>: <message>` list, joined with '; '. */
+  'error.VALIDATION_ERROR.body': 'Invalid request body: {issues}',
+  /** `RequestValidationError` of `validateQuery`: `name` is the parameter, `issues` its messages joined with '; '. */
+  'error.VALIDATION_ERROR.query': 'Invalid query parameter: {name}: {issues}',
+  /** `legacyIssueKey`, `invalid_type` or `invalid_value` with no input. */
+  'error.VALIDATION_ERROR.issue.required': 'Required',
+  /** `legacyIssueKey`, `invalid_type`: a number `.int()` refused, ±Infinity included. */
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Expected integer, received float',
+  /** `legacyIssueKey`, `invalid_type`: ±Infinity where zod 3 accepted a number (T1). */
+  'error.VALIDATION_ERROR.issue.not_finite': 'Number must be finite',
+  /** `legacyIssueKey`, `invalid_type`, and `invalid_value` given a non-string: `expected` and `received` are JSON type names or quoted enum values. */
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Expected {expected}, received {received}',
+  /** `legacyIssueKey`, `invalid_value` of a literal: `expected` is the literal as JSON. */
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Invalid literal value, expected {expected}',
+  /** `legacyIssueKey`, `invalid_value` of an enum given a string. */
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Invalid enum value. Expected {expected}, received '{received}'",
+  /** `legacyIssueKey`, `invalid_format`: `format` is `regex` or zod 3's name of the format. */
+  'error.VALIDATION_ERROR.issue.invalid_format': '{format, select, regex {Invalid} other {Invalid {format}}}',
+  /** `legacyIssueKey`, `invalid_format` of `starts_with`, `ends_with` or `includes`. */
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Invalid input: must {affix, select, starts_with {start with} ends_with {end with} other {include}} "{value}"',
+  /** `legacyIssueKey`, `too_small` of an array: `bound` is exact, inclusive or exclusive. */
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at least} other {more than}} {minimum} element(s)',
+  /** `legacyIssueKey`, `too_small` of a string. */
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at least} other {over}} {minimum} character(s)',
+  /** `legacyIssueKey`, `too_small` of a number, an integer or a bigint. */
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'Number must be {bound, select, exact {exactly equal to} inclusive {greater than or equal to} other {greater than}} {minimum}',
+  /** `legacyIssueKey`, `too_big` of an array. */
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at most} other {less than}} {maximum} element(s)',
+  /** `legacyIssueKey`, `too_big` of a string. */
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at most} other {under}} {maximum} character(s)',
+  /** `legacyIssueKey`, `too_big` of a number or an integer. */
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'Number must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `too_big` of a bigint. */
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'BigInt must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `not_multiple_of`. */
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'Number must be a multiple of {divisor}',
+  /** `legacyIssueKey`, `unrecognized_keys`: `keys` are quoted and joined with ', '. */
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
+  /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
   // ---- MNE-001-150 · a path no route serves (issue #151) ----
   /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
   'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
@@ -3443,6 +3496,65 @@ export const EN = {
     'The previous database is still intact: pointing the application at the new one is a separate act.',
   /** The reminder to verify the restored database. */
   'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
+
+  // MNE-001-224: audit, ai stats and jobs run-due.
+  /** `audit list --user` with an email that is not in the tenant. */
+  'platform.audit.user_not_found':
+    'User "{email}" in this tenant. The trail was not filtered: an email that does not exist would return zero rows and read as if that person did nothing.',
+  /** `audit list --limit` with a value that is not a positive whole number. */
+  'platform.audit.list.limit_invalid': '--limit must be a positive whole number; got "{value}".',
+  /** `audit list --action` with an action outside the CHECK of audit_log. */
+  'platform.audit.list.action_unknown':
+    'Unknown action "{action}". The vocabulary is fixed by the CHECK of audit_log (migration 001): {actions}.',
+  /** `audit list --actor agent`: the trail has no actor column yet. */
+  'platform.audit.list.actor_agent_unsupported':
+    'The trail does not tell the agent apart yet: `audit_log` has no actor column and each row is attributed to a human `user_id`. Filtering by "{actor}" would return zero rows, which would read as if the agent did nothing. The `actor` column (and `agent_session_id`) is missing, and the agent\'s bridge has to write it; until then, `--actor human` or no flag is all there is.',
+  /** `audit list --actor` with any other value. */
+  'platform.audit.list.actor_invalid': '--actor only accepts "human", "agent" or "agent:<session>"; got "{actor}".',
+  /** `audit list --object` with an unknown family. */
+  'platform.audit.list.object_unknown':
+    'Unknown object family "{object}". Known: {families}. For an exact value of the column use --entity-type.',
+  /** `audit list --object` and `--entity-type` that do not intersect. */
+  'platform.audit.list.object_type_disjoint':
+    '--object "{object}" and --entity-type "{type}" do not intersect: the family does not contain that type. Give one of the two.',
+  /** The actor of a row whose user no longer exists. Stored English in the row; the table renders it. */
+  'platform.audit.list.user_removed': '(user removed)',
+  /** `audit list` with no rows. */
+  'platform.audit.list.no_rows':
+    'No rows. The trail belongs to the TENANT: `audit_log` has no legal-entity column, so --entity only chose which tenant to look at.',
+  /** A label of `audit show`. */
+  'platform.audit.show.when': 'when',
+  /** A label of `audit show`. */
+  'platform.audit.show.who': 'who',
+  /** A label of `audit show`. */
+  'platform.audit.show.why': 'why',
+  /** `audit show` of a row whose user no longer exists. */
+  'platform.audit.show.user_unknown': "(unknown user: the log is append-only and outlives the user's record)",
+  /** `audit show` of a row with no reason. */
+  'platform.audit.show.no_reason': '(no reason recorded)',
+  /** `audit show` of a row with no values. */
+  'platform.audit.show.no_values': 'no values: the row records the act, not the before and the after',
+  /** The first line of `ai stats`. */
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# draft} other {# drafts}}, {decided, plural, one {# decided} other {# decided}}',
+  /** How much still goes through a person. */
+  'platform.ai.stats.human_intervention':
+    'human intervention {rate} ({human} approved + {rejected} rejected of {decided} decided; {policy} by policy, {auto} auto-posted)',
+  /** The ingest runs and their cost, when the model has a price. */
+  'platform.ai.stats.ingest':
+    'ingest: {runs, plural, one {# run} other {# runs}}, {drafts, plural, one {# draft} other {# drafts}}{priced, select, yes {, ~${perDraft} USD per draft (total ${total})} other {, cost not estimable (model without a price)}}',
+  /** The model's latency. */
+  'platform.ai.stats.latency':
+    'model latency: {average} ms average, {p95} ms p95 ({calls, plural, one {# call measured} other {# calls measured}})',
+  /** The agent's events. */
+  'platform.ai.stats.events':
+    'events: {suspicions, plural, one {# injection suspicion} other {# injection suspicions}}, {nudges, plural, one {# grounding nudge} other {# grounding nudges}}, {failovers, plural, one {# failover} other {# failovers}}',
+  /** The shadow history, and the floors `on` requires (src/ai/floor.ts). */
+  'platform.ai.stats.shadow':
+    'shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided, plural, one {# decided} other {# decided}} by a person, agreement {agreement} (turning "on" requires ≥{minDays} days, ≥{minDecided} decided and ≥{minAgreement})',
+  /** Why `jobs run-due` does not honour an idempotency key. */
+  'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
 
   // ==== end of I8.6 ====
 
