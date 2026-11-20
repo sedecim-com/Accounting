@@ -2404,6 +2404,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 es «N/A» en el catálogo c_Banco del SAT y no nombra ningún banco. Si el banco es extranjero, da su nombre con --to-foreign-bank (la póliza le pone el 999); si es nacional, su propia clave. La póliza llevará un aviso.',
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',

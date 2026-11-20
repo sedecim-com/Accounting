@@ -191,10 +191,12 @@ describe('la clave de banco contra el c_Banco', () => {
   });
 
   it('con catálogo sembrado, una clave que no está BLOQUEA', () => {
-    const hs = bancoEnCatalogo([conPago('999')], CON_CATALOGO);
+    // 072 is on the XSD's list and not on this seeded one. (999 used to be
+    // the example; since MNE-001-401 a bare 999 also warns on its own.)
+    const hs = bancoEnCatalogo([conPago('072')], CON_CATALOGO);
     expect(hs).toHaveLength(1);
     expect(hs[0].severity).toBe('blocking');
-    expect(hs[0].detalle).toContain('999');
+    expect(hs[0].detalle).toContain('072');
   });
 
   it('SIN CATÁLOGO NO APRUEBA EN SILENCIO: avisa de que no miró nada', () => {
@@ -236,6 +238,66 @@ describe('la clave de banco contra el c_Banco', () => {
 
   it('con catálogo sembrado y clave válida, no dice nada', () => {
     expect(bancoEnCatalogo([conPago('012')], CON_CATALOGO)).toEqual([]);
+  });
+
+  // MNE-001-401 (#532): 999 is «N/A» in c_Banco. With the foreign bank's name
+  // it declares a foreign bank; alone it names no bank, so it warns.
+  const PUBLISHED: CatalogoDeBancos = { sembrado: true, claves: new Set(['002', '012', '999']) };
+  const foreignTransfer = (ext: string | undefined): Poliza =>
+    p({
+      numUnIdenPol: 'JE-9',
+      transacciones: [
+        t({
+          pagos: [
+            {
+              clase: 'transferencia',
+              bancoOriNal: '012',
+              ctaDest: 'GB29NWBK60161331926819',
+              bancoDestNal: '999',
+              ...(ext !== undefined ? { bancoDestExt: ext } : {}),
+              fecha: '2026-02-10',
+              benef: 'X',
+              rfc: 'AAA010101AAA',
+              monto: '100.00',
+            },
+          ],
+        }),
+      ],
+    });
+
+  it('a bare 999 warns once, naming the voucher and the missing name', () => {
+    const hs = bancoEnCatalogo([foreignTransfer(undefined)], PUBLISHED);
+    expect(hs).toHaveLength(1);
+    expect(hs[0]).toMatchObject({ check: 'banco-en-catalogo', severity: 'warning', referencia: 'JE-9' });
+    expect(hs[0].detalle).toContain('BancoDestNal="999" sin BancoDestExt');
+    expect(hs[0].detalle).toContain('«N/A»');
+  });
+
+  it('999 with the foreign bank name says nothing', () => {
+    expect(bancoEnCatalogo([foreignTransfer('Bank of Nowhere')], PUBLISHED)).toEqual([]);
+    // A blank name is no name.
+    expect(bancoEnCatalogo([foreignTransfer('  ')], PUBLISHED)).toHaveLength(1);
+  });
+
+  it('a cheque from 999 with no name warns for BanEmisExt', () => {
+    const checkVoucher = p({
+      numUnIdenPol: 'JE-10',
+      transacciones: [t({ pagos: [{
+        clase: 'cheque', num: '30101', banEmisNal: '999', ctaOri: '012180001234567895',
+        fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '100.00',
+      }] })],
+    });
+    const hs = bancoEnCatalogo([checkVoucher], PUBLISHED);
+    expect(hs).toHaveLength(1);
+    expect(hs[0]).toMatchObject({ severity: 'warning', referencia: 'JE-10' });
+    expect(hs[0].detalle).toContain('BanEmisNal="999" sin BanEmisExt');
+  });
+
+  it('with no seeded catalogue a bare 999 still gets its own warning, besides «no se miraron»', () => {
+    const hs = bancoEnCatalogo([foreignTransfer(undefined)], SIN_CATALOGO);
+    expect(hs).toHaveLength(2);
+    expect(hs.every((h) => h.severity === 'warning')).toBe(true);
+    expect(hs.filter((h) => h.referencia === 'JE-9')).toHaveLength(1);
   });
 });
 

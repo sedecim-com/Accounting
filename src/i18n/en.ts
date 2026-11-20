@@ -2543,6 +2543,9 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 is "N/A" in the SAT c_Banco catalogue and names no bank. For a foreign bank, give its name with --to-foreign-bank instead (the voucher adds 999); for a national one, its own code. The voucher will carry a warning.',
   // MNE-001-570 (#612): the trace of a registered receipt.
   'receipt.trace.nothing_given':
     'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
