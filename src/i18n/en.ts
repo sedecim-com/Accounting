@@ -631,7 +631,7 @@ export const EN = {
   'policy.separation_isr_usmo_comparison.rationale':
     'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
   'policy.separation_isr_usmo_comparison.why':
-    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Your firm decides.',
+    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
   'policy.separation_isr_usmo_comparison.what':
     'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
   'policy.separation_isr_usmo_comparison.if_skipped':

@@ -586,7 +586,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.separation_isr_usmo_comparison.rationale':
     'El art. 96 LISR aplica la tasa a «el ingreso total por este concepto» y pasa a la tarifa «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: la palabra es los pagos, así que el total pagado es la lectura literal, y, bruto de tarifa, nunca retiene de menos, porque la tasa media de la tarifa sube con el ingreso. Comparar sólo la parte gravada sigue al art. 172 RLISR, que descuenta del total del art. 95 la exención del art. 93 fr. XIII LISR, como arma el CFDI de nómina su IngresoAcumulable; es la otra práctica común. Es el valor conservador, por ADR-0006; lo retenido de más se acredita en el cálculo anual.',
   'policy.separation_isr_usmo_comparison.why':
-    'La ley compara «los pagos» con el último sueldo mensual sin decir si cuenta su parte exenta. Lo decide tu despacho.',
+    'La ley compara «los pagos» con el último sueldo mensual sin decir si cuenta su parte exenta. Comparar el total retiene más veces a la tasa del USMO; comparar sólo la parte gravada aplica más veces la tarifa mensual. Lo decide tu despacho.',
   'policy.separation_isr_usmo_comparison.what':
     'Comparo el total pagado por la separación con el USMO: debajo de él, la tarifa mensual sobre la parte gravada; si no, la tasa del USMO sobre la parte gravada.',
   'policy.separation_isr_usmo_comparison.if_skipped':
