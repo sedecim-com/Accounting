@@ -44,6 +44,9 @@ mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-command.ts	c
 mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread
 mirror	memory	E0.0 cli-family-root-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the root family again
 mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	key-unread: the language refusal goes back to a template in the leaf and stops following the user language
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-reconcile-command.ts	string-back-in-the-code: the tie note is written in Spanish in the leaf again, and its key is left unread
+mirror	memory	E0.0 cli-family-report-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the family again
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-command.ts	console-prose: the leaf prints a sentence from the code, outside the catalogue
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -770,6 +773,9 @@ anchor	src/plan/criteria/e0-0.ts	de: "throw usageError({ key: 'report.cashflow.g
 anchor	src/plan/criteria/e0-0.ts	de: "t('root.ingest.auto_post_ignored')",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+anchor	src/plan/criteria/e0-0.ts	de: "t('report.cashflow_reconcile.ties')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',
