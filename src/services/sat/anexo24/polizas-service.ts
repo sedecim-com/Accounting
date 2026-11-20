@@ -486,7 +486,6 @@ export function rastroDePago(
   p: FilaDePago,
   sentido: 'sale' | 'entra',
   banco: FilaDeCuentaBancaria | undefined,
-  nuestro: { nombre: string; rfc: string },
   sanear: Saneador,
   numUnIdenPol: string
 ): RastroResuelto {
@@ -496,11 +495,15 @@ export function rastroDePago(
   // añade un dato que no significa nada.
   const tipCamb = moneda === 'MXN' ? undefined : new Decimal(p.exchange_rate).toString();
 
-  // El beneficiario es QUIEN RECIBE EL DINERO, no «la contraparte». En un pago
-  // a proveedor es el proveedor; en un cobro somos nosotros. Escribir siempre
-  // el tercero pondría al cliente como beneficiario de un dinero que entró en
-  // nuestra cuenta.
-  const crudoBenef = sentido === 'sale' ? p.contraparte : nuestro.nombre;
+  // EL BENEFICIARIO Y SU RFC SON LA CONTRAPARTE, en los dos sentidos (#856).
+  // PolizasPeriodo 1.3 define el RFC de los tres nodos de pago como «el
+  // distinto del contribuyente que envía los datos, es decir, el RFC del
+  // tercero vinculado»: el proveedor en un pago, el cliente en un cobro. El
+  // nombre va con él para que el par nombre a una sola parte en el cruce de la
+  // autoridad; así lo decidió el dueño el 20 de noviembre, sin clave de panel.
+  // Nuestro propio RFC en un cobro validaba contra el patrón y contradecía la
+  // documentación del esquema.
+  const crudoBenef = p.contraparte;
   // A blank name does not go through the sanitizer: `limpiar('')` returns
   // '-', and a «-» declared as the beneficiary is a value nobody captured.
   // It stays blank, and `payeeGap` below turns it into the entry's motive.
@@ -514,10 +517,7 @@ export function rastroDePago(
   // por otro espacio, se quita. Es la misma normalización que `normalizarRfc`
   // en la DIOT, y por el mismo motivo — un RFC con un espacio guardado no es
   // otro RFC.
-  const rfcBenef =
-    sentido === 'sale'
-      ? (p.contraparte_rfc ?? '').toUpperCase().replace(/\s+/g, '')
-      : nuestro.rfc.toUpperCase().replace(/\s+/g, '');
+  const rfcBenef = (p.contraparte_rfc ?? '').toUpperCase().replace(/\s+/g, '');
 
   // BENEF AND RFC ARE REQUIRED ON ALL THREE NODES (#530). PolizasPeriodo 1.3
   // declares both use="required" on Cheque, Transferencia and OtrMetodoPago
@@ -528,14 +528,14 @@ export function rastroDePago(
   // named.
   //
   // The datum lives on the payee's record, not on the payment, so the motive
-  // names that record: the vendor in a payment, our entity in a collection.
+  // names that record: the vendor in a payment, the customer in a collection.
   // Its id goes along because a blank name is one of the causes.
   const shownName = blankBenef ? '' : ` «${limpiar(crudoBenef).texto}»`;
   const payee =
     sentido === 'sale'
-      ? { who: 'el proveedor', record: 'del proveedor', id: ` (id ${p.contraparte_id})` }
-      : { who: 'la entidad', record: 'de la entidad', id: '' };
-  const named = `${shownName}${payee.id}`;
+      ? { who: 'el proveedor', record: 'del proveedor' }
+      : { who: 'el cliente', record: 'del cliente' };
+  const named = `${shownName} (id ${p.contraparte_id})`;
   const payeeGap = (node: string, which: string): RastroResuelto | undefined => {
     let said: string | undefined;
     if (blankBenef) {
@@ -995,8 +995,6 @@ export function rfcDeclarable(crudo: string | null): string | null {
 }
 
 function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO): Soporte {
-  const nuestro = { nombre: L.e.name, rfc: L.e.rfc };
-
   if (f.source_type !== null && DOCUMENT_SOURCES.includes(f.source_type)) {
     if (f.source_id === null) return { comprobantes: [] };
     const source = f.source_type as DocumentSource;
@@ -1051,7 +1049,6 @@ function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO
       p,
       f.source_type === 'vendor_payment' ? 'sale' : 'entra',
       banco,
-      nuestro,
       sanear,
       f.entry_number
     );
@@ -1101,9 +1098,10 @@ export async function traceOfOnePayment(
   side: 'vendor' | 'customer',
   paymentId: string
 ): Promise<{ voucher: string; paymentNumber: string; traced: boolean; motive: string; causes: RemedyCause } | null> {
-  let taxpayer: Contribuyente;
+  // Only the gate: an entity that files no Anexo 24 (no RFC) has no voucher
+  // to warn about. The payee is the counterparty, never the entity (#856).
   try {
-    taxpayer = await contribuyente(entityId);
+    await contribuyente(entityId);
   } catch (err) {
     if (err instanceof ValidationError) return null;
     throw err;
@@ -1120,10 +1118,7 @@ export async function traceOfOnePayment(
   const voucher = entry.rows[0]?.entry_number ?? payment.payment_number;
   const bankAccount =
     payment.bank_account_id !== null ? (await cuentasBancarias(entityId)).get(payment.bank_account_id) : undefined;
-  const result = rastroDePago(
-    payment, side === 'vendor' ? 'sale' : 'entra', bankAccount,
-    { nombre: taxpayer.name, rfc: taxpayer.rfc }, SANEADOR_MUDO, voucher
-  );
+  const result = rastroDePago(payment, side === 'vendor' ? 'sale' : 'entra', bankAccount, SANEADOR_MUDO, voucher);
   return {
     voucher,
     paymentNumber: payment.payment_number,

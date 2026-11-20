@@ -14,6 +14,7 @@ type BankAccount = NonNullable<Parameters<typeof rastroDePago>[2]>;
 
 const CLABE = '012180001234567895';
 const ENTRY = 'JE-2026-0042';
+/** Our entity: since #856 it names no payment node, so it is only looked for to be absent. */
 const OURS = { nombre: 'Entidad de Prueba SA', rfc: 'EPR010101AB1' };
 const passThrough = (raw: string): string => raw;
 
@@ -58,7 +59,7 @@ function finding(
   direction: 'sale' | 'entra',
   bank: BankAccount | undefined
 ): { node: boolean; text: string } {
-  const r = rastroDePago(p, direction, bank, OURS, passThrough, ENTRY);
+  const r = rastroDePago(p, direction, bank, passThrough, ENTRY);
   if (r.pago !== undefined) return { node: true, text: '' };
   const [h] = polizaConDineroSinRastro([
     {
@@ -81,11 +82,13 @@ const ACCOUNT_REMEDY = 'bank account edit';
 describe('a payment node without its c_Banco code: the remedy follows the cause', () => {
   it('complete, the node goes out with the three codes', () => {
     const check = rastroDePago(
-      payment({ payment_method: 'check', check_number: '30001' }), 'sale', account(), OURS, passThrough, ENTRY
+      payment({ payment_method: 'check', check_number: '30001' }), 'sale', account(), passThrough, ENTRY
     );
     expect(check.pago).toMatchObject({ clase: 'cheque', banEmisNal: '012' });
-    const transfer = rastroDePago(payment(), 'sale', account(), OURS, passThrough, ENTRY);
+    const transfer = rastroDePago(payment(), 'sale', account(), passThrough, ENTRY);
     expect(transfer.pago).toMatchObject({ clase: 'transferencia', bancoOriNal: '012', bancoDestNal: '002' });
+    // #856: a vendor payment keeps naming the vendor, the party paid.
+    expect(transfer.pago).toMatchObject({ benef: 'Fletes del Norte SA', rfc: 'FNO010101AB1' });
   });
 
   it.each([
@@ -135,7 +138,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
   it('a foreign destination bank goes out as 999 with its name in BancoDestExt', () => {
     const r = rastroDePago(
       payment({ cuenta_destino: 'GB29NWBK60161331926819', banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }),
-      'sale', account(), OURS, passThrough, ENTRY
+      'sale', account(), passThrough, ENTRY
     );
     expect(r.motivo).toBeUndefined();
     expect(r.pago).toEqual({
@@ -160,7 +163,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
       return raw.replace(/\s+/g, ' ').trim();
     };
     const r = rastroDePago(
-      payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of\nNowhere\t ' }), 'sale', account(), OURS, recording, ENTRY
+      payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of\nNowhere\t ' }), 'sale', account(), recording, ENTRY
     );
     expect(r.pago).toMatchObject({ bancoDestNal: '999', bancoDestExt: 'Bank of Nowhere' });
     // The stored value is trimmed first, as every captured trace field is.
@@ -169,7 +172,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
 
   it('a name of 150 characters, the column and the attribute limit, goes out whole', () => {
     const name = 'B'.repeat(150);
-    const r = rastroDePago(payment({ banco_destino_sat: null, banco_destino_extranjero: name }), 'sale', account(), OURS, passThrough, ENTRY);
+    const r = rastroDePago(payment({ banco_destino_sat: null, banco_destino_extranjero: name }), 'sale', account(), passThrough, ENTRY);
     expect(r.pago).toMatchObject({ bancoDestExt: name });
   });
 
@@ -247,7 +250,7 @@ const RECEIPT_GAPS: ReadonlyArray<readonly [string, Payment, BankAccount | undef
 
 describe('a receipt declares the payer as the origin and our bank account as the destination (#611)', () => {
   it('T1: a complete transfer goes out with the payer bank and account, and ours as the destination', () => {
-    const r = rastroDePago(receipt({ payment_amount: '116.0000' }), 'entra', account(), OURS, passThrough, ENTRY);
+    const r = rastroDePago(receipt({ payment_amount: '116.0000' }), 'entra', account(), passThrough, ENTRY);
     expect(r.pago).toEqual({
       clase: 'transferencia',
       ctaOri: PAYER_ACCOUNT,
@@ -255,32 +258,33 @@ describe('a receipt declares the payer as the origin and our bank account as the
       ctaDest: CLABE,
       bancoDestNal: '012',
       fecha: '2026-10-15',
-      benef: OURS.nombre,
-      rfc: OURS.rfc,
+      benef: 'Cliente Puntual SA',
+      rfc: 'CPU010101AB1',
       monto: '116.00',
       moneda: 'MXN',
     });
   });
 
   it('T2: without the payer account the node still goes out, with no CtaOri (optional in the XSD)', () => {
-    const r = rastroDePago(receipt({ cuenta_origen: null }), 'entra', account(), OURS, passThrough, ENTRY);
+    const r = rastroDePago(receipt({ cuenta_origen: null }), 'entra', account(), passThrough, ENTRY);
     expect(r.pago).toMatchObject({ clase: 'transferencia', bancoOriNal: '002', ctaDest: CLABE, bancoDestNal: '012' });
     expect(r.pago).not.toHaveProperty('ctaOri');
   });
 
   it('C1: a customer cheque declares the customer bank and account, never ours, and needs no bank account of ours', () => {
-    const r = rastroDePago(customerCheckPayment(), 'entra', undefined, OURS, passThrough, ENTRY);
+    const r = rastroDePago(customerCheckPayment(), 'entra', undefined, passThrough, ENTRY);
     expect(r.pago).toMatchObject({
-      clase: 'cheque', num: '4501', banEmisNal: '072', ctaOri: '1234567890', benef: OURS.nombre, monto: '232.00',
+      clase: 'cheque', num: '4501', banEmisNal: '072', ctaOri: '1234567890',
+      benef: 'Cliente Puntual SA', rfc: 'CPU010101AB1', monto: '232.00',
     });
-    const deposited = rastroDePago(customerCheckPayment(), 'entra', account(), OURS, passThrough, ENTRY);
+    const deposited = rastroDePago(customerCheckPayment(), 'entra', account(), passThrough, ENTRY);
     expect(deposited.pago).toMatchObject({ banEmisNal: '072', ctaOri: '1234567890' });
     expect(JSON.stringify(deposited.pago)).not.toContain(CLABE);
   });
 
   it('F1: a receipt in dollars carries its currency and rate', () => {
     const r = rastroDePago(
-      receipt({ payment_amount: '100.0000', currency_code: 'USD', exchange_rate: '18.50' }), 'entra', account(), OURS, passThrough, ENTRY
+      receipt({ payment_amount: '100.0000', currency_code: 'USD', exchange_rate: '18.50' }), 'entra', account(), passThrough, ENTRY
     );
     expect(r.pago).toMatchObject({ clase: 'transferencia', monto: '100.00', moneda: 'USD', tipCamb: '18.5' });
   });
@@ -299,7 +303,7 @@ describe('a receipt declares the payer as the origin and our bank account as the
   // MNE-001-401 (#532): the customer's foreign bank, stored by #611, is declared as 999 with its name.
   it('G2: a transfer from a foreign payer bank goes out as 999 with its name in BancoOriExt', () => {
     const r = rastroDePago(
-      receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), 'entra', account(), OURS, passThrough, ENTRY
+      receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), 'entra', account(), passThrough, ENTRY
     );
     expect(r.motivo).toBeUndefined();
     expect(r.pago).toMatchObject({
@@ -309,7 +313,7 @@ describe('a receipt declares the payer as the origin and our bank account as the
 
   it('a customer cheque from a foreign bank goes out as 999 with its name in BanEmisExt', () => {
     const r = rastroDePago(
-      customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Banco de Ultramar SA' }), 'entra', undefined, OURS, passThrough, ENTRY
+      customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Banco de Ultramar SA' }), 'entra', undefined, passThrough, ENTRY
     );
     expect(r.pago).toMatchObject({
       clase: 'cheque', num: '4501', banEmisNal: '999', banEmisExt: 'Banco de Ultramar SA', ctaOri: '1234567890', monto: '232.00',
@@ -320,6 +324,56 @@ describe('a receipt declares the payer as the origin and our bank account as the
     const f = finding(customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Banco de Ultramar SA', cuenta_origen: null }), 'entra', undefined);
     expect(f.node).toBe(false);
     expect(f.text).toContain('Cheque exige CtaOri');
+  });
+});
+
+// ============================================================
+// #856 · A collection's payment node names the customer: its RFC is the
+// «tercero vinculado» PolizasPeriodo 1.3 asks for, and its name goes with it
+// so the pair names one party (the owner's decision of 20 Nov). Our entity
+// appears in neither. Hand figures from the plan: U3-U5.
+// ============================================================
+
+describe('a collection names the customer as Benef and RFC (#856)', () => {
+  it.each([
+    ['cash', '01'],
+    ['other', '99'],
+  ] as const)('U3: a %s receipt goes out in OtrMetodoPago with the customer, never our entity', (method, code) => {
+    const r = rastroDePago(receipt({ payment_method: method }), 'entra', account(), passThrough, ENTRY);
+    expect(r.pago).toEqual({
+      clase: 'otro', metPagoPol: code, fecha: '2026-10-15',
+      benef: 'Cliente Puntual SA', rfc: 'CPU010101AB1', monto: '116.00', moneda: 'MXN',
+    });
+    expect(JSON.stringify(r.pago)).not.toContain(OURS.rfc);
+    expect(JSON.stringify(r.pago)).not.toContain(OURS.nombre);
+  });
+
+  it('U4: the customer RFC is compacted and upper-cased, as the vendor one is', () => {
+    const r = rastroDePago(receipt({ contraparte_rfc: ' cpu 010101 ab1 ' }), 'entra', account(), passThrough, ENTRY);
+    expect(r.pago).toMatchObject({ clase: 'transferencia', rfc: 'CPU010101AB1' });
+  });
+
+  it.each([
+    ['a SPEI from a customer with no RFC', receipt({ contraparte_rfc: null }),
+      'el beneficiario de la transferencia PMT-2026-00011, el cliente «Cliente Puntual SA» (id c-1), no tiene RFC capturado, y el nodo Transferencia lo exige',
+      'el registro del cliente «Cliente Puntual SA» (id c-1)'],
+    ['a cash receipt from a customer with a malformed RFC', receipt({ payment_method: 'cash', contraparte_rfc: 'CPU12345' }),
+      'el beneficiario del pago PMT-2026-00011, el cliente «Cliente Puntual SA» (id c-1), tiene «CPU12345» como RFC, ' +
+        'que no tiene forma de RFC (12 caracteres persona moral o 13 física), y el nodo OtrMetodoPago lo exige',
+      'el registro del cliente «Cliente Puntual SA» (id c-1)'],
+    ['a cheque from a customer with a blank name', customerCheckPayment({ contraparte: '  ' }),
+      'el beneficiario del cheque 4501, el cliente (id c-1), no tiene nombre (el nombre del cliente está vacío), y el nodo Cheque lo exige',
+      'el registro del cliente (id c-1)'],
+  ] as const)('U5: %s leaves no node and names the customer record', (_case, p, motive, record) => {
+    const r = rastroDePago(p, 'entra', account(), passThrough, ENTRY);
+    expect(r.pago).toBeUndefined();
+    expect(r.motivo).toBe(motive);
+    expect(r.missingOnRecord).toBe(record);
+    const f = finding(p, 'entra', account());
+    expect(f.text).toContain(`El dato falta en ${record}, no en el pago`);
+    expect(f.text).not.toContain('de la entidad');
+    expect(f.text).not.toContain('receipt record');
+    expect(f.text).not.toContain('payment create');
   });
 });
 
@@ -353,7 +407,7 @@ const CAUSES: readonly Cause[] = [
   { name: 'a transfer from an account with no c_Banco code', direction: 'sale', payment: payment(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
   { name: 'a transfer with no bank account', direction: 'sale', payment: payment({ bank_account_id: null }), bank: undefined, remedy: '`payment trace record VPMT-2026-00007 --bank <cuenta> --reason <motivo>`', site: 'our-bank-none' },
   { name: 'a transfer with no destination bank', direction: 'sale', payment: payment({ banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-bank <clave> --reason <motivo>`', site: 'sale-to-bank' },
-  { name: 'a receipt into an entity with no RFC', direction: 'entra', payment: receipt(), bank: account(), remedy: 'falta en el registro de la entidad', site: 'payee' },
+  { name: 'a receipt from a customer with no RFC', direction: 'entra', payment: receipt({ contraparte_rfc: null }), bank: account(), remedy: 'falta en el registro del cliente «Cliente Puntual SA» (id c-1)', site: 'payee' },
   { name: 'a customer cheque with no number', direction: 'entra', payment: customerCheckPayment({ check_number: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --check-number <número> --reason <motivo>`', site: 'entra-check-number' },
   { name: 'a customer cheque with no payer bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --payer-bank <clave> --reason <motivo>`', site: 'payer-bank' },
   { name: 'a customer cheque with no drawn-on account', direction: 'entra', payment: customerCheckPayment({ cuenta_origen: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --payer-account <cuenta> --reason <motivo>`', site: 'entra-check-account' },
@@ -364,9 +418,8 @@ const CAUSES: readonly Cause[] = [
 ];
 
 describe('every cause of a registered payment has a remedy that is true (MNE-001-568)', () => {
-  const OURS_WITHOUT_RFC = { nombre: OURS.nombre, rfc: '' };
   const textOf = (c: Cause): string => {
-    const r = rastroDePago(c.payment, c.direction, c.bank, c.name.includes('entity with no RFC') ? OURS_WITHOUT_RFC : OURS, passThrough, ENTRY);
+    const r = rastroDePago(c.payment, c.direction, c.bank, passThrough, ENTRY);
     expect(r.pago, c.name).toBeUndefined();
     const [h] = polizaConDineroSinRastro([{ numUnIdenPol: ENTRY, motivo: r.motivo ?? '', ...r }]);
     return h!.detalle;
@@ -387,7 +440,7 @@ describe('every cause of a registered payment has a remedy that is true (MNE-001
   // MNE-001-401 (#532): a foreign bank is declared as 999 with its name, so the
   // two foreign-bank causes 570 left with no command are gone, and no cause is.
   it('no cause is left with no command that completes it (a foreign bank is declared, MNE-001-401)', () => {
-    const none = CAUSES.filter((c) => rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY).noCommandFixes !== undefined);
+    const none = CAUSES.filter((c) => rastroDePago(c.payment, c.direction, c.bank, passThrough, ENTRY).noCommandFixes !== undefined);
     expect(none.map((c) => c.site)).toEqual([]);
   });
 
@@ -395,7 +448,7 @@ describe('every cause of a registered payment has a remedy that is true (MNE-001
     const completed = CAUSES.filter((c) => c.remedy.startsWith('`receipt trace record'));
     expect(completed.map((c) => c.site)).toEqual(['entra-check-number', 'payer-bank', 'entra-check-account', 'our-bank-none', 'payer-bank']);
     for (const c of completed) {
-      const r = rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY);
+      const r = rastroDePago(c.payment, c.direction, c.bank, passThrough, ENTRY);
       expect(r.completedBy).toMatch(/^receipt trace record PMT-2026-00011 --/);
       expect(r.noCommandFixes).toBeUndefined();
       expect(textOf(c)).toContain('Complétalo en el pago ya registrado');
@@ -406,7 +459,7 @@ describe('every cause of a registered payment has a remedy that is true (MNE-001
     const completed = CAUSES.filter((c) => c.remedy.startsWith('`payment trace record'));
     expect(completed.map((c) => c.site)).toEqual(['sale-check-number', 'our-bank-none', 'sale-to-account', 'our-bank-none', 'sale-to-bank']);
     for (const c of completed) {
-      const r = rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY);
+      const r = rastroDePago(c.payment, c.direction, c.bank, passThrough, ENTRY);
       expect(r.completedBy).toMatch(/^payment trace record VPMT-2026-00007 --/);
       expect(r.noCommandFixes).toBeUndefined();
       expect(textOf(c)).toContain('Complétalo en el pago ya registrado');
