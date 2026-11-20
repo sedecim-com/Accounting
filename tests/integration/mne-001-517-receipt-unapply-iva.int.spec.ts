@@ -16,8 +16,9 @@ import {
  * An allocation that stored no IVA gets a pro-rata estimate only when its
  * invoice is PPD and the entity keeps cash-basis IVA books. A PUE invoice
  * (see receipt-withholding.int.spec.ts) and an entity off Mexican books
- * re-park nothing; a stored amount is re-parked as stored, 0 included
- * (MNE-001-459 stores it on every new row). Every invoice
+ * re-park nothing; a stored amount is not re-parked at all since MNE-001-574,
+ * which keeps it caused as stored, 0 included (MNE-001-459 stores it on every
+ * new row). Every invoice
  * here is 1,000.00 + 160.00 of tax, so half of it carries 80.00.
  */
 
@@ -157,27 +158,34 @@ describe('receipt unapply re-parks only the IVA that was parked', () => {
     expect(await storedIva(paymentId)).toEqual([]);
   }, 120_000);
 
-  it('T4 · a row that stored its IVA re-parks exactly that, with no note', async () => {
+  // MNE-001-574 (#792): a stored release stays caused, the cash back on account carrying it (LIVA art. 1-B).
+  it('T4 · a row that stored its IVA keeps exactly that caused: 2125 takes it back, 2120 does not move', async () => {
     const invoiceId = await invoice(mx, mxCustomer, 'MXN', 'PPD');
     const paymentId = await collected(mx, mxCustomer, invoiceId, ['580.00']);
     expect(await storedIva(paymentId)).toEqual(['80.0000']);
 
     const r = await unapply(mx, paymentId, invoiceId);
-    expect(r.ivaReAparcado).toBe('80.0000');
-    expect(r.ivaEstimado).toBe(false);
-    await expectRepark(r.journalEntry.id, 80, false);
+    expect([r.ivaReAparcado, r.ivaKeptCaused, r.ivaEstimado]).toEqual(['0.0000', '80.0000', false]);
+    const lines = await linesOf(r.journalEntry.id);
+    expect(lines[mx.cuentas['2120']]).toBeUndefined();
+    expect([lines[mx.cuentas['2125']].debit, lines[mx.cuentas['2125']].credit]).toEqual([0, 80]);
+    expect(lines[mx.cuentas['2125']].text).not.toMatch(NOTE);
   }, 120_000);
 
-  it('T5 · stored and forgotten rows on one PPD invoice: 40 stored + 40 estimated in one noted pair', async () => {
+  it('T5 · stored and forgotten rows on one PPD invoice: 40 kept caused, and the 40 estimated re-parked with the note', async () => {
     const invoiceId = await invoice(mx, mxCustomer, 'MXN', 'PPD');
     const paymentId = await collected(mx, mxCustomer, invoiceId, ['290.00', '290.00']);
     await forgetIva(paymentId);
     expect(await storedIva(paymentId)).toEqual(['40.0000', null]);
 
     const r = await unapply(mx, paymentId, invoiceId);
-    expect(r.ivaReAparcado).toBe('80.0000');
-    expect(r.ivaEstimado).toBe(true);
-    await expectRepark(r.journalEntry.id, 80, true);
+    expect([r.ivaReAparcado, r.ivaKeptCaused, r.ivaEstimado]).toEqual(['40.0000', '40.0000', true]);
+    const lines = await linesOf(r.journalEntry.id);
+    const caused = lines[mx.cuentas['2120']];
+    const parked = lines[mx.cuentas['2125']];
+    expect([caused.debit, caused.credit]).toEqual([40, 0]);
+    expect([parked.debit, parked.credit]).toEqual([0, 80]);
+    for (const line of [caused, parked]) expect(line.text).toMatch(NOTE);
   }, 120_000);
 
   // MNE-001-459 ended the limit T6 used to pin: this invoice parked nothing at

@@ -79,6 +79,13 @@ export const CONSERVATIVE_METODO: Readonly<Record<DocumentSide, MetodoPago>> = O
   received: 'PPD',
 });
 
+/**
+ * MNE-001-562 · The entry that puts back in 1135 the VAT a bill's payments
+ * released above its CFDI's VAT (accounting/vat-overcredit.ts). Its
+ * `source_id` is the bill.
+ */
+export const VAT_OVERCREDIT_CORRECTION_SOURCE = 'vat_overcredit_correction';
+
 const ISSUED_IVA_ROLES: readonly AccountRole[] = ['iva_trasladado', 'iva_trasladado_no_cobrado'];
 const RECEIVED_IVA_ROLES: readonly AccountRole[] = ['iva_acreditable', 'iva_pendiente_acreditar'];
 
@@ -583,6 +590,11 @@ async function billsAppliedBy(
  * `beforeCreditNotes` leaves a received credit note's entry out: what the bill
  * parked, whatever a note took back since. It answers whether the bill ever
  * parked VAT, which is not a cap (MNE-001-492).
+ *
+ * MNE-001-562: the correction of the VAT a payment released above the CFDI's
+ * puts that VAT back in 1135 for the bill, so it counts here, and only while it
+ * stands: a reversal's mirror carries no source, so a reversed correction is
+ * left out instead of netted.
  */
 export async function ivaStillParked(
   client: pg.PoolClient,
@@ -594,7 +606,8 @@ export async function ivaStillParked(
   const { from } = reclassRoles(side);
   const sourceTypes = side === 'issued'
     ? ['invoice', 'customer_payment', 'iva_reclass']
-    : ['bill', 'vendor_payment', 'iva_reclass', ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
+    : ['bill', 'vendor_payment', 'iva_reclass', VAT_OVERCREDIT_CORRECTION_SOURCE,
+       ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
 
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all
@@ -621,6 +634,7 @@ export async function ivaStillParked(
         AND je.status = 'posted'
         AND ar.role = $2
         AND je.source_type = ANY($4::text[])
+        AND (je.source_type <> $5 OR je.reversed_by_entry_id IS NULL)
         -- Dos saltos, y hacen falta los dos. El asiento del documento apunta
         -- al documento; el de RECLASIFICACIÓN que escribe el backfill apunta
         -- al ASIENTO, no al documento (iva-ppd-reclass.ts: sourceId = entry_id),
@@ -634,7 +648,7 @@ export async function ivaStillParked(
         AND (je.source_id = $3 OR je.source_id IN (
               SELECT j2.id FROM journal_entries j2
                WHERE j2.source_id = $3 AND j2.entity_id = $1))`,
-    [entityId, from, documentId, sourceTypes]
+    [entityId, from, documentId, sourceTypes, VAT_OVERCREDIT_CORRECTION_SOURCE]
   );
   const parked = new Decimal(rows[0]?.parked ?? '0');
 
@@ -734,8 +748,69 @@ export async function issuedVatStillParked(
   const estimate = new Decimal(ivaToReclassify({
     ivaTotal: taken.tax, documentTotal: taken.total, priorApplied: '0', appliedNow: taken.unknown,
   }));
-  const left = parked.minus(taken.released).minus(estimate).minus(taken.notes);
-  return { parked: Decimal.max(left, 0).toFixed(SCALE), estimated: estimate.greaterThan(0) };
+  const left = Decimal.max(parked.minus(taken.released).minus(estimate).minus(taken.notes), 0);
+  // MNE-001-581: after a note, an unapply or a reversal may keep part of an
+  // ended allocation's release in 2120, which the sum above reads as parked
+  // again. Only then is the open balance's IVA the cap; anywhere else the sum
+  // is exact and stays as it was.
+  const open = await issuedVatOfOpenBalance(client, entityId, invoiceId);
+  const capped = open.hasNote && open.hasEnded ? Decimal.min(left, open.target) : left;
+  return { parked: capped.toFixed(SCALE), estimated: estimate.greaterThan(0) };
+}
+
+/**
+ * MNE-001-581 · The IVA an issued invoice's open balance carries: what 2125
+ * must hold for it once a collection is unapplied or reversed (LIVA arts. 1-B
+ * and 7). The balance is the total, less the cash and withholdings still
+ * applied (`C`), less the credit notes linked to it; its IVA is the same
+ * cumulative target the collections release by, so the collections still to
+ * come release exactly it. `ending` names the allocations the caller is about
+ * to end, which no longer count in `C`. A cheque that still holds its IVA
+ * (MNE-001-556) is not collected yet: its cash stays in the balance.
+ *
+ * `hasNote` says whether a posted, unreversed note is linked to the invoice
+ * (`noteNumbers` names them), and `hasEnded` whether any of its allocations
+ * was ever unapplied or reversed.
+ */
+export async function issuedVatOfOpenBalance(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string,
+  options: { ending?: readonly string[] } = {}
+): Promise<{ target: string; hasNote: boolean; hasEnded: boolean; noteNumbers: string }> {
+  const { rows: [doc] } = await client.query<{
+    collected: string; notes: string; note_count: number; note_numbers: string | null; ended: boolean; tax: string; total: string;
+  }>(
+    `SELECT COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                        JOIN legal_entities le ON le.id = cp.entity_id
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND NOT (pa.id = ANY($3::uuid[]))
+                         AND NOT (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL
+                                  AND TRIM(cp.currency_code) = TRIM(le.functional_currency))), 0)::text AS collected,
+            COALESCE(SUM(cn.total_amount), 0)::text AS notes,
+            COUNT(cn.id)::int AS note_count,
+            string_agg(cn.credit_note_number, ', ' ORDER BY cn.credit_note_number) AS note_numbers,
+            EXISTS (SELECT 1 FROM payment_allocations pa
+                      JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                     WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NOT NULL) AS ended,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+       LEFT JOIN credit_notes cn ON cn.invoice_id = i.id AND cn.entity_id = $1
+            AND EXISTS (SELECT 1 FROM journal_entries je
+                         WHERE je.entity_id = $1 AND je.source_type = 'credit_note' AND je.source_id = cn.id
+                           AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL)
+      WHERE i.id = $2 AND i.entity_id = $1
+      GROUP BY i.id, i.tax_amount, i.total_amount`,
+    [entityId, invoiceId, [...(options.ending ?? [])]]
+  );
+  if (!doc) return { target: new Decimal(0).toFixed(SCALE), hasNote: false, hasEnded: false, noteNumbers: '' };
+  const open = Decimal.max(new Decimal(doc.total).minus(doc.notes).minus(doc.collected), 0);
+  const target = ivaToReclassify({
+    ivaTotal: doc.tax, documentTotal: doc.total, priorApplied: doc.collected, appliedNow: open.toFixed(SCALE),
+  });
+  return { target, hasNote: doc.note_count > 0, hasEnded: doc.ended, noteNumbers: doc.note_numbers ?? '' };
 }
 
 /**

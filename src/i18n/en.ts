@@ -99,6 +99,59 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-152 · the 422 of validateBody and validateQuery, one key per Zod issue (issue #151) ----
+  // The English is the zod 3.25.76 wording the 422 has always had, byte for
+  // byte (tests/api/golden/rest-body.golden.json pins it): `(s)` stays, because
+  // it is the contract. Paths, enum values, bounds, formats, keys and the JSON
+  // type names are interpolated raw and are never translated.
+  /** `RequestValidationError` of `validateBody`: `issues` is the `<path>: <message>` list, joined with '; '. */
+  'error.VALIDATION_ERROR.body': 'Invalid request body: {issues}',
+  /** `RequestValidationError` of `validateQuery`: `name` is the parameter, `issues` its messages joined with '; '. */
+  'error.VALIDATION_ERROR.query': 'Invalid query parameter: {name}: {issues}',
+  /** `legacyIssueKey`, `invalid_type` or `invalid_value` with no input. */
+  'error.VALIDATION_ERROR.issue.required': 'Required',
+  /** `legacyIssueKey`, `invalid_type`: a number `.int()` refused, ±Infinity included. */
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Expected integer, received float',
+  /** `legacyIssueKey`, `invalid_type`: ±Infinity where zod 3 accepted a number (T1). */
+  'error.VALIDATION_ERROR.issue.not_finite': 'Number must be finite',
+  /** `legacyIssueKey`, `invalid_type`, and `invalid_value` given a non-string: `expected` and `received` are JSON type names or quoted enum values. */
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Expected {expected}, received {received}',
+  /** `legacyIssueKey`, `invalid_value` of a literal: `expected` is the literal as JSON. */
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Invalid literal value, expected {expected}',
+  /** `legacyIssueKey`, `invalid_value` of an enum given a string. */
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Invalid enum value. Expected {expected}, received '{received}'",
+  /** `legacyIssueKey`, `invalid_format`: `format` is `regex` or zod 3's name of the format. */
+  'error.VALIDATION_ERROR.issue.invalid_format': '{format, select, regex {Invalid} other {Invalid {format}}}',
+  /** `legacyIssueKey`, `invalid_format` of `starts_with`, `ends_with` or `includes`. */
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Invalid input: must {affix, select, starts_with {start with} ends_with {end with} other {include}} "{value}"',
+  /** `legacyIssueKey`, `too_small` of an array: `bound` is exact, inclusive or exclusive. */
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at least} other {more than}} {minimum} element(s)',
+  /** `legacyIssueKey`, `too_small` of a string. */
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at least} other {over}} {minimum} character(s)',
+  /** `legacyIssueKey`, `too_small` of a number, an integer or a bigint. */
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'Number must be {bound, select, exact {exactly equal to} inclusive {greater than or equal to} other {greater than}} {minimum}',
+  /** `legacyIssueKey`, `too_big` of an array. */
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at most} other {less than}} {maximum} element(s)',
+  /** `legacyIssueKey`, `too_big` of a string. */
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at most} other {under}} {maximum} character(s)',
+  /** `legacyIssueKey`, `too_big` of a number or an integer. */
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'Number must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `too_big` of a bigint. */
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'BigInt must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `not_multiple_of`. */
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'Number must be a multiple of {divisor}',
+  /** `legacyIssueKey`, `unrecognized_keys`: `keys` are quoted and joined with ', '. */
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
+  /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
   // ---- MNE-001-150 · a path no route serves (issue #151) ----
   /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
   'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
@@ -402,21 +455,21 @@ export const EN = {
   'policy.rep_unknown_document.question':
     'The receipt names an invoice the system does not have: what happens to that VAT?',
   'policy.rep_unknown_document.impact':
-    'Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the tax waits, is skipped with a warning, or is asked about.',
+    "Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice is in the system, or the documents it knows go on as usual and the unknown one's share and VAT are never recorded from this receipt.",
   'policy.rep_unknown_document.rationale':
     'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III wants it until a document supports it. When the receipt DOES carry ImpuestosDR, that figure is checked against the proration over the original invoice: if they diverge beyond the tolerance, the receipt goes to review instead of releasing either figure silently.',
   'policy.rep_unknown_document.why':
     'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
   'policy.rep_unknown_document.what':
-    'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the system, running mnemosine rep reconcile links it.',
   'policy.rep_unknown_document.if_skipped':
     'I wait. Nothing is lost — the tax stays where it was.',
   'policy.rep_unknown_document.option.esperar':
-    'Wait: record the pending link and transfer no VAT for that document',
+    'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, and none of its VAT is transferred',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Match the cash and leave the VAT untransferred, with a warning',
   'policy.rep_unknown_document.option.preguntar':
-    'Ask for the VAT amount',
+    'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
 
   'policy.rep_voided_document.question':
     'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
@@ -1045,6 +1098,25 @@ export const EN = {
     'Post nothing until someone gives the line an account',
   'policy.received_line_without_account.option.role_generic_account':
     'Post the line to the generic account of its expense role',
+
+  'policy.vat_overcredit_correction_period.question':
+    'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+  'policy.vat_overcredit_correction_period.impact':
+    'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+  'policy.vat_overcredit_correction_period.rationale':
+    'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.vat_overcredit_correction_period.why':
+    'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+  'policy.vat_overcredit_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+  'policy.vat_overcredit_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.vat_overcredit_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.vat_overcredit_correction_period.option.current_period':
+    'Post one correction per bill, dated today in the open period',
+  'policy.vat_overcredit_correction_period.option.payment_month':
+    'Post one correction per bill and month, in each payment\'s month',
 
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
@@ -1735,17 +1807,17 @@ export const EN = {
   'policy.cheque_advance_before_cashing.question':
     'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
   'policy.cheque_advance_before_cashing.impact':
-    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. A PUE invoice at the receipt\'s own treatment is applied either way.',
   'policy.cheque_advance_before_cashing.rationale':
     'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
   'policy.cheque_advance_before_cashing.why':
     'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
   'policy.cheque_advance_before_cashing.what':
-    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+    'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
   'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
   'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
   'policy.cheque_advance_before_cashing.option.defer_to_cashing':
-    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
+    'Apply it to a PPD invoice now and net its IVA on the cashing day',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
@@ -2447,10 +2519,12 @@ export const EN = {
   // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
   'receipt.apply.cheque_advance_not_cashed':
     'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
-  'receipt.apply.cheque_advance_deferral_not_wired':
-    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_ppd_only':
+    'The panel key {key} says defer_to_cashing, which nets the advance\'s IVA against the share a PPD invoice releases on the cashing day. {invoice} is a PUE invoice at another treatment than the receipt {receipt}: it releases no share, and applying it now would cancel {iva} of IVA nobody has caused (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it. Nothing was written.',
   'receipt.unapply.iva_at_cashing':
     'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
+  // MNE-001-574 (#792): a plain receipt's unapply keeps the IVA its collection caused.
+  'receipt.unapply.iva_kept': 'IVA kept caused {iva} (LIVA art. 1-B)',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.
@@ -2577,6 +2651,12 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-571 (#612): the capture warning is the generator's finding for that voucher.
+  'payment.capture.untraced_voucher':
+    'When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate` will name voucher {entry} of {number}:',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 is "N/A" in the SAT c_Banco catalogue and names no bank. For a foreign bank, give its name with --to-foreign-bank instead (the voucher adds 999); for a national one, its own code. The voucher will carry a warning.',
   // MNE-001-570 (#612): the trace of a registered receipt.
   'receipt.trace.nothing_given':
     'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
@@ -2601,6 +2681,9 @@ export const EN = {
   // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
   'receipt.advance.iva_restored': 'advance IVA restored {iva}',
+  // MNE-001-573 (#789): a PUE invoice of a month before its cheque advance was cashed.
+  'receipt.advance.iva_before_cashing':
+    'The advance\'s IVA of {iva} cancelled on {invoice} is caused on {cashed}, the day the bank cashed the cheque (LIVA art. 1-B, second paragraph), and {invoice}, a PUE, already caused it in {month}: that month\'s IVA charged carries what the cashing day should, and this application cancels the advance\'s in its own month. Review the return of {month}.',
   'receipt.advance.iva_caused_twice':
     'The advance\'s IVA of {iva} cancelled on {invoice} was also caused in {month} by that invoice, a PUE issued on or before the advance (LIVA art. 1-B): that month\'s IVA charged carried it twice, and this application cancels it in its own month. Review the return of {month}.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
@@ -3471,6 +3554,65 @@ export const EN = {
     'The previous database is still intact: pointing the application at the new one is a separate act.',
   /** The reminder to verify the restored database. */
   'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
+
+  // MNE-001-224: audit, ai stats and jobs run-due.
+  /** `audit list --user` with an email that is not in the tenant. */
+  'platform.audit.user_not_found':
+    'User "{email}" in this tenant. The trail was not filtered: an email that does not exist would return zero rows and read as if that person did nothing.',
+  /** `audit list --limit` with a value that is not a positive whole number. */
+  'platform.audit.list.limit_invalid': '--limit must be a positive whole number; got "{value}".',
+  /** `audit list --action` with an action outside the CHECK of audit_log. */
+  'platform.audit.list.action_unknown':
+    'Unknown action "{action}". The vocabulary is fixed by the CHECK of audit_log (migration 001): {actions}.',
+  /** `audit list --actor agent`: the trail has no actor column yet. */
+  'platform.audit.list.actor_agent_unsupported':
+    'The trail does not tell the agent apart yet: `audit_log` has no actor column and each row is attributed to a human `user_id`. Filtering by "{actor}" would return zero rows, which would read as if the agent did nothing. The `actor` column (and `agent_session_id`) is missing, and the agent\'s bridge has to write it; until then, `--actor human` or no flag is all there is.',
+  /** `audit list --actor` with any other value. */
+  'platform.audit.list.actor_invalid': '--actor only accepts "human", "agent" or "agent:<session>"; got "{actor}".',
+  /** `audit list --object` with an unknown family. */
+  'platform.audit.list.object_unknown':
+    'Unknown object family "{object}". Known: {families}. For an exact value of the column use --entity-type.',
+  /** `audit list --object` and `--entity-type` that do not intersect. */
+  'platform.audit.list.object_type_disjoint':
+    '--object "{object}" and --entity-type "{type}" do not intersect: the family does not contain that type. Give one of the two.',
+  /** The actor of a row whose user no longer exists. Stored English in the row; the table renders it. */
+  'platform.audit.list.user_removed': '(user removed)',
+  /** `audit list` with no rows. */
+  'platform.audit.list.no_rows':
+    'No rows. The trail belongs to the TENANT: `audit_log` has no legal-entity column, so --entity only chose which tenant to look at.',
+  /** A label of `audit show`. */
+  'platform.audit.show.when': 'when',
+  /** A label of `audit show`. */
+  'platform.audit.show.who': 'who',
+  /** A label of `audit show`. */
+  'platform.audit.show.why': 'why',
+  /** `audit show` of a row whose user no longer exists. */
+  'platform.audit.show.user_unknown': "(unknown user: the log is append-only and outlives the user's record)",
+  /** `audit show` of a row with no reason. */
+  'platform.audit.show.no_reason': '(no reason recorded)',
+  /** `audit show` of a row with no values. */
+  'platform.audit.show.no_values': 'no values: the row records the act, not the before and the after',
+  /** The first line of `ai stats`. */
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# draft} other {# drafts}}, {decided, plural, one {# decided} other {# decided}}',
+  /** How much still goes through a person. */
+  'platform.ai.stats.human_intervention':
+    'human intervention {rate} ({human} approved + {rejected} rejected of {decided} decided; {policy} by policy, {auto} auto-posted)',
+  /** The ingest runs and their cost, when the model has a price. */
+  'platform.ai.stats.ingest':
+    'ingest: {runs, plural, one {# run} other {# runs}}, {drafts, plural, one {# draft} other {# drafts}}{priced, select, yes {, ~${perDraft} USD per draft (total ${total})} other {, cost not estimable (model without a price)}}',
+  /** The model's latency. */
+  'platform.ai.stats.latency':
+    'model latency: {average} ms average, {p95} ms p95 ({calls, plural, one {# call measured} other {# calls measured}})',
+  /** The agent's events. */
+  'platform.ai.stats.events':
+    'events: {suspicions, plural, one {# injection suspicion} other {# injection suspicions}}, {nudges, plural, one {# grounding nudge} other {# grounding nudges}}, {failovers, plural, one {# failover} other {# failovers}}',
+  /** The shadow history, and the floors `on` requires (src/ai/floor.ts). */
+  'platform.ai.stats.shadow':
+    'shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided, plural, one {# decided} other {# decided}} by a person, agreement {agreement} (turning "on" requires ≥{minDays} days, ≥{minDecided} decided and ≥{minAgreement})',
+  /** Why `jobs run-due` does not honour an idempotency key. */
+  'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
 
   // ==== end of I8.6 ====
 

@@ -23,6 +23,7 @@ import {
   type FilaCtas,
 } from '../../../src/services/sat/anexo24/validador.js';
 import {
+  FOREIGN_BANK_CODE,
   officialEnumeration,
   parseEnumerations,
   OFFICIAL_ENUMERATIONS_XSD,
@@ -281,6 +282,16 @@ const journal = (): DatosDePolizas => ({
               rfc: 'PSA010101AA1',
               monto: '1160.00',
             },
+            // MNE-001-401 (#532): a foreign bank, as 999 with its full name.
+            {
+              clase: 'transferencia', ctaOri: '012180001234567895', bancoOriNal: '012', ctaDest: 'GB29NWBK60161331926819',
+              bancoDestNal: FOREIGN_BANK_CODE, bancoDestExt: 'Bank of Nowhere',
+              fecha: '2026-02-10', benef: 'Proveedor del Exterior SA', rfc: 'PSA010101AA1', monto: '1160.00',
+            },
+            {
+              clase: 'cheque', num: '7001', banEmisNal: FOREIGN_BANK_CODE, banEmisExt: 'Banco de Ultramar SA', ctaOri: '9876543210',
+              fecha: '2026-02-10', benef: 'Proveedor SA', rfc: 'PSA010101AA1', monto: '1160.00',
+            },
           ],
         },
       ],
@@ -354,6 +365,8 @@ describe('the generated XML validates against its official XSD', () => {
     for (const node of ['CompNal', 'CompNalOtr', 'CompExt', 'Cheque', 'Transferencia', 'OtrMetodoPago']) {
       expect(xml).toContain(`<PLZ:${node} `);
     }
+    expect(xml).toContain('BancoDestNal="999" BancoDestExt="Bank of Nowhere"');
+    expect(xml).toContain('BanEmisNal="999" BanEmisExt="Banco de Ultramar SA"');
     expect(validateAgainstOfficialXsd(xml, 'journal')).toEqual({ valid: true, errors: [] });
   });
 
@@ -365,6 +378,13 @@ describe('the generated XML validates against its official XSD', () => {
   it('the account auxiliary', () => {
     const xml = construirAuxiliarCuentasXml(accountAuxiliary());
     expect(validateAgainstOfficialXsd(xml, 'accountAuxiliary')).toEqual({ valid: true, errors: [] });
+  });
+});
+
+describe('the code a foreign bank is declared with (MNE-001-401)', () => {
+  it('is on the c_Banco of the vendored XSD: a republished list without it turns this red', () => {
+    expect(FOREIGN_BANK_CODE).toBe('999');
+    expect(officialEnumeration('c_Banco').has(FOREIGN_BANK_CODE)).toBe(true);
   });
 });
 

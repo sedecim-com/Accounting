@@ -21,11 +21,17 @@ vi.mock('../../src/database/connection.js', async (importOriginal) => ({
 vi.mock('../../src/services/payments/payment-trace-service.js', () => ({
   completePaymentTrace: vi.fn(),
 }));
+// MNE-001-571 · what is still missing after writing is the generator's to say; here it is a spy.
+vi.mock('../../src/cli/trace-completion-output.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/trace-completion-output.js')>()),
+  warnUntracedPayment: vi.fn(async () => undefined),
+}));
 vi.mock('../../src/services/banking/bank-statement-service.js', () => ({
   resolverCuentaBancaria: vi.fn(async () => ({ id: 'ba-1', account_name: 'Operativa BBVA' })),
 }));
 
 import { completePaymentTrace, type TraceCompletion } from '../../src/services/payments/payment-trace-service.js';
+import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
 import { registerPaymentCommands } from '../../src/cli/payment-command.js';
 import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
@@ -219,5 +225,19 @@ describe('payment trace record --bank (MNE-001-569)', () => {
     const { errs } = await trace(['--reason', 'x', '--yes']);
     expect(exitCodeFor(errs[0])).toBe(2);
     expect(errs[0].message).toContain('--bank');
+  });
+});
+
+describe('payment trace record says what is still missing once it wrote (MNE-001-571)', () => {
+  it('asks the generator about the payment after writing, and not in a dry run', async () => {
+    const warn = vi.mocked(warnUntracedPayment);
+    warn.mockClear();
+    service.mockResolvedValueOnce(completion());
+    await trace(['--to-account', '002180001122334455', '--dry-run']);
+    expect(warn).not.toHaveBeenCalled();
+    service.mockResolvedValueOnce(completion()).mockResolvedValueOnce(completion());
+    const { errs } = await trace(['--to-account', '002180001122334455', '--reason', 'Comprobante SPEI OP-0511', '--yes']);
+    expect(errs).toEqual([]);
+    expect(warn.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([['vendor', 'ent-1', 'vp-1']]);
   });
 });

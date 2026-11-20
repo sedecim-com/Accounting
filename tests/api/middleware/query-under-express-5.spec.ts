@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
+import { negotiateLocale } from '../../../src/api/rest/middleware/locale.js';
 import { emptyBodyAsObject, validateBody, validateQuery } from '../../../src/api/rest/middleware/async-handler.js';
 
 // ============================================================
@@ -24,6 +25,8 @@ let baseUrl: string;
 beforeAll(async () => {
   const app = express();
   app.set('query parser', 'extended');
+  // As src/index.ts mounts it; `fetch` names no language, so the 422 stays English.
+  app.use(negotiateLocale);
   app.get(
     '/echo',
     validateQuery('search', z.string().transform((s) => s.trim().toUpperCase())),

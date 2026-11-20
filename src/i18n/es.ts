@@ -64,6 +64,36 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-152 · el 422 de validateBody y validateQuery, una clave por issue de Zod; see en.ts ----
+  'error.VALIDATION_ERROR.body': 'Cuerpo de la petición inválido: {issues}',
+  'error.VALIDATION_ERROR.query': 'Parámetro de consulta inválido: {name}: {issues}',
+  'error.VALIDATION_ERROR.issue.required': 'Obligatorio',
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Se esperaba un número entero y llegó uno con decimales',
+  'error.VALIDATION_ERROR.issue.not_finite': 'El número debe ser finito',
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Se esperaba {expected} y llegó {received}',
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Valor literal inválido: se esperaba {expected}',
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Valor no admitido. Se esperaba {expected} y llegó '{received}'",
+  'error.VALIDATION_ERROR.issue.invalid_format':
+    '{format, select, regex {Formato inválido} other {Formato {format} inválido}}',
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Entrada inválida: debe {affix, select, starts_with {empezar con} ends_with {terminar con} other {incluir}} "{value}"',
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'El número debe ser {bound, select, exact {exactamente igual a} inclusive {mayor o igual que} other {mayor que}} {minimum}',
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'El número debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'El BigInt debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'El número debe ser múltiplo de {divisor}',
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Claves que el objeto no admite: {keys}',
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Entrada inválida',
   // ---- MNE-001-150 · a path no route serves; see en.ts ----
   'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================
@@ -354,21 +384,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.question':
     'El complemento nombra una factura que el sistema no tiene: ¿qué pasa con ese IVA?',
   'policy.rep_unknown_document.impact':
-    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el impuesto espera, se omite con un aviso o se pregunta.',
+    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el complemento espera en revisión hasta que una persona corre mnemosine rep reconcile, ya con su factura en el sistema, o si los documentos que conoce siguen como siempre y la parte y el IVA del desconocido nunca se registran desde este complemento.',
   'policy.rep_unknown_document.rationale':
     'Las descargas masivas del SAT llegan en desorden, así que un complemento que llega antes que su factura es normal, no excepcional. El IVA no se pierde: se queda pendiente, que es justo donde lo quiere el art. 5 fracc. III de la LIVA hasta que un documento lo ampare. Cuando el complemento SÍ trae ImpuestosDR, esa cifra se coteja contra el prorrateo sobre la factura original: si difieren más allá de la tolerancia, el complemento va a revisión en vez de liberar cualquiera de las dos cifras en silencio.',
   'policy.rep_unknown_document.why':
     'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo dejar pendiente el traslado del impuesto hasta que aparezca la factura, o seguir sin él.',
   'policy.rep_unknown_document.what':
-    'Por omisión espero, y el vínculo se resuelve solo el día que se carga la factura.',
+    'Por omisión dejo el complemento en revisión. Nada lo reintenta solo: cuando su factura ya está en el sistema, correr mnemosine rep reconcile lo liga.',
   'policy.rep_unknown_document.if_skipped':
     'Espero. No se pierde nada: el impuesto se queda donde estaba.',
   'policy.rep_unknown_document.option.esperar':
-    'Esperar: registrar el vínculo pendiente y no trasladar IVA de ese documento',
+    'Esperar: todo el pago del complemento espera en revisión, con las facturas conocidas que paga, y no se traslada nada de su IVA',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Casar el efectivo y dejar el IVA sin trasladar, con un aviso',
   'policy.rep_unknown_document.option.preguntar':
-    'Preguntar el importe del IVA',
+    'Igual que «Esperar»: el complemento espera en revisión y no se pide importe de IVA. Se conserva para los despachos que ya la eligieron.',
 
   'policy.rep_voided_document.question':
     'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
@@ -997,6 +1027,25 @@ export const ES: Record<keyof typeof EN, string> = {
     'No contabilizar nada hasta que alguien le ponga cuenta al renglón',
   'policy.received_line_without_account.option.role_generic_account':
     'Contabilizar el renglón en la cuenta genérica de su rol de gasto',
+
+  'policy.vat_overcredit_correction_period.question':
+    'Pagos que pasaron de la 1135 a la 1130 el IEPS de un CFDI como si fuera IVA: ¿en qué periodo va la corrección?',
+  'policy.vat_overcredit_correction_period.impact':
+    'Hasta MNE-001-488, un CFDI de proveedor con IEPS guardaba en la cabecera de su factura el IVA más el IEPS, y cada pago acreditaba como IVA su parte de esa suma. `npm run correct:vat-overcredit` lista cada factura, pago y mes, y con `--apply` contabiliza DR 1135 / CR 1130 por el exceso. Esta clave decide la fecha de esa póliza. Con «ask» no se contabiliza nada y cada factura se nombra con las dos opciones. Con «current_period» va una póliza por factura con fecha de hoy, en el periodo abierto. Con «payment_month» va una póliza por factura y mes, en el mes de cada pago; un mes cerrado sólo se reabre si la corrida dice `--reopen`, y uno bloqueado nunca. En los dos casos la declaración complementaria de cada mes (CFF art. 32) la presenta una persona, con las cifras que da el censo.',
+  'policy.vat_overcredit_correction_period.rationale':
+    'El IVA se acredita en el mes en que se paga (LIVA art. 5 fr. III), así que el exceso es un error de esos meses: la NIF B-1 lo corrige de forma retrospectiva y el CFF art. 32 con una complementaria, mientras que los despachos que no reabren sus libros lo registran en el periodo actual. La norma deja margen, así que la opción por omisión es la conservadora del ADR-0006, decisión 1: no se contabiliza nada ni se reabre un mes cerrado hasta que una persona elija.',
+  'policy.vat_overcredit_correction_period.why':
+    'Los pagos de CFDI de proveedor con IEPS acreditaron parte del IEPS como IVA antes de que la cabecera de la factura guardara sólo el IVA. La corrección puede fecharse en el mes de cada pago, reabriéndolo si está cerrado, o en el periodo abierto de hoy.',
+  'policy.vat_overcredit_correction_period.what':
+    'Por omisión no contabilizo nada y nombro cada factura con las dos opciones. Con «current_period» contabilizo una corrección por factura hoy; con «payment_month», una por factura y mes, en ese mes.',
+  'policy.vat_overcredit_correction_period.if_skipped':
+    'No contabilizo ninguna corrección hasta que elijas.',
+  'policy.vat_overcredit_correction_period.option.ask':
+    'No contabilizar nada hasta que alguien elija',
+  'policy.vat_overcredit_correction_period.option.current_period':
+    'Una corrección por factura, con fecha de hoy en el periodo abierto',
+  'policy.vat_overcredit_correction_period.option.payment_month':
+    'Una corrección por factura y mes, en el mes de cada pago',
 
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
@@ -1687,17 +1736,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.cheque_advance_before_cashing.question':
     'Un anticipo recibido con cheque se aplica a una factura antes de que el banco cobre el cheque, donde cancelaría IVA todavía no causado: ¿qué hago?',
   'policy.cheque_advance_before_cashing.impact':
-    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" la aplicación se postearía ya y compensaría ese IVA el día del cobro; todavía no está construida y mientras tanto se niega, nombrando la parte 2/2 de la issue 789. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
+    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" una aplicación a una factura PPD se postea ya sin renglón de IVA, y el cobro compensa ese IVA contra la parte que la factura libera ese día; una PUE de otro tratamiento no libera ninguna, así que se sigue negando. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
   'policy.cheque_advance_before_cashing.rationale':
     'LIVA art. 1-B, segundo párrafo: un precio pagado con cheque se cobra, y su IVA se causa, el día en que el banco cobra el cheque. Aplicar su anticipo antes cancelaría en el mayor un IVA que nadie ha causado todavía, y el mes leería menos IVA que el papel. Negarlo no postea nada sin revisión, la opción conservadora de ADR-0006.',
   'policy.cheque_advance_before_cashing.why':
     'Algunos despachos aplican el cheque de un cliente a su factura el día que llega, antes de que el banco lo cobre. Eso funciona si el IVA del anticipo se compensa el día del cobro; negarlo mantiene cada mes exacto hasta entonces.',
   'policy.cheque_advance_before_cashing.what':
-    'Con "refuse" niego la aplicación y nombro el comando del cobro. "defer_to_cashing" está declarada y todavía no construida, así que también la niego y lo digo.',
+    'Con "refuse" niego la aplicación y nombro el comando del cobro. Con "defer_to_cashing" la aplico a una factura PPD sin renglón de IVA y compenso su IVA cuando se registra el cobro; una PUE de otro tratamiento la sigo negando.',
   'policy.cheque_advance_before_cashing.if_skipped': 'Niego la aplicación hasta que se registre el cobro.',
   'policy.cheque_advance_before_cashing.option.refuse': 'Negarla hasta que se registre el cobro',
   'policy.cheque_advance_before_cashing.option.defer_to_cashing':
-    'Aplicarla ya y compensar su IVA el día del cobro (todavía no construida: se niega mientras tanto)',
+    'Aplicarla ya a una factura PPD y compensar su IVA el día del cobro',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
@@ -2308,10 +2357,12 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-572 (#789): el anticipo de un cheque retenido no se aplica contra IVA que nadie ha causado.
   'receipt.apply.cheque_advance_not_cashed':
     'El cobro {receipt} es un cheque que el banco no ha cobrado, y aplicarlo a {invoice} cancelaría {iva} del IVA de su anticipo, que no se causa hasta el cobro (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo; esto lo gobierna la clave del panel {key}. No se escribió nada.',
-  'receipt.apply.cheque_advance_deferral_not_wired':
-    'La clave del panel {key} dice defer_to_cashing, que aplica ya el cobro {receipt} a {invoice} y compensa los {iva} del IVA de su anticipo el día del cobro; esa opción llega en la parte 2/2 de la issue 789 y todavía no está construida. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`, o contesta refuse. No se escribió nada.',
+  'receipt.apply.cheque_advance_deferral_ppd_only':
+    'La clave del panel {key} dice defer_to_cashing, que compensa el IVA del anticipo contra la parte que una factura PPD libera el día del cobro. {invoice} es una factura PUE de otro tratamiento que el cobro {receipt}: no libera ninguna parte, y aplicarla ya cancelaría {iva} de IVA que nadie ha causado (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo. No se escribió nada.',
   'receipt.unapply.iva_at_cashing':
     'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
+  // MNE-001-574 (#792): desaplicar un cobro sin tratamiento deja causado el IVA de su cobro.
+  'receipt.unapply.iva_kept': 'IVA que se queda causado {iva} (LIVA art. 1-B)',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
@@ -2438,6 +2489,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-571 (#612): el aviso al capturar es el hallazgo del generador para esa póliza.
+  'payment.capture.untraced_voucher':
+    'Cuando el SAT pida las pólizas del periodo, `mnemosine e-accounting voucher generate` nombrará la póliza {entry} de {number}:',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 es «N/A» en el catálogo c_Banco del SAT y no nombra ningún banco. Si el banco es extranjero, da su nombre con --to-foreign-bank (la póliza le pone el 999); si es nacional, su propia clave. La póliza llevará un aviso.',
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
@@ -2462,6 +2519,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'IVA del anticipo cancelado {iva}',
   'receipt.advance.iva_restored': 'IVA del anticipo devuelto {iva}',
+  // MNE-001-573 (#789): a PUE invoice of a month before its cheque advance was cashed.
+  'receipt.advance.iva_before_cashing':
+    'El IVA del anticipo de {iva} cancelado en {invoice} se causa el {cashed}, el día en que el banco cobró el cheque (LIVA art. 1-B, segundo párrafo), y {invoice}, una PUE, ya lo causó en {month}: el IVA trasladado de ese mes lleva lo que correspondía al día del cobro, y esta aplicación cancela el del anticipo en su propio mes. Revisa la declaración de {month}.',
   'receipt.advance.iva_caused_twice':
     'El IVA del anticipo, {iva}, que se cancela en {invoice} también se causó en {month} por esa factura, una PUE emitida el día del anticipo o antes (LIVA art. 1-B): el IVA trasladado de ese mes lo llevó dos veces, y esta aplicación lo cancela en su propio mes. Revisa la declaración de {month}.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
@@ -3183,6 +3243,42 @@ export const ES: Record<keyof typeof EN, string> = {
   'platform.backup.restore.previous_intact':
     'La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.',
   'platform.backup.restore.check_first': 'Compruébala antes: mnemosine backup verify {file} --restore',
+
+
+  'platform.audit.user_not_found':
+    'Usuario «{email}» en este inquilino. El rastro no se filtró: un correo que no existe devolvería cero filas y se leería como que esa persona no hizo nada.',
+  'platform.audit.list.limit_invalid': '--limit debe ser un entero positivo; llegó «{value}».',
+  'platform.audit.list.action_unknown':
+    'Acción desconocida «{action}». El vocabulario lo fija el CHECK de audit_log (migración 001): {actions}.',
+  'platform.audit.list.actor_agent_unsupported':
+    'El rastro no distingue todavía al agente: `audit_log` no tiene columna de actor y cada fila se atribuye a un `user_id` humano. Filtrar por «{actor}» devolvería cero filas, que se leería como que el agente no hizo nada. Falta la columna `actor` (y `agent_session_id`) y que el puente del agente la escriba; hasta entonces, `--actor human` o sin bandera es todo lo que hay.',
+  'platform.audit.list.actor_invalid': '--actor sólo admite «human», «agent» o «agent:<session>»; llegó «{actor}».',
+  'platform.audit.list.object_unknown':
+    'Familia de objeto desconocida «{object}». Conocidas: {families}. Para un valor exacto de la columna usa --entity-type.',
+  'platform.audit.list.object_type_disjoint':
+    '--object «{object}» y --entity-type «{type}» no se cruzan: la familia no contiene ese tipo. Da una de las dos.',
+  'platform.audit.list.user_removed': '(usuario dado de baja)',
+  'platform.audit.list.no_rows':
+    'Sin filas. El rastro es del INQUILINO: `audit_log` no tiene columna de entidad legal, así que --entity sólo eligió a qué inquilino mirar.',
+  'platform.audit.show.when': 'cuándo',
+  'platform.audit.show.who': 'quién',
+  'platform.audit.show.why': 'por qué',
+  'platform.audit.show.user_unknown': '(usuario desconocido: la bitácora es de sólo agregar y sobrevive al alta)',
+  'platform.audit.show.no_reason': '(sin razón registrada)',
+  'platform.audit.show.no_values': 'sin valores: la fila registra el acto, no el antes y el después',
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# borrador} other {# borradores}}, {decided, plural, one {# decidido} other {# decididos}}',
+  'platform.ai.stats.human_intervention':
+    'intervención humana {rate} ({human} aprobados + {rejected} rechazados de {decided} decididos; {policy} por política, {auto} auto-posteados)',
+  'platform.ai.stats.ingest':
+    'ingesta: {runs, plural, one {# corrida} other {# corridas}}, {drafts, plural, one {# borrador} other {# borradores}}{priced, select, yes {, ~${perDraft} USD por borrador (total ${total})} other {, costo no estimable (modelo sin precio)}}',
+  'platform.ai.stats.latency':
+    'latencia del modelo: {average} ms promedio, {p95} ms p95 ({calls, plural, one {# llamada medida} other {# llamadas medidas}})',
+  'platform.ai.stats.events':
+    'eventos: {suspicions, plural, one {# sospecha de inyección} other {# sospechas de inyección}}, {nudges, plural, one {# nudge de grounding} other {# nudges de grounding}}, {failovers, plural, one {# failover} other {# failovers}}',
+  'platform.ai.stats.shadow':
+    'sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por humano, acuerdo {agreement} (encender «on» exige ≥{minDays} días, ≥{minDecided} decididos y ≥{minAgreement})',
+  'platform.jobs.run_due.retry_reruns': 'un reintento vuelve a ejecutar los trabajos vencidos',
 
   // ==== end of I8.6 ====
 

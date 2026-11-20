@@ -680,11 +680,21 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
       'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
-      'whether the tax waits, is skipped with a warning, or is asked about.',
+      'whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice ' +
+      'is in the system, or the documents it knows go on as usual and the unknown one\'s share and VAT ' +
+      'are never recorded from this receipt.',
     options: [
-      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      {
+        value: 'esperar',
+        label:
+          'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, ' +
+          'and none of its VAT is transferred',
+      },
       { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
-      { value: 'preguntar', label: 'Ask for the VAT amount' },
+      {
+        value: 'preguntar',
+        label: 'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+      },
     ],
     defaultValue: 'esperar',
     defaultRationale:
@@ -695,7 +705,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
-    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    whatIDo:
+      'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the ' +
+      'system, running mnemosine rep reconcile links it.',
     ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
     priority: 45,
   },
@@ -1606,6 +1618,30 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
     ifSkipped: 'I post nothing until every line has an account.',
     priority: 42,
+  },
+  {
+    // MNE-001-562 · #725: read by `correctVatOvercredit`
+    // (accounting/vat-overcredit.ts), once per entity, before anything posts.
+    key: 'vat_overcredit_correction_period',
+    textKey: 'vat_overcredit_correction_period',
+    category: 'contable',
+    question: 'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+    impact:
+      'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+    options: [
+      { value: 'ask', label: 'Post nothing until someone chooses' },
+      { value: 'current_period', label: 'Post one correction per bill, dated today in the open period' },
+      { value: 'payment_month', label: 'Post one correction per bill and month, in each payment\'s month' },
+    ],
+    defaultValue: 'ask',
+    defaultRationale:
+      'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+    whyAsking:
+      'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+    whatIDo:
+      'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+    ifSkipped: 'I post no correction until you choose.',
+    priority: 43,
   },
   {
     key: 'informes_asientos_de_cierre',
@@ -2882,7 +2918,8 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // MNE-001-572 (#789) · An advance received by cheque, applied before the
     // bank cashes it where it would cancel IVA nobody has caused (a PPD
     // invoice, or a PUE one at another treatment). Reader:
-    // `refuseUncausedCancellation` in payment-service.ts. The owner's answer
+    // `defersUncausedCancellation` in payment-service.ts, and the cashing
+    // (`deferredAdvanceIva`, treasury-posting.ts) for "defer_to_cashing". The owner's answer
     // of 19 Nov 2026 on #789: «Rechazar + clave para diferir».
     key: 'cheque_advance_before_cashing',
     textKey: 'cheque_advance_before_cashing',
@@ -2892,11 +2929,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
     impact:
       'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. ' +
       'With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. ' +
-      'With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. ' +
+      'With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. ' +
       'A PUE invoice at the receipt\'s own treatment is applied either way.',
     options: [
       { value: 'refuse', label: 'Refuse until the cashing is recorded' },
-      { value: 'defer_to_cashing', label: 'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)' },
+      { value: 'defer_to_cashing', label: 'Apply it to a PPD invoice now and net its IVA on the cashing day' },
     ],
     defaultValue: 'refuse',
     defaultRationale:
@@ -2906,7 +2943,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
     whatIDo:
-      'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+      'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
     ifSkipped: 'I refuse the application until the cashing is recorded.',
     priority: 58,
   },

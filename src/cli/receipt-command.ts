@@ -50,7 +50,7 @@ import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
 import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
-import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
+import { listedTraceFields, warnUntracedPayment, writeTraceCompletion } from './trace-completion-output.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -170,7 +170,7 @@ Examples:
 `,
   unapply: `
 Examples:
-  # A NEW event, not an erasure: it reopens the invoice and re-parks the PPD IVA.
+  # A NEW event, not an erasure: it reopens the invoice, and the cash goes back on account with the PPD IVA it caused.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
@@ -603,6 +603,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
         imprimirRegistro(result, p, label, remanente, false, opts.json === true);
+        // MNE-001-571 · what its voucher will lack, in the generator's own words.
+        await warnUntracedPayment('customer', ctx.entityId, result.paymentId, { json: opts.json === true, palette: p });
       })
   );
 
@@ -831,7 +833,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .command('unapply')
     .alias('desaplicar')
     .argument('<ref>', 'payment number or id')
-    .description('Unapply a collection from an invoice as a NEW event: reopens it and re-parks the PPD IVA');
+    .description('Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account');
   withContext(unapply);
   unapply
     .requiredOption('--invoice <ref>', 'the invoice to unapply from')
@@ -867,6 +869,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const atCashing = (iva: string): void => {
           if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
         };
+        // MNE-001-574 · the IVA a plain receipt's cash keeps caused while it waits on account.
+        const keptText = (iva: string): string => (new Decimal(iva).greaterThan(0) ? ` · ${t('receipt.unapply.iva_kept', { iva })}` : '');
 
         if (dryRun) {
           atCashing(previo.ivaAtCashing);
@@ -875,7 +879,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-                : '') + '\n'
+                : '') + p.dim(keptText(previo.ivaKeptCaused)) + '\n'
           );
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
@@ -885,7 +889,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
             `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
-            'The cash stays on account; the invoice reopens.'
+            `The cash stays on account; the invoice reopens.${keptText(previo.ivaKeptCaused)}`
         );
 
         const result = await unapplyCustomerPayment(
@@ -903,6 +907,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_isr: result.documento.withholdingIsr ?? '0.00',
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
+            iva_kept_caused: result.ivaKeptCaused,
             advance_iva_restored: result.documento.advanceIva ?? '0.00',
             iva_at_cashing: result.ivaAtCashing,
             date: result.date,
@@ -916,7 +921,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-              : '') + '\n'
+              : '') + p.dim(keptText(result.ivaKeptCaused)) + '\n'
         );
         atCashing(result.ivaAtCashing);
       })
@@ -1136,6 +1141,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           result = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId);
         }
         writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
+        // MNE-001-571 · a finding names one gap at a time: say the next one now.
+        if (!dryRun && result.filled.length > 0) {
+          await warnUntracedPayment('customer', ctx.entityId, registered.id, { json: opts.json === true, palette: p });
+        }
       })
   );
 
@@ -1315,17 +1324,27 @@ function advanceText(d: { advanceIva?: string }, key: 'receipt.advance.iva_cance
   return d.advanceIva !== undefined && new Decimal(d.advanceIva).greaterThan(0) ? `; ${t(key, { iva: d.advanceIva })}` : '';
 }
 
-/** MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none. */
-function advanceWarning(invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null }, date: string): string | null {
+/**
+ * MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none.
+ * MNE-001-573 · With a cheque's cashing day, the earlier month is the PUE invoice's, which caused the IVA
+ * that LIVA art. 1-B, second paragraph, puts on the cashing day.
+ */
+function advanceWarning(
+  invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null; advanceIvaCashedOn?: string | null }, date: string
+): string | null {
   if (!d.advanceIvaTwiceIn) return null;
-  return t('receipt.advance.iva_caused_twice', { iva: d.advanceIva ?? '0.00', invoice, month: d.advanceIvaTwiceIn, date });
+  const iva = d.advanceIva ?? '0.00';
+  if (d.advanceIvaCashedOn) {
+    return t('receipt.advance.iva_before_cashing', { iva, invoice, month: d.advanceIvaTwiceIn, cashed: d.advanceIvaCashedOn });
+  }
+  return t('receipt.advance.iva_caused_twice', { iva, invoice, month: d.advanceIvaTwiceIn, date });
 }
 
 function imprimirAplicacion(
   documentos: {
     numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
     withholdingIsr?: string; withholdingIva?: string;
-    advanceIva?: string; advanceIvaTwiceIn?: string | null;
+    advanceIva?: string; advanceIvaTwiceIn?: string | null; advanceIvaDeferred?: string; advanceIvaCashedOn?: string | null;
   }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
@@ -1347,6 +1366,7 @@ function imprimirAplicacion(
         withholding_isr: d.withholdingIsr ?? '0.00',
         withholding_iva: d.withholdingIva ?? '0.00',
         advance_iva_cancelled: d.advanceIva ?? '0.00',
+        advance_iva_deferred: d.advanceIvaDeferred ?? '0.00',
         warning: advanceWarning(d.numero, d, date),
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,

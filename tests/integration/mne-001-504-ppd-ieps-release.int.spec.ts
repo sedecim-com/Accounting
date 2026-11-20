@@ -21,8 +21,9 @@ import { resetDeclarations } from '../../src/cli/kernel/risk.js';
  * parks it in its own role at issuance; this part moves it: each collection,
  * by `receipt record`, by its issued REP, by `receipt apply` of cash on
  * account or by the cashing of a held cheque, carries DR 2181 / CR 2180 for
- * its share beside the VAT's DR 2125 / CR 2120. An unapply gives back exactly
- * what that receipt moved, and a reversal unwinds both pairs.
+ * its share beside the VAT's DR 2125 / CR 2120. An unapply moves no money, so
+ * what that receipt moved stays caused with its VAT (MNE-001-574), and a
+ * reversal unwinds both pairs.
  *
  * The invoice of #669 (SubTotal 1,000.00, IEPS 80.00, VAT 172.80, Total
  * 1,252.80) is built here with the 80.00 on a line of its own whose account
@@ -270,8 +271,10 @@ describe('each collection moves its share of the parked IEPS on the entry that m
   }, 120_000);
 });
 
-describe('an unapply gives back exactly the IEPS that receipt moved, and a reversal unwinds both pairs', () => {
-  it('of three receipts the middle one is unapplied, applied again and unapplied again, each time by its own figure', async () => {
+describe('an unapply keeps the IEPS that receipt moved caused, and a reversal unwinds both pairs', () => {
+  // MNE-001-574 (#792): the unapply moves no money, so the IEPS that receipt moved stays caused with its
+  // IVA (LIEPS art. 5o.-C), and applying the cash again moves none, because the invoice parks none.
+  it('of three receipts the middle one is unapplied, applied again and unapplied again: its 19.1571 stays caused each time', async () => {
     const before = await taxes();
     const inv = await iepsInvoice();
     const a = await collect(inv.id, '400.00');
@@ -282,20 +285,18 @@ describe('an unapply gives back exactly the IEPS that receipt moved, and a rever
     expect((await taxLinesOf({ number: b.journal_entry }))['2181']).toEqual(['19.1571', '0.0000']);
     expect((await taxLinesOf({ id: c.entryId }))['2181']).toEqual(['35.3001', '0.0000']);
 
+    // b released q4(172.80 × 700 / 1,252.80) − q4(172.80 × 400 / 1,252.80) = 96.5517 − 55.1724 = 41.3793.
     const undone = await receipt(['unapply', b.payment_number, '--invoice', inv.number, '--reason', 'applied to the wrong sale']);
-    const unapplied = await taxLinesOf({ number: undone.entry_number });
-    expect(unapplied['2180']).toEqual(['19.1571', '0.0000']);
-    expect(unapplied['2181']).toEqual(['0.0000', '19.1571']);
-    expect(delta(before, await taxes())['2181']).toBe('19.1571');
+    expect(await taxLinesOf({ number: undone.entry_number })).toEqual({ '2125': ['0.0000', '41.3793'] });
+    expect(delta(before, await taxes())).toMatchObject({ '2180': '80.0000', '2181': '0.0000' });
 
-    // Applied again on top of 952.80 live: 80 − q4(80 × 952.80 / 1,252.80) = 80 − 60.8429.
+    // The cash takes its 41.3793 back from what it carries, against the same share released: 2120 does not move.
     const again = await receipt(['apply', b.payment_number, '--invoice', `${inv.number}:300.00`]);
-    expect((await taxLinesOf({ number: again.journal_entry }))['2181']).toEqual(['19.1571', '0.0000']);
-    expect(delta(before, await taxes())['2181']).toBe('0.0000');
+    expect(await taxLinesOf({ number: again.journal_entry })).toEqual({ '2125': ['41.3793', '0.0000'] });
 
     const twice = await receipt(['unapply', b.payment_number, '--invoice', inv.number, '--reason', 'wrong again']);
-    expect((await taxLinesOf({ number: twice.entry_number }))['2181']).toEqual(['0.0000', '19.1571']);
-    expect(delta(before, await taxes())).toMatchObject({ '2180': '60.8429', '2181': '19.1571' });
+    expect(await taxLinesOf({ number: twice.entry_number })).toEqual({ '2125': ['0.0000', '41.3793'] });
+    expect(delta(before, await taxes())).toMatchObject({ '2120': '172.8000', '2180': '80.0000', '2181': '0.0000' });
   }, 180_000);
 
   it('a receipt that moved nothing gives nothing back, and its unapply reads no IEPS role', async () => {

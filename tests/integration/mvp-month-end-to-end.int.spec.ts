@@ -19,11 +19,13 @@ import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 // it), without an AI provider, against the ephemeral database that
 // tests/integration/global-setup.ts creates and drops for every run.
 //
-// WHAT IS GREEN AND WHAT IS `it.todo`. Every step that already works runs for
-// real; every one that does not is an `it.todo` naming the backlog task(s)
-// in docs/backlog/PRD-001.json that will turn it green. MNE-001-098 closes
-// #311 when this file has no `it.todo` left, so the route to the MVP is the
-// list below and it empties itself.
+// EVERY STEP RUNS (MNE-001-098). The skeleton (MNE-001-097) wrote one
+// `it.todo` per step that did not work yet, each naming the backlog task(s) in
+// docs/backlog/PRD-001.json that would turn it green, so the route to the MVP
+// was that list and it emptied itself. The last one, the journal XML, became
+// a test with MNE-001-098, and no `it.todo` is left: a step the product cannot
+// run is a red test or a task, never a todo again (the criterion
+// `mvp-month-spec-has-no-todo` of src/plan fails while one remains).
 //
 // WHY DECEMBER 2025. Period states depend on today's date (a month after
 // today is `future`), so a month in 2026 would change meaning as the calendar
@@ -123,9 +125,21 @@ import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 // accounts it moved, so the catalog and the trial balance XML validate against
 // the SAT's XSD; the two auxiliaries are produced on request; the DIOT batch
 // file is compared byte for byte with the one written here, and the IVA paper
-// settles the month with its credit note taken out (LIVA art. 7). One step
-// waits: the journal XML, since no command can capture a customer transfer's
-// origin bank, so every receipt of the month stops it.
+// settles the month with its credit note taken out (LIVA art. 7).
+//
+// THE JOURNAL XML AND THE TRACE OF EACH PAYMENT (MNE-001-098). The vouchers
+// file declares how every peso left or reached the bank, and nobody typed it
+// when the money moved: the bank account had neither its CLABE nor its
+// c_Banco code, and no payment named it. So the first `voucher generate` is
+// refused, naming each of December's eighteen bank vouchers. The firm then
+// does what a person does with the CEP of each SPEI in hand: it gives the
+// bank account its CLABE and code, and completes each of the eleven payments
+// already registered with `payment trace record` and `receipt trace record`
+// (MNE-001-568 to 570), which fill empty fields of a hard-closed month and
+// post nothing. The other seven are money no payment stands behind: the
+// computers, typed as an entry, and the bank fee with its reopening. The
+// firm's answer to `anexo24_voucher_money_without_trace` is `warn`, so they
+// go out with no node and named, and the file is delivered.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -448,6 +462,37 @@ const BANK_FEE = '300.00';
 const BANK_FEE_IVA = '48.00'; // 16 % of the fee
 /** The December statement and its session, as steps 4·231 and 4·232 leave them. */
 let statementId = '';
+
+// ── THE TRACE OF EACH TRANSFER (MNE-001-098) ───────────────────────────
+// Every movement of the statement but the bank's own is a SPEI, and a SPEI
+// leaves a receipt (the CEP of Banxico) with both accounts and both banks on
+// it. Nobody typed them when the money moved: `payment create` and `receipt
+// record` ran with no --bank, and the bank account itself was created in step
+// 4 with neither its CLABE nor its c_Banco code. These are the receipts the
+// firm keeps, written by hand; each CLABE's first three digits are its bank in
+// c_Banco and its last one the check digit (weights 3, 7, 1).
+const OUR_CLABE = '012180000000001111'; // BBVA (012): the ****1111 the statement prints
+const OUR_BANK_CODE = '012';
+/**
+ * Each payment of December, by its number: the series is the year's, drawn in
+ * the order the steps above registered them (the consultant's REP in 2·195
+ * first, Proveedor Sintetico's bill in section 3 last; the issued REP of 2·194,
+ * the receipt of section 3 and the advance). The other side's account and bank,
+ * the date and the amount, as the CEP shows them.
+ */
+const TRANSFERS = [
+  { payment: 'VPMT-2025-00001', date: '2025-12-22', amount: '9280.00', name: CONSULTANT_NAME, rfc: CONSULTANT_RFC, clabe: '044180002000022014', bank: '044' },
+  { payment: 'VPMT-2025-00002', date: '2025-12-12', amount: '1160.00', name: CLEANER_NAME, rfc: CLEANER_RFC, clabe: '002180002000012011', bank: '002' },
+  { payment: 'VPMT-2025-00003', date: '2025-12-19', amount: '1160.00', name: CLEANER_NAME, rfc: CLEANER_RFC, clabe: '002180002000012011', bank: '002' },
+  { payment: 'VPMT-2025-00004', date: '2025-12-03', amount: '1200.00', name: BOOKSHOP_NAME, rfc: BOOKSHOP_RFC, clabe: '014370002000003019', bank: '014' },
+  { payment: 'VPMT-2025-00005', date: '2025-12-04', amount: '450.00', name: BOOKSHOP_NAME, rfc: BOOKSHOP_RFC, clabe: '014370002000003019', bank: '014' },
+  { payment: 'VPMT-2025-00006', date: '2025-12-09', amount: '1190.00', name: HOTEL_NAME, rfc: HOTEL_RFC, clabe: '072320002000009018', bank: '072' },
+  { payment: 'VPMT-2025-00007', date: '2025-12-16', amount: '9533.33', name: FEES_NAME, rfc: FEES_RFC, clabe: '137180002000016018', bank: '137' },
+  { payment: 'VPMT-2025-00008', date: '2025-12-20', amount: '5800.00', name: 'Proveedor Sintetico SA de CV', rfc: VENDOR_RFC, clabe: '021180002000020013', bank: '021' },
+  { payment: 'PMT-2025-00001', date: '2025-12-11', amount: '9280.00', name: WHOLESALER_NAME, rfc: WHOLESALER_RFC, clabe: '072580003000011010', bank: '072' },
+  { payment: 'PMT-2025-00002', date: '2025-12-15', amount: '5800.00', name: 'Cliente Sintetico SA de CV', rfc: CUSTOMER_RFC, clabe: '002180003000010012', bank: '002' },
+  { payment: 'PMT-2025-00003', date: '2025-12-10', amount: '1160.00', name: 'Cliente Sintetico SA de CV', rfc: CUSTOMER_RFC, clabe: '002180003000010012', bank: '002' },
+] as const;
 
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
@@ -2232,12 +2277,143 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rows).not.toHaveProperty('1112');
     }, STEP_TIMEOUT_MS);
 
-    // FIXME(#532): every customer transfer of December blocks the journal
-    // XML (exit 4, poliza-con-dinero-sin-rastro), since `receipt record` has
-    // nowhere to capture the payer's bank and nothing completes it later; so
-    // do the vendor transfers recorded without a bank account. No backlog
-    // task covers it yet.
-    it.todo('the journal XML of the month (`voucher generate`) is delivered with a payment node on every voucher that moves money — MNE-001-054, #532');
+    it('the journal XML of the month (`voucher generate`) is delivered with a payment node on every voucher a registered payment moved, once the firm completes their traces from the CEP — MNE-001-054, MNE-001-568, MNE-001-569, MNE-001-570, #532', () => {
+      type Finding = { check: string; severity: string; voucher: string; detail: string };
+      type Receipt = { deliverable: boolean; vouchers: number; with_payment_trace: number; findings: Finding[] };
+      const file = path.join(workDir, 'polizas-2025-12.xml');
+      const generate = ['e-accounting', 'voucher', 'generate', '--period', '2025-12', ...AUDIT, '-o', file, '--yes', '--json'];
+      const untraced = (r: Receipt): Finding[] => r.findings.filter((f) => f.check === 'poliza-con-dinero-sin-rastro');
+      const paid = new Set<string>(TRANSFERS.map((t) => t.payment));
+
+      // By hand, December has 18 vouchers that move 1111: the eleven payments
+      // of TRANSFERS, and seven that no payment stands behind (the computers,
+      // typed as an entry; the fee and its IVA, posted twice by the
+      // reconciliation; and the two mirrors of its reopening). Under the
+      // panel's default, `block`, every one of them stops the file: exit 4,
+      // and nothing written.
+      const refused = mnemosine(generate);
+      expect(refused.status, refused.out + refused.err).toBe(4);
+      expect(fs.existsSync(file)).toBe(false);
+      const [blocked] = rowsOf<Receipt>(refused);
+      expect(blocked).toMatchObject({ deliverable: false, with_payment_trace: 0 });
+      expect(untraced(blocked)).toHaveLength(18);
+      expect(untraced(blocked).every((f) => f.severity === 'blocking')).toBe(true);
+      // Each registered payment's finding prescribes the leaf that completes
+      // it, named by its number: the vendor side asks first for the
+      // destination account, a receipt for our bank account. It never sends
+      // the reader back to `payment create` or `receipt record`, which would
+      // pay a second time. The voucher it names is the payment's own entry.
+      const voucherOf: Record<string, string> = {};
+      for (const f of untraced(blocked)) {
+        const named = /`(payment|receipt) trace record ((?:V?PMT)-2025-\d{5}) (--to-account|--bank) /.exec(f.detail);
+        if (named) voucherOf[named[2]] = f.voucher;
+      }
+      expect(Object.keys(voucherOf).sort()).toEqual([...paid].sort());
+      for (const t of TRANSFERS) {
+        const flag = t.payment.startsWith('V') ? `payment trace record ${t.payment} --to-account` : `receipt trace record ${t.payment} --bank`;
+        expect(untraced(blocked).find((f) => f.voucher === voucherOf[t.payment])?.detail).toContain(flag);
+      }
+      const unpaid = untraced(blocked).filter((f) => !Object.values(voucherOf).includes(f.voucher));
+      expect(unpaid.every((f) => f.detail.includes('anexo24_voucher_money_without_trace'))).toBe(true);
+      type Entry = { entry_number: string; entry_date: string; description: string; total_debits: string };
+      const entries = rowsOf<Entry>(ok(['entry', 'list', '--all', '--json']));
+      const described = (n: string): string => {
+        const e = entries.find((x) => x.entry_number === n);
+        // A mirror names the session it reopened by its id, which no hand can write: the id goes.
+        return `${e?.entry_date.slice(0, 10)} ${money(e?.total_debits)} ` +
+          (e?.description ?? '').replace(/^Reversal of JE-\d{4}-\d{5}: bank reconciliation \S+ reopened · .*$/, 'Reversal: the reconciliation reopened');
+      };
+      const fee = 'Conciliación bancaria 2025-12-31 · BBVA Operativa MXN';
+      expect(unpaid.map((f) => described(f.voucher)).sort()).toEqual([
+        '2025-12-01 36000.00 Computer equipment',
+        `2025-12-31 300.00 ${fee} · comision`,
+        `2025-12-31 300.00 ${fee} · comision`,
+        '2025-12-31 300.00 Reversal: the reconciliation reopened',
+        `2025-12-31 48.00 ${fee} · iva-comision`,
+        `2025-12-31 48.00 ${fee} · iva-comision`,
+        '2025-12-31 48.00 Reversal: the reconciliation reopened',
+      ].sort());
+
+      // The firm answers the panel for those seven: they are delivered with
+      // no node and named, as a bank's charge is. The computers went out by
+      // SPEI, but the ledger holds a typed entry and no payment to read a trace
+      // from, so no command can give it one (the report of MNE-001-098). The
+      // answer governs only the money with no payment behind it: the eleven
+      // payments still block.
+      ok(['pending', 'define', 'anexo24_voucher_money_without_trace', 'warn'], 'ingest');
+      const stillBlocked = mnemosine(generate);
+      expect(stillBlocked.status, stillBlocked.out + stillBlocked.err).toBe(4);
+      const [eleven] = rowsOf<Receipt>(stillBlocked);
+      expect(untraced(eleven).filter((f) => f.severity === 'blocking').map((f) => f.voucher).sort())
+        .toEqual(Object.values(voucherOf).sort());
+      expect(untraced(eleven).filter((f) => f.severity === 'warning').map((f) => f.voucher).sort())
+        .toEqual(unpaid.map((f) => f.voucher).sort());
+
+      // Our side of every transfer is the bank account's: its CLABE and its
+      // c_Banco code, from the contract with the bank. One edit completes
+      // all of them, since the file reads the account when it is generated.
+      ok(['bank', 'account', 'edit', BANK_ACCOUNT, '--sat-bank-code', OUR_BANK_CODE, '--clabe', OUR_CLABE,
+        '--reason', 'CLABE from the account contract', '--yes']);
+
+      // Each payment, from its CEP: which bank account it went through, and
+      // the other side's account and bank. December is hard-closed, and that
+      // is said, not refused: the file is asked for after the close, and a
+      // completion writes no figure (MNE-001-568). The entry list is the same
+      // before and after.
+      const ledgerBefore = JSON.stringify(rowsOf(ok(['entry', 'list', '--all', '--json'])));
+      for (const t of TRANSFERS) {
+        const vendorSide = t.payment.startsWith('V');
+        const [done] = rowsOf<{ payment_number: string; journal_entry: string; period_status: string; filled: Record<string, string> }>(
+          ok(vendorSide
+            ? ['payment', 'trace', 'record', t.payment, '--to-account', t.clabe, '--to-bank', t.bank, '--bank', BANK_ACCOUNT,
+              '--reason', `CEP of the SPEI of ${t.date}`, '--yes', '--json']
+            : ['receipt', 'trace', 'record', t.payment, '--payer-bank', t.bank, '--payer-account', t.clabe, '--bank', BANK_ACCOUNT,
+              '--reason', `CEP of the SPEI of ${t.date}`, '--yes', '--json'])
+        );
+        expect(done).toMatchObject({ payment_number: t.payment, journal_entry: voucherOf[t.payment], period_status: 'hard_close' });
+        // An account is shown by its last four digits, the bank account by its name.
+        expect(done.filled).toEqual(vendorSide
+          ? { cuenta_destino: `…${t.clabe.slice(-4)}`, banco_destino_sat: t.bank, bank_account_id: BANK_ACCOUNT }
+          : { cuenta_origen: `…${t.clabe.slice(-4)}`, banco_origen_sat: t.bank, bank_account_id: BANK_ACCOUNT });
+      }
+      expect(JSON.stringify(rowsOf(ok(['entry', 'list', '--all', '--json']))), 'a completion posted something').toBe(ledgerBefore);
+
+      // Delivered: exit 0, the file written, and it validates against
+      // PolizasPeriodo 1.3. Nothing blocks; what is left are the seven of the
+      // panel's answer, named as warnings, and the one notice that the bank
+      // codes were checked against the XSD's c_Banco and not against
+      // `sat_bancos`, which no command seeds.
+      const [delivered] = rowsOf<Receipt>(ok(generate));
+      expect(delivered).toMatchObject({ deliverable: true, with_payment_trace: 11 });
+      expect(delivered.findings.filter((f) => f.severity === 'blocking')).toEqual([]);
+      expect(untraced(delivered).map((f) => `${f.voucher} ${f.severity}`).sort())
+        .toEqual(unpaid.map((f) => `${f.voucher} warning`).sort());
+      expect(delivered.findings.filter((f) => f.check === 'banco-en-catalogo').map((f) => `${f.voucher}|${f.severity}`))
+        .toEqual(['|warning']);
+      const xml = fs.readFileSync(file, 'utf-8');
+      expect(validateAgainstOfficialXsd(xml, 'journal')).toEqual({ valid: true, errors: [] });
+
+      // Each voucher a payment moved carries its Transferencia on the bank's
+      // line, with both national bank codes. Out of a vendor payment, we are
+      // the origin and the vendor the beneficiary; into a receipt, the
+      // customer's account is the origin and we are the beneficiary.
+      const voucher = (n: string): string =>
+        xml.split('<PLZ:Poliza ').find((block) => block.includes(`NumUnIdenPol="${n}"`)) ?? '';
+      for (const t of TRANSFERS) {
+        const node = t.payment.startsWith('V')
+          ? `<PLZ:Transferencia CtaOri="${OUR_CLABE}" BancoOriNal="${OUR_BANK_CODE}" CtaDest="${t.clabe}" BancoDestNal="${t.bank}" ` +
+            `Fecha="${t.date}" Benef="${t.name}" RFC="${t.rfc}" Monto="${t.amount}" Moneda="MXN"/>`
+          : `<PLZ:Transferencia CtaOri="${t.clabe}" BancoOriNal="${t.bank}" CtaDest="${OUR_CLABE}" BancoDestNal="${OUR_BANK_CODE}" ` +
+            `Fecha="${t.date}" Benef="${COMPANY_NAME}" RFC="${COMPANY_RFC}" Monto="${t.amount}" Moneda="MXN"/>`;
+        const block = voucher(voucherOf[t.payment]);
+        expect(block, `${t.payment} in ${voucherOf[t.payment]}`).toContain(node);
+        // One node, on the line of 1111.
+        expect(block.match(/<PLZ:(Transferencia|Cheque|OtrMetodoPago) /g), t.payment).toHaveLength(1);
+        expect(block).toMatch(/<PLZ:Transaccion NumCta="1111"[^>]*>\s*<PLZ:Transferencia /);
+      }
+      // The seven with no payment behind them carry no node at all.
+      for (const f of unpaid) expect(voucher(f.voucher), f.voucher).not.toMatch(/<PLZ:(Transferencia|Cheque|OtrMetodoPago) /);
+    }, STEP_TIMEOUT_MS);
 
     it('the two auxiliaries of the month, by account and by folio, are produced on request and validate against their XSD — MNE-001-054', () => {
       // By account: each account December moved, from its beginning to its
