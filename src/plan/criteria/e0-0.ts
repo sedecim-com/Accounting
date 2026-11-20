@@ -1823,6 +1823,45 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-platform-speaks-by-key',
+    // MNE-001-223 (issue #268, I8.6 part 1). The platform family starts with
+    // `backup`, which printed 37 Spanish strings from the code. The ones a
+    // person reads live in the I8.6 block now: what a dump or an export is and
+    // carries, the usage errors, the verdicts of `verify`, and the dry run,
+    // the confirmation and the done line of `restore` (its English, too), with
+    // ICU plurals instead of «(s)». The reason `restore` gives for not
+    // honouring a key goes by key through the kernel's slot; `writes` is
+    // English in place. The prose cells of `backup list` are English in the
+    // row and labelled in the table, so --json and csv do not change with the
+    // locale. MNE-001-224 appends audit, ai, jobs and webhook-sweep to the
+    // leaves below, under this same id.
+    enunciado:
+      'The platform family (backup so far) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue (#268, MNE-001-223)',
+    evaluar: () => familySpeaksByKey('I8.6', 'platform', ['src/cli/backup-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/backup-command.ts',
+        de: "t('platform.backup.export.not_a_backup')",
+        a: "'Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.'",
+        porque: 'string-back-in-the-code: backup export writes «no es un respaldo» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/backup-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the platform family again',
+      },
+      {
+        archivo: 'src/cli/backup-command.ts',
+        de: "{ key: 'platform.backup.restore.retry_restores' }",
+        a: "'un reintento vuelve a restaurar sobre lo ya restaurado'",
+        porque: 'string-back-in-the-code: the reason restore gives for not honouring a key is Spanish again',
+      },
+    ],
+  },
+
 
 
   {
