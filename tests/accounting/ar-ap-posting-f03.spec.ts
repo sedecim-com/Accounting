@@ -14,6 +14,7 @@ import {
   postReceiptUnapplicationEntry,
   postReceiptReversalVatEntry,
   postCustomerPaymentEntry,
+  splitNoteVatOnKept,
   type AplicacionPosterior,
 } from '../../src/services/accounting/ar-ap-posting.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
@@ -57,6 +58,8 @@ interface FakeState {
   applied?: string;
   /** MNE-001-575: IVA an invoice's collections already released from 2125, by id. */
   taken?: Record<string, string>;
+  /** MNE-001-593: the IVA each receipt's unapply kept caused on the invoice, all of it still in its pool. */
+  kept?: Record<string, string>;
 }
 
 let state: FakeState;
@@ -71,6 +74,14 @@ function fakeClient(): pg.PoolClient {
     // The collection's two guarded UPDATEs (invariant 3) find their one row.
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
     if (/^UPDATE credit_notes/.test(sql.trim())) return { rows: [], rowCount: state.noteRows };
+    // MNE-001-593: the receipts that kept the invoice's IVA on account (`issuedVatKeptOnAccount`), none restituted yet.
+    if (state.kept && sql.includes('AS marked')) {
+      return { rows: Object.entries(state.kept).map(([id, marked]) => ({ payment_id: id, payment_number: `PMT-${id}`, marked })) };
+    }
+    if (state.kept && sql.includes('AS kept')) {
+      const kept = state.kept[String(p[0])];
+      return { rows: [{ invoice_id: 'inv-9', amount: '1160.0000', plain: '1160.0000', released: kept, kept }] };
+    }
     if (state.applied !== undefined && sql.includes('AS aplicado')) return { rows: [{ aplicado: state.applied }] };
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
@@ -193,6 +204,55 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('120.0000');
     expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted \(LIVA art\. 7\)/);
     expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+  });
+
+  // MNE-001-593 (#814, decision (A)): after a plain receipt's unapply the firm still holds the cash, kept caused.
+  it('MNE-001-593 · U4: what is parked is all kept on account, so the note restitutes from 2120 and moves the kept cash\'s 32 to 2150', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P: '160.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null],
+      ['acct:iva_trasladado', '32.0000', null],
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:anticipo_clientes', null, '32.0000'],
+      ['acct:cxc', null, '232.0000'],
+    ]);
+    const owed = lineFor('acct:anticipo_clientes') as { description: string; tags?: unknown };
+    expect(owed.description).toMatch(/CN-001's reduction restituted from cash kept on account by PMT-P: now owed back/);
+    expect(owed.tags).toEqual({ kept_restitution: { payment_id: 'P', invoice_id: 'inv-9' } });
+  });
+
+  it('MNE-001-593 · two receipts kept 96 and 64: the 32 is split 19.20 / 12.80 by their share, each line tagged with its receipt', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P1: '96.0000', P2: '64.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    const owed = lines().filter((l) => l.account_id === 'acct:anticipo_clientes') as Array<{ credit_amount: string; tags?: unknown }>;
+    expect(owed.map((l) => [l.credit_amount, l.tags])).toEqual([
+      ['19.2000', { kept_restitution: { payment_id: 'P1', invoice_id: 'inv-9' } }],
+      ['12.8000', { kept_restitution: { payment_id: 'P2', invoice_id: 'inv-9' } }],
+    ]);
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('32.0000');
+  });
+
+  it.each([
+    ['U4: all 160 parked is kept', '160', '160', ['0.0000', '32.0000', '32.0000']],
+    ['U4w: the 80 parked is all kept', '80', '80', ['0.0000', '32.0000', '32.0000']],
+    ['U4p: 80 of 160 kept, the other 80 still uncollected takes the note', '160', '80', ['32.0000', '0.0000', '0.0000']],
+    ['nothing kept: 575 as it was', '20', '0', ['20.0000', '12.0000', '0.0000']],
+    ['kept beyond what is parked counts only what is parked', '16', '160', ['0.0000', '32.0000', '16.0000']],
+  ] as const)('MNE-001-593 · the split with H, %s', (_case, parked, kept, [fromPending, fromCreditable, fromKept]) => {
+    expect(splitNoteVatOnKept('32', parked, kept)).toEqual({ fromPending, fromCreditable, fromKept });
   });
 
   it('sobre factura PUE el IVA vuelve de la cuenta causada', async () => {
