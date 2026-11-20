@@ -51,6 +51,11 @@ function fakeClient(
     bankCurrency?: string;
     /** The cxc debit the invoice was born with (none: the invoice entry is not found). */
     bornDebit?: string;
+    /** MNE-001-597 · the payment's rows that have not stored their discount's VAT. */
+    discounts?: Array<Record<string, string>>;
+    /** MNE-001-597 · what the bill's entries parked in 1135, and what its live rows stored. */
+    parked?: string;
+    released?: string;
   } = {}
 ): pg.PoolClient {
   const query = async (
@@ -78,6 +83,9 @@ function fakeClient(
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) {
       return { rows: [], rowCount: opts.paymentUpdateRows ?? 1 };
     }
+    if (sql.includes('AS taken')) return { rows: opts.discounts ?? [] };
+    if (sql.includes('AS parked')) return { rows: [{ parked: opts.parked ?? '0' }] };
+    if (sql.includes('AS released')) return { rows: [{ released: opts.released ?? '0' }] };
     if (sql.includes('AS born')) {
       return { rows: [{ born: opts.bornDebit ?? null }] };
     }
@@ -235,6 +243,38 @@ describe('postVendorPaymentEntry · la mitad realizada de NIF B-15', () => {
     expect(desc?.exchange_rate).toBe('17.0000000000');
     // Banco: 980 × 17.50 = 17150.
     expect(de('acct:banco-gl')?.credit_amount).toBe('17150.0000');
+    cuadre();
+  });
+
+  it('MNE-001-597 · the discount\'s VAT leaves 1135 at the bill\'s rate, as a functional pair beside the FX discount line', async () => {
+    // USD 100 + 16 at 20.0000 parked 320.0000; paid USD 110.20 + 5.80 of
+    // discount at 19.50. The release took 15.20 × 20 = 304.0000, so 16.0000
+    // is left, and the discount's USD 0.80 of VAT × 20 is exactly that.
+    await postVendorPaymentEntry(
+      fakeClient({
+        parked: '320.0000', released: '304.0000',
+        discounts: [{ id: 'app-1', bill_id: 'b1', bill_number: 'B-1', taken: '5.8000', tax_amount: '16.0000',
+          total_amount: '116.0000', amount_due: '0.0000', exchange_rate: '20.0000000000' }],
+      }),
+      pago({ payment_amount: '110.2000' }),
+      USER,
+      contexto({
+        tasaPago: '19.5000000000',
+        aplicaciones: [
+          { billId: 'b1', numero: 'B-1', aplicado: '110.20', descuento: '5.80', tasaHistorica: '20.0000000000' },
+        ],
+      })
+    );
+
+    const discountLines = lines().filter((l) => l.account_id === 'acct:devolucion_compras');
+    // The FX line keeps the gross discount at the bill's rate, 5.80 × 20.
+    expect(discountLines[0]).toMatchObject({ credit_amount: '116.0000', foreign_credit: '5.8000', currency_code: 'USD' });
+    // The pair takes its VAT off it, in pesos by declaration: 5200 nets 100.00.
+    expect(discountLines[1]).toMatchObject({ debit_amount: '16.0000', credit_amount: null });
+    expect(discountLines[1].currency_code).toBeUndefined();
+    expect(de('acct:iva_pendiente_acreditar')).toMatchObject({ credit_amount: '16.0000', debit_amount: null });
+    const stored = sqlLog.filter((q) => q.sql.includes('SET discount_iva_amount')).map((q) => q.params);
+    expect(stored).toEqual([['16.0000', 'app-1']]);
     cuadre();
   });
 

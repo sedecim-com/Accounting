@@ -98,6 +98,10 @@ function fakeClient(): pg.PoolClient {
       };
     }
     if (sql.includes('FOR UPDATE OF pa')) return { rows: (state.unreleased ?? []).map((id) => ({ id })) };
+    // MNE-001-597 · no application here takes an early-payment discount: the
+    // rows that store the discount's VAT read as none. Checked BEFORE the
+    // generic branch, whose rows have another shape.
+    if (sql.includes('AS taken')) return { rows: [] };
     if (sql.includes('FROM payment_allocations pa') || sql.includes('FROM payment_applications pa')) {
       return { rows: state.applied };
     }

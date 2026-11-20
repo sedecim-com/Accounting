@@ -17,6 +17,7 @@ import {
   ivaStillParked,
   receivedVatStillParked,
   entityUsesCashBasisIva,
+  discountVatShare,
 } from '../../src/services/accounting/iva-cash-basis.js';
 
 // ============================================================
@@ -341,6 +342,55 @@ describe('receivedVatStillParked: the cap minus what the live applications relea
     expect(sql).toContain('pa.unapplied_at IS NULL');
     expect(sql).toContain('b.entity_id = $1');
     expect(call?.[1]).toEqual([ENTITY, BILL]);
+  });
+
+  it('MNE-001-597: also nets the VAT the live applications\' discounts took out of 1135', async () => {
+    const c = client('160.0000', '0');
+    await receivedVatStillParked(c as never, ENTITY, BILL);
+    const call = c.query.mock.calls.find(([sql]) => /FROM payment_applications/.test(sql));
+    expect(String(call?.[0]).replace(/\s+/g, ' ')).toContain('SUM(pa.discount_iva_amount)');
+  });
+});
+
+// ============================================================
+// MNE-001-597 · THE VAT OF AN EARLY-PAYMENT DISCOUNT
+//
+// Bill 1,000.00 + 160.00 = 1,160.00. A discount of 58.00 carries
+// 58 × 160 / 1,160 = 8.0000 of VAT; one of 20.00 carries 2.758620… → 2.7586.
+// ============================================================
+
+describe('discountVatShare: the discount\'s VAT, never creditable, capped by what is parked', () => {
+  const bill = { taxAmount: '160.0000', totalAmount: '1160.0000' };
+
+  it('is the discount times the VAT over the total, at four decimals', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0000', closes: true })).toBe('8.0000');
+    expect(discountVatShare({ ...bill, discount: '20.00', remainder: '160.0000', closes: false })).toBe('2.7586');
+  });
+
+  it('never takes more than the bill still has parked', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '5.0000', closes: false })).toBe('5.0000');
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '-1.0000', closes: false })).toBe('0.0000');
+  });
+
+  it('at closing it takes a rounding remainder of a cent or less, and only the share when more is parked', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0001', closes: true })).toBe('8.0001');
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '7.9950', closes: true })).toBe('7.9950');
+    // A held cheque's cash share is still parked: 160 is not a rounding gap.
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '160.0000', closes: true })).toBe('8.0000');
+    // Without closing, a remainder close to the share is not swept either.
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0001', closes: false })).toBe('8.0000');
+  });
+
+  it('in another currency the share is converted at the bill\'s rate', () => {
+    // USD 5.80 of discount on USD 100 + 16: USD 0.80 of VAT × 20.0000 = 16.0000.
+    expect(discountVatShare({
+      discount: '5.80', taxAmount: '16.00', totalAmount: '116.00', remainder: '16.0000', closes: true, rate: '20.0000',
+    })).toBe('16.0000');
+  });
+
+  it('nothing for no discount or a bill with no total', () => {
+    expect(discountVatShare({ ...bill, discount: '0', remainder: '160.0000', closes: true })).toBe('0.0000');
+    expect(discountVatShare({ discount: '10', taxAmount: '0', totalAmount: '0', remainder: '0', closes: true })).toBe('0.0000');
   });
 });
 

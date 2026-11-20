@@ -10,7 +10,8 @@ export * from './section.js';
 export { InfraSection, upsertEnvVar, readEnvVar } from './s0-infra.js';
 export { IdentidadSection } from './s1-identity.js';
 export { UsuariosSection, ROLES } from './s2-users.js';
-export { IaSection, KEY_URLS } from './s3-ai.js';
+export { IaSection } from './s3-ai.js';
+export { KEY_URLS } from '../../ai/providers/credential-state.js';
 export { PoliciesSection } from './s4-policies.js';
 export { ImportSection, XML_FIRST_RUN_CAP } from './s5-import.js';
 
