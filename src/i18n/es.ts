@@ -64,6 +64,36 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-152 · el 422 de validateBody y validateQuery, una clave por issue de Zod; see en.ts ----
+  'error.VALIDATION_ERROR.body': 'Cuerpo de la petición inválido: {issues}',
+  'error.VALIDATION_ERROR.query': 'Parámetro de consulta inválido: {name}: {issues}',
+  'error.VALIDATION_ERROR.issue.required': 'Obligatorio',
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Se esperaba un número entero y llegó uno con decimales',
+  'error.VALIDATION_ERROR.issue.not_finite': 'El número debe ser finito',
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Se esperaba {expected} y llegó {received}',
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Valor literal inválido: se esperaba {expected}',
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Valor no admitido. Se esperaba {expected} y llegó '{received}'",
+  'error.VALIDATION_ERROR.issue.invalid_format':
+    '{format, select, regex {Formato inválido} other {Formato {format} inválido}}',
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Entrada inválida: debe {affix, select, starts_with {empezar con} ends_with {terminar con} other {incluir}} "{value}"',
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {al menos} other {más de}} {minimum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'El número debe ser {bound, select, exact {exactamente igual a} inclusive {mayor o igual que} other {mayor que}} {minimum}',
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'El arreglo debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# elemento} other {# elementos}}',
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'La cadena debe tener {bound, select, exact {exactamente} inclusive {como máximo} other {menos de}} {maximum, plural, one {# carácter} other {# caracteres}}',
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'El número debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'El BigInt debe ser {bound, select, exact {exactamente} inclusive {menor o igual que} other {menor que}} {maximum}',
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'El número debe ser múltiplo de {divisor}',
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Claves que el objeto no admite: {keys}',
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Entrada inválida',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
