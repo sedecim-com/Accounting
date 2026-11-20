@@ -56,6 +56,8 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('INVOICE_CHANGED')`: a collection's invoice UPDATE matched no row (MNE-001-580). */
+  'error.INVOICE_CHANGED': '{invoice} changed under this collection; nothing was written.',
   /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
   'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
