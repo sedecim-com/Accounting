@@ -14,6 +14,7 @@ import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
 import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
+import { advanceBackOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
 
 // ============================================================
 // LOS TRES ASIENTOS DE TESORERÍA (F05d · 055)
@@ -1983,6 +1984,9 @@ interface CheckReceiptRow {
   check_cashed_tx_id: string | null;
   /** MNE-001-458 · the IVA of an advance, which a cheque's receipt entry left in 2150. */
   advance_iva: string | null;
+  /** MNE-001-572 · the receipt's treatment, at which the cash an unapply put back carries its IVA. */
+  advance_factor_type: string | null;
+  advance_tax_rate: string | null;
 }
 
 interface BankCreditRow {
@@ -2067,7 +2071,8 @@ export async function recordCustomerChecksCashing(
               TRIM(cp.currency_code) AS currency, TRIM(e.functional_currency) AS functional_currency,
               cp.status, cp.bank_account_id,
               cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id,
-              cp.advance_iva_amount::text AS advance_iva
+              cp.advance_iva_amount::text AS advance_iva,
+              cp.advance_factor_type, cp.advance_tax_rate::text AS advance_tax_rate
          FROM customer_payments cp
          JOIN legal_entities e ON e.id = cp.entity_id
         WHERE cp.id = ANY($1::uuid[]) AND cp.entity_id = $2
@@ -2323,7 +2328,11 @@ async function pendingRelease(
   const functional = receipt.currency === receipt.functional_currency;
   // An advance is refused in another currency, and before MNE-001-558 one by
   // cheque was refused whole, so a stored IVA here is one no entry caused.
-  const advance = functional ? new Decimal(receipt.advance_iva ?? '0') : new Decimal(0);
+  // MNE-001-572 · so is the IVA of the cash its unapplies put back as an
+  // advance while it was held, which they left whole in 2150 too.
+  const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
+  const back = functional && treatment !== null ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva : '0';
+  const advance = functional ? new Decimal(receipt.advance_iva ?? '0').plus(back) : new Decimal(0);
   const shares = functional && cashBasis ? await ivaReclassificationsFor(client, 'issued', entityId, receipt.id) : [];
   const releases: PendingRelease[] = [];
   for (const share of shares) {
