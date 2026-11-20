@@ -251,16 +251,75 @@ export function capKept(kept: readonly string[], cap: string): string[] {
   const sum = kept.reduce((s, k) => s.plus(k), new Decimal(0));
   const limit = Decimal.max(new Decimal(cap), 0);
   if (sum.lessThanOrEqualTo(limit)) return [...kept];
-  const last = kept.reduce((at, k, i) => (new Decimal(k).greaterThan(0) ? i : at), -1);
+  return shareBy(kept, limit);
+}
+
+/**
+ * `amount` split across rows by their `weights`, at four decimals, half up,
+ * the last row with any weight taking the remainder, so the shares add up to
+ * it. A row with no weight gets 0, and so do all when no row has any.
+ */
+function shareBy(weights: readonly string[], amount: Decimal): string[] {
+  const sum = weights.reduce((s, w) => s.plus(Decimal.max(new Decimal(w), 0)), new Decimal(0));
+  const last = weights.reduce((at, w, i) => (new Decimal(w).greaterThan(0) ? i : at), -1);
   let given = new Decimal(0);
-  return kept.map((k, i) => {
-    if (!new Decimal(k).greaterThan(0)) return new Decimal(0).toFixed(4);
+  return weights.map((w, i) => {
+    if (!new Decimal(w).greaterThan(0) || !sum.greaterThan(0)) return new Decimal(0).toFixed(4);
     const share = i === last
-      ? limit.minus(given)
-      : new Decimal(k).times(limit).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      ? amount.minus(given)
+      : new Decimal(w).times(amount).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
     given = given.plus(share);
     return share.toFixed(4);
   });
+}
+
+/**
+ * MNE-001-592 (#814, decision (A) on #792) · After a credit note, what an
+ * unapply's cash carries back. Of the IVA the rows `released`, `noteKept`
+ * stays in 2120 (`keptAfterNotes`) and `back` goes back to 2125. Of the
+ * advance IVA they would restore (`advanceIva`: their c plus their
+ * `backAsAdvance` IVA), what the note restituted is not caused again: no
+ * more than `noteKept`, because the note reduced the consideration and
+ * restituted its IVA (LIVA art. 7) and no money is received again (art. 1-B).
+ * `kept` is what the cash still carries back on account. The cap is the
+ * note's, not `back`: when the advance's rate is above the invoice's, c − g
+ * stays caused, as MNE-001-461 keeps it.
+ */
+export function restitutedOf(
+  advanceIva: Decimal.Value,
+  released: Decimal.Value,
+  noteKept: Decimal.Value
+): { restituted: string; kept: string; back: string } {
+  const advance = Decimal.max(new Decimal(advanceIva), 0);
+  const note = Decimal.max(new Decimal(noteKept), 0);
+  const restituted = Decimal.min(advance, note);
+  return {
+    restituted: restituted.toFixed(4),
+    kept: advance.minus(restituted).toFixed(4),
+    back: Decimal.max(new Decimal(released).minus(note), 0).toFixed(4),
+  };
+}
+
+/**
+ * MNE-001-592 · Each closing row's share of `restituted`, by the advance IVA
+ * it carried back (`weights`: its c plus its `backAsAdvance` IVA), which the
+ * row stores (`unapply_restituted_iva_amount`, migration 342).
+ */
+export function restitutedByRow(weights: readonly string[], restituted: string): string[] {
+  return shareBy(weights, Decimal.max(new Decimal(restituted), 0));
+}
+
+/**
+ * MNE-001-592 · The cash a restituted IVA covers on the invoice it was
+ * applied to: restituted × the invoice's total / its tax, at four decimals,
+ * half up. That cash is a balance owed back to the customer and carries no
+ * IVA, so it leaves the advance (`advanceLeft`). An invoice with no IVA
+ * covers nothing.
+ */
+export function coveredCashOf(restituted: Decimal.Value, invoiceTotal: Decimal.Value, invoiceTax: Decimal.Value): string {
+  const tax = new Decimal(invoiceTax);
+  if (!tax.greaterThan(0)) return '0.0000';
+  return new Decimal(restituted).times(invoiceTotal).dividedBy(tax).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
 }
 
 /**
