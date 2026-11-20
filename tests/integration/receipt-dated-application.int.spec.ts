@@ -273,7 +273,7 @@ describe('the allocation\'s day where nobody gave one', () => {
   });
 });
 
-describe('MNE-001-504 · the IEPS a PPD application moved goes back on the unapply\'s day', () => {
+describe('MNE-001-504 · the IEPS a PPD application moved, and the unapply\'s day', () => {
   /** A dated entry's lines on 2180 and 2181, each as [debit, credit]. */
   async function iepsLinesOf(entryNumber: string): Promise<Record<string, [string, string]>> {
     const r = await query<{ code: string; debit: string; credit: string }>(
@@ -289,7 +289,8 @@ describe('MNE-001-504 · the IEPS a PPD application moved goes back on the unapp
     return Object.fromEntries(r.rows.map((l) => [l.code, [l.debit, l.credit] as [string, string]]));
   }
 
-  it('unapply --date of a PPD application whose invoice parked IEPS re-parks it on an entry dated that day', async () => {
+  // MNE-001-574 (#792): the unapply moves no money, so the IEPS stays caused with the IVA (LIEPS art. 5o.-C).
+  it('unapply --date of a PPD application whose invoice parked IEPS posts on that day and keeps the IEPS caused', async () => {
     // 2181 and its role come from the seed (MNE-001-505). The invoice of
     // #669 posts CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80.
     const seeded = await query<{ account_id: string }>(
@@ -317,7 +318,7 @@ describe('MNE-001-504 · the IEPS a PPD application moved goes back on the unapp
     const undone = await receipt(['unapply', pmt, '--invoice', inv.invoice_number, '--reason', 'wrong sale', '--date', '2026-08-10']);
     expect(undone.date).toBe('2026-08-10');
     expect(await entryDate(undone.entry_number)).toBe('2026-08-10');
-    expect(await iepsLinesOf(undone.entry_number)).toEqual({ '2180': ['80.0000', '0.0000'], '2181': ['0.0000', '80.0000'] });
+    expect(await iepsLinesOf(undone.entry_number)).toEqual({});
     expect(await allocations(pmt)).toEqual([{ applied_on: '2026-08-05', unapplied_on: '2026-08-10' }]);
   });
 });

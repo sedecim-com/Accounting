@@ -2523,6 +2523,8 @@ export const EN = {
     'The panel key {key} says defer_to_cashing, which nets the advance\'s IVA against the share a PPD invoice releases on the cashing day. {invoice} is a PUE invoice at another treatment than the receipt {receipt}: it releases no share, and applying it now would cancel {iva} of IVA nobody has caused (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it. Nothing was written.',
   'receipt.unapply.iva_at_cashing':
     'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
+  // MNE-001-574 (#792): a plain receipt's unapply keeps the IVA its collection caused.
+  'receipt.unapply.iva_kept': 'IVA kept caused {iva} (LIVA art. 1-B)',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.

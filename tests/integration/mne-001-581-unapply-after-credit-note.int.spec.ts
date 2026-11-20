@@ -20,25 +20,34 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 // One entity per story, every invoice PPD at 16 % dated 2026-10-03, every
 // document posted by the real services. Balances are credit balances.
 //
+//   MNE-001-574 (#792, decision (A)): a receipt with no treatment keeps
+//   caused what goes back to 2125, the note's restitution standing (LIVA
+//   art. 7), so its unapply has no 2120 line; the figures below are after it.
+//
 //   U1  S 1,000 + 160 collected 1,160 10-05 (releases 160); N 200 + 32 10-10
 //       (575: from 2120); unapply 10-15 → the open balance 1,160 − 232 = 928
-//       carries 160 × 928 / 1,160 = 128: DR 2120 128 / CR 2125 128, 32 kept.
-//       2125 128, 2120 160 − 32 − 128 = 0. Today 160 and −32.
+//       carries 160 × 928 / 1,160 = 128: CR 2125 128, 32 kept out of it, and
+//       the cash keeps 128 caused: CR 2150 1,160 − 128 = 1,032, no 2120 line.
+//       2125 128, 2120 160 − 32 = 128.
 //   U1b U1, N applied 232, 928 collected 10-20 (releases 128): 2125 0, 2120
-//       128 = 928 × 16 / 116. Today 32 and 96.
+//       128 + 128 = 256, the first receipt's 1,160 still on account with 128.
+//   U1n U1, N applied 232, the 1,160 on account applied 928 on 11-05: it takes
+//       128 × 928 / 1,160 = 102.40 against the 128 it releases, CR 2120 25.60;
+//       2125 0, 2120 153.60, and 232 stay on account carrying 25.60.
 //   U2  S 100 + 16 collected 116; N 100 + 16 (2120 16); unapply → the open
 //       balance is 0: no IVA line, 2125 0, 2120 0. Today 16 and −16.
 //   U3  S 1,160; N 200 + 32 applied (2125 32); 928 collected (releases 128);
-//       unapply → 128 back, as today: 2125 128, 2120 0.
-//   U4  S 1,160 collected; unapply (160 back, no note yet); N 200 + 32 (575:
-//       2125 32) → 2125 128, 2120 0, as today.
+//       unapply → 128 back and 128 kept: 2125 128, 2120 128.
+//   U4  S 1,160 collected; unapply (160 back and kept, no note yet); N 200 +
+//       32 (575: 2125 32) → 2125 128, 2120 160.
 //   U5  S 1,160; R1 580 and R2 580 (80 each); N 200 + 32 (2120 32); unapply
-//       R1 → 160 × 928 / 1,160 − 80 = 48 back (2125 48, 2120 80); unapply R2
-//       → 2125 read 48 (capped from 80), 128 − 48 = 80 back (2125 128, 2120
-//       0). Today 80 / 48, then 160 / −32.
+//       R1 → 160 × 928 / 1,160 − 80 = 48 back and kept (2125 48, 2120 128);
+//       unapply R2 → 2125 read 48 (capped from 80), 128 − 48 = 80 back and
+//       kept (2125 128, 2120 128).
 //   U6  S 1,160; 580 by wire (80) and 580 by a cheque not cashed (0, MNE-001-556);
 //       N 200 + 32 (2125 32: 48 left); unapply the wire → the cheque's cash is
-//       still owed, so 1,160 − 232 carries 128: 80 back, 2125 128, 2120 0.
+//       still owed, so 1,160 − 232 carries 128: 80 back and kept, 2125 128,
+//       2120 80.
 //   A1  a 116 receipt recorded as a 16 % advance (2120 16), applied to S 100
 //       + 16 (2125 −16, 2120 net 0); N 100 + 16 (2120 16); unapply → DR 1120
 //       116 / CR 2150 100 / CR 2120 16, no 2125 line: 2125 0, 2120 16, the
@@ -167,19 +176,19 @@ async function collectedNotedUnapplied(name: string) {
 }
 
 describe('an unapply after a credit note re-parks only the IVA of the balance owed again (LIVA arts. 1-B and 7)', () => {
-  it('U1 · collected whole, a partial note: 128 goes back to 2125, 32 stays in 2120, and October names the 128 it re-parked', async () => {
+  it('U1 · collected whole, a partial note: 128 goes back to 2125 and stays caused on the cash, 32 stays out, and October ties out', async () => {
     const { b, n, undone } = await collectedNotedUnapplied('U1');
-    expect(undone.ivaReAparcado).toBe('128.0000');
+    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '128.0000']);
     const entry = await linesOf(b, undone.journalEntry.id);
-    expect(entry.net).toEqual({ '1120': '1160.00', '2150': '-1160.00', '2120': '128.00', '2125': '-128.00' });
+    expect(entry.net).toEqual({ '1120': '1160.00', '2150': '-1032.00', '2125': '-128.00' });
     expect(entry.text).toContain(`kept in iva_trasladado: 32.0000 restituted by credit note ${n}`);
     expect(entry.text).toContain('the reopened balance carries 128.0000');
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
 
     const wp = await october(b);
-    // 1,000 / 160 collected, less the note's 200 / 32; the unapply nets 0 (MNE-001-518 rule 1).
+    // 1,000 / 160 collected, less the note's 200 / 32; the unapply ends 128 and puts the same 128 back on account.
     expect(at16(wp)).toEqual({ base: '800.00', iva: '128.00' });
-    expect(gap(wp)?.mensaje).toContain('el IVA de 128.0000 sigue causado');
+    expect(gap(wp)).toBeUndefined();
   }, 120_000);
 
   it('U1b · then the note is applied and the 928 left is collected: it releases 128 and 2125 ends at 0', async () => {
@@ -189,7 +198,26 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     )).rows[0].id;
     await applyCreditNote(b.f.entityId, id, [{ invoiceId: s, amount: '232.00' }], b.f.userId);
     await collect(b, s, '928.00', day(20));
-    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '128.00' });
+    // The first receipt's 1,160 is still on account, carrying the 128 it kept (MNE-001-574).
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '256.00' });
+  }, 120_000);
+
+  // The combined rule's known effect (#792, decision (A)), recorded as a follow-up: the pool carries
+  // 128 over 1,160, so the 928 it pays takes 102.40, not the 128 it releases, and the 232 the note
+  // covers keeps 25.60 on account until it is applied or returned.
+  it('U1n · then the note is applied and the cash on account pays the 928: 2120 rises by 25.60, and November ties out', async () => {
+    const { b, s, n, receipt } = await collectedNotedUnapplied('U1n');
+    const id = (await query<{ id: string }>(
+      `SELECT id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [b.f.entityId, n]
+    )).rows[0].id;
+    await applyCreditNote(b.f.entityId, id, [{ invoiceId: s, amount: '232.00' }], b.f.userId);
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: '2026-11-05' });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '825.60', '2125': '128.00', '1120': '-928.00', '2120': '-25.60' });
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '153.60' });
+    const november = await buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: 2026, month: 11 });
+    expect(Number(november.figures.charged.tasa16.iva).toFixed(2)).toBe('25.60');
+    expect(gap(november)).toBeUndefined();
+    expect(gap(await october(b))).toBeUndefined();
   }, 120_000);
 
   it('U2 · the issue\'s own example: a note for the whole invoice leaves nothing to re-park, and October\'s tie-out is silent', async () => {
@@ -209,25 +237,25 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     expect(gap(wp)).toBeUndefined();
   }, 120_000);
 
-  it('U3 · a note posted before the collection already left 2125: the unapply re-parks all it released, as before', async () => {
+  it('U3 · a note posted before the collection already left 2125: all the release goes back and stays caused on the cash', async () => {
     const b = await book('U3');
     const s = await sale(b, '1000.00');
     await note(b, s, '200.00', '32.00', '232.00');
     const receipt = await collect(b, s, '928.00');
     const undone = await unapply(b, receipt.paymentId, s);
-    expect(undone.ivaReAparcado).toBe('128.0000');
-    expect((await linesOf(b, undone.journalEntry.id)).net).toMatchObject({ '2120': '128.00', '2125': '-128.00' });
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '128.0000']);
+    expect((await linesOf(b, undone.journalEntry.id)).net).toEqual({ '1120': '928.00', '2150': '-800.00', '2125': '-128.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
   }, 120_000);
 
-  it('U4 · an unapply before the note re-parks it all, and the note then takes its IVA from 2125', async () => {
+  it('U4 · an unapply before the note keeps it all caused, and the note then takes its IVA from 2125', async () => {
     const b = await book('U4');
     const s = await sale(b, '1000.00');
     const receipt = await collect(b, s, '1160.00');
     const undone = await unapply(b, receipt.paymentId, s, day(8));
-    expect(undone.ivaReAparcado).toBe('160.0000');
+    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '160.0000']);
     await note(b, s, '200.00', '32.00');
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '160.00' });
   }, 120_000);
 
   it('U5 · two receipts: the second unapply reads 2125 at the open balance\'s 48, not the 80 its release would say', async () => {
@@ -236,10 +264,12 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     const r1 = await collect(b, s, '580.00');
     const r2 = await collect(b, s, '580.00', day(6));
     await note(b, s, '200.00', '32.00');
-    expect((await unapply(b, r1.paymentId, s)).ivaReAparcado).toBe('48.0000');
-    expect(await vat(b)).toEqual({ '2125': '48.00', '2120': '80.00' });
-    expect((await unapply(b, r2.paymentId, s, day(16))).ivaReAparcado).toBe('80.0000');
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+    const first = await unapply(b, r1.paymentId, s);
+    expect([first.ivaReAparcado, first.ivaKeptCaused]).toEqual(['0.0000', '48.0000']);
+    expect(await vat(b)).toEqual({ '2125': '48.00', '2120': '128.00' });
+    const second = await unapply(b, r2.paymentId, s, day(16));
+    expect([second.ivaReAparcado, second.ivaKeptCaused]).toEqual(['0.0000', '80.0000']);
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
   }, 120_000);
 
   it('U6 · a cheque not cashed yet still holds its IVA in 2125, so its cash is part of the balance owed', async () => {
@@ -255,8 +285,9 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     // 160 − 80 released by the wire − 32 by the note; the cheque released nothing.
     expect(await vat(b)).toEqual({ '2125': '48.00', '2120': '80.00' });
     // Open again: 1,160 − 232, the cheque's 580 included, carries 128, so the wire's 80 all goes back.
-    expect((await unapply(b, wire.paymentId, s)).ivaReAparcado).toBe('80.0000');
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+    const undone = await unapply(b, wire.paymentId, s);
+    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '80.0000']);
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '80.00' });
   }, 120_000);
 
   it('A1 · an advance (MNE-001-461): nothing goes back to 2125, and the advance\'s 16 comes back whole to 2120', async () => {

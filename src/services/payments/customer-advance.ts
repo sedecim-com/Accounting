@@ -160,6 +160,71 @@ export async function advanceBackOnAccount(
 }
 
 /**
+ * MNE-001-574 (#792) · The cash a receipt with no treatment has back on
+ * account carrying IVA its collection caused: the plain cash of the closed
+ * allocations whose unapply kept that IVA, and the IVA each stored
+ * (`unapply_kept_iva_amount`, migration 338), never a recomputation. A later
+ * application takes from it as from an advance (`takeFromAdvance`), so the
+ * IVA is cancelled against the share it releases instead of caused again
+ * (LIVA art. 1-B). Entity-scoped in the SQL.
+ */
+export async function keptOnAccount(
+  client: pg.PoolClient,
+  entityId: string,
+  receiptId: string
+): Promise<{ cash: string; iva: string }> {
+  const r = await client.query<{ cash: string; iva: string }>(
+    `SELECT COALESCE(SUM(pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount), 0)::text AS cash,
+            COALESCE(SUM(pa.unapply_kept_iva_amount), 0)::text AS iva
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount IS NOT NULL`,
+    [receiptId, entityId]
+  );
+  return { cash: new Decimal(r.rows[0]?.cash ?? 0).toFixed(4), iva: new Decimal(r.rows[0]?.iva ?? 0).toFixed(4) };
+}
+
+/**
+ * MNE-001-574 · The IVA one allocation's unapply keeps caused: the share of
+ * its stored release that its plain cash carried, g × plain / amount at four
+ * decimals, half up, so a row that took no advance keeps g whole. A row with
+ * no stored release (written before 049) keeps nothing and is estimated and
+ * re-parked as before.
+ */
+export function keptIvaOf(row: { amount: string; plain: string; released: string | null }): string {
+  if (row.released === null) return '0.0000';
+  const released = new Decimal(row.released);
+  const plain = new Decimal(row.plain);
+  if (!released.greaterThan(0) || !plain.greaterThan(0)) return '0.0000';
+  if (plain.greaterThanOrEqualTo(row.amount)) return released.toFixed(4);
+  return released.times(plain).dividedBy(row.amount).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+/**
+ * MNE-001-574 with MNE-001-581 (#792, decision (A)) · The rows' kept IVA,
+ * capped at `cap`: after a credit note the cash keeps caused only what goes
+ * back to 2125 for the balance owed again (LIVA art. 7: the note's
+ * restitution stands). Each row keeps its share of the cap, at four decimals,
+ * the last row that keeps any taking the remainder, so the rows add up to it.
+ * Under the cap the rows are returned as they are.
+ */
+export function capKept(kept: readonly string[], cap: string): string[] {
+  const sum = kept.reduce((s, k) => s.plus(k), new Decimal(0));
+  const limit = Decimal.max(new Decimal(cap), 0);
+  if (sum.lessThanOrEqualTo(limit)) return [...kept];
+  const last = kept.reduce((at, k, i) => (new Decimal(k).greaterThan(0) ? i : at), -1);
+  let given = new Decimal(0);
+  return kept.map((k, i) => {
+    if (!new Decimal(k).greaterThan(0)) return new Decimal(0).toFixed(4);
+    const share = i === last
+      ? limit.minus(given)
+      : new Decimal(k).times(limit).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+    given = given.plus(share);
+    return share.toFixed(4);
+  });
+}
+
+/**
  * MNE-001-572 · Whether applying a held cheque's advance would cancel IVA
  * nobody has caused (LIVA art. 1-B, second paragraph): the cash takes IVA
  * from the advance (c > 0) while the cheque is not cashed, and the invoice's

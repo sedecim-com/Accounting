@@ -29,8 +29,8 @@ import {
 } from '../accounting/iva-cash-basis.js';
 import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
-  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, splitAdvance,
-  storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
+  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf,
+  keptOnAccount, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
 import { treatmentOfSales } from '../fiscal/sale-sources.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
@@ -1420,6 +1420,10 @@ async function receiptEventDate(
  * allocations that took none, and their IVA at the receipt's treatment. Its
  * cash on account is then all advance: `plain` is 0 whenever the record-time
  * cash is applied or back on account, and stays a guard, not a case.
+ *
+ * MNE-001-574 · On a receipt with none, the advance is the cash its unapplies
+ * put back carrying the IVA they kept caused (`keptOnAccount`), and null
+ * while there is none, so such a receipt behaves as before until then.
  */
 async function advanceLeft(
   client: pg.PoolClient,
@@ -1427,9 +1431,17 @@ async function advanceLeft(
   receipt: PagoVivo,
   onAccount: Decimal
 ): Promise<Omit<AdvanceTake, 'applied'> | null> {
-  if (receipt.advance_base_amount === null || receipt.advance_iva_amount === null) return null;
-  const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
-  if (treatment === null) return null;
+  const treatment = receipt.advance_base_amount === null || receipt.advance_iva_amount === null
+    ? null
+    : storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
+  const stored = treatment === null ? { cash: '0', iva: '0' } : {
+    cash: new Decimal(receipt.advance_base_amount as string).plus(receipt.advance_iva_amount as string).toFixed(4),
+    iva: receipt.advance_iva_amount as string,
+  };
+  const back = treatment === null
+    ? await keptOnAccount(client, entityId, receipt.id)
+    : await advanceBackOnAccount(client, entityId, receipt.id, treatment);
+  if (treatment === null && !new Decimal(back.cash).greaterThan(0)) return null;
   const live = (await client.query<{ taken: string; cancelled: string }>(
     `SELECT (pa.advance_base_amount + pa.advance_iva_amount)::text AS taken, pa.advance_iva_amount::text AS cancelled
        FROM payment_allocations pa
@@ -1437,12 +1449,11 @@ async function advanceLeft(
       WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL`,
     [receipt.id, entityId]
   )).rows;
-  const back = await advanceBackOnAccount(client, entityId, receipt.id, treatment);
-  const total = new Decimal(receipt.advance_base_amount).plus(receipt.advance_iva_amount).plus(back.cash);
+  const total = new Decimal(stored.cash).plus(back.cash);
   const consumed = live.reduce((s, x) => s.plus(x.taken), new Decimal(0));
   return {
     total: total.toFixed(4),
-    iva: new Decimal(receipt.advance_iva_amount).plus(back.iva).toFixed(4),
+    iva: new Decimal(stored.iva).plus(back.iva).toFixed(4),
     consumed: consumed.toFixed(4),
     cancelled: live.reduce((s, x) => s.plus(x.cancelled), new Decimal(0)).toFixed(4),
     plain: Decimal.max(onAccount.minus(total.minus(consumed)), 0).toFixed(4),
@@ -1889,6 +1900,8 @@ export interface ResultadoDesaplicacion {
   iepsReparked: string;
   /** MNE-001-572 · The IVA of the cash put back as an advance that the cheque's cashing will cause; 0.00 otherwise. */
   ivaAtCashing: string;
+  /** MNE-001-574 · The IVA the rows' plain cash keeps caused, back on account with it (LIVA art. 1-B); 4 dp. */
+  ivaKeptCaused: string;
 }
 
 /**
@@ -1938,9 +1951,20 @@ async function keptAfterNotes(
  * the rows released, which goes back to 2125 because the invoice is owed
  * again; `ivaReAparcado` is only what leaves 2120, 0 when the two are equal.
  *
+ * MNE-001-574 (#792): on a receipt with no treatment, the share a row's plain
+ * cash released stays caused too (LIVA art. 1-B; the owner's «Mantener
+ * causado» of 19 Nov 2026, #623): the cash goes back to 2150 for its base,
+ * the row stores what it kept (`unapply_kept_iva_amount`), and a later
+ * application nets it (`keptOnAccount`). The IEPS stays caused with it.
+ *
  * MNE-001-581: after a credit note linked to the invoice, what goes back to
  * 2125 is only what brings it to the IVA of the balance owed again; the rest
  * of the release stays in 2120, where the note restituted it (`keptAfterNotes`).
+ *
+ * The two together (#792, decision (A)): the note's restitution stands (LIVA
+ * art. 7), so the cash keeps caused at most what went back to 2125, net of
+ * the IVA its taken advance carries (`capKept`); the cash the note covers is
+ * a balance owed back, not consideration, and carries none.
  */
 export async function unapplyCustomerPayment(
   entityId: string,
@@ -2003,7 +2027,7 @@ export async function unapplyCustomerPayment(
     const reopened = total.plus(withheldIsr).plus(withheldIva);
     // MNE-001-422: the advance's IVA these rows cancelled goes back to 2120, read from what they stored.
     // MNE-001-462: on a receipt with a treatment, the cash they took that was no advance goes back as one
-    // too, its IVA at the receipt's treatment (`backAsAdvance`, «no re-park»); a receipt with none is as before.
+    // too, its IVA at the receipt's treatment (`backAsAdvance`, «no re-park»); a receipt with none keeps its own (below).
     // MNE-001-572: while a cheque is held that IVA is not caused yet (LIVA art. 1-B, second paragraph):
     // the cash goes back whole to 2150, and the cashing causes it (`advanceBackOnAccount`).
     const treatment = storedAdvanceTreatment(pago.advance_factor_type, pago.advance_tax_rate);
@@ -2018,6 +2042,11 @@ export async function unapplyCustomerPayment(
       cfdi_uuid: factura.cfdi_uuid, terms: factura.terms, memo: factura.memo,
     })).metodo === 'PPD';
     const advanceIva = (deferredBack ? new Decimal(0) : taken).plus(backIva);
+    // MNE-001-574: a receipt with none keeps each row's caused share instead (`keptIvaOf`). A held
+    // cheque released nothing, so it keeps nothing here.
+    const keptByRow = vivas.rows.map((r) =>
+      treatment === null && !held ? keptIvaOf({ amount: r.amount_applied, plain: r.plain, released: r.iva_reclass_amount }) : '0.0000'
+    );
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
@@ -2054,22 +2083,34 @@ export async function unapplyCustomerPayment(
     // MNE-001-581: after a credit note, only what brings the invoice's 2125 to
     // the IVA of the balance it is owed again; the rest stays in 2120, where
     // the note already restituted it (LIVA art. 7). With no note, all of it.
-    const kept = await keptAfterNotes(client, entityId, factura.id, released, vivas.rows.map((r) => r.id));
-    const backInParked = released.minus(kept.amount);
-    const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
+    const noteKept = await keptAfterNotes(client, entityId, factura.id, released, vivas.rows.map((r) => r.id));
+    const backInParked = released.minus(noteKept.amount);
+    // MNE-001-574 with 581 (decision (A) on #792): the plain cash keeps caused no more than what goes back to
+    // 2125 beyond its taken advance's IVA; what the note restituted is not caused again.
+    const kept = capKept(keptByRow, Decimal.max(backInParked.minus(advanceIva), 0).toFixed(4));
+    const keptIva = kept.reduce((s, k) => s.plus(k), new Decimal(0));
+    const stillCaused = advanceIva.plus(keptIva);
+    const reparked = stillCaused.greaterThan(0) ? Decimal.max(backInParked.minus(stillCaused), 0) : backInParked;
     // #699 · The IEPS this receipt moved for the invoice, read back from the
     // tagged lines of its unreversed entries before the rows close: exact,
     // net of an earlier unapply, and zero where nothing was parked.
-    const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
+    // MNE-001-574: on a receipt with no treatment it stays caused with the IVA, whether the rows kept it or
+    // took it from cash already back on account (LIEPS art. 5o.-C).
+    const iepsStays = treatment === null && stillCaused.greaterThan(0);
+    const iepsMoved = iepsStays ? new Decimal(0) : await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
     const closed = await client.query(
-      `UPDATE payment_allocations
-          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
-        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL
-          AND payment_id = (SELECT id FROM customer_payments WHERE id = $5 AND entity_id = $6)`,
-      [date, userId, args.reason, vivas.rows.map((r) => r.id), paymentId, entityId]
+      `UPDATE payment_allocations pa
+          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept
+         FROM unnest($4::uuid[], $7::numeric[]) AS k(id, kept)
+        WHERE pa.id = k.id AND pa.unapplied_at IS NULL
+          AND pa.payment_id = (SELECT id FROM customer_payments WHERE id = $5 AND entity_id = $6)`,
+      [
+        date, userId, args.reason, vivas.rows.map((r) => r.id), paymentId, entityId,
+        kept.map((k) => (new Decimal(k).greaterThan(0) ? k : null)),
+      ]
     );
     if (closed.rowCount !== vivas.rows.length) {
       throw new AccountingError(
@@ -2107,9 +2148,10 @@ export async function unapplyCustomerPayment(
         ivaReclass: estimado ? null : backInParked.toFixed(4),
         ivaEstimado: backInParked.toFixed(4),
         advanceIva: advanceIva.toFixed(4),
+        keptIva: keptIva.toFixed(4),
         date,
-        ...(kept.amount.greaterThan(0)
-          ? { ivaKept: { amount: kept.amount.toFixed(4), notes: kept.notes, carries: kept.carries } }
+        ...(noteKept.amount.greaterThan(0)
+          ? { ivaKept: { amount: noteKept.amount.toFixed(4), notes: noteKept.notes, carries: noteKept.carries } }
           : {}),
         ...(iepsMoved.greaterThan(0)
           ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
@@ -2131,6 +2173,7 @@ export async function unapplyCustomerPayment(
         date,
         desaplicado: total.toFixed(2),
         advance_iva_restored: advanceIva.toFixed(4),
+        iva_kept_caused: keptIva.toFixed(4),
         ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
@@ -2156,6 +2199,7 @@ export async function unapplyCustomerPayment(
       date,
       iepsReparked: iepsMoved.toFixed(4),
       ivaAtCashing: new Decimal(held ? putBackIva : '0').toFixed(2),
+      ivaKeptCaused: keptIva.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;

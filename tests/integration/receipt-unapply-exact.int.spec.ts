@@ -19,8 +19,8 @@ import { resetDeclarations } from '../../src/cli/kernel/risk.js';
  *
  * A new allocation stores what it moved from 2125 to 2120, 0 included, on
  * any entity, so `receipt unapply` gives back a stored fact and never an
- * estimate: a PUE invoice leaves 2120 and 2125 alone, and a PPD one re-parks
- * exactly what it released. The withheld net of an issued invoice goes by
+ * estimate: a PUE invoice leaves 2120 and 2125 alone, and a PPD one keeps
+ * exactly what it released caused (MNE-001-574). The withheld net of an issued invoice goes by
  * that invoice: record, unapply, then apply with `--withholding`. The leaves
  * run in-process against Postgres; every figure is computed by hand.
  */
@@ -167,7 +167,9 @@ describe('every new allocation of a collection stores the IVA it released, 0 inc
     expect(moved(before, await vat())).toEqual({ caused: '0.0000', parked: '0.0000' });
   }, 120_000);
 
-  it('a PPD invoice re-parks exactly what it released: 80.00 of a half collected', async () => {
+  // MNE-001-574: the unapply moves no money, so the 80.00 stays caused and goes back to 2125 from the cash
+  // on account (LIVA art. 1-B); a stored fact still, never an estimate.
+  it('a PPD invoice keeps caused exactly what it released: 80.00 of a half collected', async () => {
     const inv = await invoice(mx, customerId, 'MXN', '1000.00', 'PPD');
     const before = await vat();
 
@@ -176,8 +178,8 @@ describe('every new allocation of a collection stores the IVA it released, 0 inc
     expect(moved(before, await vat())).toEqual({ caused: '80.0000', parked: '-80.0000' });
 
     const undone = await unapply(recorded.payment_number, inv.number);
-    expect(undone.iva_reparked).toBe('80.0000');
-    expect(moved(before, await vat())).toEqual({ caused: '0.0000', parked: '0.0000' });
+    expect(undone).toMatchObject({ iva_reparked: '0.0000', iva_kept_caused: '80.0000' });
+    expect(moved(before, await vat())).toEqual({ caused: '80.0000', parked: '0.0000' });
   }, 120_000);
 
   it('one receipt over a PPD and a PUE invoice: the PPD row stores its release and the PUE row 0', async () => {
@@ -257,19 +259,18 @@ describe('the withheld net goes by its invoice: record, unapply, apply with --wi
     expect(r.end).toEqual({ caused: '0.0000', parked: '0.0000' });
   }, 120_000);
 
-  it('PPD: the record releases 1,314.9421, the unapply re-parks that, and the application releases 1,600.0000', async () => {
+  it('PPD: the record releases 1,314.9421, the unapply keeps it caused, and the application causes only the rest', async () => {
     const r = await route('PPD');
 
-    // 1,600 × 9,533.33 / 11,600 = 1,314.9421
+    // 1,600 × 9,533.33 / 11,600 = 1,314.9421, kept caused on the cash back on account (MNE-001-574).
     expect(r.storedAtRecord).toEqual(['1314.9421']);
-    expect(r.undone.iva_reparked).toBe('1314.9421');
-    expect(r.unapplyLines).toEqual({
-      '1120': [9533.33, 0], '2150': [0, 9533.33], '2120': [1314.9421, 0], '2125': [0, 1314.9421],
-    });
-    expect(r.afterUnapply).toEqual({ caused: '0.0000', parked: '0.0000' });
+    expect(r.undone).toMatchObject({ iva_reparked: '0.0000', iva_kept_caused: '1314.9421' });
+    expect(r.unapplyLines).toEqual({ '1120': [9533.33, 0], '2150': [0, 8218.3879], '2125': [0, 1314.9421] });
+    expect(r.afterUnapply).toEqual({ caused: '1314.9421', parked: '0.0000' });
+    // 1,600.0000 released, net of the 1,314.9421 the cash carried: 285.0579.
     expect(r.applyLines).toEqual({
-      '2150': [9533.33, 0], '1145': [1000, 0], '1146': [1066.67, 0], '1120': [0, 11600],
-      '2125': [1600, 0], '2120': [0, 1600],
+      '2150': [8218.3879, 0], '1145': [1000, 0], '1146': [1066.67, 0], '1120': [0, 11600],
+      '2125': [1600, 0], '2120': [0, 285.0579],
     });
     expect(r.storedAtApply).toEqual(['1600.0000']);
     // 2120 ends at the invoice's 1,600.00 and 2125, which held them, at 0.

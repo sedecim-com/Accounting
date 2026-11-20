@@ -1546,6 +1546,8 @@ export async function postReceiptUnapplicationEntry(
     withholdingIsr?: string; withholdingIva?: string;
     /** MNE-001-422: the advance's IVA the rows cancelled, which goes back to 2120 as they stored it. */
     advanceIva?: string;
+    /** MNE-001-574: the IVA the rows' plain cash keeps caused, back on account with it. */
+    keptIva?: string;
     ieps?: IepsMove;
     /** MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries. */
     ivaKept?: { amount: string; notes: string; carries: string };
@@ -1555,7 +1557,8 @@ export async function postReceiptUnapplicationEntry(
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const isr = new Decimal(app.withholdingIsr ?? '0');
   const vat = new Decimal(app.withholdingIva ?? '0');
-  const advanceIva = new Decimal(app.advanceIva ?? '0');
+  const kept = new Decimal(app.keptIva ?? '0');
+  const advanceIva = new Decimal(app.advanceIva ?? '0').plus(kept);
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
@@ -1580,15 +1583,21 @@ export async function postReceiptUnapplicationEntry(
     // IVA caused when collected (LIVA art. 1-B), so nothing caused is
     // re-parked: the invoice's share goes back to 2125 because the invoice is
     // owed again, and 2120 moves only by c − g, none when they are equal
-    // (the owner's «no re-park» of 17 Nov 2026, #623).
+    // (the owner's «no re-park» of 17 Nov 2026, #623). MNE-001-574: a plain
+    // receipt's cash keeps the share it caused the same way («Mantener
+    // causado», 19 Nov 2026, #623), so only a pre-049 estimate leaves 2120.
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    const against = kept.greaterThan(0)
+      ? `kept caused (LIVA art. 1-B), back on account ${payment.payment_number}`
+      : `against advance ${payment.payment_number}'s`;
+    const nota = estimado ? ' · pre-049: pro-rata estimate' : '';
     if (iva.greaterThan(0)) {
       jeLines.push({
         account_id: requireRole(ivaRoles, from),
         debit_amount: null,
         credit_amount: iva.toFixed(4),
-        description: `IVA back in ${from} (unapply), against advance ${payment.payment_number}'s - Invoice ${app.invoiceNumber}`,
+        description: `IVA back in ${from} (unapply), ${against} - Invoice ${app.invoiceNumber}${nota}`,
       });
     }
     const net = advanceIva.minus(iva);
@@ -1597,8 +1606,10 @@ export async function postReceiptUnapplicationEntry(
         account_id: requireRole(ivaRoles, to),
         debit_amount: net.isNegative() ? net.negated().toFixed(4) : null,
         credit_amount: net.isNegative() ? null : net.toFixed(4),
-        description: `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}` +
-          (iva.greaterThan(0) ? `, net of ${iva.toFixed(4)} back in ${from}` : ''),
+        description: (net.isNegative() && kept.greaterThan(0)
+          ? `IVA re-parked out of ${to} (unapply) - Invoice ${app.invoiceNumber}`
+          : `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}`) +
+          (iva.greaterThan(0) ? `, net of ${iva.toFixed(4)} back in ${from}` : '') + nota,
       });
     }
   } else if (iva.greaterThan(0)) {
