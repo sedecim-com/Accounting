@@ -172,9 +172,9 @@ Options:
 
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 ```
 
 ## `mnemosine chat`
@@ -1273,7 +1273,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
-  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
+  edit|editar [options] <idOrName>       Set the tax regime, fiscal postal code or minimum-wage zone of an entity
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar [options]                Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -1365,23 +1365,26 @@ Usage: mnemosine entity create|crear [options] <name>
 Create a legal entity with its chart of accounts, roles and payroll mapping
 
 Arguments:
-  name                     legal name of the company
+  name                        legal name of the company
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-id <id>            RFC (Mexico) or EIN (USA)
-  --country <code>         MX or USA (default: "MX")
-  --currency <code>        functional currency (defaults to the country's)
-  --chart <strategy>       auto | siempre | nunca — whether to seed the base
-                           chart (default: "auto")
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-id <id>               RFC (Mexico) or EIN (USA)
+  --country <code>            MX or USA (default: "MX")
+  --currency <code>           functional currency (defaults to the country's)
+  --chart <strategy>          auto | siempre | nunca — whether to seed the base
+                              chart (default: "auto")
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # A Mexican company with its c_RegimenFiscal and fiscal postal code.
@@ -1395,23 +1398,25 @@ Examples:
 ```
 Usage: mnemosine entity edit|editar [options] <idOrName>
 
-Set the tax regime or fiscal postal code of an entity, validated against the SAT
-catalog
+Set the tax regime, fiscal postal code or minimum-wage zone of an entity
 
 Arguments:
-  idOrName                 entity id, tax id, or a fragment of the name
+  idOrName                    entity id, tax id, or a fragment of the name
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --reason <text>          justification recorded in the audit trail
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --reason <text>             justification recorded in the audit trail
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # Declare the regime of an entity created without it.
@@ -1835,6 +1840,9 @@ Options:
   --to-bank <code>          destination bank key from the SAT c_Banco catalogue
                             (3 digits)
   --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --bank <account>          bank account (name or id) the payment went out of;
+                            only one that posts to the ledger account its entry
+                            moved
   --reason <text>           justification recorded in the audit trail (required)
   --json                    JSON output
   -y, --yes                 skip the confirmation prompt
@@ -1850,6 +1858,8 @@ Examples:
   # A cheque recorded without its number: look first, then complete it from the stub.
   mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
   mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
 ```
 
 ## `mnemosine account` (alias: cuenta)

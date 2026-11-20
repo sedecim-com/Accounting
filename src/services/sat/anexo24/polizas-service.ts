@@ -582,9 +582,10 @@ export function rastroDePago(
   // Our bank's code comes from the bank account the payment names, read when
   // the file is generated. Two causes, two remedies: with an account linked,
   // editing it fixes even a payment already registered; with none linked
-  // (`--bank` is optional), no command links one afterwards, and reversing and
+  // (`--bank` is optional), a vendor payment gets one with `payment trace
+  // record --bank` (MNE-001-569), which checks it against the entry's lines.
+  // A receipt has no such command yet (part 3 of #612), and reversing and
   // registering again leaves the original entry and its mirror untraced.
-  const register = sentido === 'sale' ? 'payment create --bank' : 'receipt record --bank';
   const namedAccount = (b: FilaDeCuentaBancaria): string =>
     `la cuenta bancaria «${limpiar(b.account_name).texto}» (id ${b.id})`;
   const ourBankGap = (node: string, attribute: string, what: string): RastroResuelto => {
@@ -592,10 +593,14 @@ export function rastroDePago(
       return {
         motivo: bankGap(node, attribute, `${what} se registró sin cuenta bancaria, así que no hay de ` +
           `dónde tomar la clave c_Banco de nuestro banco`),
-        noCommandFixes:
-          `la cuenta bancaria sólo se captura al registrar el pago (\`${register}\`) y ningún ` +
-          `comando se la liga a un pago ya registrado; reversarlo y registrarlo otra vez tampoco ` +
-          `lo arregla, porque el asiento original y su espejo se quedan sin rastro`,
+        ...(sentido === 'sale'
+          ? { completedBy: `payment trace record ${p.payment_number} --bank <cuenta> --reason <motivo>` }
+          : {
+              noCommandFixes:
+                'la cuenta bancaria sólo se captura al registrar el pago (`receipt record --bank`) y ningún ' +
+                'comando se la liga a un pago ya registrado; reversarlo y registrarlo otra vez tampoco ' +
+                'lo arregla, porque el asiento original y su espejo se quedan sin rastro',
+            }),
       };
     }
     const account = namedAccount(banco);

@@ -1276,8 +1276,12 @@ export const E0_0: Criterio[] = [
     enunciado:
       'No CLI leaf writes the [y/N] suffix: the kernel builds it from the catalogue, in the user language (#262, MNE-001-217)',
     evaluar: () => {
-      const SUFFIX = /\[[ys]\/N\]/;
+      // MNE-001-219 widened it to the default-yes form, [Y/n] / [S/n], which the
+      // first-run prompt of the root family asks with.
+      const SUFFIX = /\[(?:[ys]\/N|[YS]\/n)\]/;
       const KEY = 'confirm_yes_no_suffix';
+      const KEY_DEFAULT_YES = 'confirm_yes_no_suffix_default_yes';
+      const KERNEL_KEYS = [KEY, KEY_DEFAULT_YES];
       const parse = (rel: string): ts.SourceFile =>
         ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
       const literalPieces = (n: ts.Node): string | undefined =>
@@ -1362,21 +1366,23 @@ export const E0_0: Criterio[] = [
         );
       }
 
-      // 2 · The kernel reads the suffix from the catalogue.
-      let readsKey = false;
+      // 2 · The kernel reads both suffixes from the catalogue.
+      const readKeys = new Set<string>();
       walk(trees.get(KERNEL)!, (n) => {
         if (
           ts.isCallExpression(n) &&
           ts.isIdentifier(n.expression) &&
           n.expression.text === 't' &&
-          n.arguments[0] !== undefined &&
-          literalPieces(n.arguments[0]) === KEY
+          n.arguments[0] !== undefined
         ) {
-          readsKey = true;
+          const key = literalPieces(n.arguments[0]);
+          if (key !== undefined) readKeys.add(key);
         }
       });
-      if (!readsKey) {
-        return falla(`${KERNEL} no longer calls t('${KEY}'): the suffix stops following the user language`);
+      for (const key of KERNEL_KEYS) {
+        if (!readKeys.has(key)) {
+          return falla(`${KERNEL} no longer calls t('${key}'): the suffix stops following the user language`);
+        }
       }
 
       // 3 · In each catalogue, the suffix lives in its own key only.
@@ -1392,17 +1398,17 @@ export const E0_0: Criterio[] = [
           });
           if (carries) owners.push(ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : '?');
         });
-        if (owners.length !== 1 || owners[0] !== KEY) {
+        if (owners.slice().sort().join(',') !== KERNEL_KEYS.slice().sort().join(',')) {
           return falla(
             `${rel}: the suffix is carried by ${owners.length ? owners.join(', ') : 'no key'}, and only ` +
-              `${KEY} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
+              `${KERNEL_KEYS.join(' and ')} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
           );
         }
       }
 
       return ok(
         `${confirmations} confirmation(s) in ${files.length} CLI file(s) ask through yesNoPrompt, none writes ` +
-          `the suffix, and ${KEY} is its only home in en.ts and es.ts`
+          `the suffix, and ${KERNEL_KEYS.join(' and ')} are its only homes in en.ts and es.ts`
       );
     },
     mutantes: [
@@ -1429,6 +1435,12 @@ export const E0_0: Criterio[] = [
         de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
         a: "'¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N]'",
         porque: 'suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "yesNoPrompt(t('root.setup.run_now'), 'yes')",
+        a: "'Run setup now? [Y/n] '",
+        porque: 'default-yes-back-in-a-leaf: the first-run prompt writes [Y/n] by hand again and a Spanish user reads an English suffix',
       },
     ],
   },
@@ -1547,6 +1559,137 @@ export const E0_0: Criterio[] = [
         de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
         a: "console.log('Estado en términos brutos');\n  throw usageError({ key: 'report.cashflow.gross_unavailable' });",
         porque: 'console-prose: the leaf prints a sentence from the code, outside the catalogue',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-root-speaks-by-key',
+    // MNE-001-219 (issue #264, I8.2). The root family —`mnemosine.ts`, the
+    // registrar every family passes through, and `close`— printed its Spanish
+    // from the code. The texts a person reads live in the I8.2 block now; the
+    // risk notes no screen prints are English in place. Three checks:
+    //   1. the lane's breakdown has no entry for either leaf (by absence);
+    //   2. every key of the I8.2 block is named by one of the two leaves;
+    //   3. no Spanish value of the I8.2 block is written as a literal in them.
+    //
+    // CHECK 3 IS NOT #264's «no console.log('<prosa>')». `mnemosine.ts` holds
+    // 53 English prose calls this task does not key, so that check would be
+    // red on a correct tree. What it is for —a text of this family going back
+    // into the code— is what check 3 catches, without guessing a language.
+    enunciado:
+      'The root family (mnemosine.ts, close) prints no Spanish string from the code: its texts come from the I8.2 block of the catalogue (#264, MNE-001-219)',
+    evaluar: () => {
+      const LANE = 'spanish-user-strings-cli';
+      const LEAVES = ['src/cli/mnemosine.ts', 'src/cli/close-command.ts'];
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [BASELINE, ...LEAVES]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+
+      // 1 · The breakdown, by absence.
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (baseline.lanes?.[LANE] === undefined) {
+        return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+      }
+      const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+      if (owed.length) {
+        return falla(
+          `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground I8.2 won was given back`
+        );
+      }
+
+      // The I8.2 block of a catalogue, as key → value of its string literals.
+      const blockOf = (rel: string): Map<string, string> | null => {
+        const src = crudoDe(rel);
+        const open = src.indexOf('// ==== I8.2 ');
+        const close = src.indexOf('// ==== end of I8.2 ====');
+        if (open === -1 || close === -1 || close < open) return null;
+        const sf = ts.createSourceFile(rel, `({\n${src.slice(open, close)}\n})`, ts.ScriptTarget.Latest, true);
+        const out = new Map<string, string>();
+        const visit = (n: ts.Node): void => {
+          if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name))) {
+            let text = '';
+            const collect = (m: ts.Node): void => {
+              if (ts.isStringLiteral(m) || ts.isNoSubstitutionTemplateLiteral(m)) text += m.text;
+              m.forEachChild(collect);
+            };
+            collect(n.initializer);
+            out.set(n.name.text, text);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+        return out;
+      };
+      const en = blockOf('src/i18n/en.ts');
+      const es = blockOf('src/i18n/es.ts');
+      if (en === null || es === null) {
+        return falla('a catalogue lost the markers of the I8.2 block, where the root family keeps its texts');
+      }
+      if (en.size === 0) {
+        return falla('the I8.2 block of src/i18n/en.ts declares no key: the root family has nowhere to speak from');
+      }
+
+      // 2 and 3 · What the leaves write as literals.
+      const literals = new Set<string>();
+      for (const rel of LEAVES) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
+            literals.add(n.text);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      const orphans = [...en.keys()].filter((k) => !literals.has(k));
+      if (orphans.length) {
+        return falla(
+          `${orphans.length} key(s) of the I8.2 block are named by no leaf of the family ` +
+            `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+        );
+      }
+      const literalText = [...literals].join('\n');
+      const backInCode = [...es.entries()]
+        .filter(([, value]) => value.length > 0 && !value.includes('{'))
+        .filter(([, value]) => literalText.includes(value))
+        .map(([key]) => key);
+      if (backInCode.length) {
+        return falla(
+          `the Spanish of ${backInCode.slice(0, 3).join(', ')} is written as a literal in the root family again: ` +
+            'it prints the same words to every user, whatever their language'
+        );
+      }
+
+      return ok(
+        `the ${en.size} keys of the I8.2 block are named by the root family, none of their Spanish is written ` +
+          `in it, and neither leaf has an entry in «${LANE}» (which is ${baseline.lanes[LANE]})`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "t('root.ingest.auto_post_ignored')",
+        a: "'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.'",
+        porque: 'string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/close-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the root family again',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+        a: 'usageError(`Unsupported language "${language}". Options: ${LOCALES.join(\', \')}, or es, en`)',
+        porque: 'key-unread: the language refusal goes back to a template in the leaf and stops following the user language',
       },
     ],
   },

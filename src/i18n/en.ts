@@ -1792,6 +1792,8 @@ export const EN = {
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
     '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.minimum_wage_zone':
+    'the minimum wage zone is not declared: {count, plural, one {# worker is} other {# workers are}} computed with the general minimum',
   'pending.board.period_example':
     '{period} (ended {date})',
   'pending.policies.none':
@@ -1897,6 +1899,9 @@ export const EN = {
   /** `src/cli/kernel/confirmacion.ts` (`yesNoPrompt`): the suffix of every yes/no
    *  prompt whose default is no. Written here once; no leaf writes it (#262). */
   confirm_yes_no_suffix: '[y/N]',
+
+  /** The default-yes form (`yesNoPrompt(q, 'yes')`): the first-run prompt (#264). */
+  confirm_yes_no_suffix_default_yes: '[Y/n]',
 
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
@@ -2507,7 +2512,7 @@ export const EN = {
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
   'payment.trace.nothing_given':
-    'Say what to complete: --check-number, --to-account, --to-bank or --to-foreign-bank. Nothing was written.',
+    'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
   'payment.trace.reason_required':
     'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
   'payment.trace.too_long':
@@ -2517,6 +2522,11 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
+  'payment.trace.bank_no_entry':
+    'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
+  'payment.trace.bank_not_in_entry':
+    'The entry {entry} of payment {number} moved {moved}; "{account}" posts to {candidate}. Linking it would make the voucher declare a bank the ledger did not move. Nothing was written.',
   'payment.trace.would_complete': 'Would complete {number}: {fields}',
   'payment.trace.confirm':
     'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
@@ -3109,6 +3119,18 @@ export const EN = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  // MNE-001-219: `src/cli/mnemosine.ts` and `src/cli/close-command.ts`.
+  /** `ingest`: the auto-post a flag or mnemosine.config.json asked for, and the panel does not authorize. */
+  'root.ingest.auto_post_ignored':
+    'Warning: the auto-post asked for by flag or by mnemosine.config.json is IGNORED: the firm\'s panel does not authorize it.',
+  /** `ingest`: the second line of that warning, where turning it on belongs. */
+  'root.ingest.auto_post_turn_on':
+    'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
+  /** `lang`: a language that is not one of the accepted spellings. */
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
+  'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
@@ -3338,6 +3360,7 @@ export const EN = {
   'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
   'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
@@ -3638,6 +3661,7 @@ export const EN = {
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
   'help.account.list.option.type': 'account type: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: minimum-wage area of the workplace, which caps the seniority premium (LFT art. 486)',
   'help.account.list.option.parent': 'only children of this account code',
   'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
   'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',

@@ -1746,6 +1746,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
     '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.minimum_wage_zone':
+    'la zona de salario mínimo no está declarada: {count, plural, one {# trabajador se calcula} other {# trabajadores se calculan}} con el mínimo general',
   'pending.board.period_example':
     '{period} (terminó el {date})',
   'pending.policies.none':
@@ -1847,6 +1849,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
   confirm_yes_no_suffix: '[s/N]',
+  confirm_yes_no_suffix_default_yes: '[S/n]',
 
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
@@ -2372,7 +2375,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
   'payment.trace.nothing_given':
-    'Di qué completar: --check-number, --to-account, --to-bank o --to-foreign-bank. No se escribió nada.',
+    'Di qué completar: --check-number, --to-account, --to-bank, --to-foreign-bank o --bank. No se escribió nada.',
   'payment.trace.reason_required':
     'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
   'payment.trace.too_long':
@@ -2382,6 +2385,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
+  'payment.trace.bank_no_entry':
+    'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
+  'payment.trace.bank_not_in_entry':
+    'El asiento {entry} del pago {number} movió {moved}; «{account}» postea a {candidate}. Ligarla haría que la póliza declarara un banco que el mayor no movió. No se escribió nada.',
   'payment.trace.would_complete': 'Completaría {number}: {fields}',
   'payment.trace.confirm':
     '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
@@ -2939,6 +2947,13 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  'root.ingest.auto_post_ignored':
+    'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
+  'root.ingest.auto_post_turn_on':
+    'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
@@ -3157,6 +3172,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
   'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
   'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.bank': 'cuenta bancaria (nombre o id) de la que salió el pago; sólo una que postea a la cuenta del mayor que movió su asiento',
   'help.payment.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
@@ -3454,6 +3470,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
   'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
   'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: área de salario mínimo del lugar de trabajo, que topa la prima de antigüedad (LFT art. 486)',
   'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
   'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
   'help.account.show.description':
