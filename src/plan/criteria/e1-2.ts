@@ -92,8 +92,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/payments/payment-service.ts',
-        de: 'SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3\n        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL',
-        a: 'SET unapplied_at = NOW(), unapplied_by = $2, unapply_reason = $3\n        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL',
+        de: 'SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept',
+        a: 'SET unapplied_at = NOW(), unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept',
         porque: 'receipt unapply closes on the run day again (MNE-001-460): its entry carries --date and the closure another day',
       },
     ],
