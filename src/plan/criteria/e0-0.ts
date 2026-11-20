@@ -1887,6 +1887,56 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-fiscal-mx-speaks-by-key',
+    // MNE-001-225 (issue #269, I8.7 part 1). The fiscal-mx family starts with
+    // e-accounting and sat. e-accounting printed 38 Spanish strings from the
+    // code: the warning that the file is not sealed and nothing was filed,
+    // the steps still to do, the usage errors, the overwrite prompt, and the
+    // headers and verdicts of the catalog and the balance. They live in the
+    // I8.7 block now, with ICU plurals instead of «(s)»; six reuse the
+    // family's own request-leaf keys, and the generate `writes` are English in
+    // place. The receipt's steps and its `destino` placeholder are English in
+    // the row and labelled in the table, so --json and csv do not change with
+    // the locale. sat's four Spanish risk texts are English in place: that
+    // leaf has no key, so a Spanish string put back into it is seen by
+    // language:status --check, not by this criterion, which reads the
+    // baseline. #269's console clause holds for e-accounting and not yet for
+    // sat, whose English prose is printed with console.*: a follow-up task.
+    // MNE-001-226 (I8.7 part 2) adds diot, cfdi and rep under this same id.
+    enunciado:
+      'The fiscal-mx family (e-accounting, sat) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225)',
+    evaluar: () =>
+      familySpeaksByKey('I8.7', 'fiscal-mx', ['src/cli/e-accounting-command.ts', 'src/cli/sat-commands.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/e-accounting-command.ts',
+        de: "t('fiscal_mx.e_accounting.unsealed.headline')",
+        a: "'ESTE ARCHIVO NO VA SELLADO Y NO SE PRESENTÓ NADA ANTE EL SAT.'",
+        porque: 'string-back-in-the-code: the generate leaves shout «no va sellado» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/e-accounting-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in e-accounting again',
+      },
+      {
+        archivo: 'src/cli/e-accounting-command.ts',
+        de: "'fiscal_mx.e_accounting.balance.check_summary'",
+        a: "'{blocking} bloqueante(s), {warning} aviso(s).' as never",
+        porque: 'string-back-in-the-code: balance check counts its findings in Spanish with «(s)» again, which only check 2 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/sat-commands.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in sat again',
+      },
+    ],
+  },
+
 
 
   {

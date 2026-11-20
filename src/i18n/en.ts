@@ -2605,6 +2605,40 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-498 (#695): a customer's cash on account, transferred to another customer.
+  'receipt.transfer.reason_required':
+    'Transferring a customer\'s credit requires --reason "<the agreement>": it is written to the audit trail and on the transfer. Nothing was written.',
+  'receipt.transfer.amount_invalid':
+    'The amount "{amount}" of a transfer must be greater than zero, with at most 4 decimals. Nothing was written.',
+  'receipt.transfer.not_mexican_books':
+    'This entity does not keep Mexican books: a transfer of customer credit is built for them (its IVA is caused when the credit settles an invoice, LIVA art. 1o.-B). Nothing was written.',
+  'receipt.transfer.not_completed':
+    'The receipt {receipt} is "{status}": only a completed receipt has cash on account to transfer. Nothing was written.',
+  'receipt.transfer.not_functional_currency':
+    'The receipt {receipt} is in {currency}: only cash on account in {functional} is transferred, because the transfer moves its amount in customer advances as it stands. Nothing was written.',
+  'receipt.transfer.source_is_transfer':
+    'The receipt {receipt} is itself a transfer of customer credit: passing it on to a third customer waits for part 2 (MNE-001-499), which defines how such a chain is undone. Nothing was written.',
+  'receipt.transfer.advance_in_499':
+    'The cash on account of {receipt} is an advance whose IVA was caused when it was collected (its base in customer advances, its IVA in IVA charged): transferring it splits base and IVA, which arrives with MNE-001-499. Nothing was written.',
+  'receipt.transfer.cheque_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed: it is not collected until it is cashed (LIVA art. 1-B), and a bounce would have to undo a credit the other customer relies on. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`. Nothing was written.',
+  'receipt.transfer.same_customer':
+    'The receipt {receipt} already belongs to {customer}: a transfer moves cash on account to another customer. Nothing was written.',
+  'receipt.transfer.exceeds_on_account':
+    'The receipt {receipt} has {onAccount} on account and {amount} would be transferred: the cash on account does not reach. Nothing was written.',
+  'receipt.transfer.date_future':
+    '{receipt} cannot be transferred on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was written.',
+  'receipt.transfer.date_before_last_event':
+    '{receipt} was last posted on {since}: a transfer dated {date} would give away its cash before that happened. Date it {since} or later. Nothing was written.',
+  'receipt.transfer.events_in_499':
+    'The receipt {receipt} is a transfer of customer credit: applying it to invoices, unapplying it and reversing it arrive with part 2 (MNE-001-499), which dates its IVA and mirrors its entry. Until then a wrong transfer is corrected with a transfer back. Nothing was written.',
+  'receipt.reverse.has_transfer':
+    'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Undo the transfer first (MNE-001-499). Nothing was written.',
+  'receipt.transfer.would_transfer': 'Would transfer {amount} of {source} from {from} to {to} on {date}',
+  'receipt.transfer.on_account': '{party} on account: {before} → {after}',
+  'receipt.transfer.confirm':
+    'Transfer {amount} of the cash on account of {source} from {from} to {to} on {date} in {entity}? This posts to the ledger.',
+  'receipt.transfer.recorded': '{number}: {amount} of {source} transferred from {from} to {to} on {date} · entry {entry}',
   // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
   'payment.trace.nothing_given':
     'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
@@ -3583,6 +3617,85 @@ export const EN = {
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+
+  // MNE-001-225: e-accounting (catalog and balance: generate, check, the -o overwrite).
+  /** The warning of every generate leaf: the file is not sealed and nothing was filed. */
+  'fiscal_mx.e_accounting.unsealed.headline': 'THIS FILE IS NOT SEALED AND NOTHING WAS FILED WITH THE SAT.',
+  /** Under the headline: building and signing are not the same act. */
+  'fiscal_mx.e_accounting.unsealed.two_hands': 'Building the file and signing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.e_accounting.unsealed.step_review':
+    'Review the XML: it is the document you are going to file, and once it is sealed it is not touched again.',
+  /** Step 2: the seal, outside the system or under sellar_con_custodia. */
+  'fiscal_mx.e_accounting.unsealed.step_seal':
+    'Seal it with the taxpayer\'s e.firma: outside this system or, if the firm declared sellar_con_custodia, with this family\'s seal leaf. No one will ask you for the e.firma by chat.',
+  /** Step 3: the upload, which no command does. */
+  'fiscal_mx.e_accounting.unsealed.step_upload':
+    'Compress it and upload it yourself through the Buzón Tributario (Contabilidad electrónica).',
+  /** Step 4: the acknowledgements, the only proof of filing. */
+  'fiscal_mx.e_accounting.unsealed.step_acknowledgements':
+    'Keep the acknowledgement of receipt and, later, the one of acceptance or rejection: it is the only proof that it was filed.',
+  /** `catalog generate`/`seal` with no --period. */
+  'fiscal_mx.e_accounting.catalog.period_missing':
+    'The chart of accounts is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no Mes or Anio to declare in the header.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.e_accounting.catalog.period_not_month':
+    '--period "{value}" is not a month. The CtaCatalogo declares ONE month of ONE fiscal year, so only the form YYYY-MM (2026-02) is valid here. A quarter, a fiscal year or a range has nowhere to go in the file.',
+  /** A month outside 01..12; 13 belongs to the closing balance. */
+  'fiscal_mx.e_accounting.catalog.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance (`balance generate --closing`), not to the chart of accounts.',
+  /** The line beside the CtaCatalogo title. */
+  'fiscal_mx.e_accounting.catalog.summary':
+    'RFC {rfc} · {accounts, plural, one {# account} other {# accounts}} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** The three panel criteria the catalog was built with (their values are not translated). */
+  'fiscal_mx.e_accounting.catalog.policies': 'levels {levels} · without grouping code {ungrouped} · sealing {sealing}',
+  /** Accounts the levels criterion left out of the file. */
+  'fiscal_mx.e_accounting.catalog.omitted':
+    '{count, plural, one {# account left} other {# accounts left}} out of the file',
+  /** No file: accounts without a grouping code under the blocking policy, or blocking findings. */
+  'fiscal_mx.e_accounting.catalog.not_deliverable':
+    'No deliverable file was produced. {reason, select, ungrouped {{count, plural, one {# account in scope has no grouping code} other {# accounts in scope have no grouping code}} and the policy `{policy}` is set to \'{value}\'. {count, plural, one {Assign it} other {Assign them}}, or change the policy with {hint}.} other {Resolve the blocking findings above and generate again.}}',
+  /** A --type other than N or C. */
+  'fiscal_mx.e_accounting.balance.type_unknown':
+    '--type "{value}" does not exist: N is the normal balance and C the amended one. The year-end balance is not a type, it is --closing (filed as Mes 13).',
+  /** `--check` names a check that does not exist. */
+  'fiscal_mx.e_accounting.balance.check_unknown':
+    '{count, plural, one {Unknown check} other {Unknown checks}}: {unknown}. The available ones are: {available}.',
+  /** `--check` with only commas. */
+  'fiscal_mx.e_accounting.balance.check_empty': '--check named no check. The available ones are: {available}.',
+  /** The title of the balance header. */
+  'fiscal_mx.e_accounting.balance.title': 'Trial balance {month}/{year}',
+  /** The line beside the balance title. */
+  'fiscal_mx.e_accounting.balance.header':
+    'RFC {rfc} · {closing, select, yes {TipoEnvio {type} · closing (Mes 13)} other {TipoEnvio {type}}} · {period} {from} → {to} · {accounts, plural, one {# account} other {# accounts}}',
+  /** The criteria of the balance, and whether its SaldoIni can still change. */
+  'fiscal_mx.e_accounting.balance.header_policies':
+    'levels {levels} · sealing {sealing} · SaldoIni from {origin}, {firm, select, yes {firm} other {MAY STILL CHANGE (the previous period is still open)}}',
+  /** The SAT file name of the balance. */
+  'fiscal_mx.e_accounting.balance.suggested_file':
+    'suggested file {file} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** After `e_accounting.sealing.declared` in `balance generate`: where the seal is. */
+  'fiscal_mx.e_accounting.balance.seal_hint': 'Review it and seal it with {command}.',
+  /** The envelope of `balance check --json`, on stderr. */
+  'fiscal_mx.e_accounting.balance.check_envelope':
+    '{rfc} · trial balance {month}/{year} · {period} · {accounts, plural, one {# account} other {# accounts}} · checks: {checks}',
+  /** The catalog the balance was checked against, if any. */
+  'fiscal_mx.e_accounting.balance.check_catalog': 'matching catalog: {found, select, yes {{source}} other {none}}',
+  /** The checks `balance check` ran. */
+  'fiscal_mx.e_accounting.balance.checks_run': 'checks: {checks}',
+  /** `balance check` with no findings. */
+  'fiscal_mx.e_accounting.balance.check_clean':
+    'no findings: the trial balance passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `balance check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.e_accounting.balance.check_summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the file from being generated.',
+  /** `-o` names a file that exists: it may be the sealed one. */
+  'fiscal_mx.e_accounting.output.overwrite_question':
+    '{target} already exists. If that file is already sealed, overwriting it leaves it without its seal. Replace it?',
+  /** The overwrite was declined. */
+  'fiscal_mx.e_accounting.output.kept':
+    'Nothing was written: {target} is kept as it was. Use another path, or --yes if you really want to replace it.',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
@@ -3810,6 +3923,16 @@ export const EN = {
   'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
   'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
   'help.receipt.trace.record.option.json': 'JSON output',
+  // MNE-001-498 (#695): the transfer of a customer's cash on account.
+  'help.receipt.transfer.description': "A transfer of a customer's cash on account to another customer",
+  'help.receipt.transfer.record.description':
+    "Transfer a customer's cash on account to another customer, as agreed: audited, posts DR/CR customer advances, no bank, revenue or IVA",
+  'help.receipt.transfer.record.argument.ref': 'payment number or id of the receipt whose cash on account is transferred',
+  'help.receipt.transfer.record.option.customer': 'the customer who receives the credit (number, name or id)',
+  'help.receipt.transfer.record.option.amount': 'amount to transfer, at most the cash on account of the receipt',
+  'help.receipt.transfer.record.option.date':
+    'the agreed day of the transfer (YYYY-MM-DD), which dates its entry; defaults to today in the entity\'s time zone',
+  'help.receipt.transfer.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',

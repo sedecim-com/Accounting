@@ -1686,6 +1686,60 @@ export async function postReceiptReversalVatEntry(
 }
 
 /**
+ * MNE-001-498 · A customer's credit assigned to another customer (CCF art.
+ * 2029), as its own entry dated on the agreed day: DR anticipo_clientes for
+ * A's credit, CR anticipo_clientes for B's. The same account on both sides:
+ * the party lives in the two receipts the entry is tied to, since journal
+ * lines have none. No bank, revenue or IVA line: nothing is collected,
+ * returned or caused (LIVA art. 1o.-B causes B's IVA when the credit settles
+ * B's invoice, part 2). Its own `source_type` keeps it out of
+ * `uq_je_document_source` and of every reader keyed on `customer_payment`;
+ * the entry is linked to B's row with a guarded UPDATE (invariant 3).
+ */
+export async function postCustomerCreditTransferEntry(
+  client: pg.PoolClient,
+  transfer: {
+    id: string; entity_id: string; transfer_number: string; source_number: string;
+    from_customer: string; to_customer: string; amount: string; date: string;
+  },
+  userId: string
+): Promise<JournalEntry> {
+  const roles = await roleAccounts(client, transfer.entity_id, ['anticipo_clientes']);
+  const advances = requireRole(roles, 'anticipo_clientes');
+  const amount = new Decimal(transfer.amount).toFixed(4);
+  const entry = await createJournalEntry(
+    transfer.entity_id,
+    transfer.date,
+    JournalEntryType.AUTO_PAYMENT,
+    `Customer credit transfer ${transfer.transfer_number}: ${transfer.source_number} of ${transfer.from_customer} to ${transfer.to_customer}`,
+    [
+      {
+        account_id: advances, debit_amount: amount, credit_amount: null,
+        description: `${transfer.from_customer}'s credit on ${transfer.source_number} assigned to ${transfer.to_customer} (${transfer.transfer_number})`,
+      },
+      {
+        account_id: advances, debit_amount: null, credit_amount: amount,
+        description: `${transfer.to_customer}'s credit from ${transfer.from_customer} on ${transfer.source_number} (${transfer.transfer_number})`,
+      },
+    ],
+    userId,
+    { autoPost: true, client, sourceType: 'customer_credit_transfer', sourceId: transfer.id, reference: transfer.transfer_number }
+  );
+  const linked = await client.query(
+    `UPDATE customer_payments SET journal_entry_id = $1
+      WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL AND payment_method = 'balance_transfer'`,
+    [entry.id, transfer.id, transfer.entity_id]
+  );
+  if (linked.rowCount !== 1) {
+    throw new AccountingError(
+      'PAYMENT_ALREADY_POSTED',
+      `${transfer.transfer_number} already has an entry or is not this entity's transfer: no second one is linked.`
+    );
+  }
+  return entry;
+}
+
+/**
  * Unapply a vendor payment from a bill, as a new event dated `app.date`:
  * DR anticipo_proveedores (the cash is back on account; unapplying is not a
  * refund) and DR devolucion_compras for the discount the application took,

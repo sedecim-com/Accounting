@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 298,
+    "spanish-user-strings-cli": 256,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -851,7 +851,6 @@
       "src/cli/bill-command.ts": 40,
       "src/cli/cfdi-command.ts": 13,
       "src/cli/diot-command.ts": 31,
-      "src/cli/e-accounting-command.ts": 38,
       "src/cli/entry-command.ts": 10,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
@@ -859,7 +858,6 @@
       "src/cli/period-command.ts": 5,
       "src/cli/prepaid-command.ts": 43,
       "src/cli/rep-command.ts": 6,
-      "src/cli/sat-commands.ts": 4,
       "src/cli/vendor-command.ts": 1
     },
     "plan-criteria-grepping-spanish-identifiers": {
