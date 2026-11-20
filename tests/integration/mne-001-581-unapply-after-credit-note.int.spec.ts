@@ -31,9 +31,24 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //       2125 128, 2120 160 − 32 = 128.
 //   U1b U1, N applied 232, 928 collected 10-20 (releases 128): 2125 0, 2120
 //       128 + 128 = 256, the first receipt's 1,160 still on account with 128.
-//   U1n U1, N applied 232, the 1,160 on account applied 928 on 11-05: it takes
-//       128 × 928 / 1,160 = 102.40 against the 128 it releases, CR 2120 25.60;
-//       2125 0, 2120 153.60, and 232 stay on account carrying 25.60.
+//   MNE-001-591 (#792, decision (A), follow-up 1): the 1,160 back on account is
+//   two parts. 1,160 × 128 / 160 = 928 carries the 128 kept (the pool); the
+//   232 the note credited is owed back to the customer and carries none. Cash
+//   applied to the invoice it came from takes the pool first; anywhere else,
+//   the 232 first, as plain cash always goes (ADR-0006 Decision 2).
+//   U1n U1, N applied 232, the 1,160 on account applied 928 to S on 11-05: S
+//       takes the pool, c = 128, base 800, against the 128 it releases: DR 2150
+//       800 / DR 2125 128 / CR 1120 928, no 2120 line; 2125 0, 2120 128, 2150
+//       232. November charges 0 / 0.
+//   U1n2 U1n, then T (PPD 200 + 32, 11-06) gets the 232 on 11-10: c = 0, T
+//       releases 32: DR 2150 232 / DR 2125 32 / CR 1120 232 / CR 2120 32;
+//       2120 160, 2150 0. November charges 200 / 32 and ties.
+//   U1t T first: 232 to T on 11-05 takes the plain 232 (c = 0, CR 2120 32,
+//       2120 160, 2150 800); then 928 to S on 11-10 takes the pool (c = 128,
+//       no 2120 line): 2120 160, 2150 0. November charges 200 / 32 and ties.
+//   U1u the whole 1,160 to U (PPD 1,000 + 160, 11-06) on 11-10: the plain 232
+//       (c 0), then the 928 (c 128); U releases 160: DR 2150 1,032 / DR 2125
+//       160 / CR 1120 1,160 / CR 2120 32; 2120 160, as before 591.
 //   U2  S 100 + 16 collected 116; N 100 + 16 (2120 16); unapply → the open
 //       balance is 0: no IVA line, 2125 0, 2120 0. Today 16 and −16.
 //   U3  S 1,160; N 200 + 32 applied (2125 32); 928 collected (releases 128);
@@ -76,9 +91,9 @@ async function book(name: string): Promise<Book> {
   return { f, customerId };
 }
 
-async function sale(b: Book, price: string): Promise<string> {
+async function sale(b: Book, price: string, date = day(3)): Promise<string> {
   const draft = await createInvoice({
-    entity_id: b.f.entityId, customer_id: b.customerId, invoice_date: day(3), due_date: day(3), currency_code: 'MXN',
+    entity_id: b.f.entityId, customer_id: b.customerId, invoice_date: date, due_date: date, currency_code: 'MXN',
     terms: 'PPD',
     lines: [{ revenue_account_id: b.f.cuentas['4100'], description: 'Synthetic sale', quantity: '1', unit_price: price, tax_rate: '16' }],
     created_by: b.f.userId,
@@ -118,13 +133,17 @@ async function reverse(b: Book, paymentId: string) {
 
 /** Credit balances of 2125 and 2120 over the entity's posted entries, two decimals. */
 async function vat(b: Book): Promise<{ '2125': string; '2120': string }> {
-  const of = async (code: string) => (await query<{ s: string }>(
+  return { '2125': await balanceOf(b, '2125'), '2120': await balanceOf(b, '2120') };
+}
+
+/** The credit balance of one account over the entity's posted entries, two decimals. */
+async function balanceOf(b: Book, code: string): Promise<string> {
+  return (await query<{ s: string }>(
     `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::numeric(19,2)::text AS s
        FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id
       WHERE je.entity_id = $1 AND je.status = 'posted' AND l.account_id = $2`,
     [b.f.entityId, b.f.cuentas[code]]
   )).rows[0].s;
-  return { '2125': await of('2125'), '2120': await of('2120') };
 }
 
 /** One entry's lines by account code: debit minus credit, two decimals, and their descriptions. */
@@ -154,6 +173,10 @@ async function corrections(b: Book, paymentId: string): Promise<[string, string]
 
 const october = (b: Book): Promise<IvaWorkpaper> =>
   buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: 2026, month: 10 });
+const november = (b: Book): Promise<IvaWorkpaper> =>
+  buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: 2026, month: 11 });
+const nov = (d: number): string => `2026-11-${String(d).padStart(2, '0')}`;
+
 const gap = (wp: IvaWorkpaper) => wp.findings.find((h) => h.codigo === 'IVA-WP-CHARGED-VS-LEDGER');
 const at16 = (wp: IvaWorkpaper) => ({
   base: Number(wp.figures.charged.tasa16.base).toFixed(2),
@@ -173,6 +196,18 @@ async function collectedNotedUnapplied(name: string) {
   const n = await note(b, s, '200.00', '32.00');
   const undone = await unapply(b, receipt.paymentId, s);
   return { b, s, receipt, n, undone };
+}
+
+/** U1, then N applied to S for 232: S owes 928 and the receipt's 1,160 is on account (MNE-001-591). */
+async function notedOnAccount(name: string) {
+  const u1 = await collectedNotedUnapplied(name);
+  const id = (await query<{ id: string }>(
+    `SELECT id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [u1.b.f.entityId, u1.n]
+  )).rows[0].id;
+  await applyCreditNote(u1.b.f.entityId, id, [{ invoiceId: u1.s, amount: '232.00' }], u1.b.f.userId);
+  expect(await vat(u1.b)).toEqual({ '2125': '128.00', '2120': '128.00' });
+  expect(await balanceOf(u1.b, '2150')).toBe('1032.00');
+  return u1;
 }
 
 describe('an unapply after a credit note re-parks only the IVA of the balance owed again (LIVA arts. 1-B and 7)', () => {
@@ -202,22 +237,58 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '256.00' });
   }, 120_000);
 
-  // The combined rule's known effect (#792, decision (A)), recorded as a follow-up: the pool carries
-  // 128 over 1,160, so the 928 it pays takes 102.40, not the 128 it releases, and the 232 the note
-  // covers keeps 25.60 on account until it is applied or returned.
-  it('U1n · then the note is applied and the cash on account pays the 928: 2120 rises by 25.60, and November ties out', async () => {
-    const { b, s, n, receipt } = await collectedNotedUnapplied('U1n');
-    const id = (await query<{ id: string }>(
-      `SELECT id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [b.f.entityId, n]
-    )).rows[0].id;
-    await applyCreditNote(b.f.entityId, id, [{ invoiceId: s, amount: '232.00' }], b.f.userId);
-    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: '2026-11-05' });
-    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '825.60', '2125': '128.00', '1120': '-928.00', '2120': '-25.60' });
-    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '153.60' });
-    const november = await buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: 2026, month: 11 });
-    expect(Number(november.figures.charged.tasa16.iva).toFixed(2)).toBe('25.60');
-    expect(gap(november)).toBeUndefined();
+  // MNE-001-591: the cash applied to the invoice it came from takes the pool first (c = 128), so 2120 stays at
+  // 128, where decision (A) reads it; the 232 the note covers stays on account carrying nothing.
+  it('U1n · then the note is applied and the cash on account pays S\'s 928: it takes the pool\'s 128, 2120 stays at 128, and November charges nothing', async () => {
+    const { b, s, receipt } = await notedOnAccount('U1n');
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: nov(5) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '800.00', '2125': '128.00', '1120': '-928.00' });
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '128.00' });
+    expect(await balanceOf(b, '2150')).toBe('232.00');
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(gap(wp)).toBeUndefined();
     expect(gap(await october(b))).toBeUndefined();
+  }, 120_000);
+
+  it('U1n2 · then T gets the 232 the note covers: it carries nothing, T causes its own 32, and November ties out at 200 / 32', async () => {
+    const { b, s, receipt } = await notedOnAccount('U1n2');
+    await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: nov(5) });
+    const t = await sale(b, '200.00', nov(6));
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: t, amountApplied: '232.00' }], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '232.00', '2125': '32.00', '1120': '-232.00', '2120': '-32.00' });
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '160.00' });
+    expect(await balanceOf(b, '2150')).toBe('0.00');
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('U1t · T first: the 232 goes to T carrying nothing, then S takes the pool, and both steps end where (A) reads them', async () => {
+    const { b, s, receipt } = await notedOnAccount('U1t');
+    const t = await sale(b, '200.00', nov(5));
+    const toT = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: t, amountApplied: '232.00' }], b.f.userId, { date: nov(5) });
+    expect((await linesOf(b, toT.journalEntry!.id)).net).toEqual({ '2150': '232.00', '2125': '32.00', '1120': '-232.00', '2120': '-32.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '160.00' });
+    expect(await balanceOf(b, '2150')).toBe('800.00');
+    const toS = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, toS.journalEntry!.id)).net).toEqual({ '2150': '800.00', '2125': '128.00', '1120': '-928.00' });
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '160.00' });
+    expect(await balanceOf(b, '2150')).toBe('0.00');
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('U1u · the whole 1,160 to another invoice takes the plain 232 and then the pool, as before 591: 2120 ends at 160', async () => {
+    const { b, receipt } = await notedOnAccount('U1u');
+    const u = await sale(b, '1000.00', nov(6));
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: u, amountApplied: '1160.00' }], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '1032.00', '2125': '160.00', '1120': '-1160.00', '2120': '-32.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '160.00' });
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
   }, 120_000);
 
   it('U2 · the issue\'s own example: a note for the whole invoice leaves nothing to re-park, and October\'s tie-out is silent', async () => {

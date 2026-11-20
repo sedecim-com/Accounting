@@ -159,7 +159,7 @@ async function gastoAprobado(
 }
 
 /** An issued invoice to a well-formed customer on day 5 of `month`, ready to be collected. */
-async function issuedInvoice(month: number, unitPrice: string): Promise<{ invoiceId: string; total: string }> {
+async function issuedInvoice(month: number, unitPrice: string): Promise<{ invoiceId: string; total: string; customerId: string }> {
   const customerId = uuidv4();
   await query(
     `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, currency_code, created_by)
@@ -185,7 +185,7 @@ async function issuedInvoice(month: number, unitPrice: string): Promise<{ invoic
     created_by: f.userId,
   });
   const issued = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
-  return { invoiceId: issued.invoice.id, total: new Decimal(unitPrice).times('1.16').toFixed(2) };
+  return { invoiceId: issued.invoice.id, total: new Decimal(unitPrice).times('1.16').toFixed(2), customerId };
 }
 
 // ============================================================
@@ -1073,6 +1073,11 @@ describe('a receipt declares the payer bank and account, and our account as the 
     expect(voucher(c1.entry)).toContain('Monto="232.00"');
     expect(voucher(c1.entry)).not.toContain('BanEmisNal="012"');
     expect(voucher(c1.entry)).not.toContain(CLABE);
+    // #856: the payee of a collection is the customer, name and RFC, never our entity.
+    const ours = (await query<{ tax_id: string }>(`SELECT tax_id FROM legal_entities WHERE id = $1`, [f.entityId])).rows[0].tax_id;
+    expect(voucher(t1.entry)).toContain('Benef="Cliente Puntual SA" RFC="CPU010101AB1" Monto="116.00"');
+    expect(voucher(c1.entry)).toContain('Benef="Cliente Puntual SA" RFC="CPU010101AB1" Monto="232.00"');
+    for (const entry of [t1.entry, c1.entry]) expect(voucher(entry)).not.toContain(`RFC="${ours}"`);
 
     // Neither receipt is named. The file's shared bank account posts to 1120,
     // so this fixture's invoices read as bank moves with no payment: those
@@ -1080,6 +1085,66 @@ describe('a receipt declares the payer bank and account, and our account as the 
     expect(r.hallazgos.filter((h) => h.referencia === t1.entry || h.referencia === c1.entry)).toEqual([]);
     const blocking = r.hallazgos.filter((h) => h.severity === 'blocking');
     expect(blocking.every((h) => h.detalle.includes('(source_type invoice)')), JSON.stringify(blocking)).toBe(true);
+  });
+});
+
+describe('a collection whose customer lacks its name or RFC is left out and names the customer (#856)', () => {
+  // A month of its own (8 to 12 are taken). Each receipt captures everything
+  // its node needs; the customer's record is then left without the datum, as
+  // a record corrected after capture is, so the payee is the only gap.
+  const MONTH = 7;
+  const PAYMENT_NODE = /<PLZ:(Cheque|Transferencia|OtrMetodoPago)\b/;
+
+  beforeAll(async () => {
+    await query(
+      `INSERT INTO sat_bancos (clave, nombre_corto, vigente)
+       VALUES ('002','Banamex',true), ('012','BBVA',true), ('072','Banorte',true)
+       ON CONFLICT (clave) DO NOTHING`
+    );
+  });
+
+  it.each([
+    ['a SPEI', 'with no RFC', 'tax_id = NULL', { paymentMethod: 'spei', payerBankCode: '002', payerAccount: '002180009876543210' },
+      'Transferencia', 'no tiene RFC capturado', false],
+    ['a cash receipt', 'with a malformed RFC', `tax_id = 'CPU12345'`, { paymentMethod: 'cash' },
+      'OtrMetodoPago', 'tiene «CPU12345» como RFC', false],
+    ['a cheque', 'with a blank name', `company_name = '   '`, { paymentMethod: 'check', checkNumber: '4601', payerBankCode: '072', payerAccount: '1234567890' },
+      'Cheque', 'no tiene nombre (el nombre del cliente está vacío)', true],
+  ] as const)('%s from a customer %s', async (_what, _label, gap, payer, node, reason, blankName) => {
+    const issued = await issuedInvoice(MONTH, '100.00');
+    const receipt = await recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: issued.total,
+        paymentDate: fechaEnPeriodo(MONTH, 20),
+        bankAccountId: bancoId,
+        ...payer,
+        applications: [{ documentId: issued.invoiceId, amountApplied: issued.total }],
+      },
+      f.userId
+    );
+    const entry = receipt.journalEntry?.entry_number;
+    expect(entry, 'the receipt must have posted').toBeTruthy();
+    await query(`UPDATE customers SET ${gap} WHERE id = $1 AND entity_id = $2`, [issued.customerId, f.entityId]);
+
+    const r = await generarPolizas(f.entityId, { periodo: `2026-0${MONTH}`, solicitud: SOLICITUD });
+
+    expect(validateAgainstOfficialXsd(r.xml, 'journal')).toEqual({ valid: true, errors: [] });
+    const voucher = r.xml.split('<PLZ:Poliza ').find((block) => block.includes(`NumUnIdenPol="${entry}"`));
+    expect(voucher, 'the entry must be in the file').toBeDefined();
+    expect(voucher).not.toMatch(PAYMENT_NODE);
+    const untraced = r.hallazgos.filter((h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry);
+    expect(untraced).toHaveLength(1);
+    expect(untraced[0].severity).toBe('blocking');
+    expect(untraced[0].detalle).toContain(reason);
+    expect(untraced[0].detalle).toContain(`el nodo ${node} lo exige`);
+    // The customer's record is named, by its name and id, never the entity's.
+    const named = blankName ? `el cliente (id ${issued.customerId})` : `el cliente «Cliente Puntual SA» (id ${issued.customerId})`;
+    expect(untraced[0].detalle).toContain(`, ${named}, `);
+    expect(untraced[0].detalle).toContain('falta en el registro del cliente');
+    expect(untraced[0].detalle).not.toContain('de la entidad');
+    expect(untraced[0].detalle).not.toContain('receipt record');
+    expect(r.puedeEntregarse).toBe(false);
   });
 });
 

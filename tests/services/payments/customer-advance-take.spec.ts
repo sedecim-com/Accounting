@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
+import { iepsTakeOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-422 (#623) · what one allocation takes from a receipt's advance, by hand.
 const advance = { total: '1160.00', iva: '160.00', consumed: '0', cancelled: '0', plain: '0' };
@@ -27,5 +27,25 @@ describe('takeFromAdvance', () => {
 
   it('an exempt advance takes its base and cancels nothing', () => {
     expect(takeFromAdvance({ ...advance, iva: '0', applied: '500.00' })).toEqual({ plain: '0.0000', base: '500.0000', iva: '0.0000' });
+  });
+});
+
+// MNE-001-590 (#792) · the IEPS one allocation takes from the cash on account, by hand.
+describe('iepsTakeOf', () => {
+  it('at the pool\'s own ratio, half up: 80 × 1,160 / 1,252.80 = 74.0741, and 80 × 626.40 / 1,252.80 = 40.0000', () => {
+    expect(iepsTakeOf({ left: '80.0000', cashLeft: '1252.80', fromAdvance: '1160.00' })).toBe('74.0741');
+    expect(iepsTakeOf({ left: '80.0000', cashLeft: '1252.80', fromAdvance: '626.40' })).toBe('40.0000');
+  });
+
+  it('the take that empties the pool gets the exact remainder: 5.9259 on the last 92.80', () => {
+    expect(iepsTakeOf({ left: '5.9259', cashLeft: '92.80', fromAdvance: '92.80' })).toBe('5.9259');
+    expect(iepsTakeOf({ left: '40.0000', cashLeft: '626.40', fromAdvance: '700.00' })).toBe('40.0000');
+  });
+
+  it('nothing when the cash takes nothing from the pool or the pool carries no IEPS, and the rest when no cash is left', () => {
+    expect(iepsTakeOf({ left: '80.0000', cashLeft: '1252.80', fromAdvance: '0' })).toBe('0.0000');
+    expect(iepsTakeOf({ left: '0', cashLeft: '1252.80', fromAdvance: '500.00' })).toBe('0.0000');
+    expect(iepsTakeOf({ left: '-1.0000', cashLeft: '1252.80', fromAdvance: '500.00' })).toBe('0.0000');
+    expect(iepsTakeOf({ left: '3.0000', cashLeft: '0', fromAdvance: '0.01' })).toBe('3.0000');
   });
 });

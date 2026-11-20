@@ -3354,6 +3354,68 @@ export const ES: Record<keyof typeof EN, string> = {
   'fiscal_mx.e_accounting.output.kept':
     'No se escribió nada: {target} se conserva tal cual. Usa otra ruta, o --yes si de verdad quieres reemplazarlo.',
 
+  'fiscal_mx.diot.unfiled.headline': 'ESTA DIOT NO SE PRESENTÓ Y ESTE ARCHIVO NO ES LA DECLARACIÓN.',
+  'fiscal_mx.diot.unfiled.two_hands':
+    'Armar la declaración y presentarla son actos distintos y de manos distintas.',
+  'fiscal_mx.diot.unfiled.step_tie_out':
+    'Coteja el papel de trabajo contra el movimiento del mes de la cuenta de IVA acreditable: si no cuadra al centavo, no captures — «casi cuadra» es un requerimiento dentro de un año.',
+  'fiscal_mx.diot.unfiled.step_capture':
+    'Captura o carga la declaración TÚ en el portal del SAT. Este binario no entra al portal, no carga la e.firma y no presenta nada.',
+  'fiscal_mx.diot.unfiled.step_acknowledgement':
+    'Guarda el acuse con su número de operación: es la única prueba de que se presentó.',
+  'fiscal_mx.diot.unfiled.step_record':
+    'Registra el acuse en el expediente del mes. Ese registro TODAVÍA NO tiene comando (`diot record` no está construido).',
+  'fiscal_mx.diot.period.missing':
+    'La DIOT se declara por mes: indica --period YYYY-MM (por ejemplo --period 2026-02). Sin él no hay periodo que declarar.',
+  'fiscal_mx.diot.period.not_month':
+    '--period «{value}» no es un mes. La DIOT es mensual (LIVA art. 32 fr. VIII), así que aquí sólo vale la forma YYYY-MM (2026-02). Un trimestre o un ejercicio no se declaran.',
+  'fiscal_mx.diot.period.month_out_of_range':
+    '--period «{value}»: el mes ha de ir de 01 a 12. El mes 13 es de la balanza de cierre del Anexo 24 (`e-accounting balance generate --closing`); una declaración informativa no tiene mes 13.',
+  'fiscal_mx.diot.check.paid_event':
+    'el suceso que la DIOT declara existe en el mayor y no libera más IVA del que hay aparcado',
+  'fiscal_mx.diot.check.rate_breakdown':
+    'cada gasto se reparte por tasa (16/8/0/exento) y la suma reproduce el IVA de la cabecera',
+  'fiscal_mx.diot.check.exempt_base':
+    'los actos exentos declaran su base, que es lo que la DIOT informa aunque no haya impuesto',
+  'fiscal_mx.diot.check.third_party_identified':
+    'cada tercero llega con RFC usable, o con identificación fiscal, país y nacionalidad si es extranjero',
+  'fiscal_mx.diot.check.operation_type':
+    'cada tercero trae un tipo de operación capturado que el catálogo 2025 admite para su tipo de tercero, no supuesto',
+  'fiscal_mx.diot.check.creditable_iva_proportion':
+    'todo el IVA se declara como vinculado exclusivamente a actividades gravadas sólo si el mayor no tiene ingresos exentos en el ejercicio',
+  'fiscal_mx.diot.check.catalog_policy': 'las políticas de la DIOT valen algo que su propio catálogo admite',
+  'fiscal_mx.diot.check.envelope':
+    '{rfc} · DIOT {month}/{year} · {parties, plural, one {# tercero} other {# terceros}} · IVA acreditable pagado {amount} · verificaciones: {checks}',
+  'fiscal_mx.diot.check.clean':
+    'sin hallazgos: la DIOT pasa {count, plural, one {la # verificación pedida} other {las # verificaciones pedidas}}.',
+  'fiscal_mx.diot.check.summary':
+    '{blocking, plural, one {# bloqueante} other {# bloqueantes}}, {warning, plural, one {# aviso} other {# avisos}}. Un bloqueante impide capturar la declaración.',
+  'fiscal_mx.diot.header.summary':
+    'RFC {rfc} — {name} · {from} → {to} · {parties, plural, one {# tercero} other {# terceros}} · {documents, plural, one {# documento} other {# documentos}}',
+  'fiscal_mx.diot.header.basis': 'base: operaciones PAGADAS (LIVA art. 5 frac. III), no devengadas',
+  'fiscal_mx.diot.header.by_default': '(omisión)',
+  'fiscal_mx.diot.totals.rate_8': '8 % (frontera)',
+  'fiscal_mx.diot.totals.exempt': 'exento',
+  'fiscal_mx.diot.totals.other': 'otras ({label})',
+  'fiscal_mx.diot.totals.creditable_paid': 'IVA acreditable pagado en el mes',
+  'fiscal_mx.diot.totals.withheld': 'IVA retenido a terceros',
+  'fiscal_mx.diot.totals.tie_out':
+    'Cotéjalo contra el movimiento del mes de la cuenta de IVA acreditable: si no cuadra al centavo, no captures.',
+  'fiscal_mx.diot.generate.not_capturable':
+    '{count, plural, one {# hallazgo impide} other {# hallazgos impiden}} capturar esta DIOT tal cual. {count, plural, one {Arréglalo} other {Arréglalos}} y vuelve a armarla; `diot check --check` lista las verificaciones por nombre para atacarlas de una en una.',
+  'fiscal_mx.diot.export.layout_unknown':
+    '--layout «{value}» no existe. Los layouts son: {layouts} (working-paper es la conciliación por tercero que se coteja antes de capturar; sat es el archivo de lote de la autoridad).',
+  'fiscal_mx.diot.export.meanwhile':
+    '{message}\n\nMientras tanto: `{command}` produce la conciliación por tercero para capturar en el portal.',
+  'fiscal_mx.diot.export.working_paper':
+    'Layout «{layout}»: esto es un PAPEL DE TRABAJO. No se sube al portal del SAT.',
+  'fiscal_mx.diot.export.written':
+    'layout {layout} · {bytes, plural, one {# byte} other {# bytes}} · destino {target}',
+  'fiscal_mx.diot.export.written_not_capturable':
+    'El archivo se escribió, pero {count, plural, one {# hallazgo impide} other {# hallazgos impiden}} capturar la declaración tal cual.',
+  'fiscal_mx.diot.export.exists':
+    '{target} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes. Un papel de trabajo revisado y anotado a mano no se reemplaza en silencio.',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
@@ -3759,6 +3821,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'ar.check.cross_party_application.found':
     'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
   'ar.check.cross_party_application.none': 'ninguna',
+  'ar.check.orphan_application.found':
+    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA; ' +
+    'la reversa ya reabrió la factura y sólo falta cerrar la fila, que ningún comando escribe: ' +
+    'repórtala antes de volver a cobrar esa factura',
+  'ar.check.orphan_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',

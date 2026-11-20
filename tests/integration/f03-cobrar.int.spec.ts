@@ -827,5 +827,57 @@ describe('the invoice UPDATEs of a collection are guarded (invariant 3, MNE-001-
       expect(await invoiceRow(a.id)).toMatchObject({ amount_due: '116.0000', status: 'sent' });
       expect(await invoiceRow(b.id)).toEqual(bBefore);
     });
+
+    // MNE-001-589: the rows a miss left before 584 are named by ar check, and only read.
+    const probe = async (entityId: string, name: string) =>
+      (await runArChecks(entityId, { checks: [name] })).results[0];
+
+    it('R8 · the live row a pre-584 miss left on a reversed receipt is named with its amount, and nothing is written', async () => {
+      const { a, b, paymentId } = await twoInvoicesOneReceipt();
+      await reverseCustomerPayment(f.entityId, paymentId, { reason: 'cheque devuelto' }, f.userId);
+      const number = (await query<{ payment_number: string }>(
+        `SELECT payment_number FROM customer_payments WHERE id = $1`, [paymentId]
+      )).rows[0].payment_number;
+      const rowB = (await query<{ id: string; unapplied_at: Date; unapplied_by: string; unapply_reason: string }>(
+        `SELECT id, unapplied_at, unapplied_by, unapply_reason
+           FROM payment_allocations WHERE payment_id = $1 AND invoice_id = $2`, [paymentId, b.id]
+      )).rows[0];
+      // The state a close that missed B's row left: mirrors posted, B reopened, the row live.
+      await query(
+        `UPDATE payment_allocations SET unapplied_at = NULL, unapplied_by = NULL, unapply_reason = NULL WHERE id = $1`,
+        [rowB.id]
+      );
+      const other = await crearInquilino('F03 Cobrar · MNE-001-589');
+      try {
+        const before = {
+          entries: await entriesOfEntity(), a: await invoiceRow(a.id), b: await invoiceRow(b.id),
+          allocations: await allocationsOf(paymentId),
+        };
+        const found = await probe(f.entityId, 'orphan-application');
+        expect(found).toMatchObject({ level: 'blocking', count: 1, detailKey: 'ar.check.orphan_application.found' });
+        expect(found.detail, 'the English source is the catalog\'s').toBe(t('ar.check.orphan_application.found', {}, 'en'));
+        expect(found.sample).toEqual([`${number} (reversed) → ${b.invoice_number} 116.00`]);
+        // Until B is collected again, live 116.00 is not over its 116.00: only this probe sees it.
+        expect((await probe(f.entityId, 'over-application')).level).toBe('clean');
+        // Another entity does not see it.
+        expect(await probe(other.entityId, 'orphan-application')).toMatchObject({ level: 'clean', count: 0, sample: [] });
+        // It only reads.
+        expect({
+          entries: await entriesOfEntity(), a: await invoiceRow(a.id), b: await invoiceRow(b.id),
+          allocations: await allocationsOf(paymentId),
+        }).toEqual(before);
+      } finally {
+        await query(
+          `UPDATE payment_allocations SET unapplied_at = $2, unapplied_by = $3, unapply_reason = $4 WHERE id = $1`,
+          [rowB.id, rowB.unapplied_at, rowB.unapplied_by, rowB.unapply_reason]
+        );
+      }
+    });
+
+    it('R9 · with the row closed again, the probe is clean', async () => {
+      expect(await probe(f.entityId, 'orphan-application')).toMatchObject({
+        level: 'clean', count: 0, sample: [], detailKey: 'ar.check.orphan_application.none',
+      });
+    });
   });
 });

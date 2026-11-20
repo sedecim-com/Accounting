@@ -109,6 +109,21 @@ export function takeFromAdvance(t: AdvanceTake): { plain: string; base: string; 
 }
 
 /**
+ * MNE-001-590 (#792) · The IEPS that one allocation takes from the cash on
+ * account, caused when it was collected (`iepsKeptOnAccount`): the pool's own
+ * ratio, `left` × `fromAdvance` / `cashLeft`, at four decimals, half up. It is
+ * read on what is left, so the take that empties the pool gets the exact
+ * remainder and the parts never drift.
+ */
+export function iepsTakeOf(t: { left: string; cashLeft: string; fromAdvance: string }): string {
+  const left = Decimal.max(new Decimal(t.left), 0);
+  const from = new Decimal(t.fromAdvance);
+  if (!from.greaterThan(0) || !left.greaterThan(0)) return '0.0000';
+  if (from.greaterThanOrEqualTo(t.cashLeft)) return left.toFixed(4);
+  return left.times(from).dividedBy(t.cashLeft).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+/**
  * MNE-001-462 · What the cash an unapply puts back on account carries, on a
  * receipt recorded with a treatment.
  *
@@ -167,21 +182,60 @@ export async function advanceBackOnAccount(
  * application takes from it as from an advance (`takeFromAdvance`), so the
  * IVA is cancelled against the share it releases instead of caused again
  * (LIVA art. 1-B). Entity-scoped in the SQL.
+ *
+ * MNE-001-591 (#792, decision (A), follow-up 1) · Where a credit note capped
+ * what a row kept, only part of its plain cash carries that IVA
+ * (`keptCashOf`): the rest is what the note credited the customer, owed back
+ * and carrying none, and falls into the caller's plain cash. `own` names the
+ * invoices whose rows were capped: cash applied again to one of them is that
+ * invoice's own collected consideration, so it takes the pool first.
  */
+export interface KeptPool {
+  cash: string;
+  iva: string;
+  /** MNE-001-591 · The invoices whose rows a credit note capped (`kept` below `keptIvaOf`). */
+  own: ReadonlySet<string>;
+}
+
 export async function keptOnAccount(
   client: pg.PoolClient,
   entityId: string,
   receiptId: string
-): Promise<{ cash: string; iva: string }> {
-  const r = await client.query<{ cash: string; iva: string }>(
-    `SELECT COALESCE(SUM(pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount), 0)::text AS cash,
-            COALESCE(SUM(pa.unapply_kept_iva_amount), 0)::text AS iva
+): Promise<KeptPool> {
+  const r = await client.query<{ invoice_id: string; amount: string; plain: string; released: string | null; kept: string }>(
+    `SELECT pa.invoice_id::text, pa.amount_applied::text AS amount,
+            (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)::text AS plain,
+            pa.iva_reclass_amount::text AS released, pa.unapply_kept_iva_amount::text AS kept
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
       WHERE pa.payment_id = $1 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount IS NOT NULL`,
     [receiptId, entityId]
   );
-  return { cash: new Decimal(r.rows[0]?.cash ?? 0).toFixed(4), iva: new Decimal(r.rows[0]?.iva ?? 0).toFixed(4) };
+  let cash = new Decimal(0);
+  let iva = new Decimal(0);
+  const own = new Set<string>();
+  for (const row of r.rows) {
+    const carrying = keptCashOf(row);
+    cash = cash.plus(carrying);
+    iva = iva.plus(row.kept);
+    if (new Decimal(row.kept).lessThan(keptIvaOf(row))) own.add(row.invoice_id);
+  }
+  return { cash: cash.toFixed(4), iva: iva.toFixed(4), own };
+}
+
+/**
+ * MNE-001-591 (#792, decision (A), follow-up 1) · The cash that carries a
+ * row's kept IVA. A row that kept its full share (`keptIvaOf`) carries it on
+ * all its plain cash, so a row no note capped is unchanged; one a note capped
+ * carries it on plain × kept / full, at four decimals, half up: the cash of
+ * the balance owed again (LIVA arts. 1-B and 7). A row that kept nothing
+ * carries nothing. Reads only stored facts.
+ */
+export function keptCashOf(row: { amount: string; plain: string; released: string | null; kept: string | null }): string {
+  if (row.kept === null || !new Decimal(row.kept).greaterThan(0)) return '0.0000';
+  const full = new Decimal(keptIvaOf(row));
+  if (new Decimal(row.kept).greaterThanOrEqualTo(full)) return new Decimal(row.plain).toFixed(4);
+  return new Decimal(row.plain).times(row.kept).dividedBy(full).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
 }
 
 /**

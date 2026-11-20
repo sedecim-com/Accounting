@@ -262,25 +262,35 @@ const SONDAS: Sonda[] = [
     },
   },
   {
+    // MNE-001-589 (#809): it also names the rows a reversal close that missed
+    // them left before MNE-001-584, with the amount the reversal reopened by.
+    // It only reads: no command closes such a row, so the detail says what to do.
     name: 'orphan-application',
     severity: 'blocking',
     descripcion: 'aplicaciones vivas de cobros anulados o reversados',
     correr: async (entityId) => {
       const { count, sample } = await cuenta(
-        `SELECT cp.payment_number, i.invoice_number, cp.status, COUNT(*) OVER()::int AS total
+        `SELECT cp.payment_number, i.invoice_number, cp.status,
+                (pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::numeric(19,2)::text AS amount,
+                COUNT(*) OVER()::int AS total
            FROM payment_allocations pa
            JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
-           JOIN invoices i ON i.id = pa.invoice_id
+           JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
           WHERE pa.unapplied_at IS NULL AND cp.status IN ('void', 'reversed', 'failed')
-          ORDER BY cp.payment_number LIMIT 5`,
+          ORDER BY cp.payment_number, i.invoice_number LIMIT 5`,
         [entityId],
-        (r) => `${String(r.payment_number)} (${String(r.status)}) → ${String(r.invoice_number)}`
+        (r) =>
+          `${String(r.payment_number)} (${String(r.status)}) → ${String(r.invoice_number)} ${String(r.amount)}`
       );
-      return {
-        count,
-        detail: count ? 'un cobro muerto sigue bajando saldo del auxiliar' : 'ninguna',
-        sample,
-      };
+      return count
+        ? {
+            count, sample, detailKey: 'ar.check.orphan_application.found',
+            detail:
+              "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
+              "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
+              'report it before collecting that invoice again',
+          }
+        : { count, sample, detailKey: 'ar.check.orphan_application.none', detail: 'none' };
     },
   },
   {

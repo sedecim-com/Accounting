@@ -1904,11 +1904,22 @@ export const E0_0: Criterio[] = [
     // language:status --check, not by this criterion, which reads the
     // baseline. #269's console clause holds for e-accounting and not yet for
     // sat, whose English prose is printed with console.*: a follow-up task.
-    // MNE-001-226 (I8.7 part 2) adds diot, cfdi and rep under this same id.
+    // MNE-001-226 (I8.7 part 2a) adds diot, which printed 31 Spanish strings:
+    // the warning that the DIOT was not filed and its steps, the --period,
+    // --check and --layout errors, the check descriptions, and the header,
+    // totals and verdicts of generate, check and export. Its --check errors
+    // and «checks:» line reuse the balance's keys word for word. The receipt's
+    // steps and the `detalle` of `check --check` are English in the row and
+    // labelled in the table. The exported file is the serializer's and does
+    // not change. Part 2b adds cfdi and rep under this same id.
     enunciado:
-      'The fiscal-mx family (e-accounting, sat) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225)',
+      'The fiscal-mx family (e-accounting, sat, diot) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225, MNE-001-226)',
     evaluar: () =>
-      familySpeaksByKey('I8.7', 'fiscal-mx', ['src/cli/e-accounting-command.ts', 'src/cli/sat-commands.ts']),
+      familySpeaksByKey('I8.7', 'fiscal-mx', [
+        'src/cli/e-accounting-command.ts',
+        'src/cli/sat-commands.ts',
+        'src/cli/diot-command.ts',
+      ]),
     mutantes: [
       {
         archivo: 'src/cli/e-accounting-command.ts',
@@ -1933,6 +1944,18 @@ export const E0_0: Criterio[] = [
         de: '"spanish-user-strings-cli": {',
         a: '"spanish-user-strings-cli": {\n   "src/cli/sat-commands.ts": 1,',
         porque: 'ground-given-back: the breakdown records a Spanish string in sat again',
+      },
+      {
+        archivo: 'src/cli/diot-command.ts',
+        de: "t('fiscal_mx.diot.unfiled.headline')",
+        a: "'ESTA DIOT NO SE PRESENTÓ Y ESTE ARCHIVO NO ES LA DECLARACIÓN.'",
+        porque: 'string-back-in-the-code: every diot leaf warns «no se presentó» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/diot-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in diot again',
       },
     ],
   },

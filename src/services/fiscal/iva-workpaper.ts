@@ -11,7 +11,7 @@ import {
 import { saleSources, type SaleSource } from './sale-sources.js';
 import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
 import { bankFeesOfRange } from './bank-fee-iva.js';
-import { backAsAdvance, storedAdvanceTreatment } from '../payments/customer-advance.js';
+import { backAsAdvance, keptCashOf, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
   desglosarDocumento,
@@ -610,6 +610,15 @@ function scaled(d: Desglose, factor: Decimal.Value): Desglose {
   };
 }
 
+/** MNE-001-591 · The bases scaled by `factor` and the IVA left as it is: the cash that carries the kept IVA. */
+function scaledBase(d: Desglose, factor: Decimal.Value): Desglose {
+  const box = (c: { base: string; iva: string }) => ({ base: q4(new Decimal(c.base).times(factor)), iva: c.iva });
+  return {
+    tasa16: box(d.tasa16), tasa8: box(d.tasa8), tasa0: box(d.tasa0), exento: box(d.exento),
+    otras: d.otras.map((o) => ({ etiqueta: o.etiqueta, ...box(o) })),
+  };
+}
+
 /** One advance's net in the month: collected (+), applied (−) and unapplied (+), as the allocations stored them. */
 interface AdvanceOfMonth {
   id: string;
@@ -881,8 +890,15 @@ async function cashOnAccountOfMonth(
       neverReleased: new Decimal(0),
     };
     let touched = false;
-    const putBack = (inMonth: boolean, cash: Decimal, split: Desglose, notSubject: Decimal, unreleased: boolean): void => {
-      pool = { cash: pool.cash.plus(cash), breakdown: sumarDesgloses(pool.breakdown, split), notSubject: pool.notSubject.plus(notSubject) };
+    // MNE-001-591: `carried` is what the pool holds when it is less than the month's contribution.
+    const putBack = (
+      inMonth: boolean, cash: Decimal, split: Desglose, notSubject: Decimal, unreleased: boolean,
+      carried = { cash, split, notSubject }
+    ): void => {
+      pool = {
+        cash: pool.cash.plus(carried.cash), breakdown: sumarDesgloses(pool.breakdown, carried.split),
+        notSubject: pool.notSubject.plus(carried.notSubject),
+      };
       if (!inMonth) return;
       touched = true;
       month.breakdown = sumarDesgloses(month.breakdown, split);
@@ -937,9 +953,20 @@ async function cashOnAccountOfMonth(
         const notSubject = new Decimal(porcionDelDocumento(sale.source.notSubject, share));
         // A row that took taxed cash puts back, for its plain part, that part's share of what it released.
         const ratio = plainCash.dividedBy(amount);
+        const back = ratio.equals(1) ? split : scaled(split, ratio);
+        const backNotSubject = ratio.equals(1) ? notSubject : new Decimal(q4(notSubject.times(ratio)));
+        // MNE-001-591 (decision (A) on #792): where a note capped what the row kept, the month counts it as
+        // today, but the pool carries forward only the cash that carries the kept IVA (`keptCashOf`), at that
+        // cash's share of the base; the rest is owed back to the customer and stays untaxed.
+        const carrying = a.kept === null
+          ? plainCash
+          : new Decimal(keptCashOf({ amount: a.amount, plain: plainCash.toFixed(4), released: a.vat, kept: a.kept }));
+        const part = carrying.dividedBy(plainCash);
         putBack(
-          inMonth, plainCash, ratio.equals(1) ? split : scaled(split, ratio),
-          ratio.equals(1) ? notSubject : new Decimal(q4(notSubject.times(ratio))), unreleased
+          inMonth, plainCash, back, backNotSubject, unreleased,
+          carrying.equals(plainCash)
+            ? undefined
+            : { cash: carrying, split: scaledBase(back, part), notSubject: new Decimal(q4(backNotSubject.times(part))) }
         );
         continue;
       }

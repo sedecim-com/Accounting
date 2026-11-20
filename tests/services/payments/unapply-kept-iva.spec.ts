@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capKept, keptIvaOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
+import { capKept, keptCashOf, keptIvaOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-574 (#792, part 1/3) · The IVA one allocation's unapply keeps caused
 // on a receipt with no treatment, and how a later application takes it back.
@@ -53,5 +53,24 @@ describe('capKept', () => {
     ['a negative cap reads as none', ['16.0000'], '-4.0000', ['0.0000']],
   ] as const)('%s', (_case, kept, cap, out) => {
     expect(capKept(kept, cap)).toEqual(out);
+  });
+});
+
+// MNE-001-591 (#792, decision (A), follow-up 1): after a note caps what a row keeps caused, only part of
+// its plain cash carries that IVA. Figures by hand: S 1,000.00 + 160.00, a note of 200.00 + 32.00.
+describe('keptCashOf', () => {
+  it.each([
+    // 1,160 × 128 / 160 = 928.0000
+    ['U1: the 1,160 back on account carries the 128 kept in 928 of it', { amount: '1160.0000', plain: '1160.0000', released: '160.0000', kept: '128.0000' }, '928.0000'],
+    // 580 × 48 / 80 = 348.0000
+    ['U5\'s first unapply: 580 keeps 48 of its 80, carried by 348', { amount: '580.0000', plain: '580.0000', released: '80.0000', kept: '48.0000' }, '348.0000'],
+    ['a row the note did not cap: all its plain cash', { amount: '1160.0000', plain: '1160.0000', released: '160.0000', kept: '160.0000' }, '1160.0000'],
+    ['a row that kept nothing is not in the pool', { amount: '1160.0000', plain: '1160.0000', released: '160.0000', kept: null }, '0.0000'],
+    // its full share is 160 × 580 / 1,160 = 80, so 580 × 48 / 80 = 348.0000
+    ['a row whose plain cash is half its amount scales by its plain part\'s share', { amount: '1160.0000', plain: '580.0000', released: '160.0000', kept: '48.0000' }, '348.0000'],
+    // 1,000 × 0.0002 / 160 = 0.00125 → 0.0013, half up (half even would give 0.0012)
+    ['at four decimals, half up', { amount: '1000.0000', plain: '1000.0000', released: '160.0000', kept: '0.0002' }, '0.0013'],
+  ] as const)('%s', (_case, row, cash) => {
+    expect(keptCashOf(row)).toBe(cash);
   });
 });
