@@ -38,6 +38,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
 import { officialEnumeration } from '../sat/anexo24/official-enumerations.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -3015,19 +3016,36 @@ async function assertAfterLastEvent(
 }
 
 /**
- * What the bill's live applications explain. Anything else that stopped being
- * owed was written off by a short pay, and no row says how much of it which
- * payment carried, its account or its IVA: an undo would have to guess.
+ * What the bill's live applications and its received credit notes explain.
+ * Anything else that stopped being owed was written off by a short pay, and no
+ * row says how much of it which payment carried, its account or its IVA: an
+ * undo would have to guess.
+ *
+ * MNE-001-582 (#814): a received credit note lowers `amount_due` and not
+ * `amount_paid` (`postReceivedCreditNote`), so its payable debit is explained
+ * too: the note's posted, unreversed entry, whose source is the bill. Without
+ * it, every bill with a note read as closed short and its payments could not
+ * be unapplied or reversed, a bounced transfer included.
  */
 async function assertNotClosedShort(
   client: pg.PoolClient,
+  entityId: string,
   bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
   what: string
 ): Promise<void> {
   const explained = await client.query<{ s: string }>(
-    `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
-       FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
-    [bill.id]
+    `SELECT (COALESCE((SELECT SUM(pa.amount_applied + COALESCE(pa.discount_amount, 0))
+                         FROM payment_applications pa
+                         JOIN bills b ON b.id = pa.bill_id AND b.entity_id = $2
+                        WHERE pa.bill_id = $1 AND pa.unapplied_at IS NULL), 0)
+           + COALESCE((SELECT SUM(l.debit_amount)
+                         FROM journal_entries je
+                         JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                         JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $2
+                                              AND ar.role = 'cxp' AND ar.qualifier IS NULL
+                        WHERE je.entity_id = $2 AND je.source_type = $3 AND je.source_id = $1
+                          AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL), 0))::text AS s`,
+    [bill.id, entityId, VENDOR_CREDIT_NOTE_SOURCE]
   );
   const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
   if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
@@ -3119,7 +3137,7 @@ export async function unapplyVendorPayment(
       );
     }
 
-    await assertNotClosedShort(client, bill, 'an unapply');
+    await assertNotClosedShort(client, entityId, bill, 'an unapply');
     if (live.rows.some((r) => r.iva_reclass_amount === null) && (await entityUsesCashBasisIva(client, entityId))) {
       throw new ValidationError(
         `The application of ${vp.payment_number} on ${bill.bill_number} predates migration 105 and did ` +
@@ -3129,6 +3147,10 @@ export async function unapplyVendorPayment(
 
     const amount = live.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
     const discount = live.rows.reduce((s, r) => s.plus(r.discount_amount), new Decimal(0));
+    // NOTE: MNE-001-582 (#814). The whole stored release goes back, with no
+    // cap like the issued side's (MNE-001-581): a received note never exceeds
+    // what the bill owes (`refusalOf`) and takes its VAT from 1135 first, so
+    // this re-park leaves 1135 at the VAT of the balance owed again.
     const iva = live.rows.reduce((s, r) => s.plus(r.iva_reclass_amount ?? '0'), new Decimal(0));
     const ids = live.rows.map((r) => r.id);
     const reopened = amount.plus(discount);
@@ -3275,7 +3297,7 @@ export async function reverseVendorPayment(
         [billId, entityId]
       );
       const bill = b.rows[0];
-      await assertNotClosedShort(client, bill, 'a reversal');
+      await assertNotClosedShort(client, entityId, bill, 'a reversal');
       const reopened = amount.plus(discount);
       const reopen = await client.query(
         `UPDATE bills SET
