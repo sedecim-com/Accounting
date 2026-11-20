@@ -10485,8 +10485,8 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --direction <d>                          emitido, recibido o ajeno (derivada contra el RFC de la entidad)
-  --type <t>                               document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)
+  --direction <d>                          emitido, recibido or ajeno (derived against the RFC of the entity)
+  --type <t>                               filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago
   -h, --help                               display help for command
 
 Examples:
@@ -10562,7 +10562,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --refresh                                consulta al SAT ahora y actualiza la caché sat_* del documento
+  --refresh                                ask the SAT now and update the sat_* cache of the document
   -h, --help                               display help for command
 
 Examples:
