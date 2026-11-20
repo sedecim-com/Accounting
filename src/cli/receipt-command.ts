@@ -1200,17 +1200,27 @@ function advanceText(d: { advanceIva?: string }, key: 'receipt.advance.iva_cance
   return d.advanceIva !== undefined && new Decimal(d.advanceIva).greaterThan(0) ? `; ${t(key, { iva: d.advanceIva })}` : '';
 }
 
-/** MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none. */
-function advanceWarning(invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null }, date: string): string | null {
+/**
+ * MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none.
+ * MNE-001-573 · With a cheque's cashing day, the earlier month is the PUE invoice's, which caused the IVA
+ * that LIVA art. 1-B, second paragraph, puts on the cashing day.
+ */
+function advanceWarning(
+  invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null; advanceIvaCashedOn?: string | null }, date: string
+): string | null {
   if (!d.advanceIvaTwiceIn) return null;
-  return t('receipt.advance.iva_caused_twice', { iva: d.advanceIva ?? '0.00', invoice, month: d.advanceIvaTwiceIn, date });
+  const iva = d.advanceIva ?? '0.00';
+  if (d.advanceIvaCashedOn) {
+    return t('receipt.advance.iva_before_cashing', { iva, invoice, month: d.advanceIvaTwiceIn, cashed: d.advanceIvaCashedOn });
+  }
+  return t('receipt.advance.iva_caused_twice', { iva, invoice, month: d.advanceIvaTwiceIn, date });
 }
 
 function imprimirAplicacion(
   documentos: {
     numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
     withholdingIsr?: string; withholdingIva?: string;
-    advanceIva?: string; advanceIvaTwiceIn?: string | null;
+    advanceIva?: string; advanceIvaTwiceIn?: string | null; advanceIvaDeferred?: string; advanceIvaCashedOn?: string | null;
   }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
@@ -1232,6 +1242,7 @@ function imprimirAplicacion(
         withholding_isr: d.withholdingIsr ?? '0.00',
         withholding_iva: d.withholdingIva ?? '0.00',
         advance_iva_cancelled: d.advanceIva ?? '0.00',
+        advance_iva_deferred: d.advanceIvaDeferred ?? '0.00',
         warning: advanceWarning(d.numero, d, date),
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,
