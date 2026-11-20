@@ -99,6 +99,10 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====
@@ -3266,6 +3270,73 @@ export const EN = {
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  // MNE-001-222: depreciation run/post and asset create.
+  /** `depreciation run --by` with a dimension that does not exist. */
+  'assets.depreciation.by_unknown':
+    '--by "{value}" does not exist. The four dimensions are: {dimensions} (asset is the asset-by-asset detail; class and account are the summaries by class and by expense destination the catalogue asks for).',
+  /** `depreciation run`/`post` with no --period. */
+  'assets.depreciation.period_required':
+    '--period is missing. Depreciation belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would depreciate the month that has just begun.',
+  /** The group of the assets with no class in `--by class`. Stored English in the row; the table renders it. */
+  'assets.depreciation.no_class': '(no class)',
+  /** The first line of a plan: the period, the book, the entry date and the fingerprint. */
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · {book} book · entries dated {entryDate} · fingerprint {fingerprint}',
+  /** The criteria of a plan, which of them is a default, and who enters. */
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · convention {conventionDefaulted, select, yes {{convention} (default)} other {{convention}}} · {entering, plural, one {# asset enters} other {# assets enter}}, {skipped, plural, one {# is skipped} other {# are skipped}}, total {total}',
+  /** The warning when a declared default and not a choice of the firm governs the plan. */
+  'assets.depreciation.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm. Answer it with `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  /** The heading of the skipped assets in the readable output. */
+  'assets.depreciation.skipped_heading': 'Skipped ({count}):',
+  /** The warning when assets are left owing their row for the period. */
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# asset is} other {# assets are}} left without a row for {period}, and the month should recognise it. The policy `depreciacion_faltante_al_cierre` is {defaulted, select, yes {"{policy}" (declared default)} other {"{policy}"}}.',
+  /** `depreciation run` blocked by --strict or by the policy. */
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# asset} other {# assets}} without a row for {period}. {cause, select, strict {--strict turns the warning into a block.} other {The policy `depreciacion_faltante_al_cierre` is set to "bloquear".}} `depreciation post` will refuse to post until they are resolved.',
+  /** `depreciation run` with nothing that enters. */
+  'assets.depreciation.nothing_this_book': 'Nothing to post in this period with this book.',
+  /** `depreciation post --file` when the approved plan no longer matches. */
+  'assets.depreciation.plan_changed':
+    'The plan approved in {file} no longer matches what the run would do today, so nothing is posted: {differences}. Run `depreciation run` again, review the new plan and post against that one.',
+  /** `depreciation post` refused by the policy while assets owe their row. */
+  'assets.depreciation.post_blocked':
+    'Nothing is posted: {pending, plural, one {# asset is} other {# assets are}} left without a row for {period} and the policy `depreciacion_faltante_al_cierre` is set to "bloquear". Resolve them (capture the period\'s production, correct the asset record) or change the policy with {hint}.',
+  /** `depreciation post` with nothing that enters. */
+  'assets.depreciation.nothing_to_post': 'Nothing to post in {period}: the ledger was not touched.',
+  /** The note under the entry preview: N entries, N reversals. */
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# two-line entry} other {# two-line entries}}, one per asset, not a single one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** The confirmation of `depreciation post`. */
+  'assets.depreciation.confirm':
+    'Post {total} in {count, plural, one {# entry} other {# entries}} of the {book} book for {period}? The ledger does not allow undoing it.',
+  /** A replayed idempotency key. */
+  'assets.depreciation.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was posted again.',
+  /** The run made a different number of entries than the plan showed. */
+  'assets.depreciation.plan_count_mismatch':
+    'The plan showed {planned, plural, one {# entry} other {# entries}} and the run made {processed}. The plan and the engine did not agree: check the errors before taking the month as closed.',
+  /** The done line of `depreciation post`. */
+  'assets.depreciation.done':
+    '{count, plural, one {# entry posted} other {# entries posted}} in {period} ({book} book).',
+  /** `asset create` with an amount that is not an unsigned decimal. */
+  'assets.asset.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `asset create` with a depreciation method that does not exist. */
+  'assets.asset.method_unknown': '{flag} "{value}" does not exist. The six methods are: {methods}.',
+  /** `asset create --capitalized` with a value it cannot read. */
+  'assets.asset.capitalized_unknown':
+    '--capitalized "{value}" is not understood: it is yes when the cost is ALREADY charged to the asset account in the ledger (the CFDI that was capitalised), and no when the record only registers the asset and the entry is pending. It has no default: assuming one doubles the asset or leaves it out of the ledger.',
+  /** `asset create` without its required flags. */
+  'assets.asset.create_missing':
+    '{missing} missing. An asset with no class, no cost, no acquisition date or no statement of where its cost already is is not an incomplete record: it is a record that can be neither depreciated nor reconciled with the ledger.',
+  /** `asset create --source-entry` together with `--capitalized no`. */
+  'assets.asset.source_entry_contradiction':
+    '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, which says the opposite. Decide which of the two is true.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====

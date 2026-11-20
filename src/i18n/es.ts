@@ -64,6 +64,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-150 · a path no route serves; see en.ts ----
+  'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -3047,6 +3049,49 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  'assets.depreciation.by_unknown':
+    '--by «{value}» no existe. Las cuatro dimensiones son: {dimensions} (asset es el detalle activo por activo; class y account son el resumen por clase y por destino del gasto que pide el catálogo).',
+  'assets.depreciation.period_required':
+    'Falta --period. La depreciación es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 depreciaría el mes que acaba de empezar.',
+  'assets.depreciation.no_class': '(sin clase)',
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · libro {book} · asientos con fecha {entryDate} · huella {fingerprint}',
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (defecto)} other {{base}}} · convención {conventionDefaulted, select, yes {{convention} (defecto)} other {{convention}}} · {entering, plural, one {# activo entra} other {# activos entran}}, {skipped, plural, one {# se omite} other {# se omiten}}, total {total}',
+  'assets.depreciation.default_criteria_warning':
+    'Rige al menos un defecto declarado y no una elección del despacho. Se contesta con `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  'assets.depreciation.skipped_heading': 'Omitidos ({count}):',
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# activo se queda} other {# activos se quedan}} sin renglón de {period} y el mes debería reconocerlo. La política `depreciacion_faltante_al_cierre` vale {defaulted, select, yes {«{policy}» (defecto declarado)} other {«{policy}»}}.',
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# activo} other {# activos}} sin renglón de {period}. {cause, select, strict {--strict convierte el aviso en bloqueo.} other {La política `depreciacion_faltante_al_cierre` está en «bloquear».}} `depreciation post` se negará a contabilizar hasta que se resuelvan.',
+  'assets.depreciation.nothing_this_book': 'Nada que contabilizar en este periodo con este libro.',
+  'assets.depreciation.plan_changed':
+    'El plan aprobado en {file} ya no corresponde a lo que la corrida haría hoy, así que no se contabiliza nada: {differences}. Vuelve a correr `depreciation run`, revisa el plan nuevo y contabiliza contra ése.',
+  'assets.depreciation.post_blocked':
+    'No se contabiliza: {pending, plural, one {# activo se queda} other {# activos se quedan}} sin renglón de {period} y la política `depreciacion_faltante_al_cierre` está en «bloquear». Resuélvelos (captura la producción del periodo, corrige la ficha) o cambia la política con {hint}.',
+  'assets.depreciation.nothing_to_post': 'Nada que contabilizar en {period}: el mayor no se tocó.',
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# póliza de dos líneas} other {# pólizas de dos líneas}}, una por activo, no una sola de la corrida. Reversar esta corrida {count, plural, one {es # reversa} other {son # reversas}}.',
+  'assets.depreciation.confirm':
+    '¿Contabilizar {total} en {count, plural, one {# póliza} other {# pólizas}} del libro {book} de {period}? El mayor no admite deshacer.',
+  'assets.depreciation.idempotency_hit':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a contabilizar.',
+  'assets.depreciation.plan_count_mismatch':
+    'El plan enseñaba {planned, plural, one {# póliza} other {# pólizas}} y la corrida hizo {processed}. El plan y el motor no coincidieron: revisa los errores antes de dar el mes por cerrado.',
+  'assets.depreciation.done':
+    '{count, plural, one {# póliza contabilizada} other {# pólizas contabilizadas}} en {period} (libro {book}).',
+  'assets.asset.amount_invalid':
+    '{flag} debe ser un importe decimal sin signo; llegó «{value}». El punto separa los decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.',
+  'assets.asset.method_unknown': '{flag} «{value}» no existe. Los seis métodos son: {methods}.',
+  'assets.asset.capitalized_unknown':
+    '--capitalized «{value}» no se entiende: es yes cuando el costo YA está cargado a la cuenta de activo en el mayor (el CFDI que se capitalizó), y no cuando el alta sólo registra el bien y el asiento está pendiente. No tiene valor por omisión: suponerlo duplica el activo o lo deja fuera del mayor.',
+  'assets.asset.create_missing':
+    'Faltan {missing}. Un activo sin clase, sin costo, sin fecha de adquisición o sin decir dónde está ya su costo no es una ficha incompleta: es una ficha que no se puede depreciar ni cuadrar contra el mayor.',
+  'assets.asset.source_entry_contradiction':
+    '--source-entry nombra el asiento donde YA está el costo, así que no se puede pasar junto a `--capitalized no`, que afirma lo contrario. Decide cuál de las dos es cierta.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====

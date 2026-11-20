@@ -1783,6 +1783,46 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-assets-speaks-by-key',
+    // MNE-001-222 (issue #267, I8.5). The assets-inventory family —`depreciation
+    // run`/`post` and `asset create`— printed 35 Spanish strings from the code.
+    // The ones a person reads live in the I8.5 block now: the plan's header and
+    // criteria, its warnings, the blocked run, the conflict with the approved
+    // plan, the confirmation and the done line, with ICU plurals instead of
+    // «(s)», and the usage errors of `asset create`. Six texts reuse a key that
+    // already said the same (the «taken as no» line, the two ledger-untouched
+    // notes, the no-terminal abort, the asset dry run, the date error); the two
+    // `writes` and the dry-run sentinel are English in place. The no-class
+    // group is English in the row and labelled in the table, so --json and csv
+    // do not change with the locale.
+    enunciado:
+      'The assets-inventory family (depreciation, asset) prints no Spanish string from the code: its texts come from the I8.5 block of the catalogue (#267, MNE-001-222)',
+    evaluar: () =>
+      familySpeaksByKey('I8.5', 'assets', ['src/cli/depreciation-command.ts', 'src/cli/asset-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/depreciation-command.ts',
+        de: "deps.palette.dim(`${t('assets.depreciation.nothing_this_book')}\\n`)",
+        a: "deps.palette.dim('Nada que contabilizar en este periodo con este libro.\\n')",
+        porque: 'string-back-in-the-code: depreciation run writes «nada que contabilizar» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/asset-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the assets family again',
+      },
+      {
+        archivo: 'src/cli/asset-command.ts',
+        de: "usageError({ key: 'assets.asset.source_entry_contradiction' })",
+        a: "usageError('--source-entry nombra el asiento donde YA está el costo, así que no se puede pasar junto a `--capitalized no`.')",
+        porque: 'string-back-in-the-code: the usage error of asset create is a Spanish template again',
+      },
+    ],
+  },
+
 
 
   {
