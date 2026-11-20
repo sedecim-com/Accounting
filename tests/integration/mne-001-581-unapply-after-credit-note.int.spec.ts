@@ -53,8 +53,26 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //       balance is 0: no IVA line, 2125 0, 2120 0. Today 16 and −16.
 //   U3  S 1,160; N 200 + 32 applied (2125 32); 928 collected (releases 128);
 //       unapply → 128 back and 128 kept: 2125 128, 2120 128.
-//   U4  S 1,160 collected; unapply (160 back and kept, no note yet); N 200 +
-//       32 (575: 2125 32) → 2125 128, 2120 160.
+//   U4  S 1,160 collected 10-05; unapply 10-08 (160 back and kept, no note
+//       yet: the pool is 1,160 at 160); N 200 + 32 10-10. MNE-001-593 (#814,
+//       decision (A)): the firm still holds S's cash, kept caused, so H = 160
+//       of S's parked 160 is collected: 2125 for N's IVA is 0, 32 is
+//       restituted from 2120 (art. 7), and 32 of the cash's IVA leaves 2125
+//       for 2150, owed back: 4400 Dr 200 / 2120 Dr 32 / 2125 Dr 32 / 1120 Cr
+//       232 / 2150 Cr 32. 2120 128, 2125 128, 2150 1,032, as U1's order ends
+//       (U4y); the pool is 928 at 128 and the plain cash 232.
+//   U4n U4, N applied 232, 928 to S on 11-05: S is the pool's own (c 128, its
+//       release 128): DR 2150 800 / DR 2125 128 / CR 1120 928; 2120 128, 2150
+//       232, as U1n. Then T (PPD 200 + 32) gets the 232 on 11-10: it carries
+//       nothing, so T causes its 32: 2120 160, 2150 0, as U1n2.
+//   U4p U4 without the note; 580 to T (PPD 500 + 80) on 10-09 takes c 80 of
+//       the pool (its release 80), so it holds 80: H = 80, S's parked 160 less
+//       80 is 80, and N takes all 32 from 2125 as before. The other order (N,
+//       then T on 10-12: the plain 232, then 348 of the pool, c 48 against 80,
+//       CR 2120 32) ends the same: 2120 160, 2125 128, 2150 500.
+//   U4w a wire R 580 stays live (80); P 580 unapplied 10-08 (marker 80); N:
+//       parked 80, H 80, so 2120 Dr 32 / 2125 Dr 32 / 2150 Cr 32: 2125 48 (the
+//       348 still owed), 2120 128, 2150 532. N before P's unapply ends the same.
 //   U5  S 1,160; R1 580 and R2 580 (80 each); N 200 + 32 (2120 32); unapply
 //       R1 → 160 × 928 / 1,160 − 80 = 48 back and kept (2125 48, 2120 128);
 //       unapply R2 → 2125 read 48 (capped from 80), 128 − 48 = 80 back and
@@ -73,6 +91,10 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //   R2  U1, then its receipt reversed 10-25 → the mirrors put back 160 − 128
 //       = 32, which no balance carries: a correction of 32; 2125 128, 2120 0.
 //   R3  S 1,160 collected and reversed, no note → no correction; 2125 160.
+//   R2x U4, then P reversed 10-25 → the mirrors leave 2120 −32, 2125 128 and
+//       2150 32, the note's restitution from P's cash: a correction DR 2150 32
+//       / CR 2120 32 (MNE-001-593); 2120 0, 2125 128, 2150 0, as R2. 581's
+//       own correction reads 0: the 2125 mirrors net to 0.
 // ============================================================
 
 const day = (d: number): string => `2026-10-${String(d).padStart(2, '0')}`;
@@ -198,6 +220,30 @@ async function collectedNotedUnapplied(name: string) {
   return { b, s, receipt, n, undone };
 }
 
+/** MNE-001-593 · U4's story: collected 10-05, unapplied 10-08 keeping all 160 caused, then N on 10-10. */
+async function unappliedThenNoted(name: string) {
+  const b = await book(name);
+  const s = await sale(b, '1000.00');
+  const receipt = await collect(b, s, '1160.00');
+  const undone = await unapply(b, receipt.paymentId, s, day(8));
+  expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '160.0000']);
+  const n = await note(b, s, '200.00', '32.00');
+  return { b, s, receipt, n };
+}
+
+const noteId = async (b: Book, number: string): Promise<string> => (await query<{ id: string }>(
+  `SELECT id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [b.f.entityId, number]
+)).rows[0].id;
+
+const noteEntry = async (b: Book, number: string): Promise<string> => (await query<{ id: string }>(
+  `SELECT journal_entry_id AS id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [b.f.entityId, number]
+)).rows[0].id;
+
+/** MNE-001-593 · The three balances both orders must end with. */
+async function ledger(b: Book): Promise<{ '2120': string; '2125': string; '2150': string }> {
+  return { '2120': await balanceOf(b, '2120'), '2125': await balanceOf(b, '2125'), '2150': await balanceOf(b, '2150') };
+}
+
 /** U1, then N applied to S for 232: S owes 928 and the receipt's 1,160 is on account (MNE-001-591). */
 async function notedOnAccount(name: string) {
   const u1 = await collectedNotedUnapplied(name);
@@ -319,14 +365,89 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
   }, 120_000);
 
-  it('U4 · an unapply before the note keeps it all caused, and the note then takes its IVA from 2125', async () => {
-    const b = await book('U4');
-    const s = await sale(b, '1000.00');
-    const receipt = await collect(b, s, '1160.00');
-    const undone = await unapply(b, receipt.paymentId, s, day(8));
-    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '160.0000']);
-    await note(b, s, '200.00', '32.00');
-    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '160.00' });
+  it('U4 · an unapply before the note keeps it all caused; the note restitutes 32 from 2120 and the cash it covers is owed back, as the note-first order ends', async () => {
+    const { b, s, receipt, n } = await unappliedThenNoted('U4');
+    const entry = await linesOf(b, await noteEntry(b, n));
+    expect(entry.net).toEqual({ '4400': '200.00', '2120': '32.00', '2125': '32.00', '1120': '-232.00', '2150': '-32.00' });
+    expect(entry.text).toContain(`IVA of credit note ${n}'s reduction restituted from cash kept on account by ${receipt.paymentNumber}: now owed back`);
+    expect(await ledger(b)).toEqual({ '2120': '128.00', '2125': '128.00', '2150': '1032.00' });
+    const parked = await withTenant(b.f.tenantId, () => withTransaction((client) => issuedVatStillParked(client, b.f.entityId, s)));
+    expect(parked.parked).toBe('128.0000');
+
+    const wp = await october(b);
+    // +160 collected, −160 + 160 the unapply, −32 the note: 128, the ledger's.
+    expect(at16(wp)).toEqual({ base: '800.00', iva: '128.00' });
+    expect(wp.contributions.charged.find((c) => c.documentKind === 'credit_note')?.breakdown.tasa16)
+      .toEqual({ base: '-200.0000', iva: '-32.0000' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('U4y · its twin in the other order (U1: the note, then the unapply) ends with the same 2120, 2125 and 2150', async () => {
+    const { b } = await collectedNotedUnapplied('U4y');
+    expect(await ledger(b)).toEqual({ '2120': '128.00', '2125': '128.00', '2150': '1032.00' });
+    expect(gap(await october(b))).toBeUndefined();
+  }, 120_000);
+
+  it('U4n · then the note is applied and the cash pays S\'s 928 from the pool (as U1n), and T\'s 232 later carries nothing (as U1n2)', async () => {
+    const { b, s, receipt, n } = await unappliedThenNoted('U4n');
+    await applyCreditNote(b.f.entityId, await noteId(b, n), [{ invoiceId: s, amount: '232.00' }], b.f.userId);
+    const toS = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: nov(5) });
+    expect((await linesOf(b, toS.journalEntry!.id)).net).toEqual({ '2150': '800.00', '2125': '128.00', '1120': '-928.00' });
+    expect(await ledger(b)).toEqual({ '2120': '128.00', '2125': '0.00', '2150': '232.00' });
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(gap(wp)).toBeUndefined();
+    expect(gap(await october(b))).toBeUndefined();
+
+    const t = await sale(b, '200.00', nov(6));
+    const toT = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: t, amountApplied: '232.00' }], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, toT.journalEntry!.id)).net).toEqual({ '2150': '232.00', '2125': '32.00', '1120': '-232.00', '2120': '-32.00' });
+    expect(await ledger(b)).toEqual({ '2120': '160.00', '2125': '0.00', '2150': '0.00' });
+    const later = await november(b);
+    expect(at16(later)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(later)).toBeUndefined();
+  }, 120_000);
+
+  it('U4p · part of the pool already gone: H is what it still holds, the note takes its 32 from 2125, and the other order ends the same', async () => {
+    const first = await book('U4p');
+    const s = await sale(first, '1000.00');
+    const receipt = await collect(first, s, '1160.00');
+    await unapply(first, receipt.paymentId, s, day(8));
+    const t = await sale(first, '500.00');
+    await applyCustomerPayment(first.f.entityId, receipt.paymentId, [{ documentId: t, amountApplied: '580.00' }], first.f.userId, { date: day(9) });
+    const n = await note(first, s, '200.00', '32.00');
+    expect((await linesOf(first, await noteEntry(first, n))).net).toEqual({ '4400': '200.00', '2125': '32.00', '1120': '-232.00' });
+    expect(await ledger(first)).toEqual({ '2120': '160.00', '2125': '128.00', '2150': '500.00' });
+    expect(gap(await october(first))).toBeUndefined();
+
+    const { b, receipt: other } = await unappliedThenNoted('U4p other order');
+    const t2 = await sale(b, '500.00');
+    const toT = await applyCustomerPayment(b.f.entityId, other.paymentId, [{ documentId: t2, amountApplied: '580.00' }], b.f.userId, { date: day(12) });
+    expect((await linesOf(b, toT.journalEntry!.id)).net).toEqual({ '2150': '532.00', '2125': '80.00', '1120': '-580.00', '2120': '-32.00' });
+    expect(await ledger(b)).toEqual({ '2120': '160.00', '2125': '128.00', '2150': '500.00' });
+    expect(gap(await october(b))).toBeUndefined();
+  }, 120_000);
+
+  it('U4w · partly collected: the note restitutes from the unapplied receipt\'s kept cash, and the note-first order ends the same', async () => {
+    const story = async (name: string, noteFirst: boolean) => {
+      const b = await book(name);
+      const s = await sale(b, '1000.00');
+      await collect(b, s, '580.00');
+      const p = await collect(b, s, '580.00', day(6));
+      if (!noteFirst) await unapply(b, p.paymentId, s, day(8));
+      const n = await note(b, s, '200.00', '32.00');
+      if (noteFirst) await unapply(b, p.paymentId, s);
+      return { b, n };
+    };
+    const after = await story('U4w', false);
+    expect((await linesOf(after.b, await noteEntry(after.b, after.n))).net)
+      .toEqual({ '4400': '200.00', '2120': '32.00', '2125': '32.00', '1120': '-232.00', '2150': '-32.00' });
+    expect(await ledger(after.b)).toEqual({ '2120': '128.00', '2125': '48.00', '2150': '532.00' });
+    expect(gap(await october(after.b))).toBeUndefined();
+
+    const before = await story('U4w note first', true);
+    expect(await ledger(before.b)).toEqual({ '2120': '128.00', '2125': '48.00', '2150': '532.00' });
+    expect(gap(await october(before.b))).toBeUndefined();
   }, 120_000);
 
   it('U5 · two receipts: the second unapply reads 2125 at the open balance\'s 48, not the 80 its release would say', async () => {
@@ -400,6 +521,15 @@ describe('a reversal after a credit note takes back out of 2125 what its mirrors
     await reverse(b, receipt.paymentId);
     expect((await corrections(b, receipt.paymentId)).map((c) => c[0])).toEqual(['32.00']);
     expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+  }, 120_000);
+
+  it('R2x · after a note restituted from the cash the receipt kept on account, its reversal takes that restitution back out of 2150 and ends as R2', async () => {
+    const { b, receipt, n } = await unappliedThenNoted('R2x');
+    await reverse(b, receipt.paymentId);
+    const fixes = await corrections(b, receipt.paymentId);
+    expect(fixes.map((c) => c[0])).toEqual(['32.00']);
+    expect(fixes[0][1]).toContain(`IVA restituted by credit note ${n} from the cash ${receipt.paymentNumber} kept on account`);
+    expect(await ledger(b)).toEqual({ '2120': '0.00', '2125': '128.00', '2150': '0.00' });
   }, 120_000);
 
   it('R3 · with no note the reversal posts no correction, as before', async () => {
