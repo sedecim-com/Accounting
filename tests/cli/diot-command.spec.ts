@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll, afterEach } from 'vitest';
 import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -17,9 +17,9 @@ import {
   DIOT_CHECK_NAMES,
   LAYOUTS,
   PASOS_PARA_PRESENTAR_DIOT,
-  TITULAR_NO_PRESENTADA,
   type DiotCommandDeps,
 } from '../../src/cli/diot-command.js';
+import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
@@ -191,8 +191,8 @@ describe('mesDeLaDiot: el mes se exige, no se supone', () => {
   });
 
   it('el mes 13 es de la balanza de cierre, no de una declaración informativa', () => {
-    expect(() => mesDeLaDiot('2026-13')).toThrow(/mes 13/);
-    expect(() => mesDeLaDiot('2026-00')).toThrow(/01 a 12/);
+    expect(() => mesDeLaDiot('2026-13')).toThrow(/month 13/);
+    expect(() => mesDeLaDiot('2026-00')).toThrow(/01 to 12/);
   });
 });
 
@@ -261,7 +261,7 @@ describe('exigirChecksDeDiot y filtrarPorChecks', () => {
     expect(() => exigirChecksDeDiot('no-existe')).toThrow(/desglose-por-tasa/);
     // Una lista vacía NO es «todas»: sería un check que no verificó nada y
     // contestó limpio.
-    expect(() => exigirChecksDeDiot(' , ')).toThrow(/no nombró ninguna/);
+    expect(() => exigirChecksDeDiot(' , ')).toThrow(/named no check/);
   });
 
   it('sin --check pasan todos; con --check sólo los del nombre pedido', () => {
@@ -320,10 +320,10 @@ describe('el recibo dice siempre que NO se presentó', () => {
 
   it('los pasos no mandan a un comando que no existe', () => {
     const texto = PASOS_PARA_PRESENTAR_DIOT.join(' ');
-    expect(texto).toMatch(/portal del SAT/);
-    expect(texto).toMatch(/acuse/);
+    expect(texto).toMatch(/SAT portal/);
+    expect(texto).toMatch(/acknowledgement/);
     // `diot record` se nombra SÓLO para decir que no está construido.
-    expect(texto).toMatch(/`diot record` no está construido/);
+    expect(texto).toMatch(/`diot record` is not built/);
   });
 });
 
@@ -476,6 +476,8 @@ async function correr(argv: string[], extra: Partial<DiotCommandDeps> = {}) {
 }
 
 const E = ['-e', 'E1'];
+/** The not-filed headline, in the suite's language (en-US). */
+const HEADLINE = (): string => t('fiscal_mx.diot.unfiled.headline');
 
 describe('diot generate · la declaración y la advertencia que la acompaña', () => {
   it('arma el mes, enseña las casillas y DICE que no se presentó', async () => {
@@ -483,8 +485,8 @@ describe('diot generate · la declaración y la advertencia que la acompaña', (
     expect(r.exitCode).toBe(ExitCode.OK);
     expect(r.out).toMatch(/DIOT 02\/2026/);
     expect(r.out).toMatch(/AAA010101AAA/);
-    expect(r.out).toMatch(/IVA acreditable pagado en el mes\s+160\.00/);
-    expect(r.err, 'la advertencia del tramo entero').toContain(TITULAR_NO_PRESENTADA);
+    expect(r.out).toMatch(/Creditable IVA paid in the month\s+160\.00/);
+    expect(r.err, 'la advertencia del tramo entero').toContain(HEADLINE());
     for (const paso of PASOS_PARA_PRESENTAR_DIOT) {
       expect(r.err).toContain(paso);
     }
@@ -498,7 +500,7 @@ describe('diot generate · la declaración y la advertencia que la acompaña', (
   it('el alias español entero funciona: diot generar', async () => {
     const r = await correr(['diot', 'generar', '--period', '2026-02', ...E]);
     expect(r.exitCode).toBe(ExitCode.OK);
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.err).toContain(HEADLINE());
   });
 
   it('el mes se valida ANTES de tocar la base: un typo no cuesta una conexión', async () => {
@@ -512,9 +514,9 @@ describe('diot generate · la declaración y la advertencia que la acompaña', (
     const r = await correr(['diot', 'generate', '--period', '2026-02', ...E]);
     expect(r.exitCode).toBe(ExitCode.VALIDATION);
     expect(r.err).toContain('DIOT-SIN-RFC');
-    expect(r.err).toMatch(/impiden capturar/);
+    expect(r.err).toMatch(/stops this DIOT from being captured/);
     // Y aun así dice lo que falta para presentar: no se presentó nada.
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.err).toContain(HEADLINE());
   });
 
   it('--json publica el recibo con presentada:false y los hallazgos anidados', async () => {
@@ -540,7 +542,7 @@ describe('diot check · las invariantes por nombre, con el contrato §4', () => 
   it('sin hallazgos sale 0 y lo dice con todas las verificaciones', async () => {
     const r = await correr(['diot', 'check', '--period', '2026-02', ...E]);
     expect(r.exitCode).toBe(ExitCode.OK);
-    expect(r.out).toMatch(/sin hallazgos/);
+    expect(r.out).toMatch(/no findings/);
     expect(r.out).toContain('tercero-identificado');
   });
 
@@ -596,8 +598,8 @@ describe('diot export · el papel de trabajo, y la negativa del archivo de lote'
     expect(r.out.startsWith('# PAPEL DE TRABAJO DE LA DIOT')).toBe(true);
     expect(r.out).toContain('ESTO NO ES EL ARCHIVO DE LA DECLARACIÓN');
     // El sobre no ensucia la tubería.
-    expect(r.out).not.toContain(TITULAR_NO_PRESENTADA);
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.out).not.toContain(HEADLINE());
+    expect(r.err).toContain(HEADLINE());
   });
 
   it('la salida es byte-estable: dos corridas iguales dan los mismos bytes', async () => {
@@ -662,7 +664,7 @@ describe('diot export · el papel de trabajo, y la negativa del archivo de lote'
     expect(r.out.split('\r\n')[0].split('|')).toHaveLength(54);
     expect(r.out).not.toContain('PAPEL DE TRABAJO');
     // Presenting is still a person's act, and stderr says so.
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.err).toContain(HEADLINE());
   });
 
   it('--layout sat on a 2024 period needs a human: that layout is not grounded', async () => {
@@ -687,5 +689,316 @@ describe('diot export · el papel de trabajo, y la negativa del archivo de lote'
     // contador sería quitarle la herramienta con la que se arregla.
     expect(r.out).toContain('LA DECLARACIÓN NO SE PUEDE ENTREGAR TAL CUAL');
     expect(r.exitCode).toBe(ExitCode.VALIDATION);
+  });
+});
+
+// ============================================================
+// I8.7 · diot speaks by key (MNE-001-226, #269)
+//
+// Every line diot writes to a person comes from the catalogue: English under
+// the suite's en-US, Spanish when the language is pinned to es. The receipt's
+// steps and the `detalle` of `check --check` are English in --json under any
+// locale, because scripts read them; a table labels them in the user's
+// language. The exported FILE is the serializer's, and does not change with
+// the language at all. Texts by hand, before the code.
+// ============================================================
+
+describe('I8.7 · diot speaks by key (MNE-001-226)', () => {
+  afterEach(() => resetLanguage());
+
+  const CHECKS =
+    'hecho-pagado, desglose-por-tasa, base-de-lo-exento, tercero-identificado, tipo-de-operacion, ' +
+    'creditable-iva-proportion, politica-en-catalogo';
+
+  const usageOf = (fn: () => unknown): { message: string; es: string } => {
+    try {
+      fn();
+    } catch (e) {
+      const err = e as Error & { localized: (l: 'es' | 'en') => string };
+      return { message: err.message, es: err.localized('es') };
+    }
+    throw new Error('it did not throw');
+  };
+
+  it('the --period errors, in English and in Spanish', () => {
+    const missing = usageOf(() => mesDeLaDiot(undefined));
+    expect(missing.message).toBe(
+      'The DIOT is filed by month: give --period YYYY-MM (for example --period 2026-02). ' +
+        'Without it there is no period to declare.'
+    );
+    expect(missing.es).toBe(
+      'La DIOT se declara por mes: indica --period YYYY-MM (por ejemplo --period 2026-02). ' +
+        'Sin él no hay periodo que declarar.'
+    );
+    const notMonth = usageOf(() => mesDeLaDiot('2026-Q1'));
+    expect(notMonth.message).toBe(
+      '--period "2026-Q1" is not a month. The DIOT is monthly (LIVA art. 32 fr. VIII), so only the form ' +
+        'YYYY-MM (2026-02) is valid here. A quarter or a fiscal year is not declared.'
+    );
+    expect(notMonth.es).toBe(
+      '--period «2026-Q1» no es un mes. La DIOT es mensual (LIVA art. 32 fr. VIII), así que aquí sólo vale ' +
+        'la forma YYYY-MM (2026-02). Un trimestre o un ejercicio no se declaran.'
+    );
+    const outOfRange = usageOf(() => mesDeLaDiot('2026-13'));
+    expect(outOfRange.message).toBe(
+      '--period "2026-13": the month must run from 01 to 12. Month 13 belongs to the year-end balance of ' +
+        'Anexo 24 (`e-accounting balance generate --closing`); an informative return has no month 13.'
+    );
+    expect(outOfRange.es).toBe(
+      '--period «2026-13»: el mes ha de ir de 01 a 12. El mes 13 es de la balanza de cierre del Anexo 24 ' +
+        '(`e-accounting balance generate --closing`); una declaración informativa no tiene mes 13.'
+    );
+  });
+
+  it('the --check and --layout errors, with a plural for the unknown checks', () => {
+    expect(usageOf(() => exigirChecksDeDiot('no-existe')).message).toBe(
+      `Unknown check: no-existe. The available ones are: ${CHECKS}.`
+    );
+    const two = usageOf(() => exigirChecksDeDiot('a,b'));
+    expect(two.message).toBe(`Unknown checks: a, b. The available ones are: ${CHECKS}.`);
+    expect(two.es).toBe(`Verificaciones desconocidas: a, b. Las disponibles son: ${CHECKS}.`);
+    expect(usageOf(() => exigirChecksDeDiot(' , ')).message).toBe(
+      `--check named no check. The available ones are: ${CHECKS}.`
+    );
+    const layout = usageOf(() => exigirLayout('txt'));
+    expect(layout.message).toBe(
+      '--layout "txt" does not exist. The layouts are: working-paper, sat (working-paper is the ' +
+        "reconciliation by third party that is tied out before capturing; sat is the authority's batch file)."
+    );
+    expect(layout.es).toBe(
+      '--layout «txt» no existe. Los layouts son: working-paper, sat (working-paper es la conciliación ' +
+        'por tercero que se coteja antes de capturar; sat es el archivo de lote de la autoridad).'
+    );
+  });
+
+  it('the steps and the check descriptions are English, whatever the language', () => {
+    setLanguage('es');
+    expect([...PASOS_PARA_PRESENTAR_DIOT]).toEqual([
+      "Tie the working paper out against the month's movement of the creditable IVA account: if it does not " +
+        'match to the cent, do not capture — "almost matches" is a request from the SAT within a year.',
+      'Capture or upload the return YOURSELF in the SAT portal. This binary does not enter the portal, ' +
+        'does not load the e.firma and files nothing.',
+      'Keep the acknowledgement with its operation number: it is the only proof that it was filed.',
+      "Record the acknowledgement in the month's file. That record has NO command YET " +
+        '(`diot record` is not built).',
+    ]);
+    expect({ ...DESCRIPCION_DEL_CHECK }).toEqual({
+      'hecho-pagado': 'the event the DIOT declares exists in the ledger and releases no more IVA than is parked',
+      'desglose-por-tasa':
+        'each expense is split by rate (16/8/0/exempt) and the sum reproduces the IVA of the header',
+      'base-de-lo-exento':
+        'exempt acts declare their base, which is what the DIOT reports even when there is no tax',
+      'tercero-identificado':
+        'each third party arrives with a usable RFC, or with tax ID, country and nationality if foreign',
+      'tipo-de-operacion':
+        'each third party carries a captured operation type that the 2025 catalogue allows for its type of ' +
+        'third party, not an assumed one',
+      'creditable-iva-proportion':
+        'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue ' +
+        'in the fiscal year',
+      'politica-en-catalogo': 'the DIOT policies hold a value their own catalogue allows',
+    });
+  });
+
+  it('generate, en-US: the header, the basis, the policies, the totals and the not-filed block', async () => {
+    mundo.diot = diot({
+      totales: {
+        desglose: desglose({
+          tasa16: { base: '1000.0000', iva: '160.0000' },
+          otras: [{ etiqueta: '4 %', base: '100.0000', iva: '4.0000' }],
+        }),
+        ivaRetenido: '0.0000',
+        ivaAcreditablePagado: '160.0000',
+        terceros: 1,
+        documentos: 1,
+      },
+    });
+    const r = await correr(['diot', 'generate', '--period', '2026-02', ...E]);
+    expect(r.exitCode).toBe(ExitCode.OK);
+    expect(r.out).toContain(
+      '\nDIOT 02/2026  RFC AAA010101AAA — Acme SA de CV · 2026-02-01 → 2026-02-28 · 1 third party · 1 document\n'
+    );
+    expect(r.out).toContain('  basis: PAID transactions (LIVA art. 5 frac. III), not accrued\n');
+    expect(r.out).toContain(
+      '  diot_tipo_operacion_por_omision=85 (default) · diot_tercero_sin_rfc=bloquear · ' +
+        'diot_iva_exento_y_base=exigir_base (default)\n'
+    );
+    expect(r.out).toMatch(/^ {2}8 % \(border zone\) +base +0\.00 +IVA +0\.00$/m);
+    expect(r.out).toMatch(/^ {2}exempt +base +0\.00$/m);
+    expect(r.out).toMatch(/^ {2}other \(4 %\) +base +100\.00 +IVA +4\.00$/m);
+    expect(r.out).toContain('  Creditable IVA paid in the month  160.00\n');
+    expect(r.out).toContain('  IVA withheld from third parties   0.00\n');
+    expect(r.out).toContain(
+      "  Tie it out against the month's movement of the creditable IVA account: if it does not match to the " +
+        'cent, do not capture.\n'
+    );
+    expect(r.err).toContain('  ⚠ THIS DIOT WAS NOT FILED AND THIS FILE IS NOT THE RETURN.\n');
+    expect(r.err).toContain('    Building the return and filing it are separate acts, by separate hands.\n');
+    expect(r.err).toContain(
+      '    2. Capture or upload the return YOURSELF in the SAT portal. This binary does not enter the portal, ' +
+        'does not load the e.firma and files nothing.\n'
+    );
+  });
+
+  it('generate, es-MX: the same screen in Spanish, aligned as it always was', async () => {
+    setLanguage('es');
+    mundo.diot = diot({
+      totales: { ...diot().totales, terceros: 2, documentos: 3 },
+    });
+    const r = await correr(['diot', 'generate', '--period', '2026-02', ...E]);
+    expect(r.out).toContain('RFC AAA010101AAA — Acme SA de CV · 2026-02-01 → 2026-02-28 · 2 terceros · 3 documentos\n');
+    expect(r.out).toContain('  base: operaciones PAGADAS (LIVA art. 5 frac. III), no devengadas\n');
+    expect(r.out).toContain('  diot_tipo_operacion_por_omision=85 (omisión) · diot_tercero_sin_rfc=bloquear');
+    expect(r.out).toMatch(/^ {2}8 % \(frontera\) +base +0\.00 +IVA +0\.00$/m);
+    expect(r.out).toMatch(/^ {2}exento +base +0\.00$/m);
+    expect(r.out).toContain('  IVA acreditable pagado en el mes  160.00\n');
+    expect(r.out).toContain('  IVA retenido a terceros           0.00\n');
+    expect(r.out).toContain(
+      '  Cotéjalo contra el movimiento del mes de la cuenta de IVA acreditable: si no cuadra al centavo, ' +
+        'no captures.\n'
+    );
+    expect(r.err).toContain('  ⚠ ESTA DIOT NO SE PRESENTÓ Y ESTE ARCHIVO NO ES LA DECLARACIÓN.\n');
+    expect(r.err).toContain('    Armar la declaración y presentarla son actos distintos y de manos distintas.\n');
+    expect(r.err).toContain(
+      '    3. Guarda el acuse con su número de operación: es la única prueba de que se presentó.\n'
+    );
+    expect(r.err).toContain(
+      '    4. Registra el acuse en el expediente del mes. Ese registro TODAVÍA NO tiene comando ' +
+        '(`diot record` no está construido).\n'
+    );
+  });
+
+  it('generate with blocking findings: singular in English, plural in Spanish', async () => {
+    mundo.diot = diot({ hallazgos: [BLOQUEA] });
+    const one = await correr(['diot', 'generate', '--period', '2026-02', ...E]);
+    expect(one.exitCode).toBe(ExitCode.VALIDATION);
+    expect(one.err).toContain(
+      '  1 finding stops this DIOT from being captured as it is. Fix it and build it again; ' +
+        '`diot check --check` lists the checks by name so you can tackle them one at a time.\n\n'
+    );
+    setLanguage('es');
+    mundo.diot = diot({ hallazgos: [BLOQUEA, { ...BLOQUEA, vendorId: 'V3' }] });
+    const two = await correr(['diot', 'generate', '--period', '2026-02', ...E]);
+    expect(two.err).toContain(
+      '  2 hallazgos impiden capturar esta DIOT tal cual. Arréglalos y vuelve a armarla; ' +
+        '`diot check --check` lista las verificaciones por nombre para atacarlas de una en una.\n\n'
+    );
+  });
+
+  it('generate --json, es-MX: the steps stay English; --fields labels them in Spanish', async () => {
+    setLanguage('es');
+    const json = await correr(['diot', 'generate', '--period', '2026-02', '--json', ...E]);
+    const receipt = (JSON.parse(json.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect((receipt['falta_para_presentar'] as string[])[2]).toBe(
+      'Keep the acknowledgement with its operation number: it is the only proof that it was filed.'
+    );
+    expect(receipt['criterio_diot_tercero_sin_rfc_origen']).toBe('contestada');
+    const table = await correr(['diot', 'generate', '--period', '2026-02', '--fields', 'rfc,falta_para_presentar', ...E]);
+    expect(table.out).toContain('Guarda el acuse con su número de operación');
+    expect(table.out).not.toContain('Keep the acknowledgement');
+  });
+
+  it('check, clean: the checks it ran and the verdict, in both languages', async () => {
+    const all = await correr(['diot', 'check', '--period', '2026-02', ...E]);
+    expect(all.out).toContain(`  checks: ${CHECKS}\n\n`);
+    expect(all.out).toContain('  ✔ no findings: the DIOT passes the 7 checks asked for.\n\n');
+    const one = await correr(['diot', 'check', '--period', '2026-02', '--check', 'tercero-identificado', ...E]);
+    expect(one.out).toContain('  ✔ no findings: the DIOT passes the 1 check asked for.\n\n');
+    setLanguage('es');
+    const es = await correr(['diot', 'check', '--period', '2026-02', '--check', 'tercero-identificado', ...E]);
+    expect(es.out).toContain('  verificaciones: tercero-identificado\n\n');
+    expect(es.out).toContain('  ✔ sin hallazgos: la DIOT pasa la 1 verificación pedida.\n\n');
+    const esAll = await correr(['diot', 'check', '--period', '2026-02', ...E]);
+    expect(esAll.out).toContain('  ✔ sin hallazgos: la DIOT pasa las 7 verificaciones pedidas.\n\n');
+  });
+
+  it('check with findings: the summary, singular and plural', async () => {
+    mundo.diot = diot({ hallazgos: [BLOQUEA, AVISA] });
+    const en = await correr(['diot', 'check', '--period', '2026-02', ...E]);
+    expect(en.out).toContain('  1 blocking, 1 warning. A blocking finding stops the return from being captured.\n\n');
+    setLanguage('es');
+    mundo.diot = diot({ hallazgos: [BLOQUEA, AVISA, { ...AVISA, vendorId: 'V4' }] });
+    const es = await correr(['diot', 'check', '--period', '2026-02', ...E]);
+    expect(es.out).toContain('  1 bloqueante, 2 avisos. Un bloqueante impide capturar la declaración.\n\n');
+  });
+
+  it('check --json: the envelope on stderr, in English and in Spanish', async () => {
+    const en = await correr(['diot', 'check', '--period', '2026-02', '--check', 'hecho-pagado', '--json', ...E]);
+    expect(en.err).toContain(
+      'AAA010101AAA · DIOT 02/2026 · 1 third party · creditable IVA paid 160.0000 · checks: hecho-pagado\n'
+    );
+    setLanguage('es');
+    mundo.diot = diot({ totales: { ...diot().totales, terceros: 3 } });
+    const es = await correr(['diot', 'check', '--period', '2026-02', '--check', 'hecho-pagado', '--json', ...E]);
+    expect(es.err).toContain(
+      'AAA010101AAA · DIOT 02/2026 · 3 terceros · IVA acreditable pagado 160.0000 · verificaciones: hecho-pagado\n'
+    );
+  });
+
+  it('check --check, es-MX: `detalle` is English in --json and Spanish in the table', async () => {
+    setLanguage('es');
+    const json = await correr(['diot', 'check', '--check', '--json', ...E]);
+    const rows = (JSON.parse(json.out) as { rows: Array<Record<string, unknown>> }).rows;
+    expect(rows.find((row) => row['check'] === 'hecho-pagado')?.['detalle']).toBe(
+      'the event the DIOT declares exists in the ledger and releases no more IVA than is parked'
+    );
+    const table = await correr(['diot', 'check', '--check', ...E]);
+    expect(table.out).toContain('el suceso que la DIOT declara existe en el mayor');
+    expect(table.out).toContain('todo el IVA se declara como vinculado exclusivamente a actividades gravadas');
+    expect(table.out).not.toContain('the event the DIOT declares');
+  });
+
+  it('export -o: the layout line, the working-paper warning and the blocked capture', async () => {
+    mundo.diot = diot({ hallazgos: [BLOQUEA] });
+    const target = path.join(tmpRaiz, 'i87', 'diot-202602.txt');
+    const en = await correr(['diot', 'export', '--period', '2026-02', '-o', target, ...E]);
+    expect(en.exitCode).toBe(ExitCode.VALIDATION);
+    const bytes = fs.statSync(target).size;
+    expect(en.out).toContain(`  layout working-paper · ${bytes} bytes · target ${target}\n`);
+    expect(en.err).toContain('  ⚠ Layout "working-paper": this is a WORKING PAPER. It is not uploaded to the SAT portal.\n');
+    expect(en.err).toContain(
+      '  The file was written, but 1 finding stops the return from being captured as it is.\n\n'
+    );
+    setLanguage('es');
+    const es = await correr(['diot', 'export', '--period', '2026-02', '-o', target, '-y', ...E]);
+    expect(es.out).toContain(`  layout working-paper · ${bytes} bytes · destino ${target}\n`);
+    expect(es.err).toContain('  ⚠ Layout «working-paper»: esto es un PAPEL DE TRABAJO. No se sube al portal del SAT.\n');
+    expect(es.err).toContain(
+      '  El archivo se escribió, pero 1 hallazgo impide capturar la declaración tal cual.\n\n'
+    );
+  });
+
+  it('export -o over an existing file, and a 2024 batch file, say why in the user language', async () => {
+    const target = path.join(tmpRaiz, 'i87-exists.txt');
+    fs.writeFileSync(target, 'anotado a mano');
+    const en = await correr(['diot', 'export', '--period', '2026-02', '-o', target, ...E]);
+    expect((en.errs[0] as Error).message).toBe(
+      `${target} already exists and is not overwritten unless asked: use another path, or --yes. ` +
+        'A working paper reviewed and annotated by hand is not replaced silently.'
+    );
+    expect((en.errs[0] as Error & { localized: (l: 'es') => string }).localized('es')).toBe(
+      `${target} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes. ` +
+        'Un papel de trabajo revisado y anotado a mano no se reemplaza en silencio.'
+    );
+    mundo.diot = diot({ periodo: { anio: 2024, mes: 12, desde: '2024-12-01', hasta: '2024-12-31' } });
+    const old = await correr(['diot', 'export', '--period', '2024-12', '--layout', 'sat', ...E]);
+    const err = old.errs[0] as Error & { localized: (l: 'es') => string };
+    expect(err.message).toMatch(
+      /\n\nMeanwhile: `mnemosine diot export --period 2024-12 --layout working-paper` produces the reconciliation by third party to capture in the portal\.$/
+    );
+    expect(err.localized('es')).toMatch(
+      /\n\nMientras tanto: `mnemosine diot export --period 2024-12 --layout working-paper` produce la conciliación por tercero para capturar en el portal\.$/
+    );
+  });
+
+  it('the exported file is the same bytes in English and in Spanish, for both layouts', async () => {
+    for (const layout of ['working-paper', 'sat']) {
+      const en = await correr(['diot', 'export', '--period', '2026-02', '--layout', layout, ...E]);
+      setLanguage('es');
+      const es = await correr(['diot', 'export', '--period', '2026-02', '--layout', layout, ...E]);
+      resetLanguage();
+      expect(en.out.length, layout).toBeGreaterThan(0);
+      expect(es.out, layout).toBe(en.out);
+    }
   });
 });

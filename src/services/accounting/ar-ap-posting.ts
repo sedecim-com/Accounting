@@ -1152,6 +1152,13 @@ export interface AplicacionPosterior {
   advanceIvaDeferred?: string;
   /** MNE-001-573 · the cashing day of a cheque whose PUE invoice of an earlier month caused that IVA. */
   advanceIvaCashedOn?: string | null;
+  /**
+   * MNE-001-590 · customer side only: the IEPS that this cash carries, caused
+   * when it was collected and kept by an unapply (`iepsTakeOf`). It nets
+   * against the IEPS share the invoice releases: CR 2180 r − e, DR when
+   * negative, no line at zero. Only the rest of the cash leaves 2150.
+   */
+  advanceIeps?: string;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1180,6 +1187,10 @@ export interface AplicacionPosterior {
  * MNE-001-461: on a PPD invoice that debit meets the share released from
  * 2125 in one 2120 line per invoice, CR g − c (DR when negative, none at
  * zero). The release returned is g, what left 2125.
+ *
+ * MNE-001-590: the IEPS that the cash carries (`advanceIeps`, e) nets the
+ * same way against the invoice's IEPS share (r): CR 2180 r − e, DR when
+ * negative, none at zero, and 2150 gives up only the rest.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1202,6 +1213,7 @@ export async function postReceiptApplicationEntry(
   const documentos: string[] = [];
   const iepsDocs: string[] = [];
   const iepsLines: JeLine[] = [];
+  let iepsTaken = new Decimal(0);
 
   // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
   if (cashBasis && !payment.holdsIvaUntilCashed) {
@@ -1237,10 +1249,18 @@ export async function postReceiptApplicationEntry(
         priorApplied: app.priorApplied,
         appliedNow: new Decimal(app.amount).plus(app.withholdingIsr ?? '0').plus(app.withholdingIva ?? '0').toFixed(4),
       });
-      if (new Decimal(amount).greaterThan(0)) ieps.push({ invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount });
+      // MNE-001-590: the IEPS this cash already carries nets against the share (`take`).
+      const take = new Decimal(app.advanceIeps ?? '0');
+      if (new Decimal(amount).greaterThan(0) || take.greaterThan(0)) {
+        ieps.push({
+          invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount,
+          ...(take.greaterThan(0) ? { take: take.toFixed(4) } : {}),
+        });
+        iepsTaken = iepsTaken.plus(take);
+      }
     }
     iepsLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
-    iepsDocs.push(...ieps.map((m) => m.invoiceNumber));
+    iepsDocs.push(...ieps.filter((m) => new Decimal(m.amount).greaterThan(m.take ?? '0')).map((m) => m.invoiceNumber));
   }
 
   // MNE-001-422 / MNE-001-461: an advance's IVA, caused when it was collected
@@ -1309,7 +1329,7 @@ export async function postReceiptApplicationEntry(
     [
       {
         account_id: requireRole(roles, 'anticipo_clientes'),
-        debit_amount: total.minus(advanceIva).toFixed(4),
+        debit_amount: total.minus(advanceIva).minus(iepsTaken).toFixed(4),
         credit_amount: null,
         description: `On-account applied ${payment.payment_number}`,
       },
@@ -1629,6 +1649,10 @@ function discountVatLine(accountId: string, role: string, amount: string, billNu
  * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
  * role for the invoice, read back from the ledger by the caller: it goes
  * back exactly (DR ieps_por_pagar · CR the uncollected role).
+ *
+ * MNE-001-590 · `iepsKept` is that same figure when it stays caused: it goes
+ * back to the uncollected role (CR) with no 2180 line, and the cash back on
+ * account carries it, so 2150 is credited only for the rest.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -1642,6 +1666,8 @@ export async function postReceiptUnapplicationEntry(
     /** MNE-001-574: the IVA the rows' plain cash keeps caused, back on account with it. */
     keptIva?: string;
     ieps?: IepsMove;
+    /** MNE-001-590: the IEPS this receipt moved for the invoice that stays caused, back on account with the cash. */
+    iepsKept?: IepsMove;
     /** MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries. */
     ivaKept?: { amount: string; notes: string; carries: string };
   },
@@ -1652,6 +1678,7 @@ export async function postReceiptUnapplicationEntry(
   const vat = new Decimal(app.withholdingIva ?? '0');
   const kept = new Decimal(app.keptIva ?? '0');
   const advanceIva = new Decimal(app.advanceIva ?? '0').plus(kept);
+  const iepsKept = new Decimal(app.iepsKept?.amount ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
@@ -1662,7 +1689,7 @@ export async function postReceiptUnapplicationEntry(
     {
       account_id: requireRole(roles, 'anticipo_clientes'),
       debit_amount: null,
-      credit_amount: new Decimal(app.amount).minus(advanceIva).toFixed(4),
+      credit_amount: new Decimal(app.amount).minus(advanceIva).minus(iepsKept).toFixed(4),
       description: `Back on account ${payment.payment_number}`,
     },
     ...(await withholdingLines(client, payment, isr, vat, 'credit')),
@@ -1729,6 +1756,9 @@ export async function postReceiptUnapplicationEntry(
   }
   if (app.ieps) {
     jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));
+  }
+  if (app.iepsKept) {
+    jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.iepsKept], 'keep', 'unapply')));
   }
 
   return createJournalEntry(
