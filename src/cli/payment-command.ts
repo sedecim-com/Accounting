@@ -40,6 +40,7 @@ import { completePaymentTrace } from '../services/payments/payment-trace-service
 import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
 import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
 import { t } from '../i18n/index.js';
+import { FOREIGN_BANK_CODE } from '../services/sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // mnemosine payment
@@ -860,6 +861,10 @@ export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: b
   }
   if (entrada.paymentMethod === 'check' && (entrada.checkNumber ?? '') === '') {
     faltan.push('--check-number');
+  }
+  // MNE-001-401 (#532): a bare 999 is a valid node with a warning on its voucher.
+  if ((entrada.bancoDestinoSat ?? '').trim() === FOREIGN_BANK_CODE && (entrada.bancoDestinoExtranjero ?? '').trim() === '') {
+    process.stderr.write(p.yellow(`${t('payment.capture.foreign_code_without_name')}\n`));
   }
   if (faltan.length === 0) return;
 

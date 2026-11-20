@@ -560,6 +560,16 @@ function labelledStatementResponse(sections: readonly ReportSectionKey[]): Esque
   };
 }
 
+/**
+ * The language of the 422 of `validateBody` and `validateQuery` (MNE-001-152,
+ * #151): the one response that does not fall back to the default language.
+ */
+const VALIDATION_LANGUAGE =
+  'Its message is written by catalog key and always declares its language, but it answers in ' +
+  'English, the zod 3 wording byte for byte, unless the request names a supported language: ' +
+  'with no Accept-Language, with `*`, or with only unsupported languages it does not fall back ' +
+  'to the default language (#367).';
+
 function respuesta(descripcion: string): EsquemaJson {
   return {
     description: descripcion,
@@ -646,11 +656,13 @@ const COMPONENTES: Record<string, unknown> = {
     ),
     CuerpoInvalido: respuesta(
       'The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status ' +
-        'is 422, not 400.'
+        'is 422, not 400. ' +
+        VALIDATION_LANGUAGE
     ),
     InvalidQuery: respuesta(
       'A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` ' +
-        'naming the parameter). Note the status is 422, not 400.'
+        'naming the parameter). Note the status is 422, not 400. ' +
+        VALIDATION_LANGUAGE
     ),
     ErrorInterno: respuesta('Unhandled failure (INTERNAL_SERVER_ERROR).'),
   },

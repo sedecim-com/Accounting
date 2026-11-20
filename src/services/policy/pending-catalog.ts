@@ -680,11 +680,21 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
       'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
-      'whether the tax waits, is skipped with a warning, or is asked about.',
+      'whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice ' +
+      'is in the system, or the documents it knows go on as usual and the unknown one\'s share and VAT ' +
+      'are never recorded from this receipt.',
     options: [
-      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      {
+        value: 'esperar',
+        label:
+          'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, ' +
+          'and none of its VAT is transferred',
+      },
       { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
-      { value: 'preguntar', label: 'Ask for the VAT amount' },
+      {
+        value: 'preguntar',
+        label: 'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+      },
     ],
     defaultValue: 'esperar',
     defaultRationale:
@@ -695,7 +705,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
-    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    whatIDo:
+      'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the ' +
+      'system, running mnemosine rep reconcile links it.',
     ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
     priority: 45,
   },

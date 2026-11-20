@@ -177,9 +177,9 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   // kernel añade --dry-run, --yes, --idempotency-key y --live.
   declareRisk(runDue, {
     risk: 'externo',
-    llave: { sinLlave: 'un reintento vuelve a ejecutar los trabajos vencidos' },
+    llave: { sinLlave: { key: 'platform.jobs.run_due.retry_reruns' } },
     agent: false,
-    writes: 'job_runs; y ejecuta el trabajo de cada job vencido — con --live, con lecturas al sistema externo del cliente',
+    writes: "job_runs; and runs the work of each due job — with --live, with reads against the client's external system",
   });
   runDue.action(run(async (ctx, opts: { dryRun?: boolean; live?: boolean; idempotencyKey?: string }) => {
       const { dryRun, live } = gateMutation(runDue, opts);

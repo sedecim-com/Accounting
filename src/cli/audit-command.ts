@@ -15,6 +15,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine audit · auditoria
@@ -146,7 +147,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 function exigirFecha(flag: string, valor: string): string {
   if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
-    throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
+    throw usageError({ key: 'bank.parse.date_invalid', params: { flag, value: valor } });
   }
   return valor;
 }
@@ -160,6 +161,19 @@ function exigirFecha(flag: string, valor: string): string {
 function describirFiltroDeUsuario(cmd: Command): void {
   const opt = cmd.options.find((o) => o.long === '--user');
   if (opt) opt.description = 'only entries written by this user (email); this command attributes nothing';
+}
+
+/**
+ * The actor of a row whose user no longer exists (MNE-001-224). The ROW stores
+ * the English catalogue, because --json and csv are read by scripts and must
+ * not change with the locale; the table renders it in the user's language
+ * through this label and the kernel's `labelled` hook.
+ */
+const userRemoved = (): string => t('platform.audit.list.user_removed', {}, 'en');
+
+/** The table's label of a stored actor: the removed-user key in the user's language; an email passes through. */
+export function actorLabel(value: string): string {
+  return value === userRemoved() ? t('platform.audit.list.user_removed') : value;
 }
 
 /** Los nombres de campo que cambiaron, sin sus valores. Ver decisión 4. */
@@ -241,10 +255,7 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
       [tenantId, email]
     );
     if (r.rows.length === 0) {
-      throw notFound(
-        `Usuario "${email}" en este inquilino. El rastro no se filtró: un correo que no existe ` +
-          'devolvería cero filas y se leería como que esa persona no hizo nada.'
-      );
+      throw notFound({ key: 'platform.audit.user_not_found', params: { email } });
     }
     return r.rows[0].id;
   };
@@ -281,12 +292,14 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
     // diccionario del núcleo, que es lo que el diccionario gobierna.
     .option('-n, --limit <n>', 'maximum rows to return', (v: string) => {
       const n = Number(v);
-      if (!Number.isSafeInteger(n) || n <= 0) throw usageError(`--limit debe ser un entero positivo; llegó "${v}".`);
+      if (!Number.isSafeInteger(n) || n <= 0) throw usageError({ key: 'platform.audit.list.limit_invalid', params: { value: v } });
       return n;
     })
     .option('--offset <n>', 'skip this many rows', (v: string) => {
       const n = Number(v);
-      if (!Number.isSafeInteger(n) || n < 0) throw usageError(`--offset debe ser un entero no negativo; llegó "${v}".`);
+      if (!Number.isSafeInteger(n) || n < 0) {
+        throw usageError({ key: 'cli.flag.error_not_whole_number', params: { name: '--offset', value: v } });
+      }
       return n;
     });
   declareRisk(list, { risk: 'lectura', agent: true });
@@ -303,10 +316,10 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
       }
 
       if (opts.action && !(ACCIONES as readonly string[]).includes(opts.action)) {
-        throw usageError(
-          `Acción desconocida "${opts.action}". El vocabulario lo fija el CHECK de audit_log ` +
-            `(migración 001): ${ACCIONES.join(', ')}.`
-        );
+        throw usageError({
+          key: 'platform.audit.list.action_unknown',
+          params: { action: opts.action, actions: ACCIONES.join(', ') },
+        });
       }
 
       // Ver la decisión 1 de la cabecera. `human` y la ausencia son lo mismo
@@ -314,25 +327,19 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
       // mismo el día que la columna exista.
       if (opts.actor && opts.actor !== 'human') {
         if (opts.actor === 'agent' || opts.actor.startsWith('agent:')) {
-          throw blockedByState(
-            `El rastro no distingue todavía al agente: \`audit_log\` no tiene columna de actor y ` +
-              `cada fila se atribuye a un \`user_id\` humano. Filtrar por "${opts.actor}" devolvería ` +
-              'cero filas, que se leería como que el agente no hizo nada. Falta la columna ' +
-              '`actor` (y `agent_session_id`) y que el puente del agente la escriba; hasta ' +
-              'entonces, `--actor human` o sin bandera es todo lo que hay.'
-          );
+          throw blockedByState({ key: 'platform.audit.list.actor_agent_unsupported', params: { actor: opts.actor } });
         }
-        throw usageError(`--actor sólo admite "human", "agent" o "agent:<session>"; llegó "${opts.actor}".`);
+        throw usageError({ key: 'platform.audit.list.actor_invalid', params: { actor: opts.actor } });
       }
 
       let tipos: string[] | null = null;
       if (typeof opts.object === 'string') {
         const familia = FAMILIAS[opts.object];
         if (!familia) {
-          throw usageError(
-            `Familia de objeto desconocida "${opts.object}". Conocidas: ` +
-              `${Object.keys(FAMILIAS).join(', ')}. Para un valor exacto de la columna usa --entity-type.`
-          );
+          throw usageError({
+            key: 'platform.audit.list.object_unknown',
+            params: { object: opts.object, families: Object.keys(FAMILIAS).join(', ') },
+          });
         }
         tipos = [...familia];
       }
@@ -342,10 +349,10 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
         // devolver la unión contestaría a una pregunta que nadie hizo.
         tipos = tipos ? tipos.filter((t) => t === opts.entityType) : [opts.entityType];
         if (tipos.length === 0) {
-          throw usageError(
-            `--object "${String(opts.object)}" y --entity-type "${opts.entityType}" no se cruzan: ` +
-              'la familia no contiene ese tipo. Da una de las dos.'
-          );
+          throw usageError({
+            key: 'platform.audit.list.object_type_disjoint',
+            params: { object: String(opts.object), type: opts.entityType },
+          });
         }
       }
 
@@ -414,7 +421,7 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
         // sólo agregar (033) y sobrevive al alta de quien escribió la fila.
         // Se dice «desconocido» explícitamente en vez de dejar el hueco: una
         // celda vacía en una bitácora se lee como un dato que no se guardó.
-        actor: r.actor ?? '(usuario dado de baja)',
+        actor: r.actor ?? userRemoved(),
         action: r.action,
         object: r.entity_type,
         object_id: r.entity_id,
@@ -422,15 +429,15 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
         reason: r.reason ?? '',
       }));
 
-      render(rows, { ...opts, idField: 'id', total: parseInt(total.rows[0].n, 10) });
+      render(rows, {
+        ...opts,
+        idField: 'id',
+        total: parseInt(total.rows[0].n, 10),
+        labelled: { actor: actorLabel },
+      });
 
       if (result.rows.length === 0) {
-        process.stderr.write(
-          deps.palette.dim(
-            'Sin filas. El rastro es del INQUILINO: `audit_log` no tiene columna de entidad legal, ' +
-              'así que --entity sólo eligió a qué inquilino mirar.\n'
-          )
-        );
+        process.stderr.write(deps.palette.dim(`${t('platform.audit.list.no_rows')}\n`));
       }
     })
   );
@@ -506,16 +513,19 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
         return;
       }
 
+      // The three labels share one column, as wide as the longest of them in
+      // the active language plus one space.
+      const labels = [t('platform.audit.show.when'), t('platform.audit.show.who'), t('platform.audit.show.why')];
+      const width = Math.max(...labels.map((l) => l.length)) + 1;
+      const [when, who, why] = labels.map((l) => deps.palette.dim(l.padEnd(width)));
       process.stdout.write(
         `${deps.palette.bold(a.action)} ${a.entity_type} ${a.entity_id}\n` +
-          `  ${deps.palette.dim('cuándo')}  ${a.timestamp instanceof Date ? a.timestamp.toISOString() : String(a.timestamp)}\n` +
-          `  ${deps.palette.dim('quién')}   ${a.actor ?? '(usuario desconocido: la bitácora es de sólo agregar y sobrevive al alta)'}\n` +
-          `  ${deps.palette.dim('por qué')} ${a.reason ?? deps.palette.yellow('(sin razón registrada)')}\n`
+          `  ${when}${a.timestamp instanceof Date ? a.timestamp.toISOString() : String(a.timestamp)}\n` +
+          `  ${who}${a.actor ?? t('platform.audit.show.user_unknown')}\n` +
+          `  ${why}${a.reason ?? deps.palette.yellow(t('platform.audit.show.no_reason'))}\n`
       );
       if (filas.length === 0) {
-        process.stdout.write(
-          deps.palette.dim('  sin valores: la fila registra el acto, no el antes y el después\n')
-        );
+        process.stdout.write(deps.palette.dim(`  ${t('platform.audit.show.no_values')}\n`));
         return;
       }
       render(filas, { ...opts, idField: 'field' });
