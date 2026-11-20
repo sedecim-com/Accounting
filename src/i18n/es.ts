@@ -64,6 +64,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-150 · a path no route serves; see en.ts ----
+  'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
