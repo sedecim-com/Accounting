@@ -378,9 +378,10 @@ describe('una póliza que mueve dinero y no trae el rastro', () => {
     expect(sinRastro.length).toBeGreaterThan(0);
     expect(sinRastro.map((h) => h.referencia)).toContain(numero);
     expect(sinRastro[0].detalle).toContain('cuenta destino');
-    // The datum belongs on the payment here, so the remedy sends the reader
-    // there, unlike a payee gap that lives on the counterparty record.
-    expect(sinRastro[0].detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    // The datum belongs on the payment here, so the remedy completes it there
+    // (MNE-001-568), unlike a payee gap that lives on the counterparty record.
+    expect(sinRastro[0].detalle).toContain(`payment trace record ${pago.paymentNumber} --to-account`);
+    expect(sinRastro[0].detalle).not.toContain('payment create');
     expect(sinRastro[0].detalle).not.toContain('falta en el registro');
     expect(r.puedeEntregarse).toBe(false);
     // Y NO se archiva: un artefacto es lo que se entrega, y esto no se entrega.
@@ -699,7 +700,8 @@ describe('a payment node without its c_Banco code is left out and its entry is n
   // without it and the XSD rejects the whole file. The last two columns are
   // the remedy: what the accountant must read, and a remedy that would fix
   // nothing for that cause, which must not appear.
-  const PAYMENT_REMEDY = 'payment create --check-number/--to-account/--to-bank';
+  // MNE-001-568: a registered payment is completed, never captured again.
+  const PAYMENT_REMEDY = 'payment create';
   it.each([
     ['a cheque from a bank account with no SAT bank code', 'Cheque', 'BanEmisNal',
       'bank account edit <cuenta> --sat-bank-code', 'payment create',
@@ -711,16 +713,17 @@ describe('a payment node without its c_Banco code is left out and its entry is n
       '«Cuenta sin clave SAT»', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'without code', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no bank account linked', 'Transferencia', 'BancoOriNal',
-      'Hoy ningún comando lo completa', 'bank account edit',
+      'Complétalo en el pago ya registrado (`payment trace record', 'bank account edit',
       () => vendorPayment('spei', 'none', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
-      'Hoy ningún comando lo completa', PAYMENT_REMEDY,
+      'Complétalo en el pago ya registrado (`payment trace record', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
       () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
+    // MNE-001-570: a registered receipt is completed, never recorded again.
     ['a customer transfer with no payer bank', 'Transferencia', 'BancoOriNal',
-      'receipt record --payer-bank', 'payment create',
+      '--payer-bank <clave> --reason <motivo>`', 'receipt record',
       () => customerTransfer()],
   ] as const)('%s', async (_label, node, attribute, remedy, wrongRemedy, record) => {
     const entry = await record();
@@ -755,6 +758,8 @@ describe('a bank code off the XSD c_Banco (#404 review)', () => {
   it('is a blocking finding that names the entry, and the XML is still returned', async () => {
     // '003' has the three digits the bank-account check asks for and is not
     // on the c_Banco the official XSD declares. It must not kill the month.
+    // Since MNE-001-569 `payment create` refuses it, so the row is the one a
+    // payment recorded before that check left: stored by hand, as it was.
     const g = await gastoAprobado(f.entityId, f.userId, '50.00', '8.00');
     const payment = await recordVendorPayment(
       {
@@ -764,13 +769,14 @@ describe('a bank code off the XSD c_Banco (#404 review)', () => {
         paymentMethod: 'spei',
         bankAccountId: bancoId,
         cuentaDestino: '003180009876543210',
-        bancoDestinoSat: '003',
+        bancoDestinoSat: '002',
         applications: [{ documentId: g.billId, amountApplied: '58.00' }],
       },
       f.userId
     );
     const entry = payment.journalEntry?.entry_number;
     expect(entry, 'the payment must have posted').toBeTruthy();
+    await query(`UPDATE vendor_payments SET banco_destino_sat = '003' WHERE id = $1 AND entity_id = $2`, [payment.paymentId, f.entityId]);
 
     const r = await generarPolizas(f.entityId, {
       periodo: `2026-0${MES}`,

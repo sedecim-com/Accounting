@@ -9,6 +9,12 @@ import {
   type Country,
 } from '../services/entity/entity-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
+import {
+  minimumWageZoneOf,
+  parseMinimumWageZone,
+  setEntityMinimumWageZone,
+} from '../services/payroll/mx/minimum-wage-zone.js';
+import { MINIMUM_WAGE_ZONES } from '../database/enums.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -26,7 +32,10 @@ import {
   usageError,
   globalsOf,
   exitCodeFor,
+  optionByKey,
 } from './kernel/index.js';
+
+const ZONE_PARAMS = { params: { zones: MINIMUM_WAGE_ZONES.join(' | ') } };
 
 // ============================================================
 // mnemosine entity
@@ -177,6 +186,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         only: 'the only active entity',
       };
       const fiscal = await getEntityTaxProfile(ctx.entityId, ctx.tenantId);
+      const zone = await minimumWageZoneOf({ tenantId: ctx.tenantId, entityId: ctx.entityId });
       render(
         [
           {
@@ -189,6 +199,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
             tax_regime: fiscal.tax_regime,
             tax_regime_name: fiscal.tax_regime_name,
             tax_postal_code: fiscal.tax_postal_code,
+            minimum_wage_zone: zone.declaredBy ? zone.zone : `${zone.zone} (not declared)`,
             selected_because: SOURCE_LABEL[source],
           },
         ],
@@ -238,8 +249,9 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .option('--currency <code>', 'functional currency (defaults to the country\'s)')
     .option('--chart <strategy>', 'auto | siempre | nunca — whether to seed the base chart', 'auto')
     .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
-    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)')
-    .option('--json', 'JSON output');
+    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)');
+  optionByKey(create, '--minimum-wage-zone <zone>', 'help.entity.option.minimum_wage_zone', ZONE_PARAMS);
+  create.option('--json', 'JSON output');
   // Creates rows but touches no ledger, and it is not the agent's to do:
   // bringing a company into existence is a decision with legal consequences.
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'legal_entities, organizations, accounts, asset_categories' });
@@ -256,7 +268,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         // opts.tenant is undefined. See globalsOf() in the kernel.
         const opts = globalsOf<ListOpts & {
           taxId: string; country?: string; currency?: string; chart?: string;
-          taxRegime?: string; taxPostalCode?: string;
+          taxRegime?: string; taxPostalCode?: string; minimumWageZone?: string;
         }>(command);
         bootstrapTenant(opts.tenant);
         const country = (opts.country ?? 'MX').toUpperCase();
@@ -292,6 +304,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
           estrategia: chart as 'auto' | 'siempre' | 'nunca',
           taxRegime: opts.taxRegime,
           taxPostalCode: opts.taxPostalCode,
+          minimumWageZone: opts.minimumWageZone,
         });
 
         // Warnings go to stderr in both modes: a --json consumer still gets
@@ -342,38 +355,56 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .command('edit')
     .alias('editar')
     .argument('<idOrName>', 'entity id, tax id, or a fragment of the name')
-    .description('Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog');
+    .description('Set the tax regime, fiscal postal code or minimum-wage zone of an entity');
   withContext(edit);
   edit
     .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
-    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)')
+    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)');
+  optionByKey(edit, '--minimum-wage-zone <zone>', 'help.entity.option.minimum_wage_zone', ZONE_PARAMS);
+  edit
     .option('--reason <text>', 'justification recorded in the audit trail')
     .option('--json', 'JSON output');
-  declareRisk(edit, { risk: 'escritura', agent: false, writes: 'legal_entities.tax_regime/tax_postal_code' });
+  declareRisk(edit, { risk: 'escritura', agent: false, writes: 'legal_entities.tax_regime/tax_postal_code/minimum_wage_zone' });
   edit.addHelpText('after', EXAMPLES.edit);
   edit.action((idOrName: string, _opts: ListOpts, command: Command) =>
     run(async () => {
       const opts = globalsOf<ListOpts & {
-        taxRegime?: string; taxPostalCode?: string; reason?: string; json?: boolean;
+        taxRegime?: string; taxPostalCode?: string; minimumWageZone?: string; reason?: string; json?: boolean;
       }>(command);
       bootstrapTenant(opts.tenant);
+      if (opts.minimumWageZone !== undefined) parseMinimumWageZone(opts.minimumWageZone);
       const { ctx } = await resolveActiveEntity({ entity: idOrName }, { home: deps.home });
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const profile = await updateEntityTaxProfile(
-        ctx.entityId,
-        ctx.tenantId,
-        { taxRegime: opts.taxRegime, taxPostalCode: opts.taxPostalCode },
-        { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason }
-      );
+      const audit = { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason };
+      // The zone is a payroll datum with its own writer. The fiscal profile is
+      // written first, and only when one of its flags is given (or to say that
+      // nothing was), so a refused regime leaves the zone untouched too.
+      const zoneOnly = opts.minimumWageZone !== undefined && opts.taxRegime === undefined && opts.taxPostalCode === undefined;
+      const profile = zoneOnly
+        ? undefined
+        : await updateEntityTaxProfile(
+          ctx.entityId,
+          ctx.tenantId,
+          { taxRegime: opts.taxRegime, taxPostalCode: opts.taxPostalCode },
+          audit
+        );
+      const zone = opts.minimumWageZone === undefined
+        ? undefined
+        : await setEntityMinimumWageZone(ctx.entityId, ctx.tenantId, opts.minimumWageZone, audit);
       if (opts.json) {
-        render([{ id: ctx.entityId, ...profile }], { json: true });
+        render([{ id: ctx.entityId, ...profile, ...zone }], { json: true });
         return;
       }
       const p = deps.palette;
-      process.stdout.write(
-        `${p.green('✔')} ${p.bold(ctx.entityName)} fiscal profile updated ` +
-          p.dim(`(regime ${profile.tax_regime ?? '—'}, postal code ${profile.tax_postal_code ?? '—'})\n`)
-      );
+      if (profile) {
+        process.stdout.write(
+          `${p.green('✔')} ${p.bold(ctx.entityName)} fiscal profile updated ` +
+            p.dim(`(regime ${profile.tax_regime ?? '—'}, postal code ${profile.tax_postal_code ?? '—'})\n`)
+        );
+      }
+      if (zone) {
+        process.stdout.write(`${p.green('✔')} ${p.bold(ctx.entityName)} minimum wage zone: ${zone.minimum_wage_zone}\n`);
+      }
     })
   );
 

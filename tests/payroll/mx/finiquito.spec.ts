@@ -13,14 +13,26 @@ vi.mock('../../../src/services/policy/policy-service.js', () => ({
   // donde la fila de `legal_parameters` existe de verdad.
   exigirPisoLegal: vi.fn((_k: string, valor: string) => Promise.resolve(valor)),
 }));
+// MNE-001-375: the separation ISR has its own shell and its own specs
+// (separation-isr.spec.ts against a mock, separation-isr.int.spec.ts against
+// Postgres). Here only the wiring is measured: what the settlement hands it.
+vi.mock('../../../src/services/payroll/mx/separation-isr.js', () => ({
+  calculateSeparationIsr: vi.fn((input: { payments: string | null }) =>
+    Promise.resolve({ answeredBy: 'calculateSeparationIsr', payments: input.payments })
+  ),
+}));
 
 import { calculateFiniquito } from '../../../src/services/payroll/mx/finiquito-calculator.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy, getPolicyNumber } from '../../../src/services/policy/policy-service.js';
+import { calculateSeparationIsr } from '../../../src/services/payroll/mx/separation-isr.js';
 
 const mockQuery = query as unknown as Mock;
 const mockGetPolicy = getPolicy as unknown as Mock;
 const mockGetPolicyNumber = getPolicyNumber as unknown as Mock;
+const mockSeparationIsr = calculateSeparationIsr as unknown as Mock;
+/** What the settlement handed to the separation ISR on its first call. */
+const handed = (): { payments: string | null } => mockSeparationIsr.mock.calls[0][0] as { payments: string | null };
 
 const CTX = { tenantId: 't1', entityId: 'e-de-la-peticion' };
 
@@ -189,9 +201,7 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('sin salario ni SBC el finiquito es cero, no NaN', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ ...EMPLEADO, annual_salary: null, sbc: null }],
-    });
+    conParametros({ rows: [{ ...EMPLEADO, annual_salary: null, sbc: null }] });
     const r = await calculateFiniquito(
       { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
@@ -251,9 +261,7 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('acepta el hire_date como Date, que es lo que devuelve el driver', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ ...EMPLEADO, hire_date: new Date(2014, 6, 16) }],
-    });
+    conParametros({ rows: [{ ...EMPLEADO, hire_date: new Date(2014, 6, 16) }] });
     const r = await calculateFiniquito(
       { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
@@ -355,7 +363,7 @@ describe('Finiquito MX — the USMO keys (MNE-001-374)', () => {
     expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_days_per_month');
   });
 
-  it('no amount and no total moves: the keys only report, until MNE-001-375 withholds', async () => {
+  it('no amount and no total moves: the gross settlement does not depend on the two readings', async () => {
     conParametros({ rows: [WORKER] });
     const byDefault = await calculateFiniquito(INPUT, CTX);
     conParametros({ rows: [WORKER] });
@@ -380,5 +388,168 @@ describe('Finiquito MX — the USMO keys (MNE-001-374)', () => {
     await expect(calculateFiniquito(INPUT, CTX)).rejects.toThrow(
       /usmo_isr_subsidy = "bruto_de_tarifa".*gross_of_tariff, net_of_subsidy/
     );
+  });
+});
+
+describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XIII)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockGetPolicy.mockReset();
+    mockGetPolicyNumber.mockReset();
+    mockSeparationIsr.mockClear();
+    panelPorDefecto();
+  });
+
+  // Fifteen years, daily wage 1 000, dismissed on 30-jun-2026 (#194, T4b), by hand:
+  //   salary 15 × 1 000 = 15 000.0000 · aguinaldo 15 × 181/365 × 1 000 = 7 438.3562
+  //   vacation premium 26 × 122/365 × 1 000 × 0.25 = 2 172.6027
+  //   seniority premium 180 × 630.08 = 113 414.4000 · total 138 025.3589
+  const VETERAN = { sbc: null, hire_date: '2011-03-01', annual_salary: '365000', entity_id: 'e-del-empleado' };
+  const DISMISSAL = {
+    employee_id: 'emp1', termination_date: '2026-06-30', last_paid_through: '2026-06-15', termination_reason: 'despido' as const,
+  };
+
+  it('hands it the seniority premium ALONE: the ordinary items keep the ordinary route', async () => {
+    conParametros({ rows: [VETERAN] });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.seniority_premium_amount).toBe('113414.4000');
+    expect(r.total).toBe('138025.3589');
+    expect(mockSeparationIsr).toHaveBeenCalledTimes(1);
+    expect(mockSeparationIsr).toHaveBeenCalledWith({
+      payments: '113414.4000',
+      hireDate: '2011-03-01',
+      terminationDate: '2026-06-30',
+      // MNE-001-579: the USMO of `basis` (1 000 × 30), its ISR reading, and
+      // the panel of the employee's entity, where the comparison key is read.
+      usmo: '30000.0000',
+      usmoIsrSubsidy: 'gross_of_tariff',
+      panel: { tenantId: 't1', entityId: 'e-del-empleado' },
+    });
+    // Not the total, and not the aguinaldo or the vacation premium.
+    expect(handed().payments).not.toBe(r.total);
+  });
+
+  it('returns its answer as `separation_isr`, and moves no amount and no total', async () => {
+    conParametros({ rows: [VETERAN] });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.separation_isr).toEqual({ answeredBy: 'calculateSeparationIsr', payments: '113414.4000' });
+    expect(r.total).toBe('138025.3589');
+  });
+
+  it('the USMO it hands over is the one `basis` reports, under the panel\'s 30.4 and net of subsidy', async () => {
+    conParametros({ rows: [VETERAN] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.basis.last_ordinary_monthly_salary).toBe('30400.0000');
+    expect(mockSeparationIsr).toHaveBeenCalledWith(
+      expect.objectContaining({ usmo: '30400.0000', usmoIsrSubsidy: 'net_of_subsidy' })
+    );
+  });
+
+  it('a resignation under fifteen years pays no premium, so the separation payments are zero', async () => {
+    conParametros({ rows: [{ ...VETERAN, hire_date: '2014-07-16' }] });
+    await calculateFiniquito({ ...DISMISSAL, termination_reason: 'renuncia' }, CTX);
+    expect(handed().payments).toBe('0.0000');
+  });
+
+  it('a premium that could not be calculated is passed as null, never as zero', async () => {
+    // No minimum wage at the termination date: the premium says «SIN CALCULAR».
+    let i = 0;
+    mockQuery.mockImplementation((sql?: unknown) =>
+      Promise.resolve(
+        typeof sql === 'string' && sql.includes('tax_parameters')
+          ? { rows: [{ params: {} }] }
+          : [{ rows: [VETERAN] }][i++] ?? { rows: [] }
+      )
+    );
+    // Another date than the cases above: getTaxParameters caches by date.
+    const r = await calculateFiniquito(
+      { ...DISMISSAL, termination_date: '2026-05-29', last_paid_through: '2026-05-15' },
+      CTX
+    );
+    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(handed().payments).toBeNull();
+  });
+});
+
+// ============================================================
+// MNE-001-377 (#196): the cap of the seniority premium (LFT art. 486) is
+// twice the minimum of the zone of the place of work. Fifteen years and a
+// daily wage of 1 000: 180 days × 630.08 = 113 414.40 in the general zone,
+// 180 × 881.74 = 158 713.20 at the northern border (2026: 315.04 and 440.87).
+// ============================================================
+describe('Finiquito MX — the minimum-wage zone', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockGetPolicy.mockReset();
+    mockGetPolicyNumber.mockReset();
+    panelPorDefecto();
+  });
+
+  const FIFTEEN_YEARS = { sbc: null, hire_date: '2011-03-01', annual_salary: '365000', entity_id: 'e-del-empleado' };
+  // A date no other test uses: the tax parameters are cached by date, and this
+  // block needs its own (with the border minimum).
+  const TERMINATION = {
+    employee_id: 'emp1', termination_date: '2026-04-30', last_paid_through: '2026-04-15',
+    termination_reason: 'renuncia' as const,
+  };
+
+  function withZone(zone: Record<string, unknown> | null, params: Record<string, unknown> = {
+    salario_minimo_general_diario: 315.04, salario_minimo_frontera_diario: 440.87,
+  }): void {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('tax_parameters')) return Promise.resolve({ rows: [{ params }] });
+      if (q.includes('minimum_wage_zone')) return Promise.resolve({ rows: zone ? [zone] : [] });
+      if (q.includes('FROM employees')) return Promise.resolve({ rows: [FIFTEEN_YEARS] });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('an entity declared at the border caps with 2 × 440.87', async () => {
+    withZone({ entity_zone: 'northern_border', entity_declared: true, employee_zone: null });
+    const r = await calculateFiniquito(TERMINATION, CTX);
+    expect(r.seniority_premium_amount).toBe('158713.2000');
+    expect(r.seniority_premium_minimum_wage).toMatchObject({
+      zone: 'northern_border', daily_amount: '440.87', declared_by: 'entity',
+    });
+    // The separation ISR (MNE-001-375) exempts the CAPPED premium, read after the zone.
+    expect(mockSeparationIsr).toHaveBeenLastCalledWith(expect.objectContaining({ payments: '158713.2000' }));
+  });
+
+  it('an entity declared general caps with 2 × 315.04', async () => {
+    withZone({ entity_zone: 'general', entity_declared: true, employee_zone: null });
+    const r = await calculateFiniquito(TERMINATION, CTX);
+    expect(r.seniority_premium_amount).toBe('113414.4000');
+    expect(r.seniority_premium_minimum_wage.declared_by).toBe('entity');
+  });
+
+  it('the employee\'s zone wins in both directions', async () => {
+    withZone({ entity_zone: 'general', entity_declared: true, employee_zone: 'northern_border' });
+    expect((await calculateFiniquito(TERMINATION, CTX)).seniority_premium_amount).toBe('158713.2000');
+    withZone({ entity_zone: 'northern_border', entity_declared: true, employee_zone: 'general' });
+    const r = await calculateFiniquito(TERMINATION, CTX);
+    expect(r.seniority_premium_amount).toBe('113414.4000');
+    expect(r.seniority_premium_minimum_wage.declared_by).toBe('employee');
+  });
+
+  it('with no zone declared it uses the general minimum and says so, naming the command', async () => {
+    withZone({ entity_zone: 'general', entity_declared: false, employee_zone: null });
+    const r = await calculateFiniquito(TERMINATION, CTX);
+    expect(r.seniority_premium_amount).toBe('113414.4000');
+    expect(r.seniority_premium_minimum_wage.declared_by).toBeNull();
+    expect(r.seniority_premium_minimum_wage.note).toMatch(/not declared/);
+    expect(r.seniority_premium_minimum_wage.note).toMatch(/--minimum-wage-zone general\|northern_border/);
+  });
+
+  it('a border year without its minimum is NOT computed with the general one', async () => {
+    withZone({ entity_zone: 'northern_border', entity_declared: true, employee_zone: null }, {
+      salario_minimo_general_diario: 315.04,
+    });
+    // Another date, so the parameters are read again and not taken from the cache.
+    const r = await calculateFiniquito({ ...TERMINATION, termination_date: '2026-07-31', last_paid_through: '2026-07-15' }, CTX);
+    expect(r.seniority_premium_amount).toBe('0.0000');
+    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(r.seniority_premium_minimum_wage.daily_amount).toBeNull();
   });
 });

@@ -12,7 +12,7 @@ import {
 // se repite el literal— porque la lista se declara con esa promesa por escrito
 // («el conjunto crece aquí y en ningún otro sitio») y este archivo la estaba
 // incumpliendo con un `ar.role = 'banco'` a mano.
-import { ROLES_DE_EFECTIVO, SUBTIPOS_DE_EFECTIVO } from './cash-flow-reconcile.js';
+import { ROLES_DE_EFECTIVO, SUBTIPOS_DE_EFECTIVO, type ViaDeEfectivo } from './cash-flow-reconcile.js';
 import { LEDGER_SCALE } from './report-service.js';
 
 // ============================================================
@@ -219,7 +219,18 @@ export interface CuentaDeEfectivo {
  */
 
 
+/** One cash account and the way it came into the set (MNE-001-438). */
+export interface ResolvedCashAccount extends CuentaDeEfectivo {
+  via: ViaDeEfectivo;
+}
+
 /**
+ * THE ONE RESOLVER of «which accounts are cash» (MNE-001-438, #101). The
+ * statement reads it here and its tie-out against the ledger reads it through
+ * `cuentasDeEfectivo` (cash-flow-reconcile.ts): one definition, so the two
+ * cannot publish different residues for the same period. Until MNE-001-438
+ * the same set was written twice, as two queries that only agreed by care.
+ *
  * EL ARREGLO DEL DEFECTO DE LOS NOMBRES.
  *
  * El motor viejo preguntaba `name ILIKE '%receivable%'`. Aquí se pregunta por
@@ -235,17 +246,34 @@ export interface CuentaDeEfectivo {
  *     la lista se importa en vez de repetirse: es el punto único donde crece—, y
  *   · toda cuenta de mayor atada a una `bank_accounts` de la entidad.
  *
+ * `gl_account_id` lo fija el usuario con `bank account set`, y NADA obliga a
+ * que cuelgue del árbol del rol: con una sola puerta, ese dinero sería
+ * invisible y el residuo saldría inventado.
+ *
+ * Los roles se toman CON CUALQUIER cualificador, al revés que el posteo
+ * (`ar-ap-posting`, `treasury-posting`), que exige `qualifier IS NULL`: allí
+ * el cualificador desglosa por tercero y se quiere el genérico; aquí se
+ * pregunta «¿cuánto efectivo hay?», y un despacho que mapeó una variante por
+ * banco tiene su dinero repartido entre ellas.
+ *
  * Y el ÁRBOL, no la cuenta suelta: el rol `efectivo` apunta a 1110 «Caja y
  * Bancos», que en el catálogo base es la MADRE de 1111, 1112 y 1115, donde de
  * verdad caen los cargos y abonos. Resolver sólo la cuenta del rol dejaba el
  * conjunto de efectivo vacío de movimiento y mandaba el estado entero al
  * residuo.
+ *
+ * SIN filtro por `is_active`, en ninguna rama: una cuenta de efectivo
+ * archivada a medio periodo movió dinero de verdad, y dejarla fuera fabrica
+ * un residuo que nadie podrá encontrar.
+ *
+ * An empty set is handed back, not refused: each caller refuses it in its own
+ * words. «lista» is refused here, once, for both.
  */
-export async function resolverCuentasDeEfectivo(
+export async function resolveCashAccounts(
   entityId: string,
-  criterio: CriterioDeEfectivo
-): Promise<CuentaDeEfectivo[]> {
-  if (criterio === 'lista') {
+  criterion: CriterioDeEfectivo
+): Promise<ResolvedCashAccount[]> {
+  if (criterion === 'lista') {
     // FALLA CERRADO: no hay dónde guardar la lista todavía. Declararla exige
     // la columna `cash_flow_category` en accounts, que es migración y es la
     // fase 2 del catálogo (`cashflow category set`). Aceptar 'lista' hoy sería
@@ -254,55 +282,79 @@ export async function resolverCuentasDeEfectivo(
       'La política `flujo_efectivo_cuentas_de_efectivo` dice «lista», y esta versión no tiene ' +
         'dónde guardar esa lista: declarar cuentas de efectivo una por una necesita ' +
         '`mnemosine cashflow category set`, que todavía no existe. Resuelve la política como ' +
-        '«rol» (el mapa de roles) o «subtipo» mientras tanto — no se emite un estado por rol ' +
+        '«rol» (el mapa de roles) o «subtipo» con `mnemosine pending define ' +
+        'flujo_efectivo_cuentas_de_efectivo` mientras tanto — no se emite un estado por rol ' +
         'llamándolo lista.'
     );
   }
 
   const rows =
-    criterio === 'subtipo'
-      ? await query<CuentaDeEfectivo>(
-          `SELECT a.id, a.code, a.name
+    criterion === 'subtipo'
+      ? await query<ResolvedCashAccount>(
+          `SELECT a.id, a.code, a.name, 'subtipo'::text AS via
              FROM accounts a
             WHERE a.entity_id = $1 AND a.account_subtype = ANY($2::text[])
             ORDER BY a.code`,
           [entityId, SUBTIPOS_DE_EFECTIVO]
         )
-      : await query<CuentaDeEfectivo>(
+      : await query<ResolvedCashAccount>(
           // El árbol se recorre con una recursiva y la frontera de entidad va
           // DENTRO, en cada brazo: una cuenta hija de otra entidad no entra al
           // conjunto de efectivo de ésta ni por el paso recursivo.
           `WITH RECURSIVE raices AS (
-             SELECT a.id
+             SELECT a.id, 'rol'::text AS via
                FROM account_roles ar
                JOIN accounts a ON a.id = ar.account_id AND a.entity_id = $1
               WHERE ar.entity_id = $1 AND ar.role = ANY($2::text[])
               UNION
-             SELECT a.id
+             SELECT a.id, 'cuenta_bancaria'::text AS via
                FROM bank_accounts b
                JOIN accounts a ON a.id = b.gl_account_id AND a.entity_id = $1
               WHERE b.entity_id = $1
            ),
            arbol AS (
-             SELECT id FROM raices
+             SELECT id, via FROM raices
               UNION
-             SELECT h.id FROM accounts h JOIN arbol t ON h.parent_id = t.id
+             SELECT h.id, 'descendiente'::text FROM accounts h JOIN arbol t ON h.parent_id = t.id
               WHERE h.entity_id = $1
+           ),
+           -- La prioridad se ESCRIBE, no se hereda del alfabeto. Una cuenta
+           -- puede llegar por varias vías a la vez (un rol apuntado a una
+           -- subcuenta que además cuelga de otra cuenta con rol, o una cuenta
+           -- bancaria atada dentro del árbol del rol) y se informa la más
+           -- directa: por orden alfabético ganaría 'descendiente'.
+           ranked AS (
+             SELECT DISTINCT ON (id) id, via
+               FROM arbol
+              ORDER BY id, CASE via WHEN 'rol' THEN 1 WHEN 'cuenta_bancaria' THEN 2 ELSE 3 END
            )
-           SELECT a.id, a.code, a.name
-             FROM accounts a JOIN arbol ON arbol.id = a.id
+           SELECT a.id, a.code, a.name, ranked.via
+             FROM accounts a JOIN ranked ON ranked.id = a.id
             ORDER BY a.code`,
           // La LISTA, no el literal: `cash-flow-reconcile` la declara punto
           // único de crecimiento y este archivo tiene que crecer con ella. El
           // día que la taxonomía separe caja de bancos, un `ar.role = 'banco'`
-          // escrito aquí a mano dejaba el efectivo de la cuenta nueva fuera
-          // del ESTADO mientras el AMARRE sí lo veía: dos definiciones de
-          // «efectivo» para el mismo periodo, que es el residuo inventado que
-          // este par de módulos existe para no producir.
+          // escrito aquí a mano dejaba fuera el efectivo de la cuenta nueva.
           [entityId, ROLES_DE_EFECTIVO]
         );
+  return rows.rows.map((f) => ({
+    id: f.id,
+    code: f.code,
+    name: f.name,
+    via: f.via === 'rol' || f.via === 'cuenta_bancaria' || f.via === 'subtipo' ? f.via : 'descendiente',
+  }));
+}
 
-  if (rows.rows.length === 0) {
+/**
+ * The statement's cash accounts, `{ id, code, name }` as `cash_accounts`
+ * publishes them: the one resolver, and a refusal when it finds nothing.
+ */
+export async function resolverCuentasDeEfectivo(
+  entityId: string,
+  criterio: CriterioDeEfectivo
+): Promise<CuentaDeEfectivo[]> {
+  const rows = await resolveCashAccounts(entityId, criterio);
+  if (rows.length === 0) {
     // También cerrado. Sin cuentas de efectivo no hay contra qué amarrar el
     // estado, y un estado de flujos que no se amarra es justo el defecto que
     // este archivo vino a matar.
@@ -317,7 +369,7 @@ export async function resolverCuentasDeEfectivo(
           'mayor) — sin eso, el estado de flujos no se puede contrastar contra el banco.'
     );
   }
-  return rows.rows;
+  return rows.map(({ id, code, name }) => ({ id, code, name }));
 }
 
 // ------------------------------------------------------------

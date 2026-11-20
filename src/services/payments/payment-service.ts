@@ -38,6 +38,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
 import { officialEnumeration } from '../sat/anexo24/official-enumerations.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -181,6 +182,8 @@ export interface EntradaPago {
 
 /** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
 const LARGO_CLAVE_BANCO = 3;
+/** The c_Banco code the vouchers file declares a foreign bank with, next to its name (#532). */
+const FOREIGN_BANK_CODE = '999';
 
 /**
  * El rastro de pago, comprobado ANTES de tocar la base.
@@ -191,8 +194,16 @@ const LARGO_CLAVE_BANCO = 3;
  * character varying(3)`, que no le dicen nada a quien tecleó el comando y
  * además llegan DESPUÉS de que la transacción haya hecho medio trabajo. Lo
  * que se gana aquí es el mensaje, no la seguridad — la seguridad ya estaba.
+ *
+ * MNE-001-568 · `payment trace record` runs it on the merged trace (what is
+ * stored plus what is given), so a completion is held to the capture's rules.
+ * MNE-001-569 · the national code is checked against c_Banco here, so
+ * `payment create --to-bank` refuses an off-list code at capture too.
  */
-function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
+export function assertRastroDePago(
+  entrada: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'cuentaDestino' | 'bancoDestinoSat' | 'bancoDestinoExtranjero'>,
+  lado: 'cliente' | 'proveedor'
+): void {
   const nacional = (entrada.bancoDestinoSat ?? '').trim();
   const extranjero = (entrada.bancoDestinoExtranjero ?? '').trim();
   const cuenta = (entrada.cuentaDestino ?? '').trim();
@@ -202,7 +213,11 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
       `El pago declara banco destino nacional («${nacional}») y extranjero («${extranjero}») a la vez. ` +
         'El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: ' +
         'declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo ' +
-        'las lleva tal cual a la autoridad.'
+        'las lleva tal cual a la autoridad.' +
+        // #532: 999 is the code the file itself puts on a foreign bank, next to its name.
+        (nacional === FOREIGN_BANK_CODE
+          ? ` Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
+          : '')
     );
   }
   if (nacional !== '' && nacional.length !== LARGO_CLAVE_BANCO) {
@@ -210,6 +225,14 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
       `La clave de banco destino «${nacional}» tiene ${nacional.length} caracteres y el c_Banco ` +
         `del SAT son ${LARGO_CLAVE_BANCO}. Un banco no se identifica por su nombre en este campo: ` +
         'si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.'
+    );
+  }
+  // MNE-001-569 · the list the vouchers file is judged by, as #611 checks the
+  // payer's bank: a code off it would be stored and then block the month.
+  if (nacional !== '' && !officialEnumeration('c_Banco').has(nacional)) {
+    throw new ValidationError(
+      `La clave de banco destino «${nacional}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
+        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
     );
   }
   // El banco sin la cuenta es media pista. En el nodo de transferencia del
@@ -248,8 +271,12 @@ const METHODS_WITH_AN_ORIGIN_BANK = ['check', 'spei', 'wire', 'ach'];
  * the list the vouchers file is judged by, so a code the SAT would reject
  * never gets stored. The lengths and the pair repeat 335's columns and CHECK
  * for the message's sake, as `assertRastroDePago` does for the destination.
+ * MNE-001-570 · `receipt trace record` runs it on the merged trace.
  */
-function assertPayerTrace(input: EntradaPago, side: 'cliente' | 'proveedor'): void {
+export function assertPayerTrace(
+  input: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'payerAccount' | 'payerBankCode' | 'payerForeignBank'>,
+  side: 'cliente' | 'proveedor'
+): void {
   const bank = (input.payerBankCode ?? '').trim();
   const foreign = (input.payerForeignBank ?? '').trim();
   const account = (input.payerAccount ?? '').trim();
@@ -1027,15 +1054,21 @@ export async function recordCustomerPayment(
          VALUES ($1,$2,$3,$4,$5)`,
         [uuidv4(), paymentId, app.documentId, app.amountApplied, entrada.paymentDate]
       );
-      await client.query(
+      // MNE-001-580 · invariant 3, as the twin in applyCustomerPayment; GREATEST:
+      // a receipt dated before another one does not move the last payment back.
+      const settled = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
-         WHERE id = $3 AND entity_id = $4`,
-        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId]
+           last_payment_date = GREATEST(last_payment_date, $2::date)
+         WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
+        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId, [...COBRABLES]]
       );
+      if (settled.rowCount !== 1) {
+        const invoice = documentos.find((d) => d.id === app.documentId)?.numero ?? app.documentId;
+        throw new AccountingError('INVOICE_CHANGED', { key: 'error.INVOICE_CHANGED', params: { invoice } });
+      }
     }
 
     const entry = await postCustomerPaymentEntry(
@@ -2442,14 +2475,20 @@ export async function reverseCustomerPayment(
       );
       if (inv.rows.length === 0) continue;
       const factura = inv.rows[0];
-      await client.query(
+      // MNE-001-580 · invariant 3, as the unapply path's reopening.
+      const reopened = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid - $1,
            amount_due  = amount_due + $1,
            status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
-         WHERE id = $2 AND entity_id = $3`,
+         WHERE id = $2 AND entity_id = $3 AND amount_paid >= $1`,
         [fila.total, fila.invoice_id, entityId]
       );
+      if (reopened.rowCount !== 1) {
+        throw new AccountingError('INVOICE_CHANGED', {
+          key: 'error.INVOICE_CHANGED', params: { invoice: factura.invoice_number },
+        });
+      }
       documentosReabiertos.push({
         id: factura.id, numero: factura.invoice_number,
         saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
@@ -3014,19 +3053,36 @@ async function assertAfterLastEvent(
 }
 
 /**
- * What the bill's live applications explain. Anything else that stopped being
- * owed was written off by a short pay, and no row says how much of it which
- * payment carried, its account or its IVA: an undo would have to guess.
+ * What the bill's live applications and its received credit notes explain.
+ * Anything else that stopped being owed was written off by a short pay, and no
+ * row says how much of it which payment carried, its account or its IVA: an
+ * undo would have to guess.
+ *
+ * MNE-001-582 (#814): a received credit note lowers `amount_due` and not
+ * `amount_paid` (`postReceivedCreditNote`), so its payable debit is explained
+ * too: the note's posted, unreversed entry, whose source is the bill. Without
+ * it, every bill with a note read as closed short and its payments could not
+ * be unapplied or reversed, a bounced transfer included.
  */
 async function assertNotClosedShort(
   client: pg.PoolClient,
+  entityId: string,
   bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
   what: string
 ): Promise<void> {
   const explained = await client.query<{ s: string }>(
-    `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
-       FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
-    [bill.id]
+    `SELECT (COALESCE((SELECT SUM(pa.amount_applied + COALESCE(pa.discount_amount, 0))
+                         FROM payment_applications pa
+                         JOIN bills b ON b.id = pa.bill_id AND b.entity_id = $2
+                        WHERE pa.bill_id = $1 AND pa.unapplied_at IS NULL), 0)
+           + COALESCE((SELECT SUM(l.debit_amount)
+                         FROM journal_entries je
+                         JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                         JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $2
+                                              AND ar.role = 'cxp' AND ar.qualifier IS NULL
+                        WHERE je.entity_id = $2 AND je.source_type = $3 AND je.source_id = $1
+                          AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL), 0))::text AS s`,
+    [bill.id, entityId, VENDOR_CREDIT_NOTE_SOURCE]
   );
   const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
   if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
@@ -3118,7 +3174,7 @@ export async function unapplyVendorPayment(
       );
     }
 
-    await assertNotClosedShort(client, bill, 'an unapply');
+    await assertNotClosedShort(client, entityId, bill, 'an unapply');
     if (live.rows.some((r) => r.iva_reclass_amount === null) && (await entityUsesCashBasisIva(client, entityId))) {
       throw new ValidationError(
         `The application of ${vp.payment_number} on ${bill.bill_number} predates migration 105 and did ` +
@@ -3128,6 +3184,10 @@ export async function unapplyVendorPayment(
 
     const amount = live.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
     const discount = live.rows.reduce((s, r) => s.plus(r.discount_amount), new Decimal(0));
+    // NOTE: MNE-001-582 (#814). The whole stored release goes back, with no
+    // cap like the issued side's (MNE-001-581): a received note never exceeds
+    // what the bill owes (`refusalOf`) and takes its VAT from 1135 first, so
+    // this re-park leaves 1135 at the VAT of the balance owed again.
     const iva = live.rows.reduce((s, r) => s.plus(r.iva_reclass_amount ?? '0'), new Decimal(0));
     const ids = live.rows.map((r) => r.id);
     const reopened = amount.plus(discount);
@@ -3274,7 +3334,7 @@ export async function reverseVendorPayment(
         [billId, entityId]
       );
       const bill = b.rows[0];
-      await assertNotClosedShort(client, bill, 'a reversal');
+      await assertNotClosedShort(client, entityId, bill, 'a reversal');
       const reopened = amount.plus(discount);
       const reopen = await client.query(
         `UPDATE bills SET

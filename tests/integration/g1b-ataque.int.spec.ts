@@ -843,14 +843,16 @@ describe('un periodo sin movimientos', () => {
 });
 
 // ============================================================
-// 10 · LAS DOS DEFINICIONES DE «EFECTIVO»
+// 10 · UNA SOLA DEFINICIÓN DE «EFECTIVO»
 //
-// «Qué cuentas son efectivo» está implementado DOS VECES, en dos SQL
+// «Qué cuentas son efectivo» estuvo implementado DOS VECES, en dos SQL
 // distintos: `resolverCuentasDeEfectivo` (cash-flow-service) y
-// `cuentasDeEfectivo` (cash-flow-reconcile). Si discrepan en un solo caso, el
-// estado y su amarre publican residuos distintos del mismo periodo — que es
-// el defecto de los dos estados, otra vez. Se atacan las tres puertas por las
-// que el efectivo puede entrar sin pasar por 1110.
+// `cuentasDeEfectivo` (cash-flow-reconcile). Desde MNE-001-438 los dos leen
+// el mismo resolutor (`resolveCashAccounts`), y estas pruebas se quedan como
+// guardia: si alguien vuelve a escribir una segunda consulta y discrepan en
+// un solo caso, el estado y su amarre publican residuos distintos del mismo
+// periodo — que es el defecto de los dos estados, otra vez. Se atacan las
+// tres puertas por las que el efectivo puede entrar sin pasar por 1110.
 // ============================================================
 
 describe('el estado y el amarre no pueden discrepar sobre qué es efectivo', () => {

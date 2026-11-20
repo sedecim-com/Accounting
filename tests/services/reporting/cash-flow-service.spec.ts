@@ -34,6 +34,7 @@ import {
   autoComprobar,
   netoDe,
   resolverCuentasDeEfectivo,
+  resolveCashAccounts,
   queryMovimientosNoEfectivo,
   politicasDeFlujo,
   getCashFlowStatement,
@@ -490,6 +491,45 @@ describe('qué cuentas son efectivo', () => {
   it('«subtipo» falla cerrado si ninguna cuenta declara el subtipo', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(resolverCuentasDeEfectivo(ENTITY, 'subtipo')).rejects.toThrow(ValidationError);
+  });
+  // MNE-001-438 · ONE RESOLVER. The statement and its tie-out read the same
+  // query: `resolveCashAccounts` says how each account came in, and each
+  // caller keeps the shape it has always published.
+  it('the one resolver says how each account came in, by an explicit priority', async () => {
+    const found = [
+      { id: 'id-1110', code: '1110', name: 'Caja y Bancos', via: 'rol' },
+      { id: 'id-1111', code: '1111', name: 'Banco', via: 'descendiente' },
+      { id: 'id-1185', code: '1185', name: 'Banco Extranjero', via: 'cuenta_bancaria' },
+    ];
+    mockQuery.mockResolvedValueOnce({ rows: found });
+    expect(await resolveCashAccounts(ENTITY, 'rol')).toEqual(found);
+    const s = sql(0);
+    expect(s).toContain('DISTINCT ON (id)');
+    expect(s).toMatch(/ORDER BY id, CASE via WHEN 'rol' THEN 1 WHEN 'cuenta_bancaria' THEN 2 ELSE 3 END/);
+    expect(s).toMatch(/ORDER BY a\.code$/);
+    expect(params(0)).toEqual([ENTITY, ROLES_DE_EFECTIVO]);
+
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'id-1110', code: '1110', name: 'Caja', via: 'subtipo' }] });
+    expect(await resolveCashAccounts(ENTITY, 'subtipo')).toEqual([{ id: 'id-1110', code: '1110', name: 'Caja', via: 'subtipo' }]);
+  });
+
+  it('the one resolver hands back an empty set; the statement is the caller that refuses it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await resolveCashAccounts(ENTITY, 'rol')).toEqual([]);
+  });
+
+  it('the statement publishes { id, code, name } and never the way in', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'id-1111', code: '1111', name: 'Banco', via: 'descendiente' }] });
+    const accounts = await resolverCuentasDeEfectivo(ENTITY, 'rol');
+    expect(accounts).toEqual([{ id: 'id-1111', code: '1111', name: 'Banco' }]);
+    expect(Object.keys(accounts[0]).sort()).toEqual(['code', 'id', 'name']);
+  });
+
+  it('«lista» is refused once, with both ways out, before any query', async () => {
+    const refusal = resolveCashAccounts(ENTITY, 'lista');
+    await expect(refusal).rejects.toThrow(/cashflow category set/);
+    await expect(resolveCashAccounts(ENTITY, 'lista')).rejects.toThrow(/pending define flujo_efectivo_cuentas_de_efectivo/);
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });
 

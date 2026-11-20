@@ -75,6 +75,8 @@ import type {
 import type { MovimientoRealDeEfectivo } from '../../src/services/reporting/cash-flow-reconcile.js';
 import * as motor from '../../src/services/reporting/cash-flow-service.js';
 import * as amarre from '../../src/services/reporting/cash-flow-reconcile.js';
+import type { CliError } from '../../src/cli/kernel/cli-error.js';
+import { LOCALE_ENV_VAR } from '../../src/i18n/locale.js';
 
 const noColor = palette({ isTTY: false } as NodeJS.WriteStream);
 
@@ -444,7 +446,7 @@ describe('cashflow generate — la conducta', () => {
   it('`--gross` se rehúsa diciendo qué falta, antes de tocar la base', async () => {
     const r = await correr(['cashflow', 'generate', '--period', '2026-07', '--gross']);
     expect(r.code).toBe(ExitCode.USAGE);
-    expect(String((r.errs[0] as Error).message)).toMatch(/BRUTOS/);
+    expect(String((r.errs[0] as Error).message)).toMatch(/GROSS terms/);
     expect(vi.mocked(motor.getCashFlowStatement)).not.toHaveBeenCalled();
   });
 
@@ -593,5 +595,136 @@ describe('las dos hojas no pueden publicar dos cifras del mismo periodo', () => 
       startDate: '2026-07-01',
       endDate: '2026-07-31',
     });
+  });
+});
+
+// ============================================================
+// I8.1 · THE REPORT FAMILY SPEAKS BY KEY (MNE-001-218, #263)
+//
+// The ten Spanish strings of `cashflow` and `cashflow reconcile` come from the
+// I8.1 block of the catalogue. One assertion per key in English, and the same
+// residue in es-MX. The `concept` column follows the user's language in the
+// table only: --json and csv always carry the English catalogue, so a script
+// reads the same text under any locale (the amendment to decision 2 on #263).
+// Figures by hand: a residue of 65 000, of which two suspects explain 50 000.
+// ============================================================
+function reconciliation(over: Partial<amarre.Conciliacion> = {}): amarre.Conciliacion {
+  return {
+    entity_id: 'ent-1',
+    start_date: '2026-07-01',
+    end_date: '2026-07-31',
+    method: 'indirect',
+    efectivo: efectivo(),
+    residuo: { derivado: '73000.0000', real: '73000.0000', importe: '0.0000', cuadra: true },
+    politica_descuadre: 'avisar',
+    politica_descuadre_definida: true,
+    trato: 'sin_residuo',
+    aviso: null,
+    hallazgos: { blocking: 0, warning: 0 },
+    ...over,
+  };
+}
+
+function suspect(n: number): amarre.Sospechoso {
+  return {
+    entry_number: `JE-00${n}`,
+    entry_date: '2026-07-10',
+    description: `Movement ${n}`,
+    efecto_en_efectivo: '25000.0000',
+    counterpart_code: '4100',
+    counterpart_name: 'Sales',
+    counterpart_type: 'revenue',
+    categoria_probable: 'operacion',
+    motivo: 'sin_reclamar',
+  };
+}
+
+const RESIDUE = {
+  efectivo: efectivo({ criterio_definido: false }),
+  residuo: { derivado: '138000.0000', real: '73000.0000', importe: '65000.0000', cuadra: false },
+  trato: 'nombrado' as const,
+  aviso: 'residue named',
+  hallazgos: { blocking: 0, warning: 1 },
+  candidatos: [suspect(1), suspect(2)],
+  cobertura: { explicado: '50000.0000', sin_explicar: '15000.0000' },
+};
+
+describe('I8.1 · cashflow reconcile speaks by key (en-US)', () => {
+  it('a tie says so, names the cash accounts and labels the three contrast rows', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(reconciliation());
+    const r = await correr(['cashflow', 'reconcile', '--period', '2026-07']);
+    expect(r.err).toContain('Ties: the cash flow statement equals the actual movement of cash.');
+    expect(r.err).toContain('Cash: 1110 (criterion "rol") · 100000.0000 → 173000.0000');
+    expect(r.out).toContain('Cash flow statement, net (indirect method)');
+    expect(r.out).toContain('Cash and banks, change in the ledger');
+    expect(r.out).toContain('Residue (derived − actual)');
+  });
+
+  it('a residue lists its suspects, with the plural, the coverage and the default criterion', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(reconciliation(RESIDUE));
+    const r = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--show-candidates']);
+    expect(r.err).toContain('2 suspects — this is a LIST OF SUSPECTS, not a verdict');
+    expect(r.err).toContain(
+      'They explain 50000.0000 of the residue 65000.0000; 15000.0000 remain that none of them explains.'
+    );
+    expect(r.err).toContain('(criterion "rol", by default)');
+  });
+
+  it('one suspect takes the singular', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(
+      reconciliation({ ...RESIDUE, candidatos: [suspect(1)] })
+    );
+    const r = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--show-candidates']);
+    expect(r.err).toContain('1 suspect — this is a LIST OF SUSPECTS');
+  });
+
+  it('a residue with no suspects says where the residue is', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(
+      reconciliation({ ...RESIDUE, candidatos: [], cobertura: undefined })
+    );
+    const r = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--show-candidates']);
+    expect(r.err).toContain(
+      'No suspects to offer: every cash movement of the period falls in a section of the statement'
+    );
+  });
+});
+
+describe('I8.1 · cashflow reconcile in es-MX', () => {
+  const argvOutside = process.argv;
+  const localeOutside = process.env[LOCALE_ENV_VAR];
+  beforeEach(() => {
+    process.argv = ['node', 'vitest'];
+    process.env[LOCALE_ENV_VAR] = 'es-MX';
+  });
+  afterEach(() => {
+    process.argv = argvOutside;
+    if (localeOutside === undefined) delete process.env[LOCALE_ENV_VAR];
+    else process.env[LOCALE_ENV_VAR] = localeOutside;
+  });
+
+  it('the notes and the table speak Spanish', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(reconciliation(RESIDUE));
+    const r = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--show-candidates']);
+    expect(r.err).toContain('2 sospechosos — es una LISTA DE SOSPECHOSOS, no un veredicto');
+    expect(r.err).toContain('Explican 50000.0000 del residuo 65000.0000; quedan 15000.0000 que no explica ninguno.');
+    expect(r.err).toContain('(criterio «rol», por omisión)');
+    expect(r.out).toContain('Residuo (derivado − real)');
+  });
+
+  it('--json keeps the English concept while the table shows «Residuo (derivado − real)»', async () => {
+    vi.mocked(amarre.conciliarFlujoDeEfectivo).mockResolvedValue(reconciliation(RESIDUE));
+    const table = await correr(['cashflow', 'reconcile', '--period', '2026-07']);
+    expect(table.out).toContain('Residuo (derivado − real)');
+    const json = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--json']);
+    expect(json.out).toContain('Residue (derived − actual)');
+    expect(json.out).toContain('Cash flow statement, net (indirect method)');
+    expect(json.out).not.toContain('Residuo (derivado − real)');
+    const csv = await correr(['cashflow', 'reconcile', '--period', '2026-07', '--format', 'csv']);
+    expect(csv.out).toContain('Cash and banks, change in the ledger');
+  });
+
+  it('--gross refuses in Spanish', async () => {
+    const r = await correr(['cashflow', 'generate', '--period', '2026-07', '--gross']);
+    expect((r.errs[0] as CliError).localized('es')).toContain('BRUTOS');
   });
 });

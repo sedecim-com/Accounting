@@ -970,50 +970,75 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
-    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
     key: 'usmo_isr_subsidy',
     textKey: 'usmo_isr_subsidy',
     category: 'fiscal',
     question:
       'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
     impact:
-      'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
     options: [
       { value: 'gross_of_tariff', label: 'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy' },
       { value: 'net_of_subsidy', label: 'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get' },
     ],
     defaultValue: 'gross_of_tariff',
     defaultRationale:
-      'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+      'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
     whyAsking:
       'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
     whatIDo:
-      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
     ifSkipped: 'I take it gross of the tariff, without subtracting the subsidy.',
     priority: 40,
   },
   {
     // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
-    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
     key: 'usmo_days_per_month',
     textKey: 'usmo_days_per_month',
     category: 'fiscal',
     question:
       'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
     impact:
-      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
     options: [
       { value: '30', label: 'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)' },
       { value: '30.4', label: 'Daily wage × 30.4 (the month of the monthly tariff)' },
     ],
     defaultValue: '30',
     defaultRationale:
-      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
     whyAsking:
       'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
     whatIDo:
-      'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+      'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
     ifSkipped: 'I use 30 days.',
+    priority: 40,
+  },
+  {
+    // MNE-001-579 · #194: read by `calculateSeparationIsr` (payroll/mx/separation-isr.ts).
+    // A builder's ADR-0006 key with the conservative default, under the plan
+    // approved on #194 (comment 7023856765).
+    key: 'separation_isr_usmo_comparison',
+    textKey: 'separation_isr_usmo_comparison',
+    category: 'fiscal',
+    question:
+      'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+    impact:
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+    options: [
+      { value: 'total_payments', label: 'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)' },
+      { value: 'taxable_payments', label: 'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)' },
+    ],
+    defaultValue: 'total_payments',
+    defaultRationale:
+      'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+    whyAsking:
+      'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+    whatIDo:
+      'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+    ifSkipped: 'I compare the total paid.',
     priority: 40,
   },
   {
@@ -2370,6 +2395,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whatIDo:
       'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
     ifSkipped: 'An SBC above an upper edge pays the next band.',
+    priority: 42,
+  },
+  // #196 · MNE-001-578. The «1.00 SM» band of the employer old-age quota is
+  // measured with the general minimum of the area of the employer registration
+  // (answer of 17 Nov 2026 on #661: LFT art. 92, LSS arts. 28 and 39); the SUA
+  // FAQ suggests the centre-zone minimum to an employer registered in both
+  // zones. Read by `readOldAgeMinimumWageArea` (payroll/mx/old-age-band.ts).
+  {
+    key: 'imss_old_age_minimum_wage_area',
+    textKey: 'imss_old_age_minimum_wage_area',
+    category: 'fiscal',
+    question:
+      'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+    impact:
+      'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+    options: [
+      { value: 'employer_registration_area', label: 'The general minimum of the area of the employer registration (the entity\'s declared zone)' },
+      { value: 'general_zone', label: 'The general-zone minimum for every worker, whatever the registration\'s area' },
+    ],
+    defaultValue: 'employer_registration_area',
+    defaultRationale:
+      'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+    whyAsking:
+      'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+    ifSkipped: 'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
     priority: 42,
   },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by

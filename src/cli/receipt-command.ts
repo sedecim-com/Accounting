@@ -47,6 +47,8 @@ import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services
 import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
 import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
+import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
+import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -187,6 +189,13 @@ Examples:
   # See what would be written, writing nothing.
   mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
 `,
+  traceRecord: `
+Examples:
+  # A SPEI recorded without --bank or the customer's bank: complete it from the CEP.
+  mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
+  # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
+  mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
+`,
 } as const;
 
 /**
@@ -239,6 +248,14 @@ export function parseWithholding(
     out.set(invoiceRef, current);
   }
   return out;
+}
+
+/**
+ * The note `receipt record` writes when its idempotency key was already spent
+ * (MNE-001-220): the result shown is the recorded one. In the user language.
+ */
+export function idempotencyHitNote(key: string, paymentNumber: string): string {
+  return t('ar.receipt.idempotency_hit', { key, number: paymentNumber });
 }
 
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
@@ -310,9 +327,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   ): { ref: string; amount: string | null }[] => {
     const specs = invoiceSpecs ?? [];
     if (specs.length === 0) {
-      throw usageError(
-        'Indica la(s) factura(s): --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.'
-      );
+      throw usageError({ key: 'ar.receipt.invoice_missing' });
     }
     return specs.map((spec) => {
       const i = spec.lastIndexOf(':');
@@ -320,10 +335,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         return { ref: spec.slice(0, i), amount: spec.slice(i + 1) };
       }
       if (specs.length > 1 || !amount) {
-        throw usageError(
-          `La factura "${spec}" no trae importe. Con varias facturas cada una lo lleva pegado ` +
-            '("folio:importe"); con una sola puede ir en --amount.'
-        );
+        throw usageError({ key: 'ar.receipt.invoice_without_amount', params: { spec } });
       }
       return { ref: spec, amount };
     });
@@ -437,12 +449,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             const yaAplicado = previoDoc
               ? new Decimal(previoDoc.saldoAnterior).minus(previoDoc.saldoNuevo)
               : new Decimal(0);
-            process.stderr.write(
-              p.yellow(
-                `↩ Idempotency hit: la llave "${opts.idempotencyKey}" ya consumó este cobro ` +
-                  `(${grabado.pago.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
-              )
-            );
+            process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey, grabado.pago.paymentNumber)}\n`));
             imprimirRegistro(
               grabado.pago,
               p,
@@ -580,12 +587,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         );
         const result = acto.resultado.pago;
         if (acto.repetido) {
-          process.stderr.write(
-            p.yellow(
-              `↩ Idempotency hit: la llave "${opts.idempotencyKey ?? ''}" ya consumó este cobro ` +
-                `(${result.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
-            )
-          );
+          process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey ?? '', result.paymentNumber)}\n`));
         } else if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
@@ -652,7 +654,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           ? `${cobro.cfdi_uuid} (pago ${cobro.cfdi_pago_indice ?? '—'})`
           : allAdvance
             ? t('receipt.advance.cfdi_owed')
-            : p.yellow('sin REP — obligación fiscal propia con plazo del SAT')
+            : p.yellow(t('ar.receipt.no_rep'))
       );
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
@@ -756,7 +758,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(apply, '--date <date>', 'help.receipt.apply.option.date');
   declareRisk(apply, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_reallocates' } },
     agent: false,
     writes: 'payment_allocations, invoices.amount_due, journal_entries',
   });
@@ -827,7 +829,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(unapply, '--date <date>', 'help.receipt.unapply.option.date');
   declareRisk(unapply, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a desaplicar y postea otro espejo' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_unapplies' } },
     agent: false,
     writes: 'payment_allocations (closure), invoices.amount_due, journal_entries',
   });
@@ -922,7 +924,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--json', 'JSON output');
   declareRisk(reverse, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a postear los espejos de la reversa' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_reverses' } },
     agent: false,
     writes: 'customer_payments.status, payment_allocations (closure), invoices, reversing journal_entries',
   });
@@ -1070,6 +1072,59 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           })}\n`
         );
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
+      })
+  );
+
+  // ---- receipt trace record (MNE-001-570, #612) ---------------------
+  // The trace of a receipt already registered, completed from its evidence,
+  // on the service and rules of `payment trace record`: only empty fields,
+  // with a reason, posting nothing. The flags are `receipt record`'s own.
+  const trace = describeCommand(receipt.command('trace').alias('rastro'), 'help.receipt.trace.description');
+  const traceRecord = describeCommand(trace.command('record').alias('registrar'), 'help.receipt.trace.record.description');
+  argumentByKey(traceRecord, '<receipt>', 'help.receipt.trace.record.argument.receipt');
+  withContext(traceRecord);
+  optionByKey(traceRecord, '--check-number <number>', 'help.receipt.trace.record.option.check_number');
+  optionByKey(traceRecord, '--payer-bank <code>', 'help.receipt.trace.record.option.payer_bank');
+  optionByKey(traceRecord, '--payer-account <number>', 'help.receipt.trace.record.option.payer_account');
+  optionByKey(traceRecord, '--payer-foreign-bank <name>', 'help.receipt.trace.record.option.payer_foreign_bank');
+  optionByKey(traceRecord, '--bank <account>', 'help.receipt.trace.record.option.bank');
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(traceRecord, '--reason <text>', 'cli.flag.reason');
+  optionByKey(traceRecord, '--json', 'help.receipt.trace.record.option.json');
+  declareRisk(traceRecord, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'only empty fields are filled: a repeat finds them filled and reports them unchanged' },
+    agent: false,
+    writes: "customer_payments: its empty trace columns (the cheque number, the customer's bank and account, the bank account)",
+  });
+  traceRecord.addHelpText('after', EJEMPLOS.traceRecord);
+  traceRecord.action(
+    (ref: string, opts: CommonOpts & {
+      checkNumber?: string; payerBank?: string; payerAccount?: string; payerForeignBank?: string; bank?: string; reason?: string;
+    }) =>
+      run(async () => {
+        const given = [opts.checkNumber, opts.payerBank, opts.payerAccount, opts.payerForeignBank, opts.bank];
+        if (given.every((v) => (v ?? '').trim() === '')) throw usageError({ key: 'receipt.trace.nothing_given' });
+        const { dryRun, reason } = gateMutation(traceRecord, opts as Record<string, unknown>);
+        if (!reason?.trim() && !dryRun) throw usageError({ key: 'payment.trace.reason_required' });
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+        const registered = await getCustomerPayment(ctx.entityId, ref);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const bank = (opts.bank ?? '').trim() === '' ? null : await resolverCuentaBancaria(ctx.entityId, (opts.bank as string).trim());
+        const fields = {
+          checkNumber: opts.checkNumber, payerBank: opts.payerBank, payerAccount: opts.payerAccount,
+          payerForeignBank: opts.payerForeignBank, bankAccountId: bank?.id ?? null,
+        };
+        const why = reason?.trim() ?? '';
+
+        const preview = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId, { dryRun: true });
+        let result = preview;
+        if (!dryRun && preview.filled.length > 0) {
+          await confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listedTraceFields(preview.filled) }));
+          result = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId);
+        }
+        writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
       })
   );
 }

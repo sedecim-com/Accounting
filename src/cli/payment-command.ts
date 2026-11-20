@@ -36,6 +36,10 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
+import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
+import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
+import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine payment
@@ -630,6 +634,93 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         }
       }
       if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+    })
+  );
+
+  registerTraceRecord(payment, { run, writeEntityOf, confirmOrAbort, palette: deps.palette });
+}
+
+// ---- payment trace record (MNE-001-568, #612) -----------------------
+//
+// The trace of a payment already registered, completed from its evidence:
+// only empty fields, with a reason, posting nothing (see
+// payment-trace-service.ts). `trace` qualifies `payment` as `cause` qualifies
+// `receipt`; the flags are the capture's own spellings in `payment create`.
+const TRACE_RECORD_EXAMPLES = `
+Examples:
+  # A SPEI recorded without its destination: complete it from the transfer receipt.
+  mnemosine payment trace record VPMT-2026-00001 --to-account 002180001122334455 --to-bank 002 --reason "SPEI receipt OP-0511"
+  # A cheque recorded without its number: look first, then complete it from the stub.
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
+`;
+
+interface TraceOpts extends CommonOpts {
+  checkNumber?: string;
+  toAccount?: string;
+  toBank?: string;
+  toForeignBank?: string;
+  bank?: string;
+  reason?: string;
+}
+
+function registerTraceRecord(
+  payment: Command,
+  k: {
+    run: (fn: () => Promise<void>) => Promise<void>;
+    writeEntityOf: (opts: CommonOpts) => ReturnType<typeof requireExplicitEntity>;
+    confirmOrAbort: (opts: CommonOpts, question: string) => Promise<void>;
+    palette: Palette;
+  }
+): void {
+  const trace = describeCommand(payment.command('trace').alias('rastro'), 'help.payment.trace.description');
+  const record = describeCommand(trace.command('record').alias('registrar'), 'help.payment.trace.record.description');
+  argumentByKey(record, '<payment>', 'help.payment.trace.record.argument.payment');
+  withContext(record);
+  optionByKey(record, '--check-number <number>', 'help.payment.trace.record.option.check_number');
+  optionByKey(record, '--to-account <number>', 'help.payment.trace.record.option.to_account');
+  optionByKey(record, '--to-bank <code>', 'help.payment.trace.record.option.to_bank');
+  optionByKey(record, '--to-foreign-bank <name>', 'help.payment.trace.record.option.to_foreign_bank');
+  // MNE-001-569 · the spelling `payment create` uses; checked against the entry's lines by the service.
+  optionByKey(record, '--bank <account>', 'help.payment.trace.record.option.bank');
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(record, '--reason <text>', 'cli.flag.reason');
+  optionByKey(record, '--json', 'help.payment.trace.record.option.json');
+  declareRisk(record, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'only empty fields are filled: a repeat finds them filled and reports them unchanged' },
+    agent: false,
+    writes: 'vendor_payments: its empty trace columns (the cheque number, the destination account and bank, the bank account)',
+  });
+  record.addHelpText('after', TRACE_RECORD_EXAMPLES);
+  record.action((ref: string, opts: TraceOpts) =>
+    k.run(async () => {
+      const given = [opts.checkNumber, opts.toAccount, opts.toBank, opts.toForeignBank, opts.bank];
+      if (given.every((v) => (v ?? '').trim() === '')) {
+        throw usageError({ key: 'payment.trace.nothing_given' });
+      }
+      const { dryRun, reason } = gateMutation(record, opts as unknown as Record<string, unknown>);
+      if (!reason?.trim() && !dryRun) throw usageError({ key: 'payment.trace.reason_required' });
+      const ctx = await k.writeEntityOf(opts);
+      const p = k.palette;
+      const vp = await resolveVendorPayment(ctx.entityId, ref);
+      const bank = (opts.bank ?? '').trim() === '' ? null : await resolverCuentaBancaria(ctx.entityId, (opts.bank as string).trim());
+      const fields = {
+        checkNumber: opts.checkNumber, toAccount: opts.toAccount, toBank: opts.toBank, toForeignBank: opts.toForeignBank,
+        bankAccountId: bank?.id ?? null,
+      };
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const why = reason?.trim() ?? '';
+
+      const preview = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId, { dryRun: true });
+      let result = preview;
+      if (!dryRun && preview.filled.length > 0) {
+        await k.confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listedTraceFields(preview.filled) }));
+        result = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId);
+      }
+      writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
     })
   );
 }

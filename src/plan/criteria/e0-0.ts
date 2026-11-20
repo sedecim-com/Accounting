@@ -6,6 +6,7 @@ import {
   ciJob,
   codigoDe,
   type Criterio,
+  type Resultado,
   crudoDe,
   existe,
   falla,
@@ -39,6 +40,109 @@ import { LOCALES, languageOfLocale } from '../../i18n/locale.js';
 // Moved verbatim from `src/plan/criterios.ts` (#294), in the board's order.
 // The index concatenates the packages back into `CRITERIOS`.
 // ============================================================
+/**
+ * THE GROUND OF ONE I8 FAMILY (MNE-001-219, generalized in MNE-001-220): its
+ * leaves have no entry in the lane's breakdown, every key of its catalogue
+ * block is named by one of them, and none of the block's Spanish is written in
+ * them as a literal. Each family's criterion names its block and its leaves.
+ */
+function familySpeaksByKey(block: string, family: string, LEAVES: readonly string[]): Resultado {
+  const LANE = 'spanish-user-strings-cli';
+  const BASELINE = 'docs/language-baseline.json';
+  for (const rel of [BASELINE, ...LEAVES]) {
+    if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+  }
+
+  // 1 · The breakdown, by absence.
+  let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+  try {
+    baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+  } catch {
+    return falla(`${BASELINE} is not valid JSON`);
+  }
+  if (baseline.lanes?.[LANE] === undefined) {
+    return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+  }
+  const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+  if (owed.length) {
+    return falla(
+      `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground ${block} won was given back`
+    );
+  }
+
+  // The family's block of a catalogue, as key → value of its string literals.
+  const blockOf = (rel: string): Map<string, string> | null => {
+    const src = crudoDe(rel);
+    const open = src.indexOf(`// ==== ${block} `);
+    const close = src.indexOf(`// ==== end of ${block} ====`);
+    if (open === -1 || close === -1 || close < open) return null;
+    const sf = ts.createSourceFile(rel, `({\n${src.slice(open, close)}\n})`, ts.ScriptTarget.Latest, true);
+    const out = new Map<string, string>();
+    const visit = (n: ts.Node): void => {
+      if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name))) {
+        let text = '';
+        const collect = (m: ts.Node): void => {
+          if (ts.isStringLiteral(m) || ts.isNoSubstitutionTemplateLiteral(m)) text += m.text;
+          m.forEachChild(collect);
+        };
+        collect(n.initializer);
+        out.set(n.name.text, text);
+      }
+      n.forEachChild(visit);
+    };
+    visit(sf);
+    return out;
+  };
+  const en = blockOf('src/i18n/en.ts');
+  const es = blockOf('src/i18n/es.ts');
+  if (en === null || es === null) {
+    return falla(`a catalogue lost the markers of the ${block} block, where the ${family} family keeps its texts`);
+  }
+  if (en.size === 0) {
+    return falla(`the ${block} block of src/i18n/en.ts declares no key: the ${family} family has nowhere to speak from`);
+  }
+
+  // 2 and 3 · What the leaves write as literals.
+  const literals = new Set<string>();
+  for (const rel of LEAVES) {
+    const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+    const visit = (n: ts.Node): void => {
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
+        literals.add(n.text);
+      }
+      n.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  const orphans = [...en.keys()].filter((k) => !literals.has(k));
+  if (orphans.length) {
+    return falla(
+      `${orphans.length} key(s) of the ${block} block are named by no leaf of the family ` +
+        `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+    );
+  }
+  const literalText = [...literals].join('\n');
+  // Only values of two words or more (MNE-001-221): the lane's own judge counts
+  // no single word as prose (scripts/language/extract.ts, `words.length >= 2`),
+  // and a one-word label such as «estado» matches inside identifiers like
+  // 'isn_estado_que_causa'. A one-word key is still held by check 2.
+  const backInCode = [...es.entries()]
+    .filter(([, value]) => value.length > 0 && !value.includes('{') && value.trim().split(/\s+/).length >= 2)
+    .filter(([, value]) => literalText.includes(value))
+    .map(([key]) => key);
+  if (backInCode.length) {
+    return falla(
+      `the Spanish of ${backInCode.slice(0, 3).join(', ')} is written as a literal in the ${family} family again: ` +
+        'it prints the same words to every user, whatever their language'
+    );
+  }
+
+  return ok(
+    `the ${en.size} keys of the ${block} block are named by the ${family} family, none of their Spanish is written ` +
+      `in them, and none of its leaves has an entry in «${LANE}» (which is ${baseline.lanes[LANE]})`
+  );
+}
+
 export const E0_0: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
@@ -1276,8 +1380,12 @@ export const E0_0: Criterio[] = [
     enunciado:
       'No CLI leaf writes the [y/N] suffix: the kernel builds it from the catalogue, in the user language (#262, MNE-001-217)',
     evaluar: () => {
-      const SUFFIX = /\[[ys]\/N\]/;
+      // MNE-001-219 widened it to the default-yes form, [Y/n] / [S/n], which the
+      // first-run prompt of the root family asks with.
+      const SUFFIX = /\[(?:[ys]\/N|[YS]\/n)\]/;
       const KEY = 'confirm_yes_no_suffix';
+      const KEY_DEFAULT_YES = 'confirm_yes_no_suffix_default_yes';
+      const KERNEL_KEYS = [KEY, KEY_DEFAULT_YES];
       const parse = (rel: string): ts.SourceFile =>
         ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
       const literalPieces = (n: ts.Node): string | undefined =>
@@ -1362,21 +1470,23 @@ export const E0_0: Criterio[] = [
         );
       }
 
-      // 2 · The kernel reads the suffix from the catalogue.
-      let readsKey = false;
+      // 2 · The kernel reads both suffixes from the catalogue.
+      const readKeys = new Set<string>();
       walk(trees.get(KERNEL)!, (n) => {
         if (
           ts.isCallExpression(n) &&
           ts.isIdentifier(n.expression) &&
           n.expression.text === 't' &&
-          n.arguments[0] !== undefined &&
-          literalPieces(n.arguments[0]) === KEY
+          n.arguments[0] !== undefined
         ) {
-          readsKey = true;
+          const key = literalPieces(n.arguments[0]);
+          if (key !== undefined) readKeys.add(key);
         }
       });
-      if (!readsKey) {
-        return falla(`${KERNEL} no longer calls t('${KEY}'): the suffix stops following the user language`);
+      for (const key of KERNEL_KEYS) {
+        if (!readKeys.has(key)) {
+          return falla(`${KERNEL} no longer calls t('${key}'): the suffix stops following the user language`);
+        }
       }
 
       // 3 · In each catalogue, the suffix lives in its own key only.
@@ -1392,17 +1502,17 @@ export const E0_0: Criterio[] = [
           });
           if (carries) owners.push(ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : '?');
         });
-        if (owners.length !== 1 || owners[0] !== KEY) {
+        if (owners.slice().sort().join(',') !== KERNEL_KEYS.slice().sort().join(',')) {
           return falla(
             `${rel}: the suffix is carried by ${owners.length ? owners.join(', ') : 'no key'}, and only ` +
-              `${KEY} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
+              `${KERNEL_KEYS.join(' and ')} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
           );
         }
       }
 
       return ok(
         `${confirmations} confirmation(s) in ${files.length} CLI file(s) ask through yesNoPrompt, none writes ` +
-          `the suffix, and ${KEY} is its only home in en.ts and es.ts`
+          `the suffix, and ${KERNEL_KEYS.join(' and ')} are its only homes in en.ts and es.ts`
       );
     },
     mutantes: [
@@ -1429,6 +1539,246 @@ export const E0_0: Criterio[] = [
         de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
         a: "'¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N]'",
         porque: 'suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "yesNoPrompt(t('root.setup.run_now'), 'yes')",
+        a: "'Run setup now? [Y/n] '",
+        porque: 'default-yes-back-in-a-leaf: the first-run prompt writes [Y/n] by hand again and a Spanish user reads an English suffix',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-report-speaks-by-key',
+    // MNE-001-218 (issue #263, I8.1). The report family —`cashflow` and
+    // `cashflow reconcile`— printed ten Spanish strings from the code. They
+    // live in the I8.1 block of the catalogue now, and three checks hold the
+    // ground:
+    //   1. the lane's breakdown has no entry for either leaf, measured by
+    //      ABSENCE, as `cli-chrome-and-pilot-speak-by-key` measures the pilot;
+    //   2. every key of the I8.1 block is named by one of the two leaves: a key
+    //      no leaf names is a text that went back into the code;
+    //   3. neither leaf hands prose straight to `console.log`.
+    //
+    // NOT THE LEXICON. `flagsAsSpanish` flags `indirecto`/`directo` inside the
+    // correct English usage error of `--method`, so it would be red on a right
+    // tree. Checks 1 and 2 measure the same ground without guessing a language.
+    enunciado:
+      'The report family (cashflow, cashflow reconcile) prints no Spanish string from the code: its texts come from the I8.1 block of the catalogue (#263, MNE-001-218)',
+    evaluar: () => {
+      const LANE = 'spanish-user-strings-cli';
+      const LEAVES = ['src/cli/cashflow-command.ts', 'src/cli/cashflow-reconcile-command.ts'];
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [BASELINE, ...LEAVES]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+
+      // 1 · The breakdown, by absence.
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (baseline.lanes?.[LANE] === undefined) {
+        return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+      }
+      const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+      if (owed.length) {
+        return falla(
+          `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground I8.1 won was given back`
+        );
+      }
+
+      // 2 · Every key of the I8.1 block is named by a leaf.
+      const en = crudoDe('src/i18n/en.ts');
+      const open = en.indexOf('// ==== I8.1 ');
+      const close = en.indexOf('// ==== end of I8.1 ====');
+      if (open === -1 || close === -1 || close < open) {
+        return falla('src/i18n/en.ts lost the markers of the I8.1 block, where the report family keeps its texts');
+      }
+      const keys = [...en.slice(open, close).matchAll(/^ {2}'([a-z0-9_.]+)':/gm)].map((m) => m[1]);
+      if (keys.length === 0) {
+        return falla('the I8.1 block of src/i18n/en.ts declares no key: the report family has nowhere to speak from');
+      }
+      const named = new Set<string>();
+      const consoleProse: string[] = [];
+      for (const rel of LEAVES) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) named.add(n.text);
+          // 3 · No prose straight to console.log.
+          if (
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            n.expression.expression.text === 'console' &&
+            n.expression.name.text === 'log' &&
+            n.arguments[0] !== undefined &&
+            (ts.isStringLiteral(n.arguments[0]) ||
+              ts.isNoSubstitutionTemplateLiteral(n.arguments[0]) ||
+              ts.isTemplateExpression(n.arguments[0]))
+          ) {
+            consoleProse.push(`${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      const orphans = keys.filter((k) => !named.has(k));
+      if (orphans.length) {
+        return falla(
+          `${orphans.length} key(s) of the I8.1 block are named by no leaf of the family ` +
+            `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+        );
+      }
+      if (consoleProse.length) {
+        return falla(
+          `the report family hands prose straight to console.log (${consoleProse.slice(0, 3).join(', ')}): ` +
+            'a text printed from the code does not follow the user language'
+        );
+      }
+
+      return ok(
+        `the ${keys.length} keys of the I8.1 block are named by the family's two leaves, neither has an entry ` +
+          `in «${LANE}» (which is ${baseline.lanes[LANE]}), and neither prints prose through console.log`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/cashflow-reconcile-command.ts',
+        de: "t('report.cashflow_reconcile.ties')",
+        a: "'Amarra: el estado de flujos equivale al movimiento real de efectivo.'",
+        porque: 'string-back-in-the-code: the tie note is written in Spanish in the leaf again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/cashflow-reconcile-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the family again',
+      },
+      {
+        archivo: 'src/cli/cashflow-command.ts',
+        de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+        a: "console.log('Estado en términos brutos');\n  throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+        porque: 'console-prose: the leaf prints a sentence from the code, outside the catalogue',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-root-speaks-by-key',
+    // MNE-001-219 (issue #264, I8.2). The root family —`mnemosine.ts`, the
+    // registrar every family passes through, and `close`— printed its Spanish
+    // from the code. The texts a person reads live in the I8.2 block now; the
+    // risk notes no screen prints are English in place. Three checks:
+    //   1. the lane's breakdown has no entry for either leaf (by absence);
+    //   2. every key of the I8.2 block is named by one of the two leaves;
+    //   3. no Spanish value of the I8.2 block is written as a literal in them.
+    //
+    // CHECK 3 IS NOT #264's «no console.log('<prosa>')». `mnemosine.ts` holds
+    // 53 English prose calls this task does not key, so that check would be
+    // red on a correct tree. What it is for —a text of this family going back
+    // into the code— is what check 3 catches, without guessing a language.
+    enunciado:
+      'The root family (mnemosine.ts, close) prints no Spanish string from the code: its texts come from the I8.2 block of the catalogue (#264, MNE-001-219)',
+    evaluar: () =>
+      familySpeaksByKey('I8.2', 'root', ['src/cli/mnemosine.ts', 'src/cli/close-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "t('root.ingest.auto_post_ignored')",
+        a: "'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.'",
+        porque: 'string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/close-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the root family again',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+        a: 'usageError(`Unsupported language "${language}". Options: ${LOCALES.join(\', \')}, or es, en`)',
+        porque: 'key-unread: the language refusal goes back to a template in the leaf and stops following the user language',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-ar-speaks-by-key',
+    // MNE-001-220 (issue #265, I8.3). The ar family —receipt, invoice, customer,
+    // credit-note— printed fourteen Spanish strings from the code. The ones a
+    // person reads live in the I8.3 block now, the seven reasons a leaf gives
+    // for not honoring --idempotency-key included: they reach the user inside
+    // `cli.risk.key_not_honored`, so they travel as keys (`{ sinLlave: { key } }`)
+    // and render in the language of their sentence. The help examples of
+    // `customer` are English. Same three checks as the root family's.
+    enunciado:
+      'The ar family (receipt, invoice, customer, credit-note) prints no Spanish string from the code: its texts come from the I8.3 block of the catalogue (#265, MNE-001-220)',
+    evaluar: () =>
+      familySpeaksByKey('I8.3', 'ar', [
+        'src/cli/receipt-command.ts',
+        'src/cli/invoice-command.ts',
+        'src/cli/customer-command.ts',
+        'src/cli/credit-note-command.ts',
+      ]),
+    mutantes: [
+      {
+        archivo: 'src/cli/invoice-command.ts',
+        de: "llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },",
+        a: "llave: { sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez' },",
+        porque: 'reason-back-in-the-code: invoice issue declares its no-key reason in Spanish again, inside an English sentence',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/receipt-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the ar family again',
+      },
+      {
+        archivo: 'src/cli/receipt-command.ts',
+        de: "t('ar.receipt.no_rep')",
+        a: "'sin REP — obligación fiscal propia con plazo del SAT'",
+        porque: 'string-back-in-the-code: receipt show writes «sin REP» in Spanish to every reader again',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-payroll-speaks-by-key',
+    // MNE-001-221 (issue #266, I8.4). The payroll family —`payroll accrue` and
+    // the ISN leaves of `payroll-isn`— printed 27 Spanish strings from the
+    // code. The ones a person reads live in the I8.4 block now: the summary,
+    // the confirmation and the done line with ICU plurals instead of «(es)»,
+    // and the nine labels of the ISN capture preview. The «taken as no» line
+    // reuses `bank.confirm.taken_as_no`, and the two `writes` are English in
+    // place. The cédula's reason is English in the row and labelled in the
+    // table, so --json and csv do not change with the locale.
+    enunciado:
+      'The payroll family (payroll, payroll-isn) prints no Spanish string from the code: its texts come from the I8.4 block of the catalogue (#266, MNE-001-221)',
+    evaluar: () =>
+      familySpeaksByKey('I8.4', 'payroll', ['src/cli/payroll-command.ts', 'src/cli/payroll-isn-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/payroll-command.ts',
+        de: "deps.palette.dim(t('payroll.accrue.dry_run'))",
+        a: "deps.palette.dim(t('payroll.accrue.dry_run') + 'Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.')",
+        porque: 'spanish-beside-the-key: the key is still read, and its Spanish is written next to it, which only check 3 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/payroll-isn-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the payroll family again',
+      },
+      {
+        archivo: 'src/cli/payroll-isn-command.ts',
+        de: "t('payroll.isn_rate_set.open_ended')",
+        a: "'(sin cierre: sigue vigente)'",
+        porque: 'string-back-in-the-code: the ISN preview writes «sin cierre» in Spanish to every reader again',
       },
     ],
   },

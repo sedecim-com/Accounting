@@ -37,6 +37,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.INVOICE_CHANGED': '{invoice} cambió bajo este cobro; no se escribió nada.',
   'error.BILL_CHANGED': '{bill} cambió mientras se aplicaba el pago; no se escribió nada.',
   'error.FX_REVALUATION_PLAN_CHANGED':
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
@@ -548,13 +549,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_isr_subsidy.question':
     'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
   'policy.usmo_isr_subsidy.impact':
-    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), cuyo ISR de la separación retiene la parte gravada a esa tasa. Neto del subsidio baja la tasa, así que se retiene menos.',
   'policy.usmo_isr_subsidy.rationale':
-    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95 (el antepenúltimo; el art. 172 RLISR descuenta de esos pagos la exención), divide «el impuesto correspondiente al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
   'policy.usmo_isr_subsidy.why':
     'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
   'policy.usmo_isr_subsidy.what':
-    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, y el finiquito retiene la parte gravada de la separación a ese ISR entre el sueldo.',
   'policy.usmo_isr_subsidy.if_skipped':
     'Lo tomo bruto de tarifa, sin restar el subsidio.',
   'policy.usmo_isr_subsidy.option.gross_of_tariff':
@@ -565,19 +566,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_days_per_month.question':
     '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
   'policy.usmo_days_per_month.impact':
-    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, en su párrafo de los pagos del art. 95. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose, compara con él los pagos por separación y divide entre él. Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
   'policy.usmo_days_per_month.rationale':
-    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, en su párrafo de los pagos del art. 95, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
   'policy.usmo_days_per_month.why':
     'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
   'policy.usmo_days_per_month.what':
-    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+    'Calculo el USMO como salario diario × 30; el finiquito compara con él los pagos por separación y arma sobre él la tasa de retención.',
   'policy.usmo_days_per_month.if_skipped':
     'Uso 30 días.',
   'policy.usmo_days_per_month.option.30':
     'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
   'policy.usmo_days_per_month.option.30_4':
     'Salario diario × 30.4 (el mes de la tarifa mensual)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'Para el ISR de la separación, ¿con qué se compara el último sueldo mensual ordinario (USMO) para elegir entre la tarifa mensual y la tasa del USMO: con el total pagado por la separación, o sólo con su parte gravada?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene una prima de antigüedad o una indemnización al ISR del USMO entre el USMO, y aplica en su lugar la tarifa mensual cuando «los pagos» son inferiores al USMO. Lo lee el ISR de la separación del finiquito (separation-isr.ts). Cuando la parte gravada queda debajo del USMO y el total pagado no, comparar el total retiene a la tasa, más que la tarifa sobre la parte gravada sola.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'El art. 96 LISR aplica la tasa a «el ingreso total por este concepto» y pasa a la tarifa «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: la palabra es los pagos, así que el total pagado es la lectura literal, y, bruto de tarifa, nunca retiene de menos, porque la tasa media de la tarifa sube con el ingreso. Comparar sólo la parte gravada sigue al art. 172 RLISR, que descuenta del total del art. 95 la exención del art. 93 fr. XIII LISR, como arma el CFDI de nómina su IngresoAcumulable; es la otra práctica común. Es el valor conservador, por ADR-0006; lo retenido de más se acredita en el cálculo anual.',
+  'policy.separation_isr_usmo_comparison.why':
+    'La ley compara «los pagos» con el último sueldo mensual sin decir si cuenta su parte exenta. Comparar el total retiene más veces a la tasa del USMO; comparar sólo la parte gravada aplica más veces la tarifa mensual. Lo decide tu despacho.',
+  'policy.separation_isr_usmo_comparison.what':
+    'Comparo el total pagado por la separación con el USMO: debajo de él, la tarifa mensual sobre la parte gravada; si no, la tasa del USMO sobre la parte gravada.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'Comparo el total pagado.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'El total pagado por la separación, con su parte exenta (los «pagos» literales del art. 96 LISR)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Sólo la parte gravada, después de la exención de 90 UMA (art. 172 RLISR)',
 
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
@@ -1442,6 +1460,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    '¿Con qué salario mínimo se mide el tramo «1.00 SM» de la cuota patronal de cesantía en edad avanzada y vejez: el del área de tu registro patronal, o el de la zona general para todo trabajador?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'Decide qué SBC paga la tasa más baja de la cuota patronal de cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). En marzo de 2026, para una entidad registrada en la frontera norte, un SBC de 400.00 paga 3.150 % con "employer_registration_area" (189.00 por quincena, bajo su mínimo de 440.87) y 6.361 % con "general_zone" (381.66, medido con 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'Un salario mínimo general rige para los trabajadores de su propia área (LFT art. 92), y el IMSS determina las cuotas de cada registro patronal (LSS arts. 28 y 39), así que el tramo se mide con el mínimo del área del registro. Una entidad que no ha declarado su zona se mide con el mínimo general, y la nota del cálculo lo dice.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'La tabla nombra su primer tramo en salarios mínimos, y México tiene dos mínimos generales: el de la zona general y el de la Zona Libre de la Frontera Norte. Si el programa con el que determinas tus cuotas usa el mínimo de la zona general para todo registro, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'Por cada día cotizado tomo el salario mínimo general del área que esta política nombra, vigente ese día, y ubico el SBC en el tramo de la tabla con fechas. La nota del cálculo nombra el mínimo, su área y si la entidad la declaró.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'Uso el mínimo del área del registro patronal, que es la zona declarada de la entidad, o el mínimo general mientras no haya una declarada.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'El mínimo general del área del registro patronal (la zona declarada de la entidad)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'El mínimo de la zona general para todo trabajador, sea cual sea el área del registro',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1728,6 +1763,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
     '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.minimum_wage_zone':
+    'la zona de salario mínimo no está declarada: {count, plural, one {# trabajador se calcula} other {# trabajadores se calculan}} con el mínimo general',
   'pending.board.period_example':
     '{period} (terminó el {date})',
   'pending.policies.none':
@@ -1829,6 +1866,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
   confirm_yes_no_suffix: '[s/N]',
+  confirm_yes_no_suffix_default_yes: '[S/n]',
 
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
@@ -2352,6 +2390,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
+  'payment.trace.nothing_given':
+    'Di qué completar: --check-number, --to-account, --to-bank, --to-foreign-bank o --bank. No se escribió nada.',
+  'payment.trace.reason_required':
+    'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
+  'payment.trace.too_long':
+    '{flag} admite hasta {max} caracteres en el nodo de pago del archivo de pólizas del SAT, y se dieron {length}. No se escribió nada.',
+  'payment.trace.not_completable':
+    'El pago {number} está en «{status}»: sólo un pago completado o reversado tiene un asiento posteado cuya póliza declara su rastro. No se escribió nada.',
+  'payment.trace.already_captured':
+    'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
+  'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-570 (#612): el rastro de un cobro registrado.
+  'receipt.trace.nothing_given':
+    'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
+  // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
+  'payment.trace.bank_no_entry':
+    'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
+  'payment.trace.bank_not_in_entry':
+    'El asiento {entry} del pago {number} movió {moved}; «{account}» postea a {candidate}. Ligarla haría que la póliza declarara un banco que el mayor no movió. No se escribió nada.',
+  'payment.trace.would_complete': 'Completaría {number}: {fields}',
+  'payment.trace.confirm':
+    '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
+  'payment.trace.completed': '{number}: {fields} completado; no se posteó nada',
+  'payment.trace.unchanged': '{number}: {fields} ya tenía ese valor; no se escribió nada para eso',
+  'payment.trace.period_not_open':
+    'El periodo {period} está en {status}: no cambia ninguna cifra del mayor; un archivo de pólizas generado ahora declarará este dato.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# archivo de pólizas} other {# archivos de pólizas}} de {period} se archivaron antes de este complemento: se quedan como están, y uno generado ahora será distinto de ellos.',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
@@ -2884,15 +2951,99 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
   // Same blocks, same order as en.ts.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  'report.cashflow.gross_unavailable':
+    'El estado en términos BRUTOS (NIF B-2 §40 / ASC 230-10-45-7) no se puede construir con estos datos, y no se devuelve el neto rotulado como bruto. Lo bruto exige cobros y pagos separados, y eso es un dato de la OPERACIÓN, no de la cuenta: el motor publica un neto por cuenta, y partirlo en su cargo y su abono no da flujos —la baja de un activo abona a valor en libros mientras el efectivo cobrado es otro importe—. La salida por omisión ya muestra cada cuenta de cada sección, que es el detalle que estos libros sí sostienen. Vuelve a correr sin --gross.',
+  'report.cashflow_reconcile.derived_concept': 'Estado de flujos, neto (método {method})',
+  'report.cashflow_reconcile.ledger_concept': 'Caja y bancos, variación en el mayor',
+  'report.cashflow_reconcile.residue_concept': 'Residuo (derivado − real)',
+  'report.cashflow_reconcile.cash_accounts':
+    'Efectivo: {accounts} ({defaulted, select, yes {criterio «{criterion}», por omisión} other {criterio «{criterion}»}}) · {opening} → {closing}',
+  'report.cashflow_reconcile.ties':
+    'Amarra: el estado de flujos equivale al movimiento real de efectivo.',
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# sospechoso} other {# sospechosos}} — es una LISTA DE SOSPECHOSOS, no un veredicto: son movimientos de efectivo que ninguna sección del estado parece reclamar, o que puede estar contando dos veces. Verifícalos antes de tocar nada.',
+  'report.cashflow_reconcile.coverage':
+    'Explican {explained} del residuo {amount}; quedan {unexplained} que no explica ninguno.',
+  'report.cashflow_reconcile.no_suspects':
+    'Sin sospechosos que ofrecer: todo movimiento de efectivo del periodo cae en una sección del estado, así que el residuo está en CÓMO se suman, no en qué se omitió.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  'root.ingest.auto_post_ignored':
+    'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
+  'root.ingest.auto_post_turn_on':
+    'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  'ar.receipt.invoice_missing':
+    'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
+  'ar.receipt.invoice_without_amount':
+    'La factura «{spec}» no trae importe. Con varias facturas cada una lo lleva pegado («folio:importe»); con una sola puede ir en --amount.',
+  'ar.receipt.idempotency_hit':
+    '↩ Reintento idempotente: la llave «{key}» ya consumó este cobro ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ar.receipt.no_rep': 'sin REP — obligación fiscal propia con plazo del SAT',
+  'ar.receipt.retry_reallocates':
+    'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento',
+  'ar.receipt.retry_unapplies': 'un reintento vuelve a desaplicar y postea otro espejo',
+  'ar.receipt.retry_reverses': 'un reintento vuelve a postear los espejos de la reversa',
+  'ar.invoice.retry_reissues': 'un reintento vuelve a emitir y postea el ingreso otra vez',
+  'ar.invoice.retry_void_mirror': 'un reintento vuelve a postear el espejo de la anulación',
+  'ar.invoice.delete_by_state':
+    'el borrado sólo es irrepetible por estado del borrador, no por llave',
+  'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  'payroll.accrue.period_required':
+    'Falta --period. El devengo de prestaciones es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar, y el asiento no se puede borrar después (mnemosine period list enumera los periodos de la entidad).',
+  'payroll.accrue.skip_already_accrued': 'ya tiene renglón vigente de este mes',
+  'payroll.accrue.skip_zero_month': 'su devengo del mes es cero',
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · asiento con fecha {entryDate} · {accruing, plural, one {# trabajador devenga} other {# trabajadores devengan}}, {skipped, plural, one {# se omite} other {# se omiten}} · aguinaldo {aguinaldo} · vacaciones {vacation} · prima {premium} · total {total}',
+  'payroll.accrue.criteria':
+    'base {baseDefaulted, select, yes {{base} (defecto)} other {{base}}} · vacaciones {vacationDefaulted, select, yes {{vacation} (defecto)} other {{vacation}}} · aguinaldo {days, plural, one {# día} other {# días}} · prima {premium}',
+  'payroll.accrue.default_criteria_warning':
+    'Rige al menos un defecto declarado y no una elección del despacho: entre `nominal` e `integrado` hay un 20 % de diferencia en el importe de cada mes. Se contesta con `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  'payroll.accrue.entry_heading':
+    'El asiento único de la corrida, {lines, plural, one {# línea} other {# líneas}}:',
+  'payroll.accrue.key_entry_reversed':
+    'La llave «{key}» grabó el asiento {entry}, que después se reversó. Devolver ese resultado diría que el mes está devengado cuando no lo está. Vuelve a correr con una llave nueva —es otra corrida, no un reintento— o sin --idempotency-key.',
+  'payroll.accrue.idempotency_hit':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
+  'payroll.accrue.nothing_to_accrue':
+    'Nada que devengar en {period}: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.dry_run':
+    'Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.confirm':
+    '¿Devengar {amount} MXN de {count, plural, one {# trabajador} other {# trabajadores}} en {period}? El mayor no admite deshacer.',
+  'payroll.accrue.aborted': 'Sin cambios: el mayor no se tocó.',
+  'payroll.accrue.aborted_no_terminal':
+    'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin preguntar, o --dry-run para ver la cédula completa sin escribir nada.',
+  'payroll.accrue.preview_count_mismatch':
+    'La vista previa enseñaba {previewed, plural, one {# trabajador} other {# trabajadores}} y la corrida devengó {processed}. Algo cambió entre mirar y postear: revisa la cédula antes de dar el mes por cerrado.',
+  'payroll.accrue.preview_total_mismatch':
+    'La vista previa sumaba {previewed} y la corrida devengó {posted}.',
+  'payroll.accrue.done':
+    '{count, plural, one {# trabajador devengado} other {# trabajadores devengados}} en {period} {hasEntry, select, yes {por {total} · asiento {entry}} other {por {total}}}.',
+  'payroll.isn_rate_set.state': 'estado',
+  'payroll.isn_rate_set.rate': 'tasa',
+  'payroll.isn_rate_set.regime': 'régimen',
+  'payroll.isn_rate_set.monthly_exemption': 'exención mensual',
+  'payroll.isn_rate_set.in_force': 'vigencia',
+  'payroll.isn_rate_set.legal_basis': 'fundamento',
+  'payroll.isn_rate_set.table': 'tabla',
+  'payroll.isn_rate_set.criterion': 'criterio',
+  'payroll.isn_rate_set.reaches': 'alcanza',
+  'payroll.isn_rate_set.open_ended': '(sin cierre: sigue vigente)',
+  'payroll.isn_rate_set.table_note': '(catálogo, sin tenant_id: la ley es la misma)',
+  'payroll.isn.policy_default': '{value} (por omisión, nadie la contestó)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
@@ -3096,6 +3247,28 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.cause.record.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
   'help.receipt.cause.record.option.json': 'salida JSON',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado después.
+  'help.payment.trace.description': 'El rastro de un pago registrado: su cheque, y la cuenta y el banco a donde fue el dinero',
+  'help.payment.trace.record.description':
+    'Completa los campos vacíos del rastro de un pago registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.payment.trace.record.argument.payment': 'número o id del pago',
+  'help.payment.trace.record.option.check_number': 'número de cheque; sólo para un pago hecho con cheque',
+  'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
+  'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
+  'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.bank': 'cuenta bancaria (nombre o id) de la que salió el pago; sólo una que postea a la cuenta del mayor que movió su asiento',
+  'help.payment.trace.record.option.json': 'salida JSON',
+  // MNE-001-570 (#612): el rastro de un cobro registrado, completado después.
+  'help.receipt.trace.description': 'El rastro de un cobro registrado: el banco y la cuenta del cliente, su cheque y nuestra cuenta bancaria',
+  'help.receipt.trace.record.description':
+    'Completa los campos vacíos del rastro de un cobro registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.receipt.trace.record.argument.receipt': 'número o id del cobro',
+  'help.receipt.trace.record.option.check_number': 'número de cheque; sólo para un cobro con cheque del cliente',
+  'help.receipt.trace.record.option.payer_bank': 'clave c_Banco (3 dígitos) del banco del que pagó el cliente, o que emitió su cheque',
+  'help.receipt.trace.record.option.payer_account': 'cuenta de la que pagó el cliente, o contra la que se giró su cheque',
+  'help.receipt.trace.record.option.payer_foreign_bank': 'nombre del banco del cliente cuando es extranjero',
+  'help.receipt.trace.record.option.bank': 'cuenta bancaria (nombre o id) a la que entró el dinero; sólo una que postea a la cuenta del mayor que movió su asiento',
+  'help.receipt.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
@@ -3392,6 +3565,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
   'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
   'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: área de salario mínimo del lugar de trabajo, que topa la prima de antigüedad (LFT art. 486)',
   'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
   'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
   'help.account.show.description':
