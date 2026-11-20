@@ -99,6 +99,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/services/accounting/account-service.ts`
 - `src/services/accounting/ar-ap-posting.ts`
 - `src/services/accounting/closing-conductor.ts`
+- `src/services/accounting/iva-cash-basis.ts`
 - `src/services/accounting/opening-balance.ts`
 - `src/services/accounting/period-close.ts`
 - `src/services/accounting/sat-agrupadores-catalogo.ts`
@@ -122,6 +123,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `tests/ai/tools/policy-tools.spec.ts`
 - `tests/cli/bank-command.spec.ts`
 - `tests/cli/e-accounting-command.spec.ts`
+- `tests/cli/init/sections.spec.ts`
 - `tests/cli/payroll-isn-command.spec.ts`
 - `tests/cli/report-command.spec.ts`
 - `tests/integration/a6-conductor-y-expediente.int.spec.ts`

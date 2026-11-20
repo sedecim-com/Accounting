@@ -7,6 +7,7 @@ import {
 } from '../../ai/providers/config.js';
 import type { MnemosineConfig } from '../../ai/providers/config.js';
 import { checkModelProvider } from '../../ai/doctor-service.js';
+import { credentialState, isLoopbackUrl, KEY_URLS } from '../../ai/providers/credential-state.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import { userEnvPath } from '../../config/env-file.js';
 import { readEnvVar, upsertEnvVar } from './s0-infra.js';
@@ -23,21 +24,6 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 // the probe answers. On re-run, an already-persisted provider is
 // re-probed (verify/repair) and left untouched when healthy.
 // ============================================================
-
-/** Where the user gets each credential (deep-links). */
-export const KEY_URLS: Record<string, string> = {
-  ANTHROPIC_API_KEY: 'https://console.anthropic.com/settings/keys',
-  OPENAI_API_KEY: 'https://platform.openai.com/api-keys',
-  NOUS_API_KEY: 'https://portal.nousresearch.com',
-  GEMINI_API_KEY: 'https://aistudio.google.com/apikey',
-  XAI_API_KEY: 'https://console.x.ai',
-  MINIMAX_API_KEY: 'https://www.minimax.io/platform',
-  DASHSCOPE_API_KEY: 'https://dashscope.console.aliyun.com',
-  OPENROUTER_API_KEY: 'https://openrouter.ai/keys',
-  HERMES_AGENT_KEY: 'API_SERVER_KEY in ~/.hermes/.env (run: hermes gateway)',
-  OPENCLAW_GATEWAY_TOKEN: 'OpenClaw gateway token (local config)',
-  COPILOT_API_TOKEN: 'GitHub OAuth flow — requires a copilot-api style proxy',
-};
 
 export type ProbeErrorCategory = 'auth' | 'connection' | 'other';
 
@@ -112,9 +98,10 @@ export class IaSection implements SetupSection {
     // user wants a change, so they skip this path.
     const persisted = this.persistedDefault();
     if (persisted && !ctx.flags.provider && !ctx.flags.model) {
-      const { profiles } = listProfiles(this.cwd);
+      const { profiles, source } = listProfiles(this.cwd);
       const p = profiles[persisted];
-      const ready = !!p && (!p.api_key_env || !!process.env[p.api_key_env]);
+      // A helper counts as ready: the probe below runs it, as the session does.
+      const ready = !!p && credentialState(p, { cwd: this.cwd, home: this.deps.home, source }).ready;
       if (ready) {
         ctx.print(`  Provider "${persisted}" is already configured; verifying it live…`);
         const probe = await probeFn(persisted);
@@ -132,23 +119,21 @@ export class IaSection implements SetupSection {
     let firstPass = true;
     // Bounded so a scripted/non-interactive session can never loop forever.
     for (let attempt = 0; attempt < 8; attempt++) {
-      const { profiles, defaultName } = listProfiles(this.cwd);
+      const { profiles, defaultName, source } = listProfiles(this.cwd);
 
       // State of each profile: what is ready to use NOW (env may have
-      // gained keys on a previous iteration).
-      const rows = Object.entries(profiles).map(([name, p]) => ({
-        name, profile: p,
-        ready: !p.api_key_env || !!process.env[p.api_key_env],
-        local: !p.api_key_env || (p.base_url ?? '').includes('localhost') ||
-               (p.base_url ?? '').includes('127.0.0.1'),
-      }));
+      // gained keys on a previous iteration). The same answer doctor and
+      // `mnemosine providers` give; it never runs a helper.
+      const rows = Object.entries(profiles).map(([name, p]) => {
+        const state = credentialState(p, { cwd: this.cwd, home: this.deps.home, source });
+        return { name, profile: p, state, ready: state.ready, local: isLoopbackUrl(p.base_url) };
+      });
 
       if (firstPass) {
         ctx.print('  Available providers:');
         for (const r of rows) {
           const badge = r.ready ? '✔' : '○';
-          const key = r.profile.api_key_env ? ` · ${r.profile.api_key_env}` : ' · no credential';
-          ctx.print(`    ${badge} ${r.name.padEnd(14)} ${r.profile.model}${key}`);
+          ctx.print(`    ${badge} ${r.name.padEnd(14)} ${r.profile.model} · ${r.state.label}`);
         }
       }
 
@@ -172,15 +157,16 @@ export class IaSection implements SetupSection {
         return;
       }
 
-      // Credential, if needed
-      if (row.profile.api_key_env && !process.env[row.profile.api_key_env]) {
-        const where = KEY_URLS[row.profile.api_key_env];
+      // Credential, only when it is missing: a helper is not asked for a key.
+      if (row.state.source.kind === 'missing') {
+        const variable = row.state.source.variable;
+        const where = row.state.source.where;
         if (where) ctx.print(`  Get the credential at: ${where}`);
-        const key = await ctx.askSecret(`  ${row.profile.api_key_env} (Enter to skip): `);
+        const key = await ctx.askSecret(`  ${variable} (Enter to skip): `);
         if (key) {
-          const envPath = this.saveTypedKey(ctx, row.profile.api_key_env, key);
-          process.env[row.profile.api_key_env] = key;
-          ctx.print(`  ✔ Saved ${row.profile.api_key_env} to ${envPath}`);
+          const envPath = this.saveTypedKey(ctx, variable, key);
+          process.env[variable] = key;
+          ctx.print(`  ✔ Saved ${variable} to ${envPath}`);
         } else {
           ctx.print(`  ○ Without a credential, ${chosen} cannot be used yet.`);
         }
