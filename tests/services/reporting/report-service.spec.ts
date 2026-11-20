@@ -594,6 +594,18 @@ describe('queryEntryMovementsOnAccount — one account, entry by entry', () => {
     expect(sql(1)).toMatch(/orig\.source_type = ANY\(\$3::text\[\]\)\)\) AND je\.entry_date <= \$4::date GROUP BY/);
     expect(params(1)).toEqual([ENTITY, 'acc-1', ['fx_revaluation'], '2026-03-31']);
   });
+
+  it("runs on the caller's transaction client when given one, with the same SQL (MNE-001-437)", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { entryIds: ['je-a'] });
+    const pooled = sql(0);
+    const client = { query: vi.fn().mockResolvedValue({ rows: [{ journal_entry_id: 'je-a', amount: '16.0000' }] }) };
+    const rows = await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { entryIds: ['je-a'], client: client as never });
+    expect(rows).toEqual([{ journal_entry_id: 'je-a', amount: '16.0000' }]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(String(client.query.mock.calls[0][0]).replace(/\s+/g, ' ')).toBe(pooled);
+    expect(client.query.mock.calls[0][1]).toEqual([ENTITY, 'acc-1', ['je-a']]);
+  });
 });
 
 describe('getTrialBalance — el saldo inicial que el Anexo 24 exige', () => {
