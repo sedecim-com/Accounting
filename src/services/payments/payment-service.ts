@@ -9,6 +9,7 @@ import {
   postCustomerPaymentEntry,
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
+  postReceiptReversalVatEntry,
   postVendorApplicationEntry,
   postVendorUnapplicationEntry,
   type AplicacionPosterior,
@@ -22,7 +23,10 @@ import {
   type ContextoCambiario,
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
-import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import {
+  ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago, issuedVatStillParked, issuedVatOfOpenBalance,
+  reclassRoles,
+} from '../accounting/iva-cash-basis.js';
 import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, advanceSourceNote, backAsAdvance, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, takeFromAdvance,
@@ -1808,6 +1812,31 @@ export interface ResultadoDesaplicacion {
 }
 
 /**
+ * MNE-001-581 · Of the IVA `released` by the allocations about to end
+ * (`ending`), what does not go back to 2125: after a credit note linked to
+ * the invoice, 2125 must end at the IVA of the balance owed again
+ * (`issuedVatOfOpenBalance`, LIVA arts. 1-B and 7), so the re-park is what
+ * takes it there from what it holds now, never more than was released, and
+ * the rest stays in 2120, where the note already restituted it. With no note,
+ * or nothing released, nothing is kept: the unapply is as it was.
+ */
+async function keptAfterNotes(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string,
+  released: Decimal,
+  ending: readonly string[]
+): Promise<{ amount: Decimal; notes: string; carries: string }> {
+  const none = { amount: new Decimal(0), notes: '', carries: '0' };
+  if (!released.greaterThan(0)) return none;
+  const open = await issuedVatOfOpenBalance(client, entityId, invoiceId, { ending });
+  if (!open.hasNote) return none;
+  const parked = new Decimal((await issuedVatStillParked(client, entityId, invoiceId)).parked);
+  const back = Decimal.min(released, Decimal.max(new Decimal(open.target).minus(parked), 0));
+  return { amount: released.minus(back), notes: open.noteNumbers, carries: open.target };
+}
+
+/**
  * Desaplicar un cobro de una factura: la aplicación se CLAUSURA (nunca se
  * borra), la factura reabre y el crédito vuelve a estar a cuenta. El IVA que
  * la aplicación liberó se re-aparca por el importe exacto que guardó su fila.
@@ -1828,6 +1857,10 @@ export interface ResultadoDesaplicacion {
  * MNE-001-461: on a PPD invoice that IVA stays caused in place of the share
  * the rows released, which goes back to 2125 because the invoice is owed
  * again; `ivaReAparcado` is only what leaves 2120, 0 when the two are equal.
+ *
+ * MNE-001-581: after a credit note linked to the invoice, what goes back to
+ * 2125 is only what brings it to the IVA of the balance owed again; the rest
+ * of the release stays in 2120, where the note restituted it (`keptAfterNotes`).
  */
 export async function unapplyCustomerPayment(
   entityId: string,
@@ -1926,7 +1959,12 @@ export async function unapplyCustomerPayment(
     // art. 1-B; the owner's «no re-park» of 17 Nov 2026, #623): the share
     // back in 2125 takes the advance's IVA, and only what exceeds it, when
     // the invoice's rate is above the advance's, leaves 2120.
-    const backInParked = ivaExacto.plus(ivaEstimadoParte);
+    const released = ivaExacto.plus(ivaEstimadoParte);
+    // MNE-001-581: after a credit note, only what brings the invoice's 2125 to
+    // the IVA of the balance it is owed again; the rest stays in 2120, where
+    // the note already restituted it (LIVA art. 7). With no note, all of it.
+    const kept = await keptAfterNotes(client, entityId, factura.id, released, vivas.rows.map((r) => r.id));
+    const backInParked = released.minus(kept.amount);
     const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
     // #699 · The IEPS this receipt moved for the invoice, read back from the
     // tagged lines of its unreversed entries before the rows close: exact,
@@ -1975,10 +2013,13 @@ export async function unapplyCustomerPayment(
         amount: total.toFixed(4),
         withholdingIsr: withheldIsr.toFixed(4),
         withholdingIva: withheldIva.toFixed(4),
-        ivaReclass: estimado ? null : ivaExacto.toFixed(4),
-        ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+        ivaReclass: estimado ? null : backInParked.toFixed(4),
+        ivaEstimado: backInParked.toFixed(4),
         advanceIva: advanceIva.toFixed(4),
         date,
+        ...(kept.amount.greaterThan(0)
+          ? { ivaKept: { amount: kept.amount.toFixed(4), notes: kept.notes, carries: kept.carries } }
+          : {}),
         ...(iepsMoved.greaterThan(0)
           ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
           : {}),
@@ -2294,6 +2335,56 @@ export async function listCustomerPayments(
 }
 
 /**
+ * MNE-001-581 · What a reversal's mirrors would put back into 2125 that no
+ * reopened balance carries. The mirrors put back `M`, the net 2125 debit of
+ * the entries they mirror, which also holds what an earlier unapply of this
+ * receipt kept in 2120 after a note. Each invoice the reversal reopens takes
+ * back what an unapply would (`keptAfterNotes`); the rest is the correction,
+ * and only after a credit note linked to an invoice this receipt allocated
+ * to. NOTE: a live allocation that stored no release (before MNE-001-459)
+ * leaves `M` unexplained, so nothing is corrected and the reversal is as it
+ * was: the conservative side.
+ */
+async function vatKeptByReversal(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string,
+  entryIds: readonly string[]
+): Promise<{ amount: Decimal; notes: string }> {
+  const none = { amount: new Decimal(0), notes: '' };
+  const rows = await client.query<{ id: string; invoice_id: string; live: boolean; released: string | null }>(
+    `SELECT pa.id, pa.invoice_id, pa.unapplied_at IS NULL AS live, pa.iva_reclass_amount::text AS released
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+      WHERE pa.payment_id = $2`,
+    [entityId, paymentId]
+  );
+  const live = rows.rows.filter((r) => r.live);
+  if (rows.rows.length === 0 || live.some((r) => r.released === null)) return none;
+  let back = new Decimal(0);
+  const notes = new Set<string>();
+  for (const invoiceId of new Set(rows.rows.map((r) => r.invoice_id))) {
+    const mine = live.filter((r) => r.invoice_id === invoiceId);
+    const released = mine.reduce((sum, r) => sum.plus(r.released as string), new Decimal(0));
+    const open = await issuedVatOfOpenBalance(client, entityId, invoiceId);
+    if (open.hasNote) for (const n of open.noteNumbers.split(', ')) notes.add(n);
+    back = back.plus(released.minus((await keptAfterNotes(client, entityId, invoiceId, released, mine.map((r) => r.id))).amount));
+  }
+  if (notes.size === 0) return none;
+  const { from } = reclassRoles('issued');
+  const { rows: [m] } = await client.query<{ moved: string }>(
+    `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $1
+       JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                            AND ar.role = $3 AND ar.qualifier IS NULL
+      WHERE je.id = ANY($2::uuid[])`,
+    [entityId, [...entryIds], from]
+  );
+  return { amount: Decimal.max(new Decimal(m.moved).minus(back), 0), notes: [...notes].sort().join(', ') };
+}
+
+/**
  * Reversal of a receipt whose money did not stay: every entry of the receipt
  * (the original and the later applications and unapplications) gets its NIF
  * B-1 mirror, the invoices reopen, the live allocations are closed with the
@@ -2302,6 +2393,10 @@ export async function listCustomerPayments(
  * or `taken_back`, stated by the caller. With none stated, a cheque takes
  * `not_collected`, because it is paid the day the bank cashes it (LIVA art.
  * 1-B); any other method is reversed with no cause until a person states one.
+ *
+ * MNE-001-581: after a credit note, the mirrors put back into 2125 more than
+ * the reopened balances carry; one entry of the reversal's own takes the rest
+ * out again (`vatKeptByReversal`, `postReceiptReversalVatEntry`).
  */
 export async function reverseCustomerPayment(
   entityId: string,
@@ -2350,6 +2445,8 @@ export async function reverseCustomerPayment(
         ORDER BY created_at`,
       [entityId, paymentId]
     );
+    // MNE-001-581: read before the mirrors, from the entries they mirror.
+    const kept = await vatKeptByReversal(client, entityId, paymentId, asientos.rows.map((je) => je.id));
 
     const reversals: ResultadoReversa['reversals'] = [];
     const attestations: ResultadoReversa['attestations'] = [];
@@ -2403,6 +2500,13 @@ export async function reverseCustomerPayment(
         WHERE payment_id = $3 AND unapplied_at IS NULL`,
       [userId, note, paymentId]
     );
+    if (kept.amount.greaterThan('0.005')) {
+      const correction = await postReceiptReversalVatEntry(
+        client, { id: paymentId, entity_id: entityId, payment_number: pago.payment_number },
+        kept.amount.toFixed(4), kept.notes, userId
+      );
+      attestations.push({ entityId, entryId: correction.id });
+    }
 
     // The write that carries the cause: entity, state and one row, or nothing (invariant 3).
     const written = await client.query(

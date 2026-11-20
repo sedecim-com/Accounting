@@ -1512,6 +1512,12 @@ export async function postVendorApplicationEntry(
  * back to 2125 (CR g) against the advance's IVA, and 2120 moves by c − g in
  * one line, none when they are equal.
  *
+ * MNE-001-581: after a credit note, `ivaReclass`/`ivaEstimado` is only what
+ * brings the invoice's 2125 to the IVA of the balance it is owed again, which
+ * can be less than the rows released; `ivaKept` is the rest, which stays in
+ * 2120 because the note already restituted it (LIVA art. 7). It moves no
+ * amount: the first IVA line, or the AR line when there is none, names it.
+ *
  * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
  * role for the invoice, read back from the ledger by the caller: it goes
  * back exactly (DR ieps_por_pagar · CR the uncollected role).
@@ -1526,6 +1532,8 @@ export async function postReceiptUnapplicationEntry(
     /** MNE-001-422: the advance's IVA the rows cancelled, which goes back to 2120 as they stored it. */
     advanceIva?: string;
     ieps?: IepsMove;
+    /** MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries. */
+    ivaKept?: { amount: string; notes: string; carries: string };
   },
   userId: string
 ): Promise<JournalEntry> {
@@ -1551,6 +1559,7 @@ export async function postReceiptUnapplicationEntry(
 
   const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);
   const estimado = app.ivaReclass === null && iva.greaterThan(0);
+  const lineCountBeforeIva = jeLines.length;
   if (advanceIva.greaterThan(0)) {
     // MNE-001-461: the cash goes back on account as the advance it was, its
     // IVA caused when collected (LIVA art. 1-B), so nothing caused is
@@ -1594,6 +1603,11 @@ export async function postReceiptUnapplicationEntry(
       description: `IVA back in ${from} (unapply) - Invoice ${app.invoiceNumber}${nota}`,
     });
   }
+  if (app.ivaKept && new Decimal(app.ivaKept.amount).greaterThan(0)) {
+    const at = jeLines.length > lineCountBeforeIva ? jeLines[lineCountBeforeIva] : jeLines[0];
+    at.description += ` · kept in iva_trasladado: ${new Decimal(app.ivaKept.amount).toFixed(4)} restituted by credit note ` +
+      `${app.ivaKept.notes} (LIVA art. 7); the reopened balance carries ${new Decimal(app.ivaKept.carries).toFixed(4)}`;
+  }
   if (app.ieps) {
     jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));
   }
@@ -1606,6 +1620,42 @@ export async function postReceiptUnapplicationEntry(
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'receipt_unapplication', sourceId: payment.id, reference: payment.payment_number }
+  );
+}
+
+/** MNE-001-581 · The source of a reversal's IVA correction (`postReceiptReversalVatEntry`). */
+export const RECEIPT_REVERSAL_IVA_SOURCE = 'receipt_reversal_iva';
+
+/**
+ * MNE-001-581 · A reversal mirrors every entry of the receipt (NIF B-1), so it
+ * puts back into 2125 all the receipt released. After a credit note that took
+ * its IVA from 2120, part of that release is no longer owed by any balance:
+ * this entry takes it out again (DR iva_trasladado_no_cobrado · CR
+ * iva_trasladado), dated with the mirrors, so 2125 ends at the IVA of the
+ * balances the reversal reopened (LIVA arts. 1-B and 7).
+ */
+export async function postReceiptReversalVatEntry(
+  client: pg.PoolClient,
+  payment: { id: string; entity_id: string; payment_number: string },
+  amount: string,
+  notes: string,
+  userId: string
+): Promise<JournalEntry> {
+  const { from, to } = reclassRoles('issued');
+  const roles = await roleAccounts(client, payment.entity_id, [from, to]);
+  const text = `IVA restituted by credit note ${notes} stays out of ${from}: the reversal of ${payment.payment_number} ` +
+    're-parks only what the reopened balance carries (LIVA arts. 1-B, 7)';
+  return createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    `Reversal of ${payment.payment_number} · IVA kept in ${to}`,
+    [
+      { account_id: requireRole(roles, from), debit_amount: amount, credit_amount: null, description: text },
+      { account_id: requireRole(roles, to), debit_amount: null, credit_amount: amount, description: text },
+    ],
+    userId,
+    { autoPost: true, client, sourceType: RECEIPT_REVERSAL_IVA_SOURCE, sourceId: payment.id, reference: payment.payment_number }
   );
 }
 
