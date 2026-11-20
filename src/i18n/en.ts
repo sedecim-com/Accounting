@@ -152,6 +152,9 @@ export const EN = {
   'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
   /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
   'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
 
   // ==== end of error.* ================================================
 
@@ -1782,6 +1785,21 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cheque_advance_before_cashing.question':
+    'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+  'policy.cheque_advance_before_cashing.what':
+    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -2479,6 +2497,13 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
+  'receipt.apply.cheque_advance_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.unapply.iva_at_cashing':
+    'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.
@@ -2521,10 +2546,6 @@ export const EN = {
   'receipt.excess.from': 'rate of {invoices}',
   'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
   'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
-  'receipt.excess.cheque_held':
-    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
-  'receipt.excess.cheque_not_wired':
-    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_held':
@@ -3299,9 +3320,177 @@ export const EN = {
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  // MNE-001-222: depreciation run/post and asset create.
+  /** `depreciation run --by` with a dimension that does not exist. */
+  'assets.depreciation.by_unknown':
+    '--by "{value}" does not exist. The four dimensions are: {dimensions} (asset is the asset-by-asset detail; class and account are the summaries by class and by expense destination the catalogue asks for).',
+  /** `depreciation run`/`post` with no --period. */
+  'assets.depreciation.period_required':
+    '--period is missing. Depreciation belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would depreciate the month that has just begun.',
+  /** The group of the assets with no class in `--by class`. Stored English in the row; the table renders it. */
+  'assets.depreciation.no_class': '(no class)',
+  /** The first line of a plan: the period, the book, the entry date and the fingerprint. */
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · {book} book · entries dated {entryDate} · fingerprint {fingerprint}',
+  /** The criteria of a plan, which of them is a default, and who enters. */
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · convention {conventionDefaulted, select, yes {{convention} (default)} other {{convention}}} · {entering, plural, one {# asset enters} other {# assets enter}}, {skipped, plural, one {# is skipped} other {# are skipped}}, total {total}',
+  /** The warning when a declared default and not a choice of the firm governs the plan. */
+  'assets.depreciation.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm. Answer it with `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  /** The heading of the skipped assets in the readable output. */
+  'assets.depreciation.skipped_heading': 'Skipped ({count}):',
+  /** The warning when assets are left owing their row for the period. */
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# asset is} other {# assets are}} left without a row for {period}, and the month should recognise it. The policy `depreciacion_faltante_al_cierre` is {defaulted, select, yes {"{policy}" (declared default)} other {"{policy}"}}.',
+  /** `depreciation run` blocked by --strict or by the policy. */
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# asset} other {# assets}} without a row for {period}. {cause, select, strict {--strict turns the warning into a block.} other {The policy `depreciacion_faltante_al_cierre` is set to "bloquear".}} `depreciation post` will refuse to post until they are resolved.',
+  /** `depreciation run` with nothing that enters. */
+  'assets.depreciation.nothing_this_book': 'Nothing to post in this period with this book.',
+  /** `depreciation post --file` when the approved plan no longer matches. */
+  'assets.depreciation.plan_changed':
+    'The plan approved in {file} no longer matches what the run would do today, so nothing is posted: {differences}. Run `depreciation run` again, review the new plan and post against that one.',
+  /** `depreciation post` refused by the policy while assets owe their row. */
+  'assets.depreciation.post_blocked':
+    'Nothing is posted: {pending, plural, one {# asset is} other {# assets are}} left without a row for {period} and the policy `depreciacion_faltante_al_cierre` is set to "bloquear". Resolve them (capture the period\'s production, correct the asset record) or change the policy with {hint}.',
+  /** `depreciation post` with nothing that enters. */
+  'assets.depreciation.nothing_to_post': 'Nothing to post in {period}: the ledger was not touched.',
+  /** The note under the entry preview: N entries, N reversals. */
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# two-line entry} other {# two-line entries}}, one per asset, not a single one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** The confirmation of `depreciation post`. */
+  'assets.depreciation.confirm':
+    'Post {total} in {count, plural, one {# entry} other {# entries}} of the {book} book for {period}? The ledger does not allow undoing it.',
+  /** A replayed idempotency key. */
+  'assets.depreciation.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was posted again.',
+  /** The run made a different number of entries than the plan showed. */
+  'assets.depreciation.plan_count_mismatch':
+    'The plan showed {planned, plural, one {# entry} other {# entries}} and the run made {processed}. The plan and the engine did not agree: check the errors before taking the month as closed.',
+  /** The done line of `depreciation post`. */
+  'assets.depreciation.done':
+    '{count, plural, one {# entry posted} other {# entries posted}} in {period} ({book} book).',
+  /** `asset create` with an amount that is not an unsigned decimal. */
+  'assets.asset.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `asset create` with a depreciation method that does not exist. */
+  'assets.asset.method_unknown': '{flag} "{value}" does not exist. The six methods are: {methods}.',
+  /** `asset create --capitalized` with a value it cannot read. */
+  'assets.asset.capitalized_unknown':
+    '--capitalized "{value}" is not understood: it is yes when the cost is ALREADY charged to the asset account in the ledger (the CFDI that was capitalised), and no when the record only registers the asset and the entry is pending. It has no default: assuming one doubles the asset or leaves it out of the ledger.',
+  /** `asset create` without its required flags. */
+  'assets.asset.create_missing':
+    '{missing} missing. An asset with no class, no cost, no acquisition date or no statement of where its cost already is is not an incomplete record: it is a record that can be neither depreciated nor reconciled with the ledger.',
+  /** `asset create --source-entry` together with `--capitalized no`. */
+  'assets.asset.source_entry_contradiction':
+    '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, which says the opposite. Decide which of the two is true.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  // MNE-001-223: the backup leaves (create, export, list, verify, restore).
+  /** A backup or export with no manifest beside it. Stored English in `backup list`'s row; the table renders it. */
+  'platform.backup.no_manifest': '(no manifest)',
+  /** The schema a backup was taken at. */
+  'platform.backup.schema_of': 'schema {schema}',
+  /** The manifest beside a backup or an export. */
+  'platform.backup.manifest_line': 'manifest: {file}',
+  /** `backup create` with --tenant or --entity. */
+  'platform.backup.create.not_scoped':
+    '`backup create` dumps the WHOLE installation with pg_dump, which does not filter rows: narrowing it to one tenant or one entity is impossible by construction, and until now the flag was accepted and silently ignored.\nFor the archive of ONE firm: `mnemosine backup export --tenant <id>` (with `--entity <id|name>` for a single company).\nFor disaster recovery of the whole installation: `backup create` with no flags.',
+  /** Whose data a whole-installation dump carries. */
+  'platform.backup.create.unredacted':
+    'It holds the UNREDACTED data of {tenants, plural, one {# tenant} other {# tenants}}: it is the whole installation, not one firm.',
+  /** Where the archive of one firm comes from. */
+  'platform.backup.create.one_tenant_hint': 'For the archive of one only: `mnemosine backup export --tenant <id>`.',
+  /** The heading of what a dump does not carry. */
+  'platform.backup.create.no_crypto': 'And it does NOT include the cryptographic material:',
+  /** Why the vault key and ENCRYPTION_KEY are backed up separately. */
+  'platform.backup.create.crypto_detail':
+    'the vault key and ENCRYPTION_KEY live outside the database. Without them, after a restore the fiscal credentials and the bank data are unreadable. Back them up separately.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.create.untested_hint':
+    'And an untested backup is not a backup: `mnemosine backup verify <file> --restore`.',
+  /** `backup export` with no tenant. */
+  'platform.backup.export.tenant_required':
+    'There is no tenant to export. Name it with `--tenant <uuid>` or set MNEMOSINE_TENANT.\nA file that does not say whose it is cannot be kept in custody, so this is not guessed.',
+  /** The owner of an entity-scoped export. */
+  'platform.backup.export.entity_of': '{entity} (entity of {tenant})',
+  /** The size of an export. */
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# row} other {# rows}} · {tables, plural, one {# table} other {# tables}})',
+  /** The scope of an export and whose it is. */
+  'platform.backup.export.scope_line': 'scope: {scope} — {owner}',
+  /** How an export was read. */
+  'platform.backup.export.read_as': 'read as {role}, subject to RLS, in a single REPEATABLE READ snapshot',
+  /** Why an export is not a backup. */
+  'platform.backup.export.not_a_backup': 'This is an EXPORT, not a backup: there is no tested way back.',
+  /** Where disaster recovery comes from. */
+  'platform.backup.export.disaster_hint': 'For disaster recovery: `mnemosine backup create` + `backup restore`.',
+  /** The scoped tables an export leaves out. */
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# scoped table is} other {# scoped tables are}} left outside this scope; the manifest names them one by one.',
+  /** What an export carries. */
+  'platform.backup.export.unredacted':
+    "It carries the firm's unredacted data, third-party RFCs included: treat it as such.",
+  /** `backup list --status`. */
+  'platform.backup.list.no_status':
+    '`backup list` has no status to filter: a backup is a file, not a document with a lifecycle.',
+  /** `backup list` with --tenant or --entity. */
+  'platform.backup.list.not_scoped':
+    '`backup list` inventories a DIRECTORY, and it does not filter by scope yet: the flag was accepted and ignored.\nThe «scope» column of the output already says whose each file is (tenant, entity or whole installation), so for now the filter is done by reading it.',
+  /** The scope of a whole-installation dump. Stored English in the row; the table renders it. */
+  'platform.backup.list.scope_installation':
+    'installation ({tenants, plural, one {# tenant} other {# tenants}})',
+  /** The same, when an old manifest does not say how many tenants. */
+  'platform.backup.list.scope_installation_unknown': 'installation (unknown tenants)',
+  /** A backup whose hash still matches. Stored English in the row; the table renders it. */
+  'platform.backup.list.intact_yes': 'yes',
+  /** A backup whose restore was never rehearsed. Stored English in the row; the table renders it. */
+  'platform.backup.list.never_verified': 'never',
+  /** When the restore was last rehearsed, and its findings. Stored English in the row; the table renders it. */
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# finding} other {# findings}})',
+  /** An export has no restore to rehearse. Stored English in the row; the table renders it. */
+  'platform.backup.list.export_not_verified': 'n/a (export, not restorable)',
+  /** `backup verify` of a file that is not there. */
+  'platform.backup.verify.not_found': 'The backup {file} was not found',
+  /** The cheap verify, when the hash matches. */
+  'platform.backup.verify.hash_ok': 'hash and manifest match',
+  /** The hash does not match the manifest. */
+  'platform.backup.verify.hash_mismatch': 'the hash does NOT match the manifest',
+  /** What the cheap verify does not prove. */
+  'platform.backup.verify.not_proof': 'This does NOT prove the backup restores.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.verify.repeat_with_restore': 'An untested backup is not a backup: run it again with --restore.',
+  /** The rehearsed restore worked. */
+  'platform.backup.verify.restored': 'restored into a throwaway database',
+  /** The rehearsed restore failed. */
+  'platform.backup.verify.not_restored': 'did NOT restore',
+  /** What the rehearsed restore checked. */
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entity checked} other {# entities checked}} · {findings, plural, one {# finding} other {# findings}}',
+  /** Why `backup restore` does not honour an idempotency key. */
+  'platform.backup.restore.retry_restores': 'a retry restores again over what was already restored',
+  /** The dry run of `backup restore`. */
+  'platform.backup.restore.would_restore': 'Would restore {file} into a NEW database "{database}"',
+  /** The dry run writes nothing. */
+  'platform.backup.restore.nothing_written': 'Nothing is written, and no existing database is ever touched.',
+  /** The confirmation of `backup restore`. */
+  'platform.backup.restore.confirm': 'Create database "{database}" and restore {file} into it?',
+  /** `backup restore` with no terminal to confirm on. */
+  'platform.backup.restore.no_terminal':
+    '{question} — there is no terminal to ask on. Re-run with --yes once you are sure.',
+  /** The done line of `backup restore`. */
+  'platform.backup.restore.done': 'restored into the database {database}',
+  /** The previous database is untouched. */
+  'platform.backup.restore.previous_intact':
+    'The previous database is still intact: pointing the application at the new one is a separate act.',
+  /** The reminder to verify the restored database. */
+  'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====

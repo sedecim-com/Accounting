@@ -260,22 +260,21 @@ describe('the excess a collection leaves on account causes its IVA when collecte
     expect(await stored(done.payment_number)).toEqual(['no_objeto', null, '340.0000', '0.0000']);
   }, 120_000);
 
-  it('by cheque the excess goes whole to 2150 as before, and the leaf says why (#700)', async () => {
+  it('by cheque the excess keeps its split and goes whole to 2150 until the cashing causes its IVA (MNE-001-572)', async () => {
     const inv = await sale();
     const done = await receipt(record(inv.number, '1500.00', '--on-account', '--method', 'check'));
-    expect(done.row).toMatchObject({ advance_tax_rate: null, on_account: '340.00' });
-    expect(done.err).toContain('issue 700');
+    expect(done.row).toMatchObject({ advance_tax_rate: '16', advance_base: '293.10', advance_iva: '46.90', on_account: '340.00' });
+    expect(done.err).toContain('46.90');
+    expect(done.err).not.toContain('issue 700');
     expect(await linesOf(done.row.journal_entry)).toEqual({ '1111': [1500, 0], '1120': [0, 1160], '2150': [0, 340] });
+    expect(await stored(done.row.payment_number)).toEqual(['tasa', '16.00', '293.1000', '46.9000']);
   }, 120_000);
 
-  it('by cheque a stated --tax-rate for the excess is refused, and nothing is written (#700)', async () => {
-    // MNE-001-558 posts the IVA of an advance by cheque with no invoice on its cashing; the excess of a
-    // collection is not carried by that path yet, so its stated treatment is refused rather than lost.
+  it('by cheque a stated --tax-rate for the excess is kept, and posts no IVA before the cashing (MNE-001-572)', async () => {
     const inv = await sale();
-    const before = await receipts();
-    await expect(receipt(record(inv.number, '1500.00', '--on-account', '--method', 'check', '--tax-rate', '16')))
-      .rejects.toMatchObject({ code: 'EXCESS_BY_CHEQUE_NOT_WIRED' });
-    expect(await receipts()).toBe(before);
+    const done = await row(record(inv.number, '1500.00', '--on-account', '--method', 'check', '--tax-rate', '0'));
+    expect(done).toMatchObject({ advance_base: '340.00', advance_iva: '0.00', advance_tax_rate: '0' });
+    expect(await linesOf(done.journal_entry)).toEqual({ '1111': [1500, 0], '1120': [0, 1160], '2150': [0, 340] });
   }, 120_000);
 
   it('an entity that does not keep Mexican books posts the excess as today, whole to its customer advances', async () => {
