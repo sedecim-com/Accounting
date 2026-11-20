@@ -1923,6 +1923,33 @@ export const E4_1: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'minimum-wage-zone-has-a-reader',
+    enunciado: 'The border minimum wage has a reader, and the minimum-wage zone has its test',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/minimum-wage-zone.ts',
+        de: "  northern_border: 'salario_minimo_frontera_diario',",
+        a: "  northern_border: 'salario_minimo_general_diario',",
+        porque:
+          'the border zone reads the general minimum again: fifteen years at 1 000 a day pay 113 414.40 instead of 158 713.20, 45 298.80 less for each worker at the northern border (LFT art. 486)',
+      },
+    ],
+    evaluar: () => {
+      // #196 · MNE-001-377. salario_minimo_frontera_diario was seeded in 009
+      // and corrected in 074 with no reader anywhere in src/.
+      const zone = 'src/services/payroll/mx/minimum-wage-zone.ts';
+      if (!existe(zone)) return falla('the minimum-wage zone module disappeared: nothing reads the border minimum');
+      if (!/northern_border: 'salario_minimo_frontera_diario'/.test(codigoDe(zone))) {
+        return falla('the northern_border zone no longer reads salario_minimo_frontera_diario: the border minimum has no reader again');
+      }
+      return existe('tests/payroll/mx/minimum-wage-zone.spec.ts')
+        ? ok('the border minimum has a reader, and the minimum-wage zone has its test')
+        : falla('no test of the minimum-wage zone: the zone could stop reaching the finiquito unnoticed');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'isr-tariff-matches-the-pay-period',
     enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
     mutantes: [

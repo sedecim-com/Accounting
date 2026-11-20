@@ -581,6 +581,7 @@ mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note
+mirror	memory	E4.1 minimum-wage-zone-has-a-reader	src/services/payroll/mx/minimum-wage-zone.ts	the border zone reads the general minimum again: fifteen years at 1 000 a day pay 113 414.40 instead of 158 713.20, 45 298.80 less for each worker at the northern border (LFT art. 486)
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/services/payroll/mx/isr-calculator.ts	EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql	vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado
 mirror	memory	E4.1 imss-rate-fix-verified-by-running-it	tests/integration/migracion-070-cuota-obrera.int.spec.ts	si la prueba desaparece, la única defensa de un parámetro fiscal vuelve a ser un regex sobre el archivo: el criterio debe dar ROJO, no reventar leyendo una prueba que ya no está
@@ -1307,6 +1308,7 @@ anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: " return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
 anchor	src/plan/criteria/e4-1.ts	de: ' return Decimal.min(piso, salarioMinimo.times(2));',
 anchor	src/plan/criteria/e4-1.ts	de: " 'SIN CALCULAR: faltó el salario mínimo de la zona",
+anchor	src/plan/criteria/e4-1.ts	de: " northern_border: 'salario_minimo_frontera_diario',",
 anchor	src/plan/criteria/e4-1.ts	de: " case 'weekly': return 'weekly';",
 anchor	src/plan/criteria/e4-1.ts	de: "('MX','isr',2026,NULL,'monthly', 1, 0.01, 844.59,",
 anchor	src/plan/criteria/e4-1.ts	de: "describe('la 070 sobre una instalación que ya cobraba de más'",

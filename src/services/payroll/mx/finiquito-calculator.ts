@@ -14,6 +14,7 @@ import {
   type UsmoDaysPerMonth,
 } from './finiquito-math.js';
 import { getTaxParameters } from '../tax-engine/tax-tables.js';
+import { dailyMinimumWageFor, minimumWageZoneOf, type MinimumWageZone } from './minimum-wage-zone.js';
 import { calculateSeparationIsr, type SeparationIsr } from './separation-isr.js';
 
 // ============================================================
@@ -95,6 +96,17 @@ export interface FiniquitoResult {
   seniority_premium_amount: string;
   /** Por qué vale lo que vale — o por qué no se pudo calcular. */
   seniority_premium_note: string;
+  /**
+   * The minimum the art. 486 cap was measured with, and whose zone it is
+   * (MNE-001-377). `declared_by: null` = nobody declared one: general, said so.
+   */
+  seniority_premium_minimum_wage: {
+    zone: MinimumWageZone;
+    /** null when that zone's minimum is not loaded for the date. */
+    daily_amount: string | null;
+    declared_by: 'employee' | 'entity' | null;
+    note: string;
+  };
   /**
    * The separation ISR (MNE-001-375, MNE-001-579): the exemption of LISR
    * art. 93 fr. XIII and the withholding of LISR art. 96 on the separation
@@ -296,10 +308,10 @@ export async function calculateFiniquito(
   // EL MÍNIMO CON EL QUE SE TOPA LA PRIMA, A LA FECHA DE LA BAJA.
   //
   // A la fecha de la baja y no a la de hoy: un finiquito de enero recalculado
-  // en marzo tiene que seguir topándose con el mínimo de enero. Y del GENERAL,
-  // porque este esquema todavía no guarda la zona donde se presta el trabajo
-  // —el art. 486 mide el tope con el mínimo de esa zona— así que el desglose
-  // deja dicho con cuál se calculó, en vez de callarlo.
+  // en marzo tiene que seguir topándose con el mínimo de enero. Y el de la ZONA
+  // del lugar de trabajo (art. 486): la del empleado si la tiene, si no la de la
+  // entidad (MNE-001-377). Sin zona declarada es la general, y el resultado lo
+  // dice (decisión MNE-001-376).
   // EL TIPO NO ES UNA COMPROBACIÓN (WIT-02). `termination_reason` es
   // obligatorio en TypeScript, pero `POST /finiquito` pasa `req.body` tal cual:
   // una petición vieja o mal formada llega con el campo AUSENTE, y
@@ -319,11 +331,8 @@ export async function calculateFiniquito(
 
   const anioBaja = new Date(input.termination_date).getUTCFullYear();
   const params = await getTaxParameters('MX', anioBaja, input.termination_date);
-  const minimoGeneral = params.salario_minimo_general_diario;
-  const salarioMinimo =
-    typeof minimoGeneral === 'number' || typeof minimoGeneral === 'string'
-      ? String(minimoGeneral)
-      : undefined;
+  const zone = await minimumWageZoneOf({ tenantId: ctx.tenantId, entityId: panel.entityId }, input.employee_id);
+  const salarioMinimo = dailyMinimumWageFor(params, zone.zone);
 
   const d: DesgloseFiniquito = calcularFiniquito({
     fecha_alta: e.hire_date,
@@ -364,6 +373,15 @@ export async function calculateFiniquito(
     seniority_premium_daily_base: d.prima_antiguedad_base_diaria,
     seniority_premium_amount: d.prima_antiguedad_importe,
     seniority_premium_note: d.prima_antiguedad_nota,
+    seniority_premium_minimum_wage: {
+      zone: zone.zone,
+      daily_amount: salarioMinimo ?? null,
+      declared_by: zone.declaredBy,
+      note: zone.declaredBy
+        ? `${zone.zone} zone, declared by the ${zone.declaredBy}`
+        : 'General zone by default: the entity has not declared its minimum wage zone. Declare it with ' +
+          'mnemosine entity edit <entity> --minimum-wage-zone general|northern_border',
+    },
     separation_isr: separationIsr,
     total: d.total,
     basis: {

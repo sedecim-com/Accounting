@@ -5,6 +5,7 @@ import { ensureEntityAccounting, type ResultadoContabilidad } from '../accountin
 import { ValidationError, ConflictError, NotFoundError } from '../../utils/errors.js';
 import { SAT_CATALOGS } from '../xml-ingestion/sat-catalogs.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
+import { parseMinimumWageZone } from '../payroll/mx/minimum-wage-zone.js';
 
 // ============================================================
 // ENTITY CREATION — the root of the dependency graph
@@ -97,6 +98,8 @@ export interface CreateEntityInput {
   taxRegime?: string;
   /** Postal code of the fiscal address (5 digits). */
   taxPostalCode?: string;
+  /** general | northern_border. Omitted: the column default (general), undeclared. */
+  minimumWageZone?: string;
 }
 
 export interface CreateEntityResult {
@@ -336,6 +339,7 @@ export async function createEntity(
   const fiscal = validateEntityTaxProfile(input);
   const taxRegime = fiscal.tax_regime ?? null;
   const taxPostalCode = fiscal.tax_postal_code ?? null;
+  const minimumWageZone = input.minimumWageZone === undefined ? null : parseMinimumWageZone(input.minimumWageZone);
 
   // NOTE: a Mexican entity without a regime is created anyway. Every entity
   // that exists today lacks it, and refusing the new ones would not fix those.
@@ -374,12 +378,15 @@ export async function createEntity(
       `INSERT INTO legal_entities (
          organization_id, tenant_id, name, entity_type, tax_id, tax_id_type,
          incorporation_country, functional_currency, accounting_standard,
+         minimum_wage_zone, minimum_wage_zone_declared_at,
          tax_regime, tax_postal_code
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+         COALESCE($10::text, 'general'), CASE WHEN $10::text IS NULL THEN NULL ELSE NOW() END,
+         $11,$12) RETURNING id`,
       [
         org.rows[0].id, tenantId, name, profile.entityType, taxId,
         profile.taxIdType, profile.iso2, currency, profile.standard,
-        taxRegime, taxPostalCode,
+        minimumWageZone, taxRegime, taxPostalCode,
       ]
     );
     const entityId = entity.rows[0].id;

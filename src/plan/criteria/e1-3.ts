@@ -515,7 +515,7 @@ export const E1_3: Criterio[] = [
         return falla('el asistente de init mezcla idiomas: su texto y sus etiquetas deben hablar el mismo hasta que I8 lo traduzca');
       }
       const board = codigoDe('src/ai/pending-service.ts');
-      if (count(board, /\bt\('pending\.board\./g) < 7) {
+      if (count(board, /\bt\('pending\.board\./g) < 8) {
         return falla('el tablero de pending volvió a armar texto a mano: debe salir del catálogo en el idioma activo');
       }
       const edge = codigoDe('src/i18n/panel-text.ts');
