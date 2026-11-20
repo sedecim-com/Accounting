@@ -6,6 +6,7 @@ import {
   reprocesarREPsAparcados,
 } from '../services/xml-ingestion/rep-pendientes.js';
 import { resolveReviewer } from '../ai/draft-service.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -38,6 +39,15 @@ export interface RepCommandDeps {
   shutdown: (code: number) => Promise<void> | void;
   reportError: (err: unknown) => void;
   home?: string;
+  /**
+   * Test seam of the three reads and the retry: the real functions unless a
+   * test passes doubles, as `CfdiCommandDeps.parkedReceipts` does.
+   */
+  receipts?: {
+    missing: typeof listPagosSinRep;
+    parked: typeof listRepAparcados;
+    retry: typeof reprocesarREPsAparcados;
+  };
 }
 
 interface CommonOpts {
@@ -55,6 +65,11 @@ interface CommonOpts {
 }
 
 export function registerRepCommand(program: Command, deps: RepCommandDeps): void {
+  const receipts = deps.receipts ?? {
+    missing: listPagosSinRep,
+    parked: listRepAparcados,
+    retry: reprocesarREPsAparcados,
+  };
   const rep = program
     .command('rep')
     .description('Payment receipts (REP): what is missing one, and the parked ones to retry');
@@ -99,9 +114,9 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
       const ctx = await entityOf(opts);
       const minAmount = opts.minAmount === undefined ? undefined : Number(opts.minAmount);
       if (minAmount !== undefined && !Number.isFinite(minAmount)) {
-        throw usageError(`--min-amount ilegible: "${opts.minAmount}".`);
+        throw usageError({ key: 'fiscal_mx.rep.missing.min_amount_unreadable', params: { value: String(opts.minAmount) } });
       }
-      const rows = await listPagosSinRep(ctx.entityId, {
+      const rows = await receipts.missing(ctx.entityId, {
         direction: opts.direction as 'received' | 'issued',
         minAmount,
         limit: opts.all ? undefined : (opts.limit ?? 50),
@@ -109,16 +124,18 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
       render(rows as unknown as Row[], { ...opts, idField: 'payment_number' });
       if (rows.length > 0) {
         note(
-          opts.direction === 'issued'
-            ? `${rows.length} cobro(s) sin REP emitido: obligación fiscal propia con plazo del SAT.`
-            : `${rows.length} pago(s) sin REP del proveedor: falta el comprobante que respalda el acreditamiento del IVA de ese pago.`
+          t(opts.direction === 'issued' ? 'fiscal_mx.rep.missing.issued' : 'fiscal_mx.rep.missing.received', {
+            count: rows.length,
+          })
         );
       }
       const desconocidos = rows.filter((r) => r.metodo === 'desconocido').length;
       if (desconocidos > 0) {
         note(
-          `${desconocidos} con método de pago desconocido (el CFDI no está en el espejo): el mayor los trató como ` +
-            `${opts.direction === 'issued' ? 'PUE' : 'PPD'}; se listan con la duda dicha — un PUE no exige REP.`
+          t('fiscal_mx.rep.missing.unknown_method', {
+            count: desconocidos,
+            method: opts.direction === 'issued' ? 'PUE' : 'PPD',
+          })
         );
       }
     })
@@ -139,24 +156,27 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
   declareRisk(reconcile, {
     risk: 'escritura',
     agent: false,
-    writes: 'vendor/customer_payments + pólizas vía la puerta de pagos; pre_registrations',
+    writes: 'vendor/customer_payments + journal entries through the payments door; pre_registrations',
   });
   reconcile.action((opts: CommonOpts & { limit: string; dryRun?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
       const limit = parseInt(opts.limit, 10);
       if (opts.dryRun) {
-        const aparcados = await listRepAparcados(ctx.entityId, limit);
+        const aparcados = await receipts.parked(ctx.entityId, limit);
         render(aparcados as unknown as Row[], { ...opts, idField: 'id' });
-        note(`${aparcados.length} REP(s) aparcado(s) se reintentarían (dry-run: nada se tocó).`);
+        note(t('fiscal_mx.rep.reconcile.would_retry', { count: aparcados.length }));
         return;
       }
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const r = await reprocesarREPsAparcados(ctx.entityId, reviewer.userId, { limit });
-      process.stdout.write(
-        `${deps.palette.green('✔')} ${r.reprocesados} reintentado(s): ` +
-          `${r.ligados} ligado(s), ${r.siguen_aparcados} siguen aparcado(s), ${r.errores} error(es)\n`
-      );
+      const r = await receipts.retry(ctx.entityId, reviewer.userId, { limit });
+      const tally = t('fiscal_mx.rep.reconcile.done', {
+        retried: r.reprocesados,
+        linked: r.ligados,
+        parked: r.siguen_aparcados,
+        errors: r.errores,
+      });
+      process.stdout.write(`${deps.palette.green('✔')} ${tally}\n`);
       for (const d of r.detalles.filter((x) => x.resultado !== 'ligado').slice(0, 10)) {
         process.stderr.write(deps.palette.dim(`  · ${d.id}: ${d.motivo?.slice(0, 140) ?? d.resultado}\n`));
       }
