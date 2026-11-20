@@ -4947,6 +4947,71 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  //
+  // The second ledger task: the `entry` family whole, root included, English as
+  // shown (`batch` and `fx` are MNE-001-426). Every generic flag a leaf declares
+  // is worded for it and keeps its own key; what withContext, withOutput,
+  // withSelection, withTime, withStrict and declareRisk add stays on cli.flag.*.
+  // The lists travel as {types} and {layouts}. The English of `entry import
+  // --layout` was Spanish author prose on develop ("aún sin parser"); the owner
+  // chose on #314 (15 Nov 2026) to give those nodes real English, so it is the
+  // one English text this task changes.
+  'help.entry.description': 'Journal entries: draft, inspect, validate, post, reverse and void',
+  'help.entry.list.description': 'Search journal entries by text, account, date, amount, state, type or source',
+  'help.entry.list.argument.search': 'text to match in the description or reference',
+  'help.entry.list.option.type': 'entry type (repeatable)',
+  'help.entry.list.option.source': 'origin subledger: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'only entries with a line on this account',
+  'help.entry.list.option.min_amount': 'minimum total debits',
+  'help.entry.list.option.max_amount': 'maximum total debits',
+  'help.entry.show.description': 'Show one entry with its lines, totals, period and linked reversal',
+  'help.entry.show.argument.number': 'entry number (JE-2026-00042) or id',
+  'help.entry.show.option.no_lines': 'header only, without the lines',
+  'help.entry.create.description': 'Create a journal entry — ALWAYS a draft; posting is a separate human step',
+  'help.entry.create.option.line':
+    'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below',
+  'help.entry.create.option.file': 'JSON document with date, type, description and lines',
+  'help.entry.create.option.date': 'entry date (YYYY-MM-DD); defaults to today',
+  'help.entry.create.option.type': 'entry type: {types} (default: standard)',
+  'help.entry.create.option.description': 'what the entry records',
+  'help.entry.create.option.reference': 'external reference (document, folio, memo)',
+  'help.entry.create.option.dry_run': 'validate and show the entry that would be drafted; write nothing',
+  'help.entry.create.option.json': 'JSON output',
+  'help.entry.check.description': 'Run the seven NIF validation rules over an entry or a document; writes nothing',
+  'help.entry.check.option.entry': 'an existing entry, by number or id',
+  'help.entry.check.option.file': 'a JSON entry document that does not exist yet',
+  'help.entry.line.description': 'Ledger lines: from an account balance down to the entries behind it',
+  'help.entry.line.list.description': 'Posted lines of one account, each with the entry it belongs to',
+  'help.entry.line.list.argument.code': 'account code',
+  'help.entry.preview.description':
+    'The exact account_balances delta this entry would produce, without touching anything',
+  'help.entry.preview.argument.number': 'entry number or id',
+  'help.entry.edit.description': 'Edit a DRAFT entry: description, reference, note, date or full line replacement',
+  'help.entry.edit.argument.number': 'entry number or id',
+  'help.entry.edit.option.description': 'new description',
+  'help.entry.edit.option.reference': 'new external reference',
+  'help.entry.edit.option.note': 'new note',
+  'help.entry.edit.option.date': 'new entry date (YYYY-MM-DD)',
+  'help.entry.edit.option.line':
+    'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)',
+  'help.entry.edit.option.file': 'JSON document whose date/description/reference/lines replace the draft',
+  'help.entry.export.description': 'Entries WITH their lines, flat, for audit or migration — no page cap',
+  'help.entry.import.description':
+    'Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger',
+  'help.entry.import.argument.file': 'file of journal entries to stage',
+  'help.entry.import.option.layout': 'file layout: {layouts} (contpaqi/aspel/iif/sat-polizas: no parser yet)',
+  'help.entry.import.option.dry_run': 'parse and report, stage nothing',
+  'help.entry.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first batch',
+  'help.entry.post.description': 'Post ONE entry to the ledger: validates the seven rules, then moves balances',
+  'help.entry.post.argument.number': 'entry number or id',
+  'help.entry.post.option.json': 'JSON output',
+  'help.entry.reverse.description': 'Create the linked posted mirror of an entry (NIF B-1: correct by reversal)',
+  'help.entry.reverse.argument.number': 'the POSTED entry to reverse',
+  'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
+  'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
+  'help.entry.void.argument.number': 'entry number or id',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

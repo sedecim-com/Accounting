@@ -4611,6 +4611,73 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.vendor.terms.set.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': 'código ISO de 3 letras',
   'help.vendor.terms.set.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  'help.entry.description': 'Pólizas: redactar, consultar, validar, contabilizar, reversar y anular',
+  'help.entry.list.description': 'Busca pólizas por texto, cuenta, fecha, importe, estado, tipo u origen',
+  'help.entry.list.argument.search': 'texto a buscar en la descripción o en la referencia',
+  'help.entry.list.option.type': 'tipo de póliza (se puede repetir)',
+  'help.entry.list.option.source': 'auxiliar de origen: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'sólo pólizas con una línea en esta cuenta',
+  'help.entry.list.option.min_amount': 'total mínimo de cargos',
+  'help.entry.list.option.max_amount': 'total máximo de cargos',
+  'help.entry.show.description': 'Muestra una póliza con sus líneas, totales, periodo y la reversa ligada',
+  'help.entry.show.argument.number': 'número de póliza (JE-2026-00042) o id',
+  'help.entry.show.option.no_lines': 'sólo el encabezado, sin las líneas',
+  'help.entry.create.description':
+    'Crea una póliza — SIEMPRE como borrador; contabilizarla es un paso humano aparte',
+  'help.entry.create.option.line':
+    'una línea: "account=6120;debit=45000.00;description=…"; se repite por cada línea. ' +
+    'La lista de claves está abajo',
+  'help.entry.create.option.file': 'documento JSON con fecha, tipo, descripción y líneas',
+  'help.entry.create.option.date': 'fecha de la póliza (AAAA-MM-DD); por omisión, hoy',
+  'help.entry.create.option.type': 'tipo de póliza: {types} (por omisión: standard)',
+  'help.entry.create.option.description': 'qué registra la póliza',
+  'help.entry.create.option.reference': 'referencia externa (documento, folio, memo)',
+  'help.entry.create.option.dry_run': 'valida y muestra la póliza que quedaría como borrador; no escribe nada',
+  'help.entry.create.option.json': 'salida en JSON',
+  'help.entry.check.description':
+    'Corre las siete reglas de validación de las NIF sobre una póliza o un documento; no escribe nada',
+  'help.entry.check.option.entry': 'una póliza que ya existe, por número o id',
+  'help.entry.check.option.file': 'un documento JSON de una póliza que todavía no existe',
+  'help.entry.line.description': 'Líneas del mayor: del saldo de una cuenta a las pólizas que lo forman',
+  'help.entry.line.list.description':
+    'Líneas contabilizadas de una cuenta, cada una con la póliza a la que pertenece',
+  'help.entry.line.list.argument.code': 'código de cuenta',
+  'help.entry.preview.description':
+    'El cambio exacto que esta póliza haría en account_balances, sin tocar nada',
+  'help.entry.preview.argument.number': 'número o id de la póliza',
+  'help.entry.edit.description':
+    'Edita una póliza en BORRADOR: descripción, referencia, nota, fecha o reemplazo de todas las líneas',
+  'help.entry.edit.argument.number': 'número o id de la póliza',
+  'help.entry.edit.option.description': 'nueva descripción',
+  'help.entry.edit.option.reference': 'nueva referencia externa',
+  'help.entry.edit.option.note': 'nueva nota',
+  'help.entry.edit.option.date': 'nueva fecha de la póliza (AAAA-MM-DD)',
+  'help.entry.edit.option.line':
+    'REEMPLAZA todas las líneas: "account=6120;debit=45000.00;description=…" ' +
+    '(la lista de claves está en entry create --help)',
+  'help.entry.edit.option.file':
+    'documento JSON cuya fecha, descripción, referencia y líneas reemplazan las del borrador',
+  'help.entry.export.description':
+    'Pólizas CON sus líneas, en plano, para auditoría o migración — sin tope de páginas',
+  'help.entry.import.description':
+    'Prepara un archivo de pólizas en un lote (devuelve un batch_id); NUNCA toca el mayor',
+  'help.entry.import.argument.file': 'archivo de pólizas que se va a preparar',
+  'help.entry.import.option.layout': 'formato del archivo: {layouts} (contpaqi/aspel/iif/sat-polizas: aún sin parser)',
+  'help.entry.import.option.dry_run': 'lee el archivo e informa; no prepara nada',
+  'help.entry.import.option.idempotency_key':
+    'llave para reintentar sin riesgo: la misma llave con el mismo archivo devuelve el primer lote',
+  'help.entry.post.description':
+    'Contabiliza UNA póliza en el mayor: valida las siete reglas y luego mueve los saldos',
+  'help.entry.post.argument.number': 'número o id de la póliza',
+  'help.entry.post.option.json': 'salida en JSON',
+  'help.entry.reverse.description':
+    'Crea la póliza espejo, contabilizada y ligada a la original (NIF B-1: se corrige por reversa)',
+  'help.entry.reverse.argument.number': 'la póliza CONTABILIZADA que se reversa',
+  'help.entry.reverse.option.date': 'fecha de la póliza espejo (AAAA-MM-DD); por omisión, hoy',
+  'help.entry.void.description':
+    'Anula una póliza: un borrador queda anulado y una contabilizada recibe su espejo ligado',
+  'help.entry.void.argument.number': 'número o id de la póliza',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
