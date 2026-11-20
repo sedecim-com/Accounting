@@ -1835,11 +1835,24 @@ export const E0_0: Criterio[] = [
     // honouring a key goes by key through the kernel's slot; `writes` is
     // English in place. The prose cells of `backup list` are English in the
     // row and labelled in the table, so --json and csv do not change with the
-    // locale. MNE-001-224 appends audit, ai, jobs and webhook-sweep to the
-    // leaves below, under this same id.
+    // locale. MNE-001-224 (I8.6 part 2) adds audit, ai, jobs and
+    // webhook-sweep under this same id: their 29 strings live in the same
+    // block, `audit list`'s removed-user cell is English in the row and
+    // labelled in the table, `ai stats` reads its shadow floors from
+    // src/ai/floor.ts, and ai's two help descriptions, the jobs and sweep
+    // `writes` and the sweep's `innecesaria` are English in place. #268's
+    // console clause does not hold yet for jobs and webhook-sweep, whose
+    // English prose is still printed with console.log: a follow-up task.
     enunciado:
-      'The platform family (backup so far) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue (#268, MNE-001-223)',
-    evaluar: () => familySpeaksByKey('I8.6', 'platform', ['src/cli/backup-command.ts']),
+      'The platform family (backup, audit, ai, jobs, webhook-sweep) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue (#268, MNE-001-223/224)',
+    evaluar: () =>
+      familySpeaksByKey('I8.6', 'platform', [
+        'src/cli/backup-command.ts',
+        'src/cli/audit-command.ts',
+        'src/cli/ai-command.ts',
+        'src/cli/jobs-command.ts',
+        'src/cli/webhook-sweep-command.ts',
+      ]),
     mutantes: [
       {
         archivo: 'src/cli/backup-command.ts',
@@ -1858,6 +1871,18 @@ export const E0_0: Criterio[] = [
         de: "{ key: 'platform.backup.restore.retry_restores' }",
         a: "'un reintento vuelve a restaurar sobre lo ya restaurado'",
         porque: 'string-back-in-the-code: the reason restore gives for not honouring a key is Spanish again',
+      },
+      {
+        archivo: 'src/cli/audit-command.ts',
+        de: "t('platform.audit.list.no_rows')",
+        a: "'Sin filas. El rastro es del INQUILINO: `audit_log` no tiene columna de entidad legal.'",
+        porque: 'string-back-in-the-code: audit list says «sin filas» in Spanish to every reader again',
+      },
+      {
+        archivo: 'src/cli/ai-command.ts',
+        de: "'platform.ai.stats.latency'",
+        a: "'latencia del modelo: {average} ms promedio' as never",
+        porque: 'string-back-in-the-code: ai stats writes its latency line in Spanish again, which only check 2 sees',
       },
     ],
   },
