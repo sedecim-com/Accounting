@@ -129,6 +129,8 @@ const PERIODO = {
 
 function prepararLecturas(empleado: Record<string, unknown> = EMPLEADO_MX): void {
   mockQuery.mockImplementation(async (sql: string) => {
+    // MNE-001-578: the entity's minimum-wage zone, for the old-age band.
+    if (/minimum_wage_zone/.test(sql)) return { rows: [{ entity_zone: 'northern_border', entity_declared: true, employee_zone: null }] };
     if (/FROM employees/.test(sql)) return { rows: [empleado] };
     if (/FROM pay_periods/.test(sql)) return { rows: [PERIODO] };
     // La tercera llave de la frontera: la corrida también se acota por
@@ -162,6 +164,8 @@ function policies(treatment: string, decided: boolean): void {
         ? { key, value: 'recompute_on_combined_income', defined: false, question: 'q', rationale: null }
         : key === 'imss_old_age_band_edge'
           ? { key, value: 'truncated_to_hundredths', defined: true, question: 'q', rationale: null }
+        : key === 'imss_old_age_minimum_wage_area'
+          ? { key, value: 'employer_registration_area', defined: false, question: 'q', rationale: null }
         : { key, value: treatment, defined: decided, question: 'q', rationale: null }
   );
 }
@@ -515,7 +519,8 @@ describe('the subsidy rounding is the entity policy (#298)', () => {
     mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'diario_al_centavo'
-        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
       defined: true, question: 'q', rationale: null,
     }));
     const seen: Array<string | undefined> = [];
@@ -554,13 +559,33 @@ describe('the edge of an old-age band is the entity policy (#661)', () => {
   });
 });
 
+describe('the minimum wage of the old-age band is the area of the employer registration (MNE-001-578)', () => {
+  it('reads imss_old_age_minimum_wage_area and the entity\'s zone, and hands both to the employer IMSS engine', async () => {
+    const seen: unknown[] = [];
+    calculadoras.set('MX:imss_employer', {
+      jurisdiction: 'MX',
+      taxType: 'imss_employer',
+      calculate: async (input): Promise<TaxOutput> => {
+        seen.push(input.imss_minimum_wage_area);
+        return { jurisdiction: 'MX', tax_type: 'imss_employer', tax_amount: 300, taxable_wages_used: 7500 };
+      },
+    });
+    await calculatePaycheck(ENTRADA);
+    expect(mockGetPolicy).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', entityId: 'ent-1' }, 'imss_old_age_minimum_wage_area', undefined
+    );
+    expect(seen).toEqual([{ zone: 'northern_border', rule: 'employer_registration_area', declared: true }]);
+  });
+});
+
 describe('another paycheck of the period already caused the subsidy (#430, MNE-001-398)', () => {
   it('recomputes on the combined income and credits only the difference', async () => {
     mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
         : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income'
-        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
@@ -589,7 +614,8 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
         : key === 'employment_subsidy_separate_run' ? 'none_on_separate_paycheck'
-        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;

@@ -455,13 +455,6 @@ type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;
 /** Cuando no hay a quién denunciarle nada (el auxiliar de folios). */
 const SANEADOR_MUDO: Saneador = (crudo) => limpiar(crudo).texto;
 
-// #611 · What a receipt captures only when it is recorded. #612 adds the
-// command that completes a registered one; until then the finding says so.
-const onlyAtRecord = (flag: string): string =>
-  `el dato sólo se captura al registrar el cobro (\`receipt record ${flag}\`) y ningún comando lo ` +
-  `añade a un cobro ya registrado; reversarlo y registrarlo otra vez tampoco lo arregla, porque el ` +
-  `asiento original y su espejo se quedan sin rastro`;
-
 /**
  * DE UN PAGO REGISTRADO AL NODO QUE EL ANEXO 24 DECLARA.
  *
@@ -584,10 +577,15 @@ export function rastroDePago(
   // Our bank's code comes from the bank account the payment names, read when
   // the file is generated. Two causes, two remedies: with an account linked,
   // editing it fixes even a payment already registered; with none linked
-  // (`--bank` is optional), a vendor payment gets one with `payment trace
-  // record --bank` (MNE-001-569), which checks it against the entry's lines.
-  // A receipt has no such command yet (part 3 of #612), and reversing and
-  // registering again leaves the original entry and its mirror untraced.
+  // (`--bank` is optional), `payment trace record --bank` (MNE-001-569) or
+  // `receipt trace record --bank` (MNE-001-570) links one, checked against
+  // the entry's lines. Reversing and registering again is never the remedy:
+  // it leaves the original entry and its mirror untraced.
+  //
+  // What each leaf completes on a payment already registered, named by its
+  // number so the line can be copied: the vendor side's, or the receipt's.
+  const traceRecord = (flag: string): string =>
+    `${sentido === 'sale' ? 'payment' : 'receipt'} trace record ${p.payment_number} ${flag} --reason <motivo>`;
   const namedAccount = (b: FilaDeCuentaBancaria): string =>
     `la cuenta bancaria «${limpiar(b.account_name).texto}» (id ${b.id})`;
   const ourBankGap = (node: string, attribute: string, what: string): RastroResuelto => {
@@ -595,14 +593,7 @@ export function rastroDePago(
       return {
         motivo: bankGap(node, attribute, `${what} se registró sin cuenta bancaria, así que no hay de ` +
           `dónde tomar la clave c_Banco de nuestro banco`),
-        ...(sentido === 'sale'
-          ? { completedBy: `payment trace record ${p.payment_number} --bank <cuenta> --reason <motivo>` }
-          : {
-              noCommandFixes:
-                'la cuenta bancaria sólo se captura al registrar el pago (`receipt record --bank`) y ningún ' +
-                'comando se la liga a un pago ya registrado; reversarlo y registrarlo otra vez tampoco ' +
-                'lo arregla, porque el asiento original y su espejo se quedan sin rastro',
-            }),
+        completedBy: traceRecord('--bank <cuenta>'),
       };
     }
     const account = namedAccount(banco);
@@ -618,9 +609,11 @@ export function rastroDePago(
   const payerForeign = (p.banco_origen_extranjero ?? '').trim() || undefined;
   const payerBank = (p.banco_origen_sat ?? '').trim() || (payerForeign !== undefined ? FOREIGN_BANK_CODE : undefined);
   const payerAccount = (p.cuenta_origen ?? '').replace(/\s+/g, '') || undefined;
+  // A foreign payer bank already resolved to FOREIGN_BANK_CODE above, so the
+  // only gap left is a receipt with no payer bank at all.
   const payerBankGap = (node: string, attribute: string, what: string): RastroResuelto => ({
     motivo: bankGap(node, attribute, `el banco del cliente de ${what} no está capturado`),
-    noCommandFixes: onlyAtRecord('--payer-bank'),
+    completedBy: traceRecord('--payer-bank <clave>'),
   });
 
   if (p.payment_method === 'check' && sentido === 'entra') {
@@ -635,14 +628,14 @@ export function rastroDePago(
         motivo:
           `el cobro ${p.payment_number} se recibió en cheque y no tiene número de cheque capturado; ` +
           `el nodo Cheque lo exige`,
-        noCommandFixes: onlyAtRecord('--check-number'),
+        completedBy: traceRecord('--check-number <número>'),
       };
     }
     if (payerBank === undefined) return payerBankGap('Cheque', 'BanEmisNal', what);
     if (payerAccount === undefined) {
       return {
         motivo: bankGap('Cheque', 'CtaOri', `la cuenta contra la que se giró ${what} no está capturada`),
-        noCommandFixes: onlyAtRecord('--payer-account'),
+        completedBy: traceRecord('--payer-account <cuenta>'),
       };
     }
     return {
@@ -661,11 +654,6 @@ export function rastroDePago(
       },
     };
   }
-
-  // MNE-001-568 · What `payment trace record` completes on a vendor payment
-  // already registered, named by its number so the line can be copied.
-  const traceRecord = (flag: string): string =>
-    `payment trace record ${p.payment_number} ${flag} --reason <motivo>`;
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();

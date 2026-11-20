@@ -55,6 +55,8 @@ export interface EmployeeInput {
   // Bank
   bank_account?: Record<string, unknown>;
   bank_name?: string;
+  /** Override of the entity's minimum-wage zone (LFT art. 486); omitted = the entity's. */
+  minimum_wage_zone?: 'general' | 'northern_border';
 
   created_by: string;
 }
@@ -108,7 +110,7 @@ async function insertEmployee(client: pg.PoolClient, input: EmployeeInput): Prom
       infonavit_credit_number, infonavit_credit_type, infonavit_credit_value,
       ssn_encrypted, w4_data, work_state, residence_state, work_city,
       salary_type, annual_salary, hourly_rate, currency_code, pay_schedule_id,
-      bank_account_encrypted, bank_name, created_by
+      bank_account_encrypted, bank_name, created_by, minimum_wage_zone
     ) VALUES (
       $1, $2, $3, $4,
       $5, $6, $7, $8, $9,
@@ -117,7 +119,7 @@ async function insertEmployee(client: pg.PoolClient, input: EmployeeInput): Prom
       $20, $21, $22,
       $23, $24::jsonb, $25, $26, $27,
       $28, $29, $30, $31, $32,
-      $33, $34, $35
+      $33, $34, $35, $36
     )`,
     [
       id, input.tenant_id, input.entity_id, input.employee_number,
@@ -129,7 +131,7 @@ async function insertEmployee(client: pg.PoolClient, input: EmployeeInput): Prom
       ssnEncrypted, JSON.stringify(input.w4_data || {}), input.work_state || null, input.residence_state || null, input.work_city || null,
       input.salary_type || 'salary', input.annual_salary || null, input.hourly_rate || null,
       input.currency_code || (input.country_code === 'MX' ? 'MXN' : 'USD'), input.pay_schedule_id || null,
-      bankEncrypted, input.bank_name || null, input.created_by,
+      bankEncrypted, input.bank_name || null, input.created_by, input.minimum_wage_zone ?? null,
     ]
   );
 

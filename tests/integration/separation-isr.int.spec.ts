@@ -13,6 +13,7 @@ import {
   type SeparationIsrInput,
 } from '../../src/services/payroll/mx/separation-isr.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
+import { setEntityMinimumWageZone } from '../../src/services/payroll/mx/minimum-wage-zone.js';
 
 /**
  * MNE-001-375 · #194, part A: the exemption of LISR art. 93 fr. XIII against
@@ -99,6 +100,22 @@ describe('the separation exemption, against the law as loaded', () => {
     expect(r.uma_daily).toBe('113.1400');
     expect(r.exempt_cap).toBe('152739.0000');
     expect(r.route).toBe('exempt');
+  });
+
+  // MNE-001-377 (#196): the separation ISR exempts the premium AFTER the zone
+  // cap. At the northern border it is 180 × 881.74 = 158 713.20, above the
+  // 158 368.50 exempt: 344.70 taxable, withheld from MNE-001-579 on.
+  it('a border entity: the capped premium of 158 713.20 leaves 344.70 taxable, withheld at the USMO rate (51.93, as 579\'s unit case)', async () => {
+    await setEntityMinimumWageZone(f.entityId, f.tenantId, 'northern_border', { userId: f.userId, tenantId: f.tenantId });
+    const r = await calculateFiniquito(
+      { employee_id: VETERAN, termination_date: '2026-06-30', last_paid_through: '2026-06-15', termination_reason: 'despido' },
+      { tenantId: f.tenantId, entityId: f.entityId }
+    );
+    expect(r.seniority_premium_amount).toBe('158713.2000');
+    expect(r.separation_isr).toMatchObject({
+      payments: '158713.2000', exempt_cap: '158368.5000', exempt: '158368.5000',
+      taxable: '344.7000', route: 'effective_rate', withholding: '51.9300',
+    });
   });
 });
 

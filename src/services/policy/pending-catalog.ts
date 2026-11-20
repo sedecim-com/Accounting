@@ -2397,6 +2397,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'An SBC above an upper edge pays the next band.',
     priority: 42,
   },
+  // #196 · MNE-001-578. The «1.00 SM» band of the employer old-age quota is
+  // measured with the general minimum of the area of the employer registration
+  // (answer of 17 Nov 2026 on #661: LFT art. 92, LSS arts. 28 and 39); the SUA
+  // FAQ suggests the centre-zone minimum to an employer registered in both
+  // zones. Read by `readOldAgeMinimumWageArea` (payroll/mx/old-age-band.ts).
+  {
+    key: 'imss_old_age_minimum_wage_area',
+    textKey: 'imss_old_age_minimum_wage_area',
+    category: 'fiscal',
+    question:
+      'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+    impact:
+      'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+    options: [
+      { value: 'employer_registration_area', label: 'The general minimum of the area of the employer registration (the entity\'s declared zone)' },
+      { value: 'general_zone', label: 'The general-zone minimum for every worker, whatever the registration\'s area' },
+    ],
+    defaultValue: 'employer_registration_area',
+    defaultRationale:
+      'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+    whyAsking:
+      'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+    ifSkipped: 'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).

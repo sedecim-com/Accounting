@@ -36,7 +36,8 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
-import { completePaymentTrace, type TraceField } from '../services/payments/payment-trace-service.js';
+import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
+import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
 import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
 import { t } from '../i18n/index.js';
 import { FOREIGN_BANK_CODE } from '../services/sat/anexo24/official-enumerations.js';
@@ -715,40 +716,12 @@ function registerTraceRecord(
       const why = reason?.trim() ?? '';
 
       const preview = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId, { dryRun: true });
-      const listed = (fs: TraceField[]): string => fs.map((f) => `${f.flag} ${f.shown}`).join(', ');
       let result = preview;
       if (!dryRun && preview.filled.length > 0) {
-        await k.confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listed(preview.filled) }));
+        await k.confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listedTraceFields(preview.filled) }));
         result = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId);
       }
-
-      if (opts.json) {
-        const byColumn = (fs: TraceField[]) => Object.fromEntries(fs.map((f) => [f.column, f.shown]));
-        render([{
-          payment_number: result.paymentNumber, status: result.status,
-          filled: byColumn(result.filled), unchanged: byColumn(result.unchanged),
-          journal_entry: result.journalEntry, period: result.period, period_status: result.periodStatus,
-          archived_voucher_files: result.archivedVoucherFiles, dry_run: dryRun,
-        }], { json: true });
-      } else {
-        if (result.filled.length > 0) {
-          const line = dryRun
-            ? p.bold(t('payment.trace.would_complete', { number: result.paymentNumber, fields: listed(result.filled) }))
-            : `${p.green('✔')} ${t('payment.trace.completed', { number: result.paymentNumber, fields: listed(result.filled) })}`;
-          process.stdout.write(`${line}\n`);
-        }
-        if (result.unchanged.length > 0) {
-          process.stdout.write(`${t('payment.trace.unchanged', { number: result.paymentNumber, fields: listed(result.unchanged) })}\n`);
-        }
-      }
-      // A closed month is said, not refused: its file is asked for after the close.
-      if (result.filled.length > 0 && result.periodStatus !== null && result.periodStatus !== 'open') {
-        process.stderr.write(p.yellow(`${t('payment.trace.period_not_open', { period: result.period, status: result.periodStatus })}\n`));
-      }
-      if (result.filled.length > 0 && result.archivedVoucherFiles > 0) {
-        process.stderr.write(p.yellow(`${t('payment.trace.archived_files', { count: result.archivedVoucherFiles, period: result.period })}\n`));
-      }
-      if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+      writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
     })
   );
 }

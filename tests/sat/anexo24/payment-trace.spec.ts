@@ -117,7 +117,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).not.toContain('payment reverse');
   });
 
-  it('a customer transfer with no payer bank: captured only at `receipt record --payer-bank`', () => {
+  it('a customer transfer with no payer bank: completed on the registered receipt (MNE-001-570)', () => {
     const f = finding(
       payment({ payment_number: 'CPMT-2026-00003', cuenta_destino: null, banco_destino_sat: null }),
       'entra',
@@ -125,9 +125,10 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     );
     expect(f.node).toBe(false);
     expect(f.text).toContain('el nodo Transferencia exige BancoOriNal');
-    expect(f.text).toContain('receipt record --payer-bank');
+    expect(f.text).toContain('`receipt trace record CPMT-2026-00003 --payer-bank <clave> --reason <motivo>`');
     expect(f.text).not.toContain('payment create');
-    expect(f.text).toContain('ningún comando');
+    expect(f.text).not.toContain('receipt record');
+    expect(f.text).not.toContain('ningún comando');
   });
 
   // MNE-001-401 (#532): a foreign bank is declared as 999 with its name.
@@ -183,7 +184,9 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).toContain('el nodo Transferencia exige BancoDestNal');
     expect(f.text).toContain('se registró sin cuenta bancaria');
     expect(f.text).not.toContain('payment create');
-    expect(f.text).toContain('ningún comando');
+    // MNE-001-570: the receipt gets its bank account linked, as a vendor payment does.
+    expect(f.text).toContain('`receipt trace record CPMT-2026-00001 --bank <cuenta> --reason <motivo>`');
+    expect(f.text).not.toContain('ningún comando');
   });
 
   it('a destination bank not captured: completed on the registered payment (MNE-001-568)', () => {
@@ -234,10 +237,10 @@ const customerCheckPayment = (over: Partial<Payment> = {}): Payment =>
 
 /** The receipt causes the plan names G1-G7: the case, the receipt, our bank account, and the remedy the reader must find. */
 const RECEIPT_GAPS: ReadonlyArray<readonly [string, Payment, BankAccount | undefined, string, string]> = [
-  ['G1 a transfer with no payer bank', receipt({ banco_origen_sat: null }), account(), 'Transferencia exige BancoOriNal', 'receipt record --payer-bank'],
-  ['G3 a cheque with no number', customerCheckPayment({ check_number: null }), undefined, 'el nodo Cheque lo exige', 'receipt record --check-number'],
-  ['G4 a cheque with no payer bank', customerCheckPayment({ banco_origen_sat: null }), undefined, 'Cheque exige BanEmisNal', 'receipt record --payer-bank'],
-  ['G5 a cheque with no drawn-on account', customerCheckPayment({ cuenta_origen: null }), undefined, 'Cheque exige CtaOri', 'receipt record --payer-account'],
+  ['G1 a transfer with no payer bank', receipt({ banco_origen_sat: null }), account(), 'Transferencia exige BancoOriNal', 'receipt trace record PMT-2026-00011 --payer-bank <clave>'],
+  ['G3 a cheque with no number', customerCheckPayment({ check_number: null }), undefined, 'el nodo Cheque lo exige', 'receipt trace record PMT-2026-00011 --check-number <número>'],
+  ['G4 a cheque with no payer bank', customerCheckPayment({ banco_origen_sat: null }), undefined, 'Cheque exige BanEmisNal', 'receipt trace record PMT-2026-00011 --payer-bank <clave>'],
+  ['G5 a cheque with no drawn-on account', customerCheckPayment({ cuenta_origen: null }), undefined, 'Cheque exige CtaOri', 'receipt trace record PMT-2026-00011 --payer-account <cuenta>'],
   ['G6 a transfer into an account with no c_Banco code', receipt(), account({ sat_bank_code: null }), 'Transferencia exige BancoDestNal', '--sat-bank-code <clave>'],
   ['G7 a transfer into an account with no number', receipt(), account({ clabe_encrypted: null }), 'Transferencia exige CtaDest', 'bank account edit <cuenta> --clabe'],
 ];
@@ -288,6 +291,8 @@ describe('a receipt declares the payer as the origin and our bank account as the
     expect(f.text).toContain(node);
     expect(f.text).toContain(remedy);
     expect(f.text).not.toContain('payment create');
+    // MNE-001-570: a registered receipt is completed, never recorded again.
+    expect(f.text).not.toContain('receipt record');
     expect(f.text).not.toMatch(/#\d/);
   });
 
@@ -319,15 +324,15 @@ describe('a receipt declares the payer as the origin and our bank account as the
 });
 
 // ============================================================
-// MNE-001-568/569 (#612, parts 1-2/4) · EVERY CAUSE OF A REGISTERED PAYMENT, AND
+// MNE-001-568/569/570 (#612, parts 1-3/4) · EVERY CAUSE OF A REGISTERED PAYMENT, AND
 // ITS REMEDY. A payment already registered is never sent back to the command
 // that captures one (`payment create`, `receipt record`): the remedy names
 // the record that lacks the datum, or the command that completes it on that
-// payment, or says that none does. The cases a later part completes keep
-// their «ningún comando» remedy until then, and say which part.
+// payment. None is left with no command: a foreign bank, the last one, is
+// declared as 999 with its name (MNE-001-401).
 // ============================================================
 
-/** `site` is the branch of `rastroDePago` that names the cause; `later` the part that completes it. */
+/** `site` is the branch of `rastroDePago` that names the cause. */
 interface Cause {
   name: string;
   direction: 'sale' | 'entra';
@@ -335,7 +340,6 @@ interface Cause {
   bank: BankAccount | undefined;
   remedy: string;
   site: string;
-  later?: 'MNE-001-570';
 }
 
 const vendorCheck = (over: Partial<Payment> = {}): Payment => payment({ payment_method: 'check', check_number: '30001', ...over });
@@ -350,13 +354,13 @@ const CAUSES: readonly Cause[] = [
   { name: 'a transfer with no bank account', direction: 'sale', payment: payment({ bank_account_id: null }), bank: undefined, remedy: '`payment trace record VPMT-2026-00007 --bank <cuenta> --reason <motivo>`', site: 'our-bank-none' },
   { name: 'a transfer with no destination bank', direction: 'sale', payment: payment({ banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-bank <clave> --reason <motivo>`', site: 'sale-to-bank' },
   { name: 'a receipt into an entity with no RFC', direction: 'entra', payment: receipt(), bank: account(), remedy: 'falta en el registro de la entidad', site: 'payee' },
-  { name: 'a customer cheque with no number', direction: 'entra', payment: customerCheckPayment({ check_number: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-number', later: 'MNE-001-570' },
-  { name: 'a customer cheque with no payer bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null }), bank: undefined, remedy: 'ningún comando', site: 'payer-bank', later: 'MNE-001-570' },
-  { name: 'a customer cheque with no drawn-on account', direction: 'entra', payment: customerCheckPayment({ cuenta_origen: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-account', later: 'MNE-001-570' },
-  { name: 'a receipt with no bank account', direction: 'entra', payment: receipt({ bank_account_id: null }), bank: undefined, remedy: 'ningún comando', site: 'our-bank-none', later: 'MNE-001-570' },
+  { name: 'a customer cheque with no number', direction: 'entra', payment: customerCheckPayment({ check_number: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --check-number <número> --reason <motivo>`', site: 'entra-check-number' },
+  { name: 'a customer cheque with no payer bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --payer-bank <clave> --reason <motivo>`', site: 'payer-bank' },
+  { name: 'a customer cheque with no drawn-on account', direction: 'entra', payment: customerCheckPayment({ cuenta_origen: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --payer-account <cuenta> --reason <motivo>`', site: 'entra-check-account' },
+  { name: 'a receipt with no bank account', direction: 'entra', payment: receipt({ bank_account_id: null }), bank: undefined, remedy: '`receipt trace record PMT-2026-00011 --bank <cuenta> --reason <motivo>`', site: 'our-bank-none' },
   { name: 'a receipt into an account with no c_Banco code', direction: 'entra', payment: receipt(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
   { name: 'a receipt into an account with no number', direction: 'entra', payment: receipt(), bank: account({ clabe_encrypted: null }), remedy: 'bank account edit <cuenta> --clabe <18 dígitos>', site: 'entra-to-account' },
-  { name: 'a receipt with no payer bank', direction: 'entra', payment: receipt({ banco_origen_sat: null }), bank: account(), remedy: 'ningún comando', site: 'payer-bank', later: 'MNE-001-570' },
+  { name: 'a receipt with no payer bank', direction: 'entra', payment: receipt({ banco_origen_sat: null }), bank: account(), remedy: '`receipt trace record PMT-2026-00011 --payer-bank <clave> --reason <motivo>`', site: 'payer-bank' },
 ];
 
 describe('every cause of a registered payment has a remedy that is true (MNE-001-568)', () => {
@@ -375,10 +379,26 @@ describe('every cause of a registered payment has a remedy that is true (MNE-001
     // Never the capture command of the other side, and never a reversal.
     expect(text).not.toContain(c.direction === 'sale' ? 'receipt record' : 'payment create');
     expect(text).not.toContain('payment reverse');
-    // The capture command is named only where a later part brings the command that completes it.
-    if (c.later === undefined) {
-      expect(text).not.toContain('payment create');
-      expect(text).not.toContain('receipt record');
+    // A registered payment is never sent back to a capture command (MNE-001-570: the receipt's too).
+    expect(text).not.toContain('payment create');
+    expect(text).not.toContain('receipt record');
+  });
+
+  // MNE-001-401 (#532): a foreign bank is declared as 999 with its name, so the
+  // two foreign-bank causes 570 left with no command are gone, and no cause is.
+  it('no cause is left with no command that completes it (a foreign bank is declared, MNE-001-401)', () => {
+    const none = CAUSES.filter((c) => rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY).noCommandFixes !== undefined);
+    expect(none.map((c) => c.site)).toEqual([]);
+  });
+
+  it('the receipt leaf completes what `receipt record` captures, naming the receipt by its number (MNE-001-570)', () => {
+    const completed = CAUSES.filter((c) => c.remedy.startsWith('`receipt trace record'));
+    expect(completed.map((c) => c.site)).toEqual(['entra-check-number', 'payer-bank', 'entra-check-account', 'our-bank-none', 'payer-bank']);
+    for (const c of completed) {
+      const r = rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY);
+      expect(r.completedBy).toMatch(/^receipt trace record PMT-2026-00011 --/);
+      expect(r.noCommandFixes).toBeUndefined();
+      expect(textOf(c)).toContain('Complétalo en el pago ya registrado');
     }
   });
 
