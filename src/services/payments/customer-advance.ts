@@ -225,6 +225,47 @@ export function capKept(kept: readonly string[], cap: string): string[] {
 }
 
 /**
+ * MNE-001-585 (#792, part 2/3) · The day an allocation's IVA release was
+ * posted: the day it was applied (`applied_on`, or the receipt's date for a
+ * row written before migration 332), or, for a cheque whose IVA waited for
+ * the bank (MNE-001-556), the cashing day when it is later. Dates are
+ * YYYY-MM-DD.
+ */
+export function releaseDayOf(
+  appliedOn: string | null,
+  receipt: { paymentDate: string; paymentMethod: string; checkCashedOn: string | null }
+): string {
+  const day = appliedOn ?? receipt.paymentDate;
+  const cashed = receipt.paymentMethod === 'check' ? receipt.checkCashedOn : null;
+  return cashed !== null && cashed > day ? cashed : day;
+}
+
+/**
+ * MNE-001-585 · Under `plain_receipt_unapply_iva = repark_same_month`, which
+ * rows still keep their IVA caused: a row whose release (`releasedOn`, by
+ * `releaseDayOf`) is in the calendar month of the unapply re-parks and keeps
+ * 0, as the correction of an error before that month is declared; one of an
+ * earlier month keeps it, because re-parking there would lower a month that
+ * may already be declared (CFF art. 32), and `laterMonth` says so. Each row
+ * is decided on its own.
+ */
+export function reparkSameMonth(
+  kept: readonly string[],
+  releasedOn: readonly string[],
+  unapplyDate: string
+): { kept: string[]; laterMonth: boolean } {
+  const month = unapplyDate.slice(0, 7);
+  let laterMonth = false;
+  const out = kept.map((k, i) => {
+    if (!new Decimal(k).greaterThan(0)) return k;
+    if (releasedOn[i].slice(0, 7) === month) return new Decimal(0).toFixed(4);
+    laterMonth = true;
+    return k;
+  });
+  return { kept: out, laterMonth };
+}
+
+/**
  * MNE-001-572 · Whether applying a held cheque's advance would cancel IVA
  * nobody has caused (LIVA art. 1-B, second paragraph): the cash takes IVA
  * from the advance (c > 0) while the cheque is not cashed, and the invoice's

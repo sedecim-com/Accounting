@@ -72,8 +72,9 @@ import {
 //      application of that cash nets it out again (`cashOnAccountOfMonth`).
 //      Since MNE-001-574 the ledger keeps the share caused too (the owner's
 //      «Mantener causado», #623 comment 7013109077) and nets it on the next
-//      application; only a row unapplied before migration 338 re-parked, and
-//      that month's tie-out names it.
+//      application; only a row unapplied before migration 338, or one under
+//      `plain_receipt_unapply_iva = repark_same_month` (MNE-001-585, which the
+//      paper does not follow), re-parked, and that month's tie-out names it.
 //   2. A reversal whose money never became the firm's counts in no month
 //      (art. 1-B): the cause `not_collected` (MNE-001-509), which a cheque
 //      takes by default because it is paid when cashed (second paragraph).
@@ -1089,7 +1090,7 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
       );
     }
     const cash = charged.cashOnAccount.get(paymentId);
-    // Since MNE-001-574 only a row unapplied before migration 338 re-parked in the ledger.
+    // Since MNE-001-574 only a row unapplied before migration 338, or under repark_same_month (MNE-001-585), re-parked in the ledger.
     // MNE-001-581: after a credit note an unapply re-parks less than the share
     // it ended, so the clause names what its entries took out of 2120.
     const outOf2120 = entries

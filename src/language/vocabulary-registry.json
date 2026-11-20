@@ -6100,6 +6100,30 @@
     },
     {
       "class": "policy-key",
+      "where": "plain_receipt_unapply_iva",
+      "es": "plain_receipt_unapply_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-585): a receipt with no advance treatment unapplied from a PPD invoice."
+    },
+    {
+      "class": "policy-value",
+      "where": "plain_receipt_unapply_iva/keep_caused",
+      "es": "keep_caused",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA stays caused and the cash back on account carries it (LIVA art. 1-B)."
+    },
+    {
+      "class": "policy-value",
+      "where": "plain_receipt_unapply_iva/repark_same_month",
+      "es": "repark_same_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA goes back to uncollected only when the unapply is in the month it was released."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,

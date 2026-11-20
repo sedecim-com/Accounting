@@ -2948,6 +2948,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 58,
   },
   {
+    // MNE-001-585 (#792, part 2/3) · A receipt with no treatment unapplied
+    // from a PPD invoice. Reader: `keptUnderPolicy` in payment-service.ts,
+    // read only when some row would keep IVA. The owner's answer of 19 Nov
+    // 2026 on #623 (comment 7013109077): «Mantener causado + clave».
+    key: 'plain_receipt_unapply_iva',
+    textKey: 'plain_receipt_unapply_iva',
+    category: 'fiscal',
+    question:
+      'A receipt with no advance treatment is unapplied from a PPD invoice: does the IVA its collection caused stay caused, or go back to uncollected?',
+    impact:
+      'Governs `receipt unapply` of a receipt with no advance treatment on a PPD invoice whose collection released its IVA. ' +
+      'With "keep_caused" the IVA stays in 2120 and the cash goes back to 2150 for its base, carrying that IVA, so applying it again nets it instead of causing it twice. ' +
+      'With "repark_same_month" each allocation whose IVA was released in the calendar month of the unapply goes back to 2125, with the IEPS it moved; one released in an earlier month stays caused, and so does a cheque the bank has not cashed. ' +
+      'The IVA workpaper keeps the IVA caused under either answer, and its tie-out names a re-park.',
+    options: [
+      { value: 'keep_caused', label: 'Keep the IVA caused and carry it on the cash back on account' },
+      { value: 'repark_same_month', label: 'Re-park it when the unapply is in the month the IVA was released' },
+    ],
+    defaultValue: 'keep_caused',
+    defaultRationale:
+      'LIVA art. 1-B, first paragraph: a price is collected when it is received, even as an advance, and an unapply returns no money. ' +
+      'LIVA art. 7: only a documented return, discount or bonus takes the IVA back. ' +
+      'Keeping it caused never lowers a month without a refund, the conservative option of ADR-0006. ' +
+      'Re-parking in a later month would lower a month already declared, which takes an amended return (CFF art. 32), so neither answer does it.',
+    whyAsking:
+      'Some firms treat an unapply in the same month as the correction of a mistake, and want the invoice\'s IVA back as uncollected until the cash is applied again. Keeping it caused follows the law and nets when the cash is applied again.',
+    whatIDo:
+      'With "keep_caused" I leave the IVA in 2120 and record on the allocation what it kept. With "repark_same_month" I move back to 2125 the IVA of each allocation released in the month of the unapply, keep the rest caused, and the dry run says why.',
+    ifSkipped: 'I keep the IVA caused.',
+    priority: 59,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live
