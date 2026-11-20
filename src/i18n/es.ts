@@ -2934,6 +2934,50 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  'payroll.accrue.period_required':
+    'Falta --period. El devengo de prestaciones es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar, y el asiento no se puede borrar después (mnemosine period list enumera los periodos de la entidad).',
+  'payroll.accrue.skip_already_accrued': 'ya tiene renglón vigente de este mes',
+  'payroll.accrue.skip_zero_month': 'su devengo del mes es cero',
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · asiento con fecha {entryDate} · {accruing, plural, one {# trabajador devenga} other {# trabajadores devengan}}, {skipped, plural, one {# se omite} other {# se omiten}} · aguinaldo {aguinaldo} · vacaciones {vacation} · prima {premium} · total {total}',
+  'payroll.accrue.criteria':
+    'base {baseDefaulted, select, yes {{base} (defecto)} other {{base}}} · vacaciones {vacationDefaulted, select, yes {{vacation} (defecto)} other {{vacation}}} · aguinaldo {days, plural, one {# día} other {# días}} · prima {premium}',
+  'payroll.accrue.default_criteria_warning':
+    'Rige al menos un defecto declarado y no una elección del despacho: entre `nominal` e `integrado` hay un 20 % de diferencia en el importe de cada mes. Se contesta con `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  'payroll.accrue.entry_heading':
+    'El asiento único de la corrida, {lines, plural, one {# línea} other {# líneas}}:',
+  'payroll.accrue.key_entry_reversed':
+    'La llave «{key}» grabó el asiento {entry}, que después se reversó. Devolver ese resultado diría que el mes está devengado cuando no lo está. Vuelve a correr con una llave nueva —es otra corrida, no un reintento— o sin --idempotency-key.',
+  'payroll.accrue.idempotency_hit':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
+  'payroll.accrue.nothing_to_accrue':
+    'Nada que devengar en {period}: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.dry_run':
+    'Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.confirm':
+    '¿Devengar {amount} MXN de {count, plural, one {# trabajador} other {# trabajadores}} en {period}? El mayor no admite deshacer.',
+  'payroll.accrue.aborted': 'Sin cambios: el mayor no se tocó.',
+  'payroll.accrue.aborted_no_terminal':
+    'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin preguntar, o --dry-run para ver la cédula completa sin escribir nada.',
+  'payroll.accrue.preview_count_mismatch':
+    'La vista previa enseñaba {previewed, plural, one {# trabajador} other {# trabajadores}} y la corrida devengó {processed}. Algo cambió entre mirar y postear: revisa la cédula antes de dar el mes por cerrado.',
+  'payroll.accrue.preview_total_mismatch':
+    'La vista previa sumaba {previewed} y la corrida devengó {posted}.',
+  'payroll.accrue.done':
+    '{count, plural, one {# trabajador devengado} other {# trabajadores devengados}} en {period} {hasEntry, select, yes {por {total} · asiento {entry}} other {por {total}}}.',
+  'payroll.isn_rate_set.state': 'estado',
+  'payroll.isn_rate_set.rate': 'tasa',
+  'payroll.isn_rate_set.regime': 'régimen',
+  'payroll.isn_rate_set.monthly_exemption': 'exención mensual',
+  'payroll.isn_rate_set.in_force': 'vigencia',
+  'payroll.isn_rate_set.legal_basis': 'fundamento',
+  'payroll.isn_rate_set.table': 'tabla',
+  'payroll.isn_rate_set.criterion': 'criterio',
+  'payroll.isn_rate_set.reaches': 'alcanza',
+  'payroll.isn_rate_set.open_ended': '(sin cierre: sigue vigente)',
+  'payroll.isn_rate_set.table_note': '(catálogo, sin tenant_id: la ley es la misma)',
+  'payroll.isn.policy_default': '{value} (por omisión, nadie la contestó)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====

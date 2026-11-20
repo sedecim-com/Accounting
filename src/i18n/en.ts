@@ -3122,6 +3122,80 @@ export const EN = {
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  // MNE-001-221: payroll accrue and the ISN leaves of payroll-isn.
+  /** `payroll accrue` with no --period. */
+  'payroll.accrue.period_required':
+    '--period is missing. The benefit accrual belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would accrue the month that has just begun, and the entry cannot be deleted afterwards (mnemosine period list lists the entity\'s periods).',
+  /** The reason of a skipped worker in the schedule. Stored English in the row; the table renders it. */
+  'payroll.accrue.skip_already_accrued': 'already has a live row for this month',
+  /** The other reason of a skipped worker. */
+  'payroll.accrue.skip_zero_month': 'its accrual for the month is zero',
+  /** The first line of a run: the period, the entry date, who accrues and the totals. */
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · entry dated {entryDate} · {accruing, plural, one {# worker accrues} other {# workers accrue}}, {skipped, plural, one {# is skipped} other {# are skipped}} · aguinaldo {aguinaldo} · vacation {vacation} · premium {premium} · total {total}',
+  /** The panel that governed the amounts, and which of it is a default. */
+  'payroll.accrue.criteria':
+    'salary base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · vacation {vacationDefaulted, select, yes {{vacation} (default)} other {{vacation}}} · aguinaldo {days, plural, one {# day} other {# days}} · premium {premium}',
+  /** When a declared default, not the firm, governs the amounts. */
+  'payroll.accrue.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm: between `nominal` and `integrado` there is a 20 % difference in the amount of every month. Answer it with `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  /** The heading over the entry the run would post. */
+  'payroll.accrue.entry_heading':
+    'The run\'s single entry, {lines, plural, one {# line} other {# lines}}:',
+  /** A spent key whose recorded entry was reversed afterwards. */
+  'payroll.accrue.key_entry_reversed':
+    'The key "{key}" recorded entry {entry}, which was reversed afterwards. Returning that result would say the month is accrued when it is not. Run again with a new key (it is another run, not a retry) or without --idempotency-key.',
+  /** A spent key: the recorded result is what is shown (two sites). */
+  'payroll.accrue.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was accrued again.',
+  /** A month with nobody to accrue. */
+  'payroll.accrue.nothing_to_accrue':
+    'Nothing to accrue in {period}: the ledger was not touched and no schedule row was written.',
+  /** The dry run, which writes nothing. */
+  'payroll.accrue.dry_run': 'Dry run: the ledger was not touched and no schedule row was written.',
+  /** The confirmation question; the kernel adds the [y/N] suffix. */
+  'payroll.accrue.confirm':
+    'Accrue {amount} MXN for {count, plural, one {# worker} other {# workers}} in {period}? The ledger does not allow undoing it.',
+  /** The person said no. */
+  'payroll.accrue.aborted': 'Nothing changed: the ledger was not touched.',
+  /** No terminal to ask on. */
+  'payroll.accrue.aborted_no_terminal':
+    'Nothing changed: there is no terminal to confirm on. Add -y to accrue without asking, or --dry-run to see the whole schedule without writing anything.',
+  /** The run accrued another number of workers than the preview showed. */
+  'payroll.accrue.preview_count_mismatch':
+    'The preview showed {previewed, plural, one {# worker} other {# workers}} and the run accrued {processed}. Something changed between looking and posting: check the schedule before taking the month as closed.',
+  /** The run accrued another total than the preview added up to. */
+  'payroll.accrue.preview_total_mismatch':
+    'The preview added up to {previewed} and the run accrued {posted}.',
+  /** The done line, with the entry when there is one. */
+  'payroll.accrue.done':
+    '{count, plural, one {# worker accrued} other {# workers accrued}} in {period} {hasEntry, select, yes {for {total} · entry {entry}} other {for {total}}}.',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.state': 'state',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.rate': 'rate',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.regime': 'regime',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.monthly_exemption': 'monthly exemption',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.in_force': 'in force',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.legal_basis': 'legal basis',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.table': 'table',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.criterion': 'criterion',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.reaches': 'reaches',
+  /** A rate captured with no end date. */
+  'payroll.isn_rate_set.open_ended': '(no end: still in force)',
+  /** What the ISN rate table is. */
+  'payroll.isn_rate_set.table_note':
+    '(catalogue, no tenant_id: the law is the same for every firm)',
+  /** A policy nobody answered, read at its default (`policyPair`). */
+  'payroll.isn.policy_default': '{value} (default, nobody answered)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====

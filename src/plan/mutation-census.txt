@@ -47,6 +47,9 @@ mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	key-unread
 mirror	memory	E0.0 cli-family-ar-speaks-by-key	src/cli/invoice-command.ts	reason-back-in-the-code: invoice issue declares its no-key reason in Spanish again, inside an English sentence
 mirror	memory	E0.0 cli-family-ar-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the ar family again
 mirror	memory	E0.0 cli-family-ar-speaks-by-key	src/cli/receipt-command.ts	string-back-in-the-code: receipt show writes «sin REP» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	src/cli/payroll-command.ts	spanish-beside-the-key: the key is still read, and its Spanish is written next to it, which only check 3 sees
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the payroll family again
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	src/cli/payroll-isn-command.ts	string-back-in-the-code: the ISN preview writes «sin cierre» in Spanish to every reader again
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -776,6 +779,9 @@ anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported',
 anchor	src/plan/criteria/e0-0.ts	de: "llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "t('ar.receipt.no_rep')",
+anchor	src/plan/criteria/e0-0.ts	de: "deps.palette.dim(t('payroll.accrue.dry_run'))",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "t('payroll.isn_rate_set.open_ended')",
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',
