@@ -54,6 +54,15 @@ variable (`api_key_env`) and you define it in `.env`. Standard precedence:
 In the chat, `/proveedor hermes` switches models mid-session (new
 conversation: history is not portable between formats).
 
+To keep a built-in profile but use another model, name it under `models`
+(`{ "models": { "gemini": "<model id>" } }`): the profile keeps its declared
+window and posture, and `--model` still wins. `mnemosine init --section ai
+--provider <p> --model <m>` probes that model and saves `default_provider`
+and `models.<p>` in the config file that wins, creating
+`~/.mnemosine/config.json` when there is none; before writing a project file
+it asks (default No, which `--yes` keeps). A key typed at its prompt goes to
+`~/.mnemosine/.env` (mode 600), never to `./.env`.
+
 **Inference providers vs. agents**: `openai`, `grok`, `minimax`, `qwen`,
 `openrouter` and `hermes` (Nous Portal) do standard function calling — the
 accounting tools work in full. In contrast, `hermes-agent` and `openclaw`

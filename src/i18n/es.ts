@@ -37,6 +37,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.BILL_CHANGED': '{bill} cambió mientras se aplicaba el pago; no se escribió nada.',
   'error.FX_REVALUATION_PLAN_CHANGED':
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
@@ -543,6 +544,40 @@ export const ES: Record<keyof typeof EN, string> = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
+  'policy.usmo_isr_subsidy.impact':
+    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+  'policy.usmo_isr_subsidy.rationale':
+    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+  'policy.usmo_isr_subsidy.why':
+    'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
+  'policy.usmo_isr_subsidy.what':
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'Lo tomo bruto de tarifa, sin restar el subsidio.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'El ISR del USMO por la tarifa mensual, sin restar el subsidio para el empleo',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'El ISR del USMO por la tarifa mensual, menos el subsidio para el empleo que tendría ese sueldo',
+
+  'policy.usmo_days_per_month.question':
+    '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+  'policy.usmo_days_per_month.why':
+    'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
+  'policy.usmo_days_per_month.what':
+    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_days_per_month.if_skipped':
+    'Uso 30 días.',
+  'policy.usmo_days_per_month.option.30':
+    'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Salario diario × 30.4 (el mes de la tarifa mensual)',
 
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
@@ -2300,6 +2335,27 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
+  'payment.trace.nothing_given':
+    'Di qué completar: --check-number, --to-account, --to-bank o --to-foreign-bank. No se escribió nada.',
+  'payment.trace.reason_required':
+    'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
+  'payment.trace.too_long':
+    '{flag} admite hasta {max} caracteres en el nodo de pago del archivo de pólizas del SAT, y se dieron {length}. No se escribió nada.',
+  'payment.trace.not_completable':
+    'El pago {number} está en «{status}»: sólo un pago completado o reversado tiene un asiento posteado cuya póliza declara su rastro. No se escribió nada.',
+  'payment.trace.already_captured':
+    'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
+  'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  'payment.trace.would_complete': 'Completaría {number}: {fields}',
+  'payment.trace.confirm':
+    '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
+  'payment.trace.completed': '{number}: {fields} completado; no se posteó nada',
+  'payment.trace.unchanged': '{number}: {fields} ya tenía ese valor; no se escribió nada para eso',
+  'payment.trace.period_not_open':
+    'El periodo {period} está en {status}: no cambia ninguna cifra del mayor; un archivo de pólizas generado ahora declarará este dato.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# archivo de pólizas} other {# archivos de pólizas}} de {period} se archivaron antes de este complemento: se quedan como están, y uno generado ahora será distinto de ellos.',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
@@ -3050,6 +3106,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo: 16, 8, 0, exempt (exento) o not-subject (no-objeto); sin factura es obligatorio, y con una declara el del excedente que deja --on-account; el IVA se causa al cobro',
   'help.receipt.record.option.on_account':
     'permite que el importe exceda el saldo de la factura: el excedente queda a cuenta como anticipo y causa su IVA al cobro (LIVA art. 1-B), a la tasa de --tax-rate o a la de la propia factura',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'número del cheque del cliente (con --method check); el XML de pólizas lo declara en el nodo Cheque',
+  'help.receipt.record.option.payer_bank':
+    'clave c_Banco (3 dígitos) del banco del que pagó el cliente; se valida contra la lista del SAT',
+  'help.receipt.record.option.payer_account':
+    'cuenta de la que pagó el cliente (en un cheque, la cuenta contra la que se giró); exige --payer-bank o --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'nombre completo del banco del cliente cuando es extranjero, en lugar de --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
@@ -3072,6 +3137,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.cause.record.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
   'help.receipt.cause.record.option.json': 'salida JSON',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado después.
+  'help.payment.trace.description': 'El rastro de un pago registrado: su cheque, y la cuenta y el banco a donde fue el dinero',
+  'help.payment.trace.record.description':
+    'Completa los campos vacíos del rastro de un pago registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.payment.trace.record.argument.payment': 'número o id del pago',
+  'help.payment.trace.record.option.check_number': 'número de cheque; sólo para un pago hecho con cheque',
+  'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
+  'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
+  'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
@@ -3248,6 +3323,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.reconcile.description':
     'Auxiliar (facturas abiertas − notas de crédito sin aplicar) contra la cuenta de control de cxc, nombrando las pólizas manuales',
   'help.ar.reconcile.option.strict': 'sale con 4 ante cualquier diferencia, por corta que sea la lista de sospechosos',
+  'ar.check.cross_party_application.found':
+    'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
+  'ar.check.cross_party_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',

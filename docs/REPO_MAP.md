@@ -83,6 +83,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/cli/entry-command.ts`
 - `src/cli/invoice-command.ts`
 - `src/cli/mnemosine.ts`
+- `src/cli/payment-command.ts`
 - `src/cli/payroll-isn-command.ts`
 - `src/cli/prepaid-command.ts`
 - `src/cli/receipt-command.ts`
@@ -126,6 +127,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `tests/integration/f05d-ataque.int.spec.ts`
 - `tests/integration/f07a-ataque.int.spec.ts`
 - `tests/integration/f07cd-ataque.int.spec.ts`
+- `tests/integration/f07d-polizas-y-su-rastro.int.spec.ts`
 - `tests/integration/g1b-ataque.int.spec.ts`
 - `tests/integration/ing3-issued-cfdi-to-ar.int.spec.ts`
 - `tests/integration/mvp-month-end-to-end.int.spec.ts`

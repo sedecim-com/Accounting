@@ -601,3 +601,70 @@ describe('I8.3 · receipt speaks by key', () => {
     }
   });
 });
+
+// ============================================================
+// #611 (MNE-001-567) · `receipt record` captures the payer's side of the
+// trace: the cheque number, the bank and account the customer paid from, or
+// its foreign bank. The service stores them; this pins the wiring and the
+// keyed help.
+// ============================================================
+
+describe('receipt record captures the payer bank, account and cheque number (#611)', () => {
+  const FLAGS = [
+    ['--check-number', 'check_number'],
+    ['--payer-bank', 'payer_bank'],
+    ['--payer-account', 'payer_account'],
+    ['--payer-foreign-bank', 'payer_foreign_bank'],
+  ] as const;
+
+  it('declares the four options with keyed help, in English and in Spanish', () => {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    registerReceiptCommand(program, deps);
+    const cmd = program.commands[0].commands.find((c) => c.name() === 'record')!;
+    for (const [flag, key] of FLAGS) {
+      const option = cmd.options.find((o) => o.long === flag);
+      expect(option, flag).toBeDefined();
+      expect(option!.description).toBe(t(`help.receipt.record.option.${key}`));
+      expect(t(`help.receipt.record.option.${key}`, {}, 'es')).not.toBe(t(`help.receipt.record.option.${key}`, {}, 'en'));
+    }
+  });
+
+  it('passes what was typed to the service, under its own names', async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '116.00', customer_id: 'c1',
+    } as never);
+    const { errs, calls } = await record([
+      'INV-1', '--amount', '116.00', '--method', 'spei', '--payer-bank', '002', '--payer-account', '002180009876543210', '--dry-run',
+    ]);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      paymentMethod: 'spei', payerBankCode: '002', payerAccount: '002180009876543210', payerForeignBank: null,
+    });
+  });
+
+  it("passes a cheque's number with the bank and account it is drawn on", async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '232.00', customer_id: 'c1',
+    } as never);
+    const { errs, calls } = await record([
+      'INV-1', '--amount', '232.00', '--method', 'check', '--check-number', '4501',
+      '--payer-bank', '072', '--payer-account', '1234567890', '--dry-run',
+    ]);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      paymentMethod: 'check', checkNumber: '4501', payerBankCode: '072', payerAccount: '1234567890', payerForeignBank: null,
+    });
+  });
+
+  it('without the options the service gets nulls, as before', async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'c1',
+    } as never);
+    const { errs, calls } = await record(['INV-1', '--amount', '100.00', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      checkNumber: null, payerBankCode: null, payerAccount: null, payerForeignBank: null,
+    });
+  });
+});

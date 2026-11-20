@@ -56,6 +56,8 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
+  'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
   'error.FX_REVALUATION_PLAN_CHANGED':
     'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
@@ -587,6 +589,40 @@ export const EN = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+  'policy.usmo_isr_subsidy.impact':
+    'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+  'policy.usmo_isr_subsidy.rationale':
+    'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+  'policy.usmo_isr_subsidy.why':
+    'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+  'policy.usmo_isr_subsidy.what':
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'I take it gross of the tariff, without subtracting the subsidy.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get',
+
+  'policy.usmo_days_per_month.question':
+    'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+  'policy.usmo_days_per_month.why':
+    'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+  'policy.usmo_days_per_month.what':
+    'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+  'policy.usmo_days_per_month.if_skipped':
+    'I use 30 days.',
+  'policy.usmo_days_per_month.option.30':
+    'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Daily wage × 30.4 (the month of the monthly tariff)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -2435,6 +2471,27 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
+  'payment.trace.nothing_given':
+    'Say what to complete: --check-number, --to-account, --to-bank or --to-foreign-bank. Nothing was written.',
+  'payment.trace.reason_required':
+    'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
+  'payment.trace.too_long':
+    '{flag} admits up to {max} characters in the payment node of the SAT journal file, and {length} were given. Nothing was written.',
+  'payment.trace.not_completable':
+    'The payment {number} is "{status}": only a completed or reversed payment has a posted entry whose voucher declares its trace. Nothing was written.',
+  'payment.trace.already_captured':
+    'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
+  'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  'payment.trace.would_complete': 'Would complete {number}: {fields}',
+  'payment.trace.confirm':
+    'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
+  'payment.trace.completed': '{number}: {fields} completed; nothing was posted',
+  'payment.trace.unchanged': '{number}: {fields} already held that value; nothing was written for it',
+  'payment.trace.period_not_open':
+    'The period {period} is in {status}: no ledger figure changes; a journal file generated now will declare this datum.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# journal file} other {# journal files}} of {period} were archived before this completion: they are kept as they are, and one generated now will differ from them.',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
@@ -3248,6 +3305,15 @@ export const EN = {
     'IVA treatment of an advance: 16, 8, 0, exempt (exento) or not-subject (no-objeto); with no invoice it is required, and with one it states the treatment of the excess --on-account leaves; the IVA is caused on collection',
   'help.receipt.record.option.on_account':
     'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'number of the customer\'s cheque (with --method check); the vouchers file declares it in the Cheque node',
+  'help.receipt.record.option.payer_bank':
+    'c_Banco code (3 digits) of the bank the customer paid from; checked against the SAT list',
+  'help.receipt.record.option.payer_account':
+    'account the customer paid from (for a cheque, the account it is drawn on); needs --payer-bank or --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'full name of the customer\'s bank when it is foreign, instead of --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',
@@ -3270,6 +3336,16 @@ export const EN = {
   'help.receipt.cause.record.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
   'help.receipt.cause.record.option.json': 'JSON output',
+  // MNE-001-568 (#612): the trace of a registered payment, completed afterwards.
+  'help.payment.trace.description': 'The payment trace of a registered payment: its cheque, and the account and bank the money went to',
+  'help.payment.trace.record.description':
+    'Complete the empty trace fields of a registered payment from its evidence: only empty fields, audited, posts nothing',
+  'help.payment.trace.record.argument.payment': 'payment number or id',
+  'help.payment.trace.record.option.check_number': 'cheque number; only for a payment made by cheque',
+  'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
@@ -3441,6 +3517,10 @@ export const EN = {
   'help.ar.reconcile.description':
     'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
   'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  /** `ar check`, probe cross-party-application (MNE-001-530). */
+  'ar.check.cross_party_application.found':
+    "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+  'ar.check.cross_party_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
