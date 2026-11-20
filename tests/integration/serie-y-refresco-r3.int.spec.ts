@@ -67,7 +67,11 @@ describe('la serie del folio por ejercicio', () => {
       path.resolve('src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql'),
       'utf-8'
     );
-    await query(siembra);
+    // The seeding walks every tenant of the run's database, so its INSERTs
+    // scale with the whole suite, not with this spec: under CI's parallel load
+    // one of them outgrew the pool's 60 s statement_timeout. The timeout is
+    // lifted for this transaction only; what the seeding computes is unchanged.
+    await query(`SET LOCAL statement_timeout = '240s';\n${siembra}`);
     const contador = await query<{ value: string }>(
       `SELECT value FROM entity_sequences WHERE entity_id = $1 AND name = 'journal_entry_2026'`,
       [f.entityId]
@@ -86,7 +90,7 @@ describe('la serie del folio por ejercicio', () => {
     expect(Number(siguiente.entry_number.split('-')[2])).toBeGreaterThan(emitido);
     // The seeding walks every tenant of the run's database, and the suite adds
     // tenants with each spec: the default 30 s stopped being enough in CI.
-  }, 120_000);
+  }, 300_000);
 });
 
 describe('el refresco fuera del posteo', () => {
