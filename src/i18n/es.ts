@@ -3759,6 +3759,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'ar.check.cross_party_application.found':
     'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
   'ar.check.cross_party_application.none': 'ninguna',
+  'ar.check.orphan_application.found':
+    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA; ' +
+    'la reversa ya reabrió la factura y sólo falta cerrar la fila, que ningún comando escribe: ' +
+    'repórtala antes de volver a cobrar esa factura',
+  'ar.check.orphan_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
