@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, closeDatabase, withTenant, withTransaction } from '../../src/database/connection.js';
+import { issuedVatOfOpenBalance, issuedVatStillParked } from '../../src/services/accounting/iva-cash-basis.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
@@ -306,5 +307,16 @@ describe('a reversal after a credit note takes back out of 2125 what its mirrors
     await reverse(b, receipt.paymentId);
     expect(await corrections(b, receipt.paymentId)).toEqual([]);
     expect(await vat(b)).toEqual({ '2125': '160.00', '2120': '0.00' });
+  }, 120_000);
+
+  it('R4 · an invoice the entity does not have: nothing is parked, its open balance carries no IVA, and neither read throws', async () => {
+    const b = await book('R4');
+    const missing = uuidv4();
+    const [parked, open] = await withTenant(b.f.tenantId, () => withTransaction(async (client) => [
+      await issuedVatStillParked(client, b.f.entityId, missing),
+      await issuedVatOfOpenBalance(client, b.f.entityId, missing),
+    ] as const));
+    expect(parked).toEqual({ parked: '0.0000', estimated: false });
+    expect(open).toEqual({ target: '0.0000', hasNote: false, hasEnded: false, noteNumbers: '' });
   }, 120_000);
 });
