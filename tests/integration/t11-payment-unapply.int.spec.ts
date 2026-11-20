@@ -228,7 +228,10 @@ describe('payment unapply: the duplicated 80,000 transfer can be undone, dated',
 
     const lines = await linesOf(r.journalEntry.id);
     expect(lines.get('1150')?.debit).toBe('1100.00');
-    expect(lines.get('5200')?.debit).toBe('60.00');
+    // MNE-001-597: 5200 gets back only the cost part; the discount's 8.2759 of
+    // VAT goes back to 1135 with the 151.7241 the cash released.
+    expect(lines.get('5200')?.debit).toBe('51.72');
+    expect(lines.get('1135')?.debit).toBe('160.00');
     expect(lines.get('2110')?.credit).toBe('1160.00');
     expect(await billRow(billId)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'approved' });
   }, 120_000);

@@ -151,7 +151,7 @@ describe('R1 · a SPEI receipt of 2,320.00 registered with no --bank and no --pa
     const after = await month('11');
     expect(voucherOf(after.xml, p.entry)).toContain(
       `<PLZ:Transferencia CtaOri="${PAYER_ACCOUNT}" BancoOriNal="002" CtaDest="${CLABE}" BancoDestNal="012" ` +
-        `Fecha="2026-11-12" Benef="Entidad de Prueba SA" RFC="EPR010101AB1" Monto="2320.00" Moneda="MXN"/>`
+        `Fecha="2026-11-12" Benef="Cliente Puntual SA" RFC="CPU010101AB1" Monto="2320.00" Moneda="MXN"/>`
     );
     expect(validateAgainstOfficialXsd(after.xml, 'journal')).toEqual({ valid: true, errors: [] });
     expect(findingsOf(after, p.entry).filter((h) => h.check === 'poliza-con-dinero-sin-rastro')).toEqual([]);

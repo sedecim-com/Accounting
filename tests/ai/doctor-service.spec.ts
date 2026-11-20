@@ -182,14 +182,79 @@ describe('runDoctor — fiscal credentials', () => {
 });
 
 describe('runDoctor — model provider', () => {
-  it('ok with a local provider without a credential', async () => {
+  function config(cfg: unknown) {
+    fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify(cfg));
+  }
+
+  it('ok with a loopback provider without a credential: only that is «local»', async () => {
     mockDb();
-    fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
-      default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
-    }));
+    config({
+      default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://127.0.0.1:9/v1' } },
+    });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/local, no credential/);
+    expect(c.detail).toBe('local · m (local, no credential)');
+  });
+
+  // MNE-001-443: this test used to expect «local, no credential» for
+  // http://x/v1. That host is not loopback: a remote endpoint with no key
+  // (a self-hosted NIM, say) has no credential configured, which may be
+  // intended, so doctor warns instead of calling it local.
+  it('warns, without calling it local, on a remote endpoint with no credential', async () => {
+    mockDb();
+    config({
+      default_provider: 'remote', providers: { remote: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toBe('remote · m (no credential configured)');
+    expect(c.detail).not.toMatch(/local/);
+    expect(c.fix).toMatch(/api_key_env or api_key_cmd/);
+  });
+
+  it('ok with a helper-only default: names its file, never runs it, never prints its command', async () => {
+    mockDb();
+    delete process.env.SOME_KEY;
+    const marker = path.join(tmpDir, 'helper-ran');
+    config({
+      default_provider: 'vault',
+      providers: {
+        vault: {
+          type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
+          api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+        },
+      },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
+    expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('an empty variable counts as unset', async () => {
+    mockDb();
+    process.env.SOME_KEY = '';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
+    });
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider').level).toBe('fail');
+  });
+
+  it('warns when the folder\'s ./.env holds the key: it serves everyone who runs mnemosine there', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'fake-folder-key';
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'SOME_KEY=fake-folder-key\n');
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/SOME_KEY set; .*\.env defines it, so that key serves everyone who runs mnemosine in that folder/);
+    expect(c.fix).toMatch(/~\/\.mnemosine\/\.env/);
+    expect(JSON.stringify(c)).not.toContain('fake-folder-key');
   });
 
   it('FAILS when the default requires a missing key, and suggests a viable alternative', async () => {
@@ -205,7 +270,16 @@ describe('runDoctor — model provider', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/SOME_KEY/);
-    expect(c.fix).toMatch(/--provider/);
+    expect(c.fix).toMatch(/^Set SOME_KEY in your shell or ~\/\.mnemosine\/\.env, or use --provider \S+$/);
+  });
+
+  it('the fix of a missing key names where to get it', async () => {
+    mockDb();
+    delete process.env.OPENAI_API_KEY;
+    config({ default_provider: 'openai' });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.fix).toMatch(/^Set OPENAI_API_KEY in your shell or ~\/\.mnemosine\/\.env \(get it at https:\/\/platform\.openai\.com\/api-keys\)/);
   });
 });
 
