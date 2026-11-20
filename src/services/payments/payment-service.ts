@@ -41,7 +41,7 @@ import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFindin
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
-import { officialEnumeration } from '../sat/anexo24/official-enumerations.js';
+import { FOREIGN_BANK_CODE, officialEnumeration } from '../sat/anexo24/official-enumerations.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
@@ -186,8 +186,6 @@ export interface EntradaPago {
 
 /** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
 const LARGO_CLAVE_BANCO = 3;
-/** The c_Banco code the vouchers file declares a foreign bank with, next to its name (#532). */
-const FOREIGN_BANK_CODE = '999';
 
 /**
  * El rastro de pago, comprobado ANTES de tocar la base.
@@ -308,7 +306,7 @@ export function assertPayerTrace(
   if (bank !== '' && foreign !== '') {
     throw new ValidationError(
       `El cobro declara banco del cliente nacional («${bank}») y extranjero («${foreign}») a la vez. ` +
-        'Un banco extranjero se da sólo con su nombre: la póliza le pone la clave 999 al escribirlo.'
+        `Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
     );
   }
   if (bank !== '' && !officialEnumeration('c_Banco').has(bank)) {

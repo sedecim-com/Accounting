@@ -12,6 +12,7 @@ import {
   type RequestFileEngine,
 } from '../../src/cli/e-accounting-request-command.js';
 import { avisarRastroIncompleto } from '../../src/cli/payment-command.js';
+import { t } from '../../src/i18n/index.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode, exitCodeFor } from '../../src/cli/kernel/index.js';
 import { commandCitations } from '../../src/plan/criteria/e5-1.js';
@@ -450,6 +451,40 @@ describe('payment create names a command the binary answers', () => {
     // The citation is the command alone: a bare `--period` form would exit 2
     // for want of --request-type, so it is not offered as runnable.
     expect(err.join('')).toContain('When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate`');
+  });
+
+  // MNE-001-401 (#532): 999 is «N/A» in c_Banco; alone it names no bank.
+  const capturedWarning = (over: Partial<Parameters<typeof avisarRastroIncompleto>[0]>, json = false): string => {
+    const err: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string | Uint8Array) => {
+      err.push(String(c));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      avisarRastroIncompleto(
+        {
+          entityId: 'E1', paymentAmount: '58.00', paymentDate: '2026-12-10', paymentMethod: 'spei', applications: [],
+          cuentaDestino: '002180009876543210', ...over,
+        },
+        plain as never,
+        json
+      );
+    } finally {
+      process.stderr.write = original;
+    }
+    return err.join('');
+  };
+
+  it('warns at capture when --to-bank is 999 with no foreign bank name', () => {
+    const text = capturedWarning({ bancoDestinoSat: '999' });
+    expect(text).toContain(t('payment.capture.foreign_code_without_name'));
+    expect(text).toContain('--to-foreign-bank');
+  });
+
+  it('says nothing for a foreign bank given by its name, nor under --json', () => {
+    expect(capturedWarning({ bancoDestinoExtranjero: 'Bank of Nowhere' })).toBe('');
+    expect(capturedWarning({ bancoDestinoSat: '999' }, true)).toBe('');
   });
 
   it('every e-accounting citation in payment-command.ts resolves in the tree', () => {

@@ -354,21 +354,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.question':
     'El complemento nombra una factura que el sistema no tiene: ¿qué pasa con ese IVA?',
   'policy.rep_unknown_document.impact':
-    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el impuesto espera, se omite con un aviso o se pregunta.',
+    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el complemento espera en revisión hasta que una persona corre mnemosine rep reconcile, ya con su factura en el sistema, o si los documentos que conoce siguen como siempre y la parte y el IVA del desconocido nunca se registran desde este complemento.',
   'policy.rep_unknown_document.rationale':
     'Las descargas masivas del SAT llegan en desorden, así que un complemento que llega antes que su factura es normal, no excepcional. El IVA no se pierde: se queda pendiente, que es justo donde lo quiere el art. 5 fracc. III de la LIVA hasta que un documento lo ampare. Cuando el complemento SÍ trae ImpuestosDR, esa cifra se coteja contra el prorrateo sobre la factura original: si difieren más allá de la tolerancia, el complemento va a revisión en vez de liberar cualquiera de las dos cifras en silencio.',
   'policy.rep_unknown_document.why':
     'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo dejar pendiente el traslado del impuesto hasta que aparezca la factura, o seguir sin él.',
   'policy.rep_unknown_document.what':
-    'Por omisión espero, y el vínculo se resuelve solo el día que se carga la factura.',
+    'Por omisión dejo el complemento en revisión. Nada lo reintenta solo: cuando su factura ya está en el sistema, correr mnemosine rep reconcile lo liga.',
   'policy.rep_unknown_document.if_skipped':
     'Espero. No se pierde nada: el impuesto se queda donde estaba.',
   'policy.rep_unknown_document.option.esperar':
-    'Esperar: registrar el vínculo pendiente y no trasladar IVA de ese documento',
+    'Esperar: todo el pago del complemento espera en revisión, con las facturas conocidas que paga, y no se traslada nada de su IVA',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Casar el efectivo y dejar el IVA sin trasladar, con un aviso',
   'policy.rep_unknown_document.option.preguntar':
-    'Preguntar el importe del IVA',
+    'Igual que «Esperar»: el complemento espera en revisión y no se pide importe de IVA. Se conserva para los despachos que ya la eligieron.',
 
   'policy.rep_voided_document.question':
     'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
@@ -2404,6 +2404,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 es «N/A» en el catálogo c_Banco del SAT y no nombra ningún banco. Si el banco es extranjero, da su nombre con --to-foreign-bank (la póliza le pone el 999); si es nacional, su propia clave. La póliza llevará un aviso.',
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
@@ -3092,6 +3095,64 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  'platform.backup.no_manifest': '(sin manifiesto)',
+  'platform.backup.schema_of': 'esquema {schema}',
+  'platform.backup.manifest_line': 'manifiesto: {file}',
+  'platform.backup.create.not_scoped':
+    '`backup create` vuelca la instalación ENTERA con pg_dump, que no filtra filas: acotarlo a un inquilino o a una entidad es imposible por construcción, y hasta hoy la bandera se aceptaba y se ignoraba en silencio.\nPara el archivo de UN despacho: `mnemosine backup export --tenant <id>` (con `--entity <id|nombre>` para una sola sociedad).\nPara la recuperación ante desastre de la instalación completa: `backup create` sin banderas.',
+  'platform.backup.create.unredacted':
+    'Contiene los datos SIN REDACTAR de {tenants, plural, one {# inquilino} other {# inquilinos}}: es la instalación entera, no un despacho.',
+  'platform.backup.create.one_tenant_hint': 'Para el archivo de uno solo: `mnemosine backup export --tenant <id>`.',
+  'platform.backup.create.no_crypto': 'Y NO incluye el material criptográfico:',
+  'platform.backup.create.crypto_detail':
+    'la llave del vault y ENCRYPTION_KEY viven fuera de la base. Sin ellas, al restaurar las credenciales fiscales y los datos bancarios quedan ilegibles. Respáldalas aparte.',
+  'platform.backup.create.untested_hint':
+    'Y un respaldo no probado no es un respaldo: `mnemosine backup verify <archivo> --restore`.',
+  'platform.backup.export.tenant_required':
+    'No hay inquilino que exportar. Nómbralo con `--tenant <uuid>` o fija MNEMOSINE_TENANT.\nUn archivo que no dice de quién es no se puede custodiar, así que esto no se adivina.',
+  'platform.backup.export.entity_of': '{entity} (entidad de {tenant})',
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# fila} other {# filas}} · {tables, plural, one {# tabla} other {# tablas}})',
+  'platform.backup.export.scope_line': 'alcance: {scope} — {owner}',
+  'platform.backup.export.read_as': 'leído como {role}, sujeto a RLS, en una sola instantánea REPEATABLE READ',
+  'platform.backup.export.not_a_backup': 'Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.',
+  'platform.backup.export.disaster_hint': 'Para recuperación ante desastre: `mnemosine backup create` + `backup restore`.',
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# tabla acotada queda} other {# tablas acotadas quedan}} fuera de este alcance; el manifiesto las nombra una por una.',
+  'platform.backup.export.unredacted':
+    'Lleva datos sin redactar del despacho, RFC de terceros incluidos: trátalo como tal.',
+  'platform.backup.list.no_status':
+    '`backup list` no tiene estado que filtrar: un respaldo es un archivo, no un documento con ciclo.',
+  'platform.backup.list.not_scoped':
+    '`backup list` inventaría un DIRECTORIO, y todavía no filtra por alcance: la bandera se aceptaba y se ignoraba.\nLa columna «alcance» de la salida ya dice de quién es cada archivo — inquilino, entidad o instalación completa —, así que por ahora el filtro se hace leyéndola.',
+  'platform.backup.list.scope_installation':
+    'instalación ({tenants, plural, one {# inquilino} other {# inquilinos}})',
+  'platform.backup.list.scope_installation_unknown': 'instalación (inquilinos desconocidos)',
+  'platform.backup.list.intact_yes': 'sí',
+  'platform.backup.list.never_verified': 'nunca',
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# hallazgo} other {# hallazgos}})',
+  'platform.backup.list.export_not_verified': 'n/a (exportación, no restaurable)',
+  'platform.backup.verify.not_found': 'No se encontró el respaldo {file}',
+  'platform.backup.verify.hash_ok': 'hash y manifiesto cuadran',
+  'platform.backup.verify.hash_mismatch': 'el hash NO cuadra con el manifiesto',
+  'platform.backup.verify.not_proof': 'Esto NO prueba que el respaldo restaure.',
+  'platform.backup.verify.repeat_with_restore': 'Un respaldo no probado no es un respaldo: repite con --restore.',
+  'platform.backup.verify.restored': 'restauró en una base de usar y tirar',
+  'platform.backup.verify.not_restored': 'NO restauró',
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entidad revisada} other {# entidades revisadas}} · {findings, plural, one {# hallazgo} other {# hallazgos}}',
+  'platform.backup.restore.retry_restores': 'un reintento vuelve a restaurar sobre lo ya restaurado',
+  'platform.backup.restore.would_restore': 'Restauraría {file} en una base NUEVA «{database}»',
+  'platform.backup.restore.nothing_written': 'No se escribe nada, y ninguna base existente se toca jamás.',
+  'platform.backup.restore.confirm': '¿Crear la base «{database}» y restaurar {file} en ella?',
+  'platform.backup.restore.no_terminal':
+    '{question} — no hay terminal donde preguntar. Vuelve a correrlo con --yes cuando estés seguro.',
+  'platform.backup.restore.done': 'restaurado en la base {database}',
+  'platform.backup.restore.previous_intact':
+    'La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.',
+  'platform.backup.restore.check_first': 'Compruébala antes: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====

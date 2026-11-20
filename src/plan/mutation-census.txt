@@ -53,6 +53,9 @@ mirror	memory	E0.0 cli-family-payroll-speaks-by-key	src/cli/payroll-isn-command.
 mirror	memory	E0.0 cli-family-assets-speaks-by-key	src/cli/depreciation-command.ts	string-back-in-the-code: depreciation run writes «nada que contabilizar» in Spanish to every reader again
 mirror	memory	E0.0 cli-family-assets-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the assets family again
 mirror	memory	E0.0 cli-family-assets-speaks-by-key	src/cli/asset-command.ts	string-back-in-the-code: the usage error of asset create is a Spanish template again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/backup-command.ts	string-back-in-the-code: backup export writes «no es un respaldo» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the platform family again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/backup-command.ts	string-back-in-the-code: the reason restore gives for not honouring a key is Spanish again
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -789,6 +792,9 @@ anchor	src/plan/criteria/e0-0.ts	de: "t('payroll.isn_rate_set.open_ended')",
 anchor	src/plan/criteria/e0-0.ts	de: "deps.palette.dim(`${t('assets.depreciation.nothing_this_book')}\\n`)",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'assets.asset.source_entry_contradiction' })",
+anchor	src/plan/criteria/e0-0.ts	de: "t('platform.backup.export.not_a_backup')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "{ key: 'platform.backup.restore.retry_restores' }",
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',

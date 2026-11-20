@@ -136,3 +136,47 @@ describe('the es panel names account 3200 as the seeded chart does', () => {
     expect(drift).toEqual([]);
   });
 });
+
+// ---- rep_documento_desconocido says what the code does (#667) ----------
+
+describe('rep_unknown_document says what the code does (#667)', () => {
+  // A parked receipt is retried only by a person's run of `rep reconcile`
+  // (rep-pendientes.ts has that one caller), `preguntar` reads as `esperar`
+  // (rep-linkage.ts tests only for postear_sin_iva), and no node warning is
+  // saved until #698, so the panel may promise none of the three.
+  const text = (language: 'en' | 'es', segment: string) =>
+    (language === 'en' ? EN : ES)[`policy.rep_unknown_document.${segment}` as TranslationKey];
+  const changed = ['impact', 'what', 'option.esperar', 'option.preguntar'];
+
+  it('each changed es entry is Spanish, not the extracted English', () => {
+    for (const segment of changed) expect(text('es', segment), segment).not.toBe(text('en', segment));
+  });
+
+  it('what I do names the review and the person run of rep reconcile, not a link that resolves itself', () => {
+    expect(text('en', 'what')).toMatch(/mnemosine rep reconcile/);
+    expect(text('es', 'what')).toMatch(/mnemosine rep reconcile/);
+    expect(text('en', 'what')).not.toMatch(/resolves itself/);
+    expect(text('es', 'what')).not.toMatch(/se resuelve solo/);
+  });
+
+  it('the impact names waiting for rep reconcile, and neither asks about the tax nor promises a warning', () => {
+    expect(text('en', 'impact')).toMatch(/mnemosine rep reconcile/);
+    expect(text('es', 'impact')).toMatch(/mnemosine rep reconcile/);
+    expect(text('en', 'impact')).not.toMatch(/asked about|warning/);
+    expect(text('es', 'impact')).not.toMatch(/se pregunta|aviso/);
+  });
+
+  it('waiting holds the whole payment, the known invoices it pays included', () => {
+    expect(text('en', 'option.esperar')).toMatch(/known invoices/);
+    expect(text('es', 'option.esperar')).toMatch(/facturas conocidas/);
+  });
+
+  it('asking behaves as waiting, is kept for stored answers and asks for no amount', () => {
+    expect(text('en', 'option.preguntar')).toMatch(/Wait/);
+    expect(text('en', 'option.preguntar')).toMatch(/Kept/);
+    expect(text('es', 'option.preguntar')).toMatch(/Esperar/);
+    expect(text('es', 'option.preguntar')).toMatch(/conserva/);
+    expect(text('en', 'option.preguntar')).not.toMatch(/Ask for the VAT amount/);
+    expect(text('es', 'option.preguntar')).not.toMatch(/Preguntar el importe/);
+  });
+});
