@@ -48,7 +48,7 @@ import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
 import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
-import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
+import { listedTraceFields, warnUntracedPayment, writeTraceCompletion } from './trace-completion-output.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -602,6 +602,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
         imprimirRegistro(result, p, label, remanente, false, opts.json === true);
+        // MNE-001-571 · what its voucher will lack, in the generator's own words.
+        await warnUntracedPayment('customer', ctx.entityId, result.paymentId, { json: opts.json === true, palette: p });
       })
   );
 
@@ -1127,6 +1129,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           result = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId);
         }
         writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
+        // MNE-001-571 · a finding names one gap at a time: say the next one now.
+        if (!dryRun && result.filled.length > 0) {
+          await warnUntracedPayment('customer', ctx.entityId, registered.id, { json: opts.json === true, palette: p });
+        }
       })
   );
 }

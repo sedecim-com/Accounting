@@ -2347,6 +2347,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-571 (#612): el aviso al capturar es el hallazgo del generador para esa póliza.
+  'payment.capture.untraced_voucher':
+    'Cuando el SAT pida las pólizas del periodo, `mnemosine e-accounting voucher generate` nombrará la póliza {entry} de {number}:',
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
