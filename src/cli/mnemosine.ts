@@ -118,6 +118,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
+import { providerLines } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -1262,26 +1263,8 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
   .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
-      const { profiles, defaultName, source } = listProfiles();
-      for (const [name, p] of Object.entries(profiles)) {
-        const isDefault = name === defaultName ? c.cyan(' ← default') : '';
-        const keyStatus = p.api_key_env
-          ? process.env[p.api_key_env]
-            ? c.dim(`${p.api_key_env} ✔`)
-            : c.dim(`${p.api_key_env} `) + '✘ missing'
-          : c.dim('no key');
-        console.log(`${c.bold(name)}${isDefault}`);
-        console.log(c.dim(`  ${p.type} · ${p.model}${p.base_url ? ` · ${p.base_url}` : ''} · ${p.tools === false ? 'no tools' : 'tools'} · `) + keyStatus);
-        if (p.note) console.log(c.dim(`  ${p.note}`));
-      }
-      console.log(
-        c.dim(
-          source
-            ? `\nConfig: ${source}`
-            : '\nUsing built-in profiles. Customize with mnemosine.config.json (or ~/.mnemosine/config.json) ' +
-                'and pick the default with "default_provider", MNEMOSINE_PROVIDER or --provider.'
-        )
-      );
+      // The readiness answer doctor, status and init give too; no helper runs.
+      for (const line of providerLines(c)) console.log(line);
       await shutdown(0);
     } catch (err) {
       reportError(err);

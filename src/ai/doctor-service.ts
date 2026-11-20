@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
 import { listProfiles } from './providers/config.js';
+import { credentialState } from './providers/credential-state.js';
 import { scanOrphans, type Orphan } from './orphan-scan.js';
 import {
   detectMemoryConflicts,
@@ -740,32 +741,45 @@ export function checkModelProvider(cwd?: string): CheckResult {
       fix: 'mnemosine providers  (pick a valid one)',
     };
   }
-  // No api_key_env = local without a credential (ollama): ready to use.
-  if (!active.api_key_env) {
-    return {
-      ...CHECK_IDENTITIES.modelProvider,
-      level: 'ok',
-      detail: `${defaultName} · ${active.model} (local, no credential)`,
-    };
-  }
-  if (!process.env[active.api_key_env]) {
-    const withKey = Object.entries(all).filter(
-      ([, p]) => !p.api_key_env || process.env[p.api_key_env]
-    );
+  // The readiness answer every surface gives (credential-state.ts): it never
+  // runs a helper and is advisory, so a warn here never stops anything.
+  const states = Object.fromEntries(
+    Object.entries(all).map(([n, p]) => [n, credentialState(p, { cwd, source: profiles.source })])
+  );
+  const state = states[defaultName];
+  const ownFile = 'your shell or ~/.mnemosine/.env';
+  if (state.source.kind === 'missing') {
+    const variable = state.source.variable;
+    const where = state.source.where ? ` (get it at ${state.source.where})` : '';
+    const ready = Object.entries(states).find(([n, st]) => n !== defaultName && st.ready);
     return {
       ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
-      detail: `${defaultName} requires ${active.api_key_env} and it is not set`,
-      fix: withKey.length
-        ? `Set ${active.api_key_env} in .env, or use --provider ${withKey[0][0]}`
-        : `Set ${active.api_key_env} in .env`,
+      detail: `${defaultName} requires ${variable} and it is not set` +
+        (state.folderEnv === 'empty' ? `; the empty ${variable}= in ./.env hides ~/.mnemosine/.env` : ''),
+      fix: ready
+        ? `Set ${variable} in ${ownFile}${where}, or use --provider ${ready[0]}`
+        : `Set ${variable} in ${ownFile}${where}`,
     };
   }
-  return {
-    ...CHECK_IDENTITIES.modelProvider,
-    level: 'ok',
-    detail: `${defaultName} · ${active.model}`,
-  };
+  const detail = `${defaultName} · ${active.model} (${state.label})`;
+  if (state.source.kind === 'none' && !state.source.local) {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'warn',
+      detail,
+      fix: `If ${active.base_url ?? 'its endpoint'} needs a credential, give the profile an api_key_env or api_key_cmd`,
+    };
+  }
+  if (state.folderEnv === 'key' && state.source.kind === 'env') {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'warn',
+      detail,
+      fix: `Keep your own key in ${ownFile} and remove ${state.source.variable} from ./.env`,
+    };
+  }
+  return { ...CHECK_IDENTITIES.modelProvider, level: 'ok', detail };
 }
 
 /** The example default (64 zeros) is nominal encryption: it must be shouted. */
