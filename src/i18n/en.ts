@@ -1506,6 +1506,23 @@ export const EN = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'The general minimum of the area of the employer registration (the entity\'s declared zone)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'The general-zone minimum for every worker, whatever the registration\'s area',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
@@ -2504,6 +2521,9 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-570 (#612): the trace of a registered receipt.
+  'receipt.trace.nothing_given':
+    'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
   // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
   'payment.trace.bank_no_entry':
     'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
@@ -3514,6 +3534,17 @@ export const EN = {
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
   'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
+  // MNE-001-570 (#612): the trace of a registered receipt, completed afterwards.
+  'help.receipt.trace.description': "The payment trace of a registered receipt: the customer's bank and account, its cheque, and our bank account",
+  'help.receipt.trace.record.description':
+    'Complete the empty trace fields of a registered receipt from its evidence: only empty fields, audited, posts nothing',
+  'help.receipt.trace.record.argument.receipt': 'receipt number or id',
+  'help.receipt.trace.record.option.check_number': "cheque number; only for a receipt by the customer's cheque",
+  'help.receipt.trace.record.option.payer_bank': 'c_Banco code (3 digits) of the bank the customer paid from, or that issued its cheque',
+  'help.receipt.trace.record.option.payer_account': 'account the customer paid from, or the one its cheque is drawn on',
+  'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
+  'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
+  'help.receipt.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
