@@ -15,6 +15,7 @@ import {
 } from './finiquito-math.js';
 import { getTaxParameters } from '../tax-engine/tax-tables.js';
 import { dailyMinimumWageFor, minimumWageZoneOf, type MinimumWageZone } from './minimum-wage-zone.js';
+import { calculateSeparationIsr, type SeparationIsr } from './separation-isr.js';
 
 // ============================================================
 // MX — Finiquito (termination settlement)
@@ -106,6 +107,13 @@ export interface FiniquitoResult {
     declared_by: 'employee' | 'entity' | null;
     note: string;
   };
+  /**
+   * The separation ISR (MNE-001-375): the exemption of LISR art. 93 fr. XIII
+   * on the separation payments ONLY. The ordinary items above keep the
+   * ordinary route, with their own exemptions, on the payroll run that pays
+   * them; `total` stays gross.
+   */
+  separation_isr: SeparationIsr;
   total: string;
   /** Cómo se llegó al número: qué antigüedad, qué tabla y qué salario diario. */
   basis: {
@@ -118,9 +126,9 @@ export interface FiniquitoResult {
     prima_vacacional_pct: string;
     aguinaldo_days_worked: number;
     /**
-     * The last ordinary monthly salary (LISR art. 96, last paragraph): the
-     * daily wage × `usmo_days_per_month`. Reported, not yet used: the
-     * separation ISR that divides by it is MNE-001-375.
+     * The last ordinary monthly salary (LISR art. 96, the paragraph on the
+     * payments of art. 95): the daily wage × `usmo_days_per_month`. Reported,
+     * not yet used: the rate that divides by it is MNE-001-579.
      */
     last_ordinary_monthly_salary: string;
     usmo_days_per_month: UsmoDaysPerMonth;
@@ -336,6 +344,16 @@ export async function calculateFiniquito(
     salario_minimo_diario: salarioMinimo,
   });
 
+  // THE SEPARATION ISR (MNE-001-375): on the seniority premium ALONE, the
+  // only separation payment this settlement computes. A premium «SIN
+  // CALCULAR» (a base of null with days owed) goes as null, never as zero.
+  const separationIsr = await calculateSeparationIsr({
+    payments:
+      d.prima_antiguedad_base_diaria === null && d.prima_antiguedad_dias > 0 ? null : d.prima_antiguedad_importe,
+    hireDate: e.hire_date,
+    terminationDate: input.termination_date,
+  });
+
   return {
     salary_pending_days: d.salario_pendiente_dias,
     salary_pending_amount: d.salario_pendiente_importe,
@@ -357,6 +375,7 @@ export async function calculateFiniquito(
         : 'General zone by default: the entity has not declared its minimum wage zone. Declare it with ' +
           'mnemosine entity edit <entity> --minimum-wage-zone general|northern_border',
     },
+    separation_isr: separationIsr,
     total: d.total,
     basis: {
       years_of_service: d.antiguedad_anios_cumplidos,

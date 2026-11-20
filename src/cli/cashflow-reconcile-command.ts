@@ -23,6 +23,7 @@ import {
   optionByKey,
   type Row,
 } from './kernel/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine cashflow reconcile · flujo conciliar
@@ -91,6 +92,28 @@ interface ReconcileOpts {
 /** Cuántos sospechosos se ofrecen. Una lista más larga deja de ser una pista. */
 const SOSPECHOSOS_POR_OMISION = 10;
 
+/**
+ * The label of each contrast row, by its `line` (MNE-001-218, #263).
+ *
+ * The ROW carries the English catalogue and the TABLE the user's language:
+ * --json and csv are read by scripts, and a script must read the same text
+ * under any locale (the amendment to decision 2 on #263). The table renders
+ * through the kernel's `labelled` hook, which only the human branches call.
+ */
+const CONTRAST_CONCEPT: Readonly<Record<string, TranslationKey>> = {
+  derivado: 'report.cashflow_reconcile.derived_concept',
+  real: 'report.cashflow_reconcile.ledger_concept',
+  residuo: 'report.cashflow_reconcile.residue_concept',
+};
+
+/** The `concept` of the table in the user's language; a suspect's own description passes through. */
+function conceptLabel(method: string): (value: string, row: Row) => string {
+  return (value, row) => {
+    const key = CONTRAST_CONCEPT[String(row.line)];
+    return key === undefined ? value : t(key, { method });
+  };
+}
+
 /** Fila del contraste. Las tres cifras que el lector compara contra su banco. */
 function filasDelContraste(c: Conciliacion): Row[] {
   const vacio = {
@@ -104,19 +127,19 @@ function filasDelContraste(c: Conciliacion): Row[] {
   return [
     {
       line: 'derivado',
-      concept: `Estado de flujos, neto (método ${c.method})`,
+      concept: t('report.cashflow_reconcile.derived_concept', { method: c.method }, 'en'),
       amount: c.residuo.derivado,
       ...vacio,
     },
     {
       line: 'real',
-      concept: 'Caja y bancos, variación en el mayor',
+      concept: t('report.cashflow_reconcile.ledger_concept', {}, 'en'),
       amount: c.residuo.real,
       ...vacio,
     },
     {
       line: 'residuo',
-      concept: 'Residuo (derivado − real)',
+      concept: t('report.cashflow_reconcile.residue_concept', {}, 'en'),
       amount: c.residuo.importe,
       ...vacio,
     },
@@ -191,39 +214,45 @@ Examples:
 
         note(`Cash flow reconciliation · ${ctx.entityName} · ${ctx.currency} · ${scope}`);
         note(
-          `Efectivo: ${c.efectivo.cuentas.map((x) => x.code).join(', ')} ` +
-            `(criterio «${c.efectivo.criterio}»${c.efectivo.criterio_definido ? '' : ', por omisión'}) · ` +
-            `${c.efectivo.saldo_inicial} → ${c.efectivo.saldo_final}`
+          t('report.cashflow_reconcile.cash_accounts', {
+            accounts: c.efectivo.cuentas.map((x) => x.code).join(', '),
+            criterion: c.efectivo.criterio,
+            defaulted: c.efectivo.criterio_definido ? 'no' : 'yes',
+            opening: c.efectivo.saldo_inicial,
+            closing: c.efectivo.saldo_final,
+          })
         );
 
         const rows = [...filasDelContraste(c), ...filasDeSospechosos(c.candidatos ?? [])];
-        render(rows, { ...opts, idField: 'line', total: rows.length, numeric: ['amount'] });
+        render(rows, {
+          ...opts,
+          idField: 'line',
+          total: rows.length,
+          numeric: ['amount'],
+          labelled: { concept: conceptLabel(c.method) },
+        });
 
         // EL RESIDUO SE NOMBRA Y SE CUANTIFICA, y va a stderr para que un csv
         // canalizado siga siendo importable. Nunca se reparte en un renglón.
         if (c.aviso) warn(c.aviso);
-        else note('Amarra: el estado de flujos equivale al movimiento real de efectivo.');
+        else note(t('report.cashflow_reconcile.ties'));
 
         if (c.candidatos?.length) {
-          note(
-            `${c.candidatos.length} sospechoso(s) — es una LISTA DE SOSPECHOSOS, no un veredicto: ` +
-              `son movimientos de efectivo que ninguna sección del estado parece reclamar, o que ` +
-              `puede estar contando dos veces. Verifícalos antes de tocar nada.`
-          );
+          note(t('report.cashflow_reconcile.suspects', { count: c.candidatos.length }));
           // La segunda cifra es la que dice si hay que seguir buscando. Sin
           // ella, una lista que cubre 50 000 de un residuo de 65 000 se lee
           // como si lo explicara entero.
           if (c.cobertura) {
             note(
-              `Explican ${c.cobertura.explicado} del residuo ${c.residuo.importe}; ` +
-                `quedan ${c.cobertura.sin_explicar} que no explica ninguno.`
+              t('report.cashflow_reconcile.coverage', {
+                explained: c.cobertura.explicado,
+                amount: c.residuo.importe,
+                unexplained: c.cobertura.sin_explicar,
+              })
             );
           }
         } else if (opts.showCandidates && !c.residuo.cuadra) {
-          note(
-            'Sin sospechosos que ofrecer: todo movimiento de efectivo del periodo cae en una ' +
-              'sección del estado, así que el residuo está en CÓMO se suman, no en qué se omitió.'
-          );
+          note(t('report.cashflow_reconcile.no_suspects'));
         }
 
         const code = checkExitCode(c.hallazgos, { strict: opts.strict === true });

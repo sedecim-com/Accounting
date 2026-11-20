@@ -63,7 +63,10 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // `days` entra con T6 (#93): el mínimo de aguinaldo del art. 87 LFT se cuenta
 // en días, y sin unidad `value` es un número sin significado — que es
 // exactamente el defecto que ese tramo cerró en el panel.
-type LegalParameterUnit = 'rate' | 'MXN' | 'days';
+// `UMA` enters with MNE-001-375 (#194): the separation cap of LISR art. 93
+// fr. XIII is counted in UMA per year of service, as migrations 094, 106 and
+// 164 already store the other art. 93 caps.
+type LegalParameterUnit = 'rate' | 'MXN' | 'days' | 'UMA';
 
 /** Una fila de la semilla: lo que la 080 exige, con la fuente obligatoria. */
 export interface LegalParameterSeedRow {
@@ -311,6 +314,29 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
       'podrá aplicarse contra el impuesto que resulte a su cargo posteriormente, ni se entregará ' +
       'cantidad alguna por concepto del subsidio para el empleo». 0 = nothing of the excess over the ' +
       'ISR is paid; it replaces the Artículo Décimo of the DOF 11-12-2013 decree.',
+  },
+
+  // ── The separation exemption (MNE-001-375 · #194) ──────────────────────
+  //
+  // Seeded here and not migrated, by the coordinator's decision on #194: an
+  // install without the law seed computes its settlements without the
+  // exemption, and the settlement says which row is missing
+  // (separation-isr.ts). The value is in UMA, not pesos: the peso figure moves
+  // every February with the UMA, and is computed at the termination date.
+  {
+    jurisdiction: 'MX',
+    key: 'income_tax.exempt_cap.separation_uma_per_year_of_service',
+    effectiveFrom: '2016-01-28',
+    value: '90.0000',
+    unit: 'UMA',
+    sourceUrl: LISR_PDF,
+    sourceNote:
+      'LISR art. 93 fr. XIII: seniority premiums, retirement, indemnities and other separation payments ' +
+      'are exempt «hasta por el equivalente a noventa veces el salario mínimo general del área geográfica ' +
+      'del contribuyente por cada año de servicio»; «Toda fracción de más de seis meses se considerará un ' +
+      'año completo»; the excess is taxed. Text of the LISR in force since 2014-01-01 (DOF 11-12-2013). ' +
+      'In UMA since the desindexation decree (DOF 27-01-2016, third transitory article), in force the ' +
+      'next day, as the other art. 93 caps (migrations 094, 106, 164).',
   },
 
   // ── Salarios mínimos ───────────────────────────────────────────────────
