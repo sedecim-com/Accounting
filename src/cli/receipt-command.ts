@@ -515,9 +515,6 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
         }
-        if (previo.excessAwaitsCashing) {
-          process.stderr.write(p.yellow(`${t('receipt.excess.cheque_held', { amount: remanente.toFixed(2) })}\n`));
-        }
         // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
         if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
           process.stderr.write(p.dim(`${t('receipt.advance.cheque_held', { iva: previo.advance.iva })}\n`));
@@ -855,8 +852,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId, { dryRun: true }
         );
+        // MNE-001-572 · a held cheque's cash goes back untaxed; its cashing causes that IVA.
+        const atCashing = (iva: string): void => {
+          if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
+        };
 
         if (dryRun) {
+          atCashing(previo.ivaAtCashing);
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
@@ -891,9 +893,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
             advance_iva_restored: result.documento.advanceIva ?? '0.00',
+            iva_at_cashing: result.ivaAtCashing,
             date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
+          atCashing(result.ivaAtCashing);
           return;
         }
         process.stdout.write(
@@ -903,6 +907,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
         );
+        atCashing(result.ivaAtCashing);
       })
   );
 
