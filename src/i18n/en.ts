@@ -56,6 +56,8 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('INVOICE_CHANGED')`: a collection's invoice UPDATE matched no row (MNE-001-580). */
+  'error.INVOICE_CHANGED': '{invoice} changed under this collection; nothing was written.',
   /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
   'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
@@ -593,13 +595,13 @@ export const EN = {
   'policy.usmo_isr_subsidy.question':
     'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
   'policy.usmo_isr_subsidy.impact':
-    'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
   'policy.usmo_isr_subsidy.rationale':
-    'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+    'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
   'policy.usmo_isr_subsidy.why':
     'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
   'policy.usmo_isr_subsidy.what':
-    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
   'policy.usmo_isr_subsidy.if_skipped':
     'I take it gross of the tariff, without subtracting the subsidy.',
   'policy.usmo_isr_subsidy.option.gross_of_tariff':
@@ -610,19 +612,36 @@ export const EN = {
   'policy.usmo_days_per_month.question':
     'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
   'policy.usmo_days_per_month.impact':
-    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
   'policy.usmo_days_per_month.rationale':
-    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
   'policy.usmo_days_per_month.why':
     'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
   'policy.usmo_days_per_month.what':
-    'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+    'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
   'policy.usmo_days_per_month.if_skipped':
     'I use 30 days.',
   'policy.usmo_days_per_month.option.30':
     'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
   'policy.usmo_days_per_month.option.30_4':
     'Daily wage × 30.4 (the month of the monthly tariff)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+  'policy.separation_isr_usmo_comparison.why':
+    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+  'policy.separation_isr_usmo_comparison.what':
+    'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'I compare the total paid.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -1883,6 +1902,9 @@ export const EN = {
    *  prompt whose default is no. Written here once; no leaf writes it (#262). */
   confirm_yes_no_suffix: '[y/N]',
 
+  /** The default-yes form (`yesNoPrompt(q, 'yes')`): the first-run prompt (#264). */
+  confirm_yes_no_suffix_default_yes: '[Y/n]',
+
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
    *  esto ya era una clave. */
@@ -2489,7 +2511,7 @@ export const EN = {
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
   'payment.trace.nothing_given':
-    'Say what to complete: --check-number, --to-account, --to-bank or --to-foreign-bank. Nothing was written.',
+    'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
   'payment.trace.reason_required':
     'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
   'payment.trace.too_long':
@@ -2499,6 +2521,11 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
+  'payment.trace.bank_no_entry':
+    'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
+  'payment.trace.bank_not_in_entry':
+    'The entry {entry} of payment {number} moved {moved}; "{account}" posts to {candidate}. Linking it would make the voucher declare a bank the ledger did not move. Nothing was written.',
   'payment.trace.would_complete': 'Would complete {number}: {fields}',
   'payment.trace.confirm':
     'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
@@ -3091,6 +3118,18 @@ export const EN = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  // MNE-001-219: `src/cli/mnemosine.ts` and `src/cli/close-command.ts`.
+  /** `ingest`: the auto-post a flag or mnemosine.config.json asked for, and the panel does not authorize. */
+  'root.ingest.auto_post_ignored':
+    'Warning: the auto-post asked for by flag or by mnemosine.config.json is IGNORED: the firm\'s panel does not authorize it.',
+  /** `ingest`: the second line of that warning, where turning it on belongs. */
+  'root.ingest.auto_post_turn_on':
+    'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
+  /** `lang`: a language that is not one of the accepted spellings. */
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
+  'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
@@ -3320,6 +3359,7 @@ export const EN = {
   'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
   'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':

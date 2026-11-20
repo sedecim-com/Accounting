@@ -12,6 +12,7 @@ import {
   ivaRoleFor,
   ivaToReclassify,
   ivaStillParked,
+  issuedVatStillParked,
   receivedReleaseAtSettlement,
   reclassRoles,
   describeMetodo,
@@ -19,6 +20,7 @@ import {
   type MetodoPagoDecision,
 } from './iva-cash-basis.js';
 import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines, type IepsMove } from './ieps-cash-basis.js';
+import { splitNoteVat } from '../xml-ingestion/received-credit-note.js';
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
@@ -398,12 +400,16 @@ interface CreditNoteRow {
  * it debits anticipo_clientes and leaves revenue whole (TipoRelacion 07 is
  * an application, not a return). Every other type debits devolucion_ventas.
  *
- * The IVA side mirrors the linked invoice's MetodoPago: a PUE invoice put
- * its IVA in iva_trasladado, so the note takes it back out of there; a PPD
- * invoice parked it in iva_trasladado_no_cobrado and — while uncollected —
- * that is where the note unwinds it. A note with no linked invoice assumes
- * PUE and says so in the entry: reversing tax that was already caused is
- * the conservative direction for a credit against collected sales.
+ * The IVA side follows where the linked invoice's IVA sits. A PUE invoice
+ * put it in iva_trasladado, so the note takes it back out of there. A PPD
+ * invoice parked it in iva_trasladado_no_cobrado, and the note unwinds there
+ * only what the invoice still has parked (`issuedVatStillParked`): that share
+ * lowers a price never collected, whose IVA was never caused (LIVA art. 1-B).
+ * The rest lowers a price already collected, so its IVA leaves iva_trasladado,
+ * restituted (LIVA art. 7) — the received side's rule since #692, MNE-001-575.
+ * A note with no linked invoice assumes PUE and says so in the entry:
+ * reversing tax that was already caused is the conservative direction for a
+ * credit against collected sales.
  */
 export async function postCreditNoteEntry(
   client: pg.PoolClient,
@@ -433,8 +439,16 @@ export async function postCreditNoteEntry(
   }
   const ivaRole = metodo ? ivaRoleFor('issued', metodo.metodo) : 'iva_trasladado';
   const isAdvance = note.type === 'anticipo';
+  const tax = new Decimal(note.tax_amount || '0');
+  // MNE-001-575: on a PPD invoice, 2125 only up to what it still has parked.
+  const parked = ivaRole === 'iva_trasladado_no_cobrado' && note.invoice_id && tax.greaterThan(0)
+    ? await issuedVatStillParked(client, note.entity_id, note.invoice_id)
+    : null;
+  const split = parked
+    ? splitNoteVat(tax, parked.parked)
+    : { fromPending: tax.toFixed(4), fromCreditable: '0.0000' };
   const roles = await roleAccounts(client, note.entity_id, [
-    'cxc', ivaRole, isAdvance ? 'anticipo_clientes' : 'devolucion_ventas',
+    'cxc', ivaRole, 'iva_trasladado', isAdvance ? 'anticipo_clientes' : 'devolucion_ventas',
   ]);
 
   const jeLines: JeLine[] = [
@@ -446,14 +460,23 @@ export async function postCreditNoteEntry(
       description: `Credit note ${note.credit_note_number}`,
     },
   ];
-  if (new Decimal(note.tax_amount || '0').greaterThan(0)) {
+  if (new Decimal(split.fromPending).greaterThan(0)) {
     jeLines.push({
       account_id: requireRole(roles, ivaRole),
-      debit_amount: note.tax_amount,
+      debit_amount: parked ? split.fromPending : note.tax_amount,
       credit_amount: null,
       description: metodo
-        ? `IVA reversed ${describeMetodo(metodo)} - Credit note ${note.credit_note_number}`
+        ? `IVA reversed ${describeMetodo(metodo)}${parked ? ' while still parked' : ''} - Credit note ${note.credit_note_number}`
         : `IVA reversed - Credit note ${note.credit_note_number} · no linked invoice: PUE assumed`,
+    });
+  }
+  if (new Decimal(split.fromCreditable).greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'iva_trasladado'),
+      debit_amount: split.fromCreditable,
+      credit_amount: null,
+      description: `IVA restituted (LIVA art. 7), already caused on collection - Credit note ${note.credit_note_number}` +
+        (parked?.estimated ? ' · the invoice\'s release of an allocation that stored none is estimated pro rata' : ''),
     });
   }
   jeLines.push({
@@ -491,8 +514,10 @@ export async function postCreditNoteEntry(
  * The bank's GL account (the linked bank account's gl_account_id, else the
  * banco role) and, when the payment names a bank account, the currency that
  * account is kept in (null when none is named: the banco role records none).
+ * MNE-001-569 · `payment trace record --bank` reads the same rule to decide
+ * which ledger account a bank account linked afterwards would have moved.
  */
-async function bankAccountOf(
+export async function bankAccountOf(
   client: pg.PoolClient,
   entityId: string,
   bankAccountId: string | null
@@ -520,7 +545,7 @@ async function bankAccountOf(
  * account. Until a panel key decides how that conversion is booked, the
  * payment is refused and the mismatch named.
  */
-function assertBankCurrency(
+export function assertBankCurrency(
   bank: { currency: string | null },
   paymentCurrency: string,
   paymentNumber: string

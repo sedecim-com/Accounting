@@ -21,9 +21,16 @@ import { aFechaUtc, aniosDeServicioCumplidos } from './finiquito-math.js';
 // fr. XIV caps applied by the payslip engine (isr-exemption.ts): they never
 // reach this cap, and they never use it up.
 //
-// The withholding on what is taxed (LISR art. 96, the paragraph on payments
-// of art. 95, and RLISR art. 172) is MNE-001-579. This module only says what
-// is exempt and what is taxed.
+// THE WITHHOLDING (MNE-001-579) is LISR art. 96, the paragraph on the
+// payments of art. 95 (third from the end; not its last paragraph):
+// «efectuarán la retención aplicando al ingreso total por este concepto, una
+// tasa que se calculará dividiendo el impuesto correspondiente al último
+// sueldo mensual ordinario, entre dicho sueldo [...]. Cuando los pagos por
+// estos conceptos sean inferiores al último sueldo mensual ordinario, la
+// retención se calculará aplicándoles la tarifa establecida en este
+// artículo.» The rate applies to the TAXABLE part: RLISR art. 172 nets the
+// fr. XIII exemption out of the art. 95 total. What is compared with the USMO
+// is the panel's `separation_isr_usmo_comparison`.
 // ============================================================
 
 /** The decimals of money in this system, as in finiquito-math.ts. */
@@ -93,5 +100,56 @@ export function separationExemption(input: SeparationExemptionInput): Separation
     cap: cap.toFixed(DECIMALS),
     exempt: exempt.toFixed(DECIMALS),
     taxable: payments.minus(exempt).toFixed(DECIMALS),
+  };
+}
+
+/** What is compared with the USMO (`separation_isr_usmo_comparison`). Its values are persisted. */
+export type UsmoComparison = 'total_payments' | 'taxable_payments';
+
+/**
+ * `exempt` when nothing is taxed; `tariff` when the payments compared are
+ * BELOW the USMO («inferiores», strict); `effective_rate` otherwise;
+ * `no_usmo` when the USMO is zero and there is no rate to divide by.
+ */
+export type SeparationWithholdingRoute = 'exempt' | 'tariff' | 'effective_rate' | 'no_usmo';
+
+export function separationRoute(args: {
+  payments: string;
+  taxable: string;
+  usmo: string;
+  comparison: UsmoComparison;
+}): SeparationWithholdingRoute {
+  if (new Decimal(args.taxable).lessThanOrEqualTo(0)) return 'exempt';
+  const usmo = new Decimal(args.usmo);
+  const compared = new Decimal(args.comparison === 'total_payments' ? args.payments : args.taxable);
+  if (compared.lessThan(usmo)) return 'tariff';
+  return usmo.greaterThan(0) ? 'effective_rate' : 'no_usmo';
+}
+
+/**
+ * The withholding at the USMO rate: taxable × (ISR of the USMO − subsidy) /
+ * USMO, rounded to the cent half-up at the END. The rate itself is never
+ * rounded (the law prescribes no rounding); `ratePercent` is for display, to
+ * four decimals. A subsidy above the ISR floors the rate at zero.
+ *
+ * @param isrOfUsmo the ISR of the USMO by the monthly tariff, to the cent.
+ * @param subsidyOfUsmo the monthly employment subsidy of the USMO under
+ *   `net_of_subsidy`, or null under `gross_of_tariff`.
+ */
+export function withholdingAtUsmoRate(args: {
+  taxable: string;
+  usmo: string;
+  isrOfUsmo: string;
+  subsidyOfUsmo: string | null;
+}): { ratePercent: string; withholding: string } {
+  const tax = Decimal.max(0, new Decimal(args.isrOfUsmo).minus(args.subsidyOfUsmo ?? 0));
+  const usmo = new Decimal(args.usmo);
+  return {
+    ratePercent: tax.dividedBy(usmo).times(100).toFixed(DECIMALS),
+    withholding: new Decimal(args.taxable)
+      .times(tax)
+      .dividedBy(usmo)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toFixed(DECIMALS),
   };
 }
