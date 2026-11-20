@@ -410,6 +410,28 @@ describe('las decisiones son del usuario, no del código', () => {
     ).toBeCloseTo(pendienteAntes, 2);
   });
 
+  it('un nodo con un documento conocido y uno desconocido espera entero con esperar y con preguntar (#667)', async () => {
+    // The panel's labels say it: the known bill waits too, and `preguntar` reads as `esperar`.
+    const g = await gastoAprobado('800.00', '128.00');
+    const parkedBefore = await saldoDe(cuentaPendiente, g.periodo);
+    const node = pagoDe(g);
+    node.monto = 928 + 580;
+    node.docsRelacionados.push({ uuid: uuidv4(), impSaldoAnt: 580, impPagado: 580, impSaldoInsoluto: 0, monedaDR: 'MXN' });
+
+    for (const value of ['esperar', 'preguntar']) {
+      if (value === 'preguntar') await fijarPoliticaGlobal('rep_documento_desconocido', value);
+      try {
+        const r = await ligar(g, node);
+        expect(r.accion, value).toBe('revision');
+        expect(r.motivo, value).toMatch(/no tiene/i);
+        expect(await pagosDe(g.billId), `${value}: the known bill is not paid either`).toBe(0);
+        expect(await saldoDe(cuentaPendiente, g.periodo), value).toBeCloseTo(parkedBefore, 2);
+      } finally {
+        await borrarPoliticaGlobal('rep_documento_desconocido');
+      }
+    }
+  });
+
   it('en moneda extranjera se para, en vez de inventar un tipo de cambio', async () => {
     const g = await gastoAprobado('600.00', '96.00');
     const pago = pagoDe(g, { monedaP: 'USD', tipoCambioP: 17.5 });
