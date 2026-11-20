@@ -119,7 +119,15 @@ export type Llave =
    * —retirarla rompería guiones publicados— pero pasarla FALLA, porque quien
    * la pasaba se creía protegido y no lo estaba.
    */
-  | { sinLlave: string };
+  | {
+      /**
+       * Prose, or —since MNE-001-220— a catalogue key: the reason reaches the
+       * user inside `cli.risk.key_not_honored`, and a key renders in the
+       * language of that sentence. The prose form stays for the families that
+       * have not moved theirs yet.
+       */
+      sinLlave: string | { key: string };
+    };
 
 /** El ámbito bajo el que esta hoja consuma la llave, si la honra. */
 export function ambitoDeLlave(cmd: Command): string | undefined {

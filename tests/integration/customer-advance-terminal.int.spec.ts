@@ -174,7 +174,8 @@ describe('an advance owes its own CFDI, not a REP', () => {
     const shown = await receipt(['show', recorded]);
     expect(shown.exitCode, shown.err).toBe(0);
     expect(shown.out).toMatch(/REP\s+none owed: .*advance CFDI.*Apéndice 6/);
-    expect((await receipt(['show', plainCash.paymentNumber])).out).toContain('sin REP');
+    // English under the suite's en-US: the line comes from the catalogue since MNE-001-220.
+    expect((await receipt(['show', plainCash.paymentNumber])).out).toContain('no REP — a tax obligation of its own');
 
     const listed = await receipt(['list', '--needs-rep', '--all', '--json']);
     const numbers = (JSON.parse(listed.out) as { rows: { payment_number: string }[] }).rows.map((r) => r.payment_number);
