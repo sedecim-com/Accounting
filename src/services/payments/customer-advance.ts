@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import type pg from 'pg';
 
 /**
  * MNE-001-458 (#623) · THE TREATMENT A CUSTOMER ADVANCE IS RECORDED WITH.
@@ -131,6 +132,57 @@ export function backAsAdvance(plain: readonly string[], treatment: AdvanceTreatm
     iva = iva.plus(splitAdvance(new Decimal(p).toFixed(2), treatment).iva);
   }
   return { cash: cash.toFixed(4), base: cash.minus(iva).toFixed(4), iva: iva.toFixed(4) };
+}
+
+/**
+ * MNE-001-572 · The cash a receipt's unapplies put back on account that took
+ * no advance, as `backAsAdvance` splits it at the receipt's treatment. One
+ * reader for the three that must agree to the cent: what is left of the
+ * advance (`advanceLeft`), and the IVA a cheque's cashing causes for the cash
+ * an unapply put back while the cheque was held (`pendingRelease`). Every
+ * closed allocation of a held cheque was closed while it was held, because a
+ * cheque is cashed once. Entity-scoped in the SQL.
+ */
+export async function advanceBackOnAccount(
+  client: pg.PoolClient,
+  entityId: string,
+  receiptId: string,
+  treatment: AdvanceTreatment
+): Promise<{ cash: string; base: string; iva: string }> {
+  const r = await client.query<{ plain: string }>(
+    `SELECT (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)::text AS plain
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NOT NULL`,
+    [receiptId, entityId]
+  );
+  return backAsAdvance(r.rows.map((x) => x.plain), treatment);
+}
+
+/**
+ * MNE-001-572 · Whether applying a held cheque's advance would cancel IVA
+ * nobody has caused (LIVA art. 1-B, second paragraph): the cash takes IVA
+ * from the advance (c > 0) while the cheque is not cashed, and the invoice's
+ * own IVA for that cash does not offset it in the invoice's month. A PPD
+ * invoice parks its IVA and a held cheque releases none of it; a PUE invoice
+ * at another treatment, or one with several, carries other IVA than the
+ * advance's. A PUE invoice at the receipt's single treatment is applied: its
+ * entry cancels in its own month the IVA its issuance caused, and the
+ * cashing causes the advance's on the bank's day (the owner's PUE ruling of
+ * 19 Nov 2026 on #789).
+ */
+export function cancelsUncausedIva(a: {
+  held: boolean;
+  /** The advance's IVA this cash takes (c). */
+  iva: string;
+  ppd: boolean;
+  /** The invoice's treatment (`treatmentOfSales`); null when it has none to read. */
+  sale: { treatment: AdvanceTreatment; assumed: string | null } | null;
+  receipt: AdvanceTreatment | null;
+}): boolean {
+  if (!a.held || !new Decimal(a.iva).greaterThan(0)) return false;
+  if (a.ppd) return true;
+  return a.sale === null || a.sale.assumed !== null || a.sale.treatment !== a.receipt;
 }
 
 /** MNE-001-462 · The note an entry carries when the excess took its treatment from the invoices it collects. */

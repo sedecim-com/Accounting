@@ -11,7 +11,7 @@ import { authenticate } from './api/rest/middleware/auth.js';
 import { readyHandler } from './api/rest/readiness.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
-import { errorHandler } from './api/rest/middleware/error-handler.js';
+import { errorHandler, routeNotFound } from './api/rest/middleware/error-handler.js';
 import { emptyBodyAsObject } from './api/rest/middleware/async-handler.js';
 import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limiter.js';
 import { resolverTrustProxy } from './api/rest/trust-proxy.js';
@@ -225,6 +225,13 @@ export async function bootstrap(): Promise<Express> {
     total: censo.rutas.length,
     ...censo.porClase,
   });
+
+  // A path or method no route serves: 404 ROUTE_NOT_FOUND in the envelope,
+  // instead of Express's HTML page (MNE-001-150). Mounted here, after every
+  // router has had its turn and right before the renderer. On /v1 an
+  // unauthenticated request never gets this far: `authenticate` refuses it
+  // with 401 before any route is looked at.
+  app.use(routeNotFound);
 
   // ============================================================
   // Error Handler (must be last)

@@ -8,6 +8,8 @@ A request may ask for a language with `Accept-Language`: en-GB is answered in en
 
 An error response declares that language — `Content-Language`, `meta.language` and `Vary: Accept-Language` — ONLY when its `message` was written by a catalog key and therefore rendered in it. Most messages are still prose written in whatever language their author used, and those go out with no language declared: saying `es-MX` over an English message is worse than saying nothing. Branch on an error's `code`, never on its `message`: the code is the wire contract and does not change with the language.
 
+A path or method that no route serves answers 404 `ROUTE_NOT_FOUND` in the same `{errors, meta}` envelope, with its message by key; `RESOURCE_NOT_FOUND` means the route exists and the record does not. On /v1 an unauthenticated request is refused with 401 first.
+
 ## Modules and their docs
 accounting (journal entries/periods), receivables (customers/invoices), payables (vendors/bills), banking (reconciliation), mexico-cfdi (stamping/ingestion), payroll (MX+USA), reports, mnemosine (your flow), playbooks (how to GUIDE each process), cli-reference (exact command surface), identity-access (login/RLS/roles), connectivity (database hosting + model providers), external-integrations (other accounting systems). The NIF and IFRS normative docs (nif-*, niif-*) are in the read_docs index, not in this list.
 
