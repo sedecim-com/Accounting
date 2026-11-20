@@ -2353,6 +2353,27 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
+  'payment.trace.nothing_given':
+    'Di qué completar: --check-number, --to-account, --to-bank o --to-foreign-bank. No se escribió nada.',
+  'payment.trace.reason_required':
+    'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
+  'payment.trace.too_long':
+    '{flag} admite hasta {max} caracteres en el nodo de pago del archivo de pólizas del SAT, y se dieron {length}. No se escribió nada.',
+  'payment.trace.not_completable':
+    'El pago {number} está en «{status}»: sólo un pago completado o reversado tiene un asiento posteado cuya póliza declara su rastro. No se escribió nada.',
+  'payment.trace.already_captured':
+    'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
+  'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  'payment.trace.would_complete': 'Completaría {number}: {fields}',
+  'payment.trace.confirm':
+    '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
+  'payment.trace.completed': '{number}: {fields} completado; no se posteó nada',
+  'payment.trace.unchanged': '{number}: {fields} ya tenía ese valor; no se escribió nada para eso',
+  'payment.trace.period_not_open':
+    'El periodo {period} está en {status}: no cambia ninguna cifra del mayor; un archivo de pólizas generado ahora declarará este dato.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# archivo de pólizas} other {# archivos de pólizas}} de {period} se archivaron antes de este complemento: se quedan como están, y uno generado ahora será distinto de ellos.',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
@@ -2882,6 +2903,22 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
   // Same blocks, same order as en.ts.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  'report.cashflow.gross_unavailable':
+    'El estado en términos BRUTOS (NIF B-2 §40 / ASC 230-10-45-7) no se puede construir con estos datos, y no se devuelve el neto rotulado como bruto. Lo bruto exige cobros y pagos separados, y eso es un dato de la OPERACIÓN, no de la cuenta: el motor publica un neto por cuenta, y partirlo en su cargo y su abono no da flujos —la baja de un activo abona a valor en libros mientras el efectivo cobrado es otro importe—. La salida por omisión ya muestra cada cuenta de cada sección, que es el detalle que estos libros sí sostienen. Vuelve a correr sin --gross.',
+  'report.cashflow_reconcile.derived_concept': 'Estado de flujos, neto (método {method})',
+  'report.cashflow_reconcile.ledger_concept': 'Caja y bancos, variación en el mayor',
+  'report.cashflow_reconcile.residue_concept': 'Residuo (derivado − real)',
+  'report.cashflow_reconcile.cash_accounts':
+    'Efectivo: {accounts} ({defaulted, select, yes {criterio «{criterion}», por omisión} other {criterio «{criterion}»}}) · {opening} → {closing}',
+  'report.cashflow_reconcile.ties':
+    'Amarra: el estado de flujos equivale al movimiento real de efectivo.',
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# sospechoso} other {# sospechosos}} — es una LISTA DE SOSPECHOSOS, no un veredicto: son movimientos de efectivo que ninguna sección del estado parece reclamar, o que puede estar contando dos veces. Verifícalos antes de tocar nada.',
+  'report.cashflow_reconcile.coverage':
+    'Explican {explained} del residuo {amount}; quedan {unexplained} que no explica ninguno.',
+  'report.cashflow_reconcile.no_suspects':
+    'Sin sospechosos que ofrecer: todo movimiento de efectivo del periodo cae en una sección del estado, así que el residuo está en CÓMO se suman, no en qué se omitió.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
@@ -3094,6 +3131,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.cause.record.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
   'help.receipt.cause.record.option.json': 'salida JSON',
+  // MNE-001-568 (#612): el rastro de un pago registrado, completado después.
+  'help.payment.trace.description': 'El rastro de un pago registrado: su cheque, y la cuenta y el banco a donde fue el dinero',
+  'help.payment.trace.record.description':
+    'Completa los campos vacíos del rastro de un pago registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.payment.trace.record.argument.payment': 'número o id del pago',
+  'help.payment.trace.record.option.check_number': 'número de cheque; sólo para un pago hecho con cheque',
+  'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
+  'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
+  'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',

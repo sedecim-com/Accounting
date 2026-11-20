@@ -2487,6 +2487,27 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
+  'payment.trace.nothing_given':
+    'Say what to complete: --check-number, --to-account, --to-bank or --to-foreign-bank. Nothing was written.',
+  'payment.trace.reason_required':
+    'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
+  'payment.trace.too_long':
+    '{flag} admits up to {max} characters in the payment node of the SAT journal file, and {length} were given. Nothing was written.',
+  'payment.trace.not_completable':
+    'The payment {number} is "{status}": only a completed or reversed payment has a posted entry whose voucher declares its trace. Nothing was written.',
+  'payment.trace.already_captured':
+    'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
+  'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  'payment.trace.would_complete': 'Would complete {number}: {fields}',
+  'payment.trace.confirm':
+    'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
+  'payment.trace.completed': '{number}: {fields} completed; nothing was posted',
+  'payment.trace.unchanged': '{number}: {fields} already held that value; nothing was written for it',
+  'payment.trace.period_not_open':
+    'The period {period} is in {status}: no ledger figure changes; a journal file generated now will declare this datum.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# journal file} other {# journal files}} of {period} were archived before this completion: they are kept as they are, and one generated now will differ from them.',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
@@ -3041,6 +3062,32 @@ export const EN = {
   // their own block and git merges them. Keep each family's keys between its
   // two markers; tests/i18n/sync.spec.ts checks they stay, once each, in order.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  // MNE-001-218: `src/cli/cashflow-command.ts` and `src/cli/cashflow-reconcile-command.ts`.
+  /** src/cli/cashflow-command.ts: `--gross` is refused, saying what is missing. */
+  'report.cashflow.gross_unavailable':
+    'The statement in GROSS terms (NIF B-2 §40 / ASC 230-10-45-7) cannot be built from these data, and the net is not returned labelled as gross. Gross needs receipts and payments kept apart, and that is a datum of the TRANSACTION, not of the account: the engine publishes a net per account, and splitting it into its debit and its credit does not give flows — disposing of an asset credits book value while the cash collected is another amount. The default output already shows every account of every section, which is the detail these books do support. Run it again without --gross.',
+  /** `concept` of the `derivado` contrast row. */
+  'report.cashflow_reconcile.derived_concept': 'Cash flow statement, net ({method} method)',
+  /** `concept` of the `real` contrast row. */
+  'report.cashflow_reconcile.ledger_concept': 'Cash and banks, change in the ledger',
+  /** `concept` of the `residuo` contrast row. */
+  'report.cashflow_reconcile.residue_concept': 'Residue (derived − actual)',
+  /** The cash note: the accounts, the criterion (and whether it was answered) and the two balances. */
+  'report.cashflow_reconcile.cash_accounts':
+    'Cash: {accounts} ({defaulted, select, yes {criterion "{criterion}", by default} other {criterion "{criterion}"}}) · {opening} → {closing}',
+  /** The statement ties to the real movement of cash. */
+  'report.cashflow_reconcile.ties':
+    'Ties: the cash flow statement equals the actual movement of cash.',
+  /** The suspects offered with `--show-candidates`. */
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# suspect} other {# suspects}} — this is a LIST OF SUSPECTS, not a verdict: cash movements that no section of the statement seems to claim, or that it may be counting twice. Check them before touching anything.',
+  /** How much of the residue the suspects explain. */
+  'report.cashflow_reconcile.coverage':
+    'They explain {explained} of the residue {amount}; {unexplained} remain that none of them explains.',
+  /** A residue with no suspects to offer. */
+  'report.cashflow_reconcile.no_suspects':
+    'No suspects to offer: every cash movement of the period falls in a section of the statement, so the residue is in HOW they are added up, not in what was left out.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
@@ -3264,6 +3311,16 @@ export const EN = {
   'help.receipt.cause.record.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
   'help.receipt.cause.record.option.json': 'JSON output',
+  // MNE-001-568 (#612): the trace of a registered payment, completed afterwards.
+  'help.payment.trace.description': 'The payment trace of a registered payment: its cheque, and the account and bank the money went to',
+  'help.payment.trace.record.description':
+    'Complete the empty trace fields of a registered payment from its evidence: only empty fields, audited, posts nothing',
+  'help.payment.trace.record.argument.payment': 'payment number or id',
+  'help.payment.trace.record.option.check_number': 'cheque number; only for a payment made by cheque',
+  'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',

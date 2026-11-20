@@ -68,12 +68,14 @@ function finding(
       ...(r.missingOnBankAccount !== undefined ? { missingOnBankAccount: r.missingOnBankAccount } : {}),
       ...(r.bankAccountFlag !== undefined ? { bankAccountFlag: r.bankAccountFlag } : {}),
       ...(r.noCommandFixes !== undefined ? { noCommandFixes: r.noCommandFixes } : {}),
+      ...(r.completedBy !== undefined ? { completedBy: r.completedBy } : {}),
     },
   ]);
   return { node: false, text: h!.detalle };
 }
 
-const PAYMENT_REMEDY = 'payment create --check-number/--to-account/--to-bank';
+/** What the capture command offered: a payment already registered is never sent back to it. */
+const CAPTURE_REMEDY = 'payment create';
 const ACCOUNT_REMEDY = 'bank account edit';
 
 describe('a payment node without its c_Banco code: the remedy follows the cause', () => {
@@ -108,7 +110,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).toContain('se registró sin cuenta bancaria');
     // There is no account to edit and no command that links one afterwards.
     expect(f.text).not.toContain(ACCOUNT_REMEDY);
-    expect(f.text).not.toContain(PAYMENT_REMEDY);
+    expect(f.text).not.toContain('payment trace record');
     expect(f.text).toContain('ningún comando');
     // Reversing and paying again leaves the month blocked: never prescribed.
     expect(f.text).not.toContain('payment reverse');
@@ -164,14 +166,12 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).toContain('ningún comando');
   });
 
-  it('a destination bank not captured: it is only captured when the payment is registered', () => {
-    // The payment is already registered and no command adds `--to-bank` to it;
-    // reversing and paying again leaves the reversed entry untraced.
+  it('a destination bank not captured: completed on the registered payment (MNE-001-568)', () => {
     const f = finding(payment({ banco_destino_sat: null }), 'sale', account());
     expect(f.text).toContain('el nodo Transferencia exige BancoDestNal');
-    expect(f.text).toContain('payment create --to-bank');
-    expect(f.text).toContain('ningún comando');
-    expect(f.text).not.toContain(PAYMENT_REMEDY);
+    expect(f.text).toContain('`payment trace record VPMT-2026-00007 --to-bank <clave> --reason <motivo>`');
+    expect(f.text).not.toContain(CAPTURE_REMEDY);
+    expect(f.text).not.toContain('ningún comando');
   });
 
   it('no finding cites a tracker number', () => {
@@ -276,5 +276,88 @@ describe('a receipt declares the payer as the origin and our bank account as the
   it('a foreign payer bank is named, on one line', () => {
     const f = finding(receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of\nNowhere' }), 'entra', account());
     expect(f.text).toContain('«Bank of Nowhere»');
+  });
+});
+
+// ============================================================
+// MNE-001-568 (#612, part 1/4) · EVERY CAUSE OF A REGISTERED PAYMENT, AND
+// ITS REMEDY. A payment already registered is never sent back to the command
+// that captures one (`payment create`, `receipt record`): the remedy names
+// the record that lacks the datum, or the command that completes it on that
+// payment, or says that none does. The cases a later part completes keep
+// their «ningún comando» remedy until then, and say which part.
+// ============================================================
+
+/** `site` is the branch of `rastroDePago` that names the cause; `later` the part that completes it. */
+interface Cause {
+  name: string;
+  direction: 'sale' | 'entra';
+  payment: Payment;
+  bank: BankAccount | undefined;
+  remedy: string;
+  site: string;
+  later?: 'MNE-001-569' | 'MNE-001-570';
+}
+
+const vendorCheck = (over: Partial<Payment> = {}): Payment => payment({ payment_method: 'check', check_number: '30001', ...over });
+const CAUSES: readonly Cause[] = [
+  { name: 'a vendor without RFC', direction: 'sale', payment: payment({ contraparte_rfc: null }), bank: account(), remedy: 'falta en el registro del proveedor', site: 'payee' },
+  { name: 'a cheque with no number', direction: 'sale', payment: vendorCheck({ check_number: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --check-number <número> --reason <motivo>`', site: 'sale-check-number' },
+  { name: 'a cheque from an account with no c_Banco code', direction: 'sale', payment: vendorCheck(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
+  { name: 'a cheque with no bank account', direction: 'sale', payment: vendorCheck({ bank_account_id: null }), bank: undefined, remedy: 'ningún comando', site: 'our-bank-none', later: 'MNE-001-569' },
+  { name: 'a cheque from an account with no number', direction: 'sale', payment: vendorCheck(), bank: account({ clabe_encrypted: null }), remedy: 'bank account edit <cuenta> --clabe <18 dígitos>', site: 'sale-check-account' },
+  { name: 'a transfer with no destination account', direction: 'sale', payment: payment({ cuenta_destino: null, banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-account <cuenta> --reason <motivo>`', site: 'sale-to-account' },
+  { name: 'a transfer from an account with no c_Banco code', direction: 'sale', payment: payment(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
+  { name: 'a transfer with no bank account', direction: 'sale', payment: payment({ bank_account_id: null }), bank: undefined, remedy: 'ningún comando', site: 'our-bank-none', later: 'MNE-001-569' },
+  { name: 'a transfer to a foreign bank', direction: 'sale', payment: payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }), bank: account(), remedy: 'decisión del dueño', site: 'sale-foreign-bank' },
+  { name: 'a transfer with no destination bank', direction: 'sale', payment: payment({ banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-bank <clave> --reason <motivo>`', site: 'sale-to-bank' },
+  { name: 'a receipt into an entity with no RFC', direction: 'entra', payment: receipt(), bank: account(), remedy: 'falta en el registro de la entidad', site: 'payee' },
+  { name: 'a customer cheque with no number', direction: 'entra', payment: customerCheckPayment({ check_number: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-number', later: 'MNE-001-570' },
+  { name: 'a customer cheque with no payer bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null }), bank: undefined, remedy: 'ningún comando', site: 'payer-bank', later: 'MNE-001-570' },
+  { name: 'a customer cheque from a foreign bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), bank: undefined, remedy: 'banco extranjero', site: 'payer-foreign-bank' },
+  { name: 'a customer cheque with no drawn-on account', direction: 'entra', payment: customerCheckPayment({ cuenta_origen: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-account', later: 'MNE-001-570' },
+  { name: 'a receipt with no bank account', direction: 'entra', payment: receipt({ bank_account_id: null }), bank: undefined, remedy: 'ningún comando', site: 'our-bank-none', later: 'MNE-001-570' },
+  { name: 'a receipt into an account with no c_Banco code', direction: 'entra', payment: receipt(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
+  { name: 'a receipt into an account with no number', direction: 'entra', payment: receipt(), bank: account({ clabe_encrypted: null }), remedy: 'bank account edit <cuenta> --clabe <18 dígitos>', site: 'entra-to-account' },
+  { name: 'a receipt with no payer bank', direction: 'entra', payment: receipt({ banco_origen_sat: null }), bank: account(), remedy: 'ningún comando', site: 'payer-bank', later: 'MNE-001-570' },
+];
+
+describe('every cause of a registered payment has a remedy that is true (MNE-001-568)', () => {
+  const OURS_WITHOUT_RFC = { nombre: OURS.nombre, rfc: '' };
+  const textOf = (c: Cause): string => {
+    const r = rastroDePago(c.payment, c.direction, c.bank, c.name.includes('entity with no RFC') ? OURS_WITHOUT_RFC : OURS, passThrough, ENTRY);
+    expect(r.pago, c.name).toBeUndefined();
+    const [h] = polizaConDineroSinRastro([{ numUnIdenPol: ENTRY, motivo: r.motivo ?? '', ...r }]);
+    return h!.detalle;
+  };
+
+  it.each(CAUSES.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    const text = textOf(c);
+    expect(text).toContain(c.remedy);
+    expect(text).not.toMatch(/#\d/);
+    // Never the capture command of the other side, and never a reversal.
+    expect(text).not.toContain(c.direction === 'sale' ? 'receipt record' : 'payment create');
+    expect(text).not.toContain('payment reverse');
+    // The capture command is named only where a later part brings the command that completes it.
+    if (c.later === undefined) {
+      expect(text).not.toContain('payment create');
+      expect(text).not.toContain('receipt record');
+    }
+  });
+
+  it('the leaf completes what the vendor side captures, naming the payment by its number', () => {
+    const completed = CAUSES.filter((c) => c.remedy.startsWith('`payment trace record'));
+    expect(completed.map((c) => c.site)).toEqual(['sale-check-number', 'sale-to-account', 'sale-to-bank']);
+    for (const c of completed) {
+      const r = rastroDePago(c.payment, c.direction, c.bank, OURS, passThrough, ENTRY);
+      expect(r.completedBy).toMatch(/^payment trace record VPMT-2026-00007 --/);
+      expect(r.noCommandFixes).toBeUndefined();
+      expect(textOf(c)).toContain('Complétalo en el pago ya registrado');
+    }
+  });
+
+  it('no cause is left out: one row per branch of `rastroDePago` that names a motive', () => {
+    const branches = (rastroDePago.toString().match(/\bmotivo:/g) ?? []).length;
+    expect(new Set(CAUSES.map((c) => c.site)).size).toBe(branches);
   });
 });

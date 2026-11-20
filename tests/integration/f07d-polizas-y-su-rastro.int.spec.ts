@@ -378,9 +378,10 @@ describe('una póliza que mueve dinero y no trae el rastro', () => {
     expect(sinRastro.length).toBeGreaterThan(0);
     expect(sinRastro.map((h) => h.referencia)).toContain(numero);
     expect(sinRastro[0].detalle).toContain('cuenta destino');
-    // The datum belongs on the payment here, so the remedy sends the reader
-    // there, unlike a payee gap that lives on the counterparty record.
-    expect(sinRastro[0].detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    // The datum belongs on the payment here, so the remedy completes it there
+    // (MNE-001-568), unlike a payee gap that lives on the counterparty record.
+    expect(sinRastro[0].detalle).toContain(`payment trace record ${pago.paymentNumber} --to-account`);
+    expect(sinRastro[0].detalle).not.toContain('payment create');
     expect(sinRastro[0].detalle).not.toContain('falta en el registro');
     expect(r.puedeEntregarse).toBe(false);
     // Y NO se archiva: un artefacto es lo que se entrega, y esto no se entrega.
@@ -699,7 +700,8 @@ describe('a payment node without its c_Banco code is left out and its entry is n
   // without it and the XSD rejects the whole file. The last two columns are
   // the remedy: what the accountant must read, and a remedy that would fix
   // nothing for that cause, which must not appear.
-  const PAYMENT_REMEDY = 'payment create --check-number/--to-account/--to-bank';
+  // MNE-001-568: a registered payment is completed, never captured again.
+  const PAYMENT_REMEDY = 'payment create';
   it.each([
     ['a cheque from a bank account with no SAT bank code', 'Cheque', 'BanEmisNal',
       'bank account edit <cuenta> --sat-bank-code', 'payment create',
@@ -714,7 +716,7 @@ describe('a payment node without its c_Banco code is left out and its entry is n
       'Hoy ningún comando lo completa', 'bank account edit',
       () => vendorPayment('spei', 'none', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
-      'Hoy ningún comando lo completa', PAYMENT_REMEDY,
+      'Complétalo en el pago ya registrado (`payment trace record', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
