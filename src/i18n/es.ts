@@ -4606,6 +4606,96 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.vendor.terms.set.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': 'código ISO de 3 letras',
   'help.vendor.terms.set.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  'help.payment.description':
+    'Pagos a proveedores: registra el dinero que ya salió del banco y liquida la factura que paga',
+  'help.payment.create.description':
+    'Registra un pago hecho contra una factura de proveedor y reconoce el IVA que tenía pendiente',
+  'help.payment.create.argument.bill': 'número propio, folio del proveedor o id',
+  'help.payment.create.option.amount': 'importe, en la moneda del documento',
+  'help.payment.create.option.date': 'fecha valor (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.create.option.method': 'forma de pago, una de: cash, check, ach, wire, spei, credit_card, other',
+  'help.payment.create.option.bank':
+    'nombre o id de la cuenta bancaria; sin ella se usa la cuenta con el rol `banco` de la entidad',
+  'help.payment.create.option.json': 'salida en JSON',
+  'help.payment.create.option.check_number': 'número de cheque; sólo vale con --method check',
+  'help.payment.create.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
+  'help.payment.create.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
+  'help.payment.create.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.create.option.discount': 'descuento por pronto pago que se tomó',
+  'help.payment.create.option.memo': 'nota que se guarda con el pago',
+  'help.payment.apply.description':
+    'Aplica un pago ya registrado a facturas concretas: en parcialidad, con descuento o con pago corto',
+  'help.payment.apply.argument.payment': 'número o id del pago cuyo saldo a cuenta se va a aplicar',
+  'help.payment.apply.option.bill':
+    'factura a la que se aplica; se repite, y cada una se empareja en orden con un --amount',
+  'help.payment.apply.option.amount': 'importe que se aplica a la factura de la misma posición',
+  'help.payment.apply.option.discount': 'descuento por pronto pago de la factura de la misma posición',
+  'help.payment.apply.option.mode': 'partial (deja abierto el resto) o residual (la cierra pagando de menos)',
+  'help.payment.apply.option.short_pay_reason':
+    'por qué se da de baja el saldo que no se pagó; obligatorio con --mode residual',
+  'help.payment.apply.option.json': 'salida en JSON',
+  'help.payment.unapply.description':
+    'Desaplica un pago de una factura como un evento NUEVO y fechado: la factura vuelve a deberse y el ' +
+    'dinero vuelve a quedar a cuenta',
+  'help.payment.unapply.argument.payment': 'número o id del pago',
+  'help.payment.unapply.option.bill': 'la factura de la que se desaplica',
+  'help.payment.unapply.option.reason': 'por qué: queda en el rastro de auditoría',
+  'help.payment.unapply.option.date':
+    'fecha de la desaplicación, para el renglón cerrado y su póliza (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.unapply.option.json': 'salida en JSON',
+  'help.payment.reverse.description':
+    'Reversa un pago que regresó: cada póliza que contabilizó recibe su espejo fechado, y sus facturas ' +
+    'vuelven a deberse',
+  'help.payment.reverse.argument.payment': 'número o id del pago',
+  'help.payment.reverse.option.reason': 'por qué: queda en el rastro de auditoría',
+  'help.payment.reverse.option.date':
+    'fecha de la reversión, para sus espejos y los renglones cerrados (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.reverse.option.json': 'salida en JSON',
+  'help.prepaid.description': 'Pagos anticipados: el calendario que los saca de la 1160, mes a mes',
+  'help.prepaid.create.description':
+    'Registra el calendario de amortización de un cargo que ya está en pagos anticipados; no contabiliza nada',
+  'help.prepaid.create.argument.description': 'qué cubre el pago anticipado, tal como se leerá en las pólizas',
+  'help.prepaid.create.option.amount': 'importe por amortizar, en decimal',
+  'help.prepaid.create.option.start': 'primer día de la cobertura (AAAA-MM-DD)',
+  'help.prepaid.create.option.end': 'último día de la cobertura, incluido (AAAA-MM-DD)',
+  'help.prepaid.create.option.origin': 'de dónde vino el cargo que ya está en la cuenta; no tiene valor por omisión',
+  'help.prepaid.create.option.source_entry': 'la póliza que cargó la cuenta; obligatoria con --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'el CFDI con el que llegó este pago anticipado, para el rastro',
+  'help.prepaid.create.option.vendor': 'nombre del proveedor que se guarda en el calendario',
+  'help.prepaid.create.option.reference':
+    'el documento al que remite: número de póliza de seguro, contrato, pedido',
+  'help.prepaid.create.option.convention':
+    'la convención que crees estar registrando ({conventions}); se contrasta con el panel',
+  'help.prepaid.create.option.prepaid_account':
+    'cuenta de pagos anticipados donde está el cargo (por omisión, la del rol `gasto_anticipado`)',
+  'help.prepaid.create.option.expense_account':
+    'cuenta a la que la amortización cargará cada mes (por omisión, la del rol `gasto`)',
+  'help.prepaid.create.option.reason': 'por qué se rebasa el umbral; obligatorio con --force',
+  'help.prepaid.create.option.dry_run': 'muestra el calendario que se registraría; no escribe nada',
+  'help.prepaid.list.description':
+    'Calendarios vivos con su saldo por amortizar y cuántos periodos les quedan',
+  'help.prepaid.list.option.limit': 'máximo de renglones a devolver',
+  'help.prepaid.list.option.offset': 'salta estos renglones',
+  'help.prepaid.list.option.all':
+    'todos los calendarios vivos, incluidos los que aún no empiezan y los que ya terminaron',
+  'help.prepaid.list.option.as_of':
+    'sólo los calendarios cuya cobertura está abierta en esta fecha (AAAA-MM-DD; por omisión, hoy)',
+  'help.prepaid.show.description': 'Un calendario con su tabla periodo por periodo',
+  'help.prepaid.show.argument.id_or_description':
+    'el calendario: su id, o lo suficiente de su descripción para que no sea ambiguo',
+  'help.prepaid.run.description':
+    'Contabiliza la amortización del mes: una póliza de ajuste por calendario, irreversible',
+  'help.prepaid.run.option.period': 'periodo a amortizar: 2026-08 o cualquier parte inequívoca de su nombre',
+  'help.tax_deposit.description': 'Pasivos patronales por impuestos: qué se debe, a quién y para cuándo',
+  'help.tax_deposit.list.description':
+    'Pasivos patronales acumulados con su fecha de vencimiento y su estado, primero los que vencen antes',
+  'help.tax_deposit.list.option.status': 'filtra por estado del pasivo ({states}); se puede repetir',
+  'help.tax_deposit.list.option.all':
+    'incluye lo que ya está saldado: también los renglones depositados y dispensados',
+  'help.tax_deposit.list.option.period': 'sólo los pasivos cuyo periodo toca este mes',
+  'help.tax_deposit.list.option.until': 'sólo lo que vence en esta fecha o antes (AAAA-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'todas las entidades del inquilino, no sólo la activa',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

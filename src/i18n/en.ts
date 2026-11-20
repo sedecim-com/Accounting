@@ -4942,6 +4942,93 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  //
+  // The second payables task: the three families whole, roots included,
+  // English as shown (`payment trace` was keyed before). Every generic flag
+  // keeps a key of its own: none of these leaves has a --format, their --reason
+  // is not cli.flag.reason's text, and `prepaid list` declares -n and --offset
+  // by hand. The two withSelection flags `tax-deposit list` rewords go through
+  // describeOption. Lists travel as {conventions} and {states}.
+  'help.payment.description': 'Vendor payments: record cash that already left the bank and settle the bill it pays',
+  'help.payment.create.description': 'Record a payment made against a bill and recognize the IVA it was holding',
+  'help.payment.create.argument.bill': 'bill number, vendor invoice number or id',
+  'help.payment.create.option.amount': 'amount, in the document currency',
+  'help.payment.create.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.payment.create.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.payment.create.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.payment.create.option.json': 'JSON output',
+  'help.payment.create.option.check_number': 'cheque number; only valid with --method check',
+  'help.payment.create.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.create.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.create.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.create.option.discount': 'early-payment discount taken',
+  'help.payment.create.option.memo': 'note stored with the payment',
+  'help.payment.apply.description':
+    'Apply an existing payment to specific bills: partial, with discount, or short-paid',
+  'help.payment.apply.argument.payment': 'payment number or id whose on-account balance is to be applied',
+  'help.payment.apply.option.bill': 'bill to apply to; repeat it, paired in order with --amount',
+  'help.payment.apply.option.amount': 'amount applied to the bill in the same position',
+  'help.payment.apply.option.discount': 'early-payment discount for the bill in the same position',
+  'help.payment.apply.option.mode': 'partial (leave the rest open) or residual (close it short)',
+  'help.payment.apply.option.short_pay_reason':
+    'why the unpaid balance is being written off; required by --mode residual',
+  'help.payment.apply.option.json': 'JSON output',
+  'help.payment.unapply.description':
+    'Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account',
+  'help.payment.unapply.argument.payment': 'payment number or id',
+  'help.payment.unapply.option.bill': 'the bill to unapply from',
+  'help.payment.unapply.option.reason': 'why: it lands in the audit trail',
+  'help.payment.unapply.option.date':
+    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today',
+  'help.payment.unapply.option.json': 'JSON output',
+  'help.payment.reverse.description':
+    'Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again',
+  'help.payment.reverse.argument.payment': 'payment number or id',
+  'help.payment.reverse.option.reason': 'why: it lands in the audit trail',
+  'help.payment.reverse.option.date':
+    'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today',
+  'help.payment.reverse.option.json': 'JSON output',
+  'help.prepaid.description': 'Prepaid expenses: the schedule that takes them out of 1160, month by month',
+  'help.prepaid.create.description':
+    'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing',
+  'help.prepaid.create.argument.description': 'what the prepayment covers, as it will read in the entries',
+  'help.prepaid.create.option.amount': 'amount to accrue, as a decimal',
+  'help.prepaid.create.option.start': 'first day the coverage runs (YYYY-MM-DD)',
+  'help.prepaid.create.option.end': 'last day the coverage runs, inclusive (YYYY-MM-DD)',
+  'help.prepaid.create.option.origin': 'where the charge already in the account came from — no default',
+  'help.prepaid.create.option.source_entry':
+    'the journal entry that charged the account; required with --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'the CFDI this prepayment came in on, for the trail',
+  'help.prepaid.create.option.vendor': 'vendor name kept on the schedule',
+  'help.prepaid.create.option.reference': 'the document this points at: policy number, contract, order',
+  'help.prepaid.create.option.convention':
+    'the convention you believe you are registering ({conventions}); checked against the panel',
+  'help.prepaid.create.option.prepaid_account':
+    'prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)',
+  'help.prepaid.create.option.expense_account':
+    'account the accrual will charge each month (defaults to the `gasto` role)',
+  'help.prepaid.create.option.reason': 'why the threshold is being overridden; required with --force',
+  'help.prepaid.create.option.dry_run': 'show the schedule that would be registered; write nothing',
+  'help.prepaid.list.description': 'Live schedules with their remaining balance and how many periods are left',
+  'help.prepaid.list.option.limit': 'maximum rows to return',
+  'help.prepaid.list.option.offset': 'skip this many rows',
+  'help.prepaid.list.option.all': 'every live schedule, including those not started yet and already ended',
+  'help.prepaid.list.option.as_of':
+    'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)',
+  'help.prepaid.show.description': 'One schedule with its period-by-period table',
+  'help.prepaid.show.argument.id_or_description':
+    'the schedule: its id, or enough of its description to be unambiguous',
+  'help.prepaid.run.description': 'Post the month accrual — one adjusting entry per schedule, irreversible',
+  'help.prepaid.run.option.period': 'period to accrue: 2026-08, or any unambiguous part of its name',
+  'help.tax_deposit.description': 'Employer tax liabilities: what is owed, to whom, and by when',
+  'help.tax_deposit.list.description':
+    'Accrued employer liabilities with their due date and status, soonest due first',
+  'help.tax_deposit.list.option.status': 'filter by liability status ({states}); repeatable',
+  'help.tax_deposit.list.option.all': 'include what is already settled: deposited and waived rows too',
+  'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
+  'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
