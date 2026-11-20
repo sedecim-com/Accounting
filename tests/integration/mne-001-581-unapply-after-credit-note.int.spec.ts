@@ -63,10 +63,31 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //       N 200 + 32 (2125 32: 48 left); unapply the wire → the cheque's cash is
 //       still owed, so 1,160 − 232 carries 128: 80 back and kept, 2125 128,
 //       2120 80.
+//   MNE-001-592 (#814, decision (A)): cash that carried an advance's IVA
+//   keeps caused only the IVA of the balance owed again too; what the note
+//   restituted is not caused again (LIVA art. 7), and the cash it covers,
+//   restituted × total / tax, is owed back and carries none.
 //   A1  a 116 receipt recorded as a 16 % advance (2120 16), applied to S 100
-//       + 16 (2125 −16, 2120 net 0); N 100 + 16 (2120 16); unapply → DR 1120
-//       116 / CR 2150 100 / CR 2120 16, no 2125 line: 2125 0, 2120 16, the
-//       advance's IVA on the cash on account. Today 16 and 0.
+//       + 16 (2125 −16, 2120 net 0); N 100 + 16 (2120 0); unapply 10-15 →
+//       DR 1120 116 / CR 2150 116, no IVA line: 2125 0, 2120 0. The row
+//       stores 16 restituted; the pool is 116 − 116 = 0. Before 592: CR 2150
+//       100 / CR 2120 16, 2120 16.
+//   A1c A1, then T 100 + 16 (10-18) gets the 116 on 10-20: plain, c = 0: DR
+//       2150 116 / DR 2125 16 / CR 1120 116 / CR 2120 16; 2120 16, T's IVA.
+//   A1b an advance of 1,160 applied to S 1,000 + 160; N 200 + 32 (2120 128);
+//       unapply → released 160, back 128, the note kept 32, so 32 restituted
+//       and 128 kept: CR 2150 1,032 / CR 2125 128, no 2120 line; 2125 128,
+//       2120 128, as U1. The pool is 1,160 − 232 = 928 at 128. Before 592:
+//       CR 2150 1,000 / CR 2125 128 / CR 2120 32, 2120 160.
+//   A1b2 A1b, N applied 232, then 928 to S on 11-05: S takes the pool first,
+//       c = 128 against its 128: DR 2150 800 / DR 2125 128 / CR 1120 928, no
+//       2120 line; 2120 128, 2150 232 (owed back).
+//   A1p a plain receipt's own pool: S 1,000 + 160 collected 10-05, unapplied
+//       10-06 (kept 160), applied again 10-07 (c 160); N 200 + 32 (2120 128);
+//       unapplied 10-15 → 32 restituted, 128 kept: CR 2150 1,032 / CR 2125
+//       128, no 2120 line; 2120 128. Before 592: CR 2120 32, 2120 160.
+//   R1a A1, then reversed 10-25 as taken back: the mirrors give 2120 −16 and
+//       2125 16, and the correction of 16 brings both to 0, as R1.
 //   R1  S 100 + 16, receipt 116; N 100 + 16 (2120 16); reversed 10-25 as
 //       taken back → the mirror CR 2125 16 / DR 2120 16 and a correction DR
 //       2125 16 / CR 2120 16: 2125 0, 2120 0. Today 16 and −16.
@@ -360,22 +381,140 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '80.0000']);
     expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '80.00' });
   }, 120_000);
+});
 
-  it('A1 · an advance (MNE-001-461): nothing goes back to 2125, and the advance\'s 16 comes back whole to 2120', async () => {
-    const b = await book('A1');
-    const s = await sale(b, '100.00');
-    const advance = await recordCustomerPayment(
-      { entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: '116.00', paymentDate: day(4),
-        paymentMethod: 'spei', applications: [], onAccount: true, advanceTreatment: '16' },
-      b.f.userId
-    );
-    await applyCustomerPayment(b.f.entityId, advance.paymentId, [{ documentId: s, amountApplied: '116.00' }], b.f.userId, { date: day(5) });
-    await note(b, s, '100.00', '16.00');
-    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '0.00' });
-    const undone = await unapply(b, advance.paymentId, s);
+/** A 16 % advance of `cash` recorded on 10-04 and applied whole to a new S at `price` on 10-05. */
+async function advanceApplied(name: string, price: string, cash: string) {
+  const b = await book(name);
+  const s = await sale(b, price);
+  const advance = await recordCustomerPayment(
+    { entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: cash, paymentDate: day(4),
+      paymentMethod: 'spei', applications: [], onAccount: true, advanceTreatment: '16' },
+    b.f.userId
+  );
+  await applyCustomerPayment(b.f.entityId, advance.paymentId, [{ documentId: s, amountApplied: cash }], b.f.userId, { date: day(5) });
+  return { b, s, advance };
+}
+
+/** A1's story, which A1c and R1a continue: S 100 + 16 paid by the advance, N 100 + 16, unapplied 10-15. */
+async function advanceNotedUnapplied(name: string) {
+  const { b, s, advance } = await advanceApplied(name, '100.00', '116.00');
+  const n = await note(b, s, '100.00', '16.00');
+  expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '0.00' });
+  const undone = await unapply(b, advance.paymentId, s);
+  return { b, s, advance, n, undone };
+}
+
+/** A1b's story, which A1b2 continues: S 1,000 + 160 paid by an advance of 1,160, N 200 + 32, unapplied 10-15. */
+async function bigAdvanceNotedUnapplied(name: string) {
+  const { b, s, advance } = await advanceApplied(name, '1000.00', '1160.00');
+  const n = await note(b, s, '200.00', '32.00');
+  expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '128.00' });
+  const undone = await unapply(b, advance.paymentId, s);
+  return { b, s, advance, n, undone };
+}
+
+/** What each allocation of the receipt stored as restituted (342) and kept (338), oldest first. */
+async function storedOf(b: Book, paymentId: string): Promise<{ restituted: string | null; kept: string | null }[]> {
+  return (await query<{ restituted: string | null; kept: string | null }>(
+    `SELECT pa.unapply_restituted_iva_amount::text AS restituted, pa.unapply_kept_iva_amount::text AS kept
+       FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+      WHERE pa.payment_id = $2 ORDER BY pa.created_at`,
+    [b.f.entityId, paymentId]
+  )).rows;
+}
+
+describe('MNE-001-592 · cash that carried an advance\'s IVA keeps caused only the IVA of the balance owed again (decision (A), LIVA arts. 1-B and 7)', () => {
+  it('A1 · a note for the whole sale: the advance\'s 16 is not caused again, the 116 is owed back carrying none, and October ties out at 0', async () => {
+    const { b, advance, n, undone } = await advanceNotedUnapplied('A1');
     expect(undone.ivaReAparcado).toBe('0.0000');
-    expect((await linesOf(b, undone.journalEntry.id)).net).toEqual({ '1120': '116.00', '2150': '-100.00', '2120': '-16.00' });
+    const entry = await linesOf(b, undone.journalEntry.id);
+    expect(entry.net).toEqual({ '1120': '116.00', '2150': '-116.00' });
+    expect(entry.text).toContain(`advance IVA restituted by credit note ${n} stays out (LIVA art. 7): 16.0000`);
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '0.00' });
+    expect(await balanceOf(b, '2150')).toBe('116.00');
+    expect(await storedOf(b, advance.paymentId)).toEqual([{ restituted: '16.0000', kept: null }]);
+
+    const wp = await october(b);
+    // +16 the advance, 0 the application, −16 the note, 0 the unapply (its share 16 − 16, its advance 16 − 16).
+    expect(at16(wp)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('A1c · then T takes the 116: it is plain cash, so T causes its own 16 once, and October ties out at 100 / 16', async () => {
+    const { b, advance } = await advanceNotedUnapplied('A1c');
+    const t = await sale(b, '100.00', day(18));
+    const applied = await applyCustomerPayment(b.f.entityId, advance.paymentId, [{ documentId: t, amountApplied: '116.00' }], b.f.userId, { date: day(20) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '116.00', '2125': '16.00', '1120': '-116.00', '2120': '-16.00' });
     expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '16.00' });
+    expect(await balanceOf(b, '2150')).toBe('0.00');
+    const wp = await october(b);
+    expect(at16(wp)).toEqual({ base: '100.00', iva: '16.00' });
+    expect(gap(wp)).toBeUndefined();
+
+    // Migration 342: only a closed row stores a restitution, and never 0.
+    const [closed, live] = (await query<{ id: string }>(
+      `SELECT pa.id FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+        WHERE pa.payment_id = $2 ORDER BY pa.created_at`,
+      [b.f.entityId, advance.paymentId]
+    )).rows.map((r) => r.id);
+    for (const [id, value] of [[closed, '0'], [live, '1']] as const) {
+      await expect(query(`UPDATE payment_allocations SET unapply_restituted_iva_amount = $2 WHERE id = $1`, [id, value]))
+        .rejects.toThrow(/payment_allocations_unapply_restituted_iva_closed/);
+    }
+  }, 120_000);
+
+  it('A1b · U1\'s twin with an advance: 32 restituted, 128 kept, no 2120 line, the same balances as U1, and October ties out', async () => {
+    const { b, advance, undone } = await bigAdvanceNotedUnapplied('A1b');
+    expect(undone.ivaReAparcado).toBe('0.0000');
+    expect((await linesOf(b, undone.journalEntry.id)).net).toEqual({ '1120': '1160.00', '2150': '-1032.00', '2125': '-128.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
+    expect(await balanceOf(b, '2150')).toBe('1032.00');
+    expect(await storedOf(b, advance.paymentId)).toEqual([{ restituted: '32.0000', kept: null }]);
+
+    const wp = await october(b);
+    // +160 −160 +160 −32 −(160 − 32) +(160 − 32) = 128; bases 1,000 − 1,000 + 1,000 + 1,000 − 1,000 − 200 = 800.
+    expect(at16(wp)).toEqual({ base: '800.00', iva: '128.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('A1b2 · then the note is applied and the 928 goes back to S: S takes the pool\'s 128, 2120 stays at 128, 232 is owed back, and November charges nothing', async () => {
+    const { b, s, advance, n } = await bigAdvanceNotedUnapplied('A1b2');
+    const id = (await query<{ id: string }>(
+      `SELECT id FROM credit_notes WHERE entity_id = $1 AND credit_note_number = $2`, [b.f.entityId, n]
+    )).rows[0].id;
+    await applyCreditNote(b.f.entityId, id, [{ invoiceId: s, amount: '232.00' }], b.f.userId);
+    const applied = await applyCustomerPayment(b.f.entityId, advance.paymentId, [{ documentId: s, amountApplied: '928.00' }], b.f.userId, { date: nov(5) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '800.00', '2125': '128.00', '1120': '-928.00' });
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '128.00' });
+    expect(await balanceOf(b, '2150')).toBe('232.00');
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(gap(wp)).toBeUndefined();
+    expect(gap(await october(b))).toBeUndefined();
+  }, 120_000);
+
+  it('A1p · a plain receipt unapplied from the pool it took: 32 restituted, 128 kept, no 2120 line, and October ties out', async () => {
+    const b = await book('A1p');
+    const s = await sale(b, '1000.00');
+    const receipt = await collect(b, s, '1160.00');
+    await unapply(b, receipt.paymentId, s, day(6));
+    const again = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: s, amountApplied: '1160.00' }], b.f.userId, { date: day(7) });
+    expect((await linesOf(b, again.journalEntry!.id)).net).toEqual({ '2150': '1000.00', '2125': '160.00', '1120': '-1160.00' });
+    await note(b, s, '200.00', '32.00');
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '128.00' });
+    const undone = await unapply(b, receipt.paymentId, s);
+    expect([undone.ivaReAparcado, undone.ivaKeptCaused]).toEqual(['0.0000', '0.0000']);
+    expect((await linesOf(b, undone.journalEntry.id)).net).toEqual({ '1120': '1160.00', '2150': '-1032.00', '2125': '-128.00' });
+    expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '128.00' });
+    expect(await storedOf(b, receipt.paymentId)).toEqual([
+      { restituted: null, kept: '160.0000' }, { restituted: '32.0000', kept: null },
+    ]);
+
+    const wp = await october(b);
+    // Shares 160 − 160 + 160 − (160 − 32); on account +160 − 160 + (160 − 32); the note −32: 128.
+    expect(at16(wp)).toEqual({ base: '800.00', iva: '128.00' });
+    expect(gap(wp)).toBeUndefined();
   }, 120_000);
 });
 
@@ -391,6 +530,16 @@ describe('a reversal after a credit note takes back out of 2125 what its mirrors
     expect(fixes[0][0]).toBe('16.00');
     expect(fixes[0][1]).toContain(`IVA restituted by credit note ${n} stays out of iva_trasladado_no_cobrado`);
     expect(reversed.attestations).toHaveLength(reversed.reversals.length + 1);
+    expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '0.00' });
+    expect(gap(await october(b))).toBeUndefined();
+  }, 120_000);
+
+  it('R1a · A1 reversed as taken back: the mirrors give 2120 −16 and 2125 16, a correction of 16 brings both to 0, and October ties out', async () => {
+    const { b, advance, n } = await advanceNotedUnapplied('R1a');
+    await reverse(b, advance.paymentId);
+    const fixes = await corrections(b, advance.paymentId);
+    expect(fixes.map((c) => c[0])).toEqual(['16.00']);
+    expect(fixes[0][1]).toContain(`IVA restituted by credit note ${n} stays out of iva_trasladado_no_cobrado`);
     expect(await vat(b)).toEqual({ '2125': '0.00', '2120': '0.00' });
     expect(gap(await october(b))).toBeUndefined();
   }, 120_000);

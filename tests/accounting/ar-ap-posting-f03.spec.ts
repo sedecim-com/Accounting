@@ -457,6 +457,36 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
   });
 });
 
+describe('MNE-001-592 · el IVA del anticipo que una nota restituyó no vuelve a 2120', () => {
+  it('sin línea de IVA, y la línea de cxc nombra la nota y lo restituido', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        advanceIva: '0.0000', ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000', restituted: '16.0000' } },
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('116.0000');
+    expect(lineFor('acct:cxc')!.description).toMatch(
+      /kept in iva_trasladado: 16\.0000 restituted by credit note CN-001 \(LIVA art\. 7\); the reopened balance carries 0\.0000; advance IVA restituted by credit note CN-001 stays out \(LIVA art\. 7\): 16\.0000/
+    );
+  });
+
+  it('con nada restituido, el texto es el de la 581', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000', restituted: '0.0000' } },
+      USER
+    );
+
+    expect(lineFor('acct:cxc')!.description).not.toMatch(/advance IVA restituted/);
+  });
+});
+
 describe('MNE-001-581 · la corrección de una reversa saca de 2125 lo que ningún saldo reabierto lleva', () => {
   it('DR iva_trasladado_no_cobrado · CR iva_trasladado, con su propia fuente y las notas que lo restituyeron', async () => {
     await postReceiptReversalVatEntry(fakeClient(), payment(), '32.0000', 'CN-001', USER);
