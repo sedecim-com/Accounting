@@ -3389,6 +3389,65 @@ export const EN = {
   /** The reminder to verify the restored database. */
   'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
 
+
+  // MNE-001-224: audit, ai stats and jobs run-due.
+  /** `audit list --user` with an email that is not in the tenant. */
+  'platform.audit.user_not_found':
+    'User "{email}" in this tenant. The trail was not filtered: an email that does not exist would return zero rows and read as if that person did nothing.',
+  /** `audit list --limit` with a value that is not a positive whole number. */
+  'platform.audit.list.limit_invalid': '--limit must be a positive whole number; got "{value}".',
+  /** `audit list --action` with an action outside the CHECK of audit_log. */
+  'platform.audit.list.action_unknown':
+    'Unknown action "{action}". The vocabulary is fixed by the CHECK of audit_log (migration 001): {actions}.',
+  /** `audit list --actor agent`: the trail has no actor column yet. */
+  'platform.audit.list.actor_agent_unsupported':
+    'The trail does not tell the agent apart yet: `audit_log` has no actor column and each row is attributed to a human `user_id`. Filtering by "{actor}" would return zero rows, which would read as if the agent did nothing. The `actor` column (and `agent_session_id`) is missing, and the agent\'s bridge has to write it; until then, `--actor human` or no flag is all there is.',
+  /** `audit list --actor` with any other value. */
+  'platform.audit.list.actor_invalid': '--actor only accepts "human", "agent" or "agent:<session>"; got "{actor}".',
+  /** `audit list --object` with an unknown family. */
+  'platform.audit.list.object_unknown':
+    'Unknown object family "{object}". Known: {families}. For an exact value of the column use --entity-type.',
+  /** `audit list --object` and `--entity-type` that do not intersect. */
+  'platform.audit.list.object_type_disjoint':
+    '--object "{object}" and --entity-type "{type}" do not intersect: the family does not contain that type. Give one of the two.',
+  /** The actor of a row whose user no longer exists. Stored English in the row; the table renders it. */
+  'platform.audit.list.user_removed': '(user removed)',
+  /** `audit list` with no rows. */
+  'platform.audit.list.no_rows':
+    'No rows. The trail belongs to the TENANT: `audit_log` has no legal-entity column, so --entity only chose which tenant to look at.',
+  /** A label of `audit show`. */
+  'platform.audit.show.when': 'when',
+  /** A label of `audit show`. */
+  'platform.audit.show.who': 'who',
+  /** A label of `audit show`. */
+  'platform.audit.show.why': 'why',
+  /** `audit show` of a row whose user no longer exists. */
+  'platform.audit.show.user_unknown': "(unknown user: the log is append-only and outlives the user's record)",
+  /** `audit show` of a row with no reason. */
+  'platform.audit.show.no_reason': '(no reason recorded)',
+  /** `audit show` of a row with no values. */
+  'platform.audit.show.no_values': 'no values: the row records the act, not the before and the after',
+  /** The first line of `ai stats`. */
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# draft} other {# drafts}}, {decided, plural, one {# decided} other {# decided}}',
+  /** How much still goes through a person. */
+  'platform.ai.stats.human_intervention':
+    'human intervention {rate} ({human} approved + {rejected} rejected of {decided} decided; {policy} by policy, {auto} auto-posted)',
+  /** The ingest runs and their cost, when the model has a price. */
+  'platform.ai.stats.ingest':
+    'ingest: {runs, plural, one {# run} other {# runs}}, {drafts, plural, one {# draft} other {# drafts}}{priced, select, yes {, ~${perDraft} USD per draft (total ${total})} other {, cost not estimable (model without a price)}}',
+  /** The model's latency. */
+  'platform.ai.stats.latency':
+    'model latency: {average} ms average, {p95} ms p95 ({calls, plural, one {# call measured} other {# calls measured}})',
+  /** The agent's events. */
+  'platform.ai.stats.events':
+    'events: {suspicions, plural, one {# injection suspicion} other {# injection suspicions}}, {nudges, plural, one {# grounding nudge} other {# grounding nudges}}, {failovers, plural, one {# failover} other {# failovers}}',
+  /** The shadow history, and the floors `on` requires (src/ai/floor.ts). */
+  'platform.ai.stats.shadow':
+    'shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided, plural, one {# decided} other {# decided}} by a person, agreement {agreement} (turning "on" requires ≥{minDays} days, ≥{minDecided} decided and ≥{minAgreement})',
+  /** Why `jobs run-due` does not honour an idempotency key. */
+  'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
