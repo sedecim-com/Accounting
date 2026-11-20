@@ -151,7 +151,7 @@
     "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",
     "src/services/policy/policy-service.ts": "62bd22ffa83ffa67133c202484ca0fb65c162b12",
     "src/ai/tools/policy-tools.ts": "ade02f8152c976a1432e26a3499b124c20b49797",
-    "src/ai/doctor-service.ts": "03dc4834203bc139d79809defcb58f14b203f98a",
+    "src/ai/doctor-service.ts": "5bf694410831728208ada650e88d38cd3ce1fc40",
     "src/ai/onboarding-service.ts": "75141057b97a1f1f81e71876a3f049f72537d062",
     "src/services/reporting/cash-flow-service.ts": "f0a268d026d8514cc186b58e33ba459204bc7c5c",
     "src/services/reporting/cash-flow-reconcile.ts": "f87925f80cb08b5735776ce549c69df2dfc6394f",
