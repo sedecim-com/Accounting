@@ -2289,10 +2289,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'ingest.census.more_invalid': '… y {count} más',
   'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
   'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
-  // MNE-001-144 (#441): las cancelaciones del SAT en el censo llegan al espejo y a la factura.
+  // MNE-001-144 (#441): las cancelaciones del SAT en el censo llegan al espejo y a la factura;
+  // MNE-001-431 (#643): y a la factura de proveedor.
   'ingest.census.marks':
     'Cancelados por el SAT: {mirror, plural, one {# CFDI marcado} other {# CFDI marcados}} en el espejo, ' +
-    '{invoices, plural, one {# factura marcada como cancelada} other {# facturas marcadas como canceladas}}.',
+    '{invoices, plural, one {# factura marcada como cancelada} other {# facturas marcadas como canceladas}}, ' +
+    '{bills, plural, one {# factura de proveedor marcada} other {# facturas de proveedor marcadas}}.',
   'ingest.census.cancelled_booked':
     '{document} ({date}) lleva el CFDI {uuid}, que el SAT reporta cancelado. No se revirtió nada: ' +
     'su estado, su póliza y su saldo se quedan hasta que el contador decida.',
@@ -4706,6 +4708,11 @@ export const ES: Record<keyof typeof EN, string> = {
     '{question} No hay terminal donde preguntar: córrelo de nuevo con --yes cuando estés seguro, o con --dry-run para ver antes el efecto.',
   'cfdi.post.would_post': 'Se contabilizaría el CFDI {uuid} como {invoice} para {rfc} · póliza {entry}',
   'cfdi.post.posted': 'CFDI {uuid} contabilizado como {invoice} para {rfc} · póliza {entry} · {due} por cobrar',
+  // MNE-001-431 (#643): `cfdi status sync` y `cfdi status show --refresh` informan las facturas de proveedor que marcaron.
+  'cfdi.status.bills_marked':
+    '{count, plural, one {# factura de proveedor que lleva un CFDI que el SAT reporta cancelado recibió la marca} ' +
+    'other {# facturas de proveedor que llevan un CFDI que el SAT reporta cancelado recibieron la marca}}. ' +
+    'No se revirtió nada: su estado, su póliza y su saldo se quedan hasta que el contador decida.',
   'cfdi.post.nothing_written':
     'No se escribió nada. Para codificar antes un concepto: mnemosine bill inbox edit {id} --line <n> --account <code>',
   'cfdi.post.previous_account':

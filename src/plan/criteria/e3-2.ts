@@ -1,4 +1,4 @@
-import { codigoDe, type Criterio, existe, falla, ok } from './shared.js';
+import { codigoDe, crudoDe, type Criterio, existe, falla, ok, sinProsa } from './shared.js';
 
 // ============================================================
 // THE E3.2 CRITERIA
@@ -192,6 +192,97 @@ export const E3_2: Criterio[] = [
       return /await cancelledCfdiFindings\(opts\.scope/.test(run)
         ? ok('cada carga del censo marca el espejo con un UPDATE guardado y la factura por el puente de #313, y nombra cada documento contabilizado que aún lleva un CFDI cancelado')
         : falla('runCensus marca y no nombra los documentos contabilizados que aún llevan un CFDI cancelado');
+    },
+  },
+
+  // ---- MNE-001-431 (#643) · a received CFDI the SAT cancelled marks its bill ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-cancellation-reaches-bill',
+    enunciado: 'Un CFDI que el SAT reporta cancelado marca el bill de la entidad que lo lleva, con UPDATE guardado, por cada camino que marca el espejo o el censo',
+    mutantes: [
+      {
+        archivo: 'src/services/sat/cfdi-status.ts',
+        de: 'resumen.bills_marked += await markBillCfdiCancelled(ctx.entityId, fila.cfdi_uuid);',
+        a: 'resumen.bills_marked += 0;',
+        porque: 'cfdi status sync marks the mirror and the invoice and never the bill: a cancelled received CFDI stays payable with no mark',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/sat-validation.ts',
+        de: 'result.billsMarked = await markBillCfdiCancelled(d.entity_id, d.cfdi_uuid);',
+        a: 'result.billsMarked = 0;',
+        porque: 'the ingest check and cfdi status show --refresh learn the cancellation and forget the bill',
+      },
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: 'bills += await markBillCfdiCancelled(scope.entityId, row.u);',
+        a: 'bills += 0;',
+        porque: 'the census marks skip the bill: one with no mirror row, such as an opening bill, is never reached',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'WHERE entity_id = $1',
+        a: 'WHERE $1::uuid IS NOT NULL',
+        porque: 'the bridge loses its entity scope: another entity carrying the same UUID is marked',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND cfdi_cancellation_noted_at IS NULL',
+        a: '',
+        porque: 'the bridge loses its predicate: the same cancellation rewrites the mark and the count reports bills that did not move',
+      },
+      {
+        archivo: 'src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql',
+        de: 'x.entity_id = b.entity_id',
+        a: 'x.entity_id IS NOT NULL',
+        porque: 'the backfill matches the mirror across entities: a bill of a sister entity with the same UUID is marked',
+      },
+    ],
+    evaluar: () => {
+      // Before MNE-001-431 a received CFDI the SAT cancelled reached the
+      // mirror and, as a finding, the screen; the bill itself carried nothing.
+      // One bridge writes the mark, called after the #313 invoice bridge by
+      // each path that marks the mirror or the census.
+      const file = 'src/services/ap/bill-cfdi-cancellation.ts';
+      if (!existe(file)) return falla('no existe el puente del bill: el SAT cancelado nunca llega a la factura de proveedor');
+      const src = codigoDe(file);
+      const i = src.indexOf('export async function markBillCfdiCancelled');
+      const bridge = i >= 0 ? src.slice(i, src.indexOf('\n}', i)) : '';
+      const set = /SET ([^\n]*)/.exec(bridge)?.[1] ?? '';
+      if (!/cfdi_cancellation_noted_at = NOW\(\)/.test(set) || /status|amount_due|amount_paid|journal_entry_id/.test(set) ||
+          !/WHERE entity_id = \$1\s+AND lower\(cfdi_uuid\) = lower\(\$2\)\s+AND cfdi_cancellation_noted_at IS NULL/.test(bridge) ||
+          !/rowCount/.test(bridge)) {
+        return falla('el puente del bill perdió su guarda (sólo la marca, alcance de entidad, predicado o rowCount): invariante 3');
+      }
+      const status = codigoDe('src/services/sat/cfdi-status.ts');
+      const sweep = status.slice(Math.max(0, status.indexOf('export async function revalidateEntityCfdis')));
+      if (!/if \(vs === 'cancelled'\) \{\s+resumen\.invoices_cancelled \+= await markInvoiceCfdiCancelled\([^)]*\);\s+resumen\.bills_marked \+= await markBillCfdiCancelled\(ctx\.entityId, fila\.cfdi_uuid\)/.test(sweep)) {
+        return falla('cfdi status sync no marca el bill tras la factura');
+      }
+      const single = codigoDe('src/services/xml-ingestion/sat-validation.ts');
+      if (!/if \(result\.status === 'cancelled'\) \{\s+await markInvoiceCfdiCancelled\([^)]*\);\s+result\.billsMarked = await markBillCfdiCancelled\(d\.entity_id, d\.cfdi_uuid\)/.test(single)) {
+        return falla('la consulta de un solo CFDI no marca el bill tras la factura');
+      }
+      const census = codigoDe('src/services/sat-census/cancellations.ts');
+      const m = census.indexOf('export async function markCensusCancellations');
+      const marks = m >= 0 ? census.slice(m, census.indexOf('\n}', m)) : '';
+      if (!/for \(const row of cancelled\.rows\) \{\s+bills \+= await markBillCfdiCancelled\(scope\.entityId, row\.u\)/.test(marks) ||
+          !/const cancelled = await query<\{ u: string \}>\(`\$\{CANCELLED_OF_WINDOW\} ORDER BY c\.cfdi_uuid`, args\)/.test(marks)) {
+        return falla('las marcas del censo no llevan cada CFDI cancelado de la ventana al bill');
+      }
+      if ([status, single, census].some((x) => /UPDATE\s+bills/i.test(x))) {
+        return falla('un camino escribe bills por su cuenta: un segundo escritor que no lleva la guarda del puente');
+      }
+      const migration = 'src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql';
+      if (!existe(migration)) return falla('no existe la migración 340: la columna de la marca no existe');
+      const sql = sinProsa(crudoDe(migration));
+      const optIn = sql.indexOf('SET LOCAL row_security = on;');
+      const loop = sql.indexOf("PERFORM set_config('app.current_tenant', t.id::text, true);");
+      return /ADD COLUMN IF NOT EXISTS cfdi_cancellation_noted_at TIMESTAMPTZ/.test(sql) && optIn >= 0 && loop > optIn &&
+        /le\.tenant_id = t\.id/.test(sql) && /x\.entity_id = b\.entity_id/.test(sql) && /c\.entity_id = b\.entity_id/.test(sql) &&
+        /AND b\.cfdi_cancellation_noted_at IS NULL/.test(sql)
+        ? ok('el SAT cancelado llega al bill por un UPDATE guardado desde el censo, el barrido y la consulta de un CFDI, y la 340 rellena bajo RLS los ya cancelados dentro de su entidad')
+        : falla('la 340 no rellena bajo RLS, dentro de su entidad y su inquilino, los bills cuyo CFDI ya consta cancelado');
     },
   },
 

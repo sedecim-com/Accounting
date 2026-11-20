@@ -99,7 +99,7 @@ export async function runCensus(opts: {
   const total = emptyReading();
   const xmlFiles: string[] = [];
   const loaded: string[] = [];
-  const marks: CancellationMarks = { mirror: 0, invoices: 0 };
+  const marks: CancellationMarks = { mirror: 0, invoices: 0, bills: 0 };
   let tmp: string | null = null;
 
   for (const file of opts.files) {
@@ -143,6 +143,7 @@ export async function runCensus(opts: {
         const marked = await markCensusCancellations(opts.scope, ...span);
         marks.mirror += marked.mirror;
         marks.invoices += marked.invoices;
+        marks.bills += marked.bills;
       }
     }
   }
@@ -152,7 +153,7 @@ export async function runCensus(opts: {
   const counted = await completenessTypes({ tenantId: opts.scope.tenantId, entityId: opts.scope.entityId });
   printReading(opts.kind, total, counted);
   for (const line of loaded) console.log(line);
-  if (window) console.log(t('ingest.census.marks', { mirror: marks.mirror, invoices: marks.invoices }));
+  if (window) console.log(t('ingest.census.marks', { mirror: marks.mirror, invoices: marks.invoices, bills: marks.bills }));
   for (const x of findings) {
     console.log(c.yellow(`  ⚠ ${t('ingest.census.cancelled_booked', {
       document: t(`ingest.census.document.${x.source}`, { number: clean(x.number) }), date: x.date, uuid: x.uuid,

@@ -1,5 +1,6 @@
 import { query } from '../../database/connection.js';
 import { consultaCfdi, markInvoiceCfdiCancelled, toValidationStatus } from '../sat/cfdi-status.js';
+import { markBillCfdiCancelled } from '../ap/bill-cfdi-cancellation.js';
 
 export interface SATValidationResult {
   uuid: string;
@@ -10,6 +11,8 @@ export interface SATValidationResult {
   fechaCancelacion?: Date;
   validatedAt: Date;
   rawResponse?: Record<string, unknown>;
+  /** Bills validateAndUpdate marked because the SAT says Cancelado (MNE-001-431). */
+  billsMarked?: number;
 }
 
 /**
@@ -127,10 +130,12 @@ export class SATValidationService {
         xmlDocumentId,
       ]
     );
-    // The same bridge as the sweep in cfdi-status.ts (MNE-001-076): a SAT
-    // «Cancelado» reaches the invoice that carries the UUID.
+    // The same bridges as the sweep in cfdi-status.ts: a SAT «Cancelado»
+    // reaches the invoice (MNE-001-076) and the bill (MNE-001-431) that carry
+    // the UUID.
     if (result.status === 'cancelled') {
       await markInvoiceCfdiCancelled(d.entity_id, d.cfdi_uuid);
+      result.billsMarked = await markBillCfdiCancelled(d.entity_id, d.cfdi_uuid);
     }
 
     return result;

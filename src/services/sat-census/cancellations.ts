@@ -1,6 +1,7 @@
 import { query, withTransaction } from '../../database/connection.js';
 import type { EntityScope } from '../../database/scope.js';
 import { markInvoiceCfdiCancelled } from '../sat/cfdi-status.js';
+import { markBillCfdiCancelled } from '../ap/bill-cfdi-cancellation.js';
 
 // ============================================================
 // THE SAT'S CANCELLATIONS, FROM THE CENSUS TO THE BOOKS (MNE-001-144, #441)
@@ -18,7 +19,11 @@ import { markInvoiceCfdiCancelled } from '../sat/cfdi-status.js';
 //                             through the #313 bridge to its invoice,
 //                             unchanged. The bridge is called from the census
 //                             row, because an invoice this system stamped has
-//                             no xml_documents row.
+//                             no xml_documents row. Every bill of the entity
+//                             that carries a cancelled CFDI of the window gets
+//                             its mark through markBillCfdiCancelled (#643),
+//                             from the census row too, so a bill with no
+//                             mirror row (an opening bill) is reached.
 //   cancelledCfdiFindings     each cancelled CFDI of the window, of any type,
 //                             that a posted invoice, credit note or bill still
 //                             carries, named by that document. Computed on
@@ -28,8 +33,6 @@ import { markInvoiceCfdiCancelled } from '../sat/cfdi-status.js';
 //
 // The window is [from, to], ISO dates, inclusive, as reconcileCensus reads it.
 // A mark is never undone here: a cancellation the SAT stated stays stated.
-// Bills carry no CFDI status yet (#643): a received cancellation reaches the
-// mirror and the finding, not the bill.
 // ============================================================
 
 export interface CancellationMarks {
@@ -37,6 +40,8 @@ export interface CancellationMarks {
   mirror: number;
   /** Invoices the #313 bridge marked cfdi_status 'cancelled'. */
   invoices: number;
+  /** Bills markBillCfdiCancelled marked (cfdi_cancellation_noted_at, MNE-001-431). */
+  bills: number;
 }
 
 export interface CancelledCfdiFinding {
@@ -57,8 +62,8 @@ const CANCELLED_OF_WINDOW = `
 
 /**
  * Marks what the census of [from, to] says the SAT cancelled: the mirror,
- * then the invoice through the #313 bridge. A second call over the same
- * window moves nothing.
+ * then the invoice through the #313 bridge, then the bill. A second call over
+ * the same window moves nothing.
  */
 export async function markCensusCancellations(
   scope: EntityScope, from: string, to: string
@@ -97,7 +102,14 @@ export async function markCensusCancellations(
   for (const row of issued.rows) {
     invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);
   }
-  return { mirror, invoices };
+  // Both directions: the bridge marks by UUID within the entity, as the
+  // mirror paths do, which do not know the direction either.
+  const cancelled = await query<{ u: string }>(`${CANCELLED_OF_WINDOW} ORDER BY c.cfdi_uuid`, args);
+  let bills = 0;
+  for (const row of cancelled.rows) {
+    bills += await markBillCfdiCancelled(scope.entityId, row.u);
+  }
+  return { mirror, invoices, bills };
 }
 
 /**
