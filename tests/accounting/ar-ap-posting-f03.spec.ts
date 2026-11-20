@@ -12,6 +12,7 @@ import {
   postCreditNoteEntry,
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
+  postReceiptReversalVatEntry,
   postCustomerPaymentEntry,
   type AplicacionPosterior,
 } from '../../src/services/accounting/ar-ap-posting.js';
@@ -424,6 +425,48 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     );
 
     expect(lines()).toHaveLength(2);
+  });
+
+  it('MNE-001-581 · lo que una nota ya restituyó se queda en 2120: sin línea de IVA, y la línea de cxc lo nombra', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000' } },
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:cxc')!.description).toMatch(
+      /kept in iva_trasladado: 16\.0000 restituted by credit note CN-001 \(LIVA art\. 7\); the reopened balance carries 0\.0000/
+    );
+  });
+
+  it('MNE-001-581 · con anticipo y nada que re-aparcar, el IVA del anticipo vuelve entero a 2120 y 2125 no se mueve', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        advanceIva: '16.0000', ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000' } },
+      USER
+    );
+
+    expect(lineFor('acct:iva_trasladado_no_cobrado')).toBeUndefined();
+    expect(lineFor('acct:iva_trasladado')!.credit_amount).toBe('16.0000');
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/kept in iva_trasladado: 16\.0000/);
+  });
+});
+
+describe('MNE-001-581 · la corrección de una reversa saca de 2125 lo que ningún saldo reabierto lleva', () => {
+  it('DR iva_trasladado_no_cobrado · CR iva_trasladado, con su propia fuente y las notas que lo restituyeron', async () => {
+    await postReceiptReversalVatEntry(fakeClient(), payment(), '32.0000', 'CN-001', USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:iva_trasladado', null, '32.0000'],
+    ]);
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted by credit note CN-001 stays out of iva_trasladado_no_cobrado/);
+    expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'receipt_reversal_iva', reference: 'PMT-001' });
   });
 });
 
