@@ -987,3 +987,71 @@ describe('S3 · init saves the chosen model and key in the person\'s own files (
     expect(ctx.lines.join('\n')).toContain('MNEMOSINE_PROVIDER=anthropic wins over the default_provider just saved');
   });
 });
+
+describe('S3 · the wizard gives the readiness answer and asks no key when a helper exists (MNE-001-443)', () => {
+  const userConfig = () => path.join(tmp, '.mnemosine', 'config.json');
+  let cwd: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+    delete process.env.MNEMOSINE_PROVIDER;
+    delete process.env.VAULT_FAKE_KEY;
+  });
+  const okProbe = () => vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
+  const marker = () => path.join(cwd, 'helper-ran');
+  function helperUserConfig(extra: Record<string, unknown> = {}) {
+    fs.mkdirSync(path.dirname(userConfig()), { recursive: true });
+    fs.writeFileSync(userConfig(), JSON.stringify({
+      ...extra,
+      providers: {
+        vault: {
+          type: 'openai-compatible', model: 'vm', base_url: 'https://vault.example.test/v1',
+          api_key_env: 'VAULT_FAKE_KEY', api_key_cmd: `touch ${marker()} && echo fake-helper-secret >&2`,
+        },
+      },
+    }, null, 2) + '\n');
+  }
+
+  it('lists each profile with its readiness answer, never running a helper or printing its command', async () => {
+    helperUserConfig();
+    const ctx = makeCtx({ flags: { provider: 'vault' } });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+    const out = ctx.lines.join('\n');
+    expect(out).toMatch(/✔ vault\s+vm · api_key_cmd in ~\/\.mnemosine\/config\.json$/m);
+    expect(out).toMatch(/✔ ollama\s+\S+ · local, no credential$/m);
+    expect(out).not.toMatch(/touch|fake-helper-secret/);
+    // The fake probe stands in for the live call; nothing else runs the helper.
+    expect(fs.existsSync(marker())).toBe(false);
+  });
+
+  it('a helper default is not asked for a key: the probe resolves it, as the session does', async () => {
+    helperUserConfig();
+    const askSecret = vi.fn();
+    const ctx = { ...makeCtx({ flags: { provider: 'vault' } }), askSecret };
+    const probe = okProbe();
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
+    expect(askSecret).not.toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledWith('vault', undefined);
+    expect((JSON.parse(fs.readFileSync(userConfig(), 'utf-8')) as MnemosineConfig).default_provider).toBe('vault');
+  });
+
+  it('re-run with a helper default: verified live and left byte-identical, not sent to repair', async () => {
+    helperUserConfig({ default_provider: 'vault' });
+    const before = fs.readFileSync(userConfig(), 'utf-8');
+    const probe = okProbe();
+    const ctx = makeCtx();
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe).toHaveBeenCalledWith('vault');
+    expect(fs.readFileSync(userConfig(), 'utf-8')).toBe(before);
+    expect(ctx.lines.join('\n')).toMatch(/config left untouched/);
+  });
+
+  it('a missing key is still asked, with where to get it', async () => {
+    delete process.env.XAI_API_KEY;
+    const askSecret = vi.fn().mockResolvedValue(null);
+    const ctx = { ...makeCtx({ flags: { provider: 'grok' } }), askSecret };
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+    expect(askSecret).toHaveBeenCalledTimes(1);
+    expect(ctx.lines.join('\n')).toMatch(/○ grok\s+\S+ · XAI_API_KEY missing \(get it at https:\/\/console\.x\.ai\)$/m);
+  });
+});

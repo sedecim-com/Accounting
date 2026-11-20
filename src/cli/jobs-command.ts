@@ -9,6 +9,7 @@ import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor } from './kernel/index.js';
 import { calendarDateTimeIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
+import { tickCredentialLine } from './provider-readiness.js';
 
 // ============================================================
 // mnemosine jobs — persisted scheduled agent tasks.
@@ -212,6 +213,10 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
             'A reconciliation cron needs the full surface: schedule `mnemosine jobs run-due --live`.'
         ));
       }
+      // Before the first job: the profile the tick opens sessions on and where
+      // its credential comes from. It is the credential of whoever runs the
+      // tick, spent on every due job of the entity (#644, question 3).
+      console.log(c.dim(tickCredentialLine()));
       const outcomes = await runDueJobs(ctx, {
         runAgentTurn: deps.makeRunAgentTurn(ctx, { externo: live }),
         onProgress: (m) => console.log(c.dim(m)),
