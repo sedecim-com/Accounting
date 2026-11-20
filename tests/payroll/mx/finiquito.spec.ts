@@ -367,7 +367,7 @@ describe('Finiquito MX — the USMO keys (MNE-001-374)', () => {
     expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_days_per_month');
   });
 
-  it('no amount and no total moves: the keys only report, until MNE-001-375 withholds', async () => {
+  it('no amount and no total moves: the gross settlement does not depend on the two readings', async () => {
     conParametros({ rows: [WORKER] });
     const byDefault = await calculateFiniquito(INPUT, CTX);
     conParametros({ rows: [WORKER] });
@@ -423,6 +423,11 @@ describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XII
       payments: '113414.4000',
       hireDate: '2011-03-01',
       terminationDate: '2026-06-30',
+      // MNE-001-579: the USMO of `basis` (1 000 × 30), its ISR reading, and
+      // the panel of the employee's entity, where the comparison key is read.
+      usmo: '30000.0000',
+      usmoIsrSubsidy: 'gross_of_tariff',
+      panel: { tenantId: 't1', entityId: 'e-del-empleado' },
     });
     // Not the total, and not the aguinaldo or the vacation premium.
     expect(handed().payments).not.toBe(r.total);
@@ -433,6 +438,16 @@ describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XII
     const r = await calculateFiniquito(DISMISSAL, CTX);
     expect(r.separation_isr).toEqual({ answeredBy: 'calculateSeparationIsr', payments: '113414.4000' });
     expect(r.total).toBe('138025.3589');
+  });
+
+  it('the USMO it hands over is the one `basis` reports, under the panel\'s 30.4 and net of subsidy', async () => {
+    conParametros({ rows: [VETERAN] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.basis.last_ordinary_monthly_salary).toBe('30400.0000');
+    expect(mockSeparationIsr).toHaveBeenCalledWith(
+      expect.objectContaining({ usmo: '30400.0000', usmoIsrSubsidy: 'net_of_subsidy' })
+    );
   });
 
   it('a resignation under fifteen years pays no premium, so the separation payments are zero', async () => {
