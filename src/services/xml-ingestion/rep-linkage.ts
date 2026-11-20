@@ -240,6 +240,7 @@ export async function ligarPagoREP(opts: {
 
   if (desconocidos.length > 0) {
     const pol = await getPolicy(ctx, 'rep_documento_desconocido');
+    // CONTRACT: every value but postear_sin_iva parks the node, so `preguntar` (kept for stored answers, #667) reads as `esperar`.
     if (pol.value !== 'postear_sin_iva') {
       return {
         accion: 'revision',

@@ -398,21 +398,21 @@ export const EN = {
   'policy.rep_unknown_document.question':
     'The receipt names an invoice the system does not have: what happens to that VAT?',
   'policy.rep_unknown_document.impact':
-    'Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the tax waits, is skipped with a warning, or is asked about.',
+    "Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice is in the system, or the documents it knows go on as usual and the unknown one's share and VAT are never recorded from this receipt.",
   'policy.rep_unknown_document.rationale':
     'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III wants it until a document supports it. When the receipt DOES carry ImpuestosDR, that figure is checked against the proration over the original invoice: if they diverge beyond the tolerance, the receipt goes to review instead of releasing either figure silently.',
   'policy.rep_unknown_document.why':
     'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
   'policy.rep_unknown_document.what':
-    'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the system, running mnemosine rep reconcile links it.',
   'policy.rep_unknown_document.if_skipped':
     'I wait. Nothing is lost — the tax stays where it was.',
   'policy.rep_unknown_document.option.esperar':
-    'Wait: record the pending link and transfer no VAT for that document',
+    'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, and none of its VAT is transferred',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Match the cash and leave the VAT untransferred, with a warning',
   'policy.rep_unknown_document.option.preguntar':
-    'Ask for the VAT amount',
+    'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
 
   'policy.rep_voided_document.question':
     'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',

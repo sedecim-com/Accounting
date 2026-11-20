@@ -352,21 +352,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.question':
     'El complemento nombra una factura que el sistema no tiene: ¿qué pasa con ese IVA?',
   'policy.rep_unknown_document.impact':
-    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el impuesto espera, se omite con un aviso o se pregunta.',
+    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el complemento espera en revisión hasta que una persona corre mnemosine rep reconcile, ya con su factura en el sistema, o si los documentos que conoce siguen como siempre y la parte y el IVA del desconocido nunca se registran desde este complemento.',
   'policy.rep_unknown_document.rationale':
     'Las descargas masivas del SAT llegan en desorden, así que un complemento que llega antes que su factura es normal, no excepcional. El IVA no se pierde: se queda pendiente, que es justo donde lo quiere el art. 5 fracc. III de la LIVA hasta que un documento lo ampare. Cuando el complemento SÍ trae ImpuestosDR, esa cifra se coteja contra el prorrateo sobre la factura original: si difieren más allá de la tolerancia, el complemento va a revisión en vez de liberar cualquiera de las dos cifras en silencio.',
   'policy.rep_unknown_document.why':
     'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo dejar pendiente el traslado del impuesto hasta que aparezca la factura, o seguir sin él.',
   'policy.rep_unknown_document.what':
-    'Por omisión espero, y el vínculo se resuelve solo el día que se carga la factura.',
+    'Por omisión dejo el complemento en revisión. Nada lo reintenta solo: cuando su factura ya está en el sistema, correr mnemosine rep reconcile lo liga.',
   'policy.rep_unknown_document.if_skipped':
     'Espero. No se pierde nada: el impuesto se queda donde estaba.',
   'policy.rep_unknown_document.option.esperar':
-    'Esperar: registrar el vínculo pendiente y no trasladar IVA de ese documento',
+    'Esperar: todo el pago del complemento espera en revisión, con las facturas conocidas que paga, y no se traslada nada de su IVA',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Casar el efectivo y dejar el IVA sin trasladar, con un aviso',
   'policy.rep_unknown_document.option.preguntar':
-    'Preguntar el importe del IVA',
+    'Igual que «Esperar»: el complemento espera en revisión y no se pide importe de IVA. Se conserva para los despachos que ya la eligieron.',
 
   'policy.rep_voided_document.question':
     'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
