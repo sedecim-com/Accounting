@@ -293,15 +293,7 @@ export function filasDelAmarre(
  * `--gross` respondería «unknown option» y no enseñaría nada.
  */
 function rechazarGross(): never {
-  throw usageError(
-    'El estado en términos BRUTOS (NIF B-2 §40 / ASC 230-10-45-7) no se puede construir con ' +
-      'estos datos, y no se devuelve el neto rotulado como bruto. Lo bruto exige cobros y pagos ' +
-      'separados, y eso es un dato de la OPERACIÓN, no de la cuenta: el motor publica un neto ' +
-      'por cuenta, y partirlo en su cargo y su abono no da flujos —la baja de un activo abona a ' +
-      'valor en libros mientras el efectivo cobrado es otro importe—. La salida por omisión ya ' +
-      'muestra cada cuenta de cada sección, que es el detalle que estos libros sí sostienen. ' +
-      'Vuelve a correr sin --gross.'
-  );
+  throw usageError({ key: 'report.cashflow.gross_unavailable' });
 }
 
 export function registerCashFlowCommand(program: Command, deps: CashFlowCommandDeps): void {
