@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { listProfiles, userConfigPath } from './config.js';
+import { isInstallationSecretVariable, listProfiles, userConfigPath } from './config.js';
 import type { ProviderProfile } from './types.js';
 
 // ============================================================
@@ -45,11 +45,13 @@ export type CredentialSource =
   | { kind: 'helper'; file: string | null; shared: boolean }
   /** Neither a variable nor a helper: «local» only for a loopback base_url. */
   | { kind: 'none'; local: boolean }
-  | { kind: 'missing'; variable: string; where: string | null };
+  | { kind: 'missing'; variable: string; where: string | null }
+  /** api_key_env names one of the installation's own secrets: resolveProfile refuses it (MNE-001-445). */
+  | { kind: 'refused'; variable: string };
 
 export interface CredentialState {
   source: CredentialSource;
-  /** True unless the credential is missing. Advisory only. */
+  /** True unless the credential is missing or refused. Advisory only. */
   ready: boolean;
   /**
    * What the folder's ./.env says about the profile's variable: 'key' when it
@@ -106,7 +108,9 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
   const variable = profile.api_key_env;
 
   let source: CredentialSource;
-  if (variable && env[variable]) {
+  if (variable && isInstallationSecretVariable(variable)) {
+    source = { kind: 'refused', variable };
+  } else if (variable && env[variable]) {
     source = { kind: 'env', variable };
   } else if (profile.api_key_cmd) {
     const file = options.source ?? null;
@@ -118,7 +122,7 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
   }
 
   let folderEnv: CredentialState['folderEnv'] = null;
-  if (variable) {
+  if (variable && source.kind !== 'refused') {
     const parsed = readFolderEnv(cwd);
     if (parsed && Object.prototype.hasOwnProperty.call(parsed, variable)) {
       folderEnv = parsed[variable] === '' ? 'empty' : 'key';
@@ -140,6 +144,9 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     case 'missing':
       label = `${source.variable} missing${source.where ? ` (get it at ${source.where})` : ''}`;
       break;
+    case 'refused':
+      label = `${source.variable} is not a provider credential`;
+      break;
   }
   const folderFile = collapseHome(path.join(cwd, '.env'), home);
   if (folderEnv === 'key') {
@@ -148,7 +155,7 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     label += `; the empty ${variable}= in ${folderFile} hides ~/.mnemosine/.env`;
   }
 
-  return { source, ready: source.kind !== 'missing', folderEnv, label };
+  return { source, ready: source.kind !== 'missing' && source.kind !== 'refused', folderEnv, label };
 }
 
 export interface ProviderReadiness {
