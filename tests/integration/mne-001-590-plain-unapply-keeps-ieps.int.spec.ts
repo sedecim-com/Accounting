@@ -198,6 +198,33 @@ describe('P2 · a partial: 626.40 to B, twice', () => {
   }, 180_000);
 });
 
+describe('P3 · the cash goes to C, which carries no IEPS, and the rest back to A', () => {
+  it('C takes 74.0741 of IEPS out of 2180, and the last 92.80 takes the remainder against A\'s own share', async () => {
+    const before = await balances();
+    const a = await invoice();
+    const p = await record(a.number, '1252.80');
+    await unapply(p.payment_number, a.number);
+    const c = await invoice({ ieps: false, date: '2026-05-22' });
+
+    // c = 172.80 × 1,160 / 1,252.80 = 160.0000 and e = 80 × 1,160 / 1,252.80 = 74.0741; C releases g 160 and r 0.
+    const toC = await apply(p.payment_number, `${c.number}:1160.00`, '2026-05-25');
+    expect(await linesOf(toC.journal_entry)).toEqual({
+      '2150': dr('925.9259'), '2125': dr('160'), '2180': dr('74.0741'), '1120': cr('1160'),
+    });
+    expect(await since(before)).toMatchObject({ '2180': '5.9259', '2181': '80.0000', '2150': '74.0741' });
+
+    // The pool keeps 92.80 carrying 12.80 and 5.9259; A releases 12.80 and 80 × 92.80 / 1,252.80 = 5.9259.
+    const toA = await apply(p.payment_number, `${a.number}:92.80`, '2026-05-26');
+    expect(await linesOf(toA.journal_entry)).toEqual({
+      '2150': dr('74.0741'), '2125': dr('12.80'), '2181': dr('5.9259'), '1120': cr('92.80'),
+    });
+    // 2180 holds A's share of the 92.80 collected, and 2181 the IEPS of A's 1,160.00 still owed.
+    expect(await since(before)).toMatchObject({
+      '2120': '172.8000', '2125': '160.0000', '2150': '0.0000', '2180': '5.9259', '2181': '74.0741',
+    });
+  }, 180_000);
+});
+
 describe('P4 · applied again to the same invoice, and a reversal', () => {
   it('the IEPS goes back to 2181 and the application takes it again: the balances end as before the unapply', async () => {
     const before = await balances();
