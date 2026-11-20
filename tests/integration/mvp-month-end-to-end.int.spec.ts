@@ -2396,7 +2396,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // Each voucher a payment moved carries its Transferencia on the bank's
       // line, with both national bank codes. Out of a vendor payment, we are
       // the origin and the vendor the beneficiary; into a receipt, the
-      // customer's account is the origin and we are the beneficiary.
+      // customer's account is the origin. Either way Benef and RFC name the
+      // counterparty, the «tercero vinculado» the XSD asks for (#856): the
+      // customer's synthetic RFC, never ours.
       const voucher = (n: string): string =>
         xml.split('<PLZ:Poliza ').find((block) => block.includes(`NumUnIdenPol="${n}"`)) ?? '';
       for (const t of TRANSFERS) {
@@ -2404,9 +2406,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
           ? `<PLZ:Transferencia CtaOri="${OUR_CLABE}" BancoOriNal="${OUR_BANK_CODE}" CtaDest="${t.clabe}" BancoDestNal="${t.bank}" ` +
             `Fecha="${t.date}" Benef="${t.name}" RFC="${t.rfc}" Monto="${t.amount}" Moneda="MXN"/>`
           : `<PLZ:Transferencia CtaOri="${t.clabe}" BancoOriNal="${t.bank}" CtaDest="${OUR_CLABE}" BancoDestNal="${OUR_BANK_CODE}" ` +
-            `Fecha="${t.date}" Benef="${COMPANY_NAME}" RFC="${COMPANY_RFC}" Monto="${t.amount}" Moneda="MXN"/>`;
+            `Fecha="${t.date}" Benef="${t.name}" RFC="${t.rfc}" Monto="${t.amount}" Moneda="MXN"/>`;
         const block = voucher(voucherOf[t.payment]);
         expect(block, `${t.payment} in ${voucherOf[t.payment]}`).toContain(node);
+        expect(block, t.payment).not.toContain(`RFC="${COMPANY_RFC}"`);
         // One node, on the line of 1111.
         expect(block.match(/<PLZ:(Transferencia|Cheque|OtrMetodoPago) /g), t.payment).toHaveLength(1);
         expect(block).toMatch(/<PLZ:Transaccion NumCta="1111"[^>]*>\s*<PLZ:Transferencia /);
