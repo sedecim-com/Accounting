@@ -859,7 +859,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
         };
         // MNE-001-574 · the IVA a plain receipt's cash keeps caused while it waits on account.
-        const keptText = (iva: string): string => (new Decimal(iva).greaterThan(0) ? ` · ${t('receipt.unapply.iva_kept', { iva })}` : '');
+        // MNE-001-585 · under repark_same_month, a row released in an earlier month says why it keeps it.
+        const keptText = (r: typeof previo): string =>
+          !new Decimal(r.ivaKeptCaused).greaterThan(0)
+            ? ''
+            : r.keptBecause === 'later_month'
+              ? ` · ${t('receipt.unapply.iva_kept_later_month', { iva: r.ivaKeptCaused, key: 'plain_receipt_unapply_iva', month: r.date.slice(0, 7) })}`
+              : ` · ${t('receipt.unapply.iva_kept', { iva: r.ivaKeptCaused })}`;
 
         if (dryRun) {
           atCashing(previo.ivaAtCashing);
@@ -868,7 +874,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-                : '') + p.dim(keptText(previo.ivaKeptCaused)) + '\n'
+                : '') + p.dim(keptText(previo)) + '\n'
           );
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
@@ -878,7 +884,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
             `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
-            `The cash stays on account; the invoice reopens.${keptText(previo.ivaKeptCaused)}`
+            `The cash stays on account; the invoice reopens.${keptText(previo)}`
         );
 
         const result = await unapplyCustomerPayment(
@@ -910,7 +916,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-              : '') + p.dim(keptText(result.ivaKeptCaused)) + '\n'
+              : '') + p.dim(keptText(result)) + '\n'
         );
         atCashing(result.ivaAtCashing);
       })

@@ -104,6 +104,13 @@ provides:
     # Rollback: the previous build ignores the column, so cash an unapply kept would cause
     # its IVA again when applied; before reverting, post DR 2120 / CR 2150 by hand for each
     # unapply_kept_iva_amount still on account: what its unapply posted beyond this one.
+    # CONTRACT: the panel key `plain_receipt_unapply_iva` (MNE-001-585, #792 part 2/3)
+    # governs that unapply: `keep_caused`, the default, is the line above unchanged; under
+    # `repark_same_month` a row whose IVA was released in the calendar month of the unapply
+    # posts as before 574 (DR 2120 / CR 2125, `iva_reparked` the share, no marker, the IEPS
+    # back to 2181), and one released in an earlier month keeps it, and the dry run says so
+    # (`receipt.unapply.iva_kept_later_month`). The IVA paper does not follow the key.
+    # Rollback: rows re-parked under the key carry no marker and read as before 574.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed

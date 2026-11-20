@@ -1748,6 +1748,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.cheque_advance_before_cashing.option.defer_to_cashing':
     'Aplicarla ya a una factura PPD y compensar su IVA el día del cobro',
 
+  'policy.plain_receipt_unapply_iva.question':
+    'Un cobro sin tratamiento de anticipo se desaplica de una factura PPD: ¿el IVA que causó su cobro se queda causado, o vuelve a no cobrado?',
+  'policy.plain_receipt_unapply_iva.impact':
+    'Gobierna `receipt unapply` de un cobro sin tratamiento de anticipo sobre una factura PPD cuyo cobro liberó su IVA. Con "keep_caused" el IVA se queda en 2120 y el efectivo vuelve a 2150 por su base, llevando ese IVA, así que aplicarlo otra vez lo netea en lugar de causarlo dos veces. Con "repark_same_month" cada aplicación cuyo IVA se liberó en el mes calendario del desaplicar vuelve a 2125, con el IEPS que movió; una liberada en un mes anterior se queda causada, y también un cheque que el banco no ha cobrado. El papel de trabajo del IVA lo deja causado con cualquiera de las dos respuestas, y su cotejo nombra el re-aparcado.',
+  'policy.plain_receipt_unapply_iva.rationale':
+    'LIVA art. 1-B, primer párrafo: un precio se cobra cuando se recibe, aun como anticipo, y desaplicar no devuelve dinero. LIVA art. 7: sólo una devolución, descuento o bonificación documentada regresa el IVA. Dejarlo causado nunca baja un mes sin una devolución, la opción conservadora de ADR-0006. Re-aparcar en un mes posterior bajaría un mes ya declarado, lo que pide una declaración complementaria (CFF art. 32), así que ninguna respuesta lo hace.',
+  'policy.plain_receipt_unapply_iva.why':
+    'Algunos despachos tratan un desaplicar del mismo mes como la corrección de un error, y quieren que el IVA de la factura vuelva a no cobrado hasta que el efectivo se aplique otra vez. Dejarlo causado sigue la ley y se netea cuando el efectivo se aplica de nuevo.',
+  'policy.plain_receipt_unapply_iva.what':
+    'Con "keep_caused" dejo el IVA en 2120 y guardo en la aplicación lo que dejó causado. Con "repark_same_month" regreso a 2125 el IVA de cada aplicación liberada en el mes del desaplicar, dejo causado el resto, y el ensayo dice por qué.',
+  'policy.plain_receipt_unapply_iva.if_skipped': 'Dejo el IVA causado.',
+  'policy.plain_receipt_unapply_iva.option.keep_caused': 'Dejar el IVA causado y llevarlo en el efectivo que vuelve a cuenta',
+  'policy.plain_receipt_unapply_iva.option.repark_same_month':
+    'Re-aparcarlo cuando el desaplicar es del mes en que se liberó el IVA',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -2363,6 +2378,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
   // MNE-001-574 (#792): desaplicar un cobro sin tratamiento deja causado el IVA de su cobro.
   'receipt.unapply.iva_kept': 'IVA que se queda causado {iva} (LIVA art. 1-B)',
+  // MNE-001-585 (#792): con repark_same_month una aplicación liberada en un mes anterior deja su IVA causado.
+  'receipt.unapply.iva_kept_later_month':
+    'IVA que se queda causado {iva} (LIVA art. 1-B): {key} re-aparca sólo en el mes en que se liberó el IVA, y se liberó antes de {month}, en un mes que puede estar ya declarado',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
