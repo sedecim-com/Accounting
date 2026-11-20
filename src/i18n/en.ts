@@ -3813,6 +3813,46 @@ export const EN = {
   'fiscal_mx.diot.export.exists':
     '{target} already exists and is not overwritten unless asked: use another path, or --yes. A working paper reviewed and annotated by hand is not replaced silently.',
 
+  // MNE-001-226: cfdi (show, status show, status sync, explain) and rep (missing list, reconcile).
+  /** Above the line items of `cfdi show`. */
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# line item:} other {# line items:}}',
+  /** `cfdi status show` for a UUID the mirror does not have. */
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} is not in the mirror of this entity.',
+  /** `cfdi status show` of a CFDI never consulted with the SAT. */
+  'fiscal_mx.cfdi.status.never_checked': 'Never consulted: run with --refresh to ask the SAT now.',
+  /** `cfdi status sync` without --live: how many it would consult. */
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDIs}} to consult with the SAT{mode, select, dry_run { (dry-run: nothing was consulted)} other {. Run with --live to really consult {count, plural, one {it} other {them}}.}}',
+  /** The tally of `cfdi status sync --live`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consulted} other {# consulted}}: {valid, plural, one {# valid} other {# valid}}, {cancelled, plural, one {# cancelled} other {# cancelled}}, {not_found, plural, one {# not found} other {# not found}}, {errors, plural, one {# error} other {# errors}}',
+  /** After the tally: CFDIs the issuer cancelled. */
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelled by its issuer: review its accounting effect} other {# CFDIs cancelled by their issuers: review their accounting effect}} with cfdi list --json',
+  /** The header of `cfdi explain`. Direction and status are the mirror's values. */
+  'fiscal_mx.cfdi.explain.header': '{uuid} · type {type} · {direction} · case {case} · {status}',
+  /** After the header, when the CFDI has a journal entry. */
+  'fiscal_mx.cfdi.explain.entry': 'entry {entry}',
+  /** `cfdi explain` with no pending decision. */
+  'fiscal_mx.cfdi.explain.no_decisions': 'No pending decisions: the case was resolved by the panel policies alone.',
+  /** `rep missing list --direction issued`: our collections without a REP. */
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# collection} other {# collections}} without an issued REP: our own tax obligation, with a SAT deadline.',
+  /** `rep missing list` (received): paid PPD bills without the supplier REP. */
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# payment} other {# payments}} without the supplier REP: the receipt that supports crediting the IVA of {count, plural, one {that payment} other {those payments}} is missing.',
+  /** Rows whose CFDI is not in the mirror, so their payment method is unknown. */
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated it as {method}; it is listed} other {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated them as {method}; they are listed}} with the doubt stated — a PUE needs no REP.',
+  /** A --min-amount that is not a number. */
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount is unreadable: "{value}".',
+  /** `rep reconcile --dry-run`: how many parked REPs it would retry. */
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# parked REP would be retried} other {# parked REPs would be retried}} (dry-run: nothing was touched).',
+  /** The tally of `rep reconcile`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# retried} other {# retried}}: {linked, plural, one {# linked} other {# linked}}, {parked, plural, one {# still parked} other {# still parked}}, {errors, plural, one {# error} other {# errors}}',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
