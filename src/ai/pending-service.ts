@@ -11,7 +11,7 @@ import { t } from '../i18n/index.js';
 // ============================================================
 
 export interface PendingItem {
-  kind: 'draft' | 'question' | 'external_op' | 'credential_expiry' | 'period_close';
+  kind: 'draft' | 'question' | 'external_op' | 'credential_expiry' | 'period_close' | 'minimum_wage_zone';
   count: number;
   /** Display-ready phrase, in the accountant's language. */
   summary: string;
@@ -33,15 +33,16 @@ const EXAMPLE_LIMIT = 3;
 
 export async function getPendingBoard(ctx: AgentContext): Promise<PendingBoard> {
   // One query per source, in parallel: the board must be instantaneous.
-  const [drafts, questions, ops, creds, periods] = await Promise.all([
+  const [drafts, questions, ops, creds, periods, zone] = await Promise.all([
     pendingDrafts(ctx),
     pendingQuestions(ctx),
     pendingExternalOps(ctx),
     expiringCredentials(ctx),
     openPeriodsPastEnd(ctx),
+    undeclaredMinimumWageZone(ctx),
   ]);
 
-  const items = [drafts, questions, ops, periods, creds].filter(
+  const items = [drafts, questions, ops, periods, creds, zone].filter(
     (i): i is PendingItem => i !== null
   );
   const totalWork = items.filter((i) => !i.warning).reduce((s, i) => s + i.count, 0);
@@ -149,5 +150,29 @@ async function openPeriodsPastEnd(ctx: AgentContext): Promise<PendingItem | null
     examples: r.rows.slice(0, EXAMPLE_LIMIT).map((p) =>
       t('pending.board.period_example', { period: p.period_name, date: p.end_date })
     ),
+  };
+}
+
+/**
+ * A warning, not work (MNE-001-377): an entity with active employees that never
+ * declared its minimum-wage zone is computed with the general minimum, and the
+ * person who can say otherwise is asked here (decision MNE-001-376, #196).
+ */
+async function undeclaredMinimumWageZone(ctx: AgentContext): Promise<PendingItem | null> {
+  const r = await query<{ employees: number }>(
+    `SELECT COUNT(*)::int AS employees
+       FROM employees e
+       JOIN legal_entities le ON le.id = e.entity_id AND le.tenant_id = e.tenant_id
+      WHERE e.entity_id = $1 AND e.status = 'active' AND le.minimum_wage_zone_declared_at IS NULL
+     HAVING COUNT(*) > 0`,
+    [ctx.entityId]
+  );
+  if (r.rows.length === 0) return null;
+  return {
+    kind: 'minimum_wage_zone',
+    count: 1,
+    warning: true,
+    summary: t('pending.board.minimum_wage_zone', { count: r.rows[0].employees }),
+    command: `mnemosine entity edit ${ctx.taxId} --minimum-wage-zone general|northern_border`,
   };
 }

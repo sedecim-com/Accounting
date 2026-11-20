@@ -713,7 +713,7 @@ describe('a payment node without its c_Banco code is left out and its entry is n
       '«Cuenta sin clave SAT»', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'without code', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no bank account linked', 'Transferencia', 'BancoOriNal',
-      'Hoy ningún comando lo completa', 'bank account edit',
+      'Complétalo en el pago ya registrado (`payment trace record', 'bank account edit',
       () => vendorPayment('spei', 'none', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
       'Complétalo en el pago ya registrado (`payment trace record', PAYMENT_REMEDY,
@@ -721,8 +721,9 @@ describe('a payment node without its c_Banco code is left out and its entry is n
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
       () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
+    // MNE-001-570: a registered receipt is completed, never recorded again.
     ['a customer transfer with no payer bank', 'Transferencia', 'BancoOriNal',
-      'receipt record --payer-bank', 'payment create',
+      '--payer-bank <clave> --reason <motivo>`', 'receipt record',
       () => customerTransfer()],
   ] as const)('%s', async (_label, node, attribute, remedy, wrongRemedy, record) => {
     const entry = await record();
@@ -757,6 +758,8 @@ describe('a bank code off the XSD c_Banco (#404 review)', () => {
   it('is a blocking finding that names the entry, and the XML is still returned', async () => {
     // '003' has the three digits the bank-account check asks for and is not
     // on the c_Banco the official XSD declares. It must not kill the month.
+    // Since MNE-001-569 `payment create` refuses it, so the row is the one a
+    // payment recorded before that check left: stored by hand, as it was.
     const g = await gastoAprobado(f.entityId, f.userId, '50.00', '8.00');
     const payment = await recordVendorPayment(
       {
@@ -766,13 +769,14 @@ describe('a bank code off the XSD c_Banco (#404 review)', () => {
         paymentMethod: 'spei',
         bankAccountId: bancoId,
         cuentaDestino: '003180009876543210',
-        bancoDestinoSat: '003',
+        bancoDestinoSat: '002',
         applications: [{ documentId: g.billId, amountApplied: '58.00' }],
       },
       f.userId
     );
     const entry = payment.journalEntry?.entry_number;
     expect(entry, 'the payment must have posted').toBeTruthy();
+    await query(`UPDATE vendor_payments SET banco_destino_sat = '003' WHERE id = $1 AND entity_id = $2`, [payment.paymentId, f.entityId]);
 
     const r = await generarPolizas(f.entityId, {
       periodo: `2026-0${MES}`,

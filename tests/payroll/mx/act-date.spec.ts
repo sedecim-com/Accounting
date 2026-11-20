@@ -131,7 +131,7 @@ describe('IMSS and INFONAVIT go by the contribution days of each month', () => {
   it('the employer quota too', async () => {
     const out = await new MexicoImssEmployerCalculator().calculate({
       ...straddling,
-      imss_old_age_band_edge: 'above_upper_edge',
+      imss_old_age_band_edge: 'above_upper_edge', imss_minimum_wage_area: { zone: 'general', rule: 'general_zone', declared: true },
     });
     expect(out.taxable_wages_used).toBeCloseTo(CAPPED_DAYS, 6);
     expect(out.breakdown?.prestaciones_dinero).toBeCloseTo(CAPPED_DAYS * RATE, 6);
