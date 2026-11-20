@@ -32,7 +32,7 @@ import {
 import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf,
-  keptOnAccount, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
+  keptOnAccount, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
 import { treatmentOfSales } from '../fiscal/sale-sources.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
@@ -1915,6 +1915,42 @@ export interface ResultadoDesaplicacion {
   ivaAtCashing: string;
   /** MNE-001-574 · The IVA the rows' plain cash keeps caused, back on account with it (LIVA art. 1-B); 4 dp. */
   ivaKeptCaused: string;
+  /**
+   * MNE-001-585 · Why that IVA stays caused: `default` (`plain_receipt_unapply_iva = keep_caused`), or
+   * `later_month` (`repark_same_month`, but released in an earlier month); null when nothing is kept.
+   */
+  keptBecause: 'default' | 'later_month' | null;
+}
+
+/** The panel key `keptUnderPolicy` reads (pending-catalog.ts). */
+const PLAIN_UNAPPLY_KEY = 'plain_receipt_unapply_iva';
+
+/**
+ * MNE-001-585 (#792, part 2/3) · What the rows of a plain receipt's unapply
+ * keep caused once the firm's answer to `plain_receipt_unapply_iva` is read,
+ * only here and only when some row would keep IVA. `keep_caused` (the
+ * default, LIVA arts. 1-B and 7) keeps them; `repark_same_month` re-parks each
+ * row released in the calendar month of the unapply (`reparkSameMonth`). A
+ * held cheque released nothing, so it is never re-parked.
+ */
+async function keptUnderPolicy(
+  client: pg.PoolClient,
+  entityId: string,
+  payment: PagoVivo,
+  rows: readonly { applied_on: string | null }[],
+  kept: string[],
+  date: string,
+  held: boolean
+): Promise<{ kept: string[]; because: ResultadoDesaplicacion['keptBecause'] }> {
+  if (!kept.some((k) => new Decimal(k).greaterThan(0))) return { kept, because: null };
+  const choice = held ? null : await getPolicy({ tenantId: await tenantDe(client, entityId), entityId }, PLAIN_UNAPPLY_KEY, client);
+  if (choice?.value !== 'repark_same_month') return { kept, because: 'default' };
+  const dates = {
+    paymentDate: toCalendarDate(payment.payment_date), paymentMethod: payment.payment_method,
+    checkCashedOn: payment.check_cashed_date ? toCalendarDate(payment.check_cashed_date) : null,
+  };
+  const keyed = reparkSameMonth(kept, rows.map((r) => releaseDayOf(r.applied_on, dates)), date);
+  return { kept: keyed.kept, because: keyed.laterMonth ? 'later_month' : null };
 }
 
 /**
@@ -1969,6 +2005,8 @@ async function keptAfterNotes(
  * causado» of 19 Nov 2026, #623): the cash goes back to 2150 for its base,
  * the row stores what it kept (`unapply_kept_iva_amount`), and a later
  * application nets it (`keptOnAccount`). The IEPS stays caused with it.
+ * MNE-001-585: under `plain_receipt_unapply_iva = repark_same_month` a row
+ * released in the month of the unapply re-parks instead (`keptUnderPolicy`).
  *
  * MNE-001-581: after a credit note linked to the invoice, what goes back to
  * 2125 is only what brings it to the IVA of the balance owed again; the rest
@@ -2015,9 +2053,9 @@ export async function unapplyCustomerPayment(
 
     const vivas = await client.query<{
       id: string; amount_applied: string; iva_reclass_amount: string | null; isr: string; iva: string; advance_iva: string;
-      plain: string;
+      plain: string; applied_on: string | null;
     }>(
-      `SELECT id, amount_applied::text, iva_reclass_amount::text,
+      `SELECT id, amount_applied::text, iva_reclass_amount::text, applied_on::text,
               withholding_isr_amount::text AS isr, withholding_iva_amount::text AS iva,
               advance_iva_amount::text AS advance_iva,
               (amount_applied - advance_base_amount - advance_iva_amount)::text AS plain
@@ -2101,7 +2139,10 @@ export async function unapplyCustomerPayment(
     const backInParked = released.minus(noteKept.amount);
     // MNE-001-574 with 581 (decision (A) on #792): the plain cash keeps caused no more than what goes back to
     // 2125 beyond its taken advance's IVA; what the note restituted is not caused again.
-    const kept = capKept(keptByRow, Decimal.max(backInParked.minus(advanceIva), 0).toFixed(4));
+    // MNE-001-585: the firm may re-park instead, only in the month the IVA was released (`keptUnderPolicy`).
+    const { kept, because: keptBecause } = await keptUnderPolicy(
+      client, entityId, pago, vivas.rows, capKept(keptByRow, Decimal.max(backInParked.minus(advanceIva), 0).toFixed(4)), date, held
+    );
     const keptIva = kept.reduce((s, k) => s.plus(k), new Decimal(0));
     const stillCaused = advanceIva.plus(keptIva);
     const reparked = stillCaused.greaterThan(0) ? Decimal.max(backInParked.minus(stillCaused), 0) : backInParked;
@@ -2214,6 +2255,7 @@ export async function unapplyCustomerPayment(
       iepsReparked: iepsMoved.toFixed(4),
       ivaAtCashing: new Decimal(held ? putBackIva : '0').toFixed(2),
       ivaKeptCaused: keptIva.toFixed(4),
+      keptBecause: keptIva.greaterThan(0) ? keptBecause : null,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
