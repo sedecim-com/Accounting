@@ -198,8 +198,9 @@ const CREDITED_BEFORE_CASHING = `EXISTS (
 
 // CONTRACT: the month in which the DIOT and the IVA workpaper (SAT
 // deliverables) count a vendor payment. NULL for a cheque that waits for its
-// cashing: it enters no month.
-const CREDIT_DATE = `CASE WHEN vp.payment_method <> 'check' OR ${CREDITED_BEFORE_CASHING}
+// cashing: it enters no month. Read over a `vendor_payments vp` row; the VAT
+// over-credit census names each payment's month by it (MNE-001-562).
+export const CREDIT_DATE = `CASE WHEN vp.payment_method <> 'check' OR ${CREDITED_BEFORE_CASHING}
                  THEN vp.payment_date ELSE vp.check_cleared_date END`;
 
 /**
