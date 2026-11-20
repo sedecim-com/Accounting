@@ -1460,6 +1460,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    '¿Con qué salario mínimo se mide el tramo «1.00 SM» de la cuota patronal de cesantía en edad avanzada y vejez: el del área de tu registro patronal, o el de la zona general para todo trabajador?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'Decide qué SBC paga la tasa más baja de la cuota patronal de cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). En marzo de 2026, para una entidad registrada en la frontera norte, un SBC de 400.00 paga 3.150 % con "employer_registration_area" (189.00 por quincena, bajo su mínimo de 440.87) y 6.361 % con "general_zone" (381.66, medido con 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'Un salario mínimo general rige para los trabajadores de su propia área (LFT art. 92), y el IMSS determina las cuotas de cada registro patronal (LSS arts. 28 y 39), así que el tramo se mide con el mínimo del área del registro. Una entidad que no ha declarado su zona se mide con el mínimo general, y la nota del cálculo lo dice.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'La tabla nombra su primer tramo en salarios mínimos, y México tiene dos mínimos generales: el de la zona general y el de la Zona Libre de la Frontera Norte. Si el programa con el que determinas tus cuotas usa el mínimo de la zona general para todo registro, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'Por cada día cotizado tomo el salario mínimo general del área que esta política nombra, vigente ese día, y ubico el SBC en el tramo de la tabla con fechas. La nota del cálculo nombra el mínimo, su área y si la entidad la declaró.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'Uso el mínimo del área del registro patronal, que es la zona declarada de la entidad, o el mínimo general mientras no haya una declarada.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'El mínimo general del área del registro patronal (la zona declarada de la entidad)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'El mínimo de la zona general para todo trabajador, sea cual sea el área del registro',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1731,6 +1748,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
     '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.minimum_wage_zone':
+    'la zona de salario mínimo no está declarada: {count, plural, one {# trabajador se calcula} other {# trabajadores se calculan}} con el mínimo general',
   'pending.board.period_example':
     '{period} (terminó el {date})',
   'pending.policies.none':
@@ -2355,7 +2374,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
   'payment.trace.nothing_given':
-    'Di qué completar: --check-number, --to-account, --to-bank o --to-foreign-bank. No se escribió nada.',
+    'Di qué completar: --check-number, --to-account, --to-bank, --to-foreign-bank o --bank. No se escribió nada.',
   'payment.trace.reason_required':
     'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
   'payment.trace.too_long':
@@ -2365,6 +2384,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-570 (#612): el rastro de un cobro registrado.
+  'receipt.trace.nothing_given':
+    'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
+  // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
+  'payment.trace.bank_no_entry':
+    'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
+  'payment.trace.bank_not_in_entry':
+    'El asiento {entry} del pago {number} movió {moved}; «{account}» postea a {candidate}. Ligarla haría que la póliza declarara un banco que el mayor no movió. No se escribió nada.',
   'payment.trace.would_complete': 'Completaría {number}: {fields}',
   'payment.trace.confirm':
     '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
@@ -3345,7 +3372,19 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
   'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
   'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.bank': 'cuenta bancaria (nombre o id) de la que salió el pago; sólo una que postea a la cuenta del mayor que movió su asiento',
   'help.payment.trace.record.option.json': 'salida JSON',
+  // MNE-001-570 (#612): el rastro de un cobro registrado, completado después.
+  'help.receipt.trace.description': 'El rastro de un cobro registrado: el banco y la cuenta del cliente, su cheque y nuestra cuenta bancaria',
+  'help.receipt.trace.record.description':
+    'Completa los campos vacíos del rastro de un cobro registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.receipt.trace.record.argument.receipt': 'número o id del cobro',
+  'help.receipt.trace.record.option.check_number': 'número de cheque; sólo para un cobro con cheque del cliente',
+  'help.receipt.trace.record.option.payer_bank': 'clave c_Banco (3 dígitos) del banco del que pagó el cliente, o que emitió su cheque',
+  'help.receipt.trace.record.option.payer_account': 'cuenta de la que pagó el cliente, o contra la que se giró su cheque',
+  'help.receipt.trace.record.option.payer_foreign_bank': 'nombre del banco del cliente cuando es extranjero',
+  'help.receipt.trace.record.option.bank': 'cuenta bancaria (nombre o id) a la que entró el dinero; sólo una que postea a la cuenta del mayor que movió su asiento',
+  'help.receipt.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
@@ -3642,6 +3681,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
   'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
   'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: área de salario mínimo del lugar de trabajo, que topa la prima de antigüedad (LFT art. 486)',
   'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
   'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
   'help.account.show.description':
