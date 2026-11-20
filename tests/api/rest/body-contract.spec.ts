@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import express, { type RequestHandler } from 'express';
@@ -13,6 +14,12 @@ import { z } from 'zod';
 // (code, prose, field paths, issue order) and every parsed body identical.
 // The only exceptions are the tightenings listed in TIGHTENINGS below, which
 // carry both expectations so the owner reviews them before the bump.
+//
+// CONTRACT: since MNE-001-152 (#151) the 422 of validateBody and validateQuery
+// is written by catalog key. Its English stays byte for byte the zod 3 text
+// every row here pins, and it is what a request reads unless it names a
+// supported language: no header, `*` (what `fetch` sends below) and only
+// unsupported languages all read English. Only `es` reads Spanish (G3).
 // ============================================================
 
 vi.mock('../../../src/database/connection.js', () => ({
@@ -38,6 +45,7 @@ import {
   recordRestBodyGolden,
 } from '../golden/rest-body-probes.js';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
+import { negotiateLocale } from '../../../src/api/rest/middleware/locale.js';
 import { AppError } from '../../../src/utils/errors.js';
 
 /** True once `zod` resolves to a v4 runtime; the tightening rows pick their expectation with it. */
@@ -215,6 +223,8 @@ let close: () => Promise<void> = async () => {};
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  // As src/index.ts mounts it: the 422 answers in the language the request named.
+  app.use(negotiateLocale);
   for (const [i, route] of ROUTES.entries()) {
     app.post(`/probe/${i}`, route.handler, (req, res) => {
       res.json({ ok: true, body: req.body as unknown });
@@ -368,26 +378,96 @@ describe('G5 · a URL field accepts an IDN host however warm the process is', ()
 });
 
 describe('G3 · the 422 envelope', () => {
-  it('answers 422 with a prose error and the v1 meta, and declares no language', async () => {
-    const res = await post('POST /v1/journal-entries', '{}', { 'x-request-id': 'req-367' });
-    expect(res.status).toBe(422);
-    expect(res.headers.get('content-language')).toBeNull();
-    expect(res.headers.get('vary')).toBeNull();
-    const json = (await res.json()) as {
-      errors: Array<Record<string, unknown>>;
-      meta: Record<string, unknown>;
-    };
+  interface Envelope {
+    errors: Array<Record<string, unknown>>;
+    meta: Record<string, unknown>;
+  }
+  const ENGLISH = `${INVALID}entity_id: Required; entry_date: Required; lines: Required`;
+  const SPANISH = 'Cuerpo de la petición inválido: entity_id: Obligatorio; entry_date: Obligatorio; lines: Obligatorio';
+
+  /** The envelope of every 422: one error with `code` and `message` only, and the v1 meta. */
+  function expectEnvelope(json: Envelope, message: string, language: string): void {
     expect(json.errors).toHaveLength(1);
     const [error] = json.errors;
     expect(Object.keys(error ?? {}).sort()).toEqual(['code', 'message']);
-    expect(error).toEqual({
-      code: 'VALIDATION_ERROR',
-      message: `${INVALID}entity_id: Required; entry_date: Required; lines: Required`,
-    });
-    expect(Object.keys(json.meta).every((k) => ['request_id', 'timestamp', 'version'].includes(k))).toBe(true);
+    expect(error).toEqual({ code: 'VALIDATION_ERROR', message });
+    expect(Object.keys(json.meta).sort()).toEqual(['language', 'request_id', 'timestamp', 'version']);
     expect(json.meta.request_id).toBe('req-367');
     expect(json.meta.version).toBe('v1');
-    expect(json.meta).not.toHaveProperty('language');
+    expect(json.meta.language).toBe(language);
+  }
+
+  /**
+   * A POST through `node:http`, not `fetch`: fetch adds `accept-language: *`
+   * to every request that does not set one, so with it the header-less case
+   * would never leave the client without a header.
+   */
+  function postWithoutLanguage(key: string, raw: string) {
+    const index = ROUTES.findIndex((r) => r.key === key);
+    return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; json: Envelope }>(
+      (resolve, reject) => {
+        const req = httpRequest(
+          `${baseUrl}/probe/${index}`,
+          { method: 'POST', headers: { 'content-type': 'application/json', 'x-request-id': 'req-367' } },
+          (res) => {
+            let text = '';
+            res.setEncoding('utf-8');
+            res.on('data', (chunk: string) => (text += chunk));
+            res.on('end', () => {
+              try {
+                resolve({ status: res.statusCode ?? 0, headers: res.headers, json: JSON.parse(text) as Envelope });
+              } catch (err) {
+                reject(err instanceof Error ? err : new Error(String(err)));
+              }
+            });
+          }
+        );
+        req.on('error', reject);
+        req.end(raw);
+      }
+    );
+  }
+
+  it('Accept-Language: en reads the zod 3 English, and says so', async () => {
+    const res = await post('POST /v1/journal-entries', '{}', { 'x-request-id': 'req-367', 'accept-language': 'en' });
+    expect(res.status).toBe(422);
+    expect(res.headers.get('content-language')).toBe('en-US');
+    expect((res.headers.get('vary') ?? '').toLowerCase()).toContain('accept-language');
+    expectEnvelope((await res.json()) as Envelope, ENGLISH, 'en');
+  });
+
+  it('Accept-Language: es reads the same code in Spanish, and says so', async () => {
+    const res = await post('POST /v1/journal-entries', '{}', { 'x-request-id': 'req-367', 'accept-language': 'es' });
+    expect(res.status).toBe(422);
+    expect(res.headers.get('content-language')).toBe('es-MX');
+    expect((res.headers.get('vary') ?? '').toLowerCase()).toContain('accept-language');
+    expectEnvelope((await res.json()) as Envelope, SPANISH, 'es');
+  });
+
+  it('without Accept-Language the 422 stays English, the one exception to DEFAULT_LOCALE', async () => {
+    const res = await postWithoutLanguage('POST /v1/journal-entries', '{}');
+    expect(res.status).toBe(422);
+    expect(res.headers['content-language']).toBe('en-US');
+    expectEnvelope(res.json, ENGLISH, 'en');
+  });
+
+  it('Accept-Language: * (what fetch sends) and only unsupported languages stay English too', async () => {
+    for (const header of ['*', 'fr']) {
+      const res = await post('POST /v1/journal-entries', '{}', { 'x-request-id': 'req-367', 'accept-language': header });
+      expect(res.status).toBe(422);
+      expect(res.headers.get('content-language'), header).toBe('en-US');
+      expectEnvelope((await res.json()) as Envelope, ENGLISH, 'en');
+    }
+  });
+
+  it('a message the schema writes itself travels verbatim after the Spanish frame', async () => {
+    const res = await post('PATCH /v1/accounts/:id', '{}', { 'x-request-id': 'req-367', 'accept-language': 'es' });
+    expect(res.status).toBe(422);
+    expectEnvelope(
+      (await res.json()) as Envelope,
+      'Cuerpo de la petición inválido: <root>: At least one field must be provided',
+      'es'
+    );
   });
 });
 

@@ -11272,7 +11272,7 @@
         }
       },
       "CuerpoInvalido": {
-        "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400.",
+        "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400. Its message is written by catalog key and always declares its language, but it answers in English, the zod 3 wording byte for byte, unless the request names a supported language: with no Accept-Language, with `*`, or with only unsupported languages it does not fall back to the default language (#367).",
         "headers": {
           "Content-Language": {
             "$ref": "#/components/headers/ContentLanguage"
@@ -11287,7 +11287,7 @@
         }
       },
       "InvalidQuery": {
-        "description": "A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` naming the parameter). Note the status is 422, not 400.",
+        "description": "A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` naming the parameter). Note the status is 422, not 400. Its message is written by catalog key and always declares its language, but it answers in English, the zod 3 wording byte for byte, unless the request names a supported language: with no Accept-Language, with `*`, or with only unsupported languages it does not fall back to the default language (#367).",
         "headers": {
           "Content-Language": {
             "$ref": "#/components/headers/ContentLanguage"

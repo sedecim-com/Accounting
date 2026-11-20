@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { DECIMALES_IMPORTE_ANEXO24 } from './xml.js';
+import { FOREIGN_BANK_CODE } from './official-enumerations.js';
 import {
   COMPROBANTES_DE_POLIZA,
   describeOffListValue,
@@ -325,9 +326,28 @@ export function bancoEnCatalogo(
             )
           );
         }
-        for (const [campo, clave] of clavesDeBanco(pago)) {
+        for (const [campo, clave, extAttribute, foreignName] of clavesDeBanco(pago)) {
           // Off the XSD's list is already reported above, and says more.
           if (offXsd.some((v) => v.attribute === campo)) continue;
+          // MNE-001-401 (#532): 999 is «N/A» in c_Banco. With the name in the
+          // `*Ext` it declares a foreign bank; alone it names no bank, and it
+          // may stand where a national code belonged. The XSD lets it pass
+          // (the `*Ext` is required only «cuando se cuente con la
+          // información»), and no command corrects a captured value, so it
+          // warns instead of blocking the month.
+          if ((clave ?? '').trim() === FOREIGN_BANK_CODE && (foreignName ?? '').trim() === '') {
+            hs.push(
+              hallazgo(
+                'banco-en-catalogo',
+                'warning',
+                p.numUnIdenPol,
+                `${campo}="${FOREIGN_BANK_CODE}" sin ${extAttribute}: en el c_Banco la clave ` +
+                  `${FOREIGN_BANK_CODE} es «N/A» y no nombra ningún banco. Si el banco es extranjero falta ` +
+                  `su nombre; si es nacional, su clave. Revisa la clave de banco de la cuenta o del pago ` +
+                  `de esta póliza.`
+              )
+            );
+          }
           const estado = estadoDeBanco(clave, bancos);
           if (estado === 'fuera_de_catalogo') {
             hs.push(
@@ -389,14 +409,15 @@ export function codeInOfficialList(entries: readonly Poliza[]): HallazgoPoliza[]
 }
 
 /** Los campos de clave de banco NACIONAL de cada nodo de pago, con su nombre. */
-function clavesDeBanco(p: NodoDePago): Array<[string, string | undefined]> {
+/** Each c_Banco code of a payment node, with the `*Ext` attribute that names a foreign bank. */
+function clavesDeBanco(p: NodoDePago): Array<[string, string | undefined, string, string | undefined]> {
   switch (p.clase) {
     case 'cheque':
-      return [['BanEmisNal', p.banEmisNal]];
+      return [['BanEmisNal', p.banEmisNal, 'BanEmisExt', p.banEmisExt]];
     case 'transferencia':
       return [
-        ['BancoOriNal', p.bancoOriNal],
-        ['BancoDestNal', p.bancoDestNal],
+        ['BancoOriNal', p.bancoOriNal, 'BancoOriExt', p.bancoOriExt],
+        ['BancoDestNal', p.bancoDestNal, 'BancoDestExt', p.bancoDestExt],
       ];
     case 'otro':
       return [];

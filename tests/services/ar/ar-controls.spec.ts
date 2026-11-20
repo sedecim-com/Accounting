@@ -75,7 +75,8 @@ describe('arReconcile manual entries', () => {
     expect(mockQuery.mock.calls[5][1]).toEqual([
       ENTITY,
       'acc-1',
-      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'receipt_reversal_iva',
+        'fx_revaluation'],
       50,
     ]);
   });
@@ -102,7 +103,8 @@ describe('arReconcile reads the report layer', () => {
 
     expect(queryAccountBalance).toHaveBeenCalledWith(ENTITY, 'acc-1');
     expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, 'acc-1', {
-      excludeSourceTypes: ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      excludeSourceTypes: ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
+        'receipt_reversal_iva', 'fx_revaluation'],
       order: 'newest',
       limit: 50,
     });

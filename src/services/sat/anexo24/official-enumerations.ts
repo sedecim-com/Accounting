@@ -24,6 +24,18 @@ import * as path from 'node:path';
 export const OFFICIAL_ENUMERATIONS_XSD =
   'ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd';
 
+/**
+ * THE c_Banco CODE A FOREIGN BANK IS DECLARED WITH, next to its full name in
+ * the matching `*Ext` attribute (#532, the answer of 17 Nov 2026).
+ *
+ * NOTE: Anexo 24 RMF 2026, apartado G, lists c_Banco for «bancos nacionales»,
+ * and `999 N/A` is its only entry that names no institution. No SAT text found
+ * assigns it to a foreign bank: it is a reading, the only encoding that
+ * validates and declares no resident bank that was not used. The spec ties it
+ * to the vendored list, so a republished c_Banco without it turns red.
+ */
+export const FOREIGN_BANK_CODE = '999';
+
 /** The `xs:simpleType` names the generators check against. */
 export type OfficialEnumeration = 'c_CodAgrup' | 'c_Banco' | 'c_Moneda' | 'c_MetPagos';
 
