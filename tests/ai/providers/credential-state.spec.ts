@@ -116,6 +116,25 @@ describe('credentialState — the five answers', () => {
   });
 });
 
+describe('credentialState — an installation secret is not a provider credential (MNE-001-445)', () => {
+  it('names the variable, is not ready, and wins over a value and a helper', () => {
+    const s = credentialState(remote({ api_key_env: 'ENCRYPTION_KEY', api_key_cmd: 'echo fake-helper' }), {
+      cwd, home, env: { ENCRYPTION_KEY: 'fake-installation-secret' },
+    });
+    expect(s.source).toEqual({ kind: 'refused', variable: 'ENCRYPTION_KEY' });
+    expect(s.ready).toBe(false);
+    expect(s.label).toBe('ENCRYPTION_KEY is not a provider credential');
+    expect(JSON.stringify(s)).not.toMatch(/fake-installation-secret|fake-helper/);
+  });
+
+  it('even when ./.env defines it, nothing more is said about it', () => {
+    fs.writeFileSync(path.join(cwd, '.env'), 'DATABASE_URL=postgres://fake\n');
+    const s = credentialState(remote({ api_key_env: 'DATABASE_URL' }), { cwd, home, env: {} });
+    expect(s.label).toBe('DATABASE_URL is not a provider credential');
+    expect(s.folderEnv).toBeNull();
+  });
+});
+
 describe('credentialState — the folder\'s ./.env', () => {
   it('warns when ./.env defines the variable: that key serves everyone who runs mnemosine there', () => {
     fs.writeFileSync(path.join(cwd, '.env'), 'OTHER=1\nFAKE_PROVIDER_KEY=fake-folder-key\n');

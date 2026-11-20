@@ -789,6 +789,47 @@ export class MissingProviderCredentialError extends Error {
 }
 
 /**
+ * SECURITY: the installation's own secrets, which a profile may never name as
+ * its `api_key_env`. resolveProfile would read the variable and send it as a
+ * bearer token to the profile's `base_url`, so a project file could hand the
+ * database password or the encryption key to any host. The four the plan names
+ * plus the others `.env.example` documents as this installation's secrets; the
+ * wider case (any variable to any host) is the follow-up issue's (#644).
+ * CONTRACT (catalog-info.yaml, provides.cli): such a profile is refused.
+ */
+export const INSTALLATION_SECRET_VARIABLES: ReadonlySet<string> = new Set([
+  'DATABASE_URL',
+  'MIGRATION_DATABASE_URL',
+  'BACKUP_DATABASE_URL',
+  'TEST_ADMIN_DATABASE_URL',
+  'DATABASE_SSH_KEY',
+  'ENCRYPTION_KEY',
+  'JWT_SECRET',
+  'AWS_SECRET_ACCESS_KEY',
+  'AUTH_OIDC_WEB_CLIENT_SECRET',
+  'PAC_PASSWORD',
+  'PLAID_SECRET',
+  'ZKVERIFY_API_KEY',
+]);
+
+/** True when `api_key_env` names one of the installation's own secrets (any case). */
+export function isInstallationSecretVariable(variable: string | undefined): boolean {
+  return !!variable && INSTALLATION_SECRET_VARIABLES.has(variable.toUpperCase());
+}
+
+/**
+ * The profile names an installation secret as its key. Deliberately NOT a
+ * MissingProviderCredentialError: `ingest` must fail loudly on it instead of
+ * reading it as «no model provider», and failover must not move past it.
+ */
+export class NotAProviderCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotAProviderCredentialError';
+  }
+}
+
+/**
  * Resolves the profile to use. `flagName` comes from --provider; `modelOverride`
  * from --model. Validates that the named API key exists in the environment.
  */
@@ -804,6 +845,16 @@ export function resolveProfile(
     throw new Error(
       `Provider "${name}" does not exist. Available: ${Object.keys(profiles).join(', ')}. ` +
         'Define your own providers in mnemosine.config.json'
+    );
+  }
+
+  // SECURITY: fail closed BEFORE the variable is read or a helper runs, so
+  // nothing of it can reach the profile's host (MNE-001-445).
+  if (isInstallationSecretVariable(profile.api_key_env)) {
+    throw new NotAProviderCredentialError(
+      `Provider "${name}" names ${profile.api_key_env} in api_key_env, which is not a provider credential: ` +
+        "it is one of this installation's own secrets, and mnemosine never sends it to a model provider. " +
+        "Put the provider's own key in a variable of its own (in your shell or ~/.mnemosine/.env) and name that one."
     );
   }
 
@@ -836,7 +887,7 @@ export function resolveProfile(
   if (!apiKey && profile.api_key_env && profile.type === 'openai-compatible') {
     throw new MissingProviderCredentialError(
       `Provider "${name}" requires the environment variable ${profile.api_key_env} ` +
-        '(add it to your .env) or an api_key_cmd in mnemosine.config.json'
+        '(set it in your shell or ~/.mnemosine/.env) or an api_key_cmd in mnemosine.config.json'
     );
   }
 
@@ -1357,6 +1408,13 @@ export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWr
 // Well-known credential prefixes: Anthropic/OpenAI-style keys (sk-), GitHub
 // PATs (ghp_), Slack bot tokens (xoxb-), AWS access key ids (AKIA), JWTs (eyJ).
 const SECRET_VALUE_RE = /^(sk-|ghp_|xoxb-|AKIA|eyJ)/;
+// More key shapes (MNE-001-445): NVIDIA's documented prefix (nvapi-), and the
+// common shapes of xAI (xai-) and Google (AIza) keys. Not applied to a value
+// that holds a PROFILE name (default_provider, a failover entry), because a
+// profile may well be called «xai-vertex».
+const PROVIDER_KEY_VALUE_RE = /^(nvapi-|xai-|AIza)/;
+// A header value that carries its own token: `Authorization: Bearer <token>`.
+const BEARER_VALUE_RE = /^Bearer\s+\S/i;
 // Key names that normally carry credentials.
 const SECRET_KEY_RE = /(key|token|secret|password)/i;
 // The one legitimate value for a secret-named key: the NAME of an environment
@@ -1366,7 +1424,15 @@ const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
 function assertNoSecrets(value: unknown, keyPath: string[]): void {
   if (typeof value === 'string') {
     const key = keyPath[keyPath.length - 1] ?? '';
-    const looksLikeSecretValue = SECRET_VALUE_RE.test(value);
+    // Where the value is a profile name, not something that can carry a key.
+    const valueIsProfileName =
+      (keyPath.length === 1 && keyPath[0] === 'default_provider') ||
+      (keyPath.length === 4 && keyPath[0] === 'providers' && keyPath[2] === 'failover');
+    const valueIsHeader = keyPath.length === 4 && keyPath[0] === 'providers' && keyPath[2] === 'headers';
+    const looksLikeSecretValue =
+      SECRET_VALUE_RE.test(value) ||
+      (!valueIsProfileName && PROVIDER_KEY_VALUE_RE.test(value)) ||
+      (valueIsHeader && BEARER_VALUE_RE.test(value));
     // *_cmd keys hold credential-helper COMMANDS (api_key_cmd), not credentials;
     // the value-prefix check above still catches a raw key pasted into one.
     // Under `models` the key is a PROFILE name (one may well contain «token»);
@@ -1377,8 +1443,8 @@ function assertNoSecrets(value: unknown, keyPath: string[]): void {
     if (looksLikeSecretValue || secretNamedWithRawValue) {
       throw new Error(
         `Refusing to write "${keyPath.join('.')}" to the config file: the value looks like a ` +
-          'credential. Config files are shareable and may end up in git — put the secret in your ' +
-          '.env instead and reference it by variable name via api_key_env (or use api_key_cmd ' +
+          'credential. Config files are shareable and may end up in git — put the secret in your shell or ' +
+          '~/.mnemosine/.env instead and reference it by variable name via api_key_env (or use api_key_cmd ' +
           'for a vault/credential helper).'
       );
     }

@@ -1911,14 +1911,21 @@ export const E0_0: Criterio[] = [
     // and «checks:» line reuse the balance's keys word for word. The receipt's
     // steps and the `detalle` of `check --check` are English in the row and
     // labelled in the table. The exported file is the serializer's and does
-    // not change. Part 2b adds cfdi and rep under this same id.
+    // not change. Part 2b adds cfdi and rep, 19 strings: the not-found and
+    // never-consulted notes, the sync and reconcile tallies, the missing-REP
+    // notes and the explain header, with ICU plurals. Their three Spanish
+    // option descriptions of cfdi and three risk texts are English in place,
+    // which this criterion cannot see: language:status --check does, as for
+    // sat. rep's reads come through a `receipts` seam for its spec.
     enunciado:
-      'The fiscal-mx family (e-accounting, sat, diot) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225, MNE-001-226)',
+      'The fiscal-mx family (e-accounting, sat, diot, cfdi, rep) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225, MNE-001-226)',
     evaluar: () =>
       familySpeaksByKey('I8.7', 'fiscal-mx', [
         'src/cli/e-accounting-command.ts',
         'src/cli/sat-commands.ts',
         'src/cli/diot-command.ts',
+        'src/cli/cfdi-command.ts',
+        'src/cli/rep-command.ts',
       ]),
     mutantes: [
       {
@@ -1956,6 +1963,18 @@ export const E0_0: Criterio[] = [
         de: '"spanish-user-strings-cli": {',
         a: '"spanish-user-strings-cli": {\n   "src/cli/diot-command.ts": 1,',
         porque: 'ground-given-back: the breakdown records a Spanish string in diot again',
+      },
+      {
+        archivo: 'src/cli/cfdi-command.ts',
+        de: "'fiscal_mx.cfdi.sync.done'",
+        a: "'{checked} consultado(s): {valid} vigente(s), {cancelled} cancelado(s)' as never",
+        porque: 'string-back-in-the-code: cfdi status sync tallies the SAT answers in Spanish with «(s)» again, which only check 2 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/rep-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in rep again',
       },
     ],
   },
