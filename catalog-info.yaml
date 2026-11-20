@@ -123,6 +123,13 @@ provides:
     # back to 2181), and one released in an earlier month keeps it, and the dry run says so
     # (`receipt.unapply.iva_kept_later_month`). The IVA paper does not follow the key.
     # Rollback: rows re-parked under the key carry no marker and read as before 574.
+    # CONTRACT: a kept unapply (574, `keep_caused`), on an invoice that parked IEPS, credits
+    # 2181 the IEPS the receipt moved for it, with no 2180 line, and 2150 only the rest (MNE-001-590,
+    # #792; LIEPS art. 10): the cash back on account carries that IEPS, read back from the
+    # receipt's tagged IEPS lines, and a later `receipt apply` of it posts DR 2181 r / CR 2180
+    # r - e (DR when negative, no line at zero) and DR 2150 less e. `--json` is unchanged.
+    # Rollback: the previous build does not read that IEPS, so before reverting post DR 2181 /
+    # CR 2150 by hand, tagged, for each kept IEPS still on account.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed

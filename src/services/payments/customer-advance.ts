@@ -109,6 +109,21 @@ export function takeFromAdvance(t: AdvanceTake): { plain: string; base: string; 
 }
 
 /**
+ * MNE-001-590 (#792) · The IEPS that one allocation takes from the cash on
+ * account, caused when it was collected (`iepsKeptOnAccount`): the pool's own
+ * ratio, `left` × `fromAdvance` / `cashLeft`, at four decimals, half up. It is
+ * read on what is left, so the take that empties the pool gets the exact
+ * remainder and the parts never drift.
+ */
+export function iepsTakeOf(t: { left: string; cashLeft: string; fromAdvance: string }): string {
+  const left = Decimal.max(new Decimal(t.left), 0);
+  const from = new Decimal(t.fromAdvance);
+  if (!from.greaterThan(0) || !left.greaterThan(0)) return '0.0000';
+  if (from.greaterThanOrEqualTo(t.cashLeft)) return left.toFixed(4);
+  return left.times(from).dividedBy(t.cashLeft).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+/**
  * MNE-001-462 · What the cash an unapply puts back on account carries, on a
  * receipt recorded with a treatment.
  *

@@ -3716,6 +3716,103 @@ export const EN = {
   'fiscal_mx.e_accounting.output.kept':
     'Nothing was written: {target} is kept as it was. Use another path, or --yes if you really want to replace it.',
 
+  // MNE-001-226: diot (generate, check, export: the not-filed block, the header and totals, the verdicts).
+  /** The warning of every diot leaf: the DIOT was not filed, and the output is not the return. */
+  'fiscal_mx.diot.unfiled.headline': 'THIS DIOT WAS NOT FILED AND THIS FILE IS NOT THE RETURN.',
+  /** Under the headline: building the return and filing it are not the same act. */
+  'fiscal_mx.diot.unfiled.two_hands': 'Building the return and filing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.diot.unfiled.step_tie_out':
+    'Tie the working paper out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture — "almost matches" is a request from the SAT within a year.',
+  /** Step 2: the capture in the portal, which no command does. */
+  'fiscal_mx.diot.unfiled.step_capture':
+    'Capture or upload the return YOURSELF in the SAT portal. This binary does not enter the portal, does not load the e.firma and files nothing.',
+  /** Step 3: the acknowledgement, the only proof of filing. */
+  'fiscal_mx.diot.unfiled.step_acknowledgement':
+    'Keep the acknowledgement with its operation number: it is the only proof that it was filed.',
+  /** Step 4: recording the acknowledgement, which has no command yet. */
+  'fiscal_mx.diot.unfiled.step_record':
+    'Record the acknowledgement in the month\'s file. That record has NO command YET (`diot record` is not built).',
+  /** `diot` with no --period. */
+  'fiscal_mx.diot.period.missing':
+    'The DIOT is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no period to declare.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.diot.period.not_month':
+    '--period "{value}" is not a month. The DIOT is monthly (LIVA art. 32 fr. VIII), so only the form YYYY-MM (2026-02) is valid here. A quarter or a fiscal year is not declared.',
+  /** A month outside 01..12; 13 belongs to the year-end balance of Anexo 24. */
+  'fiscal_mx.diot.period.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance of Anexo 24 (`e-accounting balance generate --closing`); an informative return has no month 13.',
+  /** What `--check hecho-pagado` verifies. Stored English in the `detalle` column; the table renders it. */
+  'fiscal_mx.diot.check.paid_event':
+    'the event the DIOT declares exists in the ledger and releases no more IVA than is parked',
+  /** What `--check desglose-por-tasa` verifies. */
+  'fiscal_mx.diot.check.rate_breakdown':
+    'each expense is split by rate (16/8/0/exempt) and the sum reproduces the IVA of the header',
+  /** What `--check base-de-lo-exento` verifies. */
+  'fiscal_mx.diot.check.exempt_base':
+    'exempt acts declare their base, which is what the DIOT reports even when there is no tax',
+  /** What `--check tercero-identificado` verifies. */
+  'fiscal_mx.diot.check.third_party_identified':
+    'each third party arrives with a usable RFC, or with tax ID, country and nationality if foreign',
+  /** What `--check tipo-de-operacion` verifies. */
+  'fiscal_mx.diot.check.operation_type':
+    'each third party carries a captured operation type that the 2025 catalogue allows for its type of third party, not an assumed one',
+  /** What `--check creditable-iva-proportion` verifies (LIVA art. 5 frac. V). */
+  'fiscal_mx.diot.check.creditable_iva_proportion':
+    'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue in the fiscal year',
+  /** What `--check politica-en-catalogo` verifies. */
+  'fiscal_mx.diot.check.catalog_policy': 'the DIOT policies hold a value their own catalogue allows',
+  /** The envelope of `diot check --json`, on stderr. */
+  'fiscal_mx.diot.check.envelope':
+    '{rfc} · DIOT {month}/{year} · {parties, plural, one {# third party} other {# third parties}} · creditable IVA paid {amount} · checks: {checks}',
+  /** `diot check` with no findings. */
+  'fiscal_mx.diot.check.clean':
+    'no findings: the DIOT passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `diot check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.diot.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the return from being captured.',
+  /** The line beside the DIOT title. */
+  'fiscal_mx.diot.header.summary':
+    'RFC {rfc} — {name} · {from} → {to} · {parties, plural, one {# third party} other {# third parties}} · {documents, plural, one {# document} other {# documents}}',
+  /** The basis of the DIOT: paid, not accrued. */
+  'fiscal_mx.diot.header.basis': 'basis: PAID transactions (LIVA art. 5 frac. III), not accrued',
+  /** After a panel criterion nobody answered: its value is the default. */
+  'fiscal_mx.diot.header.by_default': '(default)',
+  /** The 8 % rate row of the totals. */
+  'fiscal_mx.diot.totals.rate_8': '8 % (border zone)',
+  /** The exempt row of the totals. */
+  'fiscal_mx.diot.totals.exempt': 'exempt',
+  /** A row for any other rate, with its label. */
+  'fiscal_mx.diot.totals.other': 'other ({label})',
+  /** The creditable IVA paid in the month; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.creditable_paid': 'Creditable IVA paid in the month',
+  /** The IVA withheld from third parties; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.withheld': 'IVA withheld from third parties',
+  /** Under the totals: tie them out before capturing. */
+  'fiscal_mx.diot.totals.tie_out':
+    'Tie it out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture.',
+  /** `diot generate` with blocking findings. */
+  'fiscal_mx.diot.generate.not_capturable':
+    '{count, plural, one {# finding stops} other {# findings stop}} this DIOT from being captured as it is. {count, plural, one {Fix it} other {Fix them}} and build it again; `diot check --check` lists the checks by name so you can tackle them one at a time.',
+  /** A --layout that does not exist. */
+  'fiscal_mx.diot.export.layout_unknown':
+    '--layout "{value}" does not exist. The layouts are: {layouts} (working-paper is the reconciliation by third party that is tied out before capturing; sat is the authority\'s batch file).',
+  /** A period with no grounded batch layout: what to do meanwhile. `message` is the service's. */
+  'fiscal_mx.diot.export.meanwhile':
+    '{message}\n\nMeanwhile: `{command}` produces the reconciliation by third party to capture in the portal.',
+  /** The working paper is not the file that is uploaded. */
+  'fiscal_mx.diot.export.working_paper':
+    'Layout "{layout}": this is a WORKING PAPER. It is not uploaded to the SAT portal.',
+  /** The line of `diot export -o`: layout, size and where it went. */
+  'fiscal_mx.diot.export.written':
+    'layout {layout} · {bytes, plural, one {# byte} other {# bytes}} · target {target}',
+  /** `diot export` wrote the file, but blocking findings stop the capture. */
+  'fiscal_mx.diot.export.written_not_capturable':
+    'The file was written, but {count, plural, one {# finding stops} other {# findings stop}} the return from being captured as it is.',
+  /** `-o` names a file that exists, without --yes. */
+  'fiscal_mx.diot.export.exists':
+    '{target} already exists and is not overwritten unless asked: use another path, or --yes. A working paper reviewed and annotated by hand is not replaced silently.',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====

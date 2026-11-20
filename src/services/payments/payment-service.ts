@@ -29,9 +29,9 @@ import {
   ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago, issuedVatStillParked, issuedVatOfOpenBalance,
   reclassRoles,
 } from '../accounting/iva-cash-basis.js';
-import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
+import { iepsKeptOnAccount, iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
-  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf,
+  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf, iepsTakeOf,
   coveredCashOf, restitutedByRow, restitutedOf,
   keptOnAccount, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
@@ -1427,6 +1427,9 @@ async function receiptEventDate(
  * put back carrying the IVA they kept caused (`keptOnAccount`), and null
  * while there is none, so such a receipt behaves as before until then.
  *
+ * MNE-001-590 · That cash carries the IEPS its collection caused as well
+ * (`ieps`, read back from the ledger by `iepsKeptOnAccount`); 0 on a receipt
+ * with a treatment.
  * MNE-001-591 · `own`: the invoices whose kept IVA a credit note capped; cash
  * applied again to one of them takes that pool first (empty with a treatment).
  *
@@ -1441,7 +1444,7 @@ async function advanceLeft(
   entityId: string,
   receipt: PagoVivo,
   onAccount: Decimal
-): Promise<(Omit<AdvanceTake, 'applied'> & { own: ReadonlySet<string> }) | null> {
+): Promise<(Omit<AdvanceTake, 'applied'> & { ieps: string; own: ReadonlySet<string> }) | null> {
   const treatment = receipt.advance_base_amount === null || receipt.advance_iva_amount === null
     ? null
     : storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
@@ -1485,6 +1488,7 @@ async function advanceLeft(
     consumed: consumed.toFixed(4),
     cancelled: live.reduce((s, x) => s.plus(x.cancelled), new Decimal(0)).toFixed(4),
     plain: Decimal.max(onAccount.minus(total.minus(consumed)), 0).toFixed(4),
+    ieps: treatment === null ? await iepsKeptOnAccount(client, entityId, receipt.id) : '0.0000',
     own,
   };
 }
@@ -1771,9 +1775,15 @@ export async function applyCustomerPayment(
         ? await defersUncausedCancellation(client, entityId, pago, inv, take.iva)
         : false;
       const fromAdvance = new Decimal(take.base).plus(take.iva);
+      // MNE-001-590: the IEPS that cash carries, caused when collected, at the pool's own ratio. A held
+      // cheque releases nothing, so it takes none.
+      const iepsTake = advance && !held
+        ? iepsTakeOf({ left: advance.ieps, cashLeft: new Decimal(advance.total).minus(advance.consumed).toFixed(4), fromAdvance: fromAdvance.toFixed(4) })
+        : '0.0000';
       let twiceIn: string | null = null;
       let cashedOn: string | null = null;
       if (advance && fromAdvance.greaterThan(0)) {
+        advance.ieps = new Decimal(advance.ieps).minus(iepsTake).toFixed(4);
         advance.consumed = new Decimal(advance.consumed).plus(fromAdvance).toFixed(4);
         advance.cancelled = new Decimal(advance.cancelled).plus(take.iva).toFixed(4);
         advance.plain = new Decimal(advance.plain).minus(take.plain).toFixed(4);
@@ -1851,6 +1861,7 @@ export async function applyCustomerPayment(
         advanceIvaTwiceIn: twiceIn,
         ...(deferred ? { advanceIvaDeferred: take.iva } : {}),
         advanceIvaCashedOn: cashedOn,
+        ...(new Decimal(iepsTake).greaterThan(0) ? { advanceIeps: iepsTake } : {}),
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: inv.tax_amount,
         totalAmount: inv.total_amount,
@@ -2034,7 +2045,9 @@ async function keptAfterNotes(
  * cash released stays caused too (LIVA art. 1-B; the owner's «Mantener
  * causado» of 19 Nov 2026, #623): the cash goes back to 2150 for its base,
  * the row stores what it kept (`unapply_kept_iva_amount`), and a later
- * application nets it (`keptOnAccount`). The IEPS stays caused with it.
+ * application nets it (`keptOnAccount`). The IEPS stays caused with it;
+ * MNE-001-590: the invoice's share goes back to 2181 all the same, and the
+ * cash carries it (`iepsKeptOnAccount`), so the application nets it too.
  * MNE-001-585: under `plain_receipt_unapply_iva = repark_same_month` a row
  * released in the month of the unapply re-parks instead (`keptUnderPolicy`).
  *
@@ -2199,6 +2212,9 @@ export async function unapplyCustomerPayment(
     // took it from cash already back on account (LIEPS art. 5o.-C).
     const iepsStays = treatment === null && stillCaused.greaterThan(0);
     const iepsMoved = iepsStays ? new Decimal(0) : await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
+    // MNE-001-590: what stays caused goes back to 2181 all the same, because the invoice is owed again, and the
+    // cash back on account carries it (LIEPS art. 10), so a later application nets it instead of causing it again.
+    const iepsKept = iepsStays ? await iepsMovedForInvoice(client, entityId, factura.id, paymentId) : new Decimal(0);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
@@ -2261,6 +2277,9 @@ export async function unapplyCustomerPayment(
         ...(iepsMoved.greaterThan(0)
           ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
           : {}),
+        ...(iepsKept.greaterThan(0)
+          ? { iepsKept: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsKept.toFixed(4) } }
+          : {}),
       },
       userId
     );
@@ -2281,6 +2300,7 @@ export async function unapplyCustomerPayment(
         advance_iva_restituted: restitution.restituted,
         iva_kept_caused: keptIva.toFixed(4),
         ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
+        ...(iepsKept.greaterThan(0) ? { ieps_kept_caused: iepsKept.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
