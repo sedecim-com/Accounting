@@ -551,6 +551,21 @@ const MIRROR_OF_RECEIPT = `
  * MNE-001-507 · Each event counts on `countedOn`: a held cheque's on its
  * cashing at the earliest, and none of its events while it has no cashing.
  */
+/**
+ * MNE-001-574 with MNE-001-581 (#792, decision (A)) · The IVA an unapply ended
+ * on the invoice: the share its row released, unless a credit note capped
+ * what went back to 2125. Then the row kept less than its plain cash's share
+ * of the release (`capKept`), and what it ended is what it kept plus the
+ * advance's IVA it took, the same figure its cash carries back on account.
+ */
+const ENDED_SHARE_IVA = `CASE
+         WHEN pa.unapply_kept_iva_amount IS NOT NULL AND pa.unapply_kept_iva_amount < CASE
+                WHEN pa.advance_base_amount + pa.advance_iva_amount = 0 THEN pa.iva_reclass_amount
+                ELSE ROUND(pa.iva_reclass_amount * (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)
+                           / pa.amount_applied, 4) END
+           THEN pa.unapply_kept_iva_amount + pa.advance_iva_amount
+         ELSE COALESCE(pa.iva_reclass_amount, 0) END`;
+
 const SHARE_EVENTS = `
        SELECT se.* FROM (
        SELECT pa.invoice_id, cp.id AS payment_id, pa.amount_applied AS amount,
@@ -560,7 +575,7 @@ const SHARE_EVENTS = `
          JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
        UNION ALL
-       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0),
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -(${ENDED_SHARE_IVA}),
               ${countedOn('cp', 'pa.unapplied_at::date')}, 'undo', pa.unapplied_at
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id
@@ -581,6 +596,8 @@ const SHARE_EVENTS = `
  */
 const RECEIPT_SOURCES = [
   'customer_payment', 'receipt_application', 'receipt_unapplication', CUSTOMER_CHECK_CASHING_SOURCE,
+  // MNE-001-581: a reversal's correction, the IVA a credit note already restituted that stays out of 2125.
+  'receipt_reversal_iva',
 ] as const;
 
 /** Every box of a split times `factor`: an undo gives back what its event put in. */
@@ -874,8 +891,10 @@ async function cashOnAccountOfMonth(
         // MNE-001-574: what the unapply kept caused, where it stored it, is the
         // figure the ledger and the pool read.
         const unreleased = a.held && new Decimal(a.vat).isZero();
-        const vat = a.kept !== null && advanceTaken.isZero()
-          ? new Decimal(a.kept)
+        // A row that also took taxed cash stored the kept IVA of its plain part
+        // alone, which the scaling below brings back to that part.
+        const vat = a.kept !== null
+          ? new Decimal(a.kept).times(amount).dividedBy(plainCash)
           : unreleased
             ? new Decimal(acumuladoDelDocumento(sale.row.tax_amount, new Decimal(share.aplicadoPrevio).plus(amount).toFixed(4), sale.row.total_amount, sale.row.exchange_rate))
                 .minus(acumuladoDelDocumento(sale.row.tax_amount, share.aplicadoPrevio, sale.row.total_amount, sale.row.exchange_rate))
@@ -997,6 +1016,7 @@ const ENTRY_KIND: Record<string, string> = {
   receipt_application: 'aplicación',
   receipt_unapplication: 'desaplicación',
   [CUSTOMER_CHECK_CASHING_SOURCE]: 'cobro del cheque',
+  receipt_reversal_iva: 'IVA restituido que se queda',
 };
 
 /** One receipt's (or a cancelled credit note's) share of the charged side's gap with the ledger, and why. */
@@ -1040,7 +1060,12 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
     }
     const cash = charged.cashOnAccount.get(paymentId);
     // Since MNE-001-574 only a row unapplied before migration 338 re-parked in the ledger.
-    const reparked = cash ? cash.back.minus(cash.neverReleased) : new Decimal(0);
+    // MNE-001-581: after a credit note an unapply re-parks less than the share
+    // it ended, so the clause names what its entries took out of 2120.
+    const outOf2120 = entries
+      .filter((e) => e.source_type === 'receipt_unapplication' && !e.mirror)
+      .reduce((s, e) => s.minus(e.iva), new Decimal(0));
+    const reparked = cash ? Decimal.min(cash.back.minus(cash.neverReleased), Decimal.max(outOf2120, 0)) : new Decimal(0);
     if (reparked.greaterThan(0)) {
       why.push(
         `desaplicar no devuelve el dinero: el IVA de ${q4(reparked)} sigue causado mientras el efectivo siga a cuenta ` +

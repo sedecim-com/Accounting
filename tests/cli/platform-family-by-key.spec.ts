@@ -29,12 +29,28 @@ vi.mock('../../src/database/connection.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/database/connection.js')>()),
   currentTenant: vi.fn(() => undefined),
   enterTenant: vi.fn(),
+  query: vi.fn(async () => ({ rows: [] })),
 }));
+vi.mock('../../src/ai/context.js', () => ({
+  bootstrapTenant: vi.fn(),
+  resolveEntity: vi.fn(async () => ({
+    entityId: 'ent-1', entityName: 'Demo Agente SA', tenantId: 'ten-1', currency: 'MXN',
+    country: 'MX', accountingStandard: 'NIF', taxId: 'X',
+  })),
+  listEntities: vi.fn(async () => [{ id: 'ent-1' }]),
+}));
+vi.mock('../../src/ai/stats-service.js', () => ({ estadisticasDelAgente: vi.fn() }));
 vi.mock('node:readline/promises', () => ({
   createInterface: vi.fn(() => ({ question: vi.fn(async () => 'quizá'), close: vi.fn() })),
 }));
 
 import { exportReport, registerBackupCommand } from '../../src/cli/backup-command.js';
+import { actorLabel, registerAuditCommand } from '../../src/cli/audit-command.js';
+import { registerAiCommand } from '../../src/cli/ai-command.js';
+import { registerJobsCommand } from '../../src/cli/jobs-command.js';
+import { registerWebhookSweepCommand } from '../../src/cli/webhook-sweep-command.js';
+import { query } from '../../src/database/connection.js';
+import * as stats from '../../src/ai/stats-service.js';
 import { type CliError } from '../../src/cli/kernel/index.js';
 import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
 import * as service from '../../src/services/backup/backup-service.js';
@@ -371,5 +387,239 @@ describe('I8.6 · backup restore speaks by key', () => {
     const r = await cli([...RESTORE, '--dry-run']);
     const leaf = r.program.commands.find((c) => c.name() === 'backup')!.commands.find((c) => c.name() === 'restore')!;
     expect(riskOf(leaf)!.writes).toBe('creates a new database and fills it with the dump');
+  });
+});
+
+// ============================================================
+// I8.6 · part 2 (MNE-001-224): audit, ai, jobs and webhook-sweep
+// ============================================================
+
+type Register = (program: Command, deps: {
+  palette: typeof PALETTE;
+  shutdown: (code: number) => never;
+  reportError: (err: unknown) => void;
+  home: string;
+}) => void;
+
+async function leaf(register: Register, args: string[]) {
+  resetDeclarations();
+  const codes: number[] = [];
+  const errs: unknown[] = [];
+  const program = new Command('mnemosine').exitOverride();
+  register(program, {
+    palette: PALETTE,
+    shutdown: ((c: number) => { codes.push(c); }) as unknown as (code: number) => never,
+    reportError: (e: unknown) => { errs.push(e); },
+    home: '/tmp/mnemosine-tests-no-home',
+  });
+  let out = '';
+  let err = '';
+  const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => { out += String(c); return true; });
+  const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((c: unknown) => { err += String(c); return true; });
+  try {
+    await program.parseAsync(['node', 'mnemosine', ...args]);
+  } catch (e) {
+    // An option's own parser throws out of parseAsync, before the action.
+    errs.push(e);
+  } finally {
+    outSpy.mockRestore();
+    errSpy.mockRestore();
+  }
+  return { codes, out, err, errs, program };
+}
+
+const audit = (args: string[]) => leaf(registerAuditCommand as unknown as Register, ['audit', ...args, '--entity', 'ent-1']);
+const auditError = async (args: string[]) => (await audit(args)).errs[0] as CliError;
+
+const AUDIT_ROW = {
+  id: 'a1', timestamp: new Date('2026-11-20T10:00:00Z'), actor: null, action: 'post', entity_type: 'journal_entries',
+  entity_id: 'je-1', old_values: null, new_values: { status: 'posted' }, reason: null,
+};
+
+describe('I8.6 · audit list speaks by key', () => {
+  beforeEach(() => vi.mocked(query).mockReset().mockResolvedValue({ rows: [] } as never));
+
+  it('an unreal date is the shared date error, in both languages', async () => {
+    const e = await auditError(['list', '--since', '2026-02-31']);
+    expect(e.message).toBe('--since must be a real date in YYYY-MM-DD form; got "2026-02-31".');
+    expect(e.localized('es')).toBe('--since debe ser una fecha real en formato YYYY-MM-DD; llegó "2026-02-31".');
+  });
+
+  it('a limit of zero and a negative offset are usage errors', async () => {
+    expect((await auditError(['list', '--limit', '0'])).message).toBe('--limit must be a positive whole number; got "0".');
+    expect((await auditError(['list', '--offset=-1'])).message).toBe('--offset must be a non-negative whole number; got "-1".');
+  });
+
+  it('an unknown action names the vocabulary, in both languages', async () => {
+    const e = await auditError(['list', '--action', 'erase']);
+    expect(e.message).toBe(
+      'Unknown action "erase". The vocabulary is fixed by the CHECK of audit_log (migration 001): ' +
+        'create, update, delete, post, void, approve, close, reopen.'
+    );
+    expect(e.localized('es')).toContain('Acción desconocida «erase». El vocabulario lo fija el CHECK de audit_log');
+  });
+
+  it('the agent cannot be filtered yet, and a made-up actor is a usage error', async () => {
+    const blocked = await auditError(['list', '--actor', 'agent']);
+    expect(blocked.message).toContain('The trail does not tell the agent apart yet: `audit_log` has no actor column');
+    expect(blocked.message).toContain('Filtering by "agent" would return zero rows');
+    expect((await auditError(['list', '--actor', 'robot'])).message).toBe(
+      '--actor only accepts "human", "agent" or "agent:<session>"; got "robot".'
+    );
+  });
+
+  it('an unknown family and a family that does not hold the type are usage errors', async () => {
+    expect((await auditError(['list', '--object', 'payroll'])).message).toBe(
+      'Unknown object family "payroll". Known: ledger, period, bank, ar, ap, asset, fiscal. ' +
+        'For an exact value of the column use --entity-type.'
+    );
+    expect((await auditError(['list', '--object', 'bank', '--entity-type', 'invoices'])).message).toBe(
+      '--object "bank" and --entity-type "invoices" do not intersect: the family does not contain that type. Give one of the two.'
+    );
+  });
+
+  it('an email that does not exist is not found, and the trail is not filtered', async () => {
+    const e = await auditError(['list', '--user', 'nobody@demo.test']);
+    expect(e.message).toBe(
+      'User "nobody@demo.test" in this tenant. The trail was not filtered: an email that does not exist ' +
+        'would return zero rows and read as if that person did nothing.'
+    );
+  });
+
+  it('no rows says whose the trail is', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ n: '0' }] } as never).mockResolvedValueOnce({ rows: [] } as never);
+    const r = await audit(['list']);
+    expect(r.err).toContain('No rows. The trail belongs to the TENANT: `audit_log` has no legal-entity column');
+  });
+
+  it('a removed user is labelled in the table, in both languages, and stays English in --json', async () => {
+    const twice = () =>
+      vi.mocked(query).mockResolvedValueOnce({ rows: [{ n: '1' }] } as never).mockResolvedValueOnce({ rows: [AUDIT_ROW] } as never);
+    twice();
+    expect((await audit(['list'])).out).toContain('(user removed)');
+    setLanguage('es');
+    twice();
+    const spanish = await audit(['list']);
+    expect(spanish.out).toContain('(usuario dado de baja)');
+    twice();
+    const json = await audit(['list', '--json']);
+    expect(json.out).toContain('(user removed)');
+    expect(json.out).not.toContain('dado de baja');
+  });
+
+  it('the label passes an email through', () => {
+    expect(actorLabel('ana@demo.test')).toBe('ana@demo.test');
+  });
+});
+
+describe('I8.6 · audit show speaks by key', () => {
+  beforeEach(() => vi.mocked(query).mockReset().mockResolvedValue({ rows: [{ ...AUDIT_ROW, new_values: null, request_id: null, ip_address: null }] } as never));
+
+  it('the human block, in English', async () => {
+    const r = await audit(['show', 'a1']);
+    expect(r.out).toBe(
+      'post journal_entries je-1\n' +
+        '  when 2026-11-20T10:00:00.000Z\n' +
+        "  who  (unknown user: the log is append-only and outlives the user's record)\n" +
+        '  why  (no reason recorded)\n' +
+        '  no values: the row records the act, not the before and the after\n'
+    );
+  });
+
+  it('the human block, in Spanish, aligned as before', async () => {
+    setLanguage('es');
+    const r = await audit(['show', 'a1']);
+    expect(r.out).toContain('  cuándo  2026-11-20T10:00:00.000Z\n');
+    expect(r.out).toContain('  quién   (usuario desconocido: la bitácora es de sólo agregar y sobrevive al alta)\n');
+    expect(r.out).toContain('  por qué (sin razón registrada)\n');
+    expect(r.out).toContain('  sin valores: la fila registra el acto, no el antes y el después\n');
+  });
+});
+
+describe('I8.6 · ai stats speaks by key', () => {
+  const summary = (partial: Record<string, unknown> = {}) => ({
+    borradores_total: 12, decididos: 8, aprobados_humano: 4, aprobados_politica: 1, auto_posteados: 1,
+    rechazados: 2, pendientes: 4, tasa_intervencion_humana: '0.750', corridas_ingesta: 1,
+    borradores_de_ingesta: 1, costo_ingesta_usd: '0.02', costo_por_borrador_usd: '0.02',
+    llamadas_con_duracion: 3, duracion_promedio_ms: 900, duracion_p95_ms: 1500,
+    eventos: { sospecha: 1, nudge: 0, failover: 2 }, ...partial,
+  });
+  const statsOf = (partial: Record<string, unknown> = {}) =>
+    vi.mocked(stats.estadisticasDelAgente).mockResolvedValue({
+      buckets: [],
+      resumen: summary(partial),
+      sombra: { veredictos: 5, dias_con_veredictos: 1, decididos: 3, tasa_acuerdo: '0.900' },
+    } as never);
+  const aiStats = () => leaf(registerAiCommand as unknown as Register, ['ai', 'stats', '--entity', 'ent-1']);
+
+  it('every line of the summary, in English', async () => {
+    statsOf();
+    const r = await aiStats();
+    expect(r.errs).toEqual([]);
+    expect(r.err).toContain('ai stats · Demo Agente SA · 12 drafts, 8 decided\n');
+    expect(r.err).toContain('human intervention 0.750 (4 approved + 2 rejected of 8 decided; 1 by policy, 1 auto-posted)\n');
+    expect(r.err).toContain('ingest: 1 run, 1 draft, ~$0.02 USD per draft (total $0.02)\n');
+    expect(r.err).toContain('model latency: 900 ms average, 1500 ms p95 (3 calls measured)\n');
+    expect(r.err).toContain('events: 1 injection suspicion, 0 grounding nudges, 2 failovers\n');
+    expect(r.err).toContain(
+      'shadow: 5 verdicts over 1 day, 3 decided by a person, agreement 0.900 (turning "on" requires ≥7 days, ≥10 decided and ≥0.90)\n'
+    );
+  });
+
+  it('an ingest with no price says the cost cannot be estimated', async () => {
+    statsOf({ corridas_ingesta: 2, borradores_de_ingesta: 3, costo_por_borrador_usd: null, costo_ingesta_usd: null });
+    expect((await aiStats()).err).toContain('ingest: 2 runs, 3 drafts, cost not estimable (model without a price)\n');
+  });
+
+  it('the summary in Spanish, with its plurals', async () => {
+    statsOf({ llamadas_con_duracion: 1 });
+    setLanguage('es');
+    const r = await aiStats();
+    expect(r.err).toContain('ai stats · Demo Agente SA · 12 borradores, 8 decididos');
+    expect(r.err).toContain('intervención humana 0.750 (4 aprobados + 2 rechazados de 8 decididos;');
+    expect(r.err).toContain('ingesta: 1 corrida, 1 borrador, ~$0.02 USD por borrador (total $0.02)');
+    expect(r.err).toContain('(1 llamada medida)');
+    expect(r.err).toContain('eventos: 1 sospecha de inyección, 0 nudges de grounding, 2 failovers');
+    expect(r.err).toContain('sombra: 5 veredictos en 1 día, 3 decididos por humano, acuerdo 0.900 (encender «on» exige ≥7 días, ≥10 decididos y ≥0.90)');
+  });
+
+  it('the help of the family and of the leaf is English', async () => {
+    statsOf();
+    const r = await aiStats();
+    const family = r.program.commands.find((c) => c.name() === 'ai')!;
+    expect(family.description()).toBe('Metrics and calibration of the accounting agent');
+    expect(family.commands.find((c) => c.name() === 'stats')!.description()).toBe(
+      'Approval by confidence bucket, confidence-vs-reality delta, cost and events'
+    );
+  });
+});
+
+describe('I8.6 · jobs and webhook-sweep say what they write in English', () => {
+  it('jobs run-due refuses a key it does not honour, with its reason', async () => {
+    const register: Register = (p, deps) =>
+      registerJobsCommand(p, { ...deps, makeRunAgentTurn: () => (async () => ({})) as never });
+    const r = await leaf(register, ['jobs', 'run-due', '--entity', 'ent-1', '--yes', '--idempotency-key', 'k1']);
+    expect((r.errs[0] as CliError).message).toContain('a retry runs the due jobs again');
+    const runDue = r.program.commands.find((c) => c.name() === 'jobs')!.commands.find((c) => c.name() === 'run-due')!;
+    expect(riskOf(runDue)!.writes).toBe(
+      "job_runs; and runs the work of each due job — with --live, with reads against the client's external system"
+    );
+  });
+
+  it('subscription delivery sweep declares its writes and why it needs no key', () => {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    registerWebhookSweepCommand(program.command('subscription'), {
+      palette: PALETTE, shutdown: (() => undefined) as never, reportError: () => undefined,
+    });
+    const sweep = program.commands[0].commands.find((c) => c.name() === 'delivery')!.commands.find((c) => c.name() === 'sweep')!;
+    const risk = riskOf(sweep)!;
+    expect(risk.writes).toBe(
+      "webhook_deliveries (status, attempt_count, next_retry_at, error_message); and POSTs the original event to each subscription's URL"
+    );
+    expect(risk.llave).toEqual({
+      innecesaria:
+        'each delivery already carries its own stable key (X-Webhook-ID), and deduplicating whole sweeps WOULD SKIP due deliveries',
+    });
   });
 });

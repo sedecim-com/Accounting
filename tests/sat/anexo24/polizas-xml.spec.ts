@@ -295,6 +295,50 @@ describe('el rastro de pago', () => {
     ).toThrow(/incompatibles/);
   });
 
+  // MNE-001-401 (#532): a foreign bank is declared with the code 999 and its
+  // full name in the matching `*Ext`; any other code next to a name is refused.
+  const withPayment = (payment: NonNullable<Transaccion['pagos']>[number]): DatosDePolizas =>
+    datos({
+      polizas: [
+        poliza({
+          transacciones: [
+            renglon({ numCta: '2110', desCta: 'Proveedores', debe: '1160.00', haber: '0.00' }),
+            renglon({ pagos: [payment] }),
+          ],
+        }),
+      ],
+    });
+  const foreignTransfer = {
+    clase: 'transferencia' as const, ctaOri: 'DE89370400440532013000', bancoOriNal: '999', bancoOriExt: 'First Bank of Elsewhere',
+    ctaDest: 'GB29NWBK60161331926819', bancoDestNal: '999', bancoDestExt: 'Bank of Nowhere',
+    fecha: '2026-02-10', benef: 'Proveedor SA', rfc: 'PSA010101AA1', monto: '1160.00',
+  };
+  const foreignCheck = {
+    clase: 'cheque' as const, num: '7001', banEmisNal: '999', banEmisExt: 'Banco de Ultramar SA', ctaOri: '9876543210',
+    fecha: '2026-02-10', benef: 'Entidad SA', rfc: 'AAA010101AAA', monto: '1160.00',
+  };
+
+  it('accepts a foreign bank as 999 with its name, on both sides of a transfer, in schema order', () => {
+    const node = construirPolizasXml(withPayment(foreignTransfer)).split('\n').find((l) => l.includes('PLZ:Transferencia'));
+    expect(node).toContain(
+      'CtaOri="DE89370400440532013000" BancoOriNal="999" BancoOriExt="First Bank of Elsewhere" ' +
+        'CtaDest="GB29NWBK60161331926819" BancoDestNal="999" BancoDestExt="Bank of Nowhere"'
+    );
+  });
+
+  it('accepts a foreign issuing bank of a cheque as 999 with its name', () => {
+    const xml = construirPolizasXml(withPayment(foreignCheck));
+    expect(xml).toContain('Num="7001" BanEmisNal="999" BanEmisExt="Banco de Ultramar SA" CtaOri="9876543210"');
+  });
+
+  it.each([
+    ['BancoDestNal', { ...foreignTransfer, bancoDestNal: '002' }],
+    ['BancoOriNal', { ...foreignTransfer, bancoOriNal: '012' }],
+    ['BanEmisNal', { ...foreignCheck, banEmisNal: '012' }],
+  ] as const)('still refuses a name next to a national code (%s)', (_attribute, payment) => {
+    expect(() => construirPolizasXml(withPayment(payment))).toThrow(/clave 999/);
+  });
+
   it('exige DOS decimales en los importes: un importe del mayor no vale', () => {
     expect(() =>
       construirPolizasXml(

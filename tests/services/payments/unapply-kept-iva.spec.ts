@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keptIvaOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
+import { capKept, keptIvaOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-574 (#792, part 1/3) · The IVA one allocation's unapply keeps caused
 // on a receipt with no treatment, and how a later application takes it back.
@@ -35,5 +35,23 @@ describe('the cash an unapply kept on account, taken again by takeFromAdvance', 
     expect(first).toEqual({ plain: '0.0000', base: '250.0000', iva: '40.0000' });
     expect(takeFromAdvance({ total: '580.0000', iva: '80.0000', consumed: '290.0000', cancelled: '40.0000', plain: '0', applied: '290.0000' }))
       .toEqual({ plain: '0.0000', base: '250.0000', iva: '40.0000' });
+  });
+});
+
+// MNE-001-574 with MNE-001-581 (#792, decision (A)): after a credit note the cash keeps caused only what
+// goes back to 2125 for the balance owed again.
+describe('capKept', () => {
+  it.each([
+    ['under the cap, the rows as they are', ['160.0000'], '160.0000', ['160.0000']],
+    ['U1: 160 kept, 128 back after a note of 32', ['160.0000'], '128.0000', ['128.0000']],
+    ['U2: a note for the whole invoice leaves nothing to keep', ['16.0000'], '0.0000', ['0.0000']],
+    // 40 × 50 / 80 = 25; the last row takes 50 − 25
+    ['two rows share the cap, the last one takes the remainder', ['40.0000', '40.0000'], '50.0000', ['25.0000', '25.0000']],
+    // 10 × 10 / 30 = 3.3333 twice; the last 10 − 6.6666 = 3.3334
+    ['a cap that does not divide: the rows still add up to it', ['10.0000', '10.0000', '10.0000'], '10.0000', ['3.3333', '3.3333', '3.3334']],
+    ['a row that kept nothing keeps nothing, and the last that kept takes the rest', ['30.0000', '0.0000'], '20.0000', ['20.0000', '0.0000']],
+    ['a negative cap reads as none', ['16.0000'], '-4.0000', ['0.0000']],
+  ] as const)('%s', (_case, kept, cap, out) => {
+    expect(capKept(kept, cap)).toEqual(out);
   });
 });
