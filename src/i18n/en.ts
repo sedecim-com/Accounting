@@ -99,6 +99,59 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-152 · the 422 of validateBody and validateQuery, one key per Zod issue (issue #151) ----
+  // The English is the zod 3.25.76 wording the 422 has always had, byte for
+  // byte (tests/api/golden/rest-body.golden.json pins it): `(s)` stays, because
+  // it is the contract. Paths, enum values, bounds, formats, keys and the JSON
+  // type names are interpolated raw and are never translated.
+  /** `RequestValidationError` of `validateBody`: `issues` is the `<path>: <message>` list, joined with '; '. */
+  'error.VALIDATION_ERROR.body': 'Invalid request body: {issues}',
+  /** `RequestValidationError` of `validateQuery`: `name` is the parameter, `issues` its messages joined with '; '. */
+  'error.VALIDATION_ERROR.query': 'Invalid query parameter: {name}: {issues}',
+  /** `legacyIssueKey`, `invalid_type` or `invalid_value` with no input. */
+  'error.VALIDATION_ERROR.issue.required': 'Required',
+  /** `legacyIssueKey`, `invalid_type`: a number `.int()` refused, ±Infinity included. */
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Expected integer, received float',
+  /** `legacyIssueKey`, `invalid_type`: ±Infinity where zod 3 accepted a number (T1). */
+  'error.VALIDATION_ERROR.issue.not_finite': 'Number must be finite',
+  /** `legacyIssueKey`, `invalid_type`, and `invalid_value` given a non-string: `expected` and `received` are JSON type names or quoted enum values. */
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Expected {expected}, received {received}',
+  /** `legacyIssueKey`, `invalid_value` of a literal: `expected` is the literal as JSON. */
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Invalid literal value, expected {expected}',
+  /** `legacyIssueKey`, `invalid_value` of an enum given a string. */
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Invalid enum value. Expected {expected}, received '{received}'",
+  /** `legacyIssueKey`, `invalid_format`: `format` is `regex` or zod 3's name of the format. */
+  'error.VALIDATION_ERROR.issue.invalid_format': '{format, select, regex {Invalid} other {Invalid {format}}}',
+  /** `legacyIssueKey`, `invalid_format` of `starts_with`, `ends_with` or `includes`. */
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Invalid input: must {affix, select, starts_with {start with} ends_with {end with} other {include}} "{value}"',
+  /** `legacyIssueKey`, `too_small` of an array: `bound` is exact, inclusive or exclusive. */
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at least} other {more than}} {minimum} element(s)',
+  /** `legacyIssueKey`, `too_small` of a string. */
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at least} other {over}} {minimum} character(s)',
+  /** `legacyIssueKey`, `too_small` of a number, an integer or a bigint. */
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'Number must be {bound, select, exact {exactly equal to} inclusive {greater than or equal to} other {greater than}} {minimum}',
+  /** `legacyIssueKey`, `too_big` of an array. */
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at most} other {less than}} {maximum} element(s)',
+  /** `legacyIssueKey`, `too_big` of a string. */
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at most} other {under}} {maximum} character(s)',
+  /** `legacyIssueKey`, `too_big` of a number or an integer. */
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'Number must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `too_big` of a bigint. */
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'BigInt must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `not_multiple_of`. */
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'Number must be a multiple of {divisor}',
+  /** `legacyIssueKey`, `unrecognized_keys`: `keys` are quoted and joined with ', '. */
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
+  /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
   // ---- MNE-001-150 · a path no route serves (issue #151) ----
   /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
   'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',

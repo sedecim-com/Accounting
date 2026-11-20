@@ -1,23 +1,33 @@
 import { z } from 'zod';
+import { t } from '../i18n/index.js';
+import type { ErrorMessageKey } from './errors.js';
 
 // ============================================================
 // CONTRACT: the ONLY place where a Zod issue becomes prose for a client.
 //
 // Two surfaces show Zod issues to a person: the 422 body of the REST API
-// (validateBody, middleware/async-handler.ts) and the error that rejects a
-// mnemosine.config.json (ai/providers/config.ts). Both read their issues from
-// here and nowhere else, so what they say is decided in one file.
+// (validateBody and validateQuery, middleware/async-handler.ts) and the error
+// that rejects a mnemosine.config.json (ai/providers/config.ts). Both read
+// their issues from here and nowhere else, so what they say is decided in one
+// file.
 //
-// The owner's decision on #367 fixes that prose to the zod 3.25.76 wording,
-// issue order included, pinned by tests/api/golden/rest-body.golden.json and
-// tests/ai/providers/config-contract.spec.ts. Zod 4 words and orders issues
-// differently, so this file does three things on every parse:
+// THE 422 IS WRITTEN BY CATALOG KEY (MNE-001-152, #151). Each issue this file
+// words is one `error.VALIDATION_ERROR.issue.*` key of src/i18n/en.ts with the
+// issue's parameters, and the REST 422 renders it in the language the request
+// named. The English of those keys is not a translation of anything: it is the
+// zod 3.25.76 wording the owner fixed on #367, issue order included, pinned by
+// tests/api/golden/rest-body.golden.json and
+// tests/ai/providers/config-contract.spec.ts. That English contract stays, so
+// this adapter stays: Zod 4 words and orders issues differently, and on every
+// parse this file does three things:
 //
-//   legacyIssueMessage     a per-parse error map that words each zod 4 issue
+//   legacyIssueKey         the key and parameters of each zod 4 issue, chosen
 //                          the way zod 3's English map (v3/locales/en.js)
-//                          worded its zod 3 counterpart. Messages a schema
-//                          sets itself (`.min(1, 'msg')`, a refine message,
-//                          the array cap) outrank it, as they did in zod 3.
+//                          worded its zod 3 counterpart; `legacyIssueMessage`
+//                          is that key in English. Messages a schema sets
+//                          itself (`.min(1, 'msg')`, a refine message, the
+//                          array cap) outrank it, as they did in zod 3, have
+//                          no key, and read the same in every language.
 //   infinityAsZod3         zod 4's z.number() refuses ±Infinity (JSON 1e999)
 //                          at its type check and skips its checks. zod 3 took
 //                          it as a number and ran them, so where one of them
@@ -32,8 +42,8 @@ import { z } from 'zod';
 //
 // It is passed on each parse and never through `z.config`, so nothing else
 // in the process (the agent tools, the SDK) changes wording. A code it does
-// not know falls back to zod's own text, and the goldens catch the drift.
-// Retire it with a CONTRACT PR when the 422 moves to catalog keys (#151).
+// not know falls back to zod's own text, with no key, and the goldens catch
+// the drift.
 // ============================================================
 
 /** One issue as a client reads it: the dotted field path ('' at the root) and the message. */
@@ -43,6 +53,13 @@ export interface ClientIssue {
 }
 
 export type ClientParse<T> = { success: true; data: T } | { success: false; issues: ClientIssue[] };
+
+/** An issue with the catalog key its message was rendered from, when it was (MNE-001-152). */
+export interface KeyedClientIssue extends ClientIssue {
+  key?: ErrorMessageKey;
+}
+
+export type KeyedClientParse<T> = { success: true; data: T } | { success: false; issues: KeyedClientIssue[] };
 
 /** zod 3's `getParsedType`, for the values JSON can carry. */
 function v3TypeName(value: unknown): string {
@@ -85,91 +102,155 @@ const V3_FORMAT_NAMES: Readonly<Record<string, string>> = {
   jwt: 'jwt',
 };
 
-function tooSmall(origin: string, minimum: number | bigint, inclusive: boolean, exact: boolean): string | undefined {
-  const bound = String(minimum);
-  switch (origin) {
+/** The paramless keys, built once: a body full of `Required` allocates no key per issue. */
+const REQUIRED: ErrorMessageKey = { key: 'error.VALIDATION_ERROR.issue.required' };
+const INTEGER_RECEIVED_FLOAT: ErrorMessageKey = { key: 'error.VALIDATION_ERROR.issue.integer_received_float' };
+const NOT_FINITE: ErrorMessageKey = { key: 'error.VALIDATION_ERROR.issue.not_finite' };
+const INVALID_INPUT: ErrorMessageKey = { key: 'error.VALIDATION_ERROR.issue.invalid_input' };
+
+/** zod 3's three ways to word a bound: the `bound` select of the size keys. */
+function boundOf(inclusive: boolean | undefined, exact: boolean | undefined): string {
+  return exact ? 'exact' : inclusive ? 'inclusive' : 'exclusive';
+}
+
+function tooSmall(issue: z.core.$ZodRawIssue<z.core.$ZodIssueTooSmall>): ErrorMessageKey | undefined {
+  const params = { bound: boundOf(issue.inclusive, issue.exact), minimum: String(issue.minimum) };
+  switch (issue.origin) {
     case 'array':
-      return `Array must contain ${exact ? 'exactly' : inclusive ? 'at least' : 'more than'} ${bound} element(s)`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_small.array', params };
     case 'string':
-      return `String must contain ${exact ? 'exactly' : inclusive ? 'at least' : 'over'} ${bound} character(s)`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_small.string', params };
     case 'number':
     case 'int':
     case 'bigint':
-      return `Number must be ${exact ? 'exactly equal to ' : inclusive ? 'greater than or equal to ' : 'greater than '}${bound}`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_small.number', params };
     default:
       return undefined;
   }
 }
 
-function tooBig(origin: string, maximum: number | bigint, inclusive: boolean, exact: boolean): string | undefined {
-  const bound = String(maximum);
-  switch (origin) {
+function tooBig(issue: z.core.$ZodRawIssue<z.core.$ZodIssueTooBig>): ErrorMessageKey | undefined {
+  const params = { bound: boundOf(issue.inclusive, issue.exact), maximum: String(issue.maximum) };
+  switch (issue.origin) {
     case 'array':
-      return `Array must contain ${exact ? 'exactly' : inclusive ? 'at most' : 'less than'} ${bound} element(s)`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_big.array', params };
     case 'string':
-      return `String must contain ${exact ? 'exactly' : inclusive ? 'at most' : 'under'} ${bound} character(s)`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_big.string', params };
     case 'number':
     case 'int':
-      return `Number must be ${exact ? 'exactly' : inclusive ? 'less than or equal to' : 'less than'} ${bound}`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_big.number', params };
     case 'bigint':
-      return `BigInt must be ${exact ? 'exactly' : inclusive ? 'less than or equal to' : 'less than'} ${bound}`;
+      return { key: 'error.VALIDATION_ERROR.issue.too_big.bigint', params };
     default:
       return undefined;
   }
 }
 
 /**
- * The zod 3 English message for a zod 4 issue, or undefined to keep zod's own.
+ * The catalog key of a zod 4 issue, with its parameters, worded as zod 3
+ * worded it; undefined to keep zod's own text.
  *
- * Source of truth: zod 3.25.76 `v3/locales/en.js`, case by case.
+ * Source of truth: zod 3.25.76 `v3/locales/en.js`, case by case. The English
+ * of every key in src/i18n/en.ts is that file's sentence.
  */
-export function legacyIssueMessage(issue: z.core.$ZodRawIssue): string | undefined {
+export function legacyIssueKey(issue: z.core.$ZodRawIssue): ErrorMessageKey | undefined {
   const input = issue.input;
   switch (issue.code) {
     case 'invalid_type': {
       // zod 3 said "float" for any number `.int()` refused, ±Infinity included.
-      if (issue.expected === 'int' && typeof input === 'number' && !Number.isNaN(input)) {
-        return 'Expected integer, received float';
-      }
-      if (input === undefined) return 'Required';
+      if (issue.expected === 'int' && typeof input === 'number' && !Number.isNaN(input)) return INTEGER_RECEIVED_FLOAT;
+      if (input === undefined) return REQUIRED;
       // T1: zod 4's z.number() rejects ±Infinity where zod 3 accepted it (see
       // infinityAsZod3); this is zod 3's wording for the same rule
       // (`.finite()`). Any other type answers as zod 3 did, below.
-      if (issue.expected === 'number' && isInfinite(input)) return 'Number must be finite';
-      return `Expected ${V3_EXPECTED[issue.expected] ?? issue.expected}, received ${v3TypeName(input)}`;
+      if (issue.expected === 'number' && isInfinite(input)) return NOT_FINITE;
+      return {
+        key: 'error.VALIDATION_ERROR.issue.invalid_type',
+        params: { expected: V3_EXPECTED[issue.expected] ?? issue.expected, received: v3TypeName(input) },
+      };
     }
     case 'invalid_value':
       // zod 3 worded a literal the same whatever it received, even nothing.
       if (issue.inst instanceof z.core.$ZodLiteral && issue.values.length === 1) {
-        return `Invalid literal value, expected ${JSON.stringify(issue.values[0])}`;
+        return { key: 'error.VALIDATION_ERROR.issue.invalid_literal', params: { expected: String(JSON.stringify(issue.values[0])) } };
       }
       // zod 3 checked an enum's TYPE first (`Expected 'a' | 'b', received
       // number`) and only then its value.
-      if (input === undefined) return 'Required';
-      if (typeof input !== 'string') return `Expected ${joinValues(issue.values)}, received ${v3TypeName(input)}`;
-      return `Invalid enum value. Expected ${joinValues(issue.values)}, received '${input}'`;
+      if (input === undefined) return REQUIRED;
+      if (typeof input !== 'string') {
+        return {
+          key: 'error.VALIDATION_ERROR.issue.invalid_type',
+          params: { expected: joinValues(issue.values), received: v3TypeName(input) },
+        };
+      }
+      return { key: 'error.VALIDATION_ERROR.issue.invalid_enum_value', params: { expected: joinValues(issue.values), received: input } };
     case 'invalid_format': {
-      if (issue.format === 'regex') return 'Invalid';
-      if (issue.format === 'starts_with' && 'prefix' in issue) return `Invalid input: must start with "${String(issue.prefix)}"`;
-      if (issue.format === 'ends_with' && 'suffix' in issue) return `Invalid input: must end with "${String(issue.suffix)}"`;
-      if (issue.format === 'includes' && 'includes' in issue) return `Invalid input: must include "${String(issue.includes)}"`;
+      if (issue.format === 'regex') return { key: 'error.VALIDATION_ERROR.issue.invalid_format', params: { format: 'regex' } };
+      const affix =
+        issue.format === 'starts_with' && 'prefix' in issue
+          ? issue.prefix
+          : issue.format === 'ends_with' && 'suffix' in issue
+            ? issue.suffix
+            : issue.format === 'includes' && 'includes' in issue
+              ? issue.includes
+              : undefined;
+      if (typeof affix === 'string') {
+        return { key: 'error.VALIDATION_ERROR.issue.invalid_affix', params: { affix: issue.format, value: affix } };
+      }
       const name = V3_FORMAT_NAMES[issue.format];
-      return name === undefined ? undefined : `Invalid ${name}`;
+      return name === undefined ? undefined : { key: 'error.VALIDATION_ERROR.issue.invalid_format', params: { format: name } };
     }
     case 'too_small':
-      return tooSmall(issue.origin, issue.minimum, issue.inclusive ?? false, issue.exact ?? false);
+      return tooSmall(issue);
     case 'too_big':
-      return tooBig(issue.origin, issue.maximum, issue.inclusive ?? false, issue.exact ?? false);
+      return tooBig(issue);
     case 'not_multiple_of':
-      return `Number must be a multiple of ${String(issue.divisor)}`;
+      return { key: 'error.VALIDATION_ERROR.issue.not_multiple_of', params: { divisor: String(issue.divisor) } };
     case 'unrecognized_keys':
-      return `Unrecognized key(s) in object: ${joinValues(issue.keys, ', ')}`;
+      return { key: 'error.VALIDATION_ERROR.issue.unrecognized_keys', params: { keys: joinValues(issue.keys, ', ') } };
     case 'invalid_union':
     case 'custom':
-      return 'Invalid input';
+      return INVALID_INPUT;
     default:
       return undefined;
   }
+}
+
+/** The zod 3 English message for a zod 4 issue, or undefined to keep zod's own: `legacyIssueKey` in English. */
+export function legacyIssueMessage(issue: z.core.$ZodRawIssue): string | undefined {
+  const key = legacyIssueKey(issue);
+  return key && t(key.key, key.params ?? {}, 'en');
+}
+
+/**
+ * The error map of one parse, and the way back from a message to its key.
+ *
+ * A body can carry millions of issues and only a handful of distinct
+ * messages, so each distinct key and parameters is rendered once, and its
+ * text remembers the key it came from: after the parse, `keyOf(message)`
+ * finds the key of an issue whose message the map wrote. A message a schema
+ * set itself, or zod's own text, was never written here and has no key. Both
+ * maps live for one parse only, so a hostile body cannot grow them for the
+ * life of the process.
+ */
+function keyedWording(): { message: (issue: z.core.$ZodRawIssue) => string | undefined; keyOf: (message: string) => ErrorMessageKey | undefined } {
+  const english = new Map<string, string>();
+  const keys = new Map<string, ErrorMessageKey>();
+  return {
+    message(issue) {
+      const key = legacyIssueKey(issue);
+      if (key === undefined) return undefined;
+      const id = key.params === undefined ? key.key : `${key.key}\u0000${JSON.stringify(key.params)}`;
+      let text = english.get(id);
+      if (text === undefined) {
+        text = t(key.key, key.params ?? {}, 'en');
+        english.set(id, text);
+        if (!keys.has(text)) keys.set(text, key);
+      }
+      return text;
+    },
+    keyOf: (message) => keys.get(message),
+  };
 }
 
 type Path = readonly PropertyKey[];
@@ -327,11 +408,23 @@ const ZOD3_ISSUES = '\u0000zod3-issues:';
 
 /** `schema.safeParse(input)`, with its issues in the wording and order clients are promised. */
 export function parseForClient<T>(schema: z.ZodType<T>, input: unknown): ClientParse<T> {
-  const ctx: IssueContext = { error: legacyIssueMessage, reportInput: true };
+  const parsed = parseForClientKeyed(schema, input);
+  if (parsed.success) return parsed;
+  return { success: false, issues: parsed.issues.map(({ path, message }) => ({ path, message })) };
+}
+
+/**
+ * `parseForClient`, with the catalog key behind each message it worded
+ * (MNE-001-152). The REST 422 renders those keys in the reader's language;
+ * an issue with no key travels with its message as it is.
+ */
+export function parseForClientKeyed<T>(schema: z.ZodType<T>, input: unknown): KeyedClientParse<T> {
+  const wording = keyedWording();
+  const ctx: IssueContext = { error: wording.message, reportInput: true };
   const replaced = new Map<string, z.core.$ZodIssue[]>();
   const error = (issue: z.core.$ZodRawIssue): string | undefined => {
     const zod3 = infinityAsZod3(issue, ctx);
-    if (zod3 === undefined || zod3.length === 0) return legacyIssueMessage(issue);
+    if (zod3 === undefined || zod3.length === 0) return wording.message(issue);
     const marker = `${ZOD3_ISSUES}${replaced.size}`;
     replaced.set(marker, zod3);
     return marker;
@@ -343,9 +436,10 @@ export function parseForClient<T>(schema: z.ZodType<T>, input: unknown): ClientP
   const issues = replaced.size === 0 ? worded : worded.flatMap((issue) => replaced.get(issue.message) ?? [issue]);
   return {
     success: false,
-    issues: normalizeLegacyIssues(issues).map((issue) => ({
-      path: issue.path.map(String).join('.'),
-      message: issue.message,
-    })),
+    issues: normalizeLegacyIssues(issues).map((issue): KeyedClientIssue => {
+      const path = issue.path.map(String).join('.');
+      const key = wording.keyOf(issue.message);
+      return key === undefined ? { path, message: issue.message } : { path, message: issue.message, key };
+    }),
   };
 }
