@@ -486,6 +486,40 @@ describe('payment create names a command the binary answers', () => {
     expect(finding).not.toHaveBeenCalled();
   });
 
+  // MNE-001-401 (#532): 999 is «N/A» in c_Banco; alone it names no bank.
+  const capturedWarning = (over: Partial<Parameters<typeof avisarRastroIncompleto>[0]>, json = false): string => {
+    const err: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string | Uint8Array) => {
+      err.push(String(c));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      avisarRastroIncompleto(
+        {
+          entityId: 'E1', paymentAmount: '58.00', paymentDate: '2026-12-10', paymentMethod: 'spei', applications: [],
+          cuentaDestino: '002180009876543210', ...over,
+        },
+        plain as never,
+        json
+      );
+    } finally {
+      process.stderr.write = original;
+    }
+    return err.join('');
+  };
+
+  it('warns at capture when --to-bank is 999 with no foreign bank name', () => {
+    const text = capturedWarning({ bancoDestinoSat: '999' });
+    expect(text).toContain(t('payment.capture.foreign_code_without_name'));
+    expect(text).toContain('--to-foreign-bank');
+  });
+
+  it('says nothing for a foreign bank given by its name, nor under --json', () => {
+    expect(capturedWarning({ bancoDestinoExtranjero: 'Bank of Nowhere' })).toBe('');
+    expect(capturedWarning({ bancoDestinoSat: '999' }, true)).toBe('');
+  });
+
   it('every e-accounting citation in the capture warning\'s text resolves in the tree', () => {
     const program = new Command('mnemosine');
     registerEAccountingCommand(program, { palette: plain, shutdown: () => undefined, reportError: () => undefined });

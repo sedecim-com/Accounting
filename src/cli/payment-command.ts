@@ -40,6 +40,7 @@ import { completePaymentTrace } from '../services/payments/payment-trace-service
 import { listedTraceFields, warnUntracedPayment, writeTraceCompletion } from './trace-completion-output.js';
 import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
 import { t } from '../i18n/index.js';
+import { FOREIGN_BANK_CODE } from '../services/sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // mnemosine payment
@@ -834,6 +835,9 @@ async function ejecutar(a: {
   await warnUntracedPayment('vendor', a.ctx.entityId, result.paymentId, { json: a.opts.json === true, palette: p });
 }
 
+/** Métodos que mueven dinero por un banco: sólo ellos llevan un nodo con clave de banco. */
+const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
+
 /**
  * THE CAPTURE HOOK FOR WHAT THE INPUT ALONE SHOWS (MNE-001-571, #612).
  *
@@ -841,12 +845,20 @@ async function ejecutar(a: {
  * payment is written, `warnUntracedPayment` asks the generator for its
  * voucher's finding, so capture and file cannot disagree. This hook stays for
  * a capture invariant that is not a cause of `rastroDePago` and can be told
- * from the flags before anything is written, in the dry run too: MNE-001-401
- * adds the bare `--to-bank 999` line here. It goes to stderr and says nothing
- * under `--json`.
+ * from the flags before anything is written, in the dry run too: the bare
+ * `--to-bank 999` line of MNE-001-401 lives here. It goes to stderr and says
+ * nothing under `--json`.
  */
-export function avisarRastroIncompleto(_entrada: EntradaPago, _p: Palette, json: boolean): void {
+export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
   if (json) return;
+  // `some` y no `includes(x as ...)`: Commander entrega `string`, y una
+  // aserción aquí sólo callaría al compilador. Es la misma lección que la
+  // cabecera de `payment apply` deja escrita sobre `--mode`.
+  if (!POR_BANCO.some((m) => m === entrada.paymentMethod)) return;
+  // MNE-001-401 (#532): a bare 999 is a valid node with a warning on its voucher.
+  if ((entrada.bancoDestinoSat ?? '').trim() === FOREIGN_BANK_CODE && (entrada.bancoDestinoExtranjero ?? '').trim() === '') {
+    process.stderr.write(p.yellow(`${t('payment.capture.foreign_code_without_name')}\n`));
+  }
 }
 
 function imprimir(

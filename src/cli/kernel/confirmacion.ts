@@ -77,7 +77,7 @@ export const noEntendi = (respuesta: string): string =>
   t('confirm_answer_not_understood', { answer: respuesta });
 
 /**
- * The prompt of a yes/no question whose default is no: the question, a space,
+ * The prompt of a yes/no question, by default one whose default is no: the question, a space,
  * the suffix in the user's language and a trailing space (`Post it? [y/N] `,
  * `¿Contabilizarla? [s/N] `).
  *
@@ -88,8 +88,15 @@ export const noEntendi = (respuesta: string): string =>
  *
  * Resolved when called, like `noEntendi`: the question is asked after the
  * locale is resolved. The leaf keeps its colour: `p.cyan(yesNoPrompt(q))`.
+ *
+ * `'yes'` asks with the default-yes suffix, `[Y/n]` / `[S/n]` (MNE-001-219): the
+ * first-run prompt of the root family. Which answer an empty line takes is
+ * still the caller's (`isAffirmative`); this only announces it.
  */
-export const yesNoPrompt = (question: string): string => `${question} ${t('confirm_yes_no_suffix')} `;
+export const yesNoPrompt = (question: string, defaultAnswer: 'no' | 'yes' = 'no'): string => {
+  const suffix = defaultAnswer === 'yes' ? t('confirm_yes_no_suffix_default_yes') : t('confirm_yes_no_suffix');
+  return `${question} ${suffix} `;
+};
 
 /** Veredicto de una confirmación con derecho a una repregunta. */
 export interface VeredictoConfirmacion {

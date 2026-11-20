@@ -647,6 +647,24 @@ function renderBrokenFlow(state: SetupState): void {
 }
 
 /**
+ * The first-run prompt, default yes (MNE-001-219): the question from the I8.2
+ * block and the `[Y/n]` / `[S/n]` suffix from the kernel, in the user language.
+ * Exported so the prompt is tested without a terminal.
+ */
+export function setupPrompt(): string {
+  return yesNoPrompt(t('root.setup.run_now'), 'yes');
+}
+
+/**
+ * The warning `ingest` gives when a flag or mnemosine.config.json asked for an
+ * auto-post the firm's panel does not authorize (A7), in the user language
+ * (MNE-001-219). Exported so it is tested without a database.
+ */
+export function autoPostIgnoredWarning(p: { yellow: (s: string) => string; dim: (s: string) => string }): string {
+  return p.yellow(t('root.ingest.auto_post_ignored')) + p.dim(`\n  ${t('root.ingest.auto_post_turn_on')}`);
+}
+
+/**
  * First-run rescue (fresh state, TTY only): a one-line intro, the detected
  * gaps, and an inline offer to run the wizard without leaving the command
  * the user already typed.
@@ -659,7 +677,7 @@ async function runFreshRescue(state: SetupState): Promise<InitWizardResult | 'de
   for (const reason of state.reasons) console.log(c.dim(`  · ${reason}`));
   console.log('');
   const rl = readline.createInterface({ input: stdin, output: stdout });
-  const answer = await ask(rl, c.cyan('Run setup now? [Y/n] '));
+  const answer = await ask(rl, c.cyan(setupPrompt()));
   rl.close();
   if (!isAffirmative(answer)) return 'declined';
   return runInitWizard({ rescue: true }, { palette: c });
@@ -782,9 +800,9 @@ Examples:
   ask: `
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 `,
   chat: `
 Examples:
@@ -1972,13 +1990,13 @@ const review = describeCommand(
 // --idempotency-key y le niega el comando al agente.
 declareRisk(review, {
   risk: 'irreversible',
-  llave: { innecesaria: 'cada aprobación va atada al contenido revisado (su hash) y el estado del borrador rechaza la repetición' },
+  llave: { innecesaria: 'each approval is bound to the reviewed content (its hash), and the state of the draft refuses a repeat' },
   agent: false,
   writes:
-    'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
-    'bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318); ' +
-    'vendors cuando el revisor responde «s» a dar de alta al emisor (proveedor_desconocido_al_aprobar = preguntar); ' +
-    'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
+    'journal_entries + journal_entry_lines POSTED when a draft is approved; ' +
+    'bills + bill_lines + pre_registrations when the draft comes from a received CFDI (#318); ' +
+    'vendors when the reviewer answers yes to registering the issuer (proveedor_desconocido_al_aprobar = preguntar); ' +
+    'ai_questions when seeding a precedent the reviewer confirmed after a rejection',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
     let rl: readline.Interface | undefined;
@@ -2171,11 +2189,11 @@ optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 
 // evidencia, que es lo único que separa «medimos» de «posteamos».
 declareRisk(ingest, {
   risk: 'irreversible',
-  llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
+  llave: { innecesaria: 'each CFDI deduplicates by its own UUID and hash' },
   agent: false,
   writes:
-    'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS; ' +
-    'con --kind zip|metadata, sat_cfdi_census y sat_census_loads',
+    'xml_documents, pre_registrations, bills; with auto-post, POSTED entries; ' +
+    'with --kind zip|metadata, sat_cfdi_census and sat_census_loads',
 });
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
@@ -2203,16 +2221,7 @@ ingest.action(async (files: string[], opts: {
       // creería que su corrida auto-postea y no entendería por qué no pasa
       // nada — o peor, creería que el sistema le falla.
       if (thresholds.encendidoIgnorado) {
-        console.error(
-          c.yellow(
-            'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: ' +
-              'el panel del despacho no lo autoriza.'
-          ) +
-            c.dim(
-              '\n  Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. ' +
-                'Apagar sí puede ser local.'
-            )
-        );
+        console.error(autoPostIgnoredWarning(c));
       }
       const { dryRun } = gateMutation(ingest, opts);
       let censusInvalid = 0;
@@ -2472,9 +2481,7 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // drifted before I6.
         const locale = normalizeLocale(language);
         if (locale === null) {
-          throw usageError(
-            `Unsupported language "${language}". Options: ${LOCALES.join(', ')}, or es, en`
-          );
+          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } });
         }
         // WRITTEN WHERE IT IS READ. `setUserLocale` puts `locale` in the user's
         // own file, which is the step of the precedence that beats the project
@@ -2551,7 +2558,7 @@ declareRisk(onboard, {
   risk: 'irreversible',
   llave: { scope: 'onboard' },
   agent: false,
-  writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
+  writes: 'accounts, opening balances; with --post, the POSTED opening entry',
 });
 onboard.action(async (opts: {
     provider: string; cutoff: string; from?: string; entity?: string; user?: string;
@@ -3006,9 +3013,9 @@ const outboxRun = describeCommand(
   .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
-  llave: { innecesaria: 'cada operación se reclama atómicamente y queda atada a su fila' },
+  llave: { innecesaria: 'each operation is claimed atomically and stays bound to its row' },
   agent: false,
-  writes: 'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
+  writes: "ai_external_ops; and EXECUTES each operation against the client's accounting system with its credential",
 });
 outboxRun.action((ids: string[], _opts: unknown, cmdArg: Command) =>
   // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
@@ -3354,7 +3361,7 @@ const questionAnswer = describeCommand(
 declareRisk(questionAnswer, {
   risk: 'escritura',
   agent: false,
-  writes: 'ai_questions y los precedentes que su respuesta siembra',
+  writes: 'ai_questions and the precedents its answer seeds',
 });
 questionAnswer.action(async (id: string | undefined, answerParts: string[], _opts: unknown, cmdArg: Command) => {
   // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).

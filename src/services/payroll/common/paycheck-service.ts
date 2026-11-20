@@ -27,7 +27,7 @@ import {
   readEmploymentSubsidyExcessRule,
   type EmploymentSubsidyExcessRule,
 } from '../mx/employment-subsidy.js';
-import { readOldAgeBandEdge } from '../mx/old-age-band.js';
+import { readOldAgeBandEdge, readOldAgeMinimumWageArea } from '../mx/old-age-band.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -627,10 +627,13 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     // LSS art. 168 gives no rounding rule for the edges of the old-age bands,
     // so the entity's policy decides (#661); the engine refuses without it.
     const oldAgeBandEdge = await readOldAgeBandEdge({ tenantId: input.tenant_id, entityId: period.entity_id });
+    // And which minimum measures its «1.00 SM» band: the registration's area (#196, MNE-001-578).
+    const minimumWageArea = await readOldAgeMinimumWageArea({ tenantId: input.tenant_id, entityId: period.entity_id });
     const imssEr = await imssErCalc.calculate({
       ...baseTaxInput,
       taxable_wages: 0,
       imss_old_age_band_edge: oldAgeBandEdge,
+      imss_minimum_wage_area: minimumWageArea,
     });
     taxableImss = imssEr.taxable_wages_used;
     breakdown.imss_employer = imssEr.tax_amount;

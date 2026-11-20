@@ -250,6 +250,14 @@ export function parseWithholding(
   return out;
 }
 
+/**
+ * The note `receipt record` writes when its idempotency key was already spent
+ * (MNE-001-220): the result shown is the recorded one. In the user language.
+ */
+export function idempotencyHitNote(key: string, paymentNumber: string): string {
+  return t('ar.receipt.idempotency_hit', { key, number: paymentNumber });
+}
+
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
   const receipt = program
     .command('receipt')
@@ -319,9 +327,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   ): { ref: string; amount: string | null }[] => {
     const specs = invoiceSpecs ?? [];
     if (specs.length === 0) {
-      throw usageError(
-        'Indica la(s) factura(s): --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.'
-      );
+      throw usageError({ key: 'ar.receipt.invoice_missing' });
     }
     return specs.map((spec) => {
       const i = spec.lastIndexOf(':');
@@ -329,10 +335,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         return { ref: spec.slice(0, i), amount: spec.slice(i + 1) };
       }
       if (specs.length > 1 || !amount) {
-        throw usageError(
-          `La factura "${spec}" no trae importe. Con varias facturas cada una lo lleva pegado ` +
-            '("folio:importe"); con una sola puede ir en --amount.'
-        );
+        throw usageError({ key: 'ar.receipt.invoice_without_amount', params: { spec } });
       }
       return { ref: spec, amount };
     });
@@ -446,12 +449,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             const yaAplicado = previoDoc
               ? new Decimal(previoDoc.saldoAnterior).minus(previoDoc.saldoNuevo)
               : new Decimal(0);
-            process.stderr.write(
-              p.yellow(
-                `↩ Idempotency hit: la llave "${opts.idempotencyKey}" ya consumó este cobro ` +
-                  `(${grabado.pago.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
-              )
-            );
+            process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey, grabado.pago.paymentNumber)}\n`));
             imprimirRegistro(
               grabado.pago,
               p,
@@ -516,9 +514,6 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (previo.advanceInvoices?.length) {
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
-        }
-        if (previo.excessAwaitsCashing) {
-          process.stderr.write(p.yellow(`${t('receipt.excess.cheque_held', { amount: remanente.toFixed(2) })}\n`));
         }
         // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
         if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
@@ -592,12 +587,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         );
         const result = acto.resultado.pago;
         if (acto.repetido) {
-          process.stderr.write(
-            p.yellow(
-              `↩ Idempotency hit: la llave "${opts.idempotencyKey ?? ''}" ya consumó este cobro ` +
-                `(${result.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
-            )
-          );
+          process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey ?? '', result.paymentNumber)}\n`));
         } else if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
@@ -666,7 +656,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           ? `${cobro.cfdi_uuid} (pago ${cobro.cfdi_pago_indice ?? '—'})`
           : allAdvance
             ? t('receipt.advance.cfdi_owed')
-            : p.yellow('sin REP — obligación fiscal propia con plazo del SAT')
+            : p.yellow(t('ar.receipt.no_rep'))
       );
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
@@ -770,7 +760,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(apply, '--date <date>', 'help.receipt.apply.option.date');
   declareRisk(apply, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_reallocates' } },
     agent: false,
     writes: 'payment_allocations, invoices.amount_due, journal_entries',
   });
@@ -841,7 +831,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(unapply, '--date <date>', 'help.receipt.unapply.option.date');
   declareRisk(unapply, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a desaplicar y postea otro espejo' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_unapplies' } },
     agent: false,
     writes: 'payment_allocations (closure), invoices.amount_due, journal_entries',
   });
@@ -864,8 +854,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId, { dryRun: true }
         );
+        // MNE-001-572 · a held cheque's cash goes back untaxed; its cashing causes that IVA.
+        const atCashing = (iva: string): void => {
+          if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
+        };
 
         if (dryRun) {
+          atCashing(previo.ivaAtCashing);
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
@@ -900,9 +895,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
             advance_iva_restored: result.documento.advanceIva ?? '0.00',
+            iva_at_cashing: result.ivaAtCashing,
             date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
+          atCashing(result.ivaAtCashing);
           return;
         }
         process.stdout.write(
@@ -912,6 +909,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
         );
+        atCashing(result.ivaAtCashing);
       })
   );
 
@@ -928,7 +926,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--json', 'JSON output');
   declareRisk(reverse, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a postear los espejos de la reversa' },
+    llave: { sinLlave: { key: 'ar.receipt.retry_reverses' } },
     agent: false,
     writes: 'customer_payments.status, payment_allocations (closure), invoices, reversing journal_entries',
   });

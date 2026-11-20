@@ -680,11 +680,21 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
       'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
-      'whether the tax waits, is skipped with a warning, or is asked about.',
+      'whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice ' +
+      'is in the system, or the documents it knows go on as usual and the unknown one\'s share and VAT ' +
+      'are never recorded from this receipt.',
     options: [
-      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      {
+        value: 'esperar',
+        label:
+          'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, ' +
+          'and none of its VAT is transferred',
+      },
       { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
-      { value: 'preguntar', label: 'Ask for the VAT amount' },
+      {
+        value: 'preguntar',
+        label: 'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+      },
     ],
     defaultValue: 'esperar',
     defaultRationale:
@@ -695,7 +705,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
-    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    whatIDo:
+      'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the ' +
+      'system, running mnemosine rep reconcile links it.',
     ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
     priority: 45,
   },
@@ -970,50 +982,75 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
-    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
     key: 'usmo_isr_subsidy',
     textKey: 'usmo_isr_subsidy',
     category: 'fiscal',
     question:
       'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
     impact:
-      'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
     options: [
       { value: 'gross_of_tariff', label: 'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy' },
       { value: 'net_of_subsidy', label: 'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get' },
     ],
     defaultValue: 'gross_of_tariff',
     defaultRationale:
-      'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+      'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
     whyAsking:
       'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
     whatIDo:
-      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
     ifSkipped: 'I take it gross of the tariff, without subtracting the subsidy.',
     priority: 40,
   },
   {
     // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
-    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
     key: 'usmo_days_per_month',
     textKey: 'usmo_days_per_month',
     category: 'fiscal',
     question:
       'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
     impact:
-      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
     options: [
       { value: '30', label: 'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)' },
       { value: '30.4', label: 'Daily wage × 30.4 (the month of the monthly tariff)' },
     ],
     defaultValue: '30',
     defaultRationale:
-      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
     whyAsking:
       'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
     whatIDo:
-      'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+      'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
     ifSkipped: 'I use 30 days.',
+    priority: 40,
+  },
+  {
+    // MNE-001-579 · #194: read by `calculateSeparationIsr` (payroll/mx/separation-isr.ts).
+    // A builder's ADR-0006 key with the conservative default, under the plan
+    // approved on #194 (comment 7023856765).
+    key: 'separation_isr_usmo_comparison',
+    textKey: 'separation_isr_usmo_comparison',
+    category: 'fiscal',
+    question:
+      'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+    impact:
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+    options: [
+      { value: 'total_payments', label: 'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)' },
+      { value: 'taxable_payments', label: 'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)' },
+    ],
+    defaultValue: 'total_payments',
+    defaultRationale:
+      'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+    whyAsking:
+      'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+    whatIDo:
+      'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+    ifSkipped: 'I compare the total paid.',
     priority: 40,
   },
   {
@@ -2372,6 +2409,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'An SBC above an upper edge pays the next band.',
     priority: 42,
   },
+  // #196 · MNE-001-578. The «1.00 SM» band of the employer old-age quota is
+  // measured with the general minimum of the area of the employer registration
+  // (answer of 17 Nov 2026 on #661: LFT art. 92, LSS arts. 28 and 39); the SUA
+  // FAQ suggests the centre-zone minimum to an employer registered in both
+  // zones. Read by `readOldAgeMinimumWageArea` (payroll/mx/old-age-band.ts).
+  {
+    key: 'imss_old_age_minimum_wage_area',
+    textKey: 'imss_old_age_minimum_wage_area',
+    category: 'fiscal',
+    question:
+      'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+    impact:
+      'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+    options: [
+      { value: 'employer_registration_area', label: 'The general minimum of the area of the employer registration (the entity\'s declared zone)' },
+      { value: 'general_zone', label: 'The general-zone minimum for every worker, whatever the registration\'s area' },
+    ],
+    defaultValue: 'employer_registration_area',
+    defaultRationale:
+      'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+    whyAsking:
+      'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+    ifSkipped: 'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
@@ -2825,6 +2889,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
     ifSkipped: 'I signal it and change nothing.',
     priority: 42,
+  },
+  {
+    // MNE-001-572 (#789) · An advance received by cheque, applied before the
+    // bank cashes it where it would cancel IVA nobody has caused (a PPD
+    // invoice, or a PUE one at another treatment). Reader:
+    // `refuseUncausedCancellation` in payment-service.ts. The owner's answer
+    // of 19 Nov 2026 on #789: «Rechazar + clave para diferir».
+    key: 'cheque_advance_before_cashing',
+    textKey: 'cheque_advance_before_cashing',
+    category: 'fiscal',
+    question:
+      'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+    impact:
+      'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. ' +
+      'With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. ' +
+      'With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. ' +
+      'A PUE invoice at the receipt\'s own treatment is applied either way.',
+    options: [
+      { value: 'refuse', label: 'Refuse until the cashing is recorded' },
+      { value: 'defer_to_cashing', label: 'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. ' +
+      'Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. ' +
+      'Refusing posts nothing without review, the conservative option of ADR-0006.',
+    whyAsking:
+      'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+    whatIDo:
+      'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+    ifSkipped: 'I refuse the application until the cashing is recorded.',
+    priority: 58,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

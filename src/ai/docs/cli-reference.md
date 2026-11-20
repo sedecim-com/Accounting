@@ -172,9 +172,9 @@ Options:
 
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 ```
 
 ## `mnemosine chat`
@@ -1273,7 +1273,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
-  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
+  edit|editar [options] <idOrName>       Set the tax regime, fiscal postal code or minimum-wage zone of an entity
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar [options]                Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -1365,23 +1365,26 @@ Usage: mnemosine entity create|crear [options] <name>
 Create a legal entity with its chart of accounts, roles and payroll mapping
 
 Arguments:
-  name                     legal name of the company
+  name                        legal name of the company
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-id <id>            RFC (Mexico) or EIN (USA)
-  --country <code>         MX or USA (default: "MX")
-  --currency <code>        functional currency (defaults to the country's)
-  --chart <strategy>       auto | siempre | nunca — whether to seed the base
-                           chart (default: "auto")
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-id <id>               RFC (Mexico) or EIN (USA)
+  --country <code>            MX or USA (default: "MX")
+  --currency <code>           functional currency (defaults to the country's)
+  --chart <strategy>          auto | siempre | nunca — whether to seed the base
+                              chart (default: "auto")
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # A Mexican company with its c_RegimenFiscal and fiscal postal code.
@@ -1395,23 +1398,25 @@ Examples:
 ```
 Usage: mnemosine entity edit|editar [options] <idOrName>
 
-Set the tax regime or fiscal postal code of an entity, validated against the SAT
-catalog
+Set the tax regime, fiscal postal code or minimum-wage zone of an entity
 
 Arguments:
-  idOrName                 entity id, tax id, or a fragment of the name
+  idOrName                    entity id, tax id, or a fragment of the name
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --reason <text>          justification recorded in the audit trail
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --reason <text>             justification recorded in the audit trail
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # Declare the regime of an entity created without it.
@@ -4033,9 +4038,9 @@ Options:
 
 Examples:
   # Commercial and contact data. The tax profile is NOT edited here.
-  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "Convenio comercial 2026"
+  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "2026 commercial agreement"
   # Leave a note on the customer file.
-  mnemosine customer edit "Grupo Alameda" --notes "Exige orden de compra en cada factura"
+  mnemosine customer edit "Grupo Alameda" --notes "Requires a purchase order on every invoice"
 ```
 
 ### `mnemosine customer archive` (alias: archivar)
@@ -4061,9 +4066,9 @@ Options:
 
 Examples:
   # Deactivate a customer. It is an undo verb, so --reason is required.
-  mnemosine customer archive "Grupo Alameda" --reason "Cliente inactivo desde 2025"
+  mnemosine customer archive "Grupo Alameda" --reason "Customer inactive since 2025"
   # Archive one that still shows a balance: --force overrides the check, never the reason.
-  mnemosine customer archive "Grupo Alameda" --force --reason "Saldo incobrable ya castigado"
+  mnemosine customer archive "Grupo Alameda" --force --reason "Uncollectible balance already written off"
 ```
 
 ### `mnemosine customer restore` (alias: restaurar)
@@ -4089,7 +4094,7 @@ Examples:
   # Put an archived customer back in service.
   mnemosine customer restore "Grupo Alameda"
   # With the justification that lands in the audit trail.
-  mnemosine customer restore "Grupo Alameda" --reason "Reactivado con contrato 2026"
+  mnemosine customer restore "Grupo Alameda" --reason "Reactivated with the 2026 contract"
 ```
 
 ### `mnemosine customer tax` (alias: fiscal)
@@ -4167,9 +4172,9 @@ Options:
 
 Examples:
   # The four fields CFDI 4.0 stamps against, validated against the SAT catalogs.
-  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Constancia de situacion fiscal de julio"
+  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Tax status certificate of July"
   # Only the default UsoCFDI.
-  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Solicitud del cliente"
+  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Customer request"
 ```
 
 #### `mnemosine customer tax list` (alias: listar)

@@ -99,6 +99,10 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====
@@ -398,21 +402,21 @@ export const EN = {
   'policy.rep_unknown_document.question':
     'The receipt names an invoice the system does not have: what happens to that VAT?',
   'policy.rep_unknown_document.impact':
-    'Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the tax waits, is skipped with a warning, or is asked about.',
+    "Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice is in the system, or the documents it knows go on as usual and the unknown one's share and VAT are never recorded from this receipt.",
   'policy.rep_unknown_document.rationale':
     'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III wants it until a document supports it. When the receipt DOES carry ImpuestosDR, that figure is checked against the proration over the original invoice: if they diverge beyond the tolerance, the receipt goes to review instead of releasing either figure silently.',
   'policy.rep_unknown_document.why':
     'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
   'policy.rep_unknown_document.what':
-    'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the system, running mnemosine rep reconcile links it.',
   'policy.rep_unknown_document.if_skipped':
     'I wait. Nothing is lost — the tax stays where it was.',
   'policy.rep_unknown_document.option.esperar':
-    'Wait: record the pending link and transfer no VAT for that document',
+    'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, and none of its VAT is transferred',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Match the cash and leave the VAT untransferred, with a warning',
   'policy.rep_unknown_document.option.preguntar':
-    'Ask for the VAT amount',
+    'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
 
   'policy.rep_voided_document.question':
     'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
@@ -595,13 +599,13 @@ export const EN = {
   'policy.usmo_isr_subsidy.question':
     'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
   'policy.usmo_isr_subsidy.impact':
-    'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
   'policy.usmo_isr_subsidy.rationale':
-    'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+    'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
   'policy.usmo_isr_subsidy.why':
     'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
   'policy.usmo_isr_subsidy.what':
-    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
   'policy.usmo_isr_subsidy.if_skipped':
     'I take it gross of the tariff, without subtracting the subsidy.',
   'policy.usmo_isr_subsidy.option.gross_of_tariff':
@@ -612,19 +616,36 @@ export const EN = {
   'policy.usmo_days_per_month.question':
     'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
   'policy.usmo_days_per_month.impact':
-    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
   'policy.usmo_days_per_month.rationale':
-    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
   'policy.usmo_days_per_month.why':
     'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
   'policy.usmo_days_per_month.what':
-    'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+    'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
   'policy.usmo_days_per_month.if_skipped':
     'I use 30 days.',
   'policy.usmo_days_per_month.option.30':
     'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
   'policy.usmo_days_per_month.option.30_4':
     'Daily wage × 30.4 (the month of the monthly tariff)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+  'policy.separation_isr_usmo_comparison.why':
+    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+  'policy.separation_isr_usmo_comparison.what':
+    'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'I compare the total paid.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -1489,6 +1510,23 @@ export const EN = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'The general minimum of the area of the employer registration (the entity\'s declared zone)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'The general-zone minimum for every worker, whatever the registration\'s area',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1694,6 +1732,21 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cheque_advance_before_cashing.question':
+    'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+  'policy.cheque_advance_before_cashing.what':
+    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -1760,6 +1813,8 @@ export const EN = {
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
     '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.minimum_wage_zone':
+    'the minimum wage zone is not declared: {count, plural, one {# worker is} other {# workers are}} computed with the general minimum',
   'pending.board.period_example':
     '{period} (ended {date})',
   'pending.policies.none':
@@ -1865,6 +1920,9 @@ export const EN = {
   /** `src/cli/kernel/confirmacion.ts` (`yesNoPrompt`): the suffix of every yes/no
    *  prompt whose default is no. Written here once; no leaf writes it (#262). */
   confirm_yes_no_suffix: '[y/N]',
+
+  /** The default-yes form (`yesNoPrompt(q, 'yes')`): the first-run prompt (#264). */
+  confirm_yes_no_suffix_default_yes: '[Y/n]',
 
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
@@ -2386,6 +2444,13 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
+  'receipt.apply.cheque_advance_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.unapply.iva_at_cashing':
+    'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.
@@ -2428,10 +2493,6 @@ export const EN = {
   'receipt.excess.from': 'rate of {invoices}',
   'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
   'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
-  'receipt.excess.cheque_held':
-    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
-  'receipt.excess.cheque_not_wired':
-    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_held':
@@ -2485,6 +2546,9 @@ export const EN = {
   // MNE-001-571 (#612): the capture warning is the generator's finding for that voucher.
   'payment.capture.untraced_voucher':
     'When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate` will name voucher {entry} of {number}:',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 is "N/A" in the SAT c_Banco catalogue and names no bank. For a foreign bank, give its name with --to-foreign-bank instead (the voucher adds 999); for a national one, its own code. The voucher will carry a warning.',
   // MNE-001-570 (#612): the trace of a registered receipt.
   'receipt.trace.nothing_given':
     'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
@@ -3085,18 +3149,301 @@ export const EN = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  // MNE-001-219: `src/cli/mnemosine.ts` and `src/cli/close-command.ts`.
+  /** `ingest`: the auto-post a flag or mnemosine.config.json asked for, and the panel does not authorize. */
+  'root.ingest.auto_post_ignored':
+    'Warning: the auto-post asked for by flag or by mnemosine.config.json is IGNORED: the firm\'s panel does not authorize it.',
+  /** `ingest`: the second line of that warning, where turning it on belongs. */
+  'root.ingest.auto_post_turn_on':
+    'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
+  /** `lang`: a language that is not one of the accepted spellings. */
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
+  'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  // MNE-001-220: receipt, invoice, customer and credit-note.
+  /** `receipt apply` with no `--invoice`. */
+  'ar.receipt.invoice_missing':
+    'Name the invoice or invoices: --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>.',
+  /** `receipt apply`: a bare invoice where its amount cannot come from --amount. */
+  'ar.receipt.invoice_without_amount':
+    'The invoice "{spec}" carries no amount. With several invoices each one carries its own ("number:amount"); with only one it can go in --amount.',
+  /** `receipt record`: the key was already spent, and this is the recorded result. */
+  'ar.receipt.idempotency_hit':
+    '↩ Idempotency hit: the key "{key}" already spent this receipt ({number}). Nothing was written again; this is the recorded result.',
+  /** `receipt show`: the REP of a receipt that has none. */
+  'ar.receipt.no_rep': 'no REP — a tax obligation of its own, with a SAT deadline',
+  /** The reason `receipt apply` does not honor --idempotency-key (`cli.risk.key_not_honored`). */
+  'ar.receipt.retry_reallocates':
+    'a retry allocates the on-account balance again and posts another entry',
+  /** The reason `receipt unapply` does not honor --idempotency-key. */
+  'ar.receipt.retry_unapplies': 'a retry unapplies again and posts another mirror',
+  /** The reason `receipt reverse` does not honor --idempotency-key. */
+  'ar.receipt.retry_reverses': 'a retry posts the mirrors of the reversal again',
+  /** The reason `invoice issue` does not honor --idempotency-key. */
+  'ar.invoice.retry_reissues': 'a retry issues again and posts the revenue a second time',
+  /** The reason `invoice void` does not honor --idempotency-key. */
+  'ar.invoice.retry_void_mirror': 'a retry posts the mirror of the void again',
+  /** The reason `invoice delete` does not honor --idempotency-key. */
+  'ar.invoice.delete_by_state':
+    'the delete is unrepeatable only through the state of the draft, not through the key',
+  /** The reason `credit-note issue` does not honor --idempotency-key. */
+  'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  // MNE-001-221: payroll accrue and the ISN leaves of payroll-isn.
+  /** `payroll accrue` with no --period. */
+  'payroll.accrue.period_required':
+    '--period is missing. The benefit accrual belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would accrue the month that has just begun, and the entry cannot be deleted afterwards (mnemosine period list lists the entity\'s periods).',
+  /** The reason of a skipped worker in the schedule. Stored English in the row; the table renders it. */
+  'payroll.accrue.skip_already_accrued': 'already has a live row for this month',
+  /** The other reason of a skipped worker. */
+  'payroll.accrue.skip_zero_month': 'its accrual for the month is zero',
+  /** The first line of a run: the period, the entry date, who accrues and the totals. */
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · entry dated {entryDate} · {accruing, plural, one {# worker accrues} other {# workers accrue}}, {skipped, plural, one {# is skipped} other {# are skipped}} · aguinaldo {aguinaldo} · vacation {vacation} · premium {premium} · total {total}',
+  /** The panel that governed the amounts, and which of it is a default. */
+  'payroll.accrue.criteria':
+    'salary base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · vacation {vacationDefaulted, select, yes {{vacation} (default)} other {{vacation}}} · aguinaldo {days, plural, one {# day} other {# days}} · premium {premium}',
+  /** When a declared default, not the firm, governs the amounts. */
+  'payroll.accrue.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm: between `nominal` and `integrado` there is a 20 % difference in the amount of every month. Answer it with `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  /** The heading over the entry the run would post. */
+  'payroll.accrue.entry_heading':
+    'The run\'s single entry, {lines, plural, one {# line} other {# lines}}:',
+  /** A spent key whose recorded entry was reversed afterwards. */
+  'payroll.accrue.key_entry_reversed':
+    'The key "{key}" recorded entry {entry}, which was reversed afterwards. Returning that result would say the month is accrued when it is not. Run again with a new key (it is another run, not a retry) or without --idempotency-key.',
+  /** A spent key: the recorded result is what is shown (two sites). */
+  'payroll.accrue.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was accrued again.',
+  /** A month with nobody to accrue. */
+  'payroll.accrue.nothing_to_accrue':
+    'Nothing to accrue in {period}: the ledger was not touched and no schedule row was written.',
+  /** The dry run, which writes nothing. */
+  'payroll.accrue.dry_run': 'Dry run: the ledger was not touched and no schedule row was written.',
+  /** The confirmation question; the kernel adds the [y/N] suffix. */
+  'payroll.accrue.confirm':
+    'Accrue {amount} MXN for {count, plural, one {# worker} other {# workers}} in {period}? The ledger does not allow undoing it.',
+  /** The person said no. */
+  'payroll.accrue.aborted': 'Nothing changed: the ledger was not touched.',
+  /** No terminal to ask on. */
+  'payroll.accrue.aborted_no_terminal':
+    'Nothing changed: there is no terminal to confirm on. Add -y to accrue without asking, or --dry-run to see the whole schedule without writing anything.',
+  /** The run accrued another number of workers than the preview showed. */
+  'payroll.accrue.preview_count_mismatch':
+    'The preview showed {previewed, plural, one {# worker} other {# workers}} and the run accrued {processed}. Something changed between looking and posting: check the schedule before taking the month as closed.',
+  /** The run accrued another total than the preview added up to. */
+  'payroll.accrue.preview_total_mismatch':
+    'The preview added up to {previewed} and the run accrued {posted}.',
+  /** The done line, with the entry when there is one. */
+  'payroll.accrue.done':
+    '{count, plural, one {# worker accrued} other {# workers accrued}} in {period} {hasEntry, select, yes {for {total} · entry {entry}} other {for {total}}}.',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.state': 'state',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.rate': 'rate',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.regime': 'regime',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.monthly_exemption': 'monthly exemption',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.in_force': 'in force',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.legal_basis': 'legal basis',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.table': 'table',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.criterion': 'criterion',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.reaches': 'reaches',
+  /** A rate captured with no end date. */
+  'payroll.isn_rate_set.open_ended': '(no end: still in force)',
+  /** What the ISN rate table is. */
+  'payroll.isn_rate_set.table_note':
+    '(catalogue, no tenant_id: the law is the same for every firm)',
+  /** A policy nobody answered, read at its default (`policyPair`). */
+  'payroll.isn.policy_default': '{value} (default, nobody answered)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  // MNE-001-222: depreciation run/post and asset create.
+  /** `depreciation run --by` with a dimension that does not exist. */
+  'assets.depreciation.by_unknown':
+    '--by "{value}" does not exist. The four dimensions are: {dimensions} (asset is the asset-by-asset detail; class and account are the summaries by class and by expense destination the catalogue asks for).',
+  /** `depreciation run`/`post` with no --period. */
+  'assets.depreciation.period_required':
+    '--period is missing. Depreciation belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would depreciate the month that has just begun.',
+  /** The group of the assets with no class in `--by class`. Stored English in the row; the table renders it. */
+  'assets.depreciation.no_class': '(no class)',
+  /** The first line of a plan: the period, the book, the entry date and the fingerprint. */
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · {book} book · entries dated {entryDate} · fingerprint {fingerprint}',
+  /** The criteria of a plan, which of them is a default, and who enters. */
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · convention {conventionDefaulted, select, yes {{convention} (default)} other {{convention}}} · {entering, plural, one {# asset enters} other {# assets enter}}, {skipped, plural, one {# is skipped} other {# are skipped}}, total {total}',
+  /** The warning when a declared default and not a choice of the firm governs the plan. */
+  'assets.depreciation.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm. Answer it with `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  /** The heading of the skipped assets in the readable output. */
+  'assets.depreciation.skipped_heading': 'Skipped ({count}):',
+  /** The warning when assets are left owing their row for the period. */
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# asset is} other {# assets are}} left without a row for {period}, and the month should recognise it. The policy `depreciacion_faltante_al_cierre` is {defaulted, select, yes {"{policy}" (declared default)} other {"{policy}"}}.',
+  /** `depreciation run` blocked by --strict or by the policy. */
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# asset} other {# assets}} without a row for {period}. {cause, select, strict {--strict turns the warning into a block.} other {The policy `depreciacion_faltante_al_cierre` is set to "bloquear".}} `depreciation post` will refuse to post until they are resolved.',
+  /** `depreciation run` with nothing that enters. */
+  'assets.depreciation.nothing_this_book': 'Nothing to post in this period with this book.',
+  /** `depreciation post --file` when the approved plan no longer matches. */
+  'assets.depreciation.plan_changed':
+    'The plan approved in {file} no longer matches what the run would do today, so nothing is posted: {differences}. Run `depreciation run` again, review the new plan and post against that one.',
+  /** `depreciation post` refused by the policy while assets owe their row. */
+  'assets.depreciation.post_blocked':
+    'Nothing is posted: {pending, plural, one {# asset is} other {# assets are}} left without a row for {period} and the policy `depreciacion_faltante_al_cierre` is set to "bloquear". Resolve them (capture the period\'s production, correct the asset record) or change the policy with {hint}.',
+  /** `depreciation post` with nothing that enters. */
+  'assets.depreciation.nothing_to_post': 'Nothing to post in {period}: the ledger was not touched.',
+  /** The note under the entry preview: N entries, N reversals. */
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# two-line entry} other {# two-line entries}}, one per asset, not a single one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** The confirmation of `depreciation post`. */
+  'assets.depreciation.confirm':
+    'Post {total} in {count, plural, one {# entry} other {# entries}} of the {book} book for {period}? The ledger does not allow undoing it.',
+  /** A replayed idempotency key. */
+  'assets.depreciation.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was posted again.',
+  /** The run made a different number of entries than the plan showed. */
+  'assets.depreciation.plan_count_mismatch':
+    'The plan showed {planned, plural, one {# entry} other {# entries}} and the run made {processed}. The plan and the engine did not agree: check the errors before taking the month as closed.',
+  /** The done line of `depreciation post`. */
+  'assets.depreciation.done':
+    '{count, plural, one {# entry posted} other {# entries posted}} in {period} ({book} book).',
+  /** `asset create` with an amount that is not an unsigned decimal. */
+  'assets.asset.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `asset create` with a depreciation method that does not exist. */
+  'assets.asset.method_unknown': '{flag} "{value}" does not exist. The six methods are: {methods}.',
+  /** `asset create --capitalized` with a value it cannot read. */
+  'assets.asset.capitalized_unknown':
+    '--capitalized "{value}" is not understood: it is yes when the cost is ALREADY charged to the asset account in the ledger (the CFDI that was capitalised), and no when the record only registers the asset and the entry is pending. It has no default: assuming one doubles the asset or leaves it out of the ledger.',
+  /** `asset create` without its required flags. */
+  'assets.asset.create_missing':
+    '{missing} missing. An asset with no class, no cost, no acquisition date or no statement of where its cost already is is not an incomplete record: it is a record that can be neither depreciated nor reconciled with the ledger.',
+  /** `asset create --source-entry` together with `--capitalized no`. */
+  'assets.asset.source_entry_contradiction':
+    '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, which says the opposite. Decide which of the two is true.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  // MNE-001-223: the backup leaves (create, export, list, verify, restore).
+  /** A backup or export with no manifest beside it. Stored English in `backup list`'s row; the table renders it. */
+  'platform.backup.no_manifest': '(no manifest)',
+  /** The schema a backup was taken at. */
+  'platform.backup.schema_of': 'schema {schema}',
+  /** The manifest beside a backup or an export. */
+  'platform.backup.manifest_line': 'manifest: {file}',
+  /** `backup create` with --tenant or --entity. */
+  'platform.backup.create.not_scoped':
+    '`backup create` dumps the WHOLE installation with pg_dump, which does not filter rows: narrowing it to one tenant or one entity is impossible by construction, and until now the flag was accepted and silently ignored.\nFor the archive of ONE firm: `mnemosine backup export --tenant <id>` (with `--entity <id|name>` for a single company).\nFor disaster recovery of the whole installation: `backup create` with no flags.',
+  /** Whose data a whole-installation dump carries. */
+  'platform.backup.create.unredacted':
+    'It holds the UNREDACTED data of {tenants, plural, one {# tenant} other {# tenants}}: it is the whole installation, not one firm.',
+  /** Where the archive of one firm comes from. */
+  'platform.backup.create.one_tenant_hint': 'For the archive of one only: `mnemosine backup export --tenant <id>`.',
+  /** The heading of what a dump does not carry. */
+  'platform.backup.create.no_crypto': 'And it does NOT include the cryptographic material:',
+  /** Why the vault key and ENCRYPTION_KEY are backed up separately. */
+  'platform.backup.create.crypto_detail':
+    'the vault key and ENCRYPTION_KEY live outside the database. Without them, after a restore the fiscal credentials and the bank data are unreadable. Back them up separately.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.create.untested_hint':
+    'And an untested backup is not a backup: `mnemosine backup verify <file> --restore`.',
+  /** `backup export` with no tenant. */
+  'platform.backup.export.tenant_required':
+    'There is no tenant to export. Name it with `--tenant <uuid>` or set MNEMOSINE_TENANT.\nA file that does not say whose it is cannot be kept in custody, so this is not guessed.',
+  /** The owner of an entity-scoped export. */
+  'platform.backup.export.entity_of': '{entity} (entity of {tenant})',
+  /** The size of an export. */
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# row} other {# rows}} · {tables, plural, one {# table} other {# tables}})',
+  /** The scope of an export and whose it is. */
+  'platform.backup.export.scope_line': 'scope: {scope} — {owner}',
+  /** How an export was read. */
+  'platform.backup.export.read_as': 'read as {role}, subject to RLS, in a single REPEATABLE READ snapshot',
+  /** Why an export is not a backup. */
+  'platform.backup.export.not_a_backup': 'This is an EXPORT, not a backup: there is no tested way back.',
+  /** Where disaster recovery comes from. */
+  'platform.backup.export.disaster_hint': 'For disaster recovery: `mnemosine backup create` + `backup restore`.',
+  /** The scoped tables an export leaves out. */
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# scoped table is} other {# scoped tables are}} left outside this scope; the manifest names them one by one.',
+  /** What an export carries. */
+  'platform.backup.export.unredacted':
+    "It carries the firm's unredacted data, third-party RFCs included: treat it as such.",
+  /** `backup list --status`. */
+  'platform.backup.list.no_status':
+    '`backup list` has no status to filter: a backup is a file, not a document with a lifecycle.',
+  /** `backup list` with --tenant or --entity. */
+  'platform.backup.list.not_scoped':
+    '`backup list` inventories a DIRECTORY, and it does not filter by scope yet: the flag was accepted and ignored.\nThe «scope» column of the output already says whose each file is (tenant, entity or whole installation), so for now the filter is done by reading it.',
+  /** The scope of a whole-installation dump. Stored English in the row; the table renders it. */
+  'platform.backup.list.scope_installation':
+    'installation ({tenants, plural, one {# tenant} other {# tenants}})',
+  /** The same, when an old manifest does not say how many tenants. */
+  'platform.backup.list.scope_installation_unknown': 'installation (unknown tenants)',
+  /** A backup whose hash still matches. Stored English in the row; the table renders it. */
+  'platform.backup.list.intact_yes': 'yes',
+  /** A backup whose restore was never rehearsed. Stored English in the row; the table renders it. */
+  'platform.backup.list.never_verified': 'never',
+  /** When the restore was last rehearsed, and its findings. Stored English in the row; the table renders it. */
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# finding} other {# findings}})',
+  /** An export has no restore to rehearse. Stored English in the row; the table renders it. */
+  'platform.backup.list.export_not_verified': 'n/a (export, not restorable)',
+  /** `backup verify` of a file that is not there. */
+  'platform.backup.verify.not_found': 'The backup {file} was not found',
+  /** The cheap verify, when the hash matches. */
+  'platform.backup.verify.hash_ok': 'hash and manifest match',
+  /** The hash does not match the manifest. */
+  'platform.backup.verify.hash_mismatch': 'the hash does NOT match the manifest',
+  /** What the cheap verify does not prove. */
+  'platform.backup.verify.not_proof': 'This does NOT prove the backup restores.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.verify.repeat_with_restore': 'An untested backup is not a backup: run it again with --restore.',
+  /** The rehearsed restore worked. */
+  'platform.backup.verify.restored': 'restored into a throwaway database',
+  /** The rehearsed restore failed. */
+  'platform.backup.verify.not_restored': 'did NOT restore',
+  /** What the rehearsed restore checked. */
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entity checked} other {# entities checked}} · {findings, plural, one {# finding} other {# findings}}',
+  /** Why `backup restore` does not honour an idempotency key. */
+  'platform.backup.restore.retry_restores': 'a retry restores again over what was already restored',
+  /** The dry run of `backup restore`. */
+  'platform.backup.restore.would_restore': 'Would restore {file} into a NEW database "{database}"',
+  /** The dry run writes nothing. */
+  'platform.backup.restore.nothing_written': 'Nothing is written, and no existing database is ever touched.',
+  /** The confirmation of `backup restore`. */
+  'platform.backup.restore.confirm': 'Create database "{database}" and restore {file} into it?',
+  /** `backup restore` with no terminal to confirm on. */
+  'platform.backup.restore.no_terminal':
+    '{question} — there is no terminal to ask on. Re-run with --yes once you are sure.',
+  /** The done line of `backup restore`. */
+  'platform.backup.restore.done': 'restored into the database {database}',
+  /** The previous database is untouched. */
+  'platform.backup.restore.previous_intact':
+    'The previous database is still intact: pointing the application at the new one is a separate act.',
+  /** The reminder to verify the restored database. */
+  'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
@@ -3626,6 +3973,7 @@ export const EN = {
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
   'help.account.list.option.type': 'account type: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: minimum-wage area of the workplace, which caps the seniority premium (LFT art. 486)',
   'help.account.list.option.parent': 'only children of this account code',
   'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
   'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',

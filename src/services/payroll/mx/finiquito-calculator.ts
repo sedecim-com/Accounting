@@ -14,6 +14,7 @@ import {
   type UsmoDaysPerMonth,
 } from './finiquito-math.js';
 import { getTaxParameters } from '../tax-engine/tax-tables.js';
+import { dailyMinimumWageFor, minimumWageZoneOf, type MinimumWageZone } from './minimum-wage-zone.js';
 import { calculateSeparationIsr, type SeparationIsr } from './separation-isr.js';
 
 // ============================================================
@@ -96,10 +97,22 @@ export interface FiniquitoResult {
   /** Por qué vale lo que vale — o por qué no se pudo calcular. */
   seniority_premium_note: string;
   /**
-   * The separation ISR (MNE-001-375): the exemption of LISR art. 93 fr. XIII
-   * on the separation payments ONLY. The ordinary items above keep the
-   * ordinary route, with their own exemptions, on the payroll run that pays
-   * them; `total` stays gross.
+   * The minimum the art. 486 cap was measured with, and whose zone it is
+   * (MNE-001-377). `declared_by: null` = nobody declared one: general, said so.
+   */
+  seniority_premium_minimum_wage: {
+    zone: MinimumWageZone;
+    /** null when that zone's minimum is not loaded for the date. */
+    daily_amount: string | null;
+    declared_by: 'employee' | 'entity' | null;
+    note: string;
+  };
+  /**
+   * The separation ISR (MNE-001-375, MNE-001-579): the exemption of LISR
+   * art. 93 fr. XIII and the withholding of LISR art. 96 on the separation
+   * payments ONLY. The ordinary items above keep the ordinary route, with
+   * their own exemptions, on the payroll run that pays them; `total` stays
+   * gross, and no net is given, since the ordinary ISR is not in it.
    */
   separation_isr: SeparationIsr;
   total: string;
@@ -115,12 +128,12 @@ export interface FiniquitoResult {
     aguinaldo_days_worked: number;
     /**
      * The last ordinary monthly salary (LISR art. 96, the paragraph on the
-     * payments of art. 95): the daily wage × `usmo_days_per_month`. Reported,
-     * not yet used: the rate that divides by it is MNE-001-579.
+     * payments of art. 95): the daily wage × `usmo_days_per_month`. The
+     * separation ISR compares the payments with it and divides by it.
      */
     last_ordinary_monthly_salary: string;
     usmo_days_per_month: UsmoDaysPerMonth;
-    /** How the ISR of the USMO will be taken (`usmo_isr_subsidy`). */
+    /** How the ISR of the USMO is taken (`usmo_isr_subsidy`). */
     usmo_isr_subsidy: UsmoIsrSubsidy;
   };
 }
@@ -128,8 +141,9 @@ export interface FiniquitoResult {
 // ============================================================
 // THE TWO READINGS OF THE USMO (MNE-001-374, #194)
 //
-// The separation ISR of LISR art. 96, last paragraph, is the ISR of the last
-// ordinary monthly salary divided by that salary. MNE-001-373 put its two open
+// The separation ISR of LISR art. 96 (the paragraph on the payments of art.
+// 95, third from the end) is the ISR of the last ordinary monthly salary
+// divided by that salary. MNE-001-373 put its two open
 // readings in the panel (ADR-0006): whether that ISR is gross of the tariff or
 // net of the employment subsidy, and whether the USMO is the daily wage × 30
 // or × 30.4. Both readers are CLOSED ON DECLARING, like
@@ -294,10 +308,10 @@ export async function calculateFiniquito(
   // EL MÍNIMO CON EL QUE SE TOPA LA PRIMA, A LA FECHA DE LA BAJA.
   //
   // A la fecha de la baja y no a la de hoy: un finiquito de enero recalculado
-  // en marzo tiene que seguir topándose con el mínimo de enero. Y del GENERAL,
-  // porque este esquema todavía no guarda la zona donde se presta el trabajo
-  // —el art. 486 mide el tope con el mínimo de esa zona— así que el desglose
-  // deja dicho con cuál se calculó, en vez de callarlo.
+  // en marzo tiene que seguir topándose con el mínimo de enero. Y el de la ZONA
+  // del lugar de trabajo (art. 486): la del empleado si la tiene, si no la de la
+  // entidad (MNE-001-377). Sin zona declarada es la general, y el resultado lo
+  // dice (decisión MNE-001-376).
   // EL TIPO NO ES UNA COMPROBACIÓN (WIT-02). `termination_reason` es
   // obligatorio en TypeScript, pero `POST /finiquito` pasa `req.body` tal cual:
   // una petición vieja o mal formada llega con el campo AUSENTE, y
@@ -317,11 +331,8 @@ export async function calculateFiniquito(
 
   const anioBaja = new Date(input.termination_date).getUTCFullYear();
   const params = await getTaxParameters('MX', anioBaja, input.termination_date);
-  const minimoGeneral = params.salario_minimo_general_diario;
-  const salarioMinimo =
-    typeof minimoGeneral === 'number' || typeof minimoGeneral === 'string'
-      ? String(minimoGeneral)
-      : undefined;
+  const zone = await minimumWageZoneOf({ tenantId: ctx.tenantId, entityId: panel.entityId }, input.employee_id);
+  const salarioMinimo = dailyMinimumWageFor(params, zone.zone);
 
   const d: DesgloseFiniquito = calcularFiniquito({
     fecha_alta: e.hire_date,
@@ -335,14 +346,19 @@ export async function calculateFiniquito(
     salario_minimo_diario: salarioMinimo,
   });
 
-  // THE SEPARATION ISR (MNE-001-375): on the seniority premium ALONE, the
-  // only separation payment this settlement computes. A premium «SIN
-  // CALCULAR» (a base of null with days owed) goes as null, never as zero.
+  // THE SEPARATION ISR (MNE-001-375, MNE-001-579): on the seniority premium
+  // ALONE, the only separation payment this settlement computes. A premium
+  // «SIN CALCULAR» (a base of null with days owed) goes as null, never as
+  // zero. The USMO is the one `basis` reports, and the panel the employee's.
+  const usmo = lastOrdinaryMonthlySalary(d.salario_diario, usmoDays);
   const separationIsr = await calculateSeparationIsr({
     payments:
       d.prima_antiguedad_base_diaria === null && d.prima_antiguedad_dias > 0 ? null : d.prima_antiguedad_importe,
     hireDate: e.hire_date,
     terminationDate: input.termination_date,
+    usmo,
+    usmoIsrSubsidy,
+    panel,
   });
 
   return {
@@ -357,6 +373,15 @@ export async function calculateFiniquito(
     seniority_premium_daily_base: d.prima_antiguedad_base_diaria,
     seniority_premium_amount: d.prima_antiguedad_importe,
     seniority_premium_note: d.prima_antiguedad_nota,
+    seniority_premium_minimum_wage: {
+      zone: zone.zone,
+      daily_amount: salarioMinimo ?? null,
+      declared_by: zone.declaredBy,
+      note: zone.declaredBy
+        ? `${zone.zone} zone, declared by the ${zone.declaredBy}`
+        : 'General zone by default: the entity has not declared its minimum wage zone. Declare it with ' +
+          'mnemosine entity edit <entity> --minimum-wage-zone general|northern_border',
+    },
     separation_isr: separationIsr,
     total: d.total,
     basis: {
@@ -368,7 +393,7 @@ export async function calculateFiniquito(
       aguinaldo_days_per_year: diasAguinaldo,
       prima_vacacional_pct: primaPct,
       aguinaldo_days_worked: d.aguinaldo_dias_trabajados,
-      last_ordinary_monthly_salary: lastOrdinaryMonthlySalary(d.salario_diario, usmoDays),
+      last_ordinary_monthly_salary: usmo,
       usmo_days_per_month: usmoDays,
       usmo_isr_subsidy: usmoIsrSubsidy,
     },

@@ -25,6 +25,7 @@ import {
   generarAuxiliar,
 } from '../../src/services/sat/anexo24/polizas-service.js';
 import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
+import { voucherReceipt } from '../../src/cli/e-accounting-request-command.js';
 
 // ============================================================
 // F07d · LAS PÓLIZAS Y SU RASTRO DE PAGO, MEDIDO CONTRA POSTGRES.
@@ -718,9 +719,6 @@ describe('a payment node without its c_Banco code is left out and its entry is n
     ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
       'Complétalo en el pago ya registrado (`payment trace record', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
-    ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
-      'decisión del dueño', 'payment create',
-      () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
     // MNE-001-570: a registered receipt is completed, never recorded again.
     ['a customer transfer with no payer bank', 'Transferencia', 'BancoOriNal',
       '--payer-bank <clave> --reason <motivo>`', 'receipt record',
@@ -1082,5 +1080,125 @@ describe('a receipt declares the payer bank and account, and our account as the 
     expect(r.hallazgos.filter((h) => h.referencia === t1.entry || h.referencia === c1.entry)).toEqual([]);
     const blocking = r.hallazgos.filter((h) => h.severity === 'blocking');
     expect(blocking.every((h) => h.detalle.includes('(source_type invoice)')), JSON.stringify(blocking)).toBe(true);
+  });
+});
+
+describe('a foreign bank is declared as 999 with its name (#532)', () => {
+  // MNE-001-401. A month of its own (8 to 11 are taken). Hand figures:
+  // X1 a vendor SPEI of 116.00 to a foreign bank, X2 a receipt SPEI of 232.00
+  // from a foreign payer bank, X3 a customer cheque 7001 of 348.00 drawn on a
+  // foreign bank whose name carries a line break, X4 a vendor SPEI of 58.00
+  // captured with --to-bank 999 and no name, X5 a vendor cheque 30101 of 11.60
+  // from an own account coded 999. The bills stay in `MES`.
+  const FOREIGN_MONTH = 12;
+  const PAYER_IBAN = 'DE89370400440532013000';
+  const TO_IBAN = 'GB29NWBK60161331926819';
+  const entries: Record<'x1' | 'x2' | 'x3' | 'x4' | 'x5', string | undefined> = {
+    x1: undefined, x2: undefined, x3: undefined, x4: undefined, x5: undefined,
+  };
+
+  async function paidBill(subtotal: string, iva: string, over: Partial<Parameters<typeof recordVendorPayment>[0]>): Promise<string | undefined> {
+    const g = await gastoAprobado(f.entityId, f.userId, subtotal, iva);
+    const r = await recordVendorPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: g.total,
+        paymentDate: fechaEnPeriodo(FOREIGN_MONTH),
+        paymentMethod: 'spei',
+        bankAccountId: bancoId,
+        ...over,
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    return r.journalEntry?.entry_number;
+  }
+
+  async function collected(
+    unitPrice: string,
+    over: Pick<Parameters<typeof recordCustomerPayment>[0], 'paymentMethod'> & Partial<Parameters<typeof recordCustomerPayment>[0]>
+  ): Promise<string | undefined> {
+    const issued = await issuedInvoice(FOREIGN_MONTH, unitPrice);
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: issued.total,
+        paymentDate: fechaEnPeriodo(FOREIGN_MONTH, 20),
+        ...over,
+        applications: [{ documentId: issued.invoiceId, amountApplied: issued.total }],
+      },
+      f.userId
+    );
+    return r.journalEntry?.entry_number;
+  }
+
+  beforeAll(async () => {
+    // The published c_Banco lists 999 as «N/A»; the earlier blocks leave 012, 002 and 072.
+    await query(
+      `INSERT INTO sat_bancos (clave, nombre_corto, vigente)
+       VALUES ('002','Banamex',true), ('012','BBVA',true), ('072','Banorte',true), ('999','N/A',true)
+       ON CONFLICT (clave) DO NOTHING`
+    );
+    const ownAccountCoded999 = uuidv4();
+    await query(
+      `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id,
+         currency_code, sat_bank_code, clabe_encrypted, clabe_last4, is_active)
+       VALUES ($1,$2,'Cuenta con clave 999','Banco N/A',$3,'MXN','999',$4,$5,true)`,
+      [ownAccountCoded999, f.entityId, await cuentaPorCodigo(f.entityId, '1111'), encrypt(CLABE), CLABE.slice(-4)]
+    );
+    entries.x1 = await paidBill('100.00', '16.00', { cuentaDestino: TO_IBAN, bancoDestinoExtranjero: 'Bank of Nowhere' });
+    entries.x2 = await collected('200.00', {
+      paymentMethod: 'spei', bankAccountId: bancoId, payerForeignBank: 'First Bank of Elsewhere', payerAccount: PAYER_IBAN,
+    });
+    entries.x3 = await collected('300.00', {
+      paymentMethod: 'check', checkNumber: '7001', payerForeignBank: 'Banco de Ultramar\nSA', payerAccount: '9876543210',
+    });
+    entries.x4 = await paidBill('50.00', '8.00', { cuentaDestino: '002180009876543210', bancoDestinoSat: '999' });
+    entries.x5 = await paidBill('10.00', '1.60', { paymentMethod: 'check', checkNumber: '30101', bankAccountId: ownAccountCoded999 });
+    for (const [name, entry] of Object.entries(entries)) expect(entry, `${name} must have posted`).toBeTruthy();
+  });
+
+  it('the month validates, each foreign bank carries 999 and its name, and a bare 999 warns', async () => {
+    const r = await generarPolizas(f.entityId, { periodo: `2026-${FOREIGN_MONTH}`, solicitud: SOLICITUD });
+    expect(validateAgainstOfficialXsd(r.xml, 'journal')).toEqual({ valid: true, errors: [] });
+    const voucher = (entry: string | undefined): string =>
+      r.xml.split('<PLZ:Poliza ').find((block) => block.includes(`NumUnIdenPol="${entry}"`)) ?? '';
+
+    expect(voucher(entries.x1)).toContain(
+      `<PLZ:Transferencia CtaOri="${CLABE}" BancoOriNal="012" CtaDest="${TO_IBAN}" BancoDestNal="999" BancoDestExt="Bank of Nowhere" `
+    );
+    expect(voucher(entries.x1)).toContain('Monto="116.00"');
+    expect(voucher(entries.x2)).toContain(
+      `<PLZ:Transferencia CtaOri="${PAYER_IBAN}" BancoOriNal="999" BancoOriExt="First Bank of Elsewhere" CtaDest="${CLABE}" BancoDestNal="012" `
+    );
+    expect(voucher(entries.x2)).toContain('Monto="232.00"');
+    expect(voucher(entries.x3)).toContain(
+      '<PLZ:Cheque Num="7001" BanEmisNal="999" BanEmisExt="Banco de Ultramar SA" CtaOri="9876543210" '
+    );
+    expect(voucher(entries.x3)).toContain('Monto="348.00"');
+    expect(voucher(entries.x4)).toContain('CtaDest="002180009876543210" BancoDestNal="999" Fecha=');
+    expect(voucher(entries.x4)).toContain('Monto="58.00"');
+    expect(voucher(entries.x5)).toContain(`<PLZ:Cheque Num="30101" BanEmisNal="999" CtaOri="${CLABE}" `);
+    expect(voucher(entries.x5)).toContain('Monto="11.60"');
+
+    const of = (entry: string | undefined) => r.hallazgos.filter((h) => h.referencia === entry);
+    // The foreign banks are named neither as untraced nor against the catalogue.
+    for (const entry of [entries.x1, entries.x2, entries.x3]) {
+      expect(of(entry).filter((h) => h.check === 'poliza-con-dinero-sin-rastro' || h.check === 'banco-en-catalogo')).toEqual([]);
+    }
+    // The cheque's name was cleaned to leave, and that is said.
+    expect(of(entries.x3).map((h) => [h.check, h.severity])).toEqual([['texto-normalizado', 'warning']]);
+    // A bare 999 leaves with its node and one warning naming its voucher.
+    for (const [entry, attribute] of [[entries.x4, 'BancoDestNal'], [entries.x5, 'BanEmisNal']] as const) {
+      expect(of(entry).map((h) => [h.check, h.severity])).toEqual([['banco-en-catalogo', 'warning']]);
+      expect(of(entry)[0].detalle).toContain(`${attribute}="999" sin `);
+    }
+    // The only blocking findings left are this fixture's invoices (see the #611 block).
+    const blocking = r.hallazgos.filter((h) => h.severity === 'blocking');
+    expect(blocking.every((h) => h.detalle.includes('(source_type invoice)')), JSON.stringify(blocking)).toBe(true);
+
+    // And it reaches the --json receipt of `voucher generate`.
+    const receipt = voucherReceipt(r, SOLICITUD, '-', []);
+    expect(receipt.findings).toContainEqual(expect.objectContaining({ check: 'banco-en-catalogo', severity: 'warning', voucher: entries.x4 }));
   });
 });

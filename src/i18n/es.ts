@@ -64,6 +64,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
+  // ---- MNE-001-150 · a path no route serves; see en.ts ----
+  'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -352,21 +354,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.question':
     'El complemento nombra una factura que el sistema no tiene: ¿qué pasa con ese IVA?',
   'policy.rep_unknown_document.impact':
-    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el impuesto espera, se omite con un aviso o se pregunta.',
+    'Sin la factura original no hay base para prorratear el IVA de esa parcialidad. Decide si el complemento espera en revisión hasta que una persona corre mnemosine rep reconcile, ya con su factura en el sistema, o si los documentos que conoce siguen como siempre y la parte y el IVA del desconocido nunca se registran desde este complemento.',
   'policy.rep_unknown_document.rationale':
     'Las descargas masivas del SAT llegan en desorden, así que un complemento que llega antes que su factura es normal, no excepcional. El IVA no se pierde: se queda pendiente, que es justo donde lo quiere el art. 5 fracc. III de la LIVA hasta que un documento lo ampare. Cuando el complemento SÍ trae ImpuestosDR, esa cifra se coteja contra el prorrateo sobre la factura original: si difieren más allá de la tolerancia, el complemento va a revisión en vez de liberar cualquiera de las dos cifras en silencio.',
   'policy.rep_unknown_document.why':
     'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo dejar pendiente el traslado del impuesto hasta que aparezca la factura, o seguir sin él.',
   'policy.rep_unknown_document.what':
-    'Por omisión espero, y el vínculo se resuelve solo el día que se carga la factura.',
+    'Por omisión dejo el complemento en revisión. Nada lo reintenta solo: cuando su factura ya está en el sistema, correr mnemosine rep reconcile lo liga.',
   'policy.rep_unknown_document.if_skipped':
     'Espero. No se pierde nada: el impuesto se queda donde estaba.',
   'policy.rep_unknown_document.option.esperar':
-    'Esperar: registrar el vínculo pendiente y no trasladar IVA de ese documento',
+    'Esperar: todo el pago del complemento espera en revisión, con las facturas conocidas que paga, y no se traslada nada de su IVA',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Casar el efectivo y dejar el IVA sin trasladar, con un aviso',
   'policy.rep_unknown_document.option.preguntar':
-    'Preguntar el importe del IVA',
+    'Igual que «Esperar»: el complemento espera en revisión y no se pide importe de IVA. Se conserva para los despachos que ya la eligieron.',
 
   'policy.rep_voided_document.question':
     'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
@@ -549,13 +551,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_isr_subsidy.question':
     'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
   'policy.usmo_isr_subsidy.impact':
-    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), cuyo ISR de la separación retiene la parte gravada a esa tasa. Neto del subsidio baja la tasa, así que se retiene menos.',
   'policy.usmo_isr_subsidy.rationale':
-    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95 (el antepenúltimo; el art. 172 RLISR descuenta de esos pagos la exención), divide «el impuesto correspondiente al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
   'policy.usmo_isr_subsidy.why':
     'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
   'policy.usmo_isr_subsidy.what':
-    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, y el finiquito retiene la parte gravada de la separación a ese ISR entre el sueldo.',
   'policy.usmo_isr_subsidy.if_skipped':
     'Lo tomo bruto de tarifa, sin restar el subsidio.',
   'policy.usmo_isr_subsidy.option.gross_of_tariff':
@@ -566,19 +568,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.usmo_days_per_month.question':
     '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
   'policy.usmo_days_per_month.impact':
-    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, en su párrafo de los pagos del art. 95. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose, compara con él los pagos por separación y divide entre él. Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
   'policy.usmo_days_per_month.rationale':
-    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, en su párrafo de los pagos del art. 95, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
   'policy.usmo_days_per_month.why':
     'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
   'policy.usmo_days_per_month.what':
-    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+    'Calculo el USMO como salario diario × 30; el finiquito compara con él los pagos por separación y arma sobre él la tasa de retención.',
   'policy.usmo_days_per_month.if_skipped':
     'Uso 30 días.',
   'policy.usmo_days_per_month.option.30':
     'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
   'policy.usmo_days_per_month.option.30_4':
     'Salario diario × 30.4 (el mes de la tarifa mensual)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'Para el ISR de la separación, ¿con qué se compara el último sueldo mensual ordinario (USMO) para elegir entre la tarifa mensual y la tasa del USMO: con el total pagado por la separación, o sólo con su parte gravada?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'El art. 96 LISR, en su párrafo de los pagos del art. 95, retiene una prima de antigüedad o una indemnización al ISR del USMO entre el USMO, y aplica en su lugar la tarifa mensual cuando «los pagos» son inferiores al USMO. Lo lee el ISR de la separación del finiquito (separation-isr.ts). Cuando la parte gravada queda debajo del USMO y el total pagado no, comparar el total retiene a la tasa, más que la tarifa sobre la parte gravada sola.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'El art. 96 LISR aplica la tasa a «el ingreso total por este concepto» y pasa a la tarifa «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: la palabra es los pagos, así que el total pagado es la lectura literal, y, bruto de tarifa, nunca retiene de menos, porque la tasa media de la tarifa sube con el ingreso. Comparar sólo la parte gravada sigue al art. 172 RLISR, que descuenta del total del art. 95 la exención del art. 93 fr. XIII LISR, como arma el CFDI de nómina su IngresoAcumulable; es la otra práctica común. Es el valor conservador, por ADR-0006; lo retenido de más se acredita en el cálculo anual.',
+  'policy.separation_isr_usmo_comparison.why':
+    'La ley compara «los pagos» con el último sueldo mensual sin decir si cuenta su parte exenta. Comparar el total retiene más veces a la tasa del USMO; comparar sólo la parte gravada aplica más veces la tarifa mensual. Lo decide tu despacho.',
+  'policy.separation_isr_usmo_comparison.what':
+    'Comparo el total pagado por la separación con el USMO: debajo de él, la tarifa mensual sobre la parte gravada; si no, la tasa del USMO sobre la parte gravada.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'Comparo el total pagado.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'El total pagado por la separación, con su parte exenta (los «pagos» literales del art. 96 LISR)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Sólo la parte gravada, después de la exención de 90 UMA (art. 172 RLISR)',
 
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
@@ -1443,6 +1462,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    '¿Con qué salario mínimo se mide el tramo «1.00 SM» de la cuota patronal de cesantía en edad avanzada y vejez: el del área de tu registro patronal, o el de la zona general para todo trabajador?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'Decide qué SBC paga la tasa más baja de la cuota patronal de cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). En marzo de 2026, para una entidad registrada en la frontera norte, un SBC de 400.00 paga 3.150 % con "employer_registration_area" (189.00 por quincena, bajo su mínimo de 440.87) y 6.361 % con "general_zone" (381.66, medido con 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'Un salario mínimo general rige para los trabajadores de su propia área (LFT art. 92), y el IMSS determina las cuotas de cada registro patronal (LSS arts. 28 y 39), así que el tramo se mide con el mínimo del área del registro. Una entidad que no ha declarado su zona se mide con el mínimo general, y la nota del cálculo lo dice.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'La tabla nombra su primer tramo en salarios mínimos, y México tiene dos mínimos generales: el de la zona general y el de la Zona Libre de la Frontera Norte. Si el programa con el que determinas tus cuotas usa el mínimo de la zona general para todo registro, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'Por cada día cotizado tomo el salario mínimo general del área que esta política nombra, vigente ese día, y ubico el SBC en el tramo de la tabla con fechas. La nota del cálculo nombra el mínimo, su área y si la entidad la declaró.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'Uso el mínimo del área del registro patronal, que es la zona declarada de la entidad, o el mínimo general mientras no haya una declarada.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'El mínimo general del área del registro patronal (la zona declarada de la entidad)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'El mínimo de la zona general para todo trabajador, sea cual sea el área del registro',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1648,6 +1684,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_existing.option.keep':
     'Dejarlos como están, sin aviso',
 
+  'policy.cheque_advance_before_cashing.question':
+    'Un anticipo recibido con cheque se aplica a una factura antes de que el banco cobre el cheque, donde cancelaría IVA todavía no causado: ¿qué hago?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" la aplicación se postearía ya y compensaría ese IVA el día del cobro; todavía no está construida y mientras tanto se niega, nombrando la parte 2/2 de la issue 789. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, segundo párrafo: un precio pagado con cheque se cobra, y su IVA se causa, el día en que el banco cobra el cheque. Aplicar su anticipo antes cancelaría en el mayor un IVA que nadie ha causado todavía, y el mes leería menos IVA que el papel. Negarlo no postea nada sin revisión, la opción conservadora de ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Algunos despachos aplican el cheque de un cliente a su factura el día que llega, antes de que el banco lo cobre. Eso funciona si el IVA del anticipo se compensa el día del cobro; negarlo mantiene cada mes exacto hasta entonces.',
+  'policy.cheque_advance_before_cashing.what':
+    'Con "refuse" niego la aplicación y nombro el comando del cobro. "defer_to_cashing" está declarada y todavía no construida, así que también la niego y lo digo.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'Niego la aplicación hasta que se registre el cobro.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Negarla hasta que se registre el cobro',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Aplicarla ya y compensar su IVA el día del cobro (todavía no construida: se niega mientras tanto)',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -1714,6 +1765,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
     '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.minimum_wage_zone':
+    'la zona de salario mínimo no está declarada: {count, plural, one {# trabajador se calcula} other {# trabajadores se calculan}} con el mínimo general',
   'pending.board.period_example':
     '{period} (terminó el {date})',
   'pending.policies.none':
@@ -1815,6 +1868,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
   confirm_yes_no_suffix: '[s/N]',
+  confirm_yes_no_suffix_default_yes: '[S/n]',
 
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
@@ -2251,6 +2305,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
+  // MNE-001-572 (#789): el anticipo de un cheque retenido no se aplica contra IVA que nadie ha causado.
+  'receipt.apply.cheque_advance_not_cashed':
+    'El cobro {receipt} es un cheque que el banco no ha cobrado, y aplicarlo a {invoice} cancelaría {iva} del IVA de su anticipo, que no se causa hasta el cobro (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo; esto lo gobierna la clave del panel {key}. No se escribió nada.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'La clave del panel {key} dice defer_to_cashing, que aplica ya el cobro {receipt} a {invoice} y compensa los {iva} del IVA de su anticipo el día del cobro; esa opción llega en la parte 2/2 de la issue 789 y todavía no está construida. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`, o contesta refuse. No se escribió nada.',
+  'receipt.unapply.iva_at_cashing':
+    'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
@@ -2293,10 +2354,6 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.excess.from': 'tasa de {invoices}',
   'receipt.excess.from_highest': 'tasa de {invoices}: lleva varias y se supone la más alta; --tax-rate declara otra',
   'receipt.excess.from_exempt': 'tasa de {invoices}: ninguno de sus tratamientos lleva IVA y se supone exento; --tax-rate declara otro',
-  'receipt.excess.cheque_held':
-    'Los {amount} que quedan a cuenta se recibieron con cheque, cuyo IVA se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo). Registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700), así que van completos a anticipos de clientes, como antes.',
-  'receipt.excess.cheque_not_wired':
-    'El excedente de un cobro recibido con cheque causa su IVA el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo), y registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700). Regístralo sin --tax-rate y el excedente va completo a anticipos de clientes. No se registró nada.',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
   'receipt.advance.cheque_held':
@@ -2350,6 +2407,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-571 (#612): el aviso al capturar es el hallazgo del generador para esa póliza.
   'payment.capture.untraced_voucher':
     'Cuando el SAT pida las pólizas del periodo, `mnemosine e-accounting voucher generate` nombrará la póliza {entry} de {number}:',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 es «N/A» en el catálogo c_Banco del SAT y no nombra ningún banco. Si el banco es extranjero, da su nombre con --to-foreign-bank (la póliza le pone el 999); si es nacional, su propia clave. La póliza llevará un aviso.',
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
@@ -2915,18 +2975,187 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  'root.ingest.auto_post_ignored':
+    'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
+  'root.ingest.auto_post_turn_on':
+    'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  'ar.receipt.invoice_missing':
+    'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
+  'ar.receipt.invoice_without_amount':
+    'La factura «{spec}» no trae importe. Con varias facturas cada una lo lleva pegado («folio:importe»); con una sola puede ir en --amount.',
+  'ar.receipt.idempotency_hit':
+    '↩ Reintento idempotente: la llave «{key}» ya consumó este cobro ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ar.receipt.no_rep': 'sin REP — obligación fiscal propia con plazo del SAT',
+  'ar.receipt.retry_reallocates':
+    'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento',
+  'ar.receipt.retry_unapplies': 'un reintento vuelve a desaplicar y postea otro espejo',
+  'ar.receipt.retry_reverses': 'un reintento vuelve a postear los espejos de la reversa',
+  'ar.invoice.retry_reissues': 'un reintento vuelve a emitir y postea el ingreso otra vez',
+  'ar.invoice.retry_void_mirror': 'un reintento vuelve a postear el espejo de la anulación',
+  'ar.invoice.delete_by_state':
+    'el borrado sólo es irrepetible por estado del borrador, no por llave',
+  'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  'payroll.accrue.period_required':
+    'Falta --period. El devengo de prestaciones es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar, y el asiento no se puede borrar después (mnemosine period list enumera los periodos de la entidad).',
+  'payroll.accrue.skip_already_accrued': 'ya tiene renglón vigente de este mes',
+  'payroll.accrue.skip_zero_month': 'su devengo del mes es cero',
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · asiento con fecha {entryDate} · {accruing, plural, one {# trabajador devenga} other {# trabajadores devengan}}, {skipped, plural, one {# se omite} other {# se omiten}} · aguinaldo {aguinaldo} · vacaciones {vacation} · prima {premium} · total {total}',
+  'payroll.accrue.criteria':
+    'base {baseDefaulted, select, yes {{base} (defecto)} other {{base}}} · vacaciones {vacationDefaulted, select, yes {{vacation} (defecto)} other {{vacation}}} · aguinaldo {days, plural, one {# día} other {# días}} · prima {premium}',
+  'payroll.accrue.default_criteria_warning':
+    'Rige al menos un defecto declarado y no una elección del despacho: entre `nominal` e `integrado` hay un 20 % de diferencia en el importe de cada mes. Se contesta con `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  'payroll.accrue.entry_heading':
+    'El asiento único de la corrida, {lines, plural, one {# línea} other {# líneas}}:',
+  'payroll.accrue.key_entry_reversed':
+    'La llave «{key}» grabó el asiento {entry}, que después se reversó. Devolver ese resultado diría que el mes está devengado cuando no lo está. Vuelve a correr con una llave nueva —es otra corrida, no un reintento— o sin --idempotency-key.',
+  'payroll.accrue.idempotency_hit':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
+  'payroll.accrue.nothing_to_accrue':
+    'Nada que devengar en {period}: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.dry_run':
+    'Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.',
+  'payroll.accrue.confirm':
+    '¿Devengar {amount} MXN de {count, plural, one {# trabajador} other {# trabajadores}} en {period}? El mayor no admite deshacer.',
+  'payroll.accrue.aborted': 'Sin cambios: el mayor no se tocó.',
+  'payroll.accrue.aborted_no_terminal':
+    'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin preguntar, o --dry-run para ver la cédula completa sin escribir nada.',
+  'payroll.accrue.preview_count_mismatch':
+    'La vista previa enseñaba {previewed, plural, one {# trabajador} other {# trabajadores}} y la corrida devengó {processed}. Algo cambió entre mirar y postear: revisa la cédula antes de dar el mes por cerrado.',
+  'payroll.accrue.preview_total_mismatch':
+    'La vista previa sumaba {previewed} y la corrida devengó {posted}.',
+  'payroll.accrue.done':
+    '{count, plural, one {# trabajador devengado} other {# trabajadores devengados}} en {period} {hasEntry, select, yes {por {total} · asiento {entry}} other {por {total}}}.',
+  'payroll.isn_rate_set.state': 'estado',
+  'payroll.isn_rate_set.rate': 'tasa',
+  'payroll.isn_rate_set.regime': 'régimen',
+  'payroll.isn_rate_set.monthly_exemption': 'exención mensual',
+  'payroll.isn_rate_set.in_force': 'vigencia',
+  'payroll.isn_rate_set.legal_basis': 'fundamento',
+  'payroll.isn_rate_set.table': 'tabla',
+  'payroll.isn_rate_set.criterion': 'criterio',
+  'payroll.isn_rate_set.reaches': 'alcanza',
+  'payroll.isn_rate_set.open_ended': '(sin cierre: sigue vigente)',
+  'payroll.isn_rate_set.table_note': '(catálogo, sin tenant_id: la ley es la misma)',
+  'payroll.isn.policy_default': '{value} (por omisión, nadie la contestó)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  'assets.depreciation.by_unknown':
+    '--by «{value}» no existe. Las cuatro dimensiones son: {dimensions} (asset es el detalle activo por activo; class y account son el resumen por clase y por destino del gasto que pide el catálogo).',
+  'assets.depreciation.period_required':
+    'Falta --period. La depreciación es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 depreciaría el mes que acaba de empezar.',
+  'assets.depreciation.no_class': '(sin clase)',
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · libro {book} · asientos con fecha {entryDate} · huella {fingerprint}',
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (defecto)} other {{base}}} · convención {conventionDefaulted, select, yes {{convention} (defecto)} other {{convention}}} · {entering, plural, one {# activo entra} other {# activos entran}}, {skipped, plural, one {# se omite} other {# se omiten}}, total {total}',
+  'assets.depreciation.default_criteria_warning':
+    'Rige al menos un defecto declarado y no una elección del despacho. Se contesta con `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  'assets.depreciation.skipped_heading': 'Omitidos ({count}):',
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# activo se queda} other {# activos se quedan}} sin renglón de {period} y el mes debería reconocerlo. La política `depreciacion_faltante_al_cierre` vale {defaulted, select, yes {«{policy}» (defecto declarado)} other {«{policy}»}}.',
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# activo} other {# activos}} sin renglón de {period}. {cause, select, strict {--strict convierte el aviso en bloqueo.} other {La política `depreciacion_faltante_al_cierre` está en «bloquear».}} `depreciation post` se negará a contabilizar hasta que se resuelvan.',
+  'assets.depreciation.nothing_this_book': 'Nada que contabilizar en este periodo con este libro.',
+  'assets.depreciation.plan_changed':
+    'El plan aprobado en {file} ya no corresponde a lo que la corrida haría hoy, así que no se contabiliza nada: {differences}. Vuelve a correr `depreciation run`, revisa el plan nuevo y contabiliza contra ése.',
+  'assets.depreciation.post_blocked':
+    'No se contabiliza: {pending, plural, one {# activo se queda} other {# activos se quedan}} sin renglón de {period} y la política `depreciacion_faltante_al_cierre` está en «bloquear». Resuélvelos (captura la producción del periodo, corrige la ficha) o cambia la política con {hint}.',
+  'assets.depreciation.nothing_to_post': 'Nada que contabilizar en {period}: el mayor no se tocó.',
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# póliza de dos líneas} other {# pólizas de dos líneas}}, una por activo, no una sola de la corrida. Reversar esta corrida {count, plural, one {es # reversa} other {son # reversas}}.',
+  'assets.depreciation.confirm':
+    '¿Contabilizar {total} en {count, plural, one {# póliza} other {# pólizas}} del libro {book} de {period}? El mayor no admite deshacer.',
+  'assets.depreciation.idempotency_hit':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a contabilizar.',
+  'assets.depreciation.plan_count_mismatch':
+    'El plan enseñaba {planned, plural, one {# póliza} other {# pólizas}} y la corrida hizo {processed}. El plan y el motor no coincidieron: revisa los errores antes de dar el mes por cerrado.',
+  'assets.depreciation.done':
+    '{count, plural, one {# póliza contabilizada} other {# pólizas contabilizadas}} en {period} (libro {book}).',
+  'assets.asset.amount_invalid':
+    '{flag} debe ser un importe decimal sin signo; llegó «{value}». El punto separa los decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.',
+  'assets.asset.method_unknown': '{flag} «{value}» no existe. Los seis métodos son: {methods}.',
+  'assets.asset.capitalized_unknown':
+    '--capitalized «{value}» no se entiende: es yes cuando el costo YA está cargado a la cuenta de activo en el mayor (el CFDI que se capitalizó), y no cuando el alta sólo registra el bien y el asiento está pendiente. No tiene valor por omisión: suponerlo duplica el activo o lo deja fuera del mayor.',
+  'assets.asset.create_missing':
+    'Faltan {missing}. Un activo sin clase, sin costo, sin fecha de adquisición o sin decir dónde está ya su costo no es una ficha incompleta: es una ficha que no se puede depreciar ni cuadrar contra el mayor.',
+  'assets.asset.source_entry_contradiction':
+    '--source-entry nombra el asiento donde YA está el costo, así que no se puede pasar junto a `--capitalized no`, que afirma lo contrario. Decide cuál de las dos es cierta.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  'platform.backup.no_manifest': '(sin manifiesto)',
+  'platform.backup.schema_of': 'esquema {schema}',
+  'platform.backup.manifest_line': 'manifiesto: {file}',
+  'platform.backup.create.not_scoped':
+    '`backup create` vuelca la instalación ENTERA con pg_dump, que no filtra filas: acotarlo a un inquilino o a una entidad es imposible por construcción, y hasta hoy la bandera se aceptaba y se ignoraba en silencio.\nPara el archivo de UN despacho: `mnemosine backup export --tenant <id>` (con `--entity <id|nombre>` para una sola sociedad).\nPara la recuperación ante desastre de la instalación completa: `backup create` sin banderas.',
+  'platform.backup.create.unredacted':
+    'Contiene los datos SIN REDACTAR de {tenants, plural, one {# inquilino} other {# inquilinos}}: es la instalación entera, no un despacho.',
+  'platform.backup.create.one_tenant_hint': 'Para el archivo de uno solo: `mnemosine backup export --tenant <id>`.',
+  'platform.backup.create.no_crypto': 'Y NO incluye el material criptográfico:',
+  'platform.backup.create.crypto_detail':
+    'la llave del vault y ENCRYPTION_KEY viven fuera de la base. Sin ellas, al restaurar las credenciales fiscales y los datos bancarios quedan ilegibles. Respáldalas aparte.',
+  'platform.backup.create.untested_hint':
+    'Y un respaldo no probado no es un respaldo: `mnemosine backup verify <archivo> --restore`.',
+  'platform.backup.export.tenant_required':
+    'No hay inquilino que exportar. Nómbralo con `--tenant <uuid>` o fija MNEMOSINE_TENANT.\nUn archivo que no dice de quién es no se puede custodiar, así que esto no se adivina.',
+  'platform.backup.export.entity_of': '{entity} (entidad de {tenant})',
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# fila} other {# filas}} · {tables, plural, one {# tabla} other {# tablas}})',
+  'platform.backup.export.scope_line': 'alcance: {scope} — {owner}',
+  'platform.backup.export.read_as': 'leído como {role}, sujeto a RLS, en una sola instantánea REPEATABLE READ',
+  'platform.backup.export.not_a_backup': 'Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.',
+  'platform.backup.export.disaster_hint': 'Para recuperación ante desastre: `mnemosine backup create` + `backup restore`.',
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# tabla acotada queda} other {# tablas acotadas quedan}} fuera de este alcance; el manifiesto las nombra una por una.',
+  'platform.backup.export.unredacted':
+    'Lleva datos sin redactar del despacho, RFC de terceros incluidos: trátalo como tal.',
+  'platform.backup.list.no_status':
+    '`backup list` no tiene estado que filtrar: un respaldo es un archivo, no un documento con ciclo.',
+  'platform.backup.list.not_scoped':
+    '`backup list` inventaría un DIRECTORIO, y todavía no filtra por alcance: la bandera se aceptaba y se ignoraba.\nLa columna «alcance» de la salida ya dice de quién es cada archivo — inquilino, entidad o instalación completa —, así que por ahora el filtro se hace leyéndola.',
+  'platform.backup.list.scope_installation':
+    'instalación ({tenants, plural, one {# inquilino} other {# inquilinos}})',
+  'platform.backup.list.scope_installation_unknown': 'instalación (inquilinos desconocidos)',
+  'platform.backup.list.intact_yes': 'sí',
+  'platform.backup.list.never_verified': 'nunca',
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# hallazgo} other {# hallazgos}})',
+  'platform.backup.list.export_not_verified': 'n/a (exportación, no restaurable)',
+  'platform.backup.verify.not_found': 'No se encontró el respaldo {file}',
+  'platform.backup.verify.hash_ok': 'hash y manifiesto cuadran',
+  'platform.backup.verify.hash_mismatch': 'el hash NO cuadra con el manifiesto',
+  'platform.backup.verify.not_proof': 'Esto NO prueba que el respaldo restaure.',
+  'platform.backup.verify.repeat_with_restore': 'Un respaldo no probado no es un respaldo: repite con --restore.',
+  'platform.backup.verify.restored': 'restauró en una base de usar y tirar',
+  'platform.backup.verify.not_restored': 'NO restauró',
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entidad revisada} other {# entidades revisadas}} · {findings, plural, one {# hallazgo} other {# hallazgos}}',
+  'platform.backup.restore.retry_restores': 'un reintento vuelve a restaurar sobre lo ya restaurado',
+  'platform.backup.restore.would_restore': 'Restauraría {file} en una base NUEVA «{database}»',
+  'platform.backup.restore.nothing_written': 'No se escribe nada, y ninguna base existente se toca jamás.',
+  'platform.backup.restore.confirm': '¿Crear la base «{database}» y restaurar {file} en ella?',
+  'platform.backup.restore.no_terminal':
+    '{question} — no hay terminal donde preguntar. Vuelve a correrlo con --yes cuando estés seguro.',
+  'platform.backup.restore.done': 'restaurado en la base {database}',
+  'platform.backup.restore.previous_intact':
+    'La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.',
+  'platform.backup.restore.check_first': 'Compruébala antes: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
@@ -3442,6 +3671,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
   'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
   'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: área de salario mínimo del lugar de trabajo, que topa la prima de antigüedad (LFT art. 486)',
   'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
   'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
   'help.account.show.description':

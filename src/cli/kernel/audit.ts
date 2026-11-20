@@ -2,6 +2,11 @@ import type { Command } from 'commander';
 import { VERBS, isVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS, ABBREVIATION_NOUNS } from './vocabulary.js';
 import { FLAG_DICTIONARY, BANNED_FLAGS } from './flags.js';
 import { riskOf } from './risk.js';
+import { t, type TranslationKey } from '../../i18n/index.js';
+
+/** A no-key reason for the audit's developer detail: prose as written, a key in English (MNE-001-220). */
+const reasonInEnglish = (reason: string | { key: string }): string =>
+  typeof reason === 'string' ? reason : t(reason.key as TranslationKey, {}, 'en');
 
 // ============================================================
 // LA AUDITORÍA DE CONSISTENCIA, EN PRODUCCIÓN (regla R12).
@@ -231,7 +236,7 @@ export function auditProgram(program: Command): Violation[] {
           violations.push({
             command: full,
             rule: 'R11 llave aceptada sin honrar',
-            detail: `acepta --idempotency-key y no deduplica sobre ella: ${llave.sinLlave}`,
+            detail: `acepta --idempotency-key y no deduplica sobre ella: ${reasonInEnglish(llave.sinLlave)}`,
           });
         } else if (llave && 'innecesaria' in llave) {
           // NO ES UNA ACUSACIÓN: el dominio ya deduplica por sí mismo y la

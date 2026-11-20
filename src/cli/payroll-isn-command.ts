@@ -18,6 +18,7 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { renderHallazgos } from './e-accounting-command.js';
 import type { Palette } from './palette.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import {
   ExitCode,
   abortedByUser,
@@ -504,6 +505,23 @@ export interface CoberturaDeClave {
 }
 
 /**
+ * One line of the ISN capture preview: the label in the user's language,
+ * padded so every value starts at column 21 in both languages (MNE-001-221).
+ */
+function previewLine(label: TranslationKey, value: string): string {
+  return `  ${t(label).padEnd(18)} ${value}`;
+}
+
+/**
+ * A policy and its value, said as `name=value`, and marked as a default in the
+ * user's language when nobody answered it (MNE-001-221). The name and the value
+ * are identifiers and are never translated.
+ */
+export function policyPair(name: string, value: string, defined: boolean): string {
+  return defined ? `${name}=${value}` : `${name}=${t('payroll.isn.policy_default', { value })}`;
+}
+
+/**
  * Las líneas que se enseñan ANTES de escribir.
  *
  * Es una función pura y separada del manejador a propósito: lo que un operador
@@ -525,13 +543,13 @@ export function lineasDeLaCaptura(datos: {
   const { estado, tasa, regimen, exencion, desde, hasta, fundamento, cobertura, choques } = datos;
   const porcentaje = `${new Decimal(tasa).times(100).toFixed(4)}%`;
   const lineas = [
-    `  estado             ${estado}`,
-    `  tasa               ${tasa}  (${porcentaje})`,
-    `  regimen            ${regimen}`,
-    ...(exencion === null ? [] : [`  exencion mensual   ${formatMoneyMx(exencion)}`]),
-    `  vigencia           ${desde} -> ${hasta ?? '(sin cierre: sigue vigente)'}`,
-    `  fundamento         ${fundamento}`,
-    `  tabla              mx_isn_tasas_estatales (catalogo, sin tenant_id: la ley es la misma)`,
+    previewLine('payroll.isn_rate_set.state', estado),
+    previewLine('payroll.isn_rate_set.rate', `${tasa}  (${porcentaje})`),
+    previewLine('payroll.isn_rate_set.regime', regimen),
+    ...(exencion === null ? [] : [previewLine('payroll.isn_rate_set.monthly_exemption', formatMoneyMx(exencion))]),
+    previewLine('payroll.isn_rate_set.in_force', `${desde} -> ${hasta ?? t('payroll.isn_rate_set.open_ended')}`),
+    previewLine('payroll.isn_rate_set.legal_basis', fundamento),
+    previewLine('payroll.isn_rate_set.table', `mx_isn_tasas_estatales ${t('payroll.isn_rate_set.table_note')}`),
   ];
 
   // EL DESAJUSTE DE CLAVES, que es el defecto que de verdad se cobra caro.
@@ -540,14 +558,16 @@ export function lineasDeLaCaptura(datos: {
       ? 'legal_entities.state_province'
       : 'employees.work_state';
   lineas.push(
-    `  criterio           isn_estado_que_causa=${cobertura.criterio}` +
-      `${cobertura.criterioDefinido ? '' : ' (default, nobody answered)'} -> ${fuente}`
+    previewLine(
+      'payroll.isn_rate_set.criterion',
+      `${policyPair('isn_estado_que_causa', cobertura.criterio, cobertura.criterioDefinido)} -> ${fuente}`
+    )
   );
   if (cobertura.alcanzados > 0) {
-    lineas.push(`  alcanza            ${cobertura.alcanzados} worker(s) carrying "${estado}"`);
+    lineas.push(previewLine('payroll.isn_rate_set.reaches', `${cobertura.alcanzados} worker(s) carrying "${estado}"`));
   } else {
     lineas.push(
-      `  alcanza            NOBODY: no live worker of this entity carries "${estado}" in ${fuente}`
+      previewLine('payroll.isn_rate_set.reaches', `NOBODY: no live worker of this entity carries "${estado}" in ${fuente}`)
     );
     if (cobertura.otras.length > 0) {
       lineas.push(
@@ -709,7 +729,7 @@ function utilidades(deps: PayrollIsnCommandDeps) {
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -817,8 +837,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
     risk: 'escritura',
     agent: false,
     writes:
-      'mx_isn_tasas_estatales (una vigencia); ningun asiento y ningun pasivo — ' +
-      'el calculo los produce despues, corrida por corrida',
+      'mx_isn_tasas_estatales (one effective period); no journal entry and no liability: ' +
+      'each pay run computes them later',
   });
   fijar.addHelpText('after', EJEMPLOS.rateSet);
   fijar.action(
@@ -1217,9 +1237,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
             `${r.period_start} -> ${r.period_end} (${r.status}) · accrual date ${fechaCausacion}\n`
           ) +
           c.dim(
-            `  isn_estado_que_causa=${criterio}${criterioDefinido ? '' : ' (default)'} · ` +
-              `isn_momento_de_causacion=${causacionPorPago ? 'pago' : 'devengo'}` +
-              `${pCausacion.defined ? '' : ' (default)'}\n`
+            `  ${policyPair('isn_estado_que_causa', criterio, criterioDefinido)} · ` +
+              `${policyPair('isn_momento_de_causacion', causacionPorPago ? 'pago' : 'devengo', pCausacion.defined)}\n`
           );
 
         if (legible(opts)) err.write(cabecera);

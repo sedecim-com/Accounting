@@ -96,6 +96,11 @@ export function refusalOf(note: CfdiFacts, bills: readonly RelatedBill[]): Error
     return refuse('bill_not_payable', { ...named, status: bill.status, payable: PAYABLE.join(', ') });
   }
   if (bill.hasApplicationWithoutRelease) return refuse('release_not_recorded', named);
+  // NOTE: MNE-001-582 (#814). This bound is why an unapply or a reversal of a
+  // vendor payment needs no cap after a note: the note only lowers what is
+  // still owed, its VAT leaves 1135 first (`splitNoteVat`), so 1135 already
+  // holds the VAT of the balance owed again. Posting a note above the balance
+  // would bring back what MNE-001-581 caps on the issued side.
   if (new Decimal(note.total).greaterThan(bill.amountDue)) {
     return refuse('exceeds_balance', { ...named, total: money(note.total), due: money(bill.amountDue) });
   }

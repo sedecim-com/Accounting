@@ -2657,7 +2657,7 @@
       "es": "usmo_isr_subsidy",
       "en": null,
       "keptBecause": "identical-in-both",
-      "why": "Born in English (MNE-001-374): `usmo` is kept, as this registry keeps `aguinaldo` (the legal term of art. 87 LFT): it is the «último sueldo mensual ordinario» of LISR art. 96, last paragraph, a term of the law and not a word to translate; `isr` is a proper name (the tax) and `subsidy` is the employment subsidy (`employment_subsidy_separate_run`). Read by `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts)."
+      "why": "Born in English (MNE-001-374): `usmo` is kept, as this registry keeps `aguinaldo` (the legal term of art. 87 LFT): it is the «último sueldo mensual ordinario» of LISR art. 96 (its paragraph on the payments of art. 95), a term of the law and not a word to translate; `isr` is a proper name (the tax) and `subsidy` is the employment subsidy (`employment_subsidy_separate_run`). Read by `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts)."
     },
     {
       "class": "policy-key",
@@ -2666,6 +2666,14 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-374): `usmo` is kept for the same reason as in `usmo_isr_subsidy`; `days_per_month` is how many days make that monthly salary. Read by `readUsmoDaysPerMonth` (payroll/mx/finiquito-calculator.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "separation_isr_usmo_comparison",
+      "es": "separation_isr_usmo_comparison",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): what the separation ISR compares with the USMO (`usmo` kept as in `usmo_isr_subsidy`) to choose between the monthly tariff and the USMO rate of LISR art. 96. Read by `readSeparationIsrUsmoComparison` (payroll/mx/separation-isr.ts)."
     },
     {
       "class": "policy-key",
@@ -3795,6 +3803,22 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "A number, not vocabulary: the days of the month of the monthly tariff, multiplied by `lastOrdinaryMonthlySalary` and compared as a literal by `readUsmoDaysPerMonth`; normalising it would change the stored answer."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/total_payments",
+      "es": "total_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; the total paid for separation, exempt part included, is compared with the USMO (the literal «pagos» of LISR art. 96). The conservative default."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/taxable_payments",
+      "es": "taxable_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; only the taxable part, after the LISR art. 93 fr. XIII exemption (RLISR art. 172), is compared with the USMO."
     },
     {
       "class": "policy-value",
@@ -6020,6 +6044,30 @@
     },
     {
       "class": "policy-key",
+      "where": "cheque_advance_before_cashing",
+      "es": "cheque_advance_before_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-572): a customer advance received by cheque applied before the bank cashes it."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application is refused until the cashing is recorded."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/defer_to_cashing",
+      "es": "defer_to_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application posts now and its IVA is netted on the cashing day (part 2/2)."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
@@ -6313,6 +6361,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the SBC in minimum wages and in UMA is cut to two decimals before it is placed in the table."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_minimum_wage_area",
+      "es": "imss_old_age_minimum_wage_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-578): which minimum wage measures the «1.00 SM» band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/employer_registration_area",
+      "es": "employer_registration_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general minimum of the area of the employer registration, which is the entity's declared zone."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/general_zone",
+      "es": "general_zone",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general-zone minimum wage for every worker, whatever the registration's area."
     }
   ]
 }
