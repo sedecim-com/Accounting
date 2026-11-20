@@ -1732,6 +1732,21 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cheque_advance_before_cashing.question':
+    'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+  'policy.cheque_advance_before_cashing.what':
+    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -2429,6 +2444,13 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
+  'receipt.apply.cheque_advance_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.unapply.iva_at_cashing':
+    'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.
@@ -2471,10 +2493,6 @@ export const EN = {
   'receipt.excess.from': 'rate of {invoices}',
   'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
   'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
-  'receipt.excess.cheque_held':
-    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
-  'receipt.excess.cheque_not_wired':
-    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_held':

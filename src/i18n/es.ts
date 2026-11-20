@@ -1684,6 +1684,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_existing.option.keep':
     'Dejarlos como están, sin aviso',
 
+  'policy.cheque_advance_before_cashing.question':
+    'Un anticipo recibido con cheque se aplica a una factura antes de que el banco cobre el cheque, donde cancelaría IVA todavía no causado: ¿qué hago?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" la aplicación se postearía ya y compensaría ese IVA el día del cobro; todavía no está construida y mientras tanto se niega, nombrando la parte 2/2 de la issue 789. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, segundo párrafo: un precio pagado con cheque se cobra, y su IVA se causa, el día en que el banco cobra el cheque. Aplicar su anticipo antes cancelaría en el mayor un IVA que nadie ha causado todavía, y el mes leería menos IVA que el papel. Negarlo no postea nada sin revisión, la opción conservadora de ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Algunos despachos aplican el cheque de un cliente a su factura el día que llega, antes de que el banco lo cobre. Eso funciona si el IVA del anticipo se compensa el día del cobro; negarlo mantiene cada mes exacto hasta entonces.',
+  'policy.cheque_advance_before_cashing.what':
+    'Con "refuse" niego la aplicación y nombro el comando del cobro. "defer_to_cashing" está declarada y todavía no construida, así que también la niego y lo digo.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'Niego la aplicación hasta que se registre el cobro.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Negarla hasta que se registre el cobro',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Aplicarla ya y compensar su IVA el día del cobro (todavía no construida: se niega mientras tanto)',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -2290,6 +2305,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
+  // MNE-001-572 (#789): el anticipo de un cheque retenido no se aplica contra IVA que nadie ha causado.
+  'receipt.apply.cheque_advance_not_cashed':
+    'El cobro {receipt} es un cheque que el banco no ha cobrado, y aplicarlo a {invoice} cancelaría {iva} del IVA de su anticipo, que no se causa hasta el cobro (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo; esto lo gobierna la clave del panel {key}. No se escribió nada.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'La clave del panel {key} dice defer_to_cashing, que aplica ya el cobro {receipt} a {invoice} y compensa los {iva} del IVA de su anticipo el día del cobro; esa opción llega en la parte 2/2 de la issue 789 y todavía no está construida. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`, o contesta refuse. No se escribió nada.',
+  'receipt.unapply.iva_at_cashing':
+    'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
@@ -2332,10 +2354,6 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.excess.from': 'tasa de {invoices}',
   'receipt.excess.from_highest': 'tasa de {invoices}: lleva varias y se supone la más alta; --tax-rate declara otra',
   'receipt.excess.from_exempt': 'tasa de {invoices}: ninguno de sus tratamientos lleva IVA y se supone exento; --tax-rate declara otro',
-  'receipt.excess.cheque_held':
-    'Los {amount} que quedan a cuenta se recibieron con cheque, cuyo IVA se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo). Registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700), así que van completos a anticipos de clientes, como antes.',
-  'receipt.excess.cheque_not_wired':
-    'El excedente de un cobro recibido con cheque causa su IVA el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo), y registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700). Regístralo sin --tax-rate y el excedente va completo a anticipos de clientes. No se registró nada.',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
   'receipt.advance.cheque_held':
