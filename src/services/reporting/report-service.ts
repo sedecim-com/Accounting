@@ -31,10 +31,13 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 //
 //   query*Rows()  — the SQL. One implementation, shared by REST, the
 //                   agent tools and the CLI — and by the services that
-//                   read a balance to guard money (the AR reconciliation,
-//                   the prepaid backing, the external-ledger diff; T14,
-//                   #101). This is the part where a mistake produces a
-//                   wrong number.
+//                   read a balance to guard money (the AR and AP
+//                   reconciliations, the prepaid backing, the
+//                   external-ledger diff, the close's fixed-asset box,
+//                   the FX revaluation line, the IVA paper's withholding
+//                   per sale and receipt movement, and the DIOT's exempt
+//                   revenue; T14, #101). This is the part
+//                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
 //                   The agent tools keep their own (2-decimal, flatter)
@@ -519,6 +522,8 @@ export async function queryAccumulatedBalances(
     ignoreClosingPolicy?: boolean;
     /** Only this account: the balance a control or a guard reads. */
     accountId?: string;
+    /** Only these accounts: a balance a close box reads over a set (MNE-001-436). */
+    accountIds?: readonly string[];
     /**
      * Run inside the caller's transaction. A guard that measures a balance
      * and then consumes it (prepaid backing, under its FOR UPDATE) must read
@@ -555,6 +560,10 @@ export async function queryAccumulatedBalances(
   if (filters.accountId !== undefined) {
     params.push(filters.accountId);
     accountFilter = `AND a.id = $${params.length}`;
+  }
+  if (filters.accountIds !== undefined) {
+    params.push([...filters.accountIds]);
+    accountFilter = `${accountFilter} AND a.id = ANY($${params.length}::uuid[])`.trim();
   }
   const client = filters.client;
   const run = client
@@ -613,6 +622,15 @@ export interface EntryMovementRow {
   description: string | null;
   /** Net debit-positive movement the entry left on the account. */
   amount: string;
+  /** Who created the entry (`journal_entries.created_by`); the caller names the user. */
+  created_by: string;
+  /**
+   * Σ `amount` and the count over EVERY row the filters keep, before `limit`:
+   * a control that lists a page must still explain its balance with all of
+   * them (TOTALS ARE COMPUTED OVER EVERY ROW, above).
+   */
+  total_amount: string;
+  total_entries: number;
 }
 
 export interface EntryMovementFilters {
@@ -623,13 +641,29 @@ export interface EntryMovementFilters {
    * column alone would list every clean void as if someone had typed it.
    */
   excludeSourceTypes?: readonly string[];
+  /**
+   * The mirror of `excludeSourceTypes`: only entries whose `source_type` is
+   * one of these, AND the reversals of such entries (the FX revaluation and
+   * its day-1 mirror, MNE-001-436).
+   */
+  onlySourceTypes?: readonly string[];
   /** Leave out these entries by id. */
   excludeEntryIds?: readonly string[];
+  /** Only entries dated on or before this day (YYYY-MM-DD), the control's cut. */
+  asOf?: string;
+  /** Only these entries: the net a document's own entry left on the account. */
+  entryIds?: readonly string[];
   /** Only entries whose net movement on the account is a debit. */
   netDebitsOnly?: boolean;
   /** Oldest first (default) or newest first; the entry number breaks ties. */
   order?: 'oldest' | 'newest';
   limit?: number;
+  /**
+   * Run inside the caller's transaction (MNE-001-437): a tax paper reads its
+   * documents and their entries on one connection, as `queryTrialBalanceRows`
+   * and `queryAccumulatedBalances` already allow.
+   */
+  client?: pg.PoolClient;
 }
 
 /**
@@ -660,9 +694,29 @@ export async function queryEntryMovementsOnAccount(
                  AND orig.source_type = ANY(${types}))`
     );
   }
+  if (filters.onlySourceTypes) {
+    params.push([...filters.onlySourceTypes]);
+    const types = `$${params.length}::text[]`;
+    where.push(
+      `AND (je.source_type = ANY(${types}) OR EXISTS (
+              SELECT 1
+                FROM journal_entries orig
+               WHERE orig.id = je.reverses_entry_id
+                 AND orig.entity_id = je.entity_id
+                 AND orig.source_type = ANY(${types})))`
+    );
+  }
   if (filters.excludeEntryIds) {
     params.push([...filters.excludeEntryIds]);
     where.push(`AND NOT (je.id = ANY($${params.length}::uuid[]))`);
+  }
+  if (filters.asOf !== undefined) {
+    params.push(filters.asOf);
+    where.push(`AND je.entry_date <= $${params.length}::date`);
+  }
+  if (filters.entryIds) {
+    params.push([...filters.entryIds]);
+    where.push(`AND je.id = ANY($${params.length}::uuid[])`);
   }
   const having = filters.netDebitsOnly
     ? 'HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) > 0'
@@ -674,18 +728,25 @@ export async function queryEntryMovementsOnAccount(
     limit = `LIMIT $${params.length}`;
   }
 
-  const result = await query<EntryMovementRow>(
+  const client = filters.client;
+  const run = client
+    ? (sql: string, p: unknown[]) => client.query<EntryMovementRow>(sql, p)
+    : (sql: string, p: unknown[]) => query<EntryMovementRow>(sql, p);
+  const result = await run(
     `SELECT je.id           AS journal_entry_id,
             je.entry_number AS entry_number,
             je.entry_date   AS entry_date,
             je.description  AS description,
-            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount
+            je.created_by::text AS created_by,
+            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount,
+            (SUM(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))) OVER ())::text AS total_amount,
+            (COUNT(*) OVER ())::int AS total_entries
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
       WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
         ${where.join(' ')}
-      GROUP BY je.id, je.entry_number, je.entry_date, je.description
+      GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.created_by
       ${having}
       ORDER BY je.entry_date ${direction}, je.entry_number ${direction}
       ${limit}`,

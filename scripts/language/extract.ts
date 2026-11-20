@@ -1057,19 +1057,39 @@ function insertBeforeClose(source: string, close: string, block: string): string
   return source.slice(0, at) + block + source.slice(at);
 }
 
-/** Aplica el plan a los dos catálogos. Devuelve las rutas que tocó. */
-export function applyPlan(plan: ExtractionPlan): string[] {
+/**
+ * Mete un bloque justo antes del marcador de cierre de un bloque de familia
+ * (MNE-001-218, #263). MNE-001-217 sembró en los dos catálogos un bloque vacío
+ * por familia de I8 —`// ==== I8.n · … ====` … `// ==== end of I8.n ====`—
+ * para que los nueve PRs escriban cada uno en el suyo y git los fusione. Sin
+ * esto, `--write` inserta antes del cierre del objeto, que es el mismo renglón
+ * para todos. Un bloque que no está, o cuyo cierre aparece dos veces, se
+ * NOMBRA en vez de adivinar dónde escribir.
+ */
+export function insertIntoBlock(source: string, block: string, text: string): string {
+  const marker = `  // ==== end of ${block} ====`;
+  const at = source.indexOf(marker);
+  if (at === -1) throw new Error(`el catálogo no tiene el bloque ${block}: falta «${marker.trim()}»`);
+  if (source.indexOf(marker, at + marker.length) !== -1) {
+    throw new Error(`el cierre del bloque ${block} aparece dos veces en el catálogo`);
+  }
+  return source.slice(0, at) + text + source.slice(at);
+}
+
+/**
+ * Aplica el plan a los dos catálogos. Devuelve las rutas que tocó. Con `block`
+ * escribe dentro de ese bloque de familia; sin él, antes del cierre del objeto.
+ */
+export function applyPlan(plan: ExtractionPlan, block?: string): string[] {
   if (plan.entries.length === 0) return [];
   const english = path.join(ROOT, EN_CATALOG);
   const spanish = path.join(ROOT, ES_CATALOG);
-  fs.writeFileSync(
-    english,
-    insertBeforeClose(fs.readFileSync(english, 'utf8'), '} as const;', englishBlock(plan))
-  );
-  fs.writeFileSync(
-    spanish,
-    insertBeforeClose(fs.readFileSync(spanish, 'utf8'), '};', spanishBlock(plan))
-  );
+  const place = (source: string, close: string, text: string): string =>
+    block === undefined ? insertBeforeClose(source, close, text) : insertIntoBlock(source, block, text);
+  const englishSource = place(fs.readFileSync(english, 'utf8'), '} as const;', englishBlock(plan));
+  const spanishSource = place(fs.readFileSync(spanish, 'utf8'), '};', spanishBlock(plan));
+  fs.writeFileSync(english, englishSource);
+  fs.writeFileSync(spanish, spanishSource);
   return [EN_CATALOG, ES_CATALOG];
 }
 
@@ -1078,13 +1098,14 @@ export function applyPlan(plan: ExtractionPlan): string[] {
 // ============================================================
 
 const USAGE = [
-  'uso: npm run language:extract -- <ruta> [--list] [--write] [--prefix <p>]',
+  'uso: npm run language:extract -- <ruta> [--list] [--write] [--prefix <p>] [--block <I8.n>]',
   '',
   '  <ruta>     un archivo .ts o una carpeta bajo la raíz del repositorio.',
   '  (sin nada) imprime el plan: qué claves nacen y con qué texto. No toca nada.',
   '  --list     una línea por cadena de usuario. Es lo que cuenta el carril.',
   '  --write    aplica el plan a src/i18n/en.ts y src/i18n/es.ts.',
   '  --prefix   pisa el prefijo deducido de la ruta.',
+  '  --block    con --write, escribe dentro del bloque de familia I8.n de los catálogos.',
   '',
 ].join('\n');
 
@@ -1119,12 +1140,17 @@ function main(argv: string[]): number {
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
   const prefixAt = argv.indexOf('--prefix');
   const prefix = prefixAt === -1 ? undefined : argv[prefixAt + 1];
+  const blockAt = argv.indexOf('--block');
+  const block = blockAt === -1 ? undefined : argv[blockAt + 1];
   // El valor de `--prefix` no es un posicional. La comparación se hace sólo
   // cuando la bandera está: sin ella `prefixAt` vale -1 y `prefixAt + 1` es 0,
   // que se comía el primer argumento — la ruta — y el comando imprimía su uso
   // en vez de trabajar.
   const positional = argv.filter(
-    (arg, index) => !arg.startsWith('--') && !(prefixAt !== -1 && index === prefixAt + 1)
+    (arg, index) =>
+      !arg.startsWith('--') &&
+      !(prefixAt !== -1 && index === prefixAt + 1) &&
+      !(blockAt !== -1 && index === blockAt + 1)
   );
   const target = positional[0];
 
@@ -1157,7 +1183,7 @@ function main(argv: string[]): number {
       printPlan(plan);
       continue;
     }
-    const touched = applyPlan(plan);
+    const touched = applyPlan(plan, block);
     process.stdout.write(
       touched.length === 0
         ? `${file}: nada que extraer.\n`

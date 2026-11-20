@@ -7,6 +7,7 @@ import { FX_REVALUATION_POLICY_KEYS, getPolicy } from '../policy/policy-service.
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { JournalEntry } from '../../types/index.js';
+import { queryEntryMovementsOnAccount } from '../reporting/report-service.js';
 
 type EntryLine = Parameters<typeof createJournalEntry>[4][number];
 
@@ -693,17 +694,12 @@ export interface ForeignOpen {
  * month is live until its day-1 mirror.
  */
 export async function revaluationOnAccount(entityId: string, accountId: string, asOf?: string): Promise<Decimal> {
-  const r = await query<{ net: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS net
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
-        AND ($3::date IS NULL OR je.entry_date <= $3::date)
-        AND (je.source_type = $4 OR EXISTS (
-              SELECT 1 FROM journal_entries orig
-               WHERE orig.id = je.reverses_entry_id AND orig.entity_id = je.entity_id
-                 AND orig.source_type = $4))`,
-    [entityId, accountId, asOf ?? null, FX_REVALUATION_SOURCE]
-  );
-  return new Decimal(r.rows[0]?.net ?? '0');
+  // MNE-001-436: the sum is the report layer's (T14 · #101). `total_amount`
+  // is its window over every entry, summed in SQL numeric as before; no
+  // entry reads as zero.
+  const rows = await queryEntryMovementsOnAccount(entityId, accountId, {
+    onlySourceTypes: [FX_REVALUATION_SOURCE],
+    ...(asOf !== undefined ? { asOf } : {}),
+  });
+  return new Decimal(rows[0]?.total_amount ?? '0');
 }

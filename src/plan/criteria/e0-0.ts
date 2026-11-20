@@ -1253,6 +1253,446 @@ export const E0_0: Criterio[] = [
       },
     ],
   },
+  {
+    paquete: 'E0.0',
+    id: 'cli-yes-no-prompt-built-by-kernel',
+    // MNE-001-217 (issue #262, I8.0). Twenty leaves wrote `[y/N]` by hand, so a
+    // question already translated to Spanish still ended in English. The kernel
+    // now builds the suffix from one catalogue key (`yesNoPrompt`, next to the
+    // answer grammar in `confirmacion.ts`), and the nine families of I8 call it.
+    //
+    // IT READS STRING LITERALS, NOT TEXT. `mnemosine.ts` and `confirmacion.ts`
+    // name `[y/N]` in comments, and the comment stripper stops stripping in
+    // `mnemosine.ts` (see `cli-chrome-and-pilot-speak-by-key` above). The
+    // compiler's tree tells a literal from a comment without guessing.
+    //
+    // FOUR CHECKS, one per way of losing the ground:
+    //   1. no literal in `src/cli/**` (kernel included) carries the suffix;
+    //   2. the kernel reads it from the catalogue;
+    //   3. in each catalogue the suffix lives in its own key and nowhere else,
+    //      or a key that carries it prints it twice once wrapped;
+    //   4. every `confirmarConReintento` outside the kernel asks through
+    //      `yesNoPrompt`: a leaf that drops the suffix also drops the kernel.
+    enunciado:
+      'No CLI leaf writes the [y/N] suffix: the kernel builds it from the catalogue, in the user language (#262, MNE-001-217)',
+    evaluar: () => {
+      // MNE-001-219 widened it to the default-yes form, [Y/n] / [S/n], which the
+      // first-run prompt of the root family asks with.
+      const SUFFIX = /\[(?:[ys]\/N|[YS]\/n)\]/;
+      const KEY = 'confirm_yes_no_suffix';
+      const KEY_DEFAULT_YES = 'confirm_yes_no_suffix_default_yes';
+      const KERNEL_KEYS = [KEY, KEY_DEFAULT_YES];
+      const parse = (rel: string): ts.SourceFile =>
+        ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+      const literalPieces = (n: ts.Node): string | undefined =>
+        ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)
+          ? n.text
+          : undefined;
+      const walk = (n: ts.Node, visit: (node: ts.Node) => void): void => {
+        visit(n);
+        n.forEachChild((child) => walk(child, visit));
+      };
+      const lineOf = (sf: ts.SourceFile, n: ts.Node): number =>
+        sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+
+      const files = fuentes('src/cli').map((abs) => path.relative(RAIZ, abs).split(path.sep).join('/'));
+      const trees = new Map(files.map((rel) => [rel, parse(rel)] as const));
+
+      // The kernel is the file that declares yesNoPrompt, found and not named:
+      // a path written here would pin the criterion to today's file name.
+      const declares = (sf: ts.SourceFile): boolean =>
+        sf.statements.some(
+          (st) =>
+            (ts.isFunctionDeclaration(st) && st.name?.text === 'yesNoPrompt') ||
+            (ts.isVariableStatement(st) &&
+              st.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === 'yesNoPrompt'))
+        );
+      const kernels = files.filter((rel) => declares(trees.get(rel)!));
+      if (kernels.length !== 1) {
+        return falla(
+          `${kernels.length} file(s) in src/cli declare yesNoPrompt (${kernels.join(', ') || 'none'}): ` +
+            'the yes/no prompt must have exactly one builder, in the kernel'
+        );
+      }
+      const KERNEL = kernels[0];
+      if (!KERNEL.startsWith('src/cli/kernel/')) {
+        return falla(`yesNoPrompt is declared in ${KERNEL}, outside src/cli/kernel/: a leaf cannot own the prompt`);
+      }
+
+      // 1 · No hand-written suffix anywhere in the CLI.
+      const handWritten: string[] = [];
+      // 4 · Every confirmation outside the kernel asks through yesNoPrompt.
+      const unbuilt: string[] = [];
+      let confirmations = 0;
+      for (const rel of files) {
+        const sf = trees.get(rel)!;
+        walk(sf, (n) => {
+          const text = literalPieces(n);
+          if (text !== undefined && SUFFIX.test(text)) handWritten.push(`${rel}:${lineOf(sf, n)}`);
+          if (
+            rel !== KERNEL &&
+            ts.isCallExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            n.expression.text === 'confirmarConReintento'
+          ) {
+            confirmations++;
+            let built = false;
+            const prompt = n.arguments[1];
+            if (prompt) {
+              walk(prompt, (m) => {
+                if (ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text === 'yesNoPrompt') {
+                  built = true;
+                }
+              });
+            }
+            if (!built) unbuilt.push(`${rel}:${lineOf(sf, n)}`);
+          }
+        });
+      }
+      if (handWritten.length) {
+        return falla(
+          `${handWritten.length} literal(s) in src/cli write the [y/N] suffix by hand ` +
+            `(${handWritten.slice(0, 3).join(', ')}): ask with yesNoPrompt(question) from ${KERNEL}, ` +
+            'which takes the suffix from the catalogue in the user language'
+        );
+      }
+      if (confirmations === 0) {
+        return noEvaluable('no confirmarConReintento call outside the kernel: the confirmation changed shape');
+      }
+      if (unbuilt.length) {
+        return falla(
+          `${unbuilt.length} confirmation(s) do not ask through yesNoPrompt ` +
+            `(${unbuilt.slice(0, 3).join(', ')}): the prompt must come from the kernel`
+        );
+      }
+
+      // 2 · The kernel reads both suffixes from the catalogue.
+      const readKeys = new Set<string>();
+      walk(trees.get(KERNEL)!, (n) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === 't' &&
+          n.arguments[0] !== undefined
+        ) {
+          const key = literalPieces(n.arguments[0]);
+          if (key !== undefined) readKeys.add(key);
+        }
+      });
+      for (const key of KERNEL_KEYS) {
+        if (!readKeys.has(key)) {
+          return falla(`${KERNEL} no longer calls t('${key}'): the suffix stops following the user language`);
+        }
+      }
+
+      // 3 · In each catalogue, the suffix lives in its own key only.
+      for (const rel of ['src/i18n/en.ts', 'src/i18n/es.ts']) {
+        const sf = parse(rel);
+        const owners: string[] = [];
+        walk(sf, (n) => {
+          if (!ts.isPropertyAssignment(n)) return;
+          let carries = false;
+          walk(n.initializer, (m) => {
+            const text = literalPieces(m);
+            if (text !== undefined && SUFFIX.test(text)) carries = true;
+          });
+          if (carries) owners.push(ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : '?');
+        });
+        if (owners.slice().sort().join(',') !== KERNEL_KEYS.slice().sort().join(',')) {
+          return falla(
+            `${rel}: the suffix is carried by ${owners.length ? owners.join(', ') : 'no key'}, and only ` +
+              `${KERNEL_KEYS.join(' and ')} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
+          );
+        }
+      }
+
+      return ok(
+        `${confirmations} confirmation(s) in ${files.length} CLI file(s) ask through yesNoPrompt, none writes ` +
+          `the suffix, and ${KERNEL_KEYS.join(' and ')} are its only homes in en.ts and es.ts`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/pay-run-command.ts',
+        de: 'p.cyan(yesNoPrompt(question))',
+        a: 'p.cyan(`${question} [y/N] `)',
+        porque: 'literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix',
+      },
+      {
+        archivo: 'src/cli/pay-run-command.ts',
+        de: 'p.cyan(yesNoPrompt(question))',
+        a: 'p.cyan(`${question} `)',
+        porque: 'kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see',
+      },
+      {
+        archivo: 'src/cli/kernel/confirmacion.ts',
+        de: "t('confirm_yes_no_suffix')",
+        a: "'[y/N]'",
+        porque: 'kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]',
+      },
+      {
+        archivo: 'src/i18n/es.ts',
+        de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
+        a: "'¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N]'",
+        porque: 'suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "yesNoPrompt(t('root.setup.run_now'), 'yes')",
+        a: "'Run setup now? [Y/n] '",
+        porque: 'default-yes-back-in-a-leaf: the first-run prompt writes [Y/n] by hand again and a Spanish user reads an English suffix',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-report-speaks-by-key',
+    // MNE-001-218 (issue #263, I8.1). The report family —`cashflow` and
+    // `cashflow reconcile`— printed ten Spanish strings from the code. They
+    // live in the I8.1 block of the catalogue now, and three checks hold the
+    // ground:
+    //   1. the lane's breakdown has no entry for either leaf, measured by
+    //      ABSENCE, as `cli-chrome-and-pilot-speak-by-key` measures the pilot;
+    //   2. every key of the I8.1 block is named by one of the two leaves: a key
+    //      no leaf names is a text that went back into the code;
+    //   3. neither leaf hands prose straight to `console.log`.
+    //
+    // NOT THE LEXICON. `flagsAsSpanish` flags `indirecto`/`directo` inside the
+    // correct English usage error of `--method`, so it would be red on a right
+    // tree. Checks 1 and 2 measure the same ground without guessing a language.
+    enunciado:
+      'The report family (cashflow, cashflow reconcile) prints no Spanish string from the code: its texts come from the I8.1 block of the catalogue (#263, MNE-001-218)',
+    evaluar: () => {
+      const LANE = 'spanish-user-strings-cli';
+      const LEAVES = ['src/cli/cashflow-command.ts', 'src/cli/cashflow-reconcile-command.ts'];
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [BASELINE, ...LEAVES]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+
+      // 1 · The breakdown, by absence.
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (baseline.lanes?.[LANE] === undefined) {
+        return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+      }
+      const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+      if (owed.length) {
+        return falla(
+          `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground I8.1 won was given back`
+        );
+      }
+
+      // 2 · Every key of the I8.1 block is named by a leaf.
+      const en = crudoDe('src/i18n/en.ts');
+      const open = en.indexOf('// ==== I8.1 ');
+      const close = en.indexOf('// ==== end of I8.1 ====');
+      if (open === -1 || close === -1 || close < open) {
+        return falla('src/i18n/en.ts lost the markers of the I8.1 block, where the report family keeps its texts');
+      }
+      const keys = [...en.slice(open, close).matchAll(/^ {2}'([a-z0-9_.]+)':/gm)].map((m) => m[1]);
+      if (keys.length === 0) {
+        return falla('the I8.1 block of src/i18n/en.ts declares no key: the report family has nowhere to speak from');
+      }
+      const named = new Set<string>();
+      const consoleProse: string[] = [];
+      for (const rel of LEAVES) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) named.add(n.text);
+          // 3 · No prose straight to console.log.
+          if (
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            n.expression.expression.text === 'console' &&
+            n.expression.name.text === 'log' &&
+            n.arguments[0] !== undefined &&
+            (ts.isStringLiteral(n.arguments[0]) ||
+              ts.isNoSubstitutionTemplateLiteral(n.arguments[0]) ||
+              ts.isTemplateExpression(n.arguments[0]))
+          ) {
+            consoleProse.push(`${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      const orphans = keys.filter((k) => !named.has(k));
+      if (orphans.length) {
+        return falla(
+          `${orphans.length} key(s) of the I8.1 block are named by no leaf of the family ` +
+            `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+        );
+      }
+      if (consoleProse.length) {
+        return falla(
+          `the report family hands prose straight to console.log (${consoleProse.slice(0, 3).join(', ')}): ` +
+            'a text printed from the code does not follow the user language'
+        );
+      }
+
+      return ok(
+        `the ${keys.length} keys of the I8.1 block are named by the family's two leaves, neither has an entry ` +
+          `in «${LANE}» (which is ${baseline.lanes[LANE]}), and neither prints prose through console.log`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/cashflow-reconcile-command.ts',
+        de: "t('report.cashflow_reconcile.ties')",
+        a: "'Amarra: el estado de flujos equivale al movimiento real de efectivo.'",
+        porque: 'string-back-in-the-code: the tie note is written in Spanish in the leaf again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/cashflow-reconcile-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the family again',
+      },
+      {
+        archivo: 'src/cli/cashflow-command.ts',
+        de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+        a: "console.log('Estado en términos brutos');\n  throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+        porque: 'console-prose: the leaf prints a sentence from the code, outside the catalogue',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-root-speaks-by-key',
+    // MNE-001-219 (issue #264, I8.2). The root family —`mnemosine.ts`, the
+    // registrar every family passes through, and `close`— printed its Spanish
+    // from the code. The texts a person reads live in the I8.2 block now; the
+    // risk notes no screen prints are English in place. Three checks:
+    //   1. the lane's breakdown has no entry for either leaf (by absence);
+    //   2. every key of the I8.2 block is named by one of the two leaves;
+    //   3. no Spanish value of the I8.2 block is written as a literal in them.
+    //
+    // CHECK 3 IS NOT #264's «no console.log('<prosa>')». `mnemosine.ts` holds
+    // 53 English prose calls this task does not key, so that check would be
+    // red on a correct tree. What it is for —a text of this family going back
+    // into the code— is what check 3 catches, without guessing a language.
+    enunciado:
+      'The root family (mnemosine.ts, close) prints no Spanish string from the code: its texts come from the I8.2 block of the catalogue (#264, MNE-001-219)',
+    evaluar: () => {
+      const LANE = 'spanish-user-strings-cli';
+      const LEAVES = ['src/cli/mnemosine.ts', 'src/cli/close-command.ts'];
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [BASELINE, ...LEAVES]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+
+      // 1 · The breakdown, by absence.
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (baseline.lanes?.[LANE] === undefined) {
+        return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+      }
+      const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+      if (owed.length) {
+        return falla(
+          `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground I8.2 won was given back`
+        );
+      }
+
+      // The I8.2 block of a catalogue, as key → value of its string literals.
+      const blockOf = (rel: string): Map<string, string> | null => {
+        const src = crudoDe(rel);
+        const open = src.indexOf('// ==== I8.2 ');
+        const close = src.indexOf('// ==== end of I8.2 ====');
+        if (open === -1 || close === -1 || close < open) return null;
+        const sf = ts.createSourceFile(rel, `({\n${src.slice(open, close)}\n})`, ts.ScriptTarget.Latest, true);
+        const out = new Map<string, string>();
+        const visit = (n: ts.Node): void => {
+          if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name))) {
+            let text = '';
+            const collect = (m: ts.Node): void => {
+              if (ts.isStringLiteral(m) || ts.isNoSubstitutionTemplateLiteral(m)) text += m.text;
+              m.forEachChild(collect);
+            };
+            collect(n.initializer);
+            out.set(n.name.text, text);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+        return out;
+      };
+      const en = blockOf('src/i18n/en.ts');
+      const es = blockOf('src/i18n/es.ts');
+      if (en === null || es === null) {
+        return falla('a catalogue lost the markers of the I8.2 block, where the root family keeps its texts');
+      }
+      if (en.size === 0) {
+        return falla('the I8.2 block of src/i18n/en.ts declares no key: the root family has nowhere to speak from');
+      }
+
+      // 2 and 3 · What the leaves write as literals.
+      const literals = new Set<string>();
+      for (const rel of LEAVES) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
+            literals.add(n.text);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      const orphans = [...en.keys()].filter((k) => !literals.has(k));
+      if (orphans.length) {
+        return falla(
+          `${orphans.length} key(s) of the I8.2 block are named by no leaf of the family ` +
+            `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+        );
+      }
+      const literalText = [...literals].join('\n');
+      const backInCode = [...es.entries()]
+        .filter(([, value]) => value.length > 0 && !value.includes('{'))
+        .filter(([, value]) => literalText.includes(value))
+        .map(([key]) => key);
+      if (backInCode.length) {
+        return falla(
+          `the Spanish of ${backInCode.slice(0, 3).join(', ')} is written as a literal in the root family again: ` +
+            'it prints the same words to every user, whatever their language'
+        );
+      }
+
+      return ok(
+        `the ${en.size} keys of the I8.2 block are named by the root family, none of their Spanish is written ` +
+          `in it, and neither leaf has an entry in «${LANE}» (which is ${baseline.lanes[LANE]})`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "t('root.ingest.auto_post_ignored')",
+        a: "'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.'",
+        porque: 'string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/close-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the root family again',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+        a: 'usageError(`Unsupported language "${language}". Options: ${LOCALES.join(\', \')}, or es, en`)',
+        porque: 'key-unread: the language refusal goes back to a template in the leaf and stops following the user language',
+      },
+    ],
+  },
 
 
 

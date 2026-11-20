@@ -29,7 +29,8 @@ import {
   listCustomerTaxProfiles,
 } from '../../src/services/ar/customer-service.js';
 import { entityScope } from '../../src/database/scope.js';
-import { ValidationError } from '../../src/utils/errors.js';
+import { AccountingError, ValidationError } from '../../src/utils/errors.js';
+import { t } from '../../src/i18n/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 
@@ -573,5 +574,143 @@ describe('receipt apply stays within the receipt\'s own customer', () => {
     expect(Number(byCode['1120'].credit)).toBeCloseTo(1160);
     expect((await invoiceRow(invoiceA.id)).status).toBe('paid');
     expect(await invoiceRow(invoiceB.id)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'sent' });
+  });
+});
+
+describe('ar check names the live allocations that cross customers (cross-party-application, MNE-001-530)', () => {
+  const probe = async (entityId: string) =>
+    (await runArChecks(entityId, { checks: ['cross-party-application'] })).results[0];
+
+  it('T3-T5 · warns on a receipt of one customer applied to an invoice of another, in its own entity only', async () => {
+    const customerC = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, 'C-F03-003', 'Cliente Cruce SA', 'MXN', $3)`,
+      [customerC, f.entityId, f.userId]
+    );
+    const invoice = await facturaEmitida('100.00', '16.00'); // 116.00, of customer A (C-F03-001)
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '116.00', paymentDate: fecha(),
+        paymentMethod: 'spei', applications: [{ documentId: invoice.id, amountApplied: '116.00' }],
+      },
+      f.userId
+    );
+    // Since MNE-001-516 the engine refuses to write it, so the row written
+    // before it is injected, as the orphan test does: the receipt becomes C's.
+    await query(`UPDATE customer_payments SET customer_id = $1 WHERE id = $2 AND entity_id = $3`,
+      [customerC, r.paymentId, f.entityId]);
+    const other = await crearInquilino('F03 Cobrar · otra entidad');
+    try {
+      const found = await probe(f.entityId);
+      expect(found).toMatchObject({ level: 'warning', count: 1, detailKey: 'ar.check.cross_party_application.found' });
+      expect(found.detail, 'the English source is the catalog\'s').toBe(t('ar.check.cross_party_application.found', {}, 'en'));
+      expect(found.sample).toEqual([`${r.paymentNumber} (C-F03-003) → ${invoice.invoice_number} (C-F03-001)`]);
+      // T4 · another entity does not see it.
+      expect(await probe(other.entityId)).toMatchObject({ level: 'clean', count: 0, sample: [] });
+    } finally {
+      await query(`UPDATE customer_payments SET customer_id = $1 WHERE id = $2 AND entity_id = $3`,
+        [clienteId, r.paymentId, f.entityId]);
+    }
+    // T5 · restored, the battery is clean again.
+    const clean = await probe(f.entityId);
+    expect(clean).toMatchObject({
+      level: 'clean', count: 0, sample: [], detailKey: 'ar.check.cross_party_application.none',
+    });
+  });
+});
+
+describe('the invoice UPDATEs of a collection are guarded (invariant 3, MNE-001-580)', () => {
+  const invoiceRow = async (id: string) =>
+    (await query<{ amount_due: string; amount_paid: string; status: string; last: string | null }>(
+      `SELECT amount_due::text, amount_paid::text, status, to_char(last_payment_date, 'YYYY-MM-DD') AS last
+         FROM invoices WHERE id = $1`, [id]
+    )).rows[0];
+  const entriesOfEntity = async () =>
+    (await query(`SELECT 1 FROM journal_entries WHERE entity_id = $1`, [f.entityId])).rows.length;
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  /**
+   * Under the row lock nothing else can move the invoice, so the UPDATE is made
+   * to match no row as in f04-pagar (#808): a trigger on this invoice alone that
+   * skips it. Returns its undo.
+   */
+  const sabotage = async (invoiceId: string): Promise<() => Promise<void>> => {
+    const tag = invoiceId.replace(/-/g, '').slice(0, 12);
+    await query(
+      `CREATE OR REPLACE FUNCTION f03_skip_${tag}() RETURNS TRIGGER AS $$ BEGIN RETURN NULL; END; $$ LANGUAGE plpgsql`
+    );
+    await query(
+      `CREATE TRIGGER trg_f03_skip_${tag} BEFORE UPDATE ON invoices
+       FOR EACH ROW WHEN (OLD.id = '${invoiceId}') EXECUTE FUNCTION f03_skip_${tag}()`
+    );
+    return async () => {
+      await query(`DROP TRIGGER IF EXISTS trg_f03_skip_${tag} ON invoices`);
+      await query(`DROP FUNCTION IF EXISTS f03_skip_${tag}()`);
+    };
+  };
+  const changed = async (call: () => Promise<unknown>): Promise<AccountingError> => {
+    const e = await call().then(() => null, (err: unknown) => err);
+    expect(e, 'the call must be refused').toBeInstanceOf(AccountingError);
+    expect((e as AccountingError).code).toBe('INVOICE_CHANGED');
+    return e as AccountingError;
+  };
+  const record = (invoiceId: string, amount: string, date: string) =>
+    recordCustomerPayment(
+      {
+        entityId: f.entityId, counterpartyId: clienteId, paymentAmount: amount, paymentDate: date,
+        paymentMethod: 'spei', applications: [{ documentId: invoiceId, amountApplied: amount }],
+      },
+      f.userId
+    );
+
+  it('R1 · receipt record: an invoice UPDATE that touches no row writes no receipt and no entry', async () => {
+    const invoice = await facturaEmitida('100.00', '16.00'); // 116.00
+    const before = { entries: await entriesOfEntity(), row: await invoiceRow(invoice.id) };
+    const restore = await sabotage(invoice.id);
+    let e: AccountingError;
+    try {
+      e = await changed(() => record(invoice.id, '116.00', fecha()));
+    } finally {
+      await restore();
+    }
+    expect(e.message).toContain(invoice.invoice_number);
+    const receipts = await query(
+      `SELECT 1 FROM payment_allocations WHERE invoice_id = $1`, [invoice.id]
+    );
+    expect(receipts.rows.length).toBe(0);
+    expect(await entriesOfEntity()).toBe(before.entries);
+    expect(await invoiceRow(invoice.id)).toEqual(before.row);
+  });
+
+  it('R2 · receipt record: a receipt dated before the last one does not move the invoice\'s last payment back', async () => {
+    const invoice = await facturaEmitida('1000.00', '160.00'); // 1,160.00
+    await record(invoice.id, '500.00', iso(fechaEnPeriodo(8, 20)));
+    await record(invoice.id, '660.00', iso(fechaEnPeriodo(8, 10))); // 500 + 660 = 1,160: paid
+    expect(await invoiceRow(invoice.id)).toEqual({
+      amount_due: '0.0000', amount_paid: '1160.0000', status: 'paid', last: '2026-08-20',
+    });
+  });
+
+  it('R3 · receipt reverse: an invoice reopening that touches no row reverses nothing', async () => {
+    const invoice = await facturaEmitida('100.00', '16.00'); // 116.00
+    const r = await record(invoice.id, '116.00', fecha());
+    const before = { entries: await entriesOfEntity(), row: await invoiceRow(invoice.id) };
+    const restore = await sabotage(invoice.id);
+    let e: AccountingError;
+    try {
+      e = await changed(() => reverseCustomerPayment(f.entityId, r.paymentId, { reason: 'cheque devuelto' }, f.userId));
+    } finally {
+      await restore();
+    }
+    expect(e.message).toContain(invoice.invoice_number);
+    const receipt = await query<{ status: string }>(`SELECT status FROM customer_payments WHERE id = $1`, [r.paymentId]);
+    expect(receipt.rows[0].status).toBe('completed');
+    const live = await query(
+      `SELECT 1 FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL`, [r.paymentId]
+    );
+    expect(live.rows.length).toBe(1);
+    expect(await entriesOfEntity()).toBe(before.entries);
+    expect(await invoiceRow(invoice.id)).toEqual(before.row);
   });
 });

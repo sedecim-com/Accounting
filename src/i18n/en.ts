@@ -56,6 +56,10 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('INVOICE_CHANGED')`: a collection's invoice UPDATE matched no row (MNE-001-580). */
+  'error.INVOICE_CHANGED': '{invoice} changed under this collection; nothing was written.',
+  /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
+  'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
   'error.FX_REVALUATION_PLAN_CHANGED':
     'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
@@ -587,6 +591,57 @@ export const EN = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+  'policy.usmo_isr_subsidy.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
+  'policy.usmo_isr_subsidy.rationale':
+    'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+  'policy.usmo_isr_subsidy.why':
+    'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+  'policy.usmo_isr_subsidy.what':
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'I take it gross of the tariff, without subtracting the subsidy.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get',
+
+  'policy.usmo_days_per_month.question':
+    'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+  'policy.usmo_days_per_month.why':
+    'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+  'policy.usmo_days_per_month.what':
+    'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
+  'policy.usmo_days_per_month.if_skipped':
+    'I use 30 days.',
+  'policy.usmo_days_per_month.option.30':
+    'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Daily wage × 30.4 (the month of the monthly tariff)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+  'policy.separation_isr_usmo_comparison.why':
+    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+  'policy.separation_isr_usmo_comparison.what':
+    'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'I compare the total paid.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -1722,6 +1777,8 @@ export const EN = {
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
     '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.minimum_wage_zone':
+    'the minimum wage zone is not declared: {count, plural, one {# worker is} other {# workers are}} computed with the general minimum',
   'pending.board.period_example':
     '{period} (ended {date})',
   'pending.policies.none':
@@ -1823,6 +1880,13 @@ export const EN = {
    *  es una gramática de DOS idiomas a la vez; en inglés sobra la mitad. */
   confirm_answer_not_understood:
     'did not understand “{answer}”: answer y or yes for yes, n or no for no',
+
+  /** `src/cli/kernel/confirmacion.ts` (`yesNoPrompt`): the suffix of every yes/no
+   *  prompt whose default is no. Written here once; no leaf writes it (#262). */
+  confirm_yes_no_suffix: '[y/N]',
+
+  /** The default-yes form (`yesNoPrompt(q, 'yes')`): the first-run prompt (#264). */
+  confirm_yes_no_suffix_default_yes: '[Y/n]',
 
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
@@ -2097,7 +2161,7 @@ export const EN = {
   'review.draft.invoice_to_be_born':
     'Approving creates the customer invoice of issued CFDI {uuid} · customer {customer} ({rfc}) · method {method} · total {total}',
   /** `src/cli/mnemosine.ts` review: `proveedor_desconocido_al_aprobar = preguntar` (#318). The name comes from the XML. */
-  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
+  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})?',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
   'help.ingest.argument.files':
@@ -2273,6 +2337,16 @@ export const EN = {
   'ingest.census.more_invalid': '… and {count} more',
   'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
   'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
+  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice.
+  'ingest.census.marks':
+    'Cancelled by the SAT: {mirror, plural, one {# CFDI} other {# CFDI}} marked in the mirror, ' +
+    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) carries CFDI {uuid}, which the SAT reports cancelled. Nothing was reversed: ' +
+    'its status, entry and balance stay until the accountant decides.',
+  'ingest.census.document.invoice': 'Invoice {number}',
+  'ingest.census.document.credit_note': 'Credit note {number}',
+  'ingest.census.document.bill': 'Bill {number}',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
@@ -2418,6 +2492,32 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
+  'payment.trace.nothing_given':
+    'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
+  'payment.trace.reason_required':
+    'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
+  'payment.trace.too_long':
+    '{flag} admits up to {max} characters in the payment node of the SAT journal file, and {length} were given. Nothing was written.',
+  'payment.trace.not_completable':
+    'The payment {number} is "{status}": only a completed or reversed payment has a posted entry whose voucher declares its trace. Nothing was written.',
+  'payment.trace.already_captured':
+    'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
+  'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
+  'payment.trace.bank_no_entry':
+    'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
+  'payment.trace.bank_not_in_entry':
+    'The entry {entry} of payment {number} moved {moved}; "{account}" posts to {candidate}. Linking it would make the voucher declare a bank the ledger did not move. Nothing was written.',
+  'payment.trace.would_complete': 'Would complete {number}: {fields}',
+  'payment.trace.confirm':
+    'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
+  'payment.trace.completed': '{number}: {fields} completed; nothing was posted',
+  'payment.trace.unchanged': '{number}: {fields} already held that value; nothing was written for it',
+  'payment.trace.period_not_open':
+    'The period {period} is in {status}: no ledger figure changes; a journal file generated now will declare this datum.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# journal file} other {# journal files}} of {period} were archived before this completion: they are kept as they are, and one generated now will differ from them.',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
@@ -2967,6 +3067,74 @@ export const EN = {
     '{matches, plural, one {# match} other {# matches}} · ' +
     '{sealed, plural, one {# item sealed} other {# items sealed}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Seeded empty so the nine family PRs (MNE-001-218 to 230) each write inside
+  // their own block and git merges them. Keep each family's keys between its
+  // two markers; tests/i18n/sync.spec.ts checks they stay, once each, in order.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  // MNE-001-218: `src/cli/cashflow-command.ts` and `src/cli/cashflow-reconcile-command.ts`.
+  /** src/cli/cashflow-command.ts: `--gross` is refused, saying what is missing. */
+  'report.cashflow.gross_unavailable':
+    'The statement in GROSS terms (NIF B-2 §40 / ASC 230-10-45-7) cannot be built from these data, and the net is not returned labelled as gross. Gross needs receipts and payments kept apart, and that is a datum of the TRANSACTION, not of the account: the engine publishes a net per account, and splitting it into its debit and its credit does not give flows — disposing of an asset credits book value while the cash collected is another amount. The default output already shows every account of every section, which is the detail these books do support. Run it again without --gross.',
+  /** `concept` of the `derivado` contrast row. */
+  'report.cashflow_reconcile.derived_concept': 'Cash flow statement, net ({method} method)',
+  /** `concept` of the `real` contrast row. */
+  'report.cashflow_reconcile.ledger_concept': 'Cash and banks, change in the ledger',
+  /** `concept` of the `residuo` contrast row. */
+  'report.cashflow_reconcile.residue_concept': 'Residue (derived − actual)',
+  /** The cash note: the accounts, the criterion (and whether it was answered) and the two balances. */
+  'report.cashflow_reconcile.cash_accounts':
+    'Cash: {accounts} ({defaulted, select, yes {criterion "{criterion}", by default} other {criterion "{criterion}"}}) · {opening} → {closing}',
+  /** The statement ties to the real movement of cash. */
+  'report.cashflow_reconcile.ties':
+    'Ties: the cash flow statement equals the actual movement of cash.',
+  /** The suspects offered with `--show-candidates`. */
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# suspect} other {# suspects}} — this is a LIST OF SUSPECTS, not a verdict: cash movements that no section of the statement seems to claim, or that it may be counting twice. Check them before touching anything.',
+  /** How much of the residue the suspects explain. */
+  'report.cashflow_reconcile.coverage':
+    'They explain {explained} of the residue {amount}; {unexplained} remain that none of them explains.',
+  /** A residue with no suspects to offer. */
+  'report.cashflow_reconcile.no_suspects':
+    'No suspects to offer: every cash movement of the period falls in a section of the statement, so the residue is in HOW they are added up, not in what was left out.',
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  // MNE-001-219: `src/cli/mnemosine.ts` and `src/cli/close-command.ts`.
+  /** `ingest`: the auto-post a flag or mnemosine.config.json asked for, and the panel does not authorize. */
+  'root.ingest.auto_post_ignored':
+    'Warning: the auto-post asked for by flag or by mnemosine.config.json is IGNORED: the firm\'s panel does not authorize it.',
+  /** `ingest`: the second line of that warning, where turning it on belongs. */
+  'root.ingest.auto_post_turn_on':
+    'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
+  /** `lang`: a language that is not one of the accepted spellings. */
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
+  'root.setup.run_now': 'Run setup now?',
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is
@@ -3134,6 +3302,15 @@ export const EN = {
     'IVA treatment of an advance: 16, 8, 0, exempt (exento) or not-subject (no-objeto); with no invoice it is required, and with one it states the treatment of the excess --on-account leaves; the IVA is caused on collection',
   'help.receipt.record.option.on_account':
     'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'number of the customer\'s cheque (with --method check); the vouchers file declares it in the Cheque node',
+  'help.receipt.record.option.payer_bank':
+    'c_Banco code (3 digits) of the bank the customer paid from; checked against the SAT list',
+  'help.receipt.record.option.payer_account':
+    'account the customer paid from (for a cheque, the account it is drawn on); needs --payer-bank or --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'full name of the customer\'s bank when it is foreign, instead of --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',
@@ -3156,6 +3333,17 @@ export const EN = {
   'help.receipt.cause.record.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
   'help.receipt.cause.record.option.json': 'JSON output',
+  // MNE-001-568 (#612): the trace of a registered payment, completed afterwards.
+  'help.payment.trace.description': 'The payment trace of a registered payment: its cheque, and the account and bank the money went to',
+  'help.payment.trace.record.description':
+    'Complete the empty trace fields of a registered payment from its evidence: only empty fields, audited, posts nothing',
+  'help.payment.trace.record.argument.payment': 'payment number or id',
+  'help.payment.trace.record.option.check_number': 'cheque number; only for a payment made by cheque',
+  'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
+  'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
@@ -3327,6 +3515,10 @@ export const EN = {
   'help.ar.reconcile.description':
     'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
   'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  /** `ar check`, probe cross-party-application (MNE-001-530). */
+  'ar.check.cross_party_application.found':
+    "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+  'ar.check.cross_party_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
@@ -3451,6 +3643,7 @@ export const EN = {
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
   'help.account.list.option.type': 'account type: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: minimum-wage area of the workplace, which caps the seniority premium (LFT art. 486)',
   'help.account.list.option.parent': 'only children of this account code',
   'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
   'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',

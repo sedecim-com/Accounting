@@ -2653,6 +2653,30 @@
     },
     {
       "class": "policy-key",
+      "where": "usmo_isr_subsidy",
+      "es": "usmo_isr_subsidy",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): `usmo` is kept, as this registry keeps `aguinaldo` (the legal term of art. 87 LFT): it is the «último sueldo mensual ordinario» of LISR art. 96 (its paragraph on the payments of art. 95), a term of the law and not a word to translate; `isr` is a proper name (the tax) and `subsidy` is the employment subsidy (`employment_subsidy_separate_run`). Read by `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "usmo_days_per_month",
+      "es": "usmo_days_per_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): `usmo` is kept for the same reason as in `usmo_isr_subsidy`; `days_per_month` is how many days make that monthly salary. Read by `readUsmoDaysPerMonth` (payroll/mx/finiquito-calculator.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "separation_isr_usmo_comparison",
+      "es": "separation_isr_usmo_comparison",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): what the separation ISR compares with the USMO (`usmo` kept as in `usmo_isr_subsidy`) to choose between the monthly tariff and the USMO rate of LISR art. 96. Read by `readSeparationIsrUsmoComparison` (payroll/mx/separation-isr.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "proveedor_desconocido_al_aprobar",
       "es": "proveedor_desconocido_al_aprobar",
       "en": "unknown_vendor_on_approval",
@@ -3747,6 +3771,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Es un número, no vocabulario: es una fracción decimal que `finiquito-math.ts` multiplica con `new Decimal(...).times(...)` (:185, :308). Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_isr_subsidy/gross_of_tariff",
+      "es": "gross_of_tariff",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): the literal `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts) compares; the ISR of the USMO by the monthly tariff, without subtracting the employment subsidy. The default the owner chose in MNE-001-373."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_isr_subsidy/net_of_subsidy",
+      "es": "net_of_subsidy",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): the literal `readUsmoIsrSubsidy` compares; the ISR of the USMO minus the employment subsidy that salary would get."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_days_per_month/30",
+      "es": "30",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "A number, not vocabulary: the days `lastOrdinaryMonthlySalary` (payroll/mx/finiquito-math.ts) multiplies the daily wage by, compared as a literal by `readUsmoDaysPerMonth`. LFT art. 89; the default the owner chose in MNE-001-373."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_days_per_month/30.4",
+      "es": "30.4",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "A number, not vocabulary: the days of the month of the monthly tariff, multiplied by `lastOrdinaryMonthlySalary` and compared as a literal by `readUsmoDaysPerMonth`; normalising it would change the stored answer."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/total_payments",
+      "es": "total_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; the total paid for separation, exempt part included, is compared with the USMO (the literal «pagos» of LISR art. 96). The conservative default."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/taxable_payments",
+      "es": "taxable_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; only the taxable part, after the LISR art. 93 fr. XIII exemption (RLISR art. 172), is compared with the USMO."
     },
     {
       "class": "policy-value",

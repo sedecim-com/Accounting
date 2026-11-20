@@ -56,6 +56,8 @@ Se busca en dos lugares, y **gana el primero que exista**:
 
 No se fusionan: el archivo del proyecto, si existe, es el que manda entero.
 
+`mnemosine init --section ai --provider <p> --model <m>` prueba ese modelo y guarda `default_provider` y `models.<p>` en el archivo que gana. Si no hay ninguno, crea `~/.mnemosine/config.json`, nunca uno de proyecto. Si gana uno de proyecto, avisa que lo lee todo el que corre mnemosine en esa carpeta y pregunta antes de escribirlo (por omisión No, y `--yes` mantiene No); con No escribe tu archivo de usuario, y en esa carpeta sigue mandando el del proyecto.
+
 Un perfil del archivo con el mismo nombre que uno predefinido lo **reemplaza**, no lo fusiona. La razón está escrita junto al código: heredar campos invisibles como `api_key_env` o `tools: false` produciría comportamientos imposibles de desactivar desde la configuración.
 
 Las secciones que el archivo admite:
@@ -65,6 +67,7 @@ Las secciones que el archivo admite:
 | `language` | Idioma en que responde el **agente** (`en` \| `es`, por omisión `es`). La interfaz del CLI es inglés siempre; los alias en español de los comandos existen de todos modos. |
 | `default_provider` | El perfil por omisión. |
 | `providers` | Perfiles propios, o reemplazos de los predefinidos. |
+| `models` | El modelo que eliges para un perfil, por su nombre: `{ "gemini": "<id del modelo>" }`. El perfil predefinido conserva su ventana y su postura; `--model` sigue ganando. Un nombre que no es perfil se rechaza con la lista de los que hay. |
 | `ingest` | `auto_post`, `auto_post_min_confidence`, `auto_post_max_amount`. Ver [[El-agente-y-sus-limites]] para la precedencia completa con el panel de políticas. |
 | `budget` | `daily_usd`, `monthly_usd`, `on_exceed`. Sin esta sección no se consulta gasto alguno. |
 | `compaction` | `threshold_tokens` (0 = apagar), `keep_recent_tokens`, `identifier_policy`. La compactación automática está **encendida por omisión**. |
@@ -79,6 +82,7 @@ Y los campos de un perfil:
 | `api_key_env` | **Nombre** de la variable de entorno con la credencial. |
 | `api_key_cmd` | Comando que **imprime** la credencial. |
 | `max_tokens_param` | `max_tokens` o `max_completion_tokens`, según lo que acepte el endpoint. |
+| `reasoning_effort` | Cuánto razona el modelo antes de responder: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` o `max` (los valores del SDK de `openai`; cuáles acepta cada modelo lo decide el proveedor). Sólo se envía si el perfil lo declara, en cada turno, en los resúmenes de compactación y en la sonda de `init`. Si un turno gasta todo el tope de 8 192 tokens de salida sin escribir nada, el error lo dice y sugiere bajarlo. |
 | `stream_usage` | `false` para no mandar `stream_options` a servidores viejos que responden 400 ante el campo desconocido. |
 | `stream` | Si la respuesta se transmite en flujo. |
 | `headers` | Cabeceras extra, para proxies. |

@@ -76,6 +76,28 @@ export function esNegativa(respuesta: string | null | undefined): boolean {
 export const noEntendi = (respuesta: string): string =>
   t('confirm_answer_not_understood', { answer: respuesta });
 
+/**
+ * The prompt of a yes/no question, by default one whose default is no: the question, a space,
+ * the suffix in the user's language and a trailing space (`Post it? [y/N] `,
+ * `¿Contabilizarla? [s/N] `).
+ *
+ * The suffix used to be written by hand in twenty leaves, so a question already
+ * translated to Spanish still ended in `[y/N]` (MNE-001-217, issue #262). It
+ * lives in one catalogue key now, and `cli-yes-no-prompt-built-by-kernel`
+ * (`src/plan/criteria/e0-0.ts`) turns red if a leaf writes it again.
+ *
+ * Resolved when called, like `noEntendi`: the question is asked after the
+ * locale is resolved. The leaf keeps its colour: `p.cyan(yesNoPrompt(q))`.
+ *
+ * `'yes'` asks with the default-yes suffix, `[Y/n]` / `[S/n]` (MNE-001-219): the
+ * first-run prompt of the root family. Which answer an empty line takes is
+ * still the caller's (`isAffirmative`); this only announces it.
+ */
+export const yesNoPrompt = (question: string, defaultAnswer: 'no' | 'yes' = 'no'): string => {
+  const suffix = defaultAnswer === 'yes' ? t('confirm_yes_no_suffix_default_yes') : t('confirm_yes_no_suffix');
+  return `${question} ${suffix} `;
+};
+
 /** Veredicto de una confirmación con derecho a una repregunta. */
 export interface VeredictoConfirmacion {
   si: boolean;

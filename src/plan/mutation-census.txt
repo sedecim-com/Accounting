@@ -33,6 +33,17 @@ mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/doctor-s
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/i18n/locale.ts	limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	src/cli/mnemosine.ts	sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	docs/language-baseline.json	terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/kernel/confirmacion.ts	kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/i18n/es.ts	suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/mnemosine.ts	default-yes-back-in-a-leaf: the first-run prompt writes [Y/n] by hand again and a Spanish user reads an English suffix
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-reconcile-command.ts	string-back-in-the-code: the tie note is written in Spanish in the leaf again, and its key is left unread
+mirror	memory	E0.0 cli-family-report-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the family again
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-command.ts	console-prose: the leaf prints a sentence from the code, outside the catalogue
+mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread
+mirror	memory	E0.0 cli-family-root-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the root family again
+mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	key-unread: the language refusal goes back to a template in the leaf and stops following the user language
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -451,6 +462,9 @@ mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/s
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror learns the cancellation and the invoice never does: the AR control stays quiet over a cancelled CFDI
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror UPDATE loses its state predicate: a row already cancelled is rewritten on every load
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/cli/ingest-census.ts	runCensus loads the cancellation into the census and never runs the marks: the mirror and the invoice keep saying current
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
@@ -561,6 +575,7 @@ mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note
+mirror	memory	E4.1 minimum-wage-zone-has-a-reader	src/services/payroll/mx/minimum-wage-zone.ts	the border zone reads the general minimum again: fifteen years at 1 000 a day pay 113 414.40 instead of 158 713.20, 45 298.80 less for each worker at the northern border (LFT art. 486)
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/services/payroll/mx/isr-calculator.ts	EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql	vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado
 mirror	memory	E4.1 imss-rate-fix-verified-by-running-it	tests/integration/migracion-070-cuota-obrera.int.spec.ts	si la prueba desaparece, la única defensa de un parámetro fiscal vuelve a ser un regex sobre el archivo: el criterio debe dar ROJO, no reventar leyendo una prueba que ya no está
@@ -745,6 +760,17 @@ anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', na
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
 anchor	src/plan/criteria/e0-0.ts	de: 'installHelpChrome(program);',
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: "t('confirm_yes_no_suffix')",
+anchor	src/plan/criteria/e0-0.ts	de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
+anchor	src/plan/criteria/e0-0.ts	de: "yesNoPrompt(t('root.setup.run_now'), 'yes')",
+anchor	src/plan/criteria/e0-0.ts	de: "t('report.cashflow_reconcile.ties')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+anchor	src/plan/criteria/e0-0.ts	de: "t('root.ingest.auto_post_ignored')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',
@@ -1158,6 +1184,9 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
 anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
+anchor	src/plan/criteria/e3-2.ts	de: 'invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND xd.sat_validation_status IS DISTINCT FROM 'cancelled'",
+anchor	src/plan/criteria/e3-2.ts	de: 'const marked = await markCensusCancellations(opts.scope, ...span);',
 anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
 anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
@@ -1267,6 +1296,7 @@ anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: " return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
 anchor	src/plan/criteria/e4-1.ts	de: ' return Decimal.min(piso, salarioMinimo.times(2));',
 anchor	src/plan/criteria/e4-1.ts	de: " 'SIN CALCULAR: faltó el salario mínimo de la zona",
+anchor	src/plan/criteria/e4-1.ts	de: " northern_border: 'salario_minimo_frontera_diario',",
 anchor	src/plan/criteria/e4-1.ts	de: " case 'weekly': return 'weekly';",
 anchor	src/plan/criteria/e4-1.ts	de: "('MX','isr',2026,NULL,'monthly', 1, 0.01, 844.59,",
 anchor	src/plan/criteria/e4-1.ts	de: "describe('la 070 sobre una instalación que ya cobraba de más'",

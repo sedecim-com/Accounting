@@ -17,7 +17,7 @@ import {
 } from '../services/accounting/opening-balance.js';
 import { renderBalanceComparison } from '../services/accounting/opening-balance-check.js';
 import { t } from '../i18n/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -140,7 +140,7 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
       try {
         const v = await confirmarConReintento(
           (p) => rl.question(p).catch(() => null),
-          deps.palette.cyan(`${question} [y/N] `)
+          deps.palette.cyan(yesNoPrompt(question))
         );
         if (v.incomprendida !== undefined) {
           process.stderr.write(

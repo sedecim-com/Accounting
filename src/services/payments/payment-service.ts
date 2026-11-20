@@ -37,6 +37,7 @@ import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFindin
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
+import { officialEnumeration } from '../sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -167,10 +168,21 @@ export interface EntradaPago {
   /** Nombre del banco destino, cuando es extranjero: el Anexo 24 pide NOMBRE
    *  para el extranjero y CLAVE para el nacional. Son dos campos, no uno. */
   bancoDestinoExtranjero?: string | null;
+
+  // #611 · customer side only: where the customer's money came from. On a
+  // vendor payment the origin is our bank account, so these are refused there.
+  /** The account the customer paid from (CtaOri); the one a cheque is drawn on. */
+  payerAccount?: string | null;
+  /** c_Banco code of the customer's bank (BancoOriNal, or BanEmisNal of a cheque). */
+  payerBankCode?: string | null;
+  /** Name of the customer's bank when it is foreign; never together with the code. */
+  payerForeignBank?: string | null;
 }
 
 /** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
 const LARGO_CLAVE_BANCO = 3;
+/** The c_Banco code the vouchers file declares a foreign bank with, next to its name (#532). */
+const FOREIGN_BANK_CODE = '999';
 
 /**
  * El rastro de pago, comprobado ANTES de tocar la base.
@@ -181,8 +193,16 @@ const LARGO_CLAVE_BANCO = 3;
  * character varying(3)`, que no le dicen nada a quien tecleó el comando y
  * además llegan DESPUÉS de que la transacción haya hecho medio trabajo. Lo
  * que se gana aquí es el mensaje, no la seguridad — la seguridad ya estaba.
+ *
+ * MNE-001-568 · `payment trace record` runs it on the merged trace (what is
+ * stored plus what is given), so a completion is held to the capture's rules.
+ * MNE-001-569 · the national code is checked against c_Banco here, so
+ * `payment create --to-bank` refuses an off-list code at capture too.
  */
-function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
+export function assertRastroDePago(
+  entrada: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'cuentaDestino' | 'bancoDestinoSat' | 'bancoDestinoExtranjero'>,
+  lado: 'cliente' | 'proveedor'
+): void {
   const nacional = (entrada.bancoDestinoSat ?? '').trim();
   const extranjero = (entrada.bancoDestinoExtranjero ?? '').trim();
   const cuenta = (entrada.cuentaDestino ?? '').trim();
@@ -192,7 +212,11 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
       `El pago declara banco destino nacional («${nacional}») y extranjero («${extranjero}») a la vez. ` +
         'El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: ' +
         'declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo ' +
-        'las lleva tal cual a la autoridad.'
+        'las lleva tal cual a la autoridad.' +
+        // #532: 999 is the code the file itself puts on a foreign bank, next to its name.
+        (nacional === FOREIGN_BANK_CODE
+          ? ` Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
+          : '')
     );
   }
   if (nacional !== '' && nacional.length !== LARGO_CLAVE_BANCO) {
@@ -200,6 +224,14 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
       `La clave de banco destino «${nacional}» tiene ${nacional.length} caracteres y el c_Banco ` +
         `del SAT son ${LARGO_CLAVE_BANCO}. Un banco no se identifica por su nombre en este campo: ` +
         'si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.'
+    );
+  }
+  // MNE-001-569 · the list the vouchers file is judged by, as #611 checks the
+  // payer's bank: a code off it would be stored and then block the month.
+  if (nacional !== '' && !officialEnumeration('c_Banco').has(nacional)) {
+    throw new ValidationError(
+      `La clave de banco destino «${nacional}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
+        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
     );
   }
   // El banco sin la cuenta es media pista. En el nodo de transferencia del
@@ -225,6 +257,67 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
         `por «${entrada.paymentMethod}». El número de cheque identifica un cheque: sobre otro método ` +
         'la póliza del Anexo 24 declararía un cheque que no existe. Usa la referencia bancaria para ' +
         'el folio de una transferencia.'
+    );
+  }
+}
+
+/** The payment methods whose node declares an origin bank: Cheque and Transferencia. */
+const METHODS_WITH_AN_ORIGIN_BANK = ['check', 'spei', 'wire', 'ach'];
+
+/**
+ * #611 · THE PAYER'S SIDE OF A RECEIPT'S TRACE, checked before the database
+ * is touched. The code is checked against the c_Banco of the vendored XSD,
+ * the list the vouchers file is judged by, so a code the SAT would reject
+ * never gets stored. The lengths and the pair repeat 335's columns and CHECK
+ * for the message's sake, as `assertRastroDePago` does for the destination.
+ */
+function assertPayerTrace(input: EntradaPago, side: 'cliente' | 'proveedor'): void {
+  const bank = (input.payerBankCode ?? '').trim();
+  const foreign = (input.payerForeignBank ?? '').trim();
+  const account = (input.payerAccount ?? '').trim();
+  // Cheque/@Num allows 20 characters: a longer one would make the whole
+  // vouchers file fail the XSD, so the receipt that brings it is refused.
+  if (side === 'cliente' && (input.checkNumber ?? '').trim().length > 20) {
+    throw new ValidationError(
+      `El número de cheque «${(input.checkNumber ?? '').trim()}» pasa de los 20 caracteres que admite el ` +
+        'nodo Cheque de la póliza del Anexo 24.'
+    );
+  }
+  if (bank === '' && foreign === '' && account === '') return;
+  if (side === 'proveedor') {
+    throw new ValidationError(
+      'El banco y la cuenta del pagador sólo se capturan en un cobro. En un pago a proveedor el ' +
+        'origen es nuestra cuenta bancaria (`--bank`), y su clave c_Banco vive en esa cuenta.'
+    );
+  }
+  if (!METHODS_WITH_AN_ORIGIN_BANK.includes(input.paymentMethod)) {
+    throw new ValidationError(
+      `Se dio banco o cuenta del cliente a un cobro por «${input.paymentMethod}». Sólo un cheque o ` +
+        'una transferencia declaran de qué banco salió el dinero en la póliza del Anexo 24.'
+    );
+  }
+  if (bank !== '' && foreign !== '') {
+    throw new ValidationError(
+      `El cobro declara banco del cliente nacional («${bank}») y extranjero («${foreign}») a la vez. ` +
+        'Un banco extranjero se da sólo con su nombre: la póliza le pone la clave 999 al escribirlo.'
+    );
+  }
+  if (bank !== '' && !officialEnumeration('c_Banco').has(bank)) {
+    throw new ValidationError(
+      `La clave de banco del cliente «${bank}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
+        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
+    );
+  }
+  if (account !== '' && bank === '' && foreign === '') {
+    throw new ValidationError(
+      'Se indicó la cuenta del cliente y no su banco. El nodo de pago de la póliza exige el banco de ' +
+        'origen: la cuenta sola no permite emitirlo y sí aparenta que el cobro ya tiene su rastro.'
+    );
+  }
+  if (account.length > 50 || foreign.length > 150) {
+    throw new ValidationError(
+      'La cuenta del cliente admite hasta 50 caracteres y el nombre de su banco extranjero hasta 150, ' +
+        'los mismos límites del nodo de pago de la póliza.'
     );
   }
 }
@@ -501,6 +594,7 @@ export async function recordVendorPayment(
   // promete en `payment create --vendor` y `payment apply --discount`.
   assertAplicaciones(entrada, 'proveedor');
   assertRastroDePago(entrada, 'proveedor');
+  assertPayerTrace(entrada, 'proveedor');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
@@ -653,19 +747,25 @@ export async function recordVendorPayment(
       // amount_paid recibe SÓLO el efectivo; el saldo baja por los dos. Un
       // descuento no es dinero cobrado: contarlo como pagado inflaría lo que
       // el proveedor recibió y descuadraría cualquier conciliación de banco.
-      await client.query(
+      // MNE-001-532 · invariant 3, as the invoice twin of applyCustomerPayment;
+      // GREATEST: a payment dated before another one does not move the last back.
+      const settled = await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $2,
            status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $3
-         WHERE id = $4 AND entity_id = $5`,
+           last_payment_date = GREATEST(last_payment_date, $3::date)
+         WHERE id = $4 AND entity_id = $5 AND status = ANY($6::text[]) AND amount_due >= $2`,
         [
           app.amountApplied,
           new Decimal(app.amountApplied).plus(app.discountAmount ?? '0').toFixed(4),
-          entrada.paymentDate, app.documentId, entrada.entityId,
+          entrada.paymentDate, app.documentId, entrada.entityId, [...PAGABLES],
         ]
       );
+      if (settled.rowCount !== 1) {
+        const bill = documentos.find((d) => d.id === app.documentId)?.numero ?? app.documentId;
+        throw new AccountingError('BILL_CHANGED', { key: 'error.BILL_CHANGED', params: { bill } });
+      }
     }
 
     // Aquí es donde se libera el IVA aparcado de los CFDI a crédito — y,
@@ -780,6 +880,7 @@ export async function recordCustomerPayment(
   assertEstado(entrada.status);
   assertAplicaciones(entrada, 'cliente');
   assertRastroDePago(entrada, 'cliente');
+  assertPayerTrace(entrada, 'cliente');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
@@ -926,8 +1027,9 @@ export async function recordCustomerPayment(
          payment_method, reference_number, bank_account_id, payment_date,
          status, created_by, cfdi_uuid, cfdi_pago_indice,
          check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero, exchange_rate,
-         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount,
+         cuenta_origen, banco_origen_sat, banco_origen_extranjero
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        advanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
@@ -938,7 +1040,9 @@ export async function recordCustomerPayment(
        // in the functional one: the column's DEFAULT cannot tell the two apart.
        fx?.tasaPago ?? '1.0',
        // MNE-001-458: born with the row (four NULLs when none was stated).
-       advance?.factorType ?? null, advance?.taxRate ?? null, advance?.base ?? null, advance?.iva ?? null]
+       advance?.factorType ?? null, advance?.taxRate ?? null, advance?.base ?? null, advance?.iva ?? null,
+       // #611: the payer's side of the trace (335).
+       oNulo(entrada.payerAccount), oNulo(entrada.payerBankCode), oNulo(entrada.payerForeignBank)]
     );
 
     for (const app of entrada.applications) {
@@ -948,15 +1052,21 @@ export async function recordCustomerPayment(
          VALUES ($1,$2,$3,$4,$5)`,
         [uuidv4(), paymentId, app.documentId, app.amountApplied, entrada.paymentDate]
       );
-      await client.query(
+      // MNE-001-580 · invariant 3, as the twin in applyCustomerPayment; GREATEST:
+      // a receipt dated before another one does not move the last payment back.
+      const settled = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
-         WHERE id = $3 AND entity_id = $4`,
-        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId]
+           last_payment_date = GREATEST(last_payment_date, $2::date)
+         WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
+        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId, [...COBRABLES]]
       );
+      if (settled.rowCount !== 1) {
+        const invoice = documentos.find((d) => d.id === app.documentId)?.numero ?? app.documentId;
+        throw new AccountingError('INVOICE_CHANGED', { key: 'error.INVOICE_CHANGED', params: { invoice } });
+      }
     }
 
     const entry = await postCustomerPaymentEntry(
@@ -2299,14 +2409,20 @@ export async function reverseCustomerPayment(
       );
       if (inv.rows.length === 0) continue;
       const factura = inv.rows[0];
-      await client.query(
+      // MNE-001-580 · invariant 3, as the unapply path's reopening.
+      const reopened = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid - $1,
            amount_due  = amount_due + $1,
            status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
-         WHERE id = $2 AND entity_id = $3`,
+         WHERE id = $2 AND entity_id = $3 AND amount_paid >= $1`,
         [fila.total, fila.invoice_id, entityId]
       );
+      if (reopened.rowCount !== 1) {
+        throw new AccountingError('INVOICE_CHANGED', {
+          key: 'error.INVOICE_CHANGED', params: { invoice: factura.invoice_number },
+        });
+      }
       documentosReabiertos.push({
         id: factura.id, numero: factura.invoice_number,
         saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
@@ -2737,15 +2853,19 @@ export async function applyVendorPayment(
       // efectivo, descuento y condonación. Un descuento no es dinero cobrado
       // y una condonación menos aún: contarlos como pagados inflaría lo que
       // el proveedor recibió y descuadraría la conciliación de banco.
-      await client.query(
+      // MNE-001-532 · invariant 3, as the invoice twin of applyCustomerPayment.
+      const settled = await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $2,
            status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $3
-         WHERE id = $4 AND entity_id = $5`,
-        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId]
+           last_payment_date = GREATEST(last_payment_date, $3::date)
+         WHERE id = $4 AND entity_id = $5 AND status = ANY($6::text[]) AND amount_due >= $2`,
+        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId, [...PAGABLES]]
       );
+      if (settled.rowCount !== 1) {
+        throw new AccountingError('BILL_CHANGED', { key: 'error.BILL_CHANGED', params: { bill: bill.bill_number } });
+      }
 
       const nuevo = saldo.minus(baja);
       documentos.push({

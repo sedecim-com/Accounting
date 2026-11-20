@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
 import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
+import { REASONING_EFFORT_LEVELS } from './types.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -14,6 +15,7 @@ import { parseForClient } from '../../utils/zod-client-errors.js';
 // Built-in profiles + configuration file + overrides.
 // Precedence (standard practice for CLI harnesses):
 //   --provider flag  >  env MNEMOSINE_PROVIDER  >  config default_provider  >  'anthropic'
+// and for the model: --model  >  config models.<profile>  >  the profile's model.
 // API keys ALWAYS live in environment variables; the config
 // only names the variable (api_key_env).
 // Files: ./mnemosine.config.json (project) > ~/.mnemosine/config.json (user)
@@ -529,6 +531,8 @@ const profileSchema = z
      */
     stream_usage: z.boolean().optional(),
     max_tokens_param: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
+    /** Sent only when declared (MNE-001-442); the openai SDK's own enum. */
+    reasoning_effort: z.enum(REASONING_EFFORT_LEVELS).optional(),
     tools: z.boolean().optional(),
     headers: recordOf(z.string()).optional(),
     max_iterations: integerNumber().min(1).max(100).optional(),
@@ -596,7 +600,10 @@ const compactionSchema = z
   .strict();
 
 // CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
-// it, pinned by tests/ai/providers/config-contract.spec.ts (#367). Two
+// it, pinned by tests/ai/providers/config-contract.spec.ts (#367). The optional
+// `models` map (MNE-001-441, #644) and a profile's optional `reasoning_effort`
+// (MNE-001-442) are compatible additions: a file without them loads as before,
+// and a reverted build refuses a file that carries them. Two
 // tightenings of the Zod 4 migration reach it, declared in catalog-info.yaml
 // under provides.cli, each row of that spec with a zod 3 and a zod 4 answer:
 //   T1  JSON 1e999 (Infinity), which zod 3 loaded as a number, is refused as
@@ -646,11 +653,31 @@ export const configFileSchema = z
     tenant: z.string().optional(),
     default_provider: z.string().optional(),
     providers: recordOf(profileSchema).optional(),
+    /**
+     * The model a person chose for a profile, by profile name (MNE-001-441):
+     * `{ "gemini": "<model id>" }`. listProfiles applies it to the effective
+     * profile of that name, so a built-in keeps its declared window and
+     * posture instead of being copied whole. Precedence: --model, then
+     * models.<profile>, then the profile's own `model`. A name that is neither
+     * a built-in nor a profile of the same file is refused, with the names.
+     */
+    models: recordOf(boundedString({ min: 1 })).optional(),
     ingest: ingestSchema.optional(),
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    const known = [...Object.keys(BUILTIN_PROFILES), ...Object.keys(config.providers ?? {})];
+    for (const name of Object.keys(config.models ?? {})) {
+      if (known.includes(name)) continue;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['models', name],
+        message: `"${name}" is not a profile. Known: ${[...new Set(known)].join(', ')}`,
+      });
+    }
+  });
 
 export type MnemosineConfig = z.infer<typeof configFileSchema>;
 
@@ -741,6 +768,10 @@ export function listProfiles(cwd = process.cwd()): {
   const profiles: Record<string, ProviderProfile> = { ...BUILTIN_PROFILES };
   for (const [name, profile] of Object.entries(config.providers ?? {})) {
     profiles[name] = profile;
+  }
+  // The schema already refused a name that matches no profile.
+  for (const [name, model] of Object.entries(config.models ?? {})) {
+    profiles[name] = { ...profiles[name], model };
   }
   const defaultName = process.env.MNEMOSINE_PROVIDER || config.default_provider || 'anthropic';
   return { profiles, defaultName, source };
@@ -1338,8 +1369,11 @@ function assertNoSecrets(value: unknown, keyPath: string[]): void {
     const looksLikeSecretValue = SECRET_VALUE_RE.test(value);
     // *_cmd keys hold credential-helper COMMANDS (api_key_cmd), not credentials;
     // the value-prefix check above still catches a raw key pasted into one.
+    // Under `models` the key is a PROFILE name (one may well contain «token»);
+    // the model id is judged by its value alone.
+    const keyIsProfileName = keyPath.length === 2 && keyPath[0] === 'models';
     const secretNamedWithRawValue =
-      SECRET_KEY_RE.test(key) && !/_cmd$/i.test(key) && !ENV_NAME_RE.test(value);
+      !keyIsProfileName && SECRET_KEY_RE.test(key) && !/_cmd$/i.test(key) && !ENV_NAME_RE.test(value);
     if (looksLikeSecretValue || secretNamedWithRawValue) {
       throw new Error(
         `Refusing to write "${keyPath.join('.')}" to the config file: the value looks like a ` +

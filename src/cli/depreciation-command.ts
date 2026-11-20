@@ -1,5 +1,5 @@
 import * as readline from 'node:readline/promises';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import Decimal from 'decimal.js';
@@ -343,7 +343,7 @@ export function registerDepreciationCommand(
       // que un «sí» tecleado en español contaba como NO.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);

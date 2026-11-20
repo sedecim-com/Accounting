@@ -24,6 +24,11 @@ runtime: node-22                 # package.json engines ">=22.12"; CI y docker/D
 
 provides:
   - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
+    # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
+    # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
+    # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
+    # minimum the LFT art. 486 cap was measured with (MNE-001-377, #196). Compatible: no
+    # field is removed or renamed, and an entity with no declared zone computes as before.
     # CONTRACT: the 422 body of every request is pinned byte for byte by
     # tests/api/golden/rest-body.golden.json, recorded on zod 3 and kept on zod 4 by
     # src/utils/zod-client-errors.ts and src/utils/zod-compat.ts (#367). The only
@@ -54,6 +59,18 @@ provides:
     # own, ahead of the line's suggestion, which used to win; and a suggestion stored before
     # #684 that is a control account no longer posts. The way back is coding the line.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
+    # CONTRACT: mnemosine.config.json accepts an optional `models` map, profile name to
+    # model id (MNE-001-441, #644); a name that is no built-in and no profile of the same
+    # file is refused with the names. `init --section ai` now writes `default_provider`
+    # and `models.<p>` to the config file that wins, creates ~/.mnemosine/config.json
+    # instead of a project file, asks before writing a project file (default No), and
+    # writes a typed key to ~/.mnemosine/.env instead of ./.env. Rollback: remove
+    # `models` from any config file, which the previous build refuses.
+    # CONTRACT: a profile in mnemosine.config.json accepts optional `reasoning_effort`
+    # (the openai SDK's enum: none, minimal, low, medium, high, xhigh, max) and
+    # `stream_usage` is typed on the profile (MNE-001-442, #644); a value outside the
+    # enum is refused. Rollback: remove `reasoning_effort` from any profile, which the
+    # previous build refuses.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
@@ -133,6 +150,13 @@ external:
     # SubsidioCausado = the whole subsidy of the period, and TotalOtrosPagos. The node is
     # checked against the SAT's nomina12.xsd, vendored in src/services/sat/cfdi40/xsd.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
+    # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
+    # `reasoning_effort` on chat turns, compaction summaries and the init probe only when
+    # the profile declares it, and sends each tool call's `extra_content` (Gemini 3's
+    # google.thought_signature) back unchanged on the next request, streamed or not. A
+    # turn that ends with finish_reason "length" and neither text nor a tool call is a
+    # TruncatedEmptyTurnError naming the 8192-token cap. The init probe asks for 1024
+    # output tokens instead of 64 (MNE-001-442, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

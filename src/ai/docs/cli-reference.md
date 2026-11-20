@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 247 of 394 subcommands
+  spelling is `-T` at the root and `-t` on the 248 of 396 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -172,9 +172,9 @@ Options:
 
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 ```
 
 ## `mnemosine chat`
@@ -1273,7 +1273,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
-  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
+  edit|editar [options] <idOrName>       Set the tax regime, fiscal postal code or minimum-wage zone of an entity
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar [options]                Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -1365,23 +1365,26 @@ Usage: mnemosine entity create|crear [options] <name>
 Create a legal entity with its chart of accounts, roles and payroll mapping
 
 Arguments:
-  name                     legal name of the company
+  name                        legal name of the company
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-id <id>            RFC (Mexico) or EIN (USA)
-  --country <code>         MX or USA (default: "MX")
-  --currency <code>        functional currency (defaults to the country's)
-  --chart <strategy>       auto | siempre | nunca — whether to seed the base
-                           chart (default: "auto")
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-id <id>               RFC (Mexico) or EIN (USA)
+  --country <code>            MX or USA (default: "MX")
+  --currency <code>           functional currency (defaults to the country's)
+  --chart <strategy>          auto | siempre | nunca — whether to seed the base
+                              chart (default: "auto")
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # A Mexican company with its c_RegimenFiscal and fiscal postal code.
@@ -1395,23 +1398,25 @@ Examples:
 ```
 Usage: mnemosine entity edit|editar [options] <idOrName>
 
-Set the tax regime or fiscal postal code of an entity, validated against the SAT
-catalog
+Set the tax regime, fiscal postal code or minimum-wage zone of an entity
 
 Arguments:
-  idOrName                 entity id, tax id, or a fragment of the name
+  idOrName                    entity id, tax id, or a fragment of the name
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --reason <text>          justification recorded in the audit trail
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --reason <text>             justification recorded in the audit trail
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # Declare the regime of an entity created without it.
@@ -1633,6 +1638,7 @@ Commands:
   apply|aplicar [options] <payment>       Apply an existing payment to specific bills: partial, with discount, or short-paid
   unapply|desaplicar [options] <payment>  Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account
   reverse|reversar [options] <payment>    Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again
+  trace|rastro                            The payment trace of a registered payment: its cheque, and the account and bank the money went to
   help [command]                          display help for command
 ```
 
@@ -1791,6 +1797,69 @@ Examples:
   # The duplicated transfer came back: look first, then undo the payment on the day it returned.
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31 --dry-run
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31
+```
+
+### `mnemosine payment trace` (alias: rastro)
+
+```
+Usage: mnemosine payment trace|rastro [options] [command]
+
+The payment trace of a registered payment: its cheque, and the account and bank
+the money went to
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <payment>  Complete the empty trace fields of a
+                                        registered payment from its evidence:
+                                        only empty fields, audited, posts
+                                        nothing
+  help [command]                        display help for command
+```
+
+#### `mnemosine payment trace record` (alias: registrar)
+
+```
+Usage: mnemosine payment trace record|registrar [options] <payment>
+
+Complete the empty trace fields of a registered payment from its evidence: only
+empty fields, audited, posts nothing
+
+Arguments:
+  payment                   payment number or id
+
+Options:
+  -e, --entity <idOrName>   legal entity to operate on (defaults to the active
+                            one)
+  -t, --tenant <id>         tenant (firm) whose data to scope to
+  -u, --user <email>        acting user, for attribution and permissions
+  --check-number <number>   cheque number; only for a payment made by cheque
+  --to-account <number>     account that received the money (CtaDest of the SAT
+                            voucher)
+  --to-bank <code>          destination bank key from the SAT c_Banco catalogue
+                            (3 digits)
+  --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --bank <account>          bank account (name or id) the payment went out of;
+                            only one that posts to the ledger account its entry
+                            moved
+  --reason <text>           justification recorded in the audit trail (required)
+  --json                    JSON output
+  -y, --yes                 skip the confirmation prompt
+  --dry-run                 compute and show the full effect; write nothing and
+                            call nothing external
+  --idempotency-key <key>   not needed: this command already deduplicates on the
+                            state it writes; accepted and ignored
+  -h, --help                display help for command
+
+Examples:
+  # A SPEI recorded without its destination: complete it from the transfer receipt.
+  mnemosine payment trace record VPMT-2026-00001 --to-account 002180001122334455 --to-bank 002 --reason "SPEI receipt OP-0511"
+  # A cheque recorded without its number: look first, then complete it from the stub.
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
 ```
 
 ## `mnemosine account` (alias: cuenta)
@@ -4543,40 +4612,51 @@ Record cash received: against an invoice, releasing the IVA it was holding, or
 with no invoice as a customer advance
 
 Arguments:
-  invoice                  invoice number or id; without it the cash is an
-                           advance, and --customer names who paid it
+  invoice                      invoice number or id; without it the cash is an
+                               advance, and --customer names who paid it
 
 Options:
-  --customer <ref>         the customer who paid (number, name or id); required
-                           with no invoice, and with one it must be the
-                           invoice's own
-  --tax-rate <rate>        IVA treatment of an advance: 16, 8, 0, exempt
-                           (exento) or not-subject (no-objeto); with no invoice
-                           it is required, and with one it states the treatment
-                           of the excess --on-account leaves; the IVA is caused
-                           on collection
-  --on-account             let the amount exceed the invoice due: the excess
-                           stays on account as an advance and causes its IVA on
-                           collection (LIVA art. 1-B), at --tax-rate or the
-                           invoice's own rate
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account name or id; without it the entity's
-                           `banco` role is used
-  --reference <text>       bank reference or transfer number
-  --json                   JSON output
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  -y, --yes                skip the confirmation prompt
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --customer <ref>             the customer who paid (number, name or id);
+                               required with no invoice, and with one it must be
+                               the invoice's own
+  --tax-rate <rate>            IVA treatment of an advance: 16, 8, 0, exempt
+                               (exento) or not-subject (no-objeto); with no
+                               invoice it is required, and with one it states
+                               the treatment of the excess --on-account leaves;
+                               the IVA is caused on collection
+  --on-account                 let the amount exceed the invoice due: the excess
+                               stays on account as an advance and causes its IVA
+                               on collection (LIVA art. 1-B), at --tax-rate or
+                               the invoice's own rate
+  --check-number <number>      number of the customer's cheque (with --method
+                               check); the vouchers file declares it in the
+                               Cheque node
+  --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
+                               paid from; checked against the SAT list
+  --payer-account <number>     account the customer paid from (for a cheque, the
+                               account it is drawn on); needs --payer-bank or
+                               --payer-foreign-bank
+  --payer-foreign-bank <name>  full name of the customer's bank when it is
+                               foreign, instead of --payer-bank
+  --amount <amount>            amount, in the document currency
+  --date <date>                value date (YYYY-MM-DD); defaults to today
+  --method <method>            cash, check, ach, wire, spei, credit_card or
+                               other (default: "spei")
+  --bank <account>             bank account name or id; without it the entity's
+                               `banco` role is used
+  --reference <text>           bank reference or transfer number
+  --json                       JSON output
+  -e, --entity <idOrName>      legal entity to operate on (defaults to the
+                               active one)
+  -t, --tenant <id>            tenant (firm) whose data to scope to
+  -u, --user <email>           acting user, for attribution and permissions
+  -y, --yes                    skip the confirmation prompt
+  --dry-run                    compute and show the full effect; write nothing
+                               and call nothing external
+  --idempotency-key <key>      client dedupe key, stored on success: a retry
+                               with the same key and payload returns the
+                               recorded result
+  -h, --help                   display help for command
 
 Examples:
   # Cash received against one invoice; this releases the PPD IVA it was holding.

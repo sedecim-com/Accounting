@@ -6139,6 +6139,13 @@
                         "type": "number"
                       }
                     ]
+                  },
+                  "minimum_wage_zone": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "northern_border"
+                    ]
                   }
                 },
                 "required": [
