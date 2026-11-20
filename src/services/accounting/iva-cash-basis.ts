@@ -79,6 +79,13 @@ export const CONSERVATIVE_METODO: Readonly<Record<DocumentSide, MetodoPago>> = O
   received: 'PPD',
 });
 
+/**
+ * MNE-001-562 · The entry that puts back in 1135 the VAT a bill's payments
+ * released above its CFDI's VAT (accounting/vat-overcredit.ts). Its
+ * `source_id` is the bill.
+ */
+export const VAT_OVERCREDIT_CORRECTION_SOURCE = 'vat_overcredit_correction';
+
 const ISSUED_IVA_ROLES: readonly AccountRole[] = ['iva_trasladado', 'iva_trasladado_no_cobrado'];
 const RECEIVED_IVA_ROLES: readonly AccountRole[] = ['iva_acreditable', 'iva_pendiente_acreditar'];
 
@@ -583,6 +590,11 @@ async function billsAppliedBy(
  * `beforeCreditNotes` leaves a received credit note's entry out: what the bill
  * parked, whatever a note took back since. It answers whether the bill ever
  * parked VAT, which is not a cap (MNE-001-492).
+ *
+ * MNE-001-562: the correction of the VAT a payment released above the CFDI's
+ * puts that VAT back in 1135 for the bill, so it counts here, and only while it
+ * stands: a reversal's mirror carries no source, so a reversed correction is
+ * left out instead of netted.
  */
 export async function ivaStillParked(
   client: pg.PoolClient,
@@ -594,7 +606,8 @@ export async function ivaStillParked(
   const { from } = reclassRoles(side);
   const sourceTypes = side === 'issued'
     ? ['invoice', 'customer_payment', 'iva_reclass']
-    : ['bill', 'vendor_payment', 'iva_reclass', ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
+    : ['bill', 'vendor_payment', 'iva_reclass', VAT_OVERCREDIT_CORRECTION_SOURCE,
+       ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
 
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all
@@ -621,6 +634,7 @@ export async function ivaStillParked(
         AND je.status = 'posted'
         AND ar.role = $2
         AND je.source_type = ANY($4::text[])
+        AND (je.source_type <> $5 OR je.reversed_by_entry_id IS NULL)
         -- Dos saltos, y hacen falta los dos. El asiento del documento apunta
         -- al documento; el de RECLASIFICACIÓN que escribe el backfill apunta
         -- al ASIENTO, no al documento (iva-ppd-reclass.ts: sourceId = entry_id),
@@ -634,7 +648,7 @@ export async function ivaStillParked(
         AND (je.source_id = $3 OR je.source_id IN (
               SELECT j2.id FROM journal_entries j2
                WHERE j2.source_id = $3 AND j2.entity_id = $1))`,
-    [entityId, from, documentId, sourceTypes]
+    [entityId, from, documentId, sourceTypes, VAT_OVERCREDIT_CORRECTION_SOURCE]
   );
   const parked = new Decimal(rows[0]?.parked ?? '0');
 

@@ -996,6 +996,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.received_line_without_account.option.role_generic_account':
     'Contabilizar el renglón en la cuenta genérica de su rol de gasto',
 
+  'policy.vat_overcredit_correction_period.question':
+    'Pagos que pasaron de la 1135 a la 1130 el IEPS de un CFDI como si fuera IVA: ¿en qué periodo va la corrección?',
+  'policy.vat_overcredit_correction_period.impact':
+    'Hasta MNE-001-488, un CFDI de proveedor con IEPS guardaba en la cabecera de su factura el IVA más el IEPS, y cada pago acreditaba como IVA su parte de esa suma. `npm run correct:vat-overcredit` lista cada factura, pago y mes, y con `--apply` contabiliza DR 1135 / CR 1130 por el exceso. Esta clave decide la fecha de esa póliza. Con «ask» no se contabiliza nada y cada factura se nombra con las dos opciones. Con «current_period» va una póliza por factura con fecha de hoy, en el periodo abierto. Con «payment_month» va una póliza por factura y mes, en el mes de cada pago; un mes cerrado sólo se reabre si la corrida dice `--reopen`, y uno bloqueado nunca. En los dos casos la declaración complementaria de cada mes (CFF art. 32) la presenta una persona, con las cifras que da el censo.',
+  'policy.vat_overcredit_correction_period.rationale':
+    'El IVA se acredita en el mes en que se paga (LIVA art. 5 fr. III), así que el exceso es un error de esos meses: la NIF B-1 lo corrige de forma retrospectiva y el CFF art. 32 con una complementaria, mientras que los despachos que no reabren sus libros lo registran en el periodo actual. La norma deja margen, así que la opción por omisión es la conservadora del ADR-0006, decisión 1: no se contabiliza nada ni se reabre un mes cerrado hasta que una persona elija.',
+  'policy.vat_overcredit_correction_period.why':
+    'Los pagos de CFDI de proveedor con IEPS acreditaron parte del IEPS como IVA antes de que la cabecera de la factura guardara sólo el IVA. La corrección puede fecharse en el mes de cada pago, reabriéndolo si está cerrado, o en el periodo abierto de hoy.',
+  'policy.vat_overcredit_correction_period.what':
+    'Por omisión no contabilizo nada y nombro cada factura con las dos opciones. Con «current_period» contabilizo una corrección por factura hoy; con «payment_month», una por factura y mes, en ese mes.',
+  'policy.vat_overcredit_correction_period.if_skipped':
+    'No contabilizo ninguna corrección hasta que elijas.',
+  'policy.vat_overcredit_correction_period.option.ask':
+    'No contabilizar nada hasta que alguien elija',
+  'policy.vat_overcredit_correction_period.option.current_period':
+    'Una corrección por factura, con fecha de hoy en el periodo abierto',
+  'policy.vat_overcredit_correction_period.option.payment_month':
+    'Una corrección por factura y mes, en el mes de cada pago',
+
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
   'policy.closing_entries_in_reports.impact':
