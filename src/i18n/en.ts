@@ -2504,6 +2504,9 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-570 (#612): the trace of a registered receipt.
+  'receipt.trace.nothing_given':
+    'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
   // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
   'payment.trace.bank_no_entry':
     'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
@@ -3373,6 +3376,17 @@ export const EN = {
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
   'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
+  // MNE-001-570 (#612): the trace of a registered receipt, completed afterwards.
+  'help.receipt.trace.description': "The payment trace of a registered receipt: the customer's bank and account, its cheque, and our bank account",
+  'help.receipt.trace.record.description':
+    'Complete the empty trace fields of a registered receipt from its evidence: only empty fields, audited, posts nothing',
+  'help.receipt.trace.record.argument.receipt': 'receipt number or id',
+  'help.receipt.trace.record.option.check_number': "cheque number; only for a receipt by the customer's cheque",
+  'help.receipt.trace.record.option.payer_bank': 'c_Banco code (3 digits) of the bank the customer paid from, or that issued its cheque',
+  'help.receipt.trace.record.option.payer_account': 'account the customer paid from, or the one its cheque is drawn on',
+  'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
+  'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
+  'help.receipt.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
