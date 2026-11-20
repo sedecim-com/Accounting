@@ -713,4 +713,119 @@ describe('the invoice UPDATEs of a collection are guarded (invariant 3, MNE-001-
     expect(await entriesOfEntity()).toBe(before.entries);
     expect(await invoiceRow(invoice.id)).toEqual(before.row);
   });
+
+  describe('and so is the close of a reversed receipt\'s allocations (MNE-001-584)', () => {
+    /** Skips the close of one allocation row and nothing else. Returns its undo. */
+    const sabotageClose = async (allocationId: string): Promise<() => Promise<void>> => {
+      const tag = allocationId.replace(/-/g, '').slice(0, 12);
+      await query(
+        `CREATE OR REPLACE FUNCTION f03_keep_${tag}() RETURNS TRIGGER AS $$ BEGIN RETURN NULL; END; $$ LANGUAGE plpgsql`
+      );
+      await query(
+        `CREATE TRIGGER trg_f03_keep_${tag} BEFORE UPDATE ON payment_allocations
+         FOR EACH ROW WHEN (OLD.id = '${allocationId}' AND NEW.unapplied_at IS NOT NULL)
+         EXECUTE FUNCTION f03_keep_${tag}()`
+      );
+      return async () => {
+        await query(`DROP TRIGGER IF EXISTS trg_f03_keep_${tag} ON payment_allocations`);
+        await query(`DROP FUNCTION IF EXISTS f03_keep_${tag}()`);
+      };
+    };
+    /** Invoices A and B of 116.00 each; one receipt of 232.00 applied 116.00 to each. */
+    const twoInvoicesOneReceipt = async () => {
+      const a = await facturaEmitida('100.00', '16.00');
+      const b = await facturaEmitida('100.00', '16.00');
+      const r = await recordCustomerPayment(
+        {
+          entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '232.00', paymentDate: fecha(),
+          paymentMethod: 'spei',
+          applications: [{ documentId: a.id, amountApplied: '116.00' }, { documentId: b.id, amountApplied: '116.00' }],
+        },
+        f.userId
+      );
+      return { a, b, paymentId: r.paymentId };
+    };
+    const allocationsOf = async (paymentId: string) =>
+      (await query<{ id: string; invoice_id: string; unapplied_at: string | null; unapply_reason: string | null }>(
+        `SELECT id, invoice_id, unapplied_at::text, unapply_reason
+           FROM payment_allocations WHERE payment_id = $1 ORDER BY invoice_id`, [paymentId]
+      )).rows;
+    const statusOf = async (paymentId: string) =>
+      (await query<{ status: string }>(`SELECT status FROM customer_payments WHERE id = $1`, [paymentId])).rows[0].status;
+
+    it('R4 · a close that misses one allocation refuses the whole reversal', async () => {
+      const { a, b, paymentId } = await twoInvoicesOneReceipt();
+      const before = {
+        entries: await entriesOfEntity(), a: await invoiceRow(a.id), b: await invoiceRow(b.id),
+        allocations: await allocationsOf(paymentId),
+      };
+      expect(before.a).toMatchObject({ amount_due: '0.0000', status: 'paid' });
+      expect(before.b).toMatchObject({ amount_due: '0.0000', status: 'paid' });
+      const restore = await sabotageClose(before.allocations.find((x) => x.invoice_id === b.id)!.id);
+      let e: unknown;
+      try {
+        e = await reverseCustomerPayment(f.entityId, paymentId, { reason: 'cheque devuelto' }, f.userId)
+          .then(() => null, (err: unknown) => err);
+      } finally {
+        await restore();
+      }
+      expect(e, 'the reversal must be refused').toBeInstanceOf(AccountingError);
+      expect((e as AccountingError).code).toBe('REVERSE_RACE');
+      expect(await statusOf(paymentId)).toBe('completed');
+      const after = await allocationsOf(paymentId);
+      expect(after).toEqual(before.allocations);
+      expect(after.every((x) => x.unapplied_at === null)).toBe(true);
+      expect(await entriesOfEntity()).toBe(before.entries);
+      expect(await invoiceRow(a.id)).toEqual(before.a);
+      expect(await invoiceRow(b.id)).toEqual(before.b);
+    });
+
+    it('R5 · with no fault, every allocation closes with the reversal\'s note', async () => {
+      const { a, b, paymentId } = await twoInvoicesOneReceipt();
+      await reverseCustomerPayment(f.entityId, paymentId, { reason: 'cheque devuelto' }, f.userId);
+      expect(await statusOf(paymentId)).toBe('reversed');
+      const after = await allocationsOf(paymentId);
+      expect(after).toHaveLength(2);
+      for (const x of after) {
+        expect(x.unapplied_at).not.toBeNull();
+        expect(x.unapply_reason).toContain('cheque devuelto');
+      }
+      expect(await invoiceRow(a.id)).toMatchObject({ amount_due: '116.0000', amount_paid: '0.0000', status: 'sent' });
+      expect(await invoiceRow(b.id)).toMatchObject({ amount_due: '116.0000', amount_paid: '0.0000', status: 'sent' });
+    });
+
+    it('R6 · a receipt with nothing applied reverses, closing nothing', async () => {
+      const r = await recordCustomerPayment(
+        {
+          entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '50.00', paymentDate: fecha(),
+          paymentMethod: 'spei', applications: [], onAccount: true,
+        },
+        f.userId
+      );
+      const out = await reverseCustomerPayment(f.entityId, r.paymentId, { reason: 'transferencia devuelta' }, f.userId);
+      expect(out.documentosReabiertos).toEqual([]);
+      expect(await statusOf(r.paymentId)).toBe('reversed');
+      expect(await allocationsOf(r.paymentId)).toEqual([]);
+    });
+
+    it('R7 · an allocation unapplied earlier keeps its own date and reason; only the live one reopens', async () => {
+      const { a, b, paymentId } = await twoInvoicesOneReceipt();
+      await unapplyCustomerPayment(
+        f.entityId, paymentId, { invoiceId: b.id, reason: 'aplicado a la factura equivocada' }, f.userId
+      );
+      const unappliedB = (await allocationsOf(paymentId)).find((x) => x.invoice_id === b.id)!;
+      expect(unappliedB.unapplied_at).not.toBeNull();
+      const bBefore = await invoiceRow(b.id);
+      expect(bBefore).toMatchObject({ amount_due: '116.0000', status: 'sent' });
+
+      const out = await reverseCustomerPayment(f.entityId, paymentId, { reason: 'cheque devuelto' }, f.userId);
+      expect(out.documentosReabiertos.map((d) => d.numero)).toEqual([a.invoice_number]);
+      expect(await statusOf(paymentId)).toBe('reversed');
+      const after = await allocationsOf(paymentId);
+      expect(after.find((x) => x.invoice_id === b.id)).toEqual(unappliedB);
+      expect(after.find((x) => x.invoice_id === a.id)!.unapply_reason).toContain('cheque devuelto');
+      expect(await invoiceRow(a.id)).toMatchObject({ amount_due: '116.0000', status: 'sent' });
+      expect(await invoiceRow(b.id)).toEqual(bBefore);
+    });
+  });
 });
