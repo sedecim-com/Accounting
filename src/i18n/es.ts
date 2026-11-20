@@ -2453,6 +2453,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-571 (#612): el aviso al capturar es el hallazgo del generador para esa póliza.
+  'payment.capture.untraced_voucher':
+    'Cuando el SAT pida las pólizas del periodo, `mnemosine e-accounting voucher generate` nombrará la póliza {entry} de {number}:',
   // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
   'payment.capture.foreign_code_without_name':
     '--to-bank 999 es «N/A» en el catálogo c_Banco del SAT y no nombra ningún banco. Si el banco es extranjero, da su nombre con --to-foreign-bank (la póliza le pone el 999); si es nacional, su propia clave. La póliza llevará un aviso.',

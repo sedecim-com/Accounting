@@ -19,11 +19,17 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
 vi.mock('../../src/services/payments/payment-trace-service.js', () => ({
   completePaymentTrace: vi.fn(),
 }));
+// MNE-001-571 · what is still missing after writing is the generator's to say; here it is a spy.
+vi.mock('../../src/cli/trace-completion-output.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/trace-completion-output.js')>()),
+  warnUntracedPayment: vi.fn(async () => undefined),
+}));
 vi.mock('../../src/services/banking/bank-statement-service.js', () => ({
   resolverCuentaBancaria: vi.fn(async () => ({ id: 'ba-1', account_name: 'Operativa BBVA' })),
 }));
 
 import { completePaymentTrace, type TraceCompletion } from '../../src/services/payments/payment-trace-service.js';
+import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
@@ -170,5 +176,16 @@ describe('receipt trace record refuses before reading, and hands the receipt sid
       number: 'PMT-2026-00001', fields: '--bank Operativa BBVA, --payer-bank 002, --payer-account …3210',
     }, 'en'));
     expect(out).not.toContain('002180009876543210');
+  });
+});
+
+describe('receipt trace record says what is still missing once it wrote (MNE-001-571)', () => {
+  it('asks the generator about the receipt after writing, on the customer side', async () => {
+    const warn = vi.mocked(warnUntracedPayment);
+    warn.mockClear();
+    service.mockResolvedValueOnce(completion()).mockResolvedValueOnce(completion());
+    const { errs } = await trace(['--payer-bank', '002', '--reason', 'CEP del cobro', '--yes']);
+    expect(errs).toEqual([]);
+    expect(warn.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([['customer', 'ent-1', 'cp-1']]);
   });
 });

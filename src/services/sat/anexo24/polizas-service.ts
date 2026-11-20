@@ -420,7 +420,7 @@ export const METODO_A_SAT: Readonly<Record<string, string>> = {
 };
 
 /** Where the missing datum lives, which decides the remedy the finding prescribes. */
-type RemedyCause = Pick<
+export type RemedyCause = Pick<
   UntracedMoney,
   'missingOnRecord' | 'missingOnBankAccount' | 'bankAccountFlag' | 'noCommandFixes' | 'completedBy'
 >;
@@ -1085,6 +1085,52 @@ function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO
   }
 
   return { comprobantes: [] };
+}
+
+/**
+ * MNE-001-571 (#612) · THE TRACE OF ONE REGISTERED PAYMENT, judged as
+ * `voucher generate` will judge its voucher: the same row, the same bank
+ * account read live, the same `rastroDePago`. `side` is the payment's
+ * table. Null when the payment is not this entity's, or when the entity
+ * files no Anexo 24 (it is identified by no RFC). The causes come back
+ * already in the invariant's shape (`remedyCause`), so the finding can be
+ * written from them as the generator writes it.
+ */
+export async function traceOfOnePayment(
+  entityId: string,
+  side: 'vendor' | 'customer',
+  paymentId: string
+): Promise<{ voucher: string; paymentNumber: string; traced: boolean; motive: string; causes: RemedyCause } | null> {
+  let taxpayer: Contribuyente;
+  try {
+    taxpayer = await contribuyente(entityId);
+  } catch (err) {
+    if (err instanceof ValidationError) return null;
+    throw err;
+  }
+  const rows = side === 'vendor' ? await pagosAProveedores(entityId, [paymentId]) : await cobrosDeClientes(entityId, [paymentId]);
+  const payment = rows.get(paymentId);
+  if (payment === undefined) return null;
+  const entry = await query<{ entry_number: string }>(
+    `SELECT je.entry_number FROM ${side === 'vendor' ? 'vendor_payments' : 'customer_payments'} t
+       JOIN journal_entries je ON je.id = t.journal_entry_id AND je.entity_id = $1
+      WHERE t.id = $2 AND t.entity_id = $1`,
+    [entityId, paymentId]
+  );
+  const voucher = entry.rows[0]?.entry_number ?? payment.payment_number;
+  const bankAccount =
+    payment.bank_account_id !== null ? (await cuentasBancarias(entityId)).get(payment.bank_account_id) : undefined;
+  const result = rastroDePago(
+    payment, side === 'vendor' ? 'sale' : 'entra', bankAccount,
+    { nombre: taxpayer.name, rfc: taxpayer.rfc }, SANEADOR_MUDO, voucher
+  );
+  return {
+    voucher,
+    paymentNumber: payment.payment_number,
+    traced: result.pago !== undefined,
+    motive: result.motivo ?? '',
+    causes: remedyCause(result),
+  };
 }
 
 /**

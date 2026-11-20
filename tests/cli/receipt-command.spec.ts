@@ -9,6 +9,11 @@ vi.mock('../../src/ai/context.js', () => ({
   })),
   listEntities: vi.fn(async () => [{ id: 'ent-1' }]),
 }));
+// MNE-001-571 · the capture warning asks the generator; here it is a spy.
+vi.mock('../../src/cli/trace-completion-output.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/trace-completion-output.js')>()),
+  warnUntracedPayment: vi.fn(async () => undefined),
+}));
 vi.mock('../../src/ai/draft-service.js', () => ({
   resolveReviewer: vi.fn(async () => ({ userId: 'usr-1' })),
 }));
@@ -57,6 +62,7 @@ import { resolveEntity } from '../../src/ai/context.js';
 import * as invoices from '../../src/services/ar/invoice-service.js';
 import { todayFor } from '../../src/services/policy/today.js';
 import { idempotencyHitNote, parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-command.js';
+import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
 import type { CliError } from '../../src/cli/kernel/cli-error.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
@@ -666,5 +672,20 @@ describe('receipt record captures the payer bank, account and cheque number (#61
     expect(calls[0][0]).toMatchObject({
       checkNumber: null, payerBankCode: null, payerAccount: null, payerForeignBank: null,
     });
+  });
+});
+
+describe('receipt record warns of the voucher trace from the generator (MNE-001-571)', () => {
+  it('asks about the receipt once it is written, and not in a dry run', async () => {
+    const warn = vi.mocked(warnUntracedPayment);
+    warn.mockClear();
+    await record(['INV-1', '--amount', '100.00', '--dry-run']);
+    expect(warn).not.toHaveBeenCalled();
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'cus-1',
+    } as never);
+    const { errs } = await record(['INV-1', '--amount', '100.00', '--yes']);
+    expect(errs).toEqual([]);
+    expect(warn.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([['customer', 'ent-1', 'pay-1']]);
   });
 });

@@ -2615,6 +2615,9 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-571 (#612): the capture warning is the generator's finding for that voucher.
+  'payment.capture.untraced_voucher':
+    'When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate` will name voucher {entry} of {number}:',
   // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
   'payment.capture.foreign_code_without_name':
     '--to-bank 999 is "N/A" in the SAT c_Banco catalogue and names no bank. For a foreign bank, give its name with --to-foreign-bank instead (the voucher adds 999); for a national one, its own code. The voucher will carry a warning.',
