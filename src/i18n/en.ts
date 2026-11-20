@@ -1506,6 +1506,23 @@ export const EN = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'The general minimum of the area of the employer registration (the entity\'s declared zone)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'The general-zone minimum for every worker, whatever the registration\'s area',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':

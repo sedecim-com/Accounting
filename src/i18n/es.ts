@@ -1460,6 +1460,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    '¿Con qué salario mínimo se mide el tramo «1.00 SM» de la cuota patronal de cesantía en edad avanzada y vejez: el del área de tu registro patronal, o el de la zona general para todo trabajador?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'Decide qué SBC paga la tasa más baja de la cuota patronal de cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). En marzo de 2026, para una entidad registrada en la frontera norte, un SBC de 400.00 paga 3.150 % con "employer_registration_area" (189.00 por quincena, bajo su mínimo de 440.87) y 6.361 % con "general_zone" (381.66, medido con 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'Un salario mínimo general rige para los trabajadores de su propia área (LFT art. 92), y el IMSS determina las cuotas de cada registro patronal (LSS arts. 28 y 39), así que el tramo se mide con el mínimo del área del registro. Una entidad que no ha declarado su zona se mide con el mínimo general, y la nota del cálculo lo dice.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'La tabla nombra su primer tramo en salarios mínimos, y México tiene dos mínimos generales: el de la zona general y el de la Zona Libre de la Frontera Norte. Si el programa con el que determinas tus cuotas usa el mínimo de la zona general para todo registro, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'Por cada día cotizado tomo el salario mínimo general del área que esta política nombra, vigente ese día, y ubico el SBC en el tramo de la tabla con fechas. La nota del cálculo nombra el mínimo, su área y si la entidad la declaró.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'Uso el mínimo del área del registro patronal, que es la zona declarada de la entidad, o el mínimo general mientras no haya una declarada.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'El mínimo general del área del registro patronal (la zona declarada de la entidad)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'El mínimo de la zona general para todo trabajador, sea cual sea el área del registro',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
