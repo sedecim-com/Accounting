@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 248 of 396 subcommands
+  spelling is `-T` at the root and `-t` on the 249 of 398 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -4038,9 +4038,9 @@ Options:
 
 Examples:
   # Commercial and contact data. The tax profile is NOT edited here.
-  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "Convenio comercial 2026"
+  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "2026 commercial agreement"
   # Leave a note on the customer file.
-  mnemosine customer edit "Grupo Alameda" --notes "Exige orden de compra en cada factura"
+  mnemosine customer edit "Grupo Alameda" --notes "Requires a purchase order on every invoice"
 ```
 
 ### `mnemosine customer archive` (alias: archivar)
@@ -4066,9 +4066,9 @@ Options:
 
 Examples:
   # Deactivate a customer. It is an undo verb, so --reason is required.
-  mnemosine customer archive "Grupo Alameda" --reason "Cliente inactivo desde 2025"
+  mnemosine customer archive "Grupo Alameda" --reason "Customer inactive since 2025"
   # Archive one that still shows a balance: --force overrides the check, never the reason.
-  mnemosine customer archive "Grupo Alameda" --force --reason "Saldo incobrable ya castigado"
+  mnemosine customer archive "Grupo Alameda" --force --reason "Uncollectible balance already written off"
 ```
 
 ### `mnemosine customer restore` (alias: restaurar)
@@ -4094,7 +4094,7 @@ Examples:
   # Put an archived customer back in service.
   mnemosine customer restore "Grupo Alameda"
   # With the justification that lands in the audit trail.
-  mnemosine customer restore "Grupo Alameda" --reason "Reactivado con contrato 2026"
+  mnemosine customer restore "Grupo Alameda" --reason "Reactivated with the 2026 contract"
 ```
 
 ### `mnemosine customer tax` (alias: fiscal)
@@ -4172,9 +4172,9 @@ Options:
 
 Examples:
   # The four fields CFDI 4.0 stamps against, validated against the SAT catalogs.
-  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Constancia de situacion fiscal de julio"
+  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Tax status certificate of July"
   # Only the default UsoCFDI.
-  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Solicitud del cliente"
+  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Customer request"
 ```
 
 #### `mnemosine customer tax list` (alias: listar)
@@ -4600,6 +4600,10 @@ Commands:
                                         reopens invoices, re-parks IVA
   cause|causa                           The cause of a reversed collection: what
                                         happened to its money
+  trace|rastro                          The payment trace of a registered
+                                        receipt: the customer's bank and
+                                        account, its cheque, and our bank
+                                        account
   help [command]                        display help for command
 ```
 
@@ -4912,6 +4916,69 @@ Examples:
   mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
   # See what would be written, writing nothing.
   mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
+```
+
+### `mnemosine receipt trace` (alias: rastro)
+
+```
+Usage: mnemosine receipt trace|rastro [options] [command]
+
+The payment trace of a registered receipt: the customer's bank and account, its
+cheque, and our bank account
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <receipt>  Complete the empty trace fields of a
+                                        registered receipt from its evidence:
+                                        only empty fields, audited, posts
+                                        nothing
+  help [command]                        display help for command
+```
+
+#### `mnemosine receipt trace record` (alias: registrar)
+
+```
+Usage: mnemosine receipt trace record|registrar [options] <receipt>
+
+Complete the empty trace fields of a registered receipt from its evidence: only
+empty fields, audited, posts nothing
+
+Arguments:
+  receipt                      receipt number or id
+
+Options:
+  -e, --entity <idOrName>      legal entity to operate on (defaults to the
+                               active one)
+  -t, --tenant <id>            tenant (firm) whose data to scope to
+  -u, --user <email>           acting user, for attribution and permissions
+  --check-number <number>      cheque number; only for a receipt by the
+                               customer's cheque
+  --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
+                               paid from, or that issued its cheque
+  --payer-account <number>     account the customer paid from, or the one its
+                               cheque is drawn on
+  --payer-foreign-bank <name>  name of the customer's bank when it is a foreign
+                               one
+  --bank <account>             bank account (name or id) the money went into;
+                               only one that posts to the ledger account its
+                               entry moved
+  --reason <text>              justification recorded in the audit trail
+                               (required)
+  --json                       JSON output
+  -y, --yes                    skip the confirmation prompt
+  --dry-run                    compute and show the full effect; write nothing
+                               and call nothing external
+  --idempotency-key <key>      not needed: this command already deduplicates on
+                               the state it writes; accepted and ignored
+  -h, --help                   display help for command
+
+Examples:
+  # A SPEI recorded without --bank or the customer's bank: complete it from the CEP.
+  mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
+  # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
+  mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
 ```
 
 ## `mnemosine credit-note` (alias: nota-credito)

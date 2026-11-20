@@ -1,6 +1,7 @@
 import { EN } from '../../i18n/en.js';
 import { getLanguage, t, type Language, type TranslationKey } from '../../i18n/index.js';
 import type { KeyedMessage } from './exit.js';
+import type { MessageParams } from '../../i18n/index.js';
 
 // ============================================================
 // RENDIR UN MENSAJE ESCRITO POR CLAVE
@@ -39,10 +40,22 @@ function known(key: string): TranslationKey {
   return key as TranslationKey;
 }
 
+/**
+ * The holes of a message as plain values, a hole that is a key rendered in
+ * `language` (MNE-001-220). A string or a number passes through unchanged.
+ */
+export function resolveParams(params: KeyedMessage['params'], language: Language): MessageParams {
+  const out: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(params ?? {})) {
+    out[name] = typeof value === 'object' ? t(known(value.key), value.params ?? {}, language) : value;
+  }
+  return out;
+}
+
 /** La frase y sus renglones, en el idioma que se pida (por omisión, el activo). */
 export function renderKeyed(message: KeyedMessage, language?: Language): string {
   const target = language ?? getLanguage();
-  const head = t(known(message.key), message.params ?? {}, target);
+  const head = t(known(message.key), resolveParams(message.params, target), target);
   const rest = (message.lines ?? []).map(
     (line) => `${line.prefix ?? ''}${t(known(line.key), line.params ?? {}, target)}`
   );

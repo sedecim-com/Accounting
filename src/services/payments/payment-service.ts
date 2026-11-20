@@ -270,8 +270,12 @@ const METHODS_WITH_AN_ORIGIN_BANK = ['check', 'spei', 'wire', 'ach'];
  * the list the vouchers file is judged by, so a code the SAT would reject
  * never gets stored. The lengths and the pair repeat 335's columns and CHECK
  * for the message's sake, as `assertRastroDePago` does for the destination.
+ * MNE-001-570 · `receipt trace record` runs it on the merged trace.
  */
-function assertPayerTrace(input: EntradaPago, side: 'cliente' | 'proveedor'): void {
+export function assertPayerTrace(
+  input: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'payerAccount' | 'payerBankCode' | 'payerForeignBank'>,
+  side: 'cliente' | 'proveedor'
+): void {
   const bank = (input.payerBankCode ?? '').trim();
   const foreign = (input.payerForeignBank ?? '').trim();
   const account = (input.payerAccount ?? '').trim();

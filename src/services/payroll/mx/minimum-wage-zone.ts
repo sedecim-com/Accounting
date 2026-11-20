@@ -26,7 +26,7 @@ export interface ZoneOf {
 }
 
 /** The `tax_parameters` key that holds each zone's daily minimum. */
-const PARAMETER_OF: Record<MinimumWageZone, string> = {
+export const MINIMUM_WAGE_PARAMETER_OF: Readonly<Record<MinimumWageZone, string>> = {
   general: 'salario_minimo_general_diario',
   northern_border: 'salario_minimo_frontera_diario',
 };
@@ -47,7 +47,7 @@ export function parseMinimumWageZone(value: string): MinimumWageZone {
  * general one: the finiquito then names what is missing (SIN CALCULAR).
  */
 export function dailyMinimumWageFor(params: Record<string, unknown>, zone: MinimumWageZone): string | undefined {
-  const raw = params[PARAMETER_OF[zone]];
+  const raw = params[MINIMUM_WAGE_PARAMETER_OF[zone]];
   return typeof raw === 'number' || typeof raw === 'string' ? String(raw) : undefined;
 }
 

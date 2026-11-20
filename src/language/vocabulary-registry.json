@@ -6361,6 +6361,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the SBC in minimum wages and in UMA is cut to two decimals before it is placed in the table."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_minimum_wage_area",
+      "es": "imss_old_age_minimum_wage_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-578): which minimum wage measures the «1.00 SM» band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/employer_registration_area",
+      "es": "employer_registration_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general minimum of the area of the employer registration, which is the entity's declared zone."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/general_zone",
+      "es": "general_zone",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general-zone minimum wage for every worker, whatever the registration's area."
     }
   ]
 }

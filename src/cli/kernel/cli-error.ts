@@ -1,5 +1,5 @@
 import { ExitCode, type ExitCodeValue, type KeyedMessage } from './exit.js';
-import { renderKeyed } from './render-keyed.js';
+import { renderKeyed, resolveParams } from './render-keyed.js';
 import type { Language, MessageParams } from '../../i18n/index.js';
 
 // ============================================================
@@ -50,7 +50,10 @@ export class CliError extends Error {
     this.detail = detail;
     this.keyed = keyed;
     this.key = keyed?.key;
-    this.params = keyed?.params ?? {};
+    // English, like `message`: what reads `params` (the --json error envelope,
+    // a log) must not change with the locale. A hole that is a key is rendered
+    // here once, in English (MNE-001-220).
+    this.params = resolveParams(keyed?.params, 'en');
   }
 
   /**

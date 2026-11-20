@@ -6,6 +6,7 @@ import {
   ciJob,
   codigoDe,
   type Criterio,
+  type Resultado,
   crudoDe,
   existe,
   falla,
@@ -39,6 +40,105 @@ import { LOCALES, languageOfLocale } from '../../i18n/locale.js';
 // Moved verbatim from `src/plan/criterios.ts` (#294), in the board's order.
 // The index concatenates the packages back into `CRITERIOS`.
 // ============================================================
+/**
+ * THE GROUND OF ONE I8 FAMILY (MNE-001-219, generalized in MNE-001-220): its
+ * leaves have no entry in the lane's breakdown, every key of its catalogue
+ * block is named by one of them, and none of the block's Spanish is written in
+ * them as a literal. Each family's criterion names its block and its leaves.
+ */
+function familySpeaksByKey(block: string, family: string, LEAVES: readonly string[]): Resultado {
+  const LANE = 'spanish-user-strings-cli';
+  const BASELINE = 'docs/language-baseline.json';
+  for (const rel of [BASELINE, ...LEAVES]) {
+    if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+  }
+
+  // 1 · The breakdown, by absence.
+  let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+  try {
+    baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+  } catch {
+    return falla(`${BASELINE} is not valid JSON`);
+  }
+  if (baseline.lanes?.[LANE] === undefined) {
+    return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
+  }
+  const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
+  if (owed.length) {
+    return falla(
+      `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground ${block} won was given back`
+    );
+  }
+
+  // The family's block of a catalogue, as key → value of its string literals.
+  const blockOf = (rel: string): Map<string, string> | null => {
+    const src = crudoDe(rel);
+    const open = src.indexOf(`// ==== ${block} `);
+    const close = src.indexOf(`// ==== end of ${block} ====`);
+    if (open === -1 || close === -1 || close < open) return null;
+    const sf = ts.createSourceFile(rel, `({\n${src.slice(open, close)}\n})`, ts.ScriptTarget.Latest, true);
+    const out = new Map<string, string>();
+    const visit = (n: ts.Node): void => {
+      if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name))) {
+        let text = '';
+        const collect = (m: ts.Node): void => {
+          if (ts.isStringLiteral(m) || ts.isNoSubstitutionTemplateLiteral(m)) text += m.text;
+          m.forEachChild(collect);
+        };
+        collect(n.initializer);
+        out.set(n.name.text, text);
+      }
+      n.forEachChild(visit);
+    };
+    visit(sf);
+    return out;
+  };
+  const en = blockOf('src/i18n/en.ts');
+  const es = blockOf('src/i18n/es.ts');
+  if (en === null || es === null) {
+    return falla(`a catalogue lost the markers of the ${block} block, where the ${family} family keeps its texts`);
+  }
+  if (en.size === 0) {
+    return falla(`the ${block} block of src/i18n/en.ts declares no key: the ${family} family has nowhere to speak from`);
+  }
+
+  // 2 and 3 · What the leaves write as literals.
+  const literals = new Set<string>();
+  for (const rel of LEAVES) {
+    const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+    const visit = (n: ts.Node): void => {
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
+        literals.add(n.text);
+      }
+      n.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  const orphans = [...en.keys()].filter((k) => !literals.has(k));
+  if (orphans.length) {
+    return falla(
+      `${orphans.length} key(s) of the ${block} block are named by no leaf of the family ` +
+        `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
+    );
+  }
+  const literalText = [...literals].join('\n');
+  const backInCode = [...es.entries()]
+    .filter(([, value]) => value.length > 0 && !value.includes('{'))
+    .filter(([, value]) => literalText.includes(value))
+    .map(([key]) => key);
+  if (backInCode.length) {
+    return falla(
+      `the Spanish of ${backInCode.slice(0, 3).join(', ')} is written as a literal in the ${family} family again: ` +
+        'it prints the same words to every user, whatever their language'
+    );
+  }
+
+  return ok(
+    `the ${en.size} keys of the ${block} block are named by the ${family} family, none of their Spanish is written ` +
+      `in them, and none of its leaves has an entry in «${LANE}» (which is ${baseline.lanes[LANE]})`
+  );
+}
+
 export const E0_0: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
@@ -1579,99 +1679,8 @@ export const E0_0: Criterio[] = [
     // into the code— is what check 3 catches, without guessing a language.
     enunciado:
       'The root family (mnemosine.ts, close) prints no Spanish string from the code: its texts come from the I8.2 block of the catalogue (#264, MNE-001-219)',
-    evaluar: () => {
-      const LANE = 'spanish-user-strings-cli';
-      const LEAVES = ['src/cli/mnemosine.ts', 'src/cli/close-command.ts'];
-      const BASELINE = 'docs/language-baseline.json';
-      for (const rel of [BASELINE, ...LEAVES]) {
-        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
-      }
-
-      // 1 · The breakdown, by absence.
-      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
-      try {
-        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
-      } catch {
-        return falla(`${BASELINE} is not valid JSON`);
-      }
-      if (baseline.lanes?.[LANE] === undefined) {
-        return falla(`the baseline no longer has the lane «${LANE}»: the family's ground stops being measurable`);
-      }
-      const owed = LEAVES.filter((f) => (baseline.perFile?.[LANE] ?? {})[f] !== undefined);
-      if (owed.length) {
-        return falla(
-          `${owed.join(', ')} carry Spanish strings again in «${LANE}»: the ground I8.2 won was given back`
-        );
-      }
-
-      // The I8.2 block of a catalogue, as key → value of its string literals.
-      const blockOf = (rel: string): Map<string, string> | null => {
-        const src = crudoDe(rel);
-        const open = src.indexOf('// ==== I8.2 ');
-        const close = src.indexOf('// ==== end of I8.2 ====');
-        if (open === -1 || close === -1 || close < open) return null;
-        const sf = ts.createSourceFile(rel, `({\n${src.slice(open, close)}\n})`, ts.ScriptTarget.Latest, true);
-        const out = new Map<string, string>();
-        const visit = (n: ts.Node): void => {
-          if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name))) {
-            let text = '';
-            const collect = (m: ts.Node): void => {
-              if (ts.isStringLiteral(m) || ts.isNoSubstitutionTemplateLiteral(m)) text += m.text;
-              m.forEachChild(collect);
-            };
-            collect(n.initializer);
-            out.set(n.name.text, text);
-          }
-          n.forEachChild(visit);
-        };
-        visit(sf);
-        return out;
-      };
-      const en = blockOf('src/i18n/en.ts');
-      const es = blockOf('src/i18n/es.ts');
-      if (en === null || es === null) {
-        return falla('a catalogue lost the markers of the I8.2 block, where the root family keeps its texts');
-      }
-      if (en.size === 0) {
-        return falla('the I8.2 block of src/i18n/en.ts declares no key: the root family has nowhere to speak from');
-      }
-
-      // 2 and 3 · What the leaves write as literals.
-      const literals = new Set<string>();
-      for (const rel of LEAVES) {
-        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
-        const visit = (n: ts.Node): void => {
-          if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
-            literals.add(n.text);
-          }
-          n.forEachChild(visit);
-        };
-        visit(sf);
-      }
-      const orphans = [...en.keys()].filter((k) => !literals.has(k));
-      if (orphans.length) {
-        return falla(
-          `${orphans.length} key(s) of the I8.2 block are named by no leaf of the family ` +
-            `(${orphans.slice(0, 3).join(', ')}): their text went back into the code`
-        );
-      }
-      const literalText = [...literals].join('\n');
-      const backInCode = [...es.entries()]
-        .filter(([, value]) => value.length > 0 && !value.includes('{'))
-        .filter(([, value]) => literalText.includes(value))
-        .map(([key]) => key);
-      if (backInCode.length) {
-        return falla(
-          `the Spanish of ${backInCode.slice(0, 3).join(', ')} is written as a literal in the root family again: ` +
-            'it prints the same words to every user, whatever their language'
-        );
-      }
-
-      return ok(
-        `the ${en.size} keys of the I8.2 block are named by the root family, none of their Spanish is written ` +
-          `in it, and neither leaf has an entry in «${LANE}» (which is ${baseline.lanes[LANE]})`
-      );
-    },
+    evaluar: () =>
+      familySpeaksByKey('I8.2', 'root', ['src/cli/mnemosine.ts', 'src/cli/close-command.ts']),
     mutantes: [
       {
         archivo: 'src/cli/mnemosine.ts',
@@ -1690,6 +1699,46 @@ export const E0_0: Criterio[] = [
         de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
         a: 'usageError(`Unsupported language "${language}". Options: ${LOCALES.join(\', \')}, or es, en`)',
         porque: 'key-unread: the language refusal goes back to a template in the leaf and stops following the user language',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-ar-speaks-by-key',
+    // MNE-001-220 (issue #265, I8.3). The ar family —receipt, invoice, customer,
+    // credit-note— printed fourteen Spanish strings from the code. The ones a
+    // person reads live in the I8.3 block now, the seven reasons a leaf gives
+    // for not honoring --idempotency-key included: they reach the user inside
+    // `cli.risk.key_not_honored`, so they travel as keys (`{ sinLlave: { key } }`)
+    // and render in the language of their sentence. The help examples of
+    // `customer` are English. Same three checks as the root family's.
+    enunciado:
+      'The ar family (receipt, invoice, customer, credit-note) prints no Spanish string from the code: its texts come from the I8.3 block of the catalogue (#265, MNE-001-220)',
+    evaluar: () =>
+      familySpeaksByKey('I8.3', 'ar', [
+        'src/cli/receipt-command.ts',
+        'src/cli/invoice-command.ts',
+        'src/cli/customer-command.ts',
+        'src/cli/credit-note-command.ts',
+      ]),
+    mutantes: [
+      {
+        archivo: 'src/cli/invoice-command.ts',
+        de: "llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },",
+        a: "llave: { sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez' },",
+        porque: 'reason-back-in-the-code: invoice issue declares its no-key reason in Spanish again, inside an English sentence',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/receipt-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the ar family again',
+      },
+      {
+        archivo: 'src/cli/receipt-command.ts',
+        de: "t('ar.receipt.no_rep')",
+        a: "'sin REP — obligación fiscal propia con plazo del SAT'",
+        porque: 'string-back-in-the-code: receipt show writes «sin REP» in Spanish to every reader again',
       },
     ],
   },
