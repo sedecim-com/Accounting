@@ -305,7 +305,9 @@ describe('the `lang` command, launched as the binary', () => {
   it(
     'refuses a fifth value with a usage error that names what it would take',
     () => {
-      const result = run(['lang', 'klingon']);
+      // English pinned: an empty environment falls to es-MX (DEFAULT_LOCALE), and
+      // since MNE-001-219 this error is said in the user language.
+      const result = run(['lang', 'klingon'], { MNEMOSINE_LOCALE: 'en-US' });
 
       // USAGE and not the generic 1: the contract of `src/cli/kernel/exit.ts`,
       // which this leaf is the historic example of.
@@ -317,6 +319,16 @@ describe('the `lang` command, launched as the binary', () => {
       for (const [typed] of ACCEPTED) expect(said).toContain(typed);
       // And nothing was written on the way out.
       expect(fs.existsSync(userConfigPath(home))).toBe(false);
+    },
+    90_000
+  );
+
+  it(
+    'says the same refusal in Spanish under es-MX (MNE-001-219)',
+    () => {
+      const result = run(['lang', 'klingon'], { MNEMOSINE_LOCALE: 'es-MX' });
+      expect(result.status).toBe(ExitCode.USAGE);
+      expect(result.stdout + result.stderr).toContain('Idioma no admitido «klingon». Opciones: ');
     },
     90_000
   );

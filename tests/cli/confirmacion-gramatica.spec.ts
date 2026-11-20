@@ -324,6 +324,14 @@ describe('yesNoPrompt: the suffix comes from the catalogue', () => {
     expect(yesNoPrompt('¿Contabilizar la póliza?')).toBe('¿Contabilizar la póliza? [s/N] ');
   });
 
+  it('the default-yes form is [Y/n] in English and [S/n] in Spanish (MNE-001-219)', () => {
+    setLanguage('en');
+    expect(yesNoPrompt('Run setup now?', 'yes')).toBe('Run setup now? [Y/n] ');
+    expect(yesNoPrompt('Post entry JE-0001?', 'no')).toBe('Post entry JE-0001? [y/N] ');
+    setLanguage('es');
+    expect(yesNoPrompt('¿Configurar ahora?', 'yes')).toBe('¿Configurar ahora? [S/n] ');
+  });
+
   it('it follows the es-MX locale when nobody pins the language', () => {
     const argvOutside = process.argv;
     const localeOutside = process.env[LOCALE_ENV_VAR];
