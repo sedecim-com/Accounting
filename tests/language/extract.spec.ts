@@ -9,6 +9,7 @@ import {
   CLI_SURFACE,
   englishBlock,
   entryLines,
+  insertIntoBlock,
   judgeLanguage,
   keyFor,
   planFor,
@@ -421,3 +422,35 @@ function evaluateEntry(lines: string[]): string {
   visit(source);
   return parts.join('');
 }
+
+// MNE-001-218 (#263): `--block <I8.n>` writes inside a family's block of the
+// catalogue, the ones MNE-001-217 seeded, instead of before the closing `};`
+// where every family's PR would collide on the same line.
+describe('--block: the plan lands inside the family block', () => {
+  const CATALOG = [
+    'export const EN = {',
+    "  a: 'A',",
+    '  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====',
+    '  // ==== end of I8.1 ====',
+    '',
+    '  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====',
+    '  // ==== end of I8.2 ====',
+    "  z: 'Z',",
+    '} as const;',
+    '',
+  ].join('\n');
+
+  it('inserts right before the end marker of the named block, and nowhere else', () => {
+    const out = insertIntoBlock(CATALOG, 'I8.1', "  b: 'B',\n");
+    expect(out).toBe(CATALOG.replace('  // ==== end of I8.1 ====', "  b: 'B',\n  // ==== end of I8.1 ===="));
+  });
+
+  it('refuses a block the catalogue does not have, naming it', () => {
+    expect(() => insertIntoBlock(CATALOG, 'I8.7', "  b: 'B',\n")).toThrow(/I8\.7/);
+  });
+
+  it('refuses a block whose end marker appears twice', () => {
+    const twice = CATALOG.replace('} as const;', '  // ==== end of I8.1 ====\n} as const;');
+    expect(() => insertIntoBlock(twice, 'I8.1', "  b: 'B',\n")).toThrow(/I8\.1/);
+  });
+});

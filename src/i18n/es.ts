@@ -2884,6 +2884,22 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
   // Same blocks, same order as en.ts.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  'report.cashflow.gross_unavailable':
+    'El estado en términos BRUTOS (NIF B-2 §40 / ASC 230-10-45-7) no se puede construir con estos datos, y no se devuelve el neto rotulado como bruto. Lo bruto exige cobros y pagos separados, y eso es un dato de la OPERACIÓN, no de la cuenta: el motor publica un neto por cuenta, y partirlo en su cargo y su abono no da flujos —la baja de un activo abona a valor en libros mientras el efectivo cobrado es otro importe—. La salida por omisión ya muestra cada cuenta de cada sección, que es el detalle que estos libros sí sostienen. Vuelve a correr sin --gross.',
+  'report.cashflow_reconcile.derived_concept': 'Estado de flujos, neto (método {method})',
+  'report.cashflow_reconcile.ledger_concept': 'Caja y bancos, variación en el mayor',
+  'report.cashflow_reconcile.residue_concept': 'Residuo (derivado − real)',
+  'report.cashflow_reconcile.cash_accounts':
+    'Efectivo: {accounts} ({defaulted, select, yes {criterio «{criterion}», por omisión} other {criterio «{criterion}»}}) · {opening} → {closing}',
+  'report.cashflow_reconcile.ties':
+    'Amarra: el estado de flujos equivale al movimiento real de efectivo.',
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# sospechoso} other {# sospechosos}} — es una LISTA DE SOSPECHOSOS, no un veredicto: son movimientos de efectivo que ninguna sección del estado parece reclamar, o que puede estar contando dos veces. Verifícalos antes de tocar nada.',
+  'report.cashflow_reconcile.coverage':
+    'Explican {explained} del residuo {amount}; quedan {unexplained} que no explica ninguno.',
+  'report.cashflow_reconcile.no_suspects':
+    'Sin sospechosos que ofrecer: todo movimiento de efectivo del periodo cae en una sección del estado, así que el residuo está en CÓMO se suman, no en qué se omitió.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
