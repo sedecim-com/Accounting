@@ -58,6 +58,10 @@ interface EstadoFalso {
   applied: Array<Record<string, string | null>>;
   /** T11 · applications born with the payment that have not stored their IVA yet. */
   born: Array<{ id: string; bill_id: string }>;
+  /** MNE-001-597 · what the live applications of a bill stored as released (IVA plus discount VAT), by id. */
+  released: Record<string, string>;
+  /** MNE-001-597 · the payment's rows that have not stored their discount's VAT, as `discountVatOfPayment` reads them. */
+  discounts: Array<Record<string, string | null>>;
 }
 
 let state: EstadoFalso;
@@ -76,6 +80,14 @@ function fakeClient(): pg.PoolClient {
     }
     if (sql.includes('SELECT id, bill_id FROM payment_applications')) {
       return { rows: state.born };
+    }
+    // MNE-001-597 · `receivedVatStillParked` nets what the live rows stored,
+    // and `discountVatOfPayment` reads the rows born with the payment.
+    if (sql.includes('AS released')) {
+      return { rows: [{ released: state.released[String(p[1])] ?? '0' }] };
+    }
+    if (sql.includes('AS taken')) {
+      return { rows: state.discounts };
     }
     // El metodo_pago del gasto llega por la pre-registración que lo creó:
     // un gasto no tiene columna cfdi_uuid. Así se declara un PUE sin
@@ -134,6 +146,8 @@ beforeEach(() => {
     bankGl: null,
     applied: [],
     born: [],
+    released: {},
+    discounts: [],
   };
   writes = [];
 });
@@ -326,7 +340,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
   it('con descuento por pronto pago el pasivo se extingue por más de lo aplicado', async () => {
     state.parked = { 'bill-1': '160.0000' };
 
-    const { ivaPorGasto } = await postVendorApplicationEntry(
+    const { ivaPorGasto, discountVatByBill } = await postVendorApplicationEntry(
       fakeClient(),
       pago(),
       [aplicacion({ amount: '980.0000', discount: '20.0000' })],
@@ -335,11 +349,112 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
 
     expect(lineaDe('acct:cxp').debit_amount).toBe('1000.0000');
     expect(lineaDe('acct:anticipo_proveedores').credit_amount).toBe('980.0000');
-    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('20.0000');
+    // MNE-001-597: 20 × 160 / 1160 = 2.7586 is VAT, never creditable; 5200
+    // takes only the cost part, 17.2414.
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('17.2414');
     // 160 × 980 / 1160: sólo se acredita el IVA de lo que este evento paga.
     expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('135.1724');
-    expect(lineaDe('acct:iva_pendiente_acreditar').credit_amount).toBe('135.1724');
+    expect(lineasDe('acct:iva_pendiente_acreditar').map((l) => l.credit_amount)).toEqual(['2.7586', '135.1724']);
     expect(ivaPorGasto.get('bill-1')).toBe('135.1724');
+    expect(discountVatByBill.get('bill-1')).toBe('2.7586');
+    cuadra();
+  });
+
+  it('MNE-001-597 · B-1: 1,102 + 58 on 1,000 + 160 leaves nothing in 1135 and 50.00 in 5200', async () => {
+    state.parked = { 'bill-1': '160.0000' };
+
+    const { discountVatByBill } = await postVendorApplicationEntry(
+      fakeClient(),
+      pago(),
+      [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })],
+      USER
+    );
+
+    expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('50.0000');
+    expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('152.0000');
+    expect(sumaDe('acct:iva_pendiente_acreditar', 'credit_amount')).toBe('160.0000');
+    expect(lineasDe('acct:iva_pendiente_acreditar')[0].description).toBe(
+      'IVA on the early-payment discount leaves iva_pendiente_acreditar without becoming creditable - Bill BILL-001'
+    );
+    expect(discountVatByBill.get('bill-1')).toBe('8.0000');
+    cuadra();
+  });
+
+  it('MNE-001-597 · the remainder nets what earlier payments of the bill released', async () => {
+    // 1135 still holds 160 by the bill's entries, and an earlier payment of
+    // 1102 already released 152: only 8 is left, and the discount takes it.
+    state.parked = { 'bill-1': '160.0000' };
+    state.released = { 'bill-1': '152.0000' };
+
+    const { discountVatByBill } = await postVendorApplicationEntry(
+      fakeClient(), pago(), [aplicacion({ amount: '0.0000', discount: '58.0000', priorApplied: '1102.0000', closes: true })], USER
+    );
+
+    expect(discountVatByBill.get('bill-1')).toBe('8.0000');
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('50.0000');
+    expect(lineaDe('acct:iva_pendiente_acreditar').credit_amount).toBe('8.0000');
+    expect(lineasDe('acct:anticipo_proveedores')).toHaveLength(0);
+    cuadra();
+  });
+
+  it('MNE-001-597 · a held cheque credits nothing, and only the discount\'s share leaves 1135', async () => {
+    state.parked = { 'bill-1': '160.0000' };
+
+    const held = await postVendorApplicationEntry(
+      fakeClient(),
+      pago({ holdsIvaUntilCashed: true }),
+      [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })],
+      USER
+    );
+
+    // 152 stays parked for the cashing: it is not a rounding gap to sweep.
+    expect(held.discountVatByBill.get('bill-1')).toBe('8.0000');
+    expect(held.ivaPorGasto.size).toBe(0);
+    expect(lineasDe('acct:iva_acreditable')).toHaveLength(0);
+    expect(lineaDe('acct:iva_pendiente_acreditar').credit_amount).toBe('8.0000');
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('50.0000');
+    cuadra();
+  });
+
+  it('MNE-001-597 · a bill that parked nothing posts its discount whole, as before', async () => {
+    state.parked = { 'bill-1': '0' };
+
+    const { discountVatByBill } = await postVendorApplicationEntry(
+      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER
+    );
+
+    expect(discountVatByBill.get('bill-1')).toBe('0.0000');
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('58.0000');
+    expect(lineasDe('acct:iva_pendiente_acreditar')).toHaveLength(0);
+    cuadra();
+  });
+
+  it('MNE-001-597 · off cash-basis books the discount posts whole and nothing is stored', async () => {
+    state.country = 'US';
+    state.standard = 'us_gaap';
+
+    const { discountVatByBill } = await postVendorApplicationEntry(
+      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER
+    );
+
+    expect(discountVatByBill.size).toBe(0);
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('58.0000');
+    cuadra();
+  });
+
+  it('MNE-001-597 · a discount that is all VAT credits 5200 nothing', async () => {
+    // A bill of VAT alone (160 on 160): its whole discount is VAT.
+    state.parked = { 'bill-1': '160.0000' };
+
+    await postVendorApplicationEntry(
+      fakeClient(), pago(),
+      [aplicacion({ amount: '150.0000', discount: '10.0000', taxAmount: '160.0000', totalAmount: '160.0000', closes: true })],
+      USER
+    );
+
+    expect(lineasDe('acct:devolucion_compras')).toHaveLength(0);
+    expect(sumaDe('acct:iva_pendiente_acreditar', 'credit_amount')).toBe('160.0000');
     cuadra();
   });
 });
@@ -424,7 +539,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
     const { ivaNoAcreditablePorGasto } = await postVendorApplicationEntry(
       fakeClient(),
       pago(),
-      [aplicacion({ amount: '900.0000', discount: '20.0000', writeOff: '240.0000' })],
+      [aplicacion({ amount: '900.0000', discount: '20.0000', writeOff: '240.0000', closes: true })],
       USER,
       'otros_ingresos'
     );
@@ -432,10 +547,13 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
     // 900 aplicados + 20 de descuento + 240 condonados: el gasto queda saldado.
     expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
     expect(lineaDe('acct:anticipo_proveedores').credit_amount).toBe('900.0000');
-    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('20.0000');
+    // MNE-001-597: the discount's 2.7586 of VAT leaves 1135 too, so 1135 is
+    // emptied: 124.1379 + 33.1034 + 2.7586 = 159.9999, and the closing takes
+    // the 0.0001 of rounding left (2.7587).
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('17.2413');
     expect(lineaDe('acct:otros_ingresos').credit_amount).toBe('206.8966');
     expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('124.1379');
-    expect(sumaDe('acct:iva_pendiente_acreditar', 'credit_amount')).toBe('157.2413');
+    expect(sumaDe('acct:iva_pendiente_acreditar', 'credit_amount')).toBe('160.0000');
     expect(ivaNoAcreditablePorGasto.get('bill-1')).toBe('33.1034');
     cuadra();
   });
@@ -595,6 +713,8 @@ describe('el cobro y el pago reparten su importe entre el auxiliar y lo que qued
 
   it('un pago a proveedor con aplicaciones y descuento extingue 2110 por más de lo que sale del banco', async () => {
     state.totales = { aplicado: '980.0000', descuento: '20.0000' };
+    state.country = 'US';
+    state.standard = 'us_gaap';
 
     await postVendorPaymentEntry(fakeClient(), pago({ payment_amount: '980.0000' }), USER);
 
@@ -605,6 +725,49 @@ describe('el cobro y el pago reparten su importe entre el auxiliar y lo que qued
     // No se pagó de más: no hay anticipo que registrar.
     expect(lineasDe('acct:anticipo_proveedores')).toHaveLength(0);
     expect(entryDescription()).toBe('Vendor payment PMT-001 · early-payment discount 20.00');
+    cuadra();
+  });
+
+  it('MNE-001-597 · on cash basis the discount\'s VAT leaves 1135 per bill and its row stores it', async () => {
+    // B-1: 1,102 + 58 on 1,000 + 160. The payment's own release (152) is
+    // stored before the discount is read, so the bill has 8 left.
+    state.totales = { aplicado: '1102.0000', descuento: '58.0000' };
+    state.parked = { 'bill-1': '160.0000' };
+    state.released = { 'bill-1': '152.0000' };
+    state.applied = [
+      { document_id: 'bill-1', document_number: 'BILL-001', tax_amount: '160.0000', total_amount: '1160.0000',
+        applied_now: '1102.0000', applied_total: '1102.0000', terms: null, memo: null },
+    ];
+    state.discounts = [
+      { id: 'app-1', bill_id: 'bill-1', bill_number: 'BILL-001', taken: '58.0000',
+        tax_amount: '160.0000', total_amount: '1160.0000', amount_due: '0.0000', exchange_rate: '1.0' },
+      { id: 'app-2', bill_id: 'bill-2', bill_number: 'BILL-002', taken: '0.0000',
+        tax_amount: '16.0000', total_amount: '116.0000', amount_due: '0.0000', exchange_rate: '1.0' },
+    ];
+
+    await postVendorPaymentEntry(fakeClient(), pago({ payment_amount: '1218.0000' }), USER);
+
+    expect(lineaDe('acct:devolucion_compras').credit_amount).toBe('50.0000');
+    expect(lineasDe('acct:iva_pendiente_acreditar').map((l) => l.credit_amount)).toEqual(['8.0000', '152.0000']);
+    expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('152.0000');
+    const stored = writes
+      .filter((w) => w.sql.includes('SET discount_iva_amount'))
+      .map((w) => [w.params[1], w.params[0]]);
+    expect(stored).toEqual([['app-1', '8.0000'], ['app-2', '0.0000']]);
+    cuadra();
+  });
+
+  it('MNE-001-597 · a payment with no discount stores 0 and reads no parked VAT for it', async () => {
+    state.totales = { aplicado: '1160.0000', descuento: '0' };
+    state.discounts = [
+      { id: 'app-1', bill_id: 'bill-1', bill_number: 'BILL-001', taken: '0.0000',
+        tax_amount: '160.0000', total_amount: '1160.0000', amount_due: '0.0000', exchange_rate: '1.0' },
+    ];
+
+    await postVendorPaymentEntry(fakeClient(), pago(), USER);
+
+    expect(lineasDe('acct:devolucion_compras')).toHaveLength(0);
+    expect(writes.filter((w) => w.sql.includes('SET discount_iva_amount')).map((w) => w.params[0])).toEqual(['0.0000']);
     cuadra();
   });
 });
@@ -633,6 +796,25 @@ describe('the vendor unapply entry mirrors the application it undoes', () => {
     expect(mockCreate.mock.calls[0][1]).toBe('2026-08-20');
     expect(entryDescription()).toBe('Unapplication of VPMT-001 from BILL-001');
     expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'vendor_unapplication', sourceId: 'pay-1' });
+    cuadra();
+  });
+
+  it('MNE-001-597 · the discount\'s VAT goes back to 1135 and 5200 takes back only the cost part', async () => {
+    await unapply({ amount: '1102.0000', discount: '58.0000', discountIva: '8.0000', iva: '152.0000' });
+
+    expect(lineaDe('acct:anticipo_proveedores').debit_amount).toBe('1102.0000');
+    expect(lineaDe('acct:devolucion_compras').debit_amount).toBe('50.0000');
+    expect(lineaDe('acct:cxp').credit_amount).toBe('1160.0000');
+    expect(sumaDe('acct:iva_pendiente_acreditar', 'debit_amount')).toBe('160.0000');
+    expect(lineaDe('acct:iva_acreditable').credit_amount).toBe('152.0000');
+    cuadra();
+  });
+
+  it('MNE-001-597 · a held cheque\'s unapply gives back the discount\'s VAT with nothing released', async () => {
+    await unapply({ amount: '1102.0000', discount: '58.0000', discountIva: '8.0000', iva: '0.0000' });
+
+    expect(lineaDe('acct:iva_pendiente_acreditar').debit_amount).toBe('8.0000');
+    expect(lineasDe('acct:iva_acreditable')).toHaveLength(0);
     cuadra();
   });
 

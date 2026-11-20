@@ -322,6 +322,49 @@ export function ivaToReclassify(input: ReclassInput): string {
   return (released.lessThan(0) ? new Decimal(0) : released).toFixed(SCALE);
 }
 
+export interface DiscountVatInput {
+  /** The early-payment discount this application takes, in the bill's currency. */
+  discount: Decimal.Value;
+  /** The bill's VAT and total, in its currency: the proportion of the discount that is VAT. */
+  taxAmount: Decimal.Value;
+  totalAmount: Decimal.Value;
+  /** What the bill still has in 1135 after this event's release, in the functional currency. */
+  remainder: Decimal.Value;
+  /** Whether this event leaves the bill owing nothing. */
+  closes: boolean;
+  /** The bill's historical rate, for a bill in another currency. */
+  rate?: Decimal.Value;
+}
+
+/** A gap at closing up to this is the rounding of the cumulative release, not something else parked. */
+const ROUNDING_AT_CLOSE = new Decimal('0.01');
+
+/**
+ * MNE-001-597 · The VAT of an early-payment discount, which leaves 1135
+ * without becoming creditable. A discount lowers the price and so the VAT
+ * (LIVA art. 7), and on cash basis only the VAT of what was paid is
+ * creditable (art. 5 fr. III), so the discount's share never will be.
+ *
+ * The share is the discount times the bill's VAT over its total, at four
+ * decimals (at the bill's rate when it has one), capped by what is still
+ * parked. When the event closes the bill and what is left differs from the
+ * share by a cent or less, it takes what is left: that gap is the rounding of
+ * the cumulative release. A larger gap means something else is still parked,
+ * such as a held cheque's cash share, and then only the share leaves.
+ */
+export function discountVatShare(input: DiscountVatInput): string {
+  const discount = new Decimal(input.discount);
+  const total = new Decimal(input.totalAmount);
+  const remainder = Decimal.max(new Decimal(input.remainder), 0);
+  if (discount.lessThanOrEqualTo(0) || total.lessThanOrEqualTo(0)) return new Decimal(0).toFixed(SCALE);
+  let share = discount.times(input.taxAmount).dividedBy(total).toDecimalPlaces(SCALE);
+  if (input.rate !== undefined) share = share.times(input.rate).toDecimalPlaces(SCALE);
+  if (input.closes && remainder.minus(share).abs().lessThanOrEqualTo(ROUNDING_AT_CLOSE)) {
+    return remainder.toFixed(SCALE);
+  }
+  return Decimal.max(Decimal.min(share, remainder), 0).toFixed(SCALE);
+}
+
 // ============================================================
 // DATABASE LOOKUPS
 // ============================================================
@@ -683,6 +726,10 @@ export async function ivaStillParked(
  * fully parked. Each release is stored on its application, and an application
  * undone or reversed stops being live, which puts its VAT back. A received
  * credit note takes its pending-VAT share up to this figure (MNE-001-489).
+ *
+ * MNE-001-597: the VAT of an early-payment discount leaves 1135 in the same
+ * entry and is stored on its application too, so it is netted the same way.
+ * A row written before 341 stores NULL: its discount's VAT is still there.
  */
 export async function receivedVatStillParked(
   client: pg.PoolClient,
@@ -691,7 +738,8 @@ export async function receivedVatStillParked(
 ): Promise<string> {
   const cap = new Decimal(await ivaStillParked(client, 'received', entityId, billId));
   const { rows } = await client.query<{ released: string }>(
-    `SELECT COALESCE(SUM(pa.iva_reclass_amount), 0)::text AS released
+    `SELECT (COALESCE(SUM(pa.iva_reclass_amount), 0)
+             + COALESCE(SUM(pa.discount_iva_amount), 0))::text AS released
        FROM payment_applications pa
        JOIN bills b ON b.id = pa.bill_id
       WHERE b.entity_id = $1 AND pa.bill_id = $2
@@ -820,7 +868,10 @@ export async function issuedVatOfOpenBalance(
  * its last payment would leave a rounding remainder parked on a paid bill.
  * Settled by cash and notes alone, it releases all it still has parked. NOTE:
  * any other bill keeps `proRata`, and so does one closed with a discount or a
- * write-off, whose VAT is not all creditable (MNE-001-555).
+ * write-off, whose VAT is not all creditable (MNE-001-555): the share of each
+ * leaves 1135 in its own entry without becoming creditable, the write-off's in
+ * `postVendorApplicationEntry` and the discount's by `discountVatShare`
+ * (MNE-001-597), so the pro rata of the cash is all the payment credits.
  */
 export async function receivedReleaseAtSettlement(
   client: pg.PoolClient, entityId: string, billId: string, proRata: string

@@ -193,7 +193,10 @@ describe('the note of a PPD bill whose VAT is parked', () => {
     const b = await bill();
     await post(await note(b.uuid));
     // 827.5862 = 1,280.00 x 6,000.00 / 9,280.00: the VAT of the 960.00 nobody paid is not credited.
-    expect(await pay(b.id, '6000.00', '2026-09-30', false, '960.00')).toEqual(['1130 827.5862/0', '1135 0/827.5862']);
+    // MNE-001-597: that 132.4138 (960 x 1,280 / 9,280) leaves 1135 with the
+    // discount instead of staying there, so 1135 gives up all 960.0000 the note left.
+    expect(await pay(b.id, '6000.00', '2026-09-30', false, '960.00'))
+      .toEqual(['1130 827.5862/0', '1135 0/132.4138', '1135 0/827.5862']);
   }, 90_000);
 });
 

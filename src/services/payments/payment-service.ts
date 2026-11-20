@@ -3317,6 +3317,7 @@ export async function applyVendorPayment(
         invoiceNumber: bill.bill_number,
         amount: aplicado.toFixed(4),
         discount: descuento.toFixed(4),
+        closes: nuevo.lessThanOrEqualTo(0),
         writeOff: condonado.toFixed(4),
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: bill.tax_amount,
@@ -3328,7 +3329,7 @@ export async function applyVendorPayment(
       filas.push({ allocId, billId: bill.id });
     }
 
-    const { entry, ivaPorGasto, ivaNoAcreditablePorGasto } = await postVendorApplicationEntry(
+    const { entry, ivaPorGasto, ivaNoAcreditablePorGasto, discountVatByBill } = await postVendorApplicationEntry(
       client,
       {
         id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
@@ -3343,11 +3344,12 @@ export async function applyVendorPayment(
       userId,
       cuentaCondonacion ?? undefined
     );
-    // 0 included (105): NULL is left to rows written before anyone stored it.
+    // 0 included (105, and 341 for the discount's VAT): NULL is left to rows
+    // written before anyone stored it.
     for (const fila of filas) {
       await client.query(
-        `UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2`,
-        [ivaPorGasto.get(fila.billId) ?? '0', fila.allocId]
+        `UPDATE payment_applications SET iva_reclass_amount = $1, discount_iva_amount = $2 WHERE id = $3`,
+        [ivaPorGasto.get(fila.billId) ?? '0', discountVatByBill.get(fila.billId) ?? '0', fila.allocId]
       );
     }
 
@@ -3542,9 +3544,10 @@ export async function unapplyVendorPayment(
 
     const live = await client.query<{
       id: string; amount_applied: string; discount_amount: string; iva_reclass_amount: string | null;
+      discount_iva_amount: string;
     }>(
       `SELECT id, amount_applied::text, COALESCE(discount_amount, 0)::text AS discount_amount,
-              iva_reclass_amount::text
+              iva_reclass_amount::text, COALESCE(discount_iva_amount, 0)::text AS discount_iva_amount
          FROM payment_applications
         WHERE payment_id = $1 AND bill_id = $2 AND unapplied_at IS NULL
         FOR UPDATE`,
@@ -3571,6 +3574,9 @@ export async function unapplyVendorPayment(
     // what the bill owes (`refusalOf`) and takes its VAT from 1135 first, so
     // this re-park leaves 1135 at the VAT of the balance owed again.
     const iva = live.rows.reduce((s, r) => s.plus(r.iva_reclass_amount ?? '0'), new Decimal(0));
+    // MNE-001-597: the discount's VAT that left 1135 goes back to it; a row
+    // written before 341 stores NULL, read as 0, because its VAT never left.
+    const discountIva = live.rows.reduce((s, r) => s.plus(r.discount_iva_amount), new Decimal(0));
     const ids = live.rows.map((r) => r.id);
     const reopened = amount.plus(discount);
 
@@ -3604,7 +3610,10 @@ export async function unapplyVendorPayment(
         payment_amount: vp.payment_amount, payment_date: vp.payment_date,
         bank_account_id: vp.bank_account_id, journal_entry_id: null,
       },
-      { billNumber: bill.bill_number, amount: amount.toFixed(4), discount: discount.toFixed(4), iva: iva.toFixed(4), date },
+      {
+        billNumber: bill.bill_number, amount: amount.toFixed(4), discount: discount.toFixed(4),
+        discountIva: discountIva.toFixed(4), iva: iva.toFixed(4), date,
+      },
       userId
     );
     const remaining = await remanenteDeVendorPago(client, paymentId, vp.payment_amount);
