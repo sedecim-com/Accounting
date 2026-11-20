@@ -35,16 +35,20 @@ describe('cheque_advance_before_cashing', () => {
     expect(spec?.options.map((o) => o.value)).toEqual(['refuse', 'defer_to_cashing']);
     expect(spec?.defaultValue).toBe('refuse');
     expect(spec?.defaultRationale).toContain('LIVA art. 1-B, second paragraph');
-    expect(spec?.whatIDo).toContain('not built yet');
+    // MNE-001-573: the deferral is built for a PPD invoice, and a PUE one at another treatment stays refused.
+    expect(spec?.whatIDo).toContain('PPD invoice');
+    expect(spec?.whatIDo).not.toContain('not built');
   });
 
-  it('its refusals name the cashing command, the key, and part 2/2, in both languages', () => {
+  it('its refusals name the cashing command and the key, in both languages', () => {
     const params = { receipt: 'PMT-2026-00001', invoice: 'INV-2026-00001', iva: '160.00', key: 'cheque_advance_before_cashing' };
     for (const lang of ['en', 'es'] as const) {
       const refused = t('receipt.apply.cheque_advance_not_cashed', params, lang);
       expect(refused).toContain('mnemosine bank check reconcile --receipt PMT-2026-00001');
       expect(refused).toContain('cheque_advance_before_cashing');
-      expect(t('receipt.apply.cheque_advance_deferral_not_wired', params, lang)).toContain('2/2');
+      const deferral = t('receipt.apply.cheque_advance_deferral_ppd_only', params, lang);
+      expect(deferral).toContain('defer_to_cashing');
+      expect(deferral).toContain('mnemosine bank check reconcile --receipt PMT-2026-00001');
     }
   });
 });
