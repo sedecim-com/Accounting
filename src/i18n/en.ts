@@ -99,6 +99,10 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====
@@ -1506,6 +1510,23 @@ export const EN = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'The general minimum of the area of the employer registration (the entity\'s declared zone)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'The general-zone minimum for every worker, whatever the registration\'s area',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1710,6 +1731,21 @@ export const EN = {
     'Repoint them, audited, when the layout is set',
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
+
+  'policy.cheque_advance_before_cashing.question':
+    'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+  'policy.cheque_advance_before_cashing.what':
+    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
@@ -2408,6 +2444,13 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
+  'receipt.apply.cheque_advance_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_not_wired':
+    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.unapply.iva_at_cashing':
+    'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   // MNE-001-460 (#623): an application and an unapply are dated.
@@ -2450,10 +2493,6 @@ export const EN = {
   'receipt.excess.from': 'rate of {invoices}',
   'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
   'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
-  'receipt.excess.cheque_held':
-    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
-  'receipt.excess.cheque_not_wired':
-    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_held':
@@ -2504,6 +2543,9 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-570 (#612): the trace of a registered receipt.
+  'receipt.trace.nothing_given':
+    'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
   // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
   'payment.trace.bank_no_entry':
     'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
@@ -3148,9 +3190,150 @@ export const EN = {
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  // MNE-001-221: payroll accrue and the ISN leaves of payroll-isn.
+  /** `payroll accrue` with no --period. */
+  'payroll.accrue.period_required':
+    '--period is missing. The benefit accrual belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would accrue the month that has just begun, and the entry cannot be deleted afterwards (mnemosine period list lists the entity\'s periods).',
+  /** The reason of a skipped worker in the schedule. Stored English in the row; the table renders it. */
+  'payroll.accrue.skip_already_accrued': 'already has a live row for this month',
+  /** The other reason of a skipped worker. */
+  'payroll.accrue.skip_zero_month': 'its accrual for the month is zero',
+  /** The first line of a run: the period, the entry date, who accrues and the totals. */
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · entry dated {entryDate} · {accruing, plural, one {# worker accrues} other {# workers accrue}}, {skipped, plural, one {# is skipped} other {# are skipped}} · aguinaldo {aguinaldo} · vacation {vacation} · premium {premium} · total {total}',
+  /** The panel that governed the amounts, and which of it is a default. */
+  'payroll.accrue.criteria':
+    'salary base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · vacation {vacationDefaulted, select, yes {{vacation} (default)} other {{vacation}}} · aguinaldo {days, plural, one {# day} other {# days}} · premium {premium}',
+  /** When a declared default, not the firm, governs the amounts. */
+  'payroll.accrue.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm: between `nominal` and `integrado` there is a 20 % difference in the amount of every month. Answer it with `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  /** The heading over the entry the run would post. */
+  'payroll.accrue.entry_heading':
+    'The run\'s single entry, {lines, plural, one {# line} other {# lines}}:',
+  /** A spent key whose recorded entry was reversed afterwards. */
+  'payroll.accrue.key_entry_reversed':
+    'The key "{key}" recorded entry {entry}, which was reversed afterwards. Returning that result would say the month is accrued when it is not. Run again with a new key (it is another run, not a retry) or without --idempotency-key.',
+  /** A spent key: the recorded result is what is shown (two sites). */
+  'payroll.accrue.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was accrued again.',
+  /** A month with nobody to accrue. */
+  'payroll.accrue.nothing_to_accrue':
+    'Nothing to accrue in {period}: the ledger was not touched and no schedule row was written.',
+  /** The dry run, which writes nothing. */
+  'payroll.accrue.dry_run': 'Dry run: the ledger was not touched and no schedule row was written.',
+  /** The confirmation question; the kernel adds the [y/N] suffix. */
+  'payroll.accrue.confirm':
+    'Accrue {amount} MXN for {count, plural, one {# worker} other {# workers}} in {period}? The ledger does not allow undoing it.',
+  /** The person said no. */
+  'payroll.accrue.aborted': 'Nothing changed: the ledger was not touched.',
+  /** No terminal to ask on. */
+  'payroll.accrue.aborted_no_terminal':
+    'Nothing changed: there is no terminal to confirm on. Add -y to accrue without asking, or --dry-run to see the whole schedule without writing anything.',
+  /** The run accrued another number of workers than the preview showed. */
+  'payroll.accrue.preview_count_mismatch':
+    'The preview showed {previewed, plural, one {# worker} other {# workers}} and the run accrued {processed}. Something changed between looking and posting: check the schedule before taking the month as closed.',
+  /** The run accrued another total than the preview added up to. */
+  'payroll.accrue.preview_total_mismatch':
+    'The preview added up to {previewed} and the run accrued {posted}.',
+  /** The done line, with the entry when there is one. */
+  'payroll.accrue.done':
+    '{count, plural, one {# worker accrued} other {# workers accrued}} in {period} {hasEntry, select, yes {for {total} · entry {entry}} other {for {total}}}.',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.state': 'state',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.rate': 'rate',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.regime': 'regime',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.monthly_exemption': 'monthly exemption',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.in_force': 'in force',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.legal_basis': 'legal basis',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.table': 'table',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.criterion': 'criterion',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.reaches': 'reaches',
+  /** A rate captured with no end date. */
+  'payroll.isn_rate_set.open_ended': '(no end: still in force)',
+  /** What the ISN rate table is. */
+  'payroll.isn_rate_set.table_note':
+    '(catalogue, no tenant_id: the law is the same for every firm)',
+  /** A policy nobody answered, read at its default (`policyPair`). */
+  'payroll.isn.policy_default': '{value} (default, nobody answered)',
   // ==== end of I8.4 ====
 
   // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  // MNE-001-222: depreciation run/post and asset create.
+  /** `depreciation run --by` with a dimension that does not exist. */
+  'assets.depreciation.by_unknown':
+    '--by "{value}" does not exist. The four dimensions are: {dimensions} (asset is the asset-by-asset detail; class and account are the summaries by class and by expense destination the catalogue asks for).',
+  /** `depreciation run`/`post` with no --period. */
+  'assets.depreciation.period_required':
+    '--period is missing. Depreciation belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would depreciate the month that has just begun.',
+  /** The group of the assets with no class in `--by class`. Stored English in the row; the table renders it. */
+  'assets.depreciation.no_class': '(no class)',
+  /** The first line of a plan: the period, the book, the entry date and the fingerprint. */
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · {book} book · entries dated {entryDate} · fingerprint {fingerprint}',
+  /** The criteria of a plan, which of them is a default, and who enters. */
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · convention {conventionDefaulted, select, yes {{convention} (default)} other {{convention}}} · {entering, plural, one {# asset enters} other {# assets enter}}, {skipped, plural, one {# is skipped} other {# are skipped}}, total {total}',
+  /** The warning when a declared default and not a choice of the firm governs the plan. */
+  'assets.depreciation.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm. Answer it with `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  /** The heading of the skipped assets in the readable output. */
+  'assets.depreciation.skipped_heading': 'Skipped ({count}):',
+  /** The warning when assets are left owing their row for the period. */
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# asset is} other {# assets are}} left without a row for {period}, and the month should recognise it. The policy `depreciacion_faltante_al_cierre` is {defaulted, select, yes {"{policy}" (declared default)} other {"{policy}"}}.',
+  /** `depreciation run` blocked by --strict or by the policy. */
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# asset} other {# assets}} without a row for {period}. {cause, select, strict {--strict turns the warning into a block.} other {The policy `depreciacion_faltante_al_cierre` is set to "bloquear".}} `depreciation post` will refuse to post until they are resolved.',
+  /** `depreciation run` with nothing that enters. */
+  'assets.depreciation.nothing_this_book': 'Nothing to post in this period with this book.',
+  /** `depreciation post --file` when the approved plan no longer matches. */
+  'assets.depreciation.plan_changed':
+    'The plan approved in {file} no longer matches what the run would do today, so nothing is posted: {differences}. Run `depreciation run` again, review the new plan and post against that one.',
+  /** `depreciation post` refused by the policy while assets owe their row. */
+  'assets.depreciation.post_blocked':
+    'Nothing is posted: {pending, plural, one {# asset is} other {# assets are}} left without a row for {period} and the policy `depreciacion_faltante_al_cierre` is set to "bloquear". Resolve them (capture the period\'s production, correct the asset record) or change the policy with {hint}.',
+  /** `depreciation post` with nothing that enters. */
+  'assets.depreciation.nothing_to_post': 'Nothing to post in {period}: the ledger was not touched.',
+  /** The note under the entry preview: N entries, N reversals. */
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# two-line entry} other {# two-line entries}}, one per asset, not a single one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** The confirmation of `depreciation post`. */
+  'assets.depreciation.confirm':
+    'Post {total} in {count, plural, one {# entry} other {# entries}} of the {book} book for {period}? The ledger does not allow undoing it.',
+  /** A replayed idempotency key. */
+  'assets.depreciation.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was posted again.',
+  /** The run made a different number of entries than the plan showed. */
+  'assets.depreciation.plan_count_mismatch':
+    'The plan showed {planned, plural, one {# entry} other {# entries}} and the run made {processed}. The plan and the engine did not agree: check the errors before taking the month as closed.',
+  /** The done line of `depreciation post`. */
+  'assets.depreciation.done':
+    '{count, plural, one {# entry posted} other {# entries posted}} in {period} ({book} book).',
+  /** `asset create` with an amount that is not an unsigned decimal. */
+  'assets.asset.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `asset create` with a depreciation method that does not exist. */
+  'assets.asset.method_unknown': '{flag} "{value}" does not exist. The six methods are: {methods}.',
+  /** `asset create --capitalized` with a value it cannot read. */
+  'assets.asset.capitalized_unknown':
+    '--capitalized "{value}" is not understood: it is yes when the cost is ALREADY charged to the asset account in the ledger (the CFDI that was capitalised), and no when the record only registers the asset and the entry is pending. It has no default: assuming one doubles the asset or leaves it out of the ledger.',
+  /** `asset create` without its required flags. */
+  'assets.asset.create_missing':
+    '{missing} missing. An asset with no class, no cost, no acquisition date or no statement of where its cost already is is not an incomplete record: it is a record that can be neither depreciated nor reconciled with the ledger.',
+  /** `asset create --source-entry` together with `--capitalized no`. */
+  'assets.asset.source_entry_contradiction':
+    '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, which says the opposite. Decide which of the two is true.',
+
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
@@ -3373,6 +3556,17 @@ export const EN = {
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
   'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
+  // MNE-001-570 (#612): the trace of a registered receipt, completed afterwards.
+  'help.receipt.trace.description': "The payment trace of a registered receipt: the customer's bank and account, its cheque, and our bank account",
+  'help.receipt.trace.record.description':
+    'Complete the empty trace fields of a registered receipt from its evidence: only empty fields, audited, posts nothing',
+  'help.receipt.trace.record.argument.receipt': 'receipt number or id',
+  'help.receipt.trace.record.option.check_number': "cheque number; only for a receipt by the customer's cheque",
+  'help.receipt.trace.record.option.payer_bank': 'c_Banco code (3 digits) of the bank the customer paid from, or that issued its cheque',
+  'help.receipt.trace.record.option.payer_account': 'account the customer paid from, or the one its cheque is drawn on',
+  'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
+  'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
+  'help.receipt.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',

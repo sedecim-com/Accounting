@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { Command } from 'commander';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import {
@@ -24,6 +24,8 @@ import {
   type PlanDeDepreciacion,
 } from '../../src/services/assets/depreciation-plan.js';
 import { exigirLibroDelPanel } from '../../src/services/assets/asset-lookup.js';
+import { type CliError } from '../../src/cli/kernel/index.js';
+import { resetLanguage } from '../../src/i18n/index.js';
 
 // ============================================================
 // F06a · las tres hojas contra el reglamento, antes de que el
@@ -196,7 +198,7 @@ describe('safety declarations', () => {
 
   it('says what each mutating leaf writes, for the audit trail', () => {
     expect(risks.get('asset create')?.writes).toMatch(/fixed_assets/);
-    expect(risks.get('asset create')?.writes).toMatch(/ninguna póliza/);
+    expect(risks.get('asset create')?.writes).toMatch(/no journal entry/);
     expect(risks.get('depreciation post')?.writes).toMatch(/journal_entries/);
   });
 });
@@ -421,7 +423,7 @@ describe('exigirFecha', () => {
   });
 
   it('rechaza el 31 de febrero, que JavaScript acepta corriéndolo a marzo', () => {
-    expect(() => exigirFecha('--acquired', '2026-02-31')).toThrow(/fecha real/);
+    expect(() => exigirFecha('--acquired', '2026-02-31')).toThrow(/real date/);
   });
 
   it('rechaza otro formato en vez de adivinar el orden de día y mes', () => {
@@ -452,7 +454,7 @@ describe('exigirImporte', () => {
   });
 
   it('rechaza un importe negativo: el CHECK del esquema exige costo mayor que cero', () => {
-    expect(() => exigirImporte('--cost', '-100')).toThrow(/importe decimal sin signo/);
+    expect(() => exigirImporte('--cost', '-100')).toThrow(/unsigned decimal amount/);
   });
 
   it('rechaza lo que no es un número, en vez de dejarlo llegar a Postgres', () => {
@@ -489,7 +491,7 @@ describe('exigirContabilizacion', () => {
   });
 
   it('rechaza cualquier otra cosa: suponerlo duplica el activo o lo deja fuera del mayor', () => {
-    expect(() => exigirContabilizacion('quizá')).toThrow(/No tiene valor por omisión/);
+    expect(() => exigirContabilizacion('quizá')).toThrow(/It has no default/);
   });
 });
 
@@ -618,5 +620,81 @@ describe('filasDelAsiento', () => {
 
   it('no produce ninguna línea cuando no hay nada que postear', () => {
     expect(filasDelAsiento(planFalso([]))).toEqual([]);
+  });
+});
+
+// ============================================================
+// I8.5 · asset create speaks by key (MNE-001-222, #267)
+//
+// The usage errors a person reads come from the catalogue: English under the
+// suite's en-US, Spanish in `localized('es')`. These run before the leaf
+// opens a connection, so the real program is enough.
+// ============================================================
+function caught(fn: () => unknown): CliError {
+  try {
+    fn();
+  } catch (e) {
+    return e as CliError;
+  }
+  throw new Error('expected a CliError');
+}
+
+async function createWith(args: string[]): Promise<CliError> {
+  const errs: unknown[] = [];
+  const p = new Command('mnemosine').exitOverride();
+  registerAssetCommand(p, { ...deps, reportError: (e: unknown) => { errs.push(e); } });
+  await p.parseAsync(['node', 'mnemosine', 'asset', 'create', 'Servidor', '--entity', 'ent-1', ...args]);
+  return errs[0] as CliError;
+}
+
+describe('I8.5 · the usage errors of asset create', () => {
+  afterEach(() => resetLanguage());
+
+  it('an unreal date is the shared date error, in both languages', () => {
+    const e = caught(() => exigirFecha('--acquired', '2026-02-31'));
+    expect(e.message).toBe('--acquired must be a real date in YYYY-MM-DD form; got "2026-02-31".');
+    expect(e.localized('es')).toBe('--acquired debe ser una fecha real en formato YYYY-MM-DD; llegó "2026-02-31".');
+  });
+
+  it('an amount with a sign says how the point and the comma are read', () => {
+    const e = caught(() => exigirImporte('--cost', '-100'));
+    expect(e.message).toBe(
+      '--cost must be an unsigned decimal amount; got "-100". The point separates the decimals and the comma ' +
+        'is ignored: 1,250,000.50 and 1250000.50 are the same.'
+    );
+    expect(e.localized('es')).toContain('--cost debe ser un importe decimal sin signo; llegó «-100».');
+  });
+
+  it('an unknown method names the six, in both languages', () => {
+    const e = caught(() => exigirMetodo('--method', 'lineal'));
+    expect(e.message).toBe(
+      '--method "lineal" does not exist. The six methods are: straight_line, declining_balance_150, ' +
+        'declining_balance_200, sum_of_years_digits, units_of_production, macrs.'
+    );
+    expect(e.localized('es')).toContain('--method «lineal» no existe. Los seis métodos son:');
+  });
+
+  it('a --capitalized it cannot read has no default', () => {
+    const e = caught(() => exigirContabilizacion('quizá'));
+    expect(e.message).toContain('--capitalized "quizá" is not understood: it is yes when the cost is ALREADY charged');
+    expect(e.localized('es')).toContain('--capitalized «quizá» no se entiende');
+  });
+
+  it('the missing flags are named together, in both languages', async () => {
+    const e = await createWith([]);
+    expect(e.message).toContain('--category, --cost, --acquired, --capitalized missing. An asset with no class');
+    expect(e.localized('es')).toContain('Faltan --category, --cost, --acquired, --capitalized. Un activo sin clase');
+  });
+
+  it('--source-entry contradicts --capitalized no', async () => {
+    const e = await createWith([
+      '--category', 'Equipo de Cómputo', '--cost', '100', '--acquired', '2026-03-20', '--capitalized', 'no',
+      '--source-entry', 'je-1',
+    ]);
+    expect(e.message).toBe(
+      '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, ' +
+        'which says the opposite. Decide which of the two is true.'
+    );
+    expect(e.localized('es')).toContain('--source-entry nombra el asiento donde YA está el costo');
   });
 });

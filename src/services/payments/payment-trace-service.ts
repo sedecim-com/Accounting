@@ -3,7 +3,7 @@ import { withTransaction } from '../../database/connection.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { assertBankCurrency, bankAccountOf } from '../accounting/ar-ap-posting.js';
-import { assertRastroDePago } from './payment-service.js';
+import { assertPayerTrace, assertRastroDePago } from './payment-service.js';
 
 // ============================================================
 // COMPLETING THE TRACE OF A PAYMENT ALREADY REGISTERED (MNE-001-568, #612)
@@ -37,13 +37,17 @@ import { assertRastroDePago } from './payment-service.js';
 // currency is the payment's. Anything else would declare a bank the ledger
 // did not move. An inactive account is accepted: this is history, and
 // `assertPayableBankAccount` guards new money movement only.
+//
+// THE RECEIPT (MNE-001-570). A receipt's origin is the customer's: the bank
+// it paid from (or that issued its cheque) and its account, the columns 335
+// added, which `receipt record` captures. `receipt trace record` completes
+// them, its cheque number and our bank account, on the same rules and the
+// same guarded UPDATE, under the receipts' table, with #611's payer checks
+// run on the merged trace.
 // ============================================================
 
 /** The states whose entry stays posted: a reversal leaves the original entry in its month. */
 const COMPLETABLE = ['completed', 'reversed'] as const;
-
-/** The table each side's completion is audited under. */
-const AUDITED_AS = { vendor: 'vendor_payments' } as const;
 
 /** The trace of a vendor payment, under the flags `payment trace record` takes. */
 export interface VendorTraceFields {
@@ -55,17 +59,56 @@ export interface VendorTraceFields {
   bankAccountId?: string | null;
 }
 
-type TextColumn = 'check_number' | 'cuenta_destino' | 'banco_destino_sat' | 'banco_destino_extranjero';
+/** The trace of a receipt, under the flags `receipt trace record` takes (MNE-001-570). */
+export interface ReceiptTraceFields {
+  checkNumber?: string | null;
+  payerBank?: string | null;
+  payerAccount?: string | null;
+  payerForeignBank?: string | null;
+  /** The bank account the money went into, by id: `--bank`, resolved by the caller. */
+  bankAccountId?: string | null;
+}
+
+export type TraceSide = 'vendor' | 'customer';
+
+type DestinationColumn = 'cuenta_destino' | 'banco_destino_sat' | 'banco_destino_extranjero';
+type PayerColumn = 'cuenta_origen' | 'banco_origen_sat' | 'banco_origen_extranjero';
+type TextColumn = 'check_number' | DestinationColumn | PayerColumn;
 type Column = TextColumn | 'bank_account_id';
 
-/** Each field: its column, the flag that gives it, and what the voucher node admits. */
-const FIELDS: ReadonlyArray<{ key: Exclude<keyof VendorTraceFields, 'bankAccountId'>; column: TextColumn; flag: string; max: number }> = [
-  // Cheque/@Num admits 20 characters; a longer one fails the whole file against the XSD.
-  { key: 'checkNumber', column: 'check_number', flag: '--check-number', max: 20 },
-  { key: 'toAccount', column: 'cuenta_destino', flag: '--to-account', max: 50 },
-  { key: 'toBank', column: 'banco_destino_sat', flag: '--to-bank', max: 3 },
-  { key: 'toForeignBank', column: 'banco_destino_extranjero', flag: '--to-foreign-bank', max: 150 },
-];
+interface FieldSpec { key: string; column: TextColumn; flag: string; max: number }
+
+// Cheque/@Num admits 20 characters; a longer one fails the whole file against the XSD.
+const CHECK_NUMBER: FieldSpec = { key: 'checkNumber', column: 'check_number', flag: '--check-number', max: 20 };
+
+/** Each side: its table (and audited name), its resolver's name, and what each flag fills. */
+const SIDES: Readonly<Record<TraceSide, {
+  table: string; resource: string; nothingGiven: 'payment.trace.nothing_given' | 'receipt.trace.nothing_given'; fields: readonly FieldSpec[];
+}>> = {
+  vendor: {
+    table: 'vendor_payments',
+    resource: 'Vendor payment',
+    nothingGiven: 'payment.trace.nothing_given',
+    fields: [
+      CHECK_NUMBER,
+      { key: 'toAccount', column: 'cuenta_destino', flag: '--to-account', max: 50 },
+      { key: 'toBank', column: 'banco_destino_sat', flag: '--to-bank', max: 3 },
+      { key: 'toForeignBank', column: 'banco_destino_extranjero', flag: '--to-foreign-bank', max: 150 },
+    ],
+  },
+  customer: {
+    table: 'customer_payments',
+    resource: 'Customer payment',
+    nothingGiven: 'receipt.trace.nothing_given',
+    // The limits of 335's columns and of the payment node, as `receipt record` holds them.
+    fields: [
+      CHECK_NUMBER,
+      { key: 'payerAccount', column: 'cuenta_origen', flag: '--payer-account', max: 50 },
+      { key: 'payerBank', column: 'banco_origen_sat', flag: '--payer-bank', max: 3 },
+      { key: 'payerForeignBank', column: 'banco_origen_extranjero', flag: '--payer-foreign-bank', max: 150 },
+    ],
+  },
+};
 
 export interface TraceField {
   column: Column;
@@ -90,9 +133,14 @@ export interface TraceCompletion {
   archivedVoucherFiles: number;
 }
 
+type Row = {
+  payment_number: string; status: string; payment_method: string; payment_date: string;
+  journal_entry_id: string | null; bank_account_id: string | null; currency_code: string;
+} & Record<DestinationColumn | 'check_number', string | null> & Partial<Record<PayerColumn, string | null>>;
+
 /** The ways a trace field is shown outside the payment row: never an account in clear. */
 function shown(column: TextColumn, value: string): string {
-  return column === 'cuenta_destino' ? `…${value.slice(-4)}` : value;
+  return column === 'cuenta_destino' || column === 'cuenta_origen' ? `…${value.slice(-4)}` : value;
 }
 
 function given(v: string | null | undefined): string | null {
@@ -101,25 +149,35 @@ function given(v: string | null | undefined): string | null {
 }
 
 /**
- * Fills the empty trace fields of a vendor payment that is completed or
- * reversed. A field given with the value it already holds is reported
+ * Fills the empty trace fields of a payment that is completed or reversed: a
+ * vendor payment's cheque and destination, or a receipt's cheque and payer
+ * (MNE-001-570). A field given with the value it already holds is reported
  * unchanged; one given with another value is refused, naming the stored one.
- * `bankAccountId` links the bank account the payment went through, under
- * `bankLink`'s checks. `side` is the vendor's today; a receipt's trace is
- * part 3 of #612.
+ * `bankAccountId` links the bank account the money went through, under
+ * `bankLink`'s checks.
  */
 export async function completePaymentTrace(
+  entityId: string, side: 'vendor', paymentId: string, fields: VendorTraceFields,
+  reason: string, userId: string, opts?: { dryRun?: boolean; client?: pg.PoolClient }
+): Promise<TraceCompletion>;
+export async function completePaymentTrace(
+  entityId: string, side: 'customer', paymentId: string, fields: ReceiptTraceFields,
+  reason: string, userId: string, opts?: { dryRun?: boolean; client?: pg.PoolClient }
+): Promise<TraceCompletion>;
+export async function completePaymentTrace(
   entityId: string,
-  side: 'vendor',
+  side: TraceSide,
   paymentId: string,
-  fields: VendorTraceFields,
+  fields: VendorTraceFields | ReceiptTraceFields,
   reason: string,
   userId: string,
   opts: { dryRun?: boolean; client?: pg.PoolClient } = {}
 ): Promise<TraceCompletion> {
-  const wanted = FIELDS.map((f) => ({ ...f, value: given(fields[f.key]) })).filter((f) => f.value !== null);
+  const spec = SIDES[side];
+  const values = fields as Record<string, string | null | undefined>;
+  const wanted = spec.fields.map((f) => ({ ...f, value: given(values[f.key]) })).filter((f) => f.value !== null);
   const bankAccountId = given(fields.bankAccountId);
-  if (wanted.length === 0 && bankAccountId === null) throw new ValidationError({ key: 'payment.trace.nothing_given' });
+  if (wanted.length === 0 && bankAccountId === null) throw new ValidationError({ key: spec.nothingGiven });
   if (reason.trim() === '' && opts.dryRun !== true) throw new ValidationError({ key: 'payment.trace.reason_required' });
   for (const f of wanted) {
     const length = (f.value as string).length;
@@ -127,20 +185,18 @@ export async function completePaymentTrace(
       throw new ValidationError({ key: 'payment.trace.too_long', params: { flag: f.flag, max: f.max, length } });
     }
   }
+  const columns = spec.fields.map((f) => f.column);
 
   const run = async (client: pg.PoolClient): Promise<TraceCompletion> => {
-    const found = await client.query<{
-      payment_number: string; status: string; payment_method: string; payment_date: string;
-      journal_entry_id: string | null; bank_account_id: string | null; currency_code: string;
-      check_number: string | null; cuenta_destino: string | null;
-      banco_destino_sat: string | null; banco_destino_extranjero: string | null;
-    }>(
+    // The columns come from SIDES, never from the caller.
+    const found = await client.query<Row>(
       `SELECT payment_number, status, payment_method, payment_date::text AS payment_date, journal_entry_id,
-              bank_account_id, currency_code, check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
-         FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+              bank_account_id, currency_code,
+              ${[...new Set(['check_number', 'cuenta_destino', 'banco_destino_sat', 'banco_destino_extranjero', ...columns])].join(', ')}
+         FROM ${spec.table} WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
       [paymentId, entityId]
     );
-    if (found.rows.length === 0) throw new NotFoundError('Vendor payment', paymentId);
+    if (found.rows.length === 0) throw new NotFoundError(spec.resource, paymentId);
     const row = found.rows[0];
     if (!(COMPLETABLE as readonly string[]).includes(row.status)) {
       throw new ValidationError({
@@ -175,16 +231,39 @@ export async function completePaymentTrace(
     // The capture's rules, on what the payment will hold once completed.
     const merged = (column: TextColumn): string | null =>
       given(row[column]) ?? filled.find((f) => f.column === column)?.value ?? null;
-    assertRastroDePago(
-      {
-        paymentMethod: row.payment_method,
-        checkNumber: merged('check_number'),
-        cuentaDestino: merged('cuenta_destino'),
-        bancoDestinoSat: merged('banco_destino_sat'),
-        bancoDestinoExtranjero: merged('banco_destino_extranjero'),
-      },
-      'proveedor'
-    );
+    if (side === 'vendor') {
+      assertRastroDePago(
+        {
+          paymentMethod: row.payment_method,
+          checkNumber: merged('check_number'),
+          cuentaDestino: merged('cuenta_destino'),
+          bancoDestinoSat: merged('banco_destino_sat'),
+          bancoDestinoExtranjero: merged('banco_destino_extranjero'),
+        },
+        'proveedor'
+      );
+    } else {
+      assertRastroDePago(
+        {
+          paymentMethod: row.payment_method,
+          checkNumber: merged('check_number'),
+          cuentaDestino: row.cuenta_destino,
+          bancoDestinoSat: row.banco_destino_sat,
+          bancoDestinoExtranjero: row.banco_destino_extranjero,
+        },
+        'cliente'
+      );
+      assertPayerTrace(
+        {
+          paymentMethod: row.payment_method,
+          checkNumber: merged('check_number'),
+          payerAccount: merged('cuenta_origen'),
+          payerBankCode: merged('banco_origen_sat'),
+          payerForeignBank: merged('banco_origen_extranjero'),
+        },
+        'cliente'
+      );
+    }
 
     // The voucher's month and its state: the entry's period, or the payment's date with none.
     const entry = (await client.query<{ entry_number: string; entry_date: string; status: string | null }>(
@@ -222,23 +301,18 @@ export async function completePaymentTrace(
 
     const param = (column: Column): string | null => filled.find((f) => f.column === column)?.value ?? null;
     // Entity, state, each field still empty, and one row, or nothing (invariant 3).
+    // Each text column is $4.., the bank account the last parameter.
+    const bank = columns.length + 4;
     const written = await client.query(
-      `UPDATE vendor_payments
-          SET check_number = COALESCE(check_number, $4),
-              cuenta_destino = COALESCE(cuenta_destino, $5),
-              banco_destino_sat = COALESCE(banco_destino_sat, $6),
-              banco_destino_extranjero = COALESCE(banco_destino_extranjero, $7),
-              bank_account_id = COALESCE(bank_account_id, $8),
+      `UPDATE ${spec.table}
+          SET ${columns.map((c, i) => `${c} = COALESCE(${c}, $${i + 4})`).join(',\n              ')},
+              bank_account_id = COALESCE(bank_account_id, $${bank}),
               updated_at = NOW()
         WHERE id = $1 AND entity_id = $2 AND status = ANY($3::text[])
-          AND ($4::text IS NULL OR check_number IS NULL)
-          AND ($5::text IS NULL OR cuenta_destino IS NULL)
-          AND ($6::text IS NULL OR banco_destino_sat IS NULL)
-          AND ($7::text IS NULL OR banco_destino_extranjero IS NULL)
-          AND ($8::uuid IS NULL OR bank_account_id IS NULL)
+          ${columns.map((c, i) => `AND ($${i + 4}::text IS NULL OR ${c} IS NULL)`).join('\n          ')}
+          AND ($${bank}::uuid IS NULL OR bank_account_id IS NULL)
         RETURNING id`,
-      [paymentId, entityId, COMPLETABLE, param('check_number'), param('cuenta_destino'),
-       param('banco_destino_sat'), param('banco_destino_extranjero'), param('bank_account_id')]
+      [paymentId, entityId, COMPLETABLE, ...columns.map(param), param('bank_account_id')]
     );
     if (written.rowCount !== 1) {
       throw new AccountingError('TRACE_RACE', { key: 'payment.trace.race', params: { number: row.payment_number } });
@@ -249,7 +323,7 @@ export async function completePaymentTrace(
       legalEntityId: entityId,
       userId,
       action: 'update',
-      entityType: AUDITED_AS[side],
+      entityType: spec.table,
       entityId: paymentId,
       oldValues: Object.fromEntries(filled.map((f) => [f.column, null])),
       newValues: {
@@ -280,7 +354,7 @@ export async function completePaymentTrace(
 async function bankLink(
   client: pg.PoolClient,
   entityId: string,
-  row: { payment_number: string; journal_entry_id: string | null; bank_account_id: string | null; currency_code: string },
+  row: Pick<Row, 'payment_number' | 'journal_entry_id' | 'bank_account_id' | 'currency_code'>,
   bankAccountId: string
 ): Promise<{ id: string; name: string }> {
   const account = (await client.query<{ id: string; account_name: string }>(

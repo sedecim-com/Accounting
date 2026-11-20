@@ -32,6 +32,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine asset · activo
@@ -133,7 +134,7 @@ const IMPORTE_RE = /^\d+(\.\d+)?$/;
  */
 export function exigirFecha(flag: string, valor: string): string {
   if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
-    throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
+    throw usageError({ key: 'bank.parse.date_invalid', params: { flag, value: valor } });
   }
   return valor;
 }
@@ -147,10 +148,7 @@ export function exigirFecha(flag: string, valor: string): string {
 export function exigirImporte(flag: string, valor: string): string {
   const limpio = valor.trim().replace(/,/g, '');
   if (!IMPORTE_RE.test(limpio)) {
-    throw usageError(
-      `${flag} debe ser un importe decimal sin signo; llegó "${valor}". El punto separa los ` +
-        'decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.'
-    );
+    throw usageError({ key: 'assets.asset.amount_invalid', params: { flag, value: valor } });
   }
   // Con Decimal y no con Number: un importe de nueve cifras con cuatro
   // decimales pierde precisión al pasar por un flotante, y lo que se pierde es
@@ -178,7 +176,10 @@ const METODOS = Object.values(DepreciationMethod);
 export function exigirMetodo(flag: string, valor: string): DepreciationMethod {
   const m = valor.trim().toLowerCase();
   if (!(METODOS as string[]).includes(m)) {
-    throw usageError(`${flag} "${valor}" no existe. Los seis métodos son: ${METODOS.join(', ')}.`);
+    throw usageError({
+      key: 'assets.asset.method_unknown',
+      params: { flag, value: valor, methods: METODOS.join(', ') },
+    });
   }
   return m as DepreciationMethod;
 }
@@ -192,18 +193,13 @@ export function exigirContabilizacion(valor: string): ContabilizacionDelAlta {
   const v = valor.trim().toLowerCase();
   if (v === 'yes' || v === 'y' || v === 'si' || v === 'sí') return 'ya_contabilizado';
   if (v === 'no' || v === 'n') return 'sin_contabilizar';
-  throw usageError(
-    `--capitalized "${valor}" no se entiende: es yes cuando el costo YA está cargado a la cuenta ` +
-      'de activo en el mayor (el CFDI que se capitalizó), y no cuando el alta sólo registra el ' +
-      'bien y el asiento está pendiente. No tiene valor por omisión: suponerlo duplica el activo ' +
-      'o lo deja fuera del mayor.'
-  );
+  throw usageError({ key: 'assets.asset.capitalized_unknown', params: { value: valor } });
 }
 
 /** El acto ensayado: se lanza para abortar la transacción del ensayo. */
 class EnsayoDeAlta extends Error {
   constructor(readonly resultado: ResultadoDeAlta) {
-    super('ensayo de alta terminado');
+    super('asset creation rehearsal finished');
     this.name = 'EnsayoDeAlta';
   }
 }
@@ -321,7 +317,7 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
   declareRisk(create, {
     risk: 'escritura',
     agent: false,
-    writes: 'fixed_assets (alta) + entity_sequences (folio) + audit_log; ninguna póliza',
+    writes: 'fixed_assets (record) + entity_sequences (number) + audit_log; no journal entry',
   });
   create.addHelpText('after', EJEMPLOS.create);
   create.action((nombre: string, opts: CreateOpts, cmd: Command) =>
@@ -337,11 +333,7 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
         opts.capitalized ? null : '--capitalized',
       ].filter((f): f is string => f !== null);
       if (faltantes.length > 0) {
-        throw usageError(
-          `Faltan ${faltantes.join(', ')}. Un activo sin clase, sin costo, sin fecha de ` +
-            'adquisición o sin decir dónde está ya su costo no es una ficha incompleta: es una ' +
-            'ficha que no se puede depreciar ni cuadrar contra el mayor.'
-        );
+        throw usageError({ key: 'assets.asset.create_missing', params: { missing: faltantes.join(', ') } });
       }
 
       const contabilizacion = exigirContabilizacion(opts.capitalized);
@@ -355,10 +347,7 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
         opts.taxMethod === undefined ? undefined : exigirMetodo('--tax-method', opts.taxMethod);
 
       if (opts.sourceEntry !== undefined && contabilizacion === 'sin_contabilizar') {
-        throw usageError(
-          '--source-entry nombra el asiento donde YA está el costo, así que no se puede pasar ' +
-            'junto a `--capitalized no`, que afirma lo contrario. Decide cuál de las dos es cierta.'
-        );
+        throw usageError({ key: 'assets.asset.source_entry_contradiction' });
       }
 
       const ctx = await entityForWrite(opts);
@@ -435,7 +424,7 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
 
       const err = process.stderr;
       if (dryRun) {
-        err.write(deps.palette.dim('Ensayo: la transacción se deshizo. No se creó ningún activo.\n'));
+        err.write(deps.palette.dim(`${t('dry_run_no_asset_created')}\n`));
       }
       for (const aviso of alta.avisos) {
         err.write(deps.palette.yellow(`  ⚠ ${aviso}\n`));

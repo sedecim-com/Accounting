@@ -637,12 +637,14 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
   );
   // MNE-001-462: the cash an unapply of the month put back that took no
   // advance comes back as one, split by the function unapply posted it with.
+  // MNE-001-572: on its counted day, so a held cheque's counts on its cashing,
+  // which is when the ledger causes it.
   const back = await client.query<{ id: string; plain: string }>(
     `SELECT cp.id, (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)::text AS plain
        FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
       WHERE cp.entity_id = $1 AND ${RETURNS_AS_ADVANCE} AND ${RECEIPT_COUNTS}
         AND pa.unapplied_at IS NOT NULL AND NOT ${CLOSED_BY_REVERSAL}
-        AND pa.unapplied_at::date >= $2::date AND pa.unapplied_at::date <= $3::date
+        AND ${countedOn('cp', 'pa.unapplied_at::date')} BETWEEN $2::date AND $3::date
         AND pa.amount_applied > pa.advance_base_amount + pa.advance_iva_amount`,
     [entityId, range.desde, range.hasta]
   );

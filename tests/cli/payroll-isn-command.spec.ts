@@ -31,7 +31,9 @@ import {
   traducirErrorDeCaptura,
   type CoberturaDeClave,
   type FilaPasivoPatronal,
+  policyPair,
 } from '../../src/cli/payroll-isn-command.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import type { TasaIsn } from '../../src/services/payroll/mx/isn-calculator.js';
 
 // ============================================================
@@ -214,7 +216,7 @@ describe('safety declarations', () => {
     expect(escribe).toMatch(/mx_isn_tasas_estatales/);
     // La otra mitad del asunto: capturar una tasa no acumula ningún pasivo ni
     // postea ningún asiento. Eso pasa cuando la corrida se cierra.
-    expect(escribe).toMatch(/ningun asiento y ningun pasivo/);
+    expect(escribe).toMatch(/no journal entry and no liability/);
   });
 
   it('gives the capture a dry run and a confirmation skip, and NOT an idempotency key', () => {
@@ -885,7 +887,7 @@ describe('lineasDeLaCaptura', () => {
     expect(texto).toMatch(/3\.0000%/);
     expect(texto).toMatch(/Ley de Hacienda del Estado de Jalisco art\. 41/);
     expect(texto).toMatch(/2026-01-01/);
-    expect(texto).toMatch(/sigue vigente|sin cierre/);
+    expect(texto).toMatch(/\(no end: still in force\)/);
   });
 
   it('names the table it writes to, and that it is a catalog without tenant_id', () => {
@@ -958,11 +960,60 @@ describe('lineasDeLaCaptura', () => {
   });
 
   it('shows the exempt amount only when there is one', () => {
-    expect(lineasDeLaCaptura(datos()).join('\n')).not.toMatch(/exencion mensual/);
+    expect(lineasDeLaCaptura(datos()).join('\n')).not.toMatch(/monthly exemption/);
     const conExencion = lineasDeLaCaptura(
       datos({ regimen: 'con_exencion' as const, exencion: '8000.0000' })
     ).join('\n');
-    expect(conExencion).toMatch(/exencion mensual\s+8,000\.00/);
+    expect(conExencion).toMatch(/monthly exemption\s+8,000\.00/);
+  });
+
+  // MNE-001-221 (#266): the nine labels come from the I8.4 block, and every
+  // value still starts at column 21 in both languages.
+  it('labels the preview in English, aligned', () => {
+    const lines = lineasDeLaCaptura(datos({ regimen: 'con_exencion' as const, exencion: '8000.0000' }));
+    expect(lines).toEqual(expect.arrayContaining([
+      '  state              JAL',
+      '  rate               0.030000  (3.0000%)',
+      '  regime             con_exencion',
+      '  monthly exemption  8,000.00',
+      '  in force           2026-01-01 -> (no end: still in force)',
+      '  legal basis        Ley de Hacienda del Estado de Jalisco art. 41',
+      '  table              mx_isn_tasas_estatales (catalogue, no tenant_id: the law is the same for every firm)',
+      '  criterion          isn_estado_que_causa=centro_de_trabajo -> employees.work_state',
+      '  reaches            12 worker(s) carrying "JAL"',
+    ]));
+  });
+
+  it('labels the preview in Spanish, aligned the same', () => {
+    try {
+      setLanguage('es');
+      const lines = lineasDeLaCaptura(datos({ regimen: 'con_exencion' as const, exencion: '8000.0000' }));
+      expect(lines).toEqual(expect.arrayContaining([
+        '  estado             JAL',
+        '  exención mensual   8,000.00',
+        '  vigencia           2026-01-01 -> (sin cierre: sigue vigente)',
+        '  tabla              mx_isn_tasas_estatales (catálogo, sin tenant_id: la ley es la misma)',
+        '  alcanza            12 worker(s) carrying "JAL"',
+      ]));
+      for (const l of lines.slice(0, 9)) expect(l.slice(0, 21).trim().length, l).toBeGreaterThan(0);
+    } finally {
+      resetLanguage();
+    }
+  });
+
+  it('policyPair says an unanswered policy is a default, in the user language', () => {
+    expect(policyPair('isn_momento_de_causacion', 'pago', true)).toBe('isn_momento_de_causacion=pago');
+    expect(policyPair('isn_momento_de_causacion', 'devengo', false)).toBe(
+      'isn_momento_de_causacion=devengo (default, nobody answered)'
+    );
+    try {
+      setLanguage('es');
+      expect(policyPair('isn_momento_de_causacion', 'devengo', false)).toBe(
+        'isn_momento_de_causacion=devengo (por omisión, nadie la contestó)'
+      );
+    } finally {
+      resetLanguage();
+    }
   });
 });
 

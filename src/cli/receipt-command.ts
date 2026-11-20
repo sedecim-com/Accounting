@@ -47,6 +47,8 @@ import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services
 import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
 import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
+import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
+import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -186,6 +188,13 @@ Examples:
   mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
   # See what would be written, writing nothing.
   mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
+`,
+  traceRecord: `
+Examples:
+  # A SPEI recorded without --bank or the customer's bank: complete it from the CEP.
+  mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
+  # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
+  mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
 `,
 } as const;
 
@@ -505,9 +514,6 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (previo.advanceInvoices?.length) {
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
-        }
-        if (previo.excessAwaitsCashing) {
-          process.stderr.write(p.yellow(`${t('receipt.excess.cheque_held', { amount: remanente.toFixed(2) })}\n`));
         }
         // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
         if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
@@ -846,8 +852,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId, { dryRun: true }
         );
+        // MNE-001-572 · a held cheque's cash goes back untaxed; its cashing causes that IVA.
+        const atCashing = (iva: string): void => {
+          if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
+        };
 
         if (dryRun) {
+          atCashing(previo.ivaAtCashing);
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
@@ -882,9 +893,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
             advance_iva_restored: result.documento.advanceIva ?? '0.00',
+            iva_at_cashing: result.ivaAtCashing,
             date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
+          atCashing(result.ivaAtCashing);
           return;
         }
         process.stdout.write(
@@ -894,6 +907,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
         );
+        atCashing(result.ivaAtCashing);
       })
   );
 
@@ -1058,6 +1072,59 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           })}\n`
         );
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
+      })
+  );
+
+  // ---- receipt trace record (MNE-001-570, #612) ---------------------
+  // The trace of a receipt already registered, completed from its evidence,
+  // on the service and rules of `payment trace record`: only empty fields,
+  // with a reason, posting nothing. The flags are `receipt record`'s own.
+  const trace = describeCommand(receipt.command('trace').alias('rastro'), 'help.receipt.trace.description');
+  const traceRecord = describeCommand(trace.command('record').alias('registrar'), 'help.receipt.trace.record.description');
+  argumentByKey(traceRecord, '<receipt>', 'help.receipt.trace.record.argument.receipt');
+  withContext(traceRecord);
+  optionByKey(traceRecord, '--check-number <number>', 'help.receipt.trace.record.option.check_number');
+  optionByKey(traceRecord, '--payer-bank <code>', 'help.receipt.trace.record.option.payer_bank');
+  optionByKey(traceRecord, '--payer-account <number>', 'help.receipt.trace.record.option.payer_account');
+  optionByKey(traceRecord, '--payer-foreign-bank <name>', 'help.receipt.trace.record.option.payer_foreign_bank');
+  optionByKey(traceRecord, '--bank <account>', 'help.receipt.trace.record.option.bank');
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(traceRecord, '--reason <text>', 'cli.flag.reason');
+  optionByKey(traceRecord, '--json', 'help.receipt.trace.record.option.json');
+  declareRisk(traceRecord, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'only empty fields are filled: a repeat finds them filled and reports them unchanged' },
+    agent: false,
+    writes: "customer_payments: its empty trace columns (the cheque number, the customer's bank and account, the bank account)",
+  });
+  traceRecord.addHelpText('after', EJEMPLOS.traceRecord);
+  traceRecord.action(
+    (ref: string, opts: CommonOpts & {
+      checkNumber?: string; payerBank?: string; payerAccount?: string; payerForeignBank?: string; bank?: string; reason?: string;
+    }) =>
+      run(async () => {
+        const given = [opts.checkNumber, opts.payerBank, opts.payerAccount, opts.payerForeignBank, opts.bank];
+        if (given.every((v) => (v ?? '').trim() === '')) throw usageError({ key: 'receipt.trace.nothing_given' });
+        const { dryRun, reason } = gateMutation(traceRecord, opts as Record<string, unknown>);
+        if (!reason?.trim() && !dryRun) throw usageError({ key: 'payment.trace.reason_required' });
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+        const registered = await getCustomerPayment(ctx.entityId, ref);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const bank = (opts.bank ?? '').trim() === '' ? null : await resolverCuentaBancaria(ctx.entityId, (opts.bank as string).trim());
+        const fields = {
+          checkNumber: opts.checkNumber, payerBank: opts.payerBank, payerAccount: opts.payerAccount,
+          payerForeignBank: opts.payerForeignBank, bankAccountId: bank?.id ?? null,
+        };
+        const why = reason?.trim() ?? '';
+
+        const preview = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId, { dryRun: true });
+        let result = preview;
+        if (!dryRun && preview.filled.length > 0) {
+          await confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listedTraceFields(preview.filled) }));
+          result = await completePaymentTrace(ctx.entityId, 'customer', registered.id, fields, why, reviewer.userId);
+        }
+        writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
       })
   );
 }
