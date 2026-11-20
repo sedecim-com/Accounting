@@ -19,11 +19,15 @@ import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { validateBody } from '../../src/api/rest/middleware/async-handler.js';
 import {
+  legacyIssueKey,
   legacyIssueMessage,
   normalizeLegacyIssues,
   parseForClient,
+  parseForClientKeyed,
   type ClientIssue,
+  type KeyedClientIssue,
 } from '../../src/utils/zod-client-errors.js';
+import { RequestValidationError, ValidationError, type ErrorMessageKey } from '../../src/utils/errors.js';
 import { bulkPreRegSchema, uploadXmlSchema } from '../../src/api/rest/routes/xml-ingestion.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
@@ -412,4 +416,340 @@ describe('a body far past an array cap is refused at once (#407)', () => {
     expect(!parsed.success && parsed.issues.map((i) => i.path)).toEqual(['ids']);
     expect(elapsed).toBeLessThan(1000);
   }, 120_000);
+});
+
+// ============================================================
+// THE 422 IS WRITTEN BY CATALOG KEY (MNE-001-152, #151)
+//
+// Every message the adapter words now comes from one key of src/i18n/en.ts,
+// with the issue's parameters. The rows above are the byte proof that the
+// English did not move; the rows below pin the key and the parameters behind
+// each message, and what the same issues read in Spanish. Every literal is
+// written by hand.
+// ============================================================
+
+const VE = 'error.VALIDATION_ERROR.issue';
+const keyed = (path: string, message: string, key: ErrorMessageKey): KeyedClientIssue => ({ path, message, key });
+
+describe('parseForClientKeyed names the key and the parameters of every issue it words', () => {
+  const KEYED_ROWS: Array<[string, z.ZodType, unknown, KeyedClientIssue[]]> = [
+    ['Required', obj, {}, [keyed('a', 'Required', { key: `${VE}.required` })]],
+    ['an integer given a float', integerNumber(), 1.5, [keyed('', 'Expected integer, received float', { key: `${VE}.integer_received_float` })]],
+    ['a number given Infinity', z.number(), Infinity, [keyed('', 'Number must be finite', { key: `${VE}.not_finite` })]],
+    [
+      'the wrong type',
+      obj,
+      { a: 1 },
+      [keyed('a', 'Expected string, received number', { key: `${VE}.invalid_type`, params: { expected: 'string', received: 'number' } })],
+    ],
+    [
+      'a literal',
+      z.literal('x'),
+      1,
+      [keyed('', 'Invalid literal value, expected "x"', { key: `${VE}.invalid_literal`, params: { expected: '"x"' } })],
+    ],
+    [
+      'an enum given a string',
+      ab,
+      'c',
+      [
+        keyed('', "Invalid enum value. Expected 'a' | 'b', received 'c'", {
+          key: `${VE}.invalid_enum_value`,
+          params: { expected: "'a' | 'b'", received: 'c' },
+        }),
+      ],
+    ],
+    [
+      'an enum given a number is a type failure',
+      ab,
+      1,
+      [keyed('', "Expected 'a' | 'b', received number", { key: `${VE}.invalid_type`, params: { expected: "'a' | 'b'", received: 'number' } })],
+    ],
+    ['a regex', z.string().regex(/^a$/), 'b', [keyed('', 'Invalid', { key: `${VE}.invalid_format`, params: { format: 'regex' } })]],
+    ['a named format', uuidString(), 'nope', [keyed('', 'Invalid uuid', { key: `${VE}.invalid_format`, params: { format: 'uuid' } })]],
+    [
+      'a prefix',
+      z.string().startsWith('ab'),
+      'x',
+      [keyed('', 'Invalid input: must start with "ab"', { key: `${VE}.invalid_affix`, params: { affix: 'starts_with', value: 'ab' } })],
+    ],
+    [
+      'array at least',
+      z.array(z.string()).min(2),
+      ['a'],
+      [keyed('', 'Array must contain at least 2 element(s)', { key: `${VE}.too_small.array`, params: { bound: 'inclusive', minimum: '2' } })],
+    ],
+    [
+      'array exactly, too short',
+      z.array(z.string()).length(2),
+      ['a'],
+      [keyed('', 'Array must contain exactly 2 element(s)', { key: `${VE}.too_small.array`, params: { bound: 'exact', minimum: '2' } })],
+    ],
+    [
+      'string at least',
+      boundedString({ min: 2 }),
+      'a',
+      [keyed('', 'String must contain at least 2 character(s)', { key: `${VE}.too_small.string`, params: { bound: 'inclusive', minimum: '2' } })],
+    ],
+    [
+      'string exactly, too short',
+      boundedString({ length: 3 }),
+      'ab',
+      [keyed('', 'String must contain exactly 3 character(s)', { key: `${VE}.too_small.string`, params: { bound: 'exact', minimum: '3' } })],
+    ],
+    [
+      'number greater than or equal',
+      z.number().min(1),
+      0,
+      [keyed('', 'Number must be greater than or equal to 1', { key: `${VE}.too_small.number`, params: { bound: 'inclusive', minimum: '1' } })],
+    ],
+    [
+      'number greater than',
+      z.number().positive(),
+      0,
+      [keyed('', 'Number must be greater than 0', { key: `${VE}.too_small.number`, params: { bound: 'exclusive', minimum: '0' } })],
+    ],
+    [
+      'array at most',
+      z.array(z.string()).max(1),
+      ['a', 'b'],
+      [keyed('', 'Array must contain at most 1 element(s)', { key: `${VE}.too_big.array`, params: { bound: 'inclusive', maximum: '1' } })],
+    ],
+    [
+      'array exactly, too long',
+      z.array(z.string()).length(2),
+      ['a', 'b', 'c'],
+      [keyed('', 'Array must contain exactly 2 element(s)', { key: `${VE}.too_big.array`, params: { bound: 'exact', maximum: '2' } })],
+    ],
+    [
+      'string at most',
+      boundedString({ max: 1 }),
+      'ab',
+      [keyed('', 'String must contain at most 1 character(s)', { key: `${VE}.too_big.string`, params: { bound: 'inclusive', maximum: '1' } })],
+    ],
+    [
+      'string exactly, too long',
+      boundedString({ length: 3 }),
+      'abcd',
+      [keyed('', 'String must contain exactly 3 character(s)', { key: `${VE}.too_big.string`, params: { bound: 'exact', maximum: '3' } })],
+    ],
+    [
+      'number less than or equal',
+      z.number().max(1),
+      2,
+      [keyed('', 'Number must be less than or equal to 1', { key: `${VE}.too_big.number`, params: { bound: 'inclusive', maximum: '1' } })],
+    ],
+    [
+      'number less than',
+      z.number().lt(1),
+      1,
+      [keyed('', 'Number must be less than 1', { key: `${VE}.too_big.number`, params: { bound: 'exclusive', maximum: '1' } })],
+    ],
+    [
+      'a bigint over its bound',
+      z.bigint().max(5n),
+      6n,
+      [keyed('', 'BigInt must be less than or equal to 5', { key: `${VE}.too_big.bigint`, params: { bound: 'inclusive', maximum: '5' } })],
+    ],
+    [
+      'not a multiple',
+      z.number().multipleOf(5),
+      7,
+      [keyed('', 'Number must be a multiple of 5', { key: `${VE}.not_multiple_of`, params: { divisor: '5' } })],
+    ],
+    [
+      'unrecognized keys',
+      z.object({}).strict(),
+      { a: 1, b: 2 },
+      [keyed('', "Unrecognized key(s) in object: 'a', 'b'", { key: `${VE}.unrecognized_keys`, params: { keys: "'a', 'b'" } })],
+    ],
+    ['a union with no match', z.union([z.string(), z.number()]), true, [keyed('', 'Invalid input', { key: `${VE}.invalid_input` })]],
+    ['a refine without a message', z.string().refine((v) => v === 'a'), 'b', [keyed('', 'Invalid input', { key: `${VE}.invalid_input` })]],
+    [
+      'Infinity on a bounded integer keeps both issues, each keyed',
+      z.object({ count: integerNumber().max(208) }),
+      { count: Infinity },
+      [
+        keyed('count', 'Expected integer, received float', { key: `${VE}.integer_received_float` }),
+        keyed('count', 'Number must be less than or equal to 208', { key: `${VE}.too_big.number`, params: { bound: 'inclusive', maximum: '208' } }),
+      ],
+    ],
+    // What a schema writes itself, and what zod words for a code the map does
+    // not know, travels verbatim and has no key.
+    ['a message the schema sets', z.string().min(1, 'msg'), '', [{ path: '', message: 'msg' }]],
+    ['a refine with a message', z.string().refine((v) => v === 'a', { message: 'Must be a' }), 'b', [{ path: '', message: 'Must be a' }]],
+    ['a regex with a message', z.string().regex(/^a$/, 'YYYY-MM-DD'), 'b', [{ path: '', message: 'YYYY-MM-DD' }]],
+    ['a format zod 3 had no name for', z.ipv4(), 'x', [{ path: '', message: 'Invalid IPv4 address' }]],
+    ['a code the map does not know', z.record(z.string().regex(/^a/), z.number()), { b: 1 }, [{ path: 'b', message: 'Invalid key in record' }]],
+  ];
+
+  it.each(KEYED_ROWS)('%s', (_label, schema, input, issues) => {
+    expect(parseForClientKeyed(schema, input)).toStrictEqual({ success: false, issues });
+  });
+
+  it('parseForClient answers the same issues without their keys', () => {
+    const schema = z.object({ a: z.string(), b: z.string().min(1, 'msg') });
+    expect(parseForClient(schema, { b: '' })).toStrictEqual({
+      success: false,
+      issues: [issue('a', 'Required'), issue('b', 'msg')],
+    });
+  });
+
+  it('a success is the parsed data, as from parseForClient', () => {
+    expect(parseForClientKeyed(z.object({ a: z.string().default('x') }), {})).toStrictEqual({ success: true, data: { a: 'x' } });
+  });
+});
+
+describe('legacyIssueKey covers the bounds no zod 4 helper of this code produces', () => {
+  // zod 3 worded an exclusive array or string bound ("more than", "over",
+  // "less than", "under") and an exact number. No schema of this API builds
+  // one, so the raw issues are written by hand.
+  const raw = (fields: Record<string, unknown>): z.core.$ZodRawIssue => ({ path: [], input: undefined, ...fields }) as unknown as z.core.$ZodRawIssue;
+  const ROWS_RAW: Array<[string, z.core.$ZodRawIssue, ErrorMessageKey, string]> = [
+    [
+      'array more than',
+      raw({ code: 'too_small', origin: 'array', minimum: 2, inclusive: false }),
+      { key: `${VE}.too_small.array`, params: { bound: 'exclusive', minimum: '2' } },
+      'Array must contain more than 2 element(s)',
+    ],
+    [
+      'string over',
+      raw({ code: 'too_small', origin: 'string', minimum: 2, inclusive: false }),
+      { key: `${VE}.too_small.string`, params: { bound: 'exclusive', minimum: '2' } },
+      'String must contain over 2 character(s)',
+    ],
+    [
+      'number exactly equal to',
+      raw({ code: 'too_small', origin: 'number', minimum: 3, inclusive: true, exact: true }),
+      { key: `${VE}.too_small.number`, params: { bound: 'exact', minimum: '3' } },
+      'Number must be exactly equal to 3',
+    ],
+    [
+      'array less than',
+      raw({ code: 'too_big', origin: 'array', maximum: 2, inclusive: false }),
+      { key: `${VE}.too_big.array`, params: { bound: 'exclusive', maximum: '2' } },
+      'Array must contain less than 2 element(s)',
+    ],
+    [
+      'string under',
+      raw({ code: 'too_big', origin: 'string', maximum: 2, inclusive: false }),
+      { key: `${VE}.too_big.string`, params: { bound: 'exclusive', maximum: '2' } },
+      'String must contain under 2 character(s)',
+    ],
+    [
+      'number exactly',
+      raw({ code: 'too_big', origin: 'number', maximum: 3, inclusive: true, exact: true }),
+      { key: `${VE}.too_big.number`, params: { bound: 'exact', maximum: '3' } },
+      'Number must be exactly 3',
+    ],
+    [
+      'a bigint under its lower bound reads as a number, as in zod 3',
+      raw({ code: 'too_small', origin: 'bigint', minimum: 5n, inclusive: true }),
+      { key: `${VE}.too_small.number`, params: { bound: 'inclusive', minimum: '5' } },
+      'Number must be greater than or equal to 5',
+    ],
+    [
+      'a suffix',
+      raw({ code: 'invalid_format', format: 'ends_with', suffix: 'z' }),
+      { key: `${VE}.invalid_affix`, params: { affix: 'ends_with', value: 'z' } },
+      'Invalid input: must end with "z"',
+    ],
+    [
+      'an infix',
+      raw({ code: 'invalid_format', format: 'includes', includes: 'q' }),
+      { key: `${VE}.invalid_affix`, params: { affix: 'includes', value: 'q' } },
+      'Invalid input: must include "q"',
+    ],
+  ];
+
+  it.each(ROWS_RAW)('%s', (_label, rawIssue, key, english) => {
+    expect(legacyIssueKey(rawIssue)).toStrictEqual(key);
+    expect(legacyIssueMessage(rawIssue)).toBe(english);
+  });
+
+  it('a code it does not know has no key, and keeps zod its own text', () => {
+    expect(legacyIssueKey(raw({ code: 'invalid_key', origin: 'record', issues: [] }))).toBeUndefined();
+    expect(legacyIssueMessage(raw({ code: 'invalid_key', origin: 'record', issues: [] }))).toBeUndefined();
+  });
+});
+
+describe('RequestValidationError: the English of today in err.message, the language of the reader on the wire', () => {
+  const issuesOf = (schema: z.ZodType, input: unknown): KeyedClientIssue[] => {
+    const parsed = parseForClientKeyed(schema, input);
+    if (parsed.success) throw new Error('the row expects a failure');
+    return parsed.issues;
+  };
+
+  it('a body: the zod 3 sentence in English, its key, and the Spanish frame and issues', () => {
+    const schema = z.object({ entity_id: uuidString(), entry_date: z.string(), lines: z.array(z.object({})) });
+    const err = new RequestValidationError({ kind: 'body' }, issuesOf(schema, {}));
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(err.statusCode).toBe(422);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.field).toBeUndefined();
+    expect(err.message).toBe('Invalid request body: entity_id: Required; entry_date: Required; lines: Required');
+    expect(err.messageKey?.key).toBe('error.VALIDATION_ERROR.body');
+    expect(err.localized('en')).toBe(err.message);
+    expect(err.localized('es')).toBe(
+      'Cuerpo de la petición inválido: entity_id: Obligatorio; entry_date: Obligatorio; lines: Obligatorio'
+    );
+  });
+
+  it('a query parameter: no path in the list, and `field` is the parameter', () => {
+    const err = new RequestValidationError(
+      { kind: 'query', name: 'status' },
+      issuesOf(z.enum(['pending_review', 'approved', 'rejected']), 'bogus')
+    );
+    expect(err.field).toBe('status');
+    expect(err.message).toBe(
+      "Invalid query parameter: status: Invalid enum value. Expected 'pending_review' | 'approved' | 'rejected', received 'bogus'"
+    );
+    expect(err.messageKey?.key).toBe('error.VALIDATION_ERROR.query');
+    expect(err.localized('en')).toBe(err.message);
+    expect(err.localized('es')).toBe(
+      "Parámetro de consulta inválido: status: Valor no admitido. Se esperaba 'pending_review' | 'approved' | 'rejected' y llegó 'bogus'"
+    );
+  });
+
+  it('a keyed issue next to a message the schema wrote, at the root', () => {
+    const err = new RequestValidationError({ kind: 'body' }, [
+      keyed('name', 'String must contain at most 255 character(s)', {
+        key: `${VE}.too_big.string`,
+        params: { bound: 'inclusive', maximum: '255' },
+      }),
+      { path: '', message: 'At least one field must be provided' },
+    ]);
+    expect(err.message).toBe(
+      'Invalid request body: name: String must contain at most 255 character(s); <root>: At least one field must be provided'
+    );
+    expect(err.localized('es')).toBe(
+      'Cuerpo de la petición inválido: name: La cadena debe tener como máximo 255 caracteres; <root>: At least one field must be provided'
+    );
+  });
+
+  const SPANISH: Array<[string, z.ZodType, unknown, string]> = [
+    [
+      'Infinity on a bounded integer',
+      z.object({ count: integerNumber().max(208) }),
+      { count: Infinity },
+      'count: Se esperaba un número entero y llegó uno con decimales; count: El número debe ser menor o igual que 208',
+    ],
+    [
+      'the JSON type names stay as docs/openapi.json writes them',
+      z.object({ tags: z.array(z.string()) }),
+      { tags: [0, 0] },
+      'tags.0: Se esperaba string y llegó number; tags.1: Se esperaba string y llegó number',
+    ],
+    ['a regex', z.object({ code: z.string().regex(/^a$/) }), { code: 'b' }, 'code: Formato inválido'],
+    ['a named format', z.object({ id: uuidString() }), { id: 'x' }, 'id: Formato uuid inválido'],
+    ['a string too short', z.object({ name: boundedString({ min: 2 }) }), { name: 'a' }, 'name: La cadena debe tener al menos 2 caracteres'],
+    ['one element, in the singular', z.object({ lines: z.array(z.string()).min(1) }), { lines: [] }, 'lines: El arreglo debe tener al menos 1 elemento'],
+    ['a union with no match', z.object({ v: z.union([z.string(), z.number()]) }), { v: true }, 'v: Entrada inválida'],
+    ['a number given Infinity', z.object({ w: z.number() }), { w: Infinity }, 'w: El número debe ser finito'],
+  ];
+
+  it.each(SPANISH)('in Spanish · %s', (_label, schema, input, issues) => {
+    const err = new RequestValidationError({ kind: 'body' }, issuesOf(schema, input));
+    expect(err.localized('es')).toBe(`Cuerpo de la petición inválido: ${issues}`);
+  });
 });

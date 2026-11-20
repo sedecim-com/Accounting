@@ -110,7 +110,7 @@ Commands:
   ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
   cfdi                                   The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI
   rep                                    Payment receipts (REP): what is missing one, and the parked ones to retry
-  ai|ia                                  Métricas y calibración del agente contable
+  ai|ia                                  Metrics and calibration of the accounting agent
   usage|uso [options]                    Token usage and estimated cost from the local ledger (no API calls)
   status|estado [options]                Health snapshot: config, live provider probes, database and RLS (redacted, shareable)
   jobs|tareas                            Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)
@@ -10691,14 +10691,14 @@ Options:
 ```
 Usage: mnemosine ai|ia [options] [command]
 
-Métricas y calibración del agente contable
+Metrics and calibration of the accounting agent
 
 Options:
   -h, --help                    display help for command
 
 Commands:
-  stats|estadisticas [options]  Aprobación por bucket de confianza, delta
-                                confianza-vs-realidad, costo y eventos
+  stats|estadisticas [options]  Approval by confidence bucket,
+                                confidence-vs-reality delta, cost and events
   help [command]                display help for command
 ```
 
@@ -10707,7 +10707,7 @@ Commands:
 ```
 Usage: mnemosine ai stats|estadisticas [options]
 
-Aprobación por bucket de confianza, delta confianza-vs-realidad, costo y eventos
+Approval by confidence bucket, confidence-vs-reality delta, cost and events
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

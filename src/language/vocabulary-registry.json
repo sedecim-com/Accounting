@@ -6076,6 +6076,30 @@
     },
     {
       "class": "policy-key",
+      "where": "cheque_advance_before_cashing",
+      "es": "cheque_advance_before_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-572): a customer advance received by cheque applied before the bank cashes it."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application is refused until the cashing is recorded."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/defer_to_cashing",
+      "es": "defer_to_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application posts now and its IVA is netted on the cashing day (part 2/2)."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,

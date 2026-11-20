@@ -680,11 +680,21 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
       'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
-      'whether the tax waits, is skipped with a warning, or is asked about.',
+      'whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice ' +
+      'is in the system, or the documents it knows go on as usual and the unknown one\'s share and VAT ' +
+      'are never recorded from this receipt.',
     options: [
-      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      {
+        value: 'esperar',
+        label:
+          'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, ' +
+          'and none of its VAT is transferred',
+      },
       { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
-      { value: 'preguntar', label: 'Ask for the VAT amount' },
+      {
+        value: 'preguntar',
+        label: 'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+      },
     ],
     defaultValue: 'esperar',
     defaultRationale:
@@ -695,7 +705,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
-    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    whatIDo:
+      'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the ' +
+      'system, running mnemosine rep reconcile links it.',
     ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
     priority: 45,
   },
@@ -2901,6 +2913,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
     ifSkipped: 'I signal it and change nothing.',
     priority: 42,
+  },
+  {
+    // MNE-001-572 (#789) · An advance received by cheque, applied before the
+    // bank cashes it where it would cancel IVA nobody has caused (a PPD
+    // invoice, or a PUE one at another treatment). Reader:
+    // `refuseUncausedCancellation` in payment-service.ts. The owner's answer
+    // of 19 Nov 2026 on #789: «Rechazar + clave para diferir».
+    key: 'cheque_advance_before_cashing',
+    textKey: 'cheque_advance_before_cashing',
+    category: 'fiscal',
+    question:
+      'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+    impact:
+      'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. ' +
+      'With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. ' +
+      'With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. ' +
+      'A PUE invoice at the receipt\'s own treatment is applied either way.',
+    options: [
+      { value: 'refuse', label: 'Refuse until the cashing is recorded' },
+      { value: 'defer_to_cashing', label: 'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. ' +
+      'Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. ' +
+      'Refusing posts nothing without review, the conservative option of ADR-0006.',
+    whyAsking:
+      'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+    whatIDo:
+      'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+    ifSkipped: 'I refuse the application until the cashing is recorded.',
+    priority: 58,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

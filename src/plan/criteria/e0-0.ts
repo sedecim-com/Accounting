@@ -1783,6 +1783,110 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-assets-speaks-by-key',
+    // MNE-001-222 (issue #267, I8.5). The assets-inventory family —`depreciation
+    // run`/`post` and `asset create`— printed 35 Spanish strings from the code.
+    // The ones a person reads live in the I8.5 block now: the plan's header and
+    // criteria, its warnings, the blocked run, the conflict with the approved
+    // plan, the confirmation and the done line, with ICU plurals instead of
+    // «(s)», and the usage errors of `asset create`. Six texts reuse a key that
+    // already said the same (the «taken as no» line, the two ledger-untouched
+    // notes, the no-terminal abort, the asset dry run, the date error); the two
+    // `writes` and the dry-run sentinel are English in place. The no-class
+    // group is English in the row and labelled in the table, so --json and csv
+    // do not change with the locale.
+    enunciado:
+      'The assets-inventory family (depreciation, asset) prints no Spanish string from the code: its texts come from the I8.5 block of the catalogue (#267, MNE-001-222)',
+    evaluar: () =>
+      familySpeaksByKey('I8.5', 'assets', ['src/cli/depreciation-command.ts', 'src/cli/asset-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/depreciation-command.ts',
+        de: "deps.palette.dim(`${t('assets.depreciation.nothing_this_book')}\\n`)",
+        a: "deps.palette.dim('Nada que contabilizar en este periodo con este libro.\\n')",
+        porque: 'string-back-in-the-code: depreciation run writes «nada que contabilizar» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/asset-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the assets family again',
+      },
+      {
+        archivo: 'src/cli/asset-command.ts',
+        de: "usageError({ key: 'assets.asset.source_entry_contradiction' })",
+        a: "usageError('--source-entry nombra el asiento donde YA está el costo, así que no se puede pasar junto a `--capitalized no`.')",
+        porque: 'string-back-in-the-code: the usage error of asset create is a Spanish template again',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-platform-speaks-by-key',
+    // MNE-001-223 (issue #268, I8.6 part 1). The platform family starts with
+    // `backup`, which printed 37 Spanish strings from the code. The ones a
+    // person reads live in the I8.6 block now: what a dump or an export is and
+    // carries, the usage errors, the verdicts of `verify`, and the dry run,
+    // the confirmation and the done line of `restore` (its English, too), with
+    // ICU plurals instead of «(s)». The reason `restore` gives for not
+    // honouring a key goes by key through the kernel's slot; `writes` is
+    // English in place. The prose cells of `backup list` are English in the
+    // row and labelled in the table, so --json and csv do not change with the
+    // locale. MNE-001-224 (I8.6 part 2) adds audit, ai, jobs and
+    // webhook-sweep under this same id: their 29 strings live in the same
+    // block, `audit list`'s removed-user cell is English in the row and
+    // labelled in the table, `ai stats` reads its shadow floors from
+    // src/ai/floor.ts, and ai's two help descriptions, the jobs and sweep
+    // `writes` and the sweep's `innecesaria` are English in place. #268's
+    // console clause does not hold yet for jobs and webhook-sweep, whose
+    // English prose is still printed with console.log: a follow-up task.
+    enunciado:
+      'The platform family (backup, audit, ai, jobs, webhook-sweep) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue (#268, MNE-001-223/224)',
+    evaluar: () =>
+      familySpeaksByKey('I8.6', 'platform', [
+        'src/cli/backup-command.ts',
+        'src/cli/audit-command.ts',
+        'src/cli/ai-command.ts',
+        'src/cli/jobs-command.ts',
+        'src/cli/webhook-sweep-command.ts',
+      ]),
+    mutantes: [
+      {
+        archivo: 'src/cli/backup-command.ts',
+        de: "t('platform.backup.export.not_a_backup')",
+        a: "'Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.'",
+        porque: 'string-back-in-the-code: backup export writes «no es un respaldo» in Spanish to every reader again',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/backup-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the platform family again',
+      },
+      {
+        archivo: 'src/cli/backup-command.ts',
+        de: "{ key: 'platform.backup.restore.retry_restores' }",
+        a: "'un reintento vuelve a restaurar sobre lo ya restaurado'",
+        porque: 'string-back-in-the-code: the reason restore gives for not honouring a key is Spanish again',
+      },
+      {
+        archivo: 'src/cli/audit-command.ts',
+        de: "t('platform.audit.list.no_rows')",
+        a: "'Sin filas. El rastro es del INQUILINO: `audit_log` no tiene columna de entidad legal.'",
+        porque: 'string-back-in-the-code: audit list says «sin filas» in Spanish to every reader again',
+      },
+      {
+        archivo: 'src/cli/ai-command.ts',
+        de: "'platform.ai.stats.latency'",
+        a: "'latencia del modelo: {average} ms promedio' as never",
+        porque: 'string-back-in-the-code: ai stats writes its latency line in Spanish again, which only check 2 sees',
+      },
+    ],
+  },
+
 
 
   {

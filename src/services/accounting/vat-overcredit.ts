@@ -258,7 +258,7 @@ async function findingOf(client: pg.PoolClient, bill: BillRow, rows: Application
   if (unstored > 0) {
     say('release_not_stored', `${unstored} live application(s) written before migration 105 stored no release: its excess would be a guess`);
   }
-  const writtenOff = await writtenOffOf(client, { id: bill.bill_id, total_amount: bill.total, amount_due: bill.amount_due });
+  const writtenOff = await writtenOffOf(client, bill.entity_id, { id: bill.bill_id, total_amount: bill.total, amount_due: bill.amount_due });
   if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
     say('closed_short', `closed short (${writtenOff.toFixed(2)} written off): the VAT of the write-off is stored nowhere`);
   }
