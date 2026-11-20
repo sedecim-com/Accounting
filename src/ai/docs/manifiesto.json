@@ -118,7 +118,7 @@
     "src/ai/ingest-service.ts": "4122b10180d49caea23616167eb30bbbd8619b6a",
     "src/services/banking/matching.ts": "0e292826286cdfd0daf14f7692b244a7f780121d",
     "src/api/rest/routes/bank-reconciliation.ts": "6a925a3ca3fa5730098874820c426b105bb074bd",
-    "src/database/enums.ts": "93f16255519f207785744179612f9da1b3d0a7af",
+    "src/database/enums.ts": "7edb9223a7d632b0a3948deaa25d8f6e3519d75d",
     "src/ai/external-service.ts": "0d33222b252af235e5729de6f97127ec057d2193",
     "src/ai/tools/external-tools.ts": "0c527a4c31f0ce8d481bca66182e5e904a4f7f3d",
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",

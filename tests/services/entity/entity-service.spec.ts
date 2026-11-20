@@ -304,6 +304,36 @@ describe('createEntity — regime and fiscal postal code', () => {
   });
 });
 
+describe('createEntity — minimum-wage zone (MNE-001-377)', () => {
+  const insert = (): [string, unknown[]] => {
+    const calls = mockClient.query.mock.calls as Array<[string, unknown[]]>;
+    return calls.find((c) => /INSERT INTO legal_entities/.test(c[0]))!;
+  };
+
+  it('a declared zone is stored and stamped; without one the column default (general) applies, undeclared', async () => {
+    db();
+    await createEntity({
+      name: 'Acme SA', taxId: 'AAA010101AAA', country: 'MX', tenantId: TENANT, createdBy: USER,
+      minimumWageZone: 'northern_border',
+    });
+    expect(insert()[0]).toMatch(/minimum_wage_zone_declared_at/);
+    expect(insert()[1][9]).toBe('northern_border');
+
+    mockClient.query.mockReset();
+    db();
+    await createEntity({ name: 'Acme SA', taxId: 'AAA010101AAA', country: 'MX', tenantId: TENANT, createdBy: USER });
+    expect(insert()[1][9]).toBeNull();
+  });
+
+  it('refuses an unknown zone before touching the database', async () => {
+    db();
+    await expect(
+      createEntity({ name: 'Acme SA', taxId: 'AAA010101AAA', country: 'MX', tenantId: TENANT, createdBy: USER, minimumWageZone: 'frontera' })
+    ).rejects.toThrow(/general, northern_border/);
+    expect(mockClient.query).not.toHaveBeenCalled();
+  });
+});
+
 describe('getEntityTaxProfile', () => {
   it('reads both columns inside the tenant and names the regime', async () => {
     (query as unknown as Mock).mockResolvedValue({ rows: [{ tax_regime: '626', tax_postal_code: '64000' }] });

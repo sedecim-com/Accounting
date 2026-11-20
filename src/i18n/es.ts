@@ -1731,6 +1731,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
     '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.minimum_wage_zone':
+    'la zona de salario mínimo no está declarada: {count, plural, one {# trabajador se calcula} other {# trabajadores se calculan}} con el mínimo general',
   'pending.board.period_example':
     '{period} (terminó el {date})',
   'pending.policies.none':
@@ -3464,6 +3466,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
   'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
   'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: área de salario mínimo del lugar de trabajo, que topa la prima de antigüedad (LFT art. 486)',
   'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
   'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
   'help.account.show.description':
