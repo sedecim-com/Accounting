@@ -4128,6 +4128,11 @@ export const EN = {
   'ar.check.cross_party_application.found':
     "a customer's cash settles another customer's invoice: review it; nothing is blocked",
   'ar.check.cross_party_application.none': 'none',
+  'ar.check.orphan_application.found':
+    "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
+    "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
+    'report it before collecting that invoice again',
+  'ar.check.orphan_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
