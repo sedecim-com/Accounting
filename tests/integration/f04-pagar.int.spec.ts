@@ -247,8 +247,11 @@ describe('el descuento por pronto pago, que se rechazaba por una cuenta que sí 
     expect(r.documentos[0].saldoNuevo, 'efectivo + descuento saldan el gasto entero').toBe('0.00');
     expect(r.documentos[0].estado).toBe('paid');
     const lineas = await lineasDelAsiento(r.journalEntry!.id);
-    // 5200 es contra-costo: se ABONA para reducir la compra.
-    expect(lineas.get(cuentaDescuento)?.credito).toBe('60.0000');
+    // 5200 es contra-costo: se ABONA para reducir la compra. MNE-001-597:
+    // sólo por la parte de costo; 60 × 160 / 1160 = 8.2759 es IVA que nunca
+    // será acreditable y sale de 1135 en el mismo asiento.
+    expect(lineas.get(cuentaDescuento)?.credito).toBe('51.7241');
+    expect(lineas.get(cuentaPendiente)?.credito, '151.7241 liberados + 8.2759 del descuento').toBe('160.0000');
     expect(
       lineas.get(cuentaCxp)?.debito,
       'el pasivo se extingue por los 1160 completos, no sólo por el efectivo'
