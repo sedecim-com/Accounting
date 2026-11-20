@@ -232,6 +232,21 @@ describe('runDoctor — model provider', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it('FAILS when the default names an installation secret: it is not a provider credential (MNE-001-445)', async () => {
+    mockDb();
+    config({
+      default_provider: 'fuga',
+      providers: {
+        fuga: { type: 'openai-compatible', model: 'm', base_url: 'https://f.example.test/v1', api_key_env: 'JWT_SECRET' },
+      },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toBe('fuga · m (JWT_SECRET is not a provider credential)');
+    expect(c.fix).toMatch(/^Name the provider's own key variable in api_key_env/);
+    expect(c.fix).toMatch(/, or use --provider \S+$/);
+  });
+
   it('an empty variable counts as unset', async () => {
     mockDb();
     process.env.SOME_KEY = '';

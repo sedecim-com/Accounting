@@ -748,6 +748,17 @@ export function checkModelProvider(cwd?: string): CheckResult {
   );
   const state = states[defaultName];
   const ownFile = 'your shell or ~/.mnemosine/.env';
+  // resolveProfile refuses this profile before sending anything (MNE-001-445).
+  if (state.source.kind === 'refused') {
+    const ready = Object.entries(states).find(([n, st]) => n !== defaultName && st.ready);
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'fail',
+      detail: `${defaultName} · ${active.model} (${state.label})`,
+      fix: `Name the provider's own key variable in api_key_env, set in ${ownFile}` +
+        (ready ? `, or use --provider ${ready[0]}` : ''),
+    };
+  }
   if (state.source.kind === 'missing') {
     const variable = state.source.variable;
     const where = state.source.where ? ` (get it at ${state.source.where})` : '';
