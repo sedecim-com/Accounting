@@ -35,8 +35,12 @@ import { generateFilingWorkpaper } from '../../src/services/fiscal/filing-workpa
 //        (800) 10-15; NA anticipo 1,000 + 160 10-20 on FIN
 //        → 1,000 + 5,000 − 1,000 = 5,000 / 800 = 2120 (not caused twice)
 //   Nov  S10 PPD 1,000 (160) 11-03, collected whole 11-05; N10 100 + 16
-//        11-12 → 1,000 / 160; N10 nothing, 2125 ends at −16, and
-//        IVA-WP-CREDIT-NOTE-AFTER-COLLECTION names N10 (MNE-001-566)
+//        11-12 takes its IVA from 2120 (MNE-001-575); S11 PPD 1,000 (160)
+//        11-06, collected whole the same day, and N11 100 + 16 11-14 whose
+//        entry is posted the old way by hand, debiting 2125
+//        → 1,000 − 100 + 1,000 = 1,900 / 160 − 16 + 160 = 304 = 2120; N11
+//        takes nothing out, and IVA-WP-CREDIT-NOTE-AFTER-COLLECTION names it,
+//        not N10 (MNE-001-566); 2125 ends at −16, N11's
 // ============================================================
 
 let f: Fixture;
@@ -78,6 +82,32 @@ async function note(
     await applyCreditNote(f.entityId, cn.id, [{ invoiceId: o.invoice, amount: total }], f.userId);
   }
   notes[key] = { id: cn.id, number: cn.credit_note_number, entry: issued.journalEntry!.id };
+}
+
+/**
+ * A note whose entry is posted by hand the way postCreditNoteEntry did before
+ * MNE-001-575: its whole IVA from 2125, whatever the invoice still had parked.
+ */
+async function oldWayNote(key: string, invoice: string, date: string): Promise<void> {
+  const cn = await createCreditNote({
+    entity_id: f.entityId, customer_id: customerId, invoice_id: invoice, type: 'devolucion',
+    credit_date: date, subtotal: '100.00', tax_amount: '16.00',
+  }, f.userId);
+  const entry = await createJournalEntry(
+    f.entityId, date, 'auto_invoice' as never, `Credit note ${cn.credit_note_number}`,
+    [
+      { account_id: f.cuentas['4400'], debit_amount: '100.00', credit_amount: null },
+      { account_id: f.cuentas['2125'], debit_amount: '16.00', credit_amount: null },
+      { account_id: f.cuentas['1120'], debit_amount: null, credit_amount: '116.00' },
+    ] as never,
+    f.userId,
+    { autoPost: true, sourceType: 'credit_note', sourceId: cn.id, reference: cn.credit_note_number }
+  );
+  await query(
+    `UPDATE credit_notes SET status = 'issued', journal_entry_id = $1 WHERE id = $2 AND entity_id = $3 AND status = 'draft'`,
+    [entry.id, cn.id, f.entityId]
+  );
+  notes[key] = { id: cn.id, number: cn.credit_note_number, entry: entry.id };
 }
 
 /** ADV as an approved advance CFDI leaves it (MNE-001-515's helper), with its line so the paper can split it. */
@@ -169,6 +199,9 @@ beforeAll(async () => {
   const s10 = await sale('PPD', '1000.00', day(11, 3));
   await collect(s10, '1160.00', day(11, 5));
   await note('N10', { invoice: s10, subtotal: '100.00', tax: '16.00', date: day(11, 12) });
+  const s11 = await sale('PPD', '1000.00', day(11, 6));
+  await collect(s11, '1160.00', day(11, 6));
+  await oldWayNote('N11', s11, day(11, 14));
 
   for (const m of [5, 6, 7, 8, 9, 10, 11]) papers[m] = await paper(m);
 }, 300_000);
@@ -206,7 +239,7 @@ describe('an issued credit note in the IVA paper (LIVA art. 7)', () => {
     expect(lineOf(papers[5], 'N3')).toBeUndefined();
     expect(lineOf(papers[6], 'N3')).toBeUndefined();
     // June's 500 / 80 is S3's 1,800 / 288 less N2's 300 / 48 and N7's 1,000 / 160.
-    expect(await balance('2125')).toBe('16.00'); // 0 from S3 (320 − 32 − 288); +16 from N10, see C7
+    expect(await balance('2125')).toBe('16.00'); // 0 from S3 (320 − 32 − 288) and N10; +16 from N11, posted the old way in C7
   });
 
   it('C4 · July: notes at 0 % and exempt lower their bases, and the proportion of art. 5 fr. V with them', () => {
@@ -246,17 +279,19 @@ describe('an issued credit note in the IVA paper (LIVA art. 7)', () => {
     expect(lineOf(oct, 'NA')?.breakdown.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
   });
 
-  it('C7 · a note on a PPD invoice already collected: its entry debits 2125, the paper takes nothing out and says why', async () => {
-    // The posting takes the 16 from 2125, where nothing was parked, and the
-    // IVA stays in 2120; the entry stands (NIF B-1). MNE-001-566 names it:
-    // S10 owed 1,160 − 1,160 = 0 on 11-12, so 0 × 160 / 1,160 = 0 was still
-    // parked, and the entry's 16 debit to 2125 is 16 beyond it.
+  it('C7 · a note on a collected PPD invoice takes its IVA from 2120 and the paper takes it out; one posted the old way is named', async () => {
+    // MNE-001-575: S10 had nothing left in 2125, so the 16 N10 restitutes leaves 2120 (LIVA art. 7), and the
+    // warning of MNE-001-566 is silent on it. N11's entry was posted by hand as the posting did before: S11
+    // owed 1,160 − 1,160 = 0 on 11-14, so 0 was still parked, and its 16 debit to 2125 is 16 beyond it.
     const nov = papers[11];
-    expect(box(nov, 'tasa16')).toEqual({ base: '1000.00', iva: '160.00' });
-    expect(lineOf(nov, 'N10')).toBeUndefined();
+    expect(box(nov, 'tasa16')).toEqual({ base: '1900.00', iva: '304.00' });
+    expect(lineOf(nov, 'N10')).toMatchObject({
+      entryIds: [notes.N10.entry], breakdown: { tasa16: { base: '-100.0000', iva: '-16.0000' } },
+    });
+    expect(lineOf(nov, 'N11')).toBeUndefined();
     expect(codes(nov)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
     const after = nov.findings.filter((h) => h.codigo === 'IVA-WP-CREDIT-NOTE-AFTER-COLLECTION');
-    expect(after.map((h) => h.documentId)).toEqual([notes.N10.id]);
+    expect(after.map((h) => h.documentId)).toEqual([notes.N11.id]);
     expect(after[0].mensaje).toContain('0.0000 sin cobrar, con 0.0000 de IVA aparcado');
     expect(after[0].mensaje).toContain('cargó 16.0000 a 2125: 16.0000 de IVA');
     expect(after[0].mensaje).toContain('NIF B-1');

@@ -54,6 +54,8 @@ interface FakeState {
   noteRows: number;
   /** MNE-001-462: what the receipt's live allocations applied, when a test says so. */
   applied?: string;
+  /** MNE-001-575: IVA an invoice's collections already released from 2125, by id. */
+  taken?: Record<string, string>;
 }
 
 let state: FakeState;
@@ -84,6 +86,10 @@ function fakeClient(): pg.PoolClient {
     // ANTES de account_roles porque la consulta hace JOIN con esa tabla.
     if (sql.includes('AS parked')) {
       return { rows: [{ parked: state.parked[String(p[2])] ?? '0' }] };
+    }
+    // MNE-001-575: what an issued invoice's collections and earlier notes already took from 2125.
+    if (sql.includes('AS released')) {
+      return { rows: [{ released: state.taken?.[String(p[1])] ?? '0', unknown: '0', notes: '0', tax: '160', total: '1160' }] };
     }
     if (sql.includes('FROM account_roles')) {
       const roles = (p[1] ?? []) as string[];
@@ -163,12 +169,29 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     state.invoices = {
       'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
     };
+    state.parked = { 'inv-9': '160.0000' };
     await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9' }), USER);
 
     const iva = lineFor('acct:iva_trasladado_no_cobrado');
     expect(iva!.debit_amount).toBe('160.0000');
     expect(iva!.description).toMatch(/IVA reversed/);
     expect(lineFor('acct:iva_trasladado')).toBeUndefined();
+  });
+
+  it('MNE-001-575 · on a PPD invoice partly collected: 2125 up to what it still has parked, 2120 the rest', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    // Parked 160, collections released 120: 40 left, so the note's 160 is 40 from 2125 and 120 from 2120.
+    state.parked = { 'inv-9': '160.0000' };
+    state.taken = { 'inv-9': '120.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9' }), USER);
+
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('40.0000');
+    expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('120.0000');
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted \(LIVA art\. 7\)/);
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
   });
 
   it('sobre factura PUE el IVA vuelve de la cuenta causada', async () => {
@@ -227,6 +250,7 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     state.invoices = {
       'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
     };
+    state.parked = { 'inv-9': '160.0000' };
     await postCreditNoteEntry(fakeClient(), nota({ type: 'anticipo', invoice_id: 'inv-9' }), USER);
 
     expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
