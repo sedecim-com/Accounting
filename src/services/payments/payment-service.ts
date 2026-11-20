@@ -2990,18 +2990,26 @@ async function assertAfterLastEvent(
  * What the bill's live applications explain. Anything else that stopped being
  * owed was written off by a short pay, and no row says how much of it which
  * payment carried, its account or its IVA: an undo would have to guess.
+ * The VAT over-credit census reads it too (MNE-001-562).
  */
-async function assertNotClosedShort(
+export async function writtenOffOf(
   client: pg.PoolClient,
-  bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
-  what: string
-): Promise<void> {
+  bill: { id: string; total_amount: string; amount_due: string }
+): Promise<Decimal> {
   const explained = await client.query<{ s: string }>(
     `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
        FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
     [bill.id]
   );
-  const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+  return new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+}
+
+async function assertNotClosedShort(
+  client: pg.PoolClient,
+  bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
+  what: string
+): Promise<void> {
+  const writtenOff = await writtenOffOf(client, bill);
   if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
     throw new ValidationError(
       `${bill.bill_number} was closed short (${writtenOff.toFixed(2)} written off): the write-off, its ` +
