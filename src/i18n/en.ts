@@ -3371,6 +3371,107 @@ export const EN = {
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  // MNE-001-223: the backup leaves (create, export, list, verify, restore).
+  /** A backup or export with no manifest beside it. Stored English in `backup list`'s row; the table renders it. */
+  'platform.backup.no_manifest': '(no manifest)',
+  /** The schema a backup was taken at. */
+  'platform.backup.schema_of': 'schema {schema}',
+  /** The manifest beside a backup or an export. */
+  'platform.backup.manifest_line': 'manifest: {file}',
+  /** `backup create` with --tenant or --entity. */
+  'platform.backup.create.not_scoped':
+    '`backup create` dumps the WHOLE installation with pg_dump, which does not filter rows: narrowing it to one tenant or one entity is impossible by construction, and until now the flag was accepted and silently ignored.\nFor the archive of ONE firm: `mnemosine backup export --tenant <id>` (with `--entity <id|name>` for a single company).\nFor disaster recovery of the whole installation: `backup create` with no flags.',
+  /** Whose data a whole-installation dump carries. */
+  'platform.backup.create.unredacted':
+    'It holds the UNREDACTED data of {tenants, plural, one {# tenant} other {# tenants}}: it is the whole installation, not one firm.',
+  /** Where the archive of one firm comes from. */
+  'platform.backup.create.one_tenant_hint': 'For the archive of one only: `mnemosine backup export --tenant <id>`.',
+  /** The heading of what a dump does not carry. */
+  'platform.backup.create.no_crypto': 'And it does NOT include the cryptographic material:',
+  /** Why the vault key and ENCRYPTION_KEY are backed up separately. */
+  'platform.backup.create.crypto_detail':
+    'the vault key and ENCRYPTION_KEY live outside the database. Without them, after a restore the fiscal credentials and the bank data are unreadable. Back them up separately.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.create.untested_hint':
+    'And an untested backup is not a backup: `mnemosine backup verify <file> --restore`.',
+  /** `backup export` with no tenant. */
+  'platform.backup.export.tenant_required':
+    'There is no tenant to export. Name it with `--tenant <uuid>` or set MNEMOSINE_TENANT.\nA file that does not say whose it is cannot be kept in custody, so this is not guessed.',
+  /** The owner of an entity-scoped export. */
+  'platform.backup.export.entity_of': '{entity} (entity of {tenant})',
+  /** The size of an export. */
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# row} other {# rows}} · {tables, plural, one {# table} other {# tables}})',
+  /** The scope of an export and whose it is. */
+  'platform.backup.export.scope_line': 'scope: {scope} — {owner}',
+  /** How an export was read. */
+  'platform.backup.export.read_as': 'read as {role}, subject to RLS, in a single REPEATABLE READ snapshot',
+  /** Why an export is not a backup. */
+  'platform.backup.export.not_a_backup': 'This is an EXPORT, not a backup: there is no tested way back.',
+  /** Where disaster recovery comes from. */
+  'platform.backup.export.disaster_hint': 'For disaster recovery: `mnemosine backup create` + `backup restore`.',
+  /** The scoped tables an export leaves out. */
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# scoped table is} other {# scoped tables are}} left outside this scope; the manifest names them one by one.',
+  /** What an export carries. */
+  'platform.backup.export.unredacted':
+    "It carries the firm's unredacted data, third-party RFCs included: treat it as such.",
+  /** `backup list --status`. */
+  'platform.backup.list.no_status':
+    '`backup list` has no status to filter: a backup is a file, not a document with a lifecycle.',
+  /** `backup list` with --tenant or --entity. */
+  'platform.backup.list.not_scoped':
+    '`backup list` inventories a DIRECTORY, and it does not filter by scope yet: the flag was accepted and ignored.\nThe «scope» column of the output already says whose each file is (tenant, entity or whole installation), so for now the filter is done by reading it.',
+  /** The scope of a whole-installation dump. Stored English in the row; the table renders it. */
+  'platform.backup.list.scope_installation':
+    'installation ({tenants, plural, one {# tenant} other {# tenants}})',
+  /** The same, when an old manifest does not say how many tenants. */
+  'platform.backup.list.scope_installation_unknown': 'installation (unknown tenants)',
+  /** A backup whose hash still matches. Stored English in the row; the table renders it. */
+  'platform.backup.list.intact_yes': 'yes',
+  /** A backup whose restore was never rehearsed. Stored English in the row; the table renders it. */
+  'platform.backup.list.never_verified': 'never',
+  /** When the restore was last rehearsed, and its findings. Stored English in the row; the table renders it. */
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# finding} other {# findings}})',
+  /** An export has no restore to rehearse. Stored English in the row; the table renders it. */
+  'platform.backup.list.export_not_verified': 'n/a (export, not restorable)',
+  /** `backup verify` of a file that is not there. */
+  'platform.backup.verify.not_found': 'The backup {file} was not found',
+  /** The cheap verify, when the hash matches. */
+  'platform.backup.verify.hash_ok': 'hash and manifest match',
+  /** The hash does not match the manifest. */
+  'platform.backup.verify.hash_mismatch': 'the hash does NOT match the manifest',
+  /** What the cheap verify does not prove. */
+  'platform.backup.verify.not_proof': 'This does NOT prove the backup restores.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.verify.repeat_with_restore': 'An untested backup is not a backup: run it again with --restore.',
+  /** The rehearsed restore worked. */
+  'platform.backup.verify.restored': 'restored into a throwaway database',
+  /** The rehearsed restore failed. */
+  'platform.backup.verify.not_restored': 'did NOT restore',
+  /** What the rehearsed restore checked. */
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entity checked} other {# entities checked}} · {findings, plural, one {# finding} other {# findings}}',
+  /** Why `backup restore` does not honour an idempotency key. */
+  'platform.backup.restore.retry_restores': 'a retry restores again over what was already restored',
+  /** The dry run of `backup restore`. */
+  'platform.backup.restore.would_restore': 'Would restore {file} into a NEW database "{database}"',
+  /** The dry run writes nothing. */
+  'platform.backup.restore.nothing_written': 'Nothing is written, and no existing database is ever touched.',
+  /** The confirmation of `backup restore`. */
+  'platform.backup.restore.confirm': 'Create database "{database}" and restore {file} into it?',
+  /** `backup restore` with no terminal to confirm on. */
+  'platform.backup.restore.no_terminal':
+    '{question} — there is no terminal to ask on. Re-run with --yes once you are sure.',
+  /** The done line of `backup restore`. */
+  'platform.backup.restore.done': 'restored into the database {database}',
+  /** The previous database is untouched. */
+  'platform.backup.restore.previous_intact':
+    'The previous database is still intact: pointing the application at the new one is a separate act.',
+  /** The reminder to verify the restored database. */
+  'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====

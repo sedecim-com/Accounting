@@ -10,6 +10,7 @@ import {
 import {
   exportarInquilino,
   listarExportaciones,
+  type ResultadoExportacion,
 } from '../services/backup/exportacion-inquilino.js';
 import { enterTenant, currentTenant } from '../database/connection.js';
 import { resolveEntity } from '../ai/context.js';
@@ -28,6 +29,7 @@ import {
   checkExitCode,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
+import { t, type MessageParams, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine backup · respaldo
@@ -88,6 +90,49 @@ interface CommonOpts {
 
 const DESTINO_OMISION = './respaldos';
 
+const megabytes = (bytes: number): string => (bytes / 1024 / 1024).toFixed(1);
+
+/**
+ * What `backup export` prints, built apart from the action (MNE-001-223) so
+ * that it can be read without a database: the summary of the file on stdout,
+ * and on stderr what the file is not and what it carries.
+ */
+export function exportReport(r: ResultadoExportacion, p: Palette): { out: string; err: string } {
+  const m = r.manifiesto;
+  const owner =
+    m.alcance.tipo === 'entidad'
+      ? t('platform.backup.export.entity_of', { entity: m.alcance.entityNombre ?? '', tenant: m.alcance.tenantNombre })
+      : m.alcance.tenantNombre;
+  const out =
+    `${p.green('✔')} ${p.bold(path.basename(r.archivo))} ` +
+    p.dim(
+      `${t('platform.backup.export.size', { mb: megabytes(m.bytes), rows: m.totalFilas, tables: m.tablas.length })}\n`
+    ) +
+    p.dim(`  ${t('platform.backup.export.scope_line', { scope: m.alcance.tipo, owner })}\n`) +
+    p.dim(`  ${t('platform.backup.export.read_as', { role: m.leidoComo.rol })}\n`) +
+    p.dim(`  ${t('platform.backup.manifest_line', { file: path.basename(r.manifiestoEn) })}\n`);
+  const err =
+    p.yellow(`  ${t('platform.backup.export.not_a_backup')}\n`) +
+    p.dim(`  ${t('platform.backup.export.disaster_hint')}\n`) +
+    (m.fueraDeAlcance.length > 0
+      ? p.dim(`  ${t('platform.backup.export.out_of_scope', { count: m.fueraDeAlcance.length })}\n`)
+      : '') +
+    p.dim(`  ${t('platform.backup.export.unredacted')}\n`);
+  return { out, err };
+}
+
+/**
+ * A prose cell of `backup list` (MNE-001-223). The ROW stores the English
+ * catalogue, because --json and csv are read by scripts and must not change
+ * with the locale; `labels` remembers how the table says it in the user's
+ * language, for the kernel's `labelled` hook.
+ */
+function englishCell(labels: Map<string, string>, key: TranslationKey, params: MessageParams = {}): string {
+  const english = t(key, params, 'en');
+  labels.set(english, t(key, params));
+  return english;
+}
+
 export function registerBackupCommand(program: Command, deps: BackupCommandDeps): void {
   const backup = program
     .command('backup')
@@ -107,27 +152,31 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
     }
   };
 
-  const confirmOrAbort = async (opts: CommonOpts, question: string): Promise<void> => {
+  const confirmOrAbort = async (
+    opts: CommonOpts,
+    question: { key: TranslationKey; params: Record<string, string | number> }
+  ): Promise<void> => {
     if (opts.yes) return;
     if (deps.confirm) {
-      if (await deps.confirm(question)) return;
+      if (await deps.confirm(t(question.key, question.params))) return;
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure.`
-      );
+      throw abortedByUser({
+        key: 'platform.backup.restore.no_terminal',
+        params: { question: { key: question.key, params: question.params } },
+      });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        yesNoPrompt(question)
+        yesNoPrompt(t(question.key, question.params))
       );
       if (veredicto.si) return;
       throw abortedByUser(
         veredicto.incomprendida !== undefined
-          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          ? { key: 'bank.confirm.taken_as_no', params: { reason: noEntendi(veredicto.incomprendida) } }
           : undefined
       );
     } finally {
@@ -176,14 +225,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         opts.entity !== undefined ||
         program.getOptionValueSource('tenant') === 'cli';
       if (acotado) {
-        throw usageError(
-          '`backup create` vuelca la instalación ENTERA con pg_dump, que no filtra filas: acotarlo ' +
-            'a un inquilino o a una entidad es imposible por construcción, y hasta hoy la bandera ' +
-            'se aceptaba y se ignoraba en silencio.\n' +
-            'Para el archivo de UN despacho: `mnemosine backup export --tenant <id>` ' +
-            '(con `--entity <id|nombre>` para una sola sociedad).\n' +
-            'Para la recuperación ante desastre de la instalación completa: `backup create` sin banderas.'
-        );
+        throw usageError({ key: 'platform.backup.create.not_scoped' });
       }
       const destino = opts.target ?? DESTINO_OMISION;
       const r = await crearRespaldo({ destino });
@@ -193,26 +235,22 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         render([{ archivo: r.archivo, manifiesto: r.manifiestoEn, bytes: r.manifiesto.bytes, sha256: r.manifiesto.sha256, alcance: r.manifiesto.alcance.tipo, inquilinos: r.manifiesto.alcance.inquilinos }], { json: true });
         return;
       }
+      const schema = t('platform.backup.schema_of', { schema: r.manifiesto.esquema.ultimaMigracion });
       process.stdout.write(
         `${p.green('✔')} ${p.bold(path.basename(r.archivo))} ` +
-          p.dim(`(${(r.manifiesto.bytes / 1024 / 1024).toFixed(1)} MB · esquema ${r.manifiesto.esquema.ultimaMigracion})\n`) +
-          p.dim(`  manifiesto: ${path.basename(r.manifiestoEn)}\n`)
+          p.dim(`(${megabytes(r.manifiesto.bytes)} MB · ${schema})\n`) +
+          p.dim(`  ${t('platform.backup.manifest_line', { file: path.basename(r.manifiestoEn) })}\n`)
       );
       // DE QUIÉN ES ESTE ARCHIVO, en voz alta y antes que nada. El manifiesto
       // declaraba con cuidado lo que el volcado NO lleva y callaba a quién
       // pertenece lo que sí lleva; un respaldo que no dice de quién es no se
       // puede custodiar.
       process.stderr.write(
-        p.yellow(
-          `  Contiene los datos SIN REDACTAR de ${r.manifiesto.alcance.inquilinos} inquilino(s): es la instalación entera, no un despacho.\n`
-        ) +
-          p.dim('  Para el archivo de uno solo: `mnemosine backup export --tenant <id>`.\n') +
-          p.yellow('  Y NO incluye el material criptográfico:\n') +
-          p.dim(
-            '  la llave del vault y ENCRYPTION_KEY viven fuera de la base. Sin ellas, al restaurar\n' +
-              '  las credenciales fiscales y los datos bancarios quedan ilegibles. Respáldalas aparte.\n'
-          ) +
-          p.dim('  Y un respaldo no probado no es un respaldo: `mnemosine backup verify <archivo> --restore`.\n')
+        p.yellow(`  ${t('platform.backup.create.unredacted', { tenants: r.manifiesto.alcance.inquilinos })}\n`) +
+          p.dim(`  ${t('platform.backup.create.one_tenant_hint')}\n`) +
+          p.yellow(`  ${t('platform.backup.create.no_crypto')}\n`) +
+          p.dim(`  ${t('platform.backup.create.crypto_detail')}\n`) +
+          p.dim(`  ${t('platform.backup.create.untested_hint')}\n`)
       );
     })
   );
@@ -257,10 +295,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
       const tenantId =
         (globalsOf<{ tenant?: string }>(command).tenant ?? currentTenant() ?? '').trim();
       if (!tenantId) {
-        throw usageError(
-          'No hay inquilino que exportar. Nómbralo con `--tenant <uuid>` o fija MNEMOSINE_TENANT.\n' +
-            'Un archivo que no dice de quién es no se puede custodiar, así que esto no se adivina.'
-        );
+        throw usageError({ key: 'platform.backup.export.tenant_required' });
       }
       // El contexto se fija ANTES de resolver la entidad: sin esto, resolver un
       // nombre buscaría en los libros de todos los despachos.
@@ -291,27 +326,9 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         return;
       }
 
-      const de =
-        m.alcance.tipo === 'entidad'
-          ? `${m.alcance.entityNombre ?? ''} (entidad de ${m.alcance.tenantNombre})`
-          : m.alcance.tenantNombre;
-      process.stdout.write(
-        `${p.green('✔')} ${p.bold(path.basename(r.archivo))} ` +
-          p.dim(`(${(m.bytes / 1024 / 1024).toFixed(1)} MB · ${m.totalFilas} filas · ${m.tablas.length} tablas)\n`) +
-          p.dim(`  alcance: ${m.alcance.tipo} — ${de}\n`) +
-          p.dim(`  leído como ${m.leidoComo.rol}, sujeto a RLS, en una sola instantánea REPEATABLE READ\n`) +
-          p.dim(`  manifiesto: ${path.basename(r.manifiestoEn)}\n`)
-      );
-      process.stderr.write(
-        p.yellow('  Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.\n') +
-          p.dim('  Para recuperación ante desastre: `mnemosine backup create` + `backup restore`.\n') +
-          (m.fueraDeAlcance.length > 0
-            ? p.dim(
-                `  ${m.fueraDeAlcance.length} tabla(s) acotada(s) quedan fuera de este alcance; el manifiesto las nombra una por una.\n`
-              )
-            : '') +
-          p.dim('  Lleva datos sin redactar del despacho, RFC de terceros incluidos: trátalo como tal.\n')
-      );
+      const report = exportReport(r, p);
+      process.stdout.write(report.out);
+      process.stderr.write(report.err);
     })
   );
 
@@ -331,9 +348,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
       // respaldo no tiene ciclo de vida, así que se rechaza en vez de
       // ignorarse (mismo trato que `invoice series list`).
       if (opts.status?.length) {
-        throw usageError(
-          '`backup list` no tiene estado que filtrar: un respaldo es un archivo, no un documento con ciclo.'
-        );
+        throw usageError({ key: 'platform.backup.list.no_status' });
       }
       // Y el mismo trato para las banderas de acotación, por la misma razón que
       // en `create`: se publicaban y se ignoraban. Aquí engaña MÁS que allí,
@@ -346,12 +361,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         opts.entity !== undefined ||
         program.getOptionValueSource('tenant') === 'cli'
       ) {
-        throw usageError(
-          '`backup list` inventaría un DIRECTORIO, y todavía no filtra por alcance: la bandera se ' +
-            'aceptaba y se ignoraba.\n' +
-            'La columna «alcance» de la salida ya dice de quién es cada archivo — inquilino, entidad ' +
-            'o instalación completa —, así que por ahora el filtro se hace leyéndola.'
-        );
+        throw usageError({ key: 'platform.backup.list.not_scoped' });
       }
       const directorio = opts.target ?? DESTINO_OMISION;
       const respaldos = await listarRespaldos(directorio);
@@ -361,39 +371,52 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
       // mismo. Con la exportación por inquilino la columna distingue de verdad,
       // así que el inventario mira los dos tipos de archivo del directorio.
       const exportaciones = await listarExportaciones(directorio);
+      const labels = new Map<string, string>();
+      const cell = (key: TranslationKey, params?: MessageParams): string => englishCell(labels, key, params);
+      const intact = (v: boolean | null): string => (v === null ? '?' : v ? cell('platform.backup.list.intact_yes') : 'NO');
       const filas = [
-        ...respaldos.map((r) => ({
-          archivo: path.basename(r.archivo),
-          creado: r.manifiesto?.creado ?? '',
-          alcance: r.manifiesto
-            ? `instalación (${r.manifiesto.alcance?.inquilinos ?? '?'} inquilinos)`
-            : '(sin manifiesto)',
-          esquema: r.manifiesto?.esquema.ultimaMigracion ?? '(sin manifiesto)',
-          mb: r.manifiesto ? (r.manifiesto.bytes / 1024 / 1024).toFixed(1) : '',
-          integro: r.integro === null ? '?' : r.integro ? 'sí' : 'NO',
-          verificado: r.manifiesto?.verificacion
-            ? `${r.manifiesto.verificacion.fecha.slice(0, 10)} (${r.manifiesto.verificacion.hallazgos} hallazgos)`
-            : 'nunca',
-        })),
+        ...respaldos.map((r) => {
+          const tenants = r.manifiesto?.alcance?.inquilinos;
+          return {
+            archivo: path.basename(r.archivo),
+            creado: r.manifiesto?.creado ?? '',
+            alcance: r.manifiesto
+              ? tenants === undefined
+                ? cell('platform.backup.list.scope_installation_unknown')
+                : cell('platform.backup.list.scope_installation', { tenants })
+              : cell('platform.backup.no_manifest'),
+            esquema: r.manifiesto?.esquema.ultimaMigracion ?? cell('platform.backup.no_manifest'),
+            mb: r.manifiesto ? megabytes(r.manifiesto.bytes) : '',
+            integro: intact(r.integro),
+            verificado: r.manifiesto?.verificacion
+              ? cell('platform.backup.list.verified_on', {
+                  date: r.manifiesto.verificacion.fecha.slice(0, 10),
+                  findings: r.manifiesto.verificacion.hallazgos,
+                })
+              : cell('platform.backup.list.never_verified'),
+          };
+        }),
         ...exportaciones.map((x) => ({
           archivo: path.basename(x.archivo),
           creado: x.manifiesto?.creado ?? '',
           alcance: x.manifiesto
             ? `${x.manifiesto.alcance.tipo}: ${x.manifiesto.alcance.entityNombre ?? x.manifiesto.alcance.tenantNombre}`
-            : '(sin manifiesto)',
-          esquema: x.manifiesto?.esquema.ultimaMigracion ?? '(sin manifiesto)',
-          mb: x.manifiesto ? (x.manifiesto.bytes / 1024 / 1024).toFixed(1) : '',
-          integro: x.integro === null ? '?' : x.integro ? 'sí' : 'NO',
+            : cell('platform.backup.no_manifest'),
+          esquema: x.manifiesto?.esquema.ultimaMigracion ?? cell('platform.backup.no_manifest'),
+          mb: x.manifiesto ? megabytes(x.manifiesto.bytes) : '',
+          integro: intact(x.integro),
           // Una exportación no tiene ensayo de restauración que anotar, y
           // escribir «nunca» aquí insinuaría que podría tenerlo.
-          verificado: 'n/a (exportación, no restaurable)',
+          verificado: cell('platform.backup.list.export_not_verified'),
         })),
       ].sort((a, b) => b.creado.localeCompare(a.creado));
+      const label = (v: string): string => labels.get(v) ?? v;
       render(filas, {
         ...opts,
         total: filas.length,
         idField: 'archivo',
         fields: opts.fields ?? 'archivo,creado,alcance,esquema,mb,integro,verificado',
+        labelled: { alcance: label, esquema: label, integro: label, verificado: label },
       });
     })
   );
@@ -419,18 +442,22 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         const encontrado = (await listarRespaldos(dir)).find(
           (r) => path.basename(r.archivo) === path.basename(archivo)
         );
-        if (!encontrado) throw usageError(`No se encontró el respaldo ${archivo}`);
+        if (!encontrado) throw usageError({ key: 'platform.backup.verify.not_found', params: { file: archivo } });
         const ok = encontrado.integro === true;
         if (opts.json) {
           render([{ archivo, integro: ok, esquema: encontrado.manifiesto?.esquema.ultimaMigracion ?? null, ensayo: false }], { json: true });
         } else {
+          const schema = t('platform.backup.schema_of', {
+            schema: encontrado.manifiesto?.esquema.ultimaMigracion ?? t('platform.backup.no_manifest'),
+          });
           process.stdout.write(
-            (ok ? `${p.green('✔')} hash y manifiesto cuadran` : `${p.red('✘')} el hash NO cuadra con el manifiesto`) +
-              p.dim(` · esquema ${encontrado.manifiesto?.esquema.ultimaMigracion ?? '(sin manifiesto)'}\n`)
+            (ok
+              ? `${p.green('✔')} ${t('platform.backup.verify.hash_ok')}`
+              : `${p.red('✘')} ${t('platform.backup.verify.hash_mismatch')}`) + p.dim(` · ${schema}\n`)
           );
           process.stderr.write(
-            p.yellow('  Esto NO prueba que el respaldo restaure.') +
-              p.dim(' Un respaldo no probado no es un respaldo: repite con --restore.\n')
+            p.yellow(`  ${t('platform.backup.verify.not_proof')}`) +
+              p.dim(` ${t('platform.backup.verify.repeat_with_restore')}\n`)
           );
         }
         if (!ok) await deps.shutdown(4);
@@ -444,14 +471,18 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
         render([{ archivo, restauro: r.restauro, integro: r.integro, entidades: r.entidadesRevisadas, hallazgos: r.hallazgos.length, bloqueantes }], { json: true });
       } else {
         process.stdout.write(
-          (r.restauro ? `${p.green('✔')} restauró en una base de usar y tirar` : `${p.red('✘')} NO restauró`) +
-            p.dim(` · ${r.entidadesRevisadas} entidad(es) revisadas · ${r.hallazgos.length} hallazgo(s)\n`)
+          (r.restauro
+            ? `${p.green('✔')} ${t('platform.backup.verify.restored')}`
+            : `${p.red('✘')} ${t('platform.backup.verify.not_restored')}`) +
+            p.dim(
+              ` · ${t('platform.backup.verify.counts', { entities: r.entidadesRevisadas, findings: r.hallazgos.length })}\n`
+            )
         );
         for (const h of r.hallazgos.slice(0, 10)) {
           process.stdout.write(`  ${p.red('✘')} ${h.entidad} · ${h.check} · ${h.referencia ?? ''} ${p.dim(h.detalle)}\n`);
         }
         if (r.integro === false) {
-          process.stdout.write(p.red('  ✘ el hash no cuadra con el manifiesto\n'));
+          process.stdout.write(p.red(`  ✘ ${t('platform.backup.verify.hash_mismatch')}\n`));
         }
         process.stdout.write(p.dim(`  ${r.detalle}\n`));
       }
@@ -476,9 +507,9 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
     .option('--json', 'JSON output');
   declareRisk(restore, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a restaurar sobre lo ya restaurado' },
+    llave: { sinLlave: { key: 'platform.backup.restore.retry_restores' } },
     agent: false,
-    writes: 'crea una base de datos nueva y la puebla con el volcado',
+    writes: 'creates a new database and fills it with the dump',
   });
   restore.action((archivo: string, opts: CommonOpts) =>
     run(async () => {
@@ -488,24 +519,24 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
 
       if (dryRun) {
         process.stdout.write(
-          `${p.bold(`Would restore ${path.basename(archivo)}`)} ${p.dim(`into a NEW database "${destino}"`)}\n` +
-            p.dim('  Nothing is written, and no existing database is ever touched.\n')
+          `${p.bold(t('platform.backup.restore.would_restore', { file: path.basename(archivo), database: destino }))}\n` +
+            p.dim(`  ${t('platform.backup.restore.nothing_written')}\n`)
         );
         return;
       }
-      await confirmOrAbort(
-        opts,
-        `Create database "${destino}" and restore ${path.basename(archivo)} into it?`
-      );
+      await confirmOrAbort(opts, {
+        key: 'platform.backup.restore.confirm',
+        params: { database: destino, file: path.basename(archivo) },
+      });
       const r = await restaurarRespaldo(archivo, destino);
       if (opts.json) {
         render([{ archivo: r.archivo, destino: r.destino, creada: r.creada }], { json: true });
         return;
       }
       process.stdout.write(
-        `${p.green('✔')} restaurado en la base ${p.bold(r.destino)}\n` +
-          p.dim('  La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.\n') +
-          p.dim(`  Compruébala antes: mnemosine backup verify ${path.basename(archivo)} --restore\n`)
+        `${p.green('✔')} ${t('platform.backup.restore.done', { database: p.bold(r.destino) })}\n` +
+          p.dim(`  ${t('platform.backup.restore.previous_intact')}\n`) +
+          p.dim(`  ${t('platform.backup.restore.check_first', { file: path.basename(archivo) })}\n`)
       );
     })
   );

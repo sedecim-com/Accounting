@@ -3126,6 +3126,64 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.5 ====
 
   // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  'platform.backup.no_manifest': '(sin manifiesto)',
+  'platform.backup.schema_of': 'esquema {schema}',
+  'platform.backup.manifest_line': 'manifiesto: {file}',
+  'platform.backup.create.not_scoped':
+    '`backup create` vuelca la instalación ENTERA con pg_dump, que no filtra filas: acotarlo a un inquilino o a una entidad es imposible por construcción, y hasta hoy la bandera se aceptaba y se ignoraba en silencio.\nPara el archivo de UN despacho: `mnemosine backup export --tenant <id>` (con `--entity <id|nombre>` para una sola sociedad).\nPara la recuperación ante desastre de la instalación completa: `backup create` sin banderas.',
+  'platform.backup.create.unredacted':
+    'Contiene los datos SIN REDACTAR de {tenants, plural, one {# inquilino} other {# inquilinos}}: es la instalación entera, no un despacho.',
+  'platform.backup.create.one_tenant_hint': 'Para el archivo de uno solo: `mnemosine backup export --tenant <id>`.',
+  'platform.backup.create.no_crypto': 'Y NO incluye el material criptográfico:',
+  'platform.backup.create.crypto_detail':
+    'la llave del vault y ENCRYPTION_KEY viven fuera de la base. Sin ellas, al restaurar las credenciales fiscales y los datos bancarios quedan ilegibles. Respáldalas aparte.',
+  'platform.backup.create.untested_hint':
+    'Y un respaldo no probado no es un respaldo: `mnemosine backup verify <archivo> --restore`.',
+  'platform.backup.export.tenant_required':
+    'No hay inquilino que exportar. Nómbralo con `--tenant <uuid>` o fija MNEMOSINE_TENANT.\nUn archivo que no dice de quién es no se puede custodiar, así que esto no se adivina.',
+  'platform.backup.export.entity_of': '{entity} (entidad de {tenant})',
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# fila} other {# filas}} · {tables, plural, one {# tabla} other {# tablas}})',
+  'platform.backup.export.scope_line': 'alcance: {scope} — {owner}',
+  'platform.backup.export.read_as': 'leído como {role}, sujeto a RLS, en una sola instantánea REPEATABLE READ',
+  'platform.backup.export.not_a_backup': 'Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.',
+  'platform.backup.export.disaster_hint': 'Para recuperación ante desastre: `mnemosine backup create` + `backup restore`.',
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# tabla acotada queda} other {# tablas acotadas quedan}} fuera de este alcance; el manifiesto las nombra una por una.',
+  'platform.backup.export.unredacted':
+    'Lleva datos sin redactar del despacho, RFC de terceros incluidos: trátalo como tal.',
+  'platform.backup.list.no_status':
+    '`backup list` no tiene estado que filtrar: un respaldo es un archivo, no un documento con ciclo.',
+  'platform.backup.list.not_scoped':
+    '`backup list` inventaría un DIRECTORIO, y todavía no filtra por alcance: la bandera se aceptaba y se ignoraba.\nLa columna «alcance» de la salida ya dice de quién es cada archivo — inquilino, entidad o instalación completa —, así que por ahora el filtro se hace leyéndola.',
+  'platform.backup.list.scope_installation':
+    'instalación ({tenants, plural, one {# inquilino} other {# inquilinos}})',
+  'platform.backup.list.scope_installation_unknown': 'instalación (inquilinos desconocidos)',
+  'platform.backup.list.intact_yes': 'sí',
+  'platform.backup.list.never_verified': 'nunca',
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# hallazgo} other {# hallazgos}})',
+  'platform.backup.list.export_not_verified': 'n/a (exportación, no restaurable)',
+  'platform.backup.verify.not_found': 'No se encontró el respaldo {file}',
+  'platform.backup.verify.hash_ok': 'hash y manifiesto cuadran',
+  'platform.backup.verify.hash_mismatch': 'el hash NO cuadra con el manifiesto',
+  'platform.backup.verify.not_proof': 'Esto NO prueba que el respaldo restaure.',
+  'platform.backup.verify.repeat_with_restore': 'Un respaldo no probado no es un respaldo: repite con --restore.',
+  'platform.backup.verify.restored': 'restauró en una base de usar y tirar',
+  'platform.backup.verify.not_restored': 'NO restauró',
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entidad revisada} other {# entidades revisadas}} · {findings, plural, one {# hallazgo} other {# hallazgos}}',
+  'platform.backup.restore.retry_restores': 'un reintento vuelve a restaurar sobre lo ya restaurado',
+  'platform.backup.restore.would_restore': 'Restauraría {file} en una base NUEVA «{database}»',
+  'platform.backup.restore.nothing_written': 'No se escribe nada, y ninguna base existente se toca jamás.',
+  'platform.backup.restore.confirm': '¿Crear la base «{database}» y restaurar {file} en ella?',
+  'platform.backup.restore.no_terminal':
+    '{question} — no hay terminal donde preguntar. Vuelve a correrlo con --yes cuando estés seguro.',
+  'platform.backup.restore.done': 'restaurado en la base {database}',
+  'platform.backup.restore.previous_intact':
+    'La base anterior sigue intacta: apuntar la aplicación a la nueva es un acto aparte.',
+  'platform.backup.restore.check_first': 'Compruébala antes: mnemosine backup verify {file} --restore',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
