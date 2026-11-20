@@ -1,6 +1,7 @@
 import { ValidationError } from '../../../utils/errors.js';
 import { serializar, type Atributo, type NodoXml } from './xml.js';
 import {
+  FOREIGN_BANK_CODE,
   officialEnumeration,
   OFFICIAL_ENUMERATIONS_XSD,
   type OfficialEnumeration,
@@ -48,7 +49,9 @@ import {
 //     type c_Banco, and a foreign bank's name (`*Ext`) goes on top of the
 //     code, never instead of it. The service leaves a node without its code
 //     out and names its entry (#532); an empty code is off c_Banco and is
-//     refused like any other.
+//     refused like any other. A foreign bank is the code 999 with its full
+//     name in the `*Ext` (MNE-001-401); any other code next to a name is
+//     refused (`requireSingleBank`).
 //   · The XSD found two defects on its first run, both fixed in #397: request
 //     numbers were not checked against its patterns, and the pre-CFDI voucher
 //     had no RFC.
@@ -169,7 +172,7 @@ export interface PagoConCheque {
   num: string;
   /** c_Banco code of the ISSUING bank. Required by the XSD, foreign bank or not (#532). */
   banEmisNal: string;
-  /** Nombre del banco emisor extranjero. Excluyente con el anterior. */
+  /** Full name of a foreign issuing bank, only next to `banEmisNal` 999 (#532). */
   banEmisExt?: string;
   /** Cuenta de la que salió el dinero. */
   ctaOri: string;
@@ -192,11 +195,13 @@ export interface PagoPorTransferencia {
    * (#532). In a payment it comes from bank_accounts.sat_bank_code.
    */
   bancoOriNal: string;
+  /** Full name of a foreign origin bank, only next to `bancoOriNal` 999 (#532). */
   bancoOriExt?: string;
   /** La cuenta que RECIBIÓ el dinero. Es el dato obligatorio del nodo. */
   ctaDest: string;
   /** c_Banco code of the DESTINATION bank. Required by the XSD, foreign bank or not (#532). */
   bancoDestNal: string;
+  /** Full name of a foreign destination bank, only next to `bancoDestNal` 999 (#532). */
   bancoDestExt?: string;
   fecha: string;
   benef: string;
@@ -667,7 +672,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
     case 'cheque': {
       const nombre = `${PREFIJO_POLIZAS}:Cheque`;
       requireBankCode(nombre, 'BanEmisNal', p.banEmisNal);
-      exigirBancoUnico(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
+      requireSingleBank(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
       requirePayee(nombre, p);
       return {
         nombre,
@@ -689,8 +694,8 @@ function nodoDePago(p: NodoDePago): NodoXml {
       const nombre = `${PREFIJO_POLIZAS}:Transferencia`;
       requireBankCode(nombre, 'BancoOriNal', p.bancoOriNal);
       requireBankCode(nombre, 'BancoDestNal', p.bancoDestNal);
-      exigirBancoUnico(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
-      exigirBancoUnico(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
+      requireSingleBank(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
+      requireSingleBank(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
       requirePayee(nombre, p);
       if (p.ctaDest.trim() === '') {
         throw new ValidationError(
@@ -736,25 +741,26 @@ function nodoDePago(p: NodoDePago): NodoXml {
 }
 
 /**
- * Nacional o extranjero, no los dos: el mismo criterio que el CHECK de la 064.
+ * ONE BANK PER SIDE: a national code, or a foreign bank as 999 with its name.
  *
- * TODO(#532): with the code now required, no valid node carries a `*Ext`: a
- * real code next to it is refused here, and an empty one is off c_Banco. So
- * no foreign bank reaches the file; the service names its entry instead. Which
- * c_Banco code goes with a foreign name, and whether this and the 064 CHECK
- * change, is the owner's call on #532.
+ * The XSD requires the c_Banco code even for a foreign bank, and its `*Ext`
+ * holds «el nombre completo del Banco extranjero». So a name goes only next to
+ * `FOREIGN_BANK_CODE` (#532, answer of 17 Nov 2026); next to any other code it
+ * would declare a resident bank and a foreign one for the same movement. The
+ * rows keep one fact (064's and 335's CHECKs); the generator adds the 999. A
+ * 999 with no name passes here: `banco-en-catalogo` warns about it.
  */
-function exigirBancoUnico(
-  nodo: string,
-  nacional: string | undefined,
-  extranjero: string | undefined,
-  papel: string
+function requireSingleBank(
+  node: string,
+  code: string | undefined,
+  foreignName: string | undefined,
+  role: string
 ): void {
-  if ((nacional ?? '') !== '' && (extranjero ?? '') !== '') {
+  if ((foreignName ?? '') !== '' && (code ?? '') !== FOREIGN_BANK_CODE) {
     throw new ValidationError(
-      `${nodo}: el banco ${papel} se declara con la CLAVE del c_Banco si es nacional o con el NOMBRE ` +
-        `si es extranjero, y aquí vienen los dos («${nacional ?? ''}» y «${extranjero ?? ''}»). ` +
-        `Son dos afirmaciones incompatibles sobre el mismo movimiento.`
+      `${node}: el banco ${role} extranjero se declara con la clave ${FOREIGN_BANK_CODE} y su nombre; ` +
+        `aquí viene la clave «${code ?? ''}» con el nombre «${foreignName ?? ''}». Son dos afirmaciones ` +
+        `incompatibles sobre el mismo movimiento.`
     );
   }
 }

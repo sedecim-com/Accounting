@@ -130,27 +130,46 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).toContain('ningún comando');
   });
 
-  it('a foreign destination bank: the open decision is said in words, with no remedy that fixes nothing', () => {
-    const f = finding(
+  // MNE-001-401 (#532): a foreign bank is declared as 999 with its name.
+  it('a foreign destination bank goes out as 999 with its name in BancoDestExt', () => {
+    const r = rastroDePago(
       payment({ cuenta_destino: 'GB29NWBK60161331926819', banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }),
-      'sale',
-      account()
+      'sale', account(), OURS, passThrough, ENTRY
     );
-    expect(f.node).toBe(false);
-    expect(f.text).toContain('el nodo Transferencia exige BancoDestNal');
-    expect(f.text).toContain('«Bank of Nowhere»');
-    expect(f.text).toContain('banco extranjero');
-    expect(f.text).not.toContain('payment create');
+    expect(r.motivo).toBeUndefined();
+    expect(r.pago).toEqual({
+      clase: 'transferencia',
+      ctaOri: CLABE,
+      bancoOriNal: '012',
+      ctaDest: 'GB29NWBK60161331926819',
+      bancoDestNal: '999',
+      bancoDestExt: 'Bank of Nowhere',
+      fecha: '2026-10-15',
+      benef: 'Fletes del Norte SA',
+      rfc: 'FNO010101AB1',
+      monto: '116.00',
+      moneda: 'MXN',
+    });
   });
 
-  it('a foreign bank name reaches the finding on one line, as the account name does', () => {
-    const f = finding(
-      payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of\nNowhere\t ' }),
-      'sale',
-      account()
+  it('the foreign bank name goes through the sanitizer it is given, with the voucher and the field', () => {
+    const calls: string[][] = [];
+    const recording = (raw: string, entry: string, field: string): string => {
+      calls.push([raw, entry, field]);
+      return raw.replace(/\s+/g, ' ').trim();
+    };
+    const r = rastroDePago(
+      payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of\nNowhere\t ' }), 'sale', account(), OURS, recording, ENTRY
     );
-    expect(f.text).toContain('«Bank of Nowhere»');
-    expect(f.text).not.toMatch(/[\n\t]/);
+    expect(r.pago).toMatchObject({ bancoDestNal: '999', bancoDestExt: 'Bank of Nowhere' });
+    // The stored value is trimmed first, as every captured trace field is.
+    expect(calls).toContainEqual(['Bank of\nNowhere', ENTRY, 'BancoDestExt del pago VPMT-2026-00007']);
+  });
+
+  it('a name of 150 characters, the column and the attribute limit, goes out whole', () => {
+    const name = 'B'.repeat(150);
+    const r = rastroDePago(payment({ banco_destino_sat: null, banco_destino_extranjero: name }), 'sale', account(), OURS, passThrough, ENTRY);
+    expect(r.pago).toMatchObject({ bancoDestExt: name });
   });
 
   it('a customer transfer with no account that received it gets no payment remedy either', () => {
@@ -181,7 +200,6 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
       finding(payment({ bank_account_id: null }), 'sale', undefined),
       finding(payment({ cuenta_destino: null }), 'entra', account()),
       ...RECEIPT_GAPS.map(([, p, bank]) => finding(p, 'entra', bank)),
-      finding(payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }), 'sale', account()),
       finding(payment({ banco_destino_sat: null }), 'sale', account()),
     ].map((f) => f.text);
     for (const t of texts) {
@@ -217,7 +235,6 @@ const customerCheckPayment = (over: Partial<Payment> = {}): Payment =>
 /** The receipt causes the plan names G1-G7: the case, the receipt, our bank account, and the remedy the reader must find. */
 const RECEIPT_GAPS: ReadonlyArray<readonly [string, Payment, BankAccount | undefined, string, string]> = [
   ['G1 a transfer with no payer bank', receipt({ banco_origen_sat: null }), account(), 'Transferencia exige BancoOriNal', 'receipt record --payer-bank'],
-  ['G2 a transfer from a foreign payer bank', receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), account(), 'Transferencia exige BancoOriNal', 'banco extranjero'],
   ['G3 a cheque with no number', customerCheckPayment({ check_number: null }), undefined, 'el nodo Cheque lo exige', 'receipt record --check-number'],
   ['G4 a cheque with no payer bank', customerCheckPayment({ banco_origen_sat: null }), undefined, 'Cheque exige BanEmisNal', 'receipt record --payer-bank'],
   ['G5 a cheque with no drawn-on account', customerCheckPayment({ cuenta_origen: null }), undefined, 'Cheque exige CtaOri', 'receipt record --payer-account'],
@@ -274,9 +291,30 @@ describe('a receipt declares the payer as the origin and our bank account as the
     expect(f.text).not.toMatch(/#\d/);
   });
 
-  it('a foreign payer bank is named, on one line', () => {
-    const f = finding(receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of\nNowhere' }), 'entra', account());
-    expect(f.text).toContain('«Bank of Nowhere»');
+  // MNE-001-401 (#532): the customer's foreign bank, stored by #611, is declared as 999 with its name.
+  it('G2: a transfer from a foreign payer bank goes out as 999 with its name in BancoOriExt', () => {
+    const r = rastroDePago(
+      receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), 'entra', account(), OURS, passThrough, ENTRY
+    );
+    expect(r.motivo).toBeUndefined();
+    expect(r.pago).toMatchObject({
+      clase: 'transferencia', ctaOri: PAYER_ACCOUNT, bancoOriNal: '999', bancoOriExt: 'Bank of Nowhere', ctaDest: CLABE, bancoDestNal: '012',
+    });
+  });
+
+  it('a customer cheque from a foreign bank goes out as 999 with its name in BanEmisExt', () => {
+    const r = rastroDePago(
+      customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Banco de Ultramar SA' }), 'entra', undefined, OURS, passThrough, ENTRY
+    );
+    expect(r.pago).toMatchObject({
+      clase: 'cheque', num: '4501', banEmisNal: '999', banEmisExt: 'Banco de Ultramar SA', ctaOri: '1234567890', monto: '232.00',
+    });
+  });
+
+  it('a customer cheque from a foreign bank with no drawn-on account is still named for CtaOri', () => {
+    const f = finding(customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Banco de Ultramar SA', cuenta_origen: null }), 'entra', undefined);
+    expect(f.node).toBe(false);
+    expect(f.text).toContain('Cheque exige CtaOri');
   });
 });
 
@@ -310,12 +348,10 @@ const CAUSES: readonly Cause[] = [
   { name: 'a transfer with no destination account', direction: 'sale', payment: payment({ cuenta_destino: null, banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-account <cuenta> --reason <motivo>`', site: 'sale-to-account' },
   { name: 'a transfer from an account with no c_Banco code', direction: 'sale', payment: payment(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
   { name: 'a transfer with no bank account', direction: 'sale', payment: payment({ bank_account_id: null }), bank: undefined, remedy: '`payment trace record VPMT-2026-00007 --bank <cuenta> --reason <motivo>`', site: 'our-bank-none' },
-  { name: 'a transfer to a foreign bank', direction: 'sale', payment: payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }), bank: account(), remedy: 'decisión del dueño', site: 'sale-foreign-bank' },
   { name: 'a transfer with no destination bank', direction: 'sale', payment: payment({ banco_destino_sat: null }), bank: account(), remedy: '`payment trace record VPMT-2026-00007 --to-bank <clave> --reason <motivo>`', site: 'sale-to-bank' },
   { name: 'a receipt into an entity with no RFC', direction: 'entra', payment: receipt(), bank: account(), remedy: 'falta en el registro de la entidad', site: 'payee' },
   { name: 'a customer cheque with no number', direction: 'entra', payment: customerCheckPayment({ check_number: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-number', later: 'MNE-001-570' },
   { name: 'a customer cheque with no payer bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null }), bank: undefined, remedy: 'ningún comando', site: 'payer-bank', later: 'MNE-001-570' },
-  { name: 'a customer cheque from a foreign bank', direction: 'entra', payment: customerCheckPayment({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), bank: undefined, remedy: 'banco extranjero', site: 'payer-foreign-bank' },
   { name: 'a customer cheque with no drawn-on account', direction: 'entra', payment: customerCheckPayment({ cuenta_origen: null }), bank: undefined, remedy: 'ningún comando', site: 'entra-check-account', later: 'MNE-001-570' },
   { name: 'a receipt with no bank account', direction: 'entra', payment: receipt({ bank_account_id: null }), bank: undefined, remedy: 'ningún comando', site: 'our-bank-none', later: 'MNE-001-570' },
   { name: 'a receipt into an account with no c_Banco code', direction: 'entra', payment: receipt(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },

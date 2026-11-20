@@ -8,6 +8,7 @@ import { formatearImporte, naturDe } from './balanza-invariantes.js';
 import { resolverPeriodoDeBalanza, type PeriodoDeBalanza } from './balanza-service.js';
 import { archivarArtefacto, hashDelXml, type ArtefactoArchivado } from './artefactos.js';
 import { importeAnexo24 } from './xml.js';
+import { FOREIGN_BANK_CODE } from './official-enumerations.js';
 import {
   construirPolizasXml,
   nombreDelArchivoDePolizas,
@@ -565,12 +566,13 @@ export function rastroDePago(
   const nuestroBanco = (banco?.sat_bank_code ?? '').trim() || undefined;
   const cuentaCapturada = (p.cuenta_destino ?? '').replace(/\s+/g, '') || undefined;
   const bancoCapturadoNal = (p.banco_destino_sat ?? '').trim() || undefined;
-  // A foreign bank's name reaches only the motive, never the file (see
-  // `bankGap`), so it goes through `limpiar` like the account name and not
-  // through `sanear`. TODO(#532): once the file declares it again as
-  // `BancoDestExt`, it is free text (VARCHAR(150)) and goes through `sanear`
-  // like the beneficiary.
   const bancoCapturadoExt = (p.banco_destino_extranjero ?? '').trim() || undefined;
+  // MNE-001-401 (#532): a foreign bank is declared as FOREIGN_BANK_CODE with
+  // its full name in the `*Ext`. The name is free text (VARCHAR(150) in 064
+  // and 335, the XSD's 150), so it goes through `sanear` like the beneficiary,
+  // and only when the node is certain to be emitted.
+  const foreignBankName = (raw: string, attribute: string): string =>
+    sanear(raw, numUnIdenPol, `${attribute} del pago ${p.payment_number}`);
 
   // THE BANK CODES ARE REQUIRED TOO (#532). PolizasPeriodo 1.3 declares
   // Cheque/@BanEmisNal, Transferencia/@BancoOriNal and Transferencia/@BancoDestNal
@@ -612,23 +614,14 @@ export function rastroDePago(
 
   // #611 · In a receipt the origin is the customer's: its bank (the issuer of
   // its cheque) and its account, as `receipt record` captured them. A foreign
-  // bank is declared as 999 with its name in `*Ext` (#532), which the builder
-  // does not accept yet, so its receipt is named meanwhile.
-  const payerBank = (p.banco_origen_sat ?? '').trim() || undefined;
+  // payer bank is declared as 999 with its name in `*Ext` (MNE-001-401).
   const payerForeign = (p.banco_origen_extranjero ?? '').trim() || undefined;
+  const payerBank = (p.banco_origen_sat ?? '').trim() || (payerForeign !== undefined ? FOREIGN_BANK_CODE : undefined);
   const payerAccount = (p.cuenta_origen ?? '').replace(/\s+/g, '') || undefined;
-  const payerBankGap = (node: string, attribute: string, what: string): RastroResuelto =>
-    payerForeign !== undefined
-      ? {
-          motivo: bankGap(node, attribute, `el banco del cliente de ${what} es extranjero («${limpiar(payerForeign).texto}»)`),
-          noCommandFixes:
-            'el archivo todavía no declara un banco extranjero (la clave 999 con su nombre llega en una ' +
-            'entrega pendiente del sistema); el dato ya está guardado en el cobro',
-        }
-      : {
-          motivo: bankGap(node, attribute, `el banco del cliente de ${what} no está capturado`),
-          noCommandFixes: onlyAtRecord('--payer-bank'),
-        };
+  const payerBankGap = (node: string, attribute: string, what: string): RastroResuelto => ({
+    motivo: bankGap(node, attribute, `el banco del cliente de ${what} no está capturado`),
+    noCommandFixes: onlyAtRecord('--payer-bank'),
+  });
 
   if (p.payment_method === 'check' && sentido === 'entra') {
     // A customer's cheque: the customer's bank issued it, drawn on the
@@ -657,6 +650,7 @@ export function rastroDePago(
         clase: 'cheque',
         num,
         banEmisNal: payerBank,
+        ...(payerForeign !== undefined ? { banEmisExt: foreignBankName(payerForeign, 'BanEmisExt') } : {}),
         ctaOri: payerAccount,
         fecha: p.payment_date,
         benef: emittedBenef(),
@@ -740,6 +734,7 @@ export function rastroDePago(
           clase: 'transferencia',
           ...(payerAccount !== undefined ? { ctaOri: payerAccount } : {}),
           bancoOriNal: payerBank,
+          ...(payerForeign !== undefined ? { bancoOriExt: foreignBankName(payerForeign, 'BancoOriExt') } : {}),
           ctaDest: receivingAccount,
           bancoDestNal: nuestroBanco,
           fecha: p.payment_date,
@@ -762,30 +757,19 @@ export function rastroDePago(
     }
     const who = `la transferencia ${p.payment_number}`;
     if (nuestroBanco === undefined) return ourBankGap('Transferencia', 'BancoOriNal', who);
-    if (bancoCapturadoNal === undefined) {
-      // TODO(#532): which c_Banco code declares a foreign bank, with its name
-      // in BancoDestExt, is the owner's call. Until then, no node.
-      return bancoCapturadoExt !== undefined
-        ? {
-            motivo: bankGap(
-              'Transferencia',
-              'BancoDestNal',
-              `el banco destino de ${who} es extranjero («${limpiar(bancoCapturadoExt).texto}»)`
-            ),
-            noCommandFixes:
-              'el esquema exige una clave c_Banco también para un banco extranjero, y qué clave ' +
-              'lo declara es una decisión del dueño del sistema que sigue sin tomarse',
-          }
-        : {
-            motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
-            completedBy: traceRecord('--to-bank <clave>'),
-          };
+    if (bancoCapturadoNal === undefined && bancoCapturadoExt === undefined) {
+      return {
+        motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
+        completedBy: traceRecord('--to-bank <clave>'),
+      };
     }
     const nodo: NodoDePago = {
       clase: 'transferencia',
       ...(nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
       bancoOriNal: nuestroBanco,
-      bancoDestNal: bancoCapturadoNal,
+      // The row stores one fact (064's CHECK): a national code, or a foreign name.
+      bancoDestNal: bancoCapturadoNal ?? FOREIGN_BANK_CODE,
+      ...(bancoCapturadoExt !== undefined ? { bancoDestExt: foreignBankName(bancoCapturadoExt, 'BancoDestExt') } : {}),
       ctaDest,
       fecha: p.payment_date,
       benef: emittedBenef(),
