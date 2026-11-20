@@ -37,7 +37,7 @@ import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirma
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
 import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
-import { listedTraceFields, writeTraceCompletion } from './trace-completion-output.js';
+import { listedTraceFields, warnUntracedPayment, writeTraceCompletion } from './trace-completion-output.js';
 import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
 import { t } from '../i18n/index.js';
 import { FOREIGN_BANK_CODE } from '../services/sat/anexo24/official-enumerations.js';
@@ -722,6 +722,10 @@ function registerTraceRecord(
         result = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId);
       }
       writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
+      // MNE-001-571 · a finding names one gap at a time: say the next one now.
+      if (!dryRun && result.filled.length > 0) {
+        await warnUntracedPayment('vendor', ctx.entityId, vp.id, { json: opts.json === true, palette: p });
+      }
     })
   );
 }
@@ -827,22 +831,23 @@ async function ejecutar(a: {
   }
   imprimir(result, p, a.etiqueta, false, a.opts.json === true);
   avisarRastroIncompleto(a.entrada, p, a.opts.json === true);
+  // MNE-001-571 · what its voucher will lack, in the generator's own words.
+  await warnUntracedPayment('vendor', a.ctx.entityId, result.paymentId, { json: a.opts.json === true, palette: p });
 }
 
-/** Métodos que mueven dinero por un banco y por tanto piden cuenta destino. */
+/** Métodos que mueven dinero por un banco: sólo ellos llevan un nodo con clave de banco. */
 const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
 
 /**
- * DICE LO QUE FALTA EN EL MOMENTO EN QUE TODAVÍA SE PUEDE PREGUNTAR.
+ * THE CAPTURE HOOK FOR WHAT THE INPUT ALONE SHOWS (MNE-001-571, #612).
  *
- * No es una compuerta y no debe serlo: el pago YA OCURRIÓ, y negarse a
- * registrarlo porque falta un dato del XML de pólizas dejaría el mayor sin el
- * movimiento y el IVA acreditable aparcado — mucho peor que una póliza
- * incompleta. Pero callarlo produce el otro desastre, el de F07: el dato se
- * descubre tres meses después, cuando `voucher generate` nombra la póliza y
- * ya no hay a quién preguntarle a qué cuenta se transfirió.
- *
- * Va por stderr para no ensuciar el `--json`, que es contrato de máquina.
+ * What the vouchers file will lack is no longer listed here by hand: once the
+ * payment is written, `warnUntracedPayment` asks the generator for its
+ * voucher's finding, so capture and file cannot disagree. This hook stays for
+ * a capture invariant that is not a cause of `rastroDePago` and can be told
+ * from the flags before anything is written, in the dry run too: the bare
+ * `--to-bank 999` line of MNE-001-401 lives here. It goes to stderr and says
+ * nothing under `--json`.
  */
 export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
   if (json) return;
@@ -850,31 +855,10 @@ export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: b
   // aserción aquí sólo callaría al compilador. Es la misma lección que la
   // cabecera de `payment apply` deja escrita sobre `--mode`.
   if (!POR_BANCO.some((m) => m === entrada.paymentMethod)) return;
-
-  const faltan: string[] = [];
-  if ((entrada.cuentaDestino ?? '') === '') faltan.push('--to-account');
-  if (
-    (entrada.bancoDestinoSat ?? '') === '' &&
-    (entrada.bancoDestinoExtranjero ?? '') === ''
-  ) {
-    faltan.push('--to-bank / --to-foreign-bank');
-  }
-  if (entrada.paymentMethod === 'check' && (entrada.checkNumber ?? '') === '') {
-    faltan.push('--check-number');
-  }
   // MNE-001-401 (#532): a bare 999 is a valid node with a warning on its voucher.
   if ((entrada.bancoDestinoSat ?? '').trim() === FOREIGN_BANK_CODE && (entrada.bancoDestinoExtranjero ?? '').trim() === '') {
     process.stderr.write(p.yellow(`${t('payment.capture.foreign_code_without_name')}\n`));
   }
-  if (faltan.length === 0) return;
-
-  process.stderr.write(
-    p.yellow(
-      `The SAT voucher (Anexo 24) declares where this money went, and that is missing: ` +
-        `${faltan.join(', ')}. ` +
-        `When the SAT asks for the period vouchers, \`mnemosine e-accounting voucher generate\` will name this payment as untraced.\n`
-    )
-  );
 }
 
 function imprimir(

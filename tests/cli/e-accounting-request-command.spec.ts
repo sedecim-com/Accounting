@@ -12,6 +12,8 @@ import {
   type RequestFileEngine,
 } from '../../src/cli/e-accounting-request-command.js';
 import { avisarRastroIncompleto } from '../../src/cli/payment-command.js';
+import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
+import { untracedPaymentFinding } from '../../src/services/sat/anexo24/untraced-payment-finding.js';
 import { t } from '../../src/i18n/index.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode, exitCodeFor } from '../../src/cli/kernel/index.js';
@@ -46,6 +48,11 @@ vi.mock('../../src/ai/context.js', () => ({
       taxId: 'AAA010101AAA',
     }),
   listEntities: () => Promise.resolve([{ id: 'E1' }]),
+}));
+
+// MNE-001-571 · the capture warning asks the generator; here the generator's answer is given.
+vi.mock('../../src/services/sat/anexo24/untraced-payment-finding.js', () => ({
+  untracedPaymentFinding: vi.fn(),
 }));
 
 vi.mock('../../src/ai/draft-service.js', () => ({
@@ -432,7 +439,7 @@ describe('subledger generate', () => {
 // ---- payment create no longer points at a command that does not exist --
 
 describe('payment create names a command the binary answers', () => {
-  it('its untraced-payment warning cites `mnemosine e-accounting voucher generate`', () => {
+  const captured = async (fn: () => void | Promise<void>): Promise<string> => {
     const err: string[] = [];
     const original = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((c: string | Uint8Array) => {
@@ -440,17 +447,43 @@ describe('payment create names a command the binary answers', () => {
       return true;
     }) as typeof process.stderr.write;
     try {
+      await fn();
+    } finally {
+      process.stderr.write = original;
+    }
+    return err.join('');
+  };
+  const DETAIL = 'Mueve dinero y no lleva el nodo de pago que el Anexo 24 exige: el pago VPMT-2026-00001 es una transferencia…';
+  const finding = vi.mocked(untracedPaymentFinding);
+
+  it('the capture hook no longer lists the trace by hand: the generator judges the payment once written (MNE-001-571)', async () => {
+    const err = await captured(() =>
       avisarRastroIncompleto(
         { entityId: 'E1', paymentAmount: '1.00', paymentDate: '2026-07-01', paymentMethod: 'spei', applications: [] },
         plain as never,
         false
-      );
-    } finally {
-      process.stderr.write = original;
-    }
+      )
+    );
+    expect(err).toBe('');
+  });
+
+  it('its untraced-payment warning cites `mnemosine e-accounting voucher generate` and repeats the voucher finding word for word', async () => {
+    finding.mockResolvedValueOnce({ voucher: 'JE-2026-0042', paymentNumber: 'VPMT-2026-00001', detail: DETAIL });
+    const err = await captured(() => warnUntracedPayment('vendor', 'E1', 'vp-1', { palette: plain as never }));
+    expect(finding).toHaveBeenLastCalledWith('E1', 'vendor', 'vp-1');
     // The citation is the command alone: a bare `--period` form would exit 2
     // for want of --request-type, so it is not offered as runnable.
-    expect(err.join('')).toContain('When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate`');
+    expect(err).toContain('`mnemosine e-accounting voucher generate`');
+    expect(err).toContain(t('payment.capture.untraced_voucher', { number: 'VPMT-2026-00001', entry: 'JE-2026-0042' }));
+    expect(err).toContain(DETAIL);
+  });
+
+  it('says nothing when the voucher would carry its node, or under --json, which is a machine contract', async () => {
+    finding.mockResolvedValueOnce(null);
+    expect(await captured(() => warnUntracedPayment('customer', 'E1', 'cp-1', { palette: plain as never }))).toBe('');
+    finding.mockClear();
+    expect(await captured(() => warnUntracedPayment('vendor', 'E1', 'vp-1', { palette: plain as never, json: true }))).toBe('');
+    expect(finding).not.toHaveBeenCalled();
   });
 
   // MNE-001-401 (#532): 999 is «N/A» in c_Banco; alone it names no bank.
@@ -487,10 +520,11 @@ describe('payment create names a command the binary answers', () => {
     expect(capturedWarning({ bancoDestinoSat: '999' }, true)).toBe('');
   });
 
-  it('every e-accounting citation in payment-command.ts resolves in the tree', () => {
+  it('every e-accounting citation in the capture warning\'s text resolves in the tree', () => {
     const program = new Command('mnemosine');
     registerEAccountingCommand(program, { palette: plain, shutdown: () => undefined, reportError: () => undefined });
-    const file = path.resolve(__dirname, '../../src/cli/payment-command.ts');
+    // MNE-001-571 · the warning's words live by key, so the English catalogue holds the citation.
+    const file = path.resolve(__dirname, '../../src/i18n/en.ts');
     const found = commandCitations(file, fs.readFileSync(file, 'utf8'), program);
     // Only the e-accounting family is in this tree: citations of other
     // families are the criterion's job over the whole binary.

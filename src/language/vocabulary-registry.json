@@ -2377,6 +2377,14 @@
     },
     {
       "class": "policy-key",
+      "where": "vat_overcredit_correction_period",
+      "es": "vat_overcredit_correction_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): `vat` is the tax, `overcredit` the VAT credited above the CFDI's, `correction_period` the period its correction entry is dated in. Read by `correctVatOvercredit` (accounting/vat-overcredit.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "received_line_without_account",
       "es": "received_line_without_account",
       "en": null,
@@ -3034,6 +3042,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/ask",
+      "es": "ask",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): `ask` is this house's verb for handing the decision back to a person, the English that `cfdi_periodo_cerrado/preguntar` and `rep_documento_desconocido/preguntar` take. The literal `correctVatOvercredit` compares: nothing is posted."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/current_period",
+      "es": "current_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): the literal `correctVatOvercredit` compares; one correction per bill is dated today, in the open period."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): the literal `correctVatOvercredit` compares; one correction per bill and month is dated in the month each payment's VAT was credited (`CREDIT_DATE`, sat/diot/hechos.ts)."
     },
     {
       "class": "policy-value",

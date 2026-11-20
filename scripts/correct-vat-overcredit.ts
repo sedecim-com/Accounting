@@ -4,21 +4,28 @@ import dotenv from 'dotenv';
 // it prints its banner to stdout, which here is the script's output.
 dotenv.config({ quiet: true });
 import Decimal from 'decimal.js';
-import { enterTenant, closeDatabase } from '../src/database/connection.js';
-import { censusVatOvercredit, type OvercreditFinding } from '../src/services/accounting/vat-overcredit.js';
+import { query, enterTenant, closeDatabase } from '../src/database/connection.js';
+import {
+  censusVatOvercredit, correctVatOvercredit, type OvercreditFinding,
+} from '../src/services/accounting/vat-overcredit.js';
+import { drainAttestations } from '../src/services/accounting/posting.js';
 
 // ============================================================
 // Command-line wrapper over services/accounting/vat-overcredit (MNE-001-562).
 // The logic lives there so integration tests cover it; here there is only
 // argument reading and presentation.
 //
-// It writes nothing: it lists each bill from a received CFDI with IEPS whose
-// live payments released more VAT from 1135 to 1130 than the CFDI transfers,
-// per payment and per month. A person runs it, never the agent.
+// By default it writes nothing: it lists each bill from a received CFDI with
+// IEPS whose live payments released more VAT from 1135 to 1130 than the CFDI
+// transfers, per payment and per month. A person runs it, never the agent.
 //
 //   npm run correct:vat-overcredit -- --tenant <uuid> [--entity <uuid>]
+//   npm run correct:vat-overcredit -- --tenant <uuid> --apply [--reopen] [--user <uuid>]
 //
-// The audited correction (`--apply`) is part 2 of the plan of #725.
+// `--apply` posts one audited DR 1135 / CR 1130 per bill, dated as the panel
+// key vat_overcredit_correction_period says (by default "ask": nothing posts).
+// `--reopen` lets the payment_month option post in a closed month; a locked
+// month is never reopened.
 // ============================================================
 
 function arg(name: string): string | undefined {
@@ -68,10 +75,6 @@ async function main(): Promise<void> {
     console.error('Missing --tenant <uuid>. With no tenant there is nothing to scope.');
     process.exit(2);
   }
-  if (process.argv.includes('--apply')) {
-    console.error('The correction is not available yet (part 2 of the plan of #725). This census writes nothing.');
-    process.exit(2);
-  }
   enterTenant(tenantId);
 
   const findings = await censusVatOvercredit(tenantId, arg('entity') ?? null);
@@ -80,6 +83,31 @@ async function main(): Promise<void> {
     return;
   }
   print(findings);
+
+  if (!process.argv.includes('--apply')) {
+    console.log(`\n${'─'.repeat(72)}\nCensus only, nothing written. To post the corrections: --apply (and --reopen for a closed month).`);
+    return;
+  }
+  const actor = arg('user') ?? (await firstActiveUser(tenantId));
+  if (!actor) {
+    console.error('No active user of the tenant to sign the entries. Pass --user <uuid>.');
+    process.exit(2);
+  }
+  const r = await correctVatOvercredit(findings, actor, { reopen: process.argv.includes('--reopen') });
+  console.log(`\n${'─'.repeat(72)}`);
+  console.log(`${r.corrected.length} bill(s) corrected (${r.amount}) · ${r.skipped.length} skipped · ${r.failures.length} failed`);
+  for (const c of r.corrected) console.log(`  ✓ ${c.billNumber} ${c.amount} (${c.entryIds.length} entr${c.entryIds.length === 1 ? 'y' : 'ies'})`);
+  for (const s of r.skipped) console.log(`  · ${s.billNumber}: ${s.why}`);
+  for (const f of r.failures) console.log(`  ✗ ${f}`);
+  if (r.failures.length > 0) process.exitCode = 1;
+}
+
+async function firstActiveUser(tenantId: string): Promise<string | null> {
+  const r = await query<{ id: string }>(
+    `SELECT id FROM users WHERE tenant_id = $1 AND is_active = true ORDER BY created_at LIMIT 1`,
+    [tenantId]
+  );
+  return r.rows[0]?.id ?? null;
 }
 
 main()
@@ -87,4 +115,9 @@ main()
     console.error(e);
     process.exitCode = 1;
   })
-  .finally(() => closeDatabase());
+  // The corrections' attestations are fire-and-forget: without draining them,
+  // closeDatabase() kills them and the entries stay posted with no hash.
+  .finally(async () => {
+    await drainAttestations(5000).catch(() => undefined);
+    await closeDatabase();
+  });
