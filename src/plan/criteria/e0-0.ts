@@ -122,8 +122,12 @@ function familySpeaksByKey(block: string, family: string, LEAVES: readonly strin
     );
   }
   const literalText = [...literals].join('\n');
+  // Only values of two words or more (MNE-001-221): the lane's own judge counts
+  // no single word as prose (scripts/language/extract.ts, `words.length >= 2`),
+  // and a one-word label such as «estado» matches inside identifiers like
+  // 'isn_estado_que_causa'. A one-word key is still held by check 2.
   const backInCode = [...es.entries()]
-    .filter(([, value]) => value.length > 0 && !value.includes('{'))
+    .filter(([, value]) => value.length > 0 && !value.includes('{') && value.trim().split(/\s+/).length >= 2)
     .filter(([, value]) => literalText.includes(value))
     .map(([key]) => key);
   if (backInCode.length) {
@@ -1739,6 +1743,42 @@ export const E0_0: Criterio[] = [
         de: "t('ar.receipt.no_rep')",
         a: "'sin REP — obligación fiscal propia con plazo del SAT'",
         porque: 'string-back-in-the-code: receipt show writes «sin REP» in Spanish to every reader again',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-payroll-speaks-by-key',
+    // MNE-001-221 (issue #266, I8.4). The payroll family —`payroll accrue` and
+    // the ISN leaves of `payroll-isn`— printed 27 Spanish strings from the
+    // code. The ones a person reads live in the I8.4 block now: the summary,
+    // the confirmation and the done line with ICU plurals instead of «(es)»,
+    // and the nine labels of the ISN capture preview. The «taken as no» line
+    // reuses `bank.confirm.taken_as_no`, and the two `writes` are English in
+    // place. The cédula's reason is English in the row and labelled in the
+    // table, so --json and csv do not change with the locale.
+    enunciado:
+      'The payroll family (payroll, payroll-isn) prints no Spanish string from the code: its texts come from the I8.4 block of the catalogue (#266, MNE-001-221)',
+    evaluar: () =>
+      familySpeaksByKey('I8.4', 'payroll', ['src/cli/payroll-command.ts', 'src/cli/payroll-isn-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/payroll-command.ts',
+        de: "deps.palette.dim(t('payroll.accrue.dry_run'))",
+        a: "deps.palette.dim(t('payroll.accrue.dry_run') + 'Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.')",
+        porque: 'spanish-beside-the-key: the key is still read, and its Spanish is written next to it, which only check 3 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/payroll-isn-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in the payroll family again',
+      },
+      {
+        archivo: 'src/cli/payroll-isn-command.ts',
+        de: "t('payroll.isn_rate_set.open_ended')",
+        a: "'(sin cierre: sigue vigente)'",
+        porque: 'string-back-in-the-code: the ISN preview writes «sin cierre» in Spanish to every reader again',
       },
     ],
   },

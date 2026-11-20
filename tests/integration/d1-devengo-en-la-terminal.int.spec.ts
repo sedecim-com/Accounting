@@ -245,7 +245,7 @@ describe('payroll accrue --dry-run', () => {
     // que se enseña con UUIDs no se puede revisar.
     expect(r.out).toMatch(/Benefit provisions - 2 employee\(s\)/);
     expect(r.out).toMatch(/Aguinaldo accrual \(LFT art\. 87\)/);
-    expect(r.err).toContain('Ensayo');
+    expect(r.err).toContain('Dry run');
     // LA PTU, DECLARADA MIENTRAS TODAVÍA SE PUEDE PREGUNTAR. Un cero silencioso
     // y una ausencia declarada no son lo mismo, y leerla después de postear es
     // leerla tarde.
@@ -297,7 +297,7 @@ describe('payroll accrue · el mismo mes tecleado dos veces', () => {
   it('la primera corrida postea UN asiento y escribe la cédula de los dos trabajadores', async () => {
     const r = await correr(['payroll', 'accrue', '--period', PERIODO, '--yes']);
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
-    expect(r.err).toContain('2 trabajador(es) devengados');
+    expect(r.err).toContain('✔ 2 workers accrued');
 
     const asientos = await asientosDelDevengo();
     expect(asientos).toHaveLength(1);
@@ -318,8 +318,8 @@ describe('payroll accrue · el mismo mes tecleado dos veces', () => {
     const r = await correr(['payroll', 'accrue', '--period', PERIODO, '--yes']);
     // No es un error: el mes ya estaba devengado y la hoja lo dice sin postear.
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
-    expect(r.err).toContain('Nada que devengar');
-    expect(r.out).toContain('ya tiene renglon vigente de este mes');
+    expect(r.err).toContain('Nothing to accrue');
+    expect(r.out).toContain('already has a live row for this month');
 
     expect(await asientosDelDevengo()).toHaveLength(1);
     expect(await renglonesDeCedula()).toHaveLength(2);
@@ -374,7 +374,7 @@ describe('payroll accrue --idempotency-key', () => {
       asientoDeAbril.rows[0].id
     );
     expect(salida, 'el reintento contestó «nada que devengar» en vez de lo grabado').toContain(
-      'ya consumada'
+      'already spent'
     );
   });
 
