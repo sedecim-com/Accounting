@@ -59,10 +59,10 @@ async function customer(fx: Fixture, number: string, name: string, currency = 'M
 }
 
 /** An issued PUE invoice of 1,000.00 + 160.00 to `customerId`, dated `date`. */
-async function invoice(fx: Fixture, customerId: string, date: string): Promise<string> {
+async function invoice(fx: Fixture, customerId: string, date: string, terms: 'PUE' | 'PPD' = 'PUE'): Promise<string> {
   const draft = await createInvoice({
     entity_id: fx.entityId, customer_id: customerId, invoice_date: date, due_date: date,
-    currency_code: 'MXN', terms: 'PUE',
+    currency_code: 'MXN', terms,
     lines: [{
       revenue_account_id: fx.roles.ingreso, description: 'Synthetic service',
       quantity: '1', unit_price: '1000.00', tax_rate: '16.0000',
@@ -389,6 +389,28 @@ describe('T6 · refused before any write, each by its key', () => {
     const e = await refusedWithNothingWritten(() => transfer(f, reversed.id));
     expect(e.messageKey?.key).toBe('receipt.transfer.not_completed');
     expect(e.message).toContain('reversed');
+  }, 180_000);
+
+  it('cash an unapply put back keeping its IVA caused (MNE-001-574) is an advance too, refused until part 2', async () => {
+    const ppd = await invoice(f, customerA, '2026-05-20', 'PPD');
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId, counterpartyId: customerA, paymentAmount: '1160.00', paymentDate: '2026-05-20',
+        paymentMethod: 'spei', applications: [{ documentId: ppd, amountApplied: '1160.00' }],
+      },
+      f.userId
+    );
+    await unapplyCustomerPayment(
+      f.entityId, r.paymentId, { invoiceId: ppd, reason: 'applied to the wrong customer', date: '2026-05-25' }, f.userId
+    );
+    const kept = await query<{ kept: string }>(
+      'SELECT unapply_kept_iva_amount::text AS kept FROM payment_allocations WHERE payment_id = $1',
+      [r.paymentId]
+    );
+    expect(kept.rows.map((x) => x.kept)).toEqual(['160.0000']);
+    const e = await refusedWithNothingWritten(() => transfer(f, r.paymentId, { amount: '100.00' }));
+    expect(e.messageKey?.key).toBe('receipt.transfer.advance_in_499');
+    expect(e.message).toContain('MNE-001-499');
   }, 180_000);
 
   it('a treated advance, a cheque the bank has not cashed, and a TRF row are refused until part 2', async () => {

@@ -2935,6 +2935,13 @@ export async function transferCustomerCredit(
       const params = { receipt, amount: new Decimal(amount).toFixed(2), onAccount: left.toFixed(2) };
       throw new ValidationError({ key: 'receipt.transfer.exceeds_on_account', params }, 'amount');
     }
+    // MNE-001-574 · cash an unapply put back on account keeping its IVA caused
+    // is an advance with its IVA caused as well (`keptOnAccount`): moving it
+    // splits base and IVA, which is part 2's (MNE-001-499).
+    const kept = await advanceLeft(client, entityId, source, left);
+    if (kept !== null && new Decimal(kept.total).minus(kept.consumed).greaterThan(0)) {
+      throw new ValidationError({ key: 'receipt.transfer.advance_in_499', params: { receipt } });
+    }
     const date = await receiptEventDate(client, entityId, source, args.date, 'transfer');
     const held = await client.query<{ left: string }>(
       `SELECT COALESCE(SUM(${cashOnAccountSql('cp')}), 0)::text AS left
