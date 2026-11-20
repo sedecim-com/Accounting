@@ -12,6 +12,7 @@ import { censusGapPolicy, gapsOf, reconcileCensus, severityOfCensusGap, type Cen
 import { entityScope } from '../../database/scope.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
+import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
@@ -242,26 +243,40 @@ type ChecklistQuery = <T extends Record<string, unknown>>(
  * entity points its asset account at, so an imported chart whose classes were
  * mapped by hand is seen too. Accumulated depreciation is a contra-asset and
  * is not counted: a fully depreciated asset still needs its register entry.
+ *
+ * `periodEnd` is the period's last day (YYYY-MM-DD). With `client`, both
+ * reads run inside the close's transaction, under its lock. Exported for its
+ * unit test (MNE-001-436).
  */
-async function fixedAssetBalanceWithoutRegister(
-  q: ChecklistQuery,
+export async function fixedAssetBalanceWithoutRegister(
   entityId: string,
-  periodId: string
+  periodEnd: string,
+  client?: pg.PoolClient
 ): Promise<string | null> {
-  const r = await q<{ balance: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS balance
-       FROM journal_entry_lines jel
-       JOIN journal_entries je
-         ON je.id = jel.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
-       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
-      WHERE je.entry_date <= (SELECT end_date FROM fiscal_periods WHERE id = $2 AND entity_id = $1)
+  const q = <T extends Record<string, unknown>>(sql: string, params: unknown[]) =>
+    client ? client.query<T>(sql, params) : query<T>(sql, params);
+  // Which accounts are fixed assets is the chart's and the asset classes'
+  // business; the balance is the report layer's (T14 · #101, MNE-001-436).
+  const accounts = await q<{ id: string }>(
+    `SELECT a.id
+       FROM accounts a
+      WHERE a.entity_id = $1
         AND a.account_type = 'asset'
         AND (a.account_subtype = 'fixed_asset'
              OR a.id IN (SELECT ac.default_asset_account_id FROM asset_categories ac
                           WHERE ac.entity_id = $1))`,
-    [entityId, periodId]
+    [entityId]
   );
-  const balance = new Decimal(r.rows[0]?.balance ?? '0');
+  if (accounts.rows.length === 0) return null;
+  // Every posted entry up to the period end, closing entries included, and
+  // by date alone: no `periodId`, so closing December still sees the
+  // period-13 entries dated December 31, as this box always read them.
+  const rows = await queryAccumulatedBalances(
+    entityId,
+    { date: periodEnd, inclusive: true },
+    { ignoreClosingPolicy: true, accountIds: accounts.rows.map((a) => a.id), ...(client ? { client } : {}) }
+  );
+  const balance = rows.reduce((sum, row) => sum.plus(row.balance), new Decimal(0));
   return balance.isZero() ? null : balance.toFixed(2);
 }
 
@@ -845,7 +860,7 @@ export async function getPeriodCloseStatus(
   // depreciated asset keeps its gross cost on the books legitimately, and
   // telling the accountant to register it again would duplicate it.
   const unregistered =
-    registeredAssets === 0 ? await fixedAssetBalanceWithoutRegister(q, entityId, periodId) : null;
+    registeredAssets === 0 ? await fixedAssetBalanceWithoutRegister(entityId, finDelPeriodo, client) : null;
   // MNE-001-129 (#128): the panel promised this box follows
   // `depreciacion_faltante_al_cierre` and it carried a literal 'warning'. The
   // policy speaks of ACTIVE assets whose run is missing, so it weighs the box

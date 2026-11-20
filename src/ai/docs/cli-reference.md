@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 247 of 394 subcommands
+  spelling is `-T` at the root and `-t` on the 248 of 396 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -1633,6 +1633,7 @@ Commands:
   apply|aplicar [options] <payment>       Apply an existing payment to specific bills: partial, with discount, or short-paid
   unapply|desaplicar [options] <payment>  Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account
   reverse|reversar [options] <payment>    Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again
+  trace|rastro                            The payment trace of a registered payment: its cheque, and the account and bank the money went to
   help [command]                          display help for command
 ```
 
@@ -1791,6 +1792,64 @@ Examples:
   # The duplicated transfer came back: look first, then undo the payment on the day it returned.
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31 --dry-run
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31
+```
+
+### `mnemosine payment trace` (alias: rastro)
+
+```
+Usage: mnemosine payment trace|rastro [options] [command]
+
+The payment trace of a registered payment: its cheque, and the account and bank
+the money went to
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <payment>  Complete the empty trace fields of a
+                                        registered payment from its evidence:
+                                        only empty fields, audited, posts
+                                        nothing
+  help [command]                        display help for command
+```
+
+#### `mnemosine payment trace record` (alias: registrar)
+
+```
+Usage: mnemosine payment trace record|registrar [options] <payment>
+
+Complete the empty trace fields of a registered payment from its evidence: only
+empty fields, audited, posts nothing
+
+Arguments:
+  payment                   payment number or id
+
+Options:
+  -e, --entity <idOrName>   legal entity to operate on (defaults to the active
+                            one)
+  -t, --tenant <id>         tenant (firm) whose data to scope to
+  -u, --user <email>        acting user, for attribution and permissions
+  --check-number <number>   cheque number; only for a payment made by cheque
+  --to-account <number>     account that received the money (CtaDest of the SAT
+                            voucher)
+  --to-bank <code>          destination bank key from the SAT c_Banco catalogue
+                            (3 digits)
+  --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --reason <text>           justification recorded in the audit trail (required)
+  --json                    JSON output
+  -y, --yes                 skip the confirmation prompt
+  --dry-run                 compute and show the full effect; write nothing and
+                            call nothing external
+  --idempotency-key <key>   not needed: this command already deduplicates on the
+                            state it writes; accepted and ignored
+  -h, --help                display help for command
+
+Examples:
+  # A SPEI recorded without its destination: complete it from the transfer receipt.
+  mnemosine payment trace record VPMT-2026-00001 --to-account 002180001122334455 --to-bank 002 --reason "SPEI receipt OP-0511"
+  # A cheque recorded without its number: look first, then complete it from the stub.
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
 ```
 
 ## `mnemosine account` (alias: cuenta)

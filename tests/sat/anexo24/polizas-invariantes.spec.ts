@@ -105,15 +105,28 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
   });
 
   it('the remedy follows the cause: a datum on the payment, or one on the counterparty record', () => {
-    const [onPayment, onRecord] = polizaConDineroSinRastro([
-      { numUnIdenPol: 'JE-PAY', motivo: 'el pago VPMT-3 no tiene cuenta destino capturada' },
+    const [onPayment, onRecord, noCause] = polizaConDineroSinRastro([
+      {
+        numUnIdenPol: 'JE-PAY',
+        motivo: 'el pago VPMT-3 no tiene cuenta destino capturada',
+        completedBy: 'payment trace record VPMT-3 --to-account <cuenta> --reason <motivo>',
+      },
       {
         numUnIdenPol: 'JE-VND',
         motivo: 'el beneficiario del pago VPMT-4 no tiene RFC capturado',
         missingOnRecord: 'el registro del proveedor «Fletes del Norte» (id v-1)',
       },
+      { numUnIdenPol: 'JE-ODD', motivo: 'el asiento dice venir de un pago y no dice de cuál' },
     ]);
-    expect(onPayment.detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    // MNE-001-568: the payment is completed where it is, never captured again.
+    expect(onPayment.detalle).toContain(
+      'Complétalo en el pago ya registrado (`payment trace record VPMT-3 --to-account <cuenta> --reason <motivo>`)'
+    );
+    expect(onPayment.detalle).not.toContain('payment create');
+    // With no cause, nothing is prescribed rather than a command that fixes nothing.
+    expect(noCause.severity).toBe('blocking');
+    expect(noCause.detalle).not.toMatch(/payment create|payment trace|bank account edit/);
+    expect(noCause.detalle).toMatch(/pidió las pólizas\.$/);
     // Reversing and paying again leaves the record as it was: two blocking
     // entries where there was one. The remedy must not send anyone there.
     expect(onRecord.severity).toBe('blocking');
