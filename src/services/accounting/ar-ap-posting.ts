@@ -1779,6 +1779,42 @@ export async function postReceiptReversalVatEntry(
 }
 
 /**
+ * MNE-001-593 (#814, decision (A)) · After a credit note restituted IVA from
+ * the cash a receipt kept on account (`postCreditNoteEntry`), the receipt's
+ * mirrors leave that IVA credited in anticipo_clientes and debited in
+ * iva_trasladado, which no balance carries: the cash is gone with the
+ * reversal. One pair per note takes it out (DR anticipo_clientes · CR
+ * iva_trasladado), with the source of the reversal's IVA correction and
+ * dated with the mirrors, so the reversal ends as one before the note would.
+ */
+export async function postReceiptReversalRestitutionEntry(
+  client: pg.PoolClient,
+  payment: { id: string; entity_id: string; payment_number: string },
+  restitutions: readonly { noteNumber: string; iva: string }[],
+  userId: string
+): Promise<JournalEntry> {
+  const { to } = reclassRoles('issued');
+  const roles = await roleAccounts(client, payment.entity_id, ['anticipo_clientes', to]);
+  const lines = restitutions.flatMap((x): JeLine[] => {
+    const text = `IVA restituted by credit note ${x.noteNumber} from the cash ${payment.payment_number} kept on account ` +
+      'leaves with the reversal: no balance owes it back (LIVA art. 7, decision (A))';
+    return [
+      { account_id: requireRole(roles, 'anticipo_clientes'), debit_amount: x.iva, credit_amount: null, description: text },
+      { account_id: requireRole(roles, to), debit_amount: null, credit_amount: x.iva, description: text },
+    ];
+  });
+  return createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    `Reversal of ${payment.payment_number} · restitution from kept cash out of anticipo_clientes`,
+    lines,
+    userId,
+    { autoPost: true, client, sourceType: RECEIPT_REVERSAL_IVA_SOURCE, sourceId: payment.id, reference: payment.payment_number }
+  );
+}
+
+/**
  * MNE-001-498 · A customer's credit assigned to another customer (CCF art.
  * 2029), as its own entry dated on the agreed day: DR anticipo_clientes for
  * A's credit, CR anticipo_clientes for B's. The same account on both sides:

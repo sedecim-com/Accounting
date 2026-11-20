@@ -13,6 +13,7 @@ import {
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
   postReceiptReversalVatEntry,
+  postReceiptReversalRestitutionEntry,
   postCustomerPaymentEntry,
   splitNoteVatOnKept,
   type AplicacionPosterior,
@@ -526,6 +527,21 @@ describe('MNE-001-581 · la corrección de una reversa saca de 2125 lo que ning�
       ['acct:iva_trasladado', null, '32.0000'],
     ]);
     expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted by credit note CN-001 stays out of iva_trasladado_no_cobrado/);
+    expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'receipt_reversal_iva', reference: 'PMT-001' });
+  });
+});
+
+describe('MNE-001-593 · la reversa saca de 2150 lo que una nota restituyó del efectivo que el cobro guardaba a cuenta', () => {
+  it('DR anticipo_clientes · CR iva_trasladado, un par por nota, con la fuente de la corrección', async () => {
+    await postReceiptReversalRestitutionEntry(fakeClient(), payment(), [{ noteNumber: 'CN-001', iva: '32.0000' }, { noteNumber: 'CN-002', iva: '8.0000' }], USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:anticipo_clientes', '32.0000', null],
+      ['acct:iva_trasladado', null, '32.0000'],
+      ['acct:anticipo_clientes', '8.0000', null],
+      ['acct:iva_trasladado', null, '8.0000'],
+    ]);
+    expect(lines()[0].description).toMatch(/restituted by credit note CN-001 from the cash PMT-001 kept on account/);
     expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'receipt_reversal_iva', reference: 'PMT-001' });
   });
 });

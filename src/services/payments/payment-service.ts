@@ -10,6 +10,7 @@ import {
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
   postReceiptReversalVatEntry,
+  postReceiptReversalRestitutionEntry,
   postVendorApplicationEntry,
   postVendorUnapplicationEntry,
   postCustomerCreditTransferEntry,
@@ -32,7 +33,7 @@ import {
 import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf,
-  keptOnAccount, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
+  keptOnAccount, keptRestitutions, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
 import { treatmentOfSales } from '../fiscal/sale-sources.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
@@ -2590,6 +2591,11 @@ async function vatKeptByReversal(
  * MNE-001-581: after a credit note, the mirrors put back into 2125 more than
  * the reopened balances carry; one entry of the reversal's own takes the rest
  * out again (`vatKeptByReversal`, `postReceiptReversalVatEntry`).
+ *
+ * MNE-001-593: a note that restituted IVA from this receipt's cash kept on
+ * account left it in 2150 and out of 2120; the mirrors take the cash away, so
+ * another entry of its own takes that restitution out of 2150 again
+ * (`postReceiptReversalRestitutionEntry`).
  */
 export async function reverseCustomerPayment(
   entityId: string,
@@ -2731,6 +2737,14 @@ export async function reverseCustomerPayment(
       const correction = await postReceiptReversalVatEntry(
         client, { id: paymentId, entity_id: entityId, payment_number: pago.payment_number },
         kept.amount.toFixed(4), kept.notes, userId
+      );
+      attestations.push({ entityId, entryId: correction.id });
+    }
+    // MNE-001-593: a note's restitution from this receipt's kept cash leaves 2150 and 2120 with it.
+    const restituted = (await keptRestitutions(client, entityId, paymentId)).filter((x) => new Decimal(x.iva).greaterThan('0.005'));
+    if (restituted.length > 0) {
+      const correction = await postReceiptReversalRestitutionEntry(
+        client, { id: paymentId, entity_id: entityId, payment_number: pago.payment_number }, restituted, userId
       );
       attestations.push({ entityId, entryId: correction.id });
     }

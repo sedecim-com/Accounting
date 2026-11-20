@@ -91,6 +91,10 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //   R2  U1, then its receipt reversed 10-25 → the mirrors put back 160 − 128
 //       = 32, which no balance carries: a correction of 32; 2125 128, 2120 0.
 //   R3  S 1,160 collected and reversed, no note → no correction; 2125 160.
+//   R2x U4, then P reversed 10-25 → the mirrors leave 2120 −32, 2125 128 and
+//       2150 32, the note's restitution from P's cash: a correction DR 2150 32
+//       / CR 2120 32 (MNE-001-593); 2120 0, 2125 128, 2150 0, as R2. 581's
+//       own correction reads 0: the 2125 mirrors net to 0.
 // ============================================================
 
 const day = (d: number): string => `2026-10-${String(d).padStart(2, '0')}`;
@@ -517,6 +521,15 @@ describe('a reversal after a credit note takes back out of 2125 what its mirrors
     await reverse(b, receipt.paymentId);
     expect((await corrections(b, receipt.paymentId)).map((c) => c[0])).toEqual(['32.00']);
     expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '0.00' });
+  }, 120_000);
+
+  it('R2x · after a note restituted from the cash the receipt kept on account, its reversal takes that restitution back out of 2150 and ends as R2', async () => {
+    const { b, receipt, n } = await unappliedThenNoted('R2x');
+    await reverse(b, receipt.paymentId);
+    const fixes = await corrections(b, receipt.paymentId);
+    expect(fixes.map((c) => c[0])).toEqual(['32.00']);
+    expect(fixes[0][1]).toContain(`IVA restituted by credit note ${n} from the cash ${receipt.paymentNumber} kept on account`);
+    expect(await ledger(b)).toEqual({ '2120': '0.00', '2125': '128.00', '2150': '0.00' });
   }, 120_000);
 
   it('R3 · with no note the reversal posts no correction, as before', async () => {
