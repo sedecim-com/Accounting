@@ -124,7 +124,7 @@
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "9beff09988da940ee108c7461914c8e68dd43643",
     "src/services/ap/vendor-service.ts": "5f960403a1a67b3373543f99dfeaa0a0704d70f5",
-    "src/services/payments/payment-service.ts": "d92072218887587aa0b314f4dfa396ba3ba2cb3d",
+    "src/services/payments/payment-service.ts": "45fed142b950e9180e3e4a562b28f45584fa0aa0",
     "src/services/banking/bank-statement-service.ts": "43314db445a56c645c01a677c3b2db4202c55cbb",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "0c7c66c735e58c9b5e3ade2ae8d2065834f58b14",

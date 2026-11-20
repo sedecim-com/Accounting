@@ -1425,13 +1425,16 @@ async function receiptEventDate(
  * MNE-001-574 · On a receipt with none, the advance is the cash its unapplies
  * put back carrying the IVA they kept caused (`keptOnAccount`), and null
  * while there is none, so such a receipt behaves as before until then.
+ *
+ * MNE-001-591 · `own`: the invoices whose kept IVA a credit note capped; cash
+ * applied again to one of them takes that pool first (empty with a treatment).
  */
 async function advanceLeft(
   client: pg.PoolClient,
   entityId: string,
   receipt: PagoVivo,
   onAccount: Decimal
-): Promise<Omit<AdvanceTake, 'applied'> | null> {
+): Promise<(Omit<AdvanceTake, 'applied'> & { own: ReadonlySet<string> }) | null> {
   const treatment = receipt.advance_base_amount === null || receipt.advance_iva_amount === null
     ? null
     : storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
@@ -1458,6 +1461,7 @@ async function advanceLeft(
     consumed: consumed.toFixed(4),
     cancelled: live.reduce((s, x) => s.plus(x.cancelled), new Decimal(0)).toFixed(4),
     plain: Decimal.max(onAccount.minus(total.minus(consumed)), 0).toFixed(4),
+    own: 'own' in back ? back.own : new Set<string>(),
   };
 }
 
@@ -1734,8 +1738,10 @@ export async function applyCustomerPayment(
       }
 
       // MNE-001-422: the part of the advance this cash is, and the IVA it carries.
+      // MNE-001-591: cash applied again to the invoice a credit note capped is that invoice's own collected
+      // consideration, so it takes the pool that carries its kept IVA first (decision (A) on #792).
       const take = advance
-        ? takeFromAdvance({ ...advance, applied: aplicado.toFixed(4) })
+        ? takeFromAdvance({ ...advance, ...(advance.own.has(app.documentId) ? { plain: '0' } : {}), applied: aplicado.toFixed(4) })
         : { plain: aplicado.toFixed(4), base: '0.0000', iva: '0.0000' };
       const deferred = held && new Decimal(take.iva).greaterThan(0)
         ? await defersUncausedCancellation(client, entityId, pago, inv, take.iva)
