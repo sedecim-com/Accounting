@@ -3143,13 +3143,14 @@ async function assertAfterLastEvent(
  * too: the note's posted, unreversed entry, whose source is the bill. Without
  * it, every bill with a note read as closed short and its payments could not
  * be unapplied or reversed, a bounced transfer included.
+ *
+ * The VAT over-credit census reads it too (MNE-001-562).
  */
-async function assertNotClosedShort(
+export async function writtenOffOf(
   client: pg.PoolClient,
   entityId: string,
-  bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
-  what: string
-): Promise<void> {
+  bill: { id: string; total_amount: string; amount_due: string }
+): Promise<Decimal> {
   const explained = await client.query<{ s: string }>(
     `SELECT (COALESCE((SELECT SUM(pa.amount_applied + COALESCE(pa.discount_amount, 0))
                          FROM payment_applications pa
@@ -3164,7 +3165,16 @@ async function assertNotClosedShort(
                           AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL), 0))::text AS s`,
     [bill.id, entityId, VENDOR_CREDIT_NOTE_SOURCE]
   );
-  const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+  return new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+}
+
+async function assertNotClosedShort(
+  client: pg.PoolClient,
+  entityId: string,
+  bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
+  what: string
+): Promise<void> {
+  const writtenOff = await writtenOffOf(client, entityId, bill);
   if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
     throw new ValidationError(
       `${bill.bill_number} was closed short (${writtenOff.toFixed(2)} written off): the write-off, its ` +
