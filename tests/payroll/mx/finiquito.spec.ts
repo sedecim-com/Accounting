@@ -13,14 +13,26 @@ vi.mock('../../../src/services/policy/policy-service.js', () => ({
   // donde la fila de `legal_parameters` existe de verdad.
   exigirPisoLegal: vi.fn((_k: string, valor: string) => Promise.resolve(valor)),
 }));
+// MNE-001-375: the separation ISR has its own shell and its own specs
+// (separation-isr.spec.ts against a mock, separation-isr.int.spec.ts against
+// Postgres). Here only the wiring is measured: what the settlement hands it.
+vi.mock('../../../src/services/payroll/mx/separation-isr.js', () => ({
+  calculateSeparationIsr: vi.fn((input: { payments: string | null }) =>
+    Promise.resolve({ answeredBy: 'calculateSeparationIsr', payments: input.payments })
+  ),
+}));
 
 import { calculateFiniquito } from '../../../src/services/payroll/mx/finiquito-calculator.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy, getPolicyNumber } from '../../../src/services/policy/policy-service.js';
+import { calculateSeparationIsr } from '../../../src/services/payroll/mx/separation-isr.js';
 
 const mockQuery = query as unknown as Mock;
 const mockGetPolicy = getPolicy as unknown as Mock;
 const mockGetPolicyNumber = getPolicyNumber as unknown as Mock;
+const mockSeparationIsr = calculateSeparationIsr as unknown as Mock;
+/** What the settlement handed to the separation ISR on its first call. */
+const handed = (): { payments: string | null } => mockSeparationIsr.mock.calls[0][0] as { payments: string | null };
 
 const CTX = { tenantId: 't1', entityId: 'e-de-la-peticion' };
 
@@ -41,16 +53,28 @@ function conParametros(...respuestas: Array<{ rows: unknown[] }>): void {
   });
 }
 
+/**
+ * What the panel answers, BY KEY. Since MNE-001-374 the settlement reads four
+ * keys through `getPolicy`, and the two USMO readers refuse a value they do
+ * not know, so one answer for every key no longer fits.
+ */
+const PANEL_DEFAULTS: Record<string, string> = {
+  prima_vacacional_pct: '0.25',
+  usmo_isr_subsidy: 'gross_of_tariff',
+  usmo_days_per_month: '30',
+};
+
+function panelAnswers(answers: Record<string, string> = {}): void {
+  const values = { ...PANEL_DEFAULTS, ...answers };
+  mockGetPolicy.mockImplementation((_ctx: unknown, key: string) =>
+    Promise.resolve({ key, value: values[key], defined: key in answers, question: '', rationale: null })
+  );
+}
+
 /** Lo que el panel contesta cuando nadie ha tocado las políticas. */
 function panelPorDefecto(): void {
   mockGetPolicyNumber.mockResolvedValue(15);
-  mockGetPolicy.mockResolvedValue({
-    key: 'prima_vacacional_pct',
-    value: '0.25',
-    defined: false,
-    question: '',
-    rationale: null,
-  });
+  panelAnswers();
 }
 
 // ============================================================
@@ -118,7 +142,7 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
       CTX
     );
     mockGetPolicyNumber.mockResolvedValue(30);
-    mockGetPolicy.mockResolvedValue({ value: '1.00', key: '', defined: true, question: '', rationale: null });
+    panelAnswers({ prima_vacacional_pct: '1.00' });
     const conElContrato = await calculateFiniquito(
       { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
@@ -291,5 +315,148 @@ describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
         CTX
       )
     ).rejects.toThrow(/prestación más\s+grande del finiquito/);
+  });
+});
+
+// ============================================================
+// MNE-001-374 (#194): the two USMO keys, read and reported.
+//
+// The separation ISR of LISR art. 96, last paragraph, is a rate built on the
+// last ordinary monthly salary (USMO). MNE-001-373 put its two readings in the
+// panel: the ISR of the USMO gross of the tariff or net of the employment
+// subsidy, and the USMO at 30 or 30.4 days. This step reads both and reports
+// the USMO; nothing is withheld yet (MNE-001-375). Figures by hand: an annual
+// salary of 109 500 is a daily wage of 109 500 / 365 = 300.0000.
+// ============================================================
+describe('Finiquito MX — the USMO keys (MNE-001-374)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockGetPolicy.mockReset();
+    mockGetPolicyNumber.mockReset();
+    panelPorDefecto();
+  });
+
+  const WORKER = { sbc: null, hire_date: '2020-01-15', annual_salary: '109500', entity_id: 'e-del-empleado' };
+  const INPUT = {
+    employee_id: 'emp1', termination_date: '2026-06-30', last_paid_through: '2026-06-15', termination_reason: 'despido' as const,
+  };
+
+  it('by default the USMO is the daily wage × 30, and its ISR is read gross of the tariff', async () => {
+    conParametros({ rows: [WORKER] });
+    const r = await calculateFiniquito(INPUT, CTX);
+    expect(r.basis.daily_wage).toBe('300.0000');
+    expect(r.basis.last_ordinary_monthly_salary).toBe('9000.0000');
+    expect(r.basis.usmo_days_per_month).toBe('30');
+    expect(r.basis.usmo_isr_subsidy).toBe('gross_of_tariff');
+  });
+
+  it('answering the panel changes what is reported: 30.4 days and net of subsidy', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const r = await calculateFiniquito(INPUT, CTX);
+    expect(r.basis.last_ordinary_monthly_salary).toBe('9120.0000');
+    expect(r.basis.usmo_days_per_month).toBe('30.4');
+    expect(r.basis.usmo_isr_subsidy).toBe('net_of_subsidy');
+  });
+
+  it('reads both keys in the entity of the employee', async () => {
+    conParametros({ rows: [WORKER] });
+    await calculateFiniquito(INPUT, CTX);
+    const panel = { tenantId: 't1', entityId: 'e-del-empleado' };
+    expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_isr_subsidy');
+    expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_days_per_month');
+  });
+
+  it('no amount and no total moves: the keys only report, until MNE-001-375 withholds', async () => {
+    conParametros({ rows: [WORKER] });
+    const byDefault = await calculateFiniquito(INPUT, CTX);
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const answered = await calculateFiniquito(INPUT, CTX);
+    const amounts = (r: typeof byDefault) => ({ ...r, basis: undefined });
+    expect(amounts(answered)).toEqual(amounts(byDefault));
+  });
+
+  it('a stored day count the reader does not know is refused, and named', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '31' });
+    const refusal = calculateFiniquito(INPUT, CTX);
+    await expect(refusal).rejects.toMatchObject({ code: 'POLICY_VALUE_UNKNOWN' });
+    conParametros({ rows: [WORKER] });
+    await expect(calculateFiniquito(INPUT, CTX)).rejects.toThrow(/usmo_days_per_month = "31".*30, 30\.4/);
+  });
+
+  it('so is the Spanish spelling of the subsidy reading: bruto_de_tarifa is not a value', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_isr_subsidy: 'bruto_de_tarifa' });
+    await expect(calculateFiniquito(INPUT, CTX)).rejects.toThrow(
+      /usmo_isr_subsidy = "bruto_de_tarifa".*gross_of_tariff, net_of_subsidy/
+    );
+  });
+});
+
+describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XIII)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockGetPolicy.mockReset();
+    mockGetPolicyNumber.mockReset();
+    mockSeparationIsr.mockClear();
+    panelPorDefecto();
+  });
+
+  // Fifteen years, daily wage 1 000, dismissed on 30-jun-2026 (#194, T4b), by hand:
+  //   salary 15 × 1 000 = 15 000.0000 · aguinaldo 15 × 181/365 × 1 000 = 7 438.3562
+  //   vacation premium 26 × 122/365 × 1 000 × 0.25 = 2 172.6027
+  //   seniority premium 180 × 630.08 = 113 414.4000 · total 138 025.3589
+  const VETERAN = { sbc: null, hire_date: '2011-03-01', annual_salary: '365000', entity_id: 'e-del-empleado' };
+  const DISMISSAL = {
+    employee_id: 'emp1', termination_date: '2026-06-30', last_paid_through: '2026-06-15', termination_reason: 'despido' as const,
+  };
+
+  it('hands it the seniority premium ALONE: the ordinary items keep the ordinary route', async () => {
+    conParametros({ rows: [VETERAN] });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.seniority_premium_amount).toBe('113414.4000');
+    expect(r.total).toBe('138025.3589');
+    expect(mockSeparationIsr).toHaveBeenCalledTimes(1);
+    expect(mockSeparationIsr).toHaveBeenCalledWith({
+      payments: '113414.4000',
+      hireDate: '2011-03-01',
+      terminationDate: '2026-06-30',
+    });
+    // Not the total, and not the aguinaldo or the vacation premium.
+    expect(handed().payments).not.toBe(r.total);
+  });
+
+  it('returns its answer as `separation_isr`, and moves no amount and no total', async () => {
+    conParametros({ rows: [VETERAN] });
+    const r = await calculateFiniquito(DISMISSAL, CTX);
+    expect(r.separation_isr).toEqual({ answeredBy: 'calculateSeparationIsr', payments: '113414.4000' });
+    expect(r.total).toBe('138025.3589');
+  });
+
+  it('a resignation under fifteen years pays no premium, so the separation payments are zero', async () => {
+    conParametros({ rows: [{ ...VETERAN, hire_date: '2014-07-16' }] });
+    await calculateFiniquito({ ...DISMISSAL, termination_reason: 'renuncia' }, CTX);
+    expect(handed().payments).toBe('0.0000');
+  });
+
+  it('a premium that could not be calculated is passed as null, never as zero', async () => {
+    // No minimum wage at the termination date: the premium says «SIN CALCULAR».
+    let i = 0;
+    mockQuery.mockImplementation((sql?: unknown) =>
+      Promise.resolve(
+        typeof sql === 'string' && sql.includes('tax_parameters')
+          ? { rows: [{ params: {} }] }
+          : [{ rows: [VETERAN] }][i++] ?? { rows: [] }
+      )
+    );
+    // Another date than the cases above: getTaxParameters caches by date.
+    const r = await calculateFiniquito(
+      { ...DISMISSAL, termination_date: '2026-05-29', last_paid_through: '2026-05-15' },
+      CTX
+    );
+    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(handed().payments).toBeNull();
   });
 });

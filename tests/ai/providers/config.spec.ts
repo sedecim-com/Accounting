@@ -316,6 +316,55 @@ describe('strict schema + quarantine (fail closed on invalid config)', () => {
   });
 });
 
+describe('models: the model a person chose for a profile (MNE-001-441)', () => {
+  const write = (cfg: unknown) =>
+    fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify(cfg));
+
+  it('--model wins over models.<profile>, which wins over the profile\'s own model', () => {
+    write({ models: { ollama: 'gemma4:26b' } });
+    expect(resolveProfile('ollama', undefined, tmpDir).model).toBe('gemma4:26b');
+    expect(resolveProfile('ollama', 'qwen3:8b', tmpDir).model).toBe('qwen3:8b');
+    expect(resolveProfile('anthropic', undefined, tmpDir).model).toBe(BUILTIN_PROFILES.anthropic.model);
+  });
+
+  it('keeps the built-in\'s declared window and posture instead of copying the profile', () => {
+    write({ models: { ollama: 'gemma4:26b' } });
+    const p = listProfiles(tmpDir).profiles.ollama as typeof BUILTIN_PROFILES.ollama;
+    expect(p.ventana).toEqual(BUILTIN_PROFILES.ollama.ventana);
+    expect(p.reproducibilidad).toEqual(BUILTIN_PROFILES.ollama.reproducibilidad);
+  });
+
+  it('applies to a profile of the same file too', () => {
+    write({
+      providers: { propio: { type: 'openai-compatible', model: 'a', base_url: 'http://localhost:9/v1' } },
+      models: { propio: 'b' },
+    });
+    expect(resolveProfile('propio', undefined, tmpDir).model).toBe('b');
+  });
+
+  it('refuses a name that is no profile, listing the names', () => {
+    write({
+      providers: { propio: { type: 'openai-compatible', model: 'a', base_url: 'http://localhost:9/v1' } },
+      models: { nadie: 'x' },
+    });
+    expect(() => listProfiles(tmpDir)).toThrow(/models\.nadie: "nadie" is not a profile\. Known: anthropic, .*openclaw, propio/);
+  });
+
+  it('the no-secrets gate judges a model id by its value, not by the profile name above it', () => {
+    const file = writeConfigPatch({
+      providers: { 'mi-token': { type: 'openai-compatible', model: 'a', base_url: 'http://localhost:9/v1' } },
+      models: { 'mi-token': 'modelo-x' },
+    }, tmpDir);
+    expect((JSON.parse(fs.readFileSync(file, 'utf-8')) as { models?: unknown }).models).toEqual({ 'mi-token': 'modelo-x' });
+    expect(() => writeConfigPatch({ models: { gemini: 'sk-falsa-123' } }, tmpDir)).toThrow(/credential/);
+  });
+
+  it('openai keeps saving: its max_tokens_param is no longer copied into the file', () => {
+    const file = writeConfigPatch({ default_provider: 'openai', models: { openai: 'gpt-prueba' } }, tmpDir);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown).toEqual({ default_provider: 'openai', models: { openai: 'gpt-prueba' } });
+  });
+});
+
 describe('writeConfigPatch (secrets never land in the config file)', () => {
   const configPath = () => path.join(tmpDir, 'mnemosine.config.json');
 
@@ -515,6 +564,11 @@ describe('failover chains (config field + resolveFailoverChain)', () => {
       d: p({ failover: ['a'] }),
     });
     expect(() => resolveFailoverChain('a', tmpDir)).toThrow(/cycle detected/);
+  });
+
+  it('accepts reasoning_effort in the strict profile schema', () => {
+    writeProviders({ a: p({ reasoning_effort: 'minimal' }) });
+    expect(listProfiles(tmpDir).profiles.a.reasoning_effort).toBe('minimal');
   });
 
   it('accepts stream_usage in the strict profile schema (streamed-usage opt-out)', () => {
