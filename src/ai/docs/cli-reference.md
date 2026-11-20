@@ -4593,8 +4593,8 @@ Commands:
                                         procedure B the advance moves to revenue
                                         by a journal entry
   unapply|desaplicar [options] <ref>    Unapply a collection from an invoice as
-                                        a NEW event: reopens it and re-parks the
-                                        PPD IVA
+                                        a NEW event: reopens it and puts the
+                                        cash back on account
   reverse|reversar [options] <ref>      Reverse a collection whose money did not
                                         stay, saying why: mirrors every entry,
                                         reopens invoices, re-parks IVA
@@ -4792,8 +4792,8 @@ Examples:
 ```
 Usage: mnemosine receipt unapply|desaplicar [options] <ref>
 
-Unapply a collection from an invoice as a NEW event: reopens it and re-parks the
-PPD IVA
+Unapply a collection from an invoice as a NEW event: reopens it and puts the
+cash back on account
 
 Arguments:
   ref                      payment number or id
@@ -4818,7 +4818,7 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # A NEW event, not an erasure: it reopens the invoice and re-parks the PPD IVA.
+  # A NEW event, not an erasure: it reopens the invoice, and the cash goes back on account with the PPD IVA it caused.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run

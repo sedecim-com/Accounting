@@ -2312,6 +2312,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'La clave del panel {key} dice defer_to_cashing, que aplica ya el cobro {receipt} a {invoice} y compensa los {iva} del IVA de su anticipo el día del cobro; esa opción llega en la parte 2/2 de la issue 789 y todavía no está construida. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`, o contesta refuse. No se escribió nada.',
   'receipt.unapply.iva_at_cashing':
     'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
+  // MNE-001-574 (#792): desaplicar un cobro sin tratamiento deja causado el IVA de su cobro.
+  'receipt.unapply.iva_kept': 'IVA que se queda causado {iva} (LIVA art. 1-B)',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.

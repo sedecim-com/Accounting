@@ -87,6 +87,15 @@ provides:
     # does (#664). The refusal names the document and both parties, covers --dry-run and
     # --yes alike, and writes nothing: cash on account settles only its own party's
     # documents, and no option lets the call through.
+    # CONTRACT: `receipt unapply` of a receipt with no treatment from a PPD invoice keeps
+    # the IVA its collection caused (MNE-001-574, #792; LIVA art. 1-B): its entry credits
+    # 2150 the base and 2125 the share with no 2120 line, `--json` adds `iva_kept_caused`
+    # (4 dp) and `iva_reparked` is 0.0000 where it used to carry that share; a later
+    # `receipt apply` of that cash nets the IVA (DR 2150 the base, DR 2125 the share, no
+    # 2120 line). The closed allocation stores it in `unapply_kept_iva_amount` (338).
+    # Rollback: the previous build ignores the column, so cash an unapply kept would cause
+    # its IVA again when applied; before reverting, post DR 2120 / CR 2150 by hand for each
+    # unapply_kept_iva_amount still on account: what its unapply posted beyond this one.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed

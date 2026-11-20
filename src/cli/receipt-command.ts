@@ -166,7 +166,7 @@ Examples:
 `,
   unapply: `
 Examples:
-  # A NEW event, not an erasure: it reopens the invoice and re-parks the PPD IVA.
+  # A NEW event, not an erasure: it reopens the invoice, and the cash goes back on account with the PPD IVA it caused.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
@@ -820,7 +820,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .command('unapply')
     .alias('desaplicar')
     .argument('<ref>', 'payment number or id')
-    .description('Unapply a collection from an invoice as a NEW event: reopens it and re-parks the PPD IVA');
+    .description('Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account');
   withContext(unapply);
   unapply
     .requiredOption('--invoice <ref>', 'the invoice to unapply from')
@@ -856,6 +856,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const atCashing = (iva: string): void => {
           if (new Decimal(iva).greaterThan(0)) process.stderr.write(p.dim(`${t('receipt.unapply.iva_at_cashing', { iva })}\n`));
         };
+        // MNE-001-574 · the IVA a plain receipt's cash keeps caused while it waits on account.
+        const keptText = (iva: string): string => (new Decimal(iva).greaterThan(0) ? ` · ${t('receipt.unapply.iva_kept', { iva })}` : '');
 
         if (dryRun) {
           atCashing(previo.ivaAtCashing);
@@ -864,7 +866,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-                : '') + '\n'
+                : '') + p.dim(keptText(previo.ivaKeptCaused)) + '\n'
           );
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
@@ -874,7 +876,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
             `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
-            'The cash stays on account; the invoice reopens.'
+            `The cash stays on account; the invoice reopens.${keptText(previo.ivaKeptCaused)}`
         );
 
         const result = await unapplyCustomerPayment(
@@ -892,6 +894,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_isr: result.documento.withholdingIsr ?? '0.00',
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
+            iva_kept_caused: result.ivaKeptCaused,
             advance_iva_restored: result.documento.advanceIva ?? '0.00',
             iva_at_cashing: result.ivaAtCashing,
             date: result.date,
@@ -905,7 +908,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-              : '') + '\n'
+              : '') + p.dim(keptText(result.ivaKeptCaused)) + '\n'
         );
         atCashing(result.ivaAtCashing);
       })

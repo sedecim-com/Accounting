@@ -70,8 +70,10 @@ import {
 //      share, and the unapply's month lists the ended share and the same cash
 //      back on account already taxed, netting 0 (LIVA art. 1-B); an
 //      application of that cash nets it out again (`cashOnAccountOfMonth`).
-//      The ledger still re-parks a plain receipt's share (the owner's open
-//      question, #623 comment 7005284036), so that month's tie-out names it.
+//      Since MNE-001-574 the ledger keeps the share caused too (the owner's
+//      «Mantener causado», #623 comment 7013109077) and nets it on the next
+//      application; only a row unapplied before migration 338 re-parked, and
+//      that month's tie-out names it.
 //   2. A reversal whose money never became the firm's counts in no month
 //      (art. 1-B): the cause `not_collected` (MNE-001-509), which a cheque
 //      takes by default because it is paid when cashed (second paragraph).
@@ -728,13 +730,15 @@ interface CashOnAccountOfMonth {
 }
 
 interface AllocationEventRow {
+  allocation_id: string;
   payment_id: string;
   payment_amount: string;
-  advance_total: string;
   invoice_id: string;
   amount: string;
   vat: string;
   advance_taken: string;
+  /** MNE-001-574 · The IVA the row's unapply kept caused for its plain cash (migration 338); null otherwise. */
+  kept: string | null;
   /** The days the paper counts each event on (`countedOn`), and the days they were dated. */
   applied_day: string;
   undone_day: string | null;
@@ -761,6 +765,12 @@ interface AllocationEventRow {
  * An application takes first the cash on account that carries no IVA, then
  * that taxed cash, as `takeFromAdvance` takes plain cash before an advance.
  *
+ * MNE-001-574 · An application that took that cash in the ledger stored what
+ * it took (`advance_*`, from `keptOnAccount`), and takes exactly that here;
+ * its undo puts it back, with its plain part's share of what it released.
+ * Where an unapply stored what it kept caused (338), that is the IVA its cash
+ * carries back.
+ *
  * MNE-001-507 · A held cheque's events count on its cashing at the earliest
  * (`countedOn`), in the order they were dated. A share it ended before the
  * cashing released nothing, so the cash back on account carries the IVA the
@@ -775,10 +785,10 @@ async function cashOnAccountOfMonth(
   const { rows } = await client.query<AllocationEventRow>(
     `WITH events AS (${SHARE_EVENTS}
      )
-     SELECT pa.payment_id::text, cp.payment_amount::text,
-            (COALESCE(cp.advance_base_amount, 0) + COALESCE(cp.advance_iva_amount, 0))::text AS advance_total,
+     SELECT pa.id::text AS allocation_id, pa.payment_id::text, cp.payment_amount::text,
             pa.invoice_id::text, pa.amount_applied::text AS amount, COALESCE(pa.iva_reclass_amount, 0)::text AS vat,
             (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken,
+            pa.unapply_kept_iva_amount::text AS kept,
             d.applied::text AS applied_day, d.undone::text AS undone_day,
             COALESCE(pa.applied_on, cp.payment_date)::text AS dated_applied,
             CASE WHEN d.undone IS NULL THEN NULL ELSE pa.unapplied_at::date::text END AS dated_undone,
@@ -815,11 +825,22 @@ async function cashOnAccountOfMonth(
   const out: CashOnAccountOfMonth[] = [];
   for (const [paymentId, allocations] of byReceipt) {
     let onAccount = new Decimal(allocations[0].payment_amount);
-    let advanceLeft = new Decimal(allocations[0].advance_total);
     let pool = { cash: new Decimal(0), breakdown: desgloseCero(), notSubject: new Decimal(0) };
+    // MNE-001-574 · What each application took from that cash, which its undo puts back.
+    const tookBy = new Map<string, { cash: Decimal; breakdown: Desglose; notSubject: Decimal }>();
     const month: CashOnAccountOfMonth = {
       paymentId, breakdown: desgloseCero(), notSubject: new Decimal(0), back: new Decimal(0), taken: new Decimal(0),
       neverReleased: new Decimal(0),
+    };
+    let touched = false;
+    const putBack = (inMonth: boolean, cash: Decimal, split: Desglose, notSubject: Decimal, unreleased: boolean): void => {
+      pool = { cash: pool.cash.plus(cash), breakdown: sumarDesgloses(pool.breakdown, split), notSubject: pool.notSubject.plus(notSubject) };
+      if (!inMonth) return;
+      touched = true;
+      month.breakdown = sumarDesgloses(month.breakdown, split);
+      month.notSubject = month.notSubject.plus(notSubject);
+      month.back = month.back.plus(ivaDelDesglose(split));
+      if (unreleased) month.neverReleased = month.neverReleased.plus(ivaDelDesglose(split));
     };
     const order = (x: string, y: string): number => (x === y ? 0 : x < y ? -1 : 1);
     const events = allocations
@@ -829,16 +850,18 @@ async function cashOnAccountOfMonth(
       ])
       .filter((e) => e.day <= range.hasta)
       .sort((x, y) => order(x.day, y.day) || order(x.dated, y.dated) || Number(!x.undo) - Number(!y.undo));
-    let touched = false;
     for (const { day, undo, a } of events) {
       const inMonth = day >= range.desde;
       const amount = new Decimal(a.amount);
       const advanceTaken = new Decimal(a.advance_taken);
       if (undo) {
         onAccount = onAccount.plus(amount);
-        advanceLeft = advanceLeft.plus(advanceTaken);
+        // MNE-001-574: the taxed cash this row took goes back with the IVA it carried.
+        const took = tookBy.get(a.allocation_id);
+        if (took) putBack(inMonth, took.cash, took.breakdown, took.notSubject, false);
         const sale = sales.get(a.invoice_id);
-        if (advanceTaken.greaterThan(0) || !sale) continue;
+        const plainCash = amount.minus(advanceTaken);
+        if (!sale || !plainCash.greaterThan(0)) continue;
         // The ended share, read the way the invoice's own telescope reads it.
         const share = {
           aplicadoPrevio: q4(new Decimal(a.applied_before_undo ?? '0').minus(amount)),
@@ -848,35 +871,41 @@ async function cashOnAccountOfMonth(
         };
         // A held cheque's share ended before its cashing stored 0: the IVA it
         // carries is the share's own, the invoice's telescope read here.
+        // MNE-001-574: what the unapply kept caused, where it stored it, is the
+        // figure the ledger and the pool read.
         const unreleased = a.held && new Decimal(a.vat).isZero();
-        const vat = unreleased
-          ? new Decimal(acumuladoDelDocumento(sale.row.tax_amount, new Decimal(share.aplicadoPrevio).plus(amount).toFixed(4), sale.row.total_amount, sale.row.exchange_rate))
-              .minus(acumuladoDelDocumento(sale.row.tax_amount, share.aplicadoPrevio, sale.row.total_amount, sale.row.exchange_rate))
-          : new Decimal(a.vat);
+        const vat = a.kept !== null && advanceTaken.isZero()
+          ? new Decimal(a.kept)
+          : unreleased
+            ? new Decimal(acumuladoDelDocumento(sale.row.tax_amount, new Decimal(share.aplicadoPrevio).plus(amount).toFixed(4), sale.row.total_amount, sale.row.exchange_rate))
+                .minus(acumuladoDelDocumento(sale.row.tax_amount, share.aplicadoPrevio, sale.row.total_amount, sale.row.exchange_rate))
+            : new Decimal(a.vat);
         const split = desglosarDocumento({
           documentId: sale.row.id, documentNumber: sale.row.invoice_number, renglones: sale.source.lines,
           ivaCabecera: sale.row.tax_amount, ivaPagado: q4(vat), porcion: share, politicaBaseExenta: 'exigir_base', documentKind: 'invoice',
         }).desglose;
         const notSubject = new Decimal(porcionDelDocumento(sale.source.notSubject, share));
-        pool = { cash: pool.cash.plus(amount), breakdown: sumarDesgloses(pool.breakdown, split), notSubject: pool.notSubject.plus(notSubject) };
-        if (inMonth) {
-          touched = true;
-          month.breakdown = sumarDesgloses(month.breakdown, split);
-          month.notSubject = month.notSubject.plus(notSubject);
-          month.back = month.back.plus(ivaDelDesglose(split));
-          if (unreleased) month.neverReleased = month.neverReleased.plus(ivaDelDesglose(split));
-        }
+        // A row that took taxed cash puts back, for its plain part, that part's share of what it released.
+        const ratio = plainCash.dividedBy(amount);
+        putBack(
+          inMonth, plainCash, ratio.equals(1) ? split : scaled(split, ratio),
+          ratio.equals(1) ? notSubject : new Decimal(q4(notSubject.times(ratio))), unreleased
+        );
         continue;
       }
-      const untaxed = Decimal.max(onAccount.minus(advanceLeft).minus(pool.cash), 0);
-      const take = advanceTaken.greaterThan(0) ? new Decimal(0) : Decimal.min(Decimal.max(amount.minus(untaxed), 0), pool.cash);
+      // An application takes the cash on account that carries no IVA first, then that taxed cash; one that
+      // took from it in the ledger (MNE-001-574, `keptOnAccount`) takes exactly what it stored.
+      const untaxed = Decimal.max(onAccount.minus(pool.cash), 0);
+      const take = advanceTaken.greaterThan(0)
+        ? Decimal.min(advanceTaken, pool.cash)
+        : Decimal.min(Decimal.max(amount.minus(untaxed), 0), pool.cash);
       onAccount = onAccount.minus(amount);
-      advanceLeft = advanceLeft.minus(advanceTaken);
       if (!take.greaterThan(0)) continue;
       const whole = take.equals(pool.cash);
       const ratio = whole ? new Decimal(1) : take.dividedBy(pool.cash);
       const part = whole ? pool.breakdown : scaled(pool.breakdown, ratio);
       const partNotSubject = whole ? pool.notSubject : new Decimal(q4(pool.notSubject.times(ratio)));
+      tookBy.set(a.allocation_id, { cash: take, breakdown: part, notSubject: partNotSubject });
       pool = {
         cash: pool.cash.minus(take),
         breakdown: sumarDesgloses(pool.breakdown, scaled(part, -1)),
@@ -1010,6 +1039,7 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
       );
     }
     const cash = charged.cashOnAccount.get(paymentId);
+    // Since MNE-001-574 only a row unapplied before migration 338 re-parked in the ledger.
     const reparked = cash ? cash.back.minus(cash.neverReleased) : new Decimal(0);
     if (reparked.greaterThan(0)) {
       why.push(

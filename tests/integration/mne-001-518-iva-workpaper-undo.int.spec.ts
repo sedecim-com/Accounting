@@ -2,8 +2,7 @@ import { describe, it, expect, afterAll, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
-import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
-import { JournalEntryType } from '../../src/types/index.js';
+import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import {
   recordCustomerPayment, applyCustomerPayment, unapplyCustomerPayment, reverseCustomerPayment,
@@ -21,10 +20,10 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //   1. Unapply: the cash stays with the firm, so its IVA stays caused (LIVA
 //      art. 1-B). May keeps 1,000.00 / 160.00; June lists the ended share
 //      (−1,000.00 / −160.00) and the same cash back on account (+1,000.00 /
-//      +160.00), netting 0. The ledger re-parks the 160.00 (the owner's open
-//      question, #623 comment 7005284036), so June names the unapply as the
-//      cause of its 160.00 gap. Reapplied, the cash on account is netted
-//      where it is applied.
+//      +160.00), netting 0. Since MNE-001-574 the ledger keeps the 160.00
+//      caused too (the owner's «Mantener causado», #623 comment 7013109077),
+//      so June is silent. Reapplied, the cash on account is netted where it
+//      is applied, in the paper and in the ledger.
 //   2. Cheque reversal: a returned cheque was never cashed (art. 1-B, second
 //      paragraph): the receipt counts in no month, and each month names it.
 //   3. Any other method: the collection month keeps its IVA and the reversal
@@ -116,7 +115,7 @@ afterAll(async () => {
 });
 
 describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () => {
-  it('May keeps its share; June lists the ended share and the cash back, traced to the unapply, and names it as its 160.00 gap', async () => {
+  it('May keeps its share; June lists the ended share and the cash back, traced to the unapply, and the ledger agrees', async () => {
     const b = await book('unapply');
     const inv = await ppd(b);
     const receipt = await collect(b, [inv]);
@@ -135,13 +134,9 @@ describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () =
     });
     expect(contribution(june, inv)?.entryIds).toContain(undone.journalEntry.id);
     expect(contribution(june, receipt.paymentId)?.entryIds).toEqual([undone.journalEntry.id]);
-    // The ledger re-parked the share: 2120 is debited 160.00.
-    expect(june.ledger.iva_trasladado).toBe('160.0000');
-    const gap = finding(june, 'IVA-WP-CHARGED-VS-LEDGER');
-    expect(gap?.mensaje).toContain(receipt.paymentNumber);
-    expect(gap?.mensaje).toContain(undone.journalEntry.entry_number);
-    expect(gap?.mensaje).toContain('desaplic');
-    expect(gap?.mensaje).toContain('160.0000');
+    // MNE-001-574: the ledger keeps the share caused, so 2120 does not move and June is silent.
+    expect(june.ledger.iva_trasladado).toBe('0.0000');
+    expect(codes(june)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 
   it('reapplied in the same month, June nets to 0 and is silent', async () => {
@@ -158,12 +153,12 @@ describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () =
     for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 
-  it('reapplied in July, July adds 0 and names the application that took the cash already taxed', async () => {
+  it('reapplied in July, July adds 0, and the application takes the cash already taxed in the ledger too', async () => {
     const b = await book('reapplied in July');
     const inv = await ppd(b);
     const receipt = await collect(b, [inv]);
     await unapply(b, receipt.paymentId, inv, day(6, 10));
-    const again = await apply(b, receipt.paymentId, inv, day(7, 5));
+    await apply(b, receipt.paymentId, inv, day(7, 5));
 
     const [may, june, july] = [await paper(b, 5), await paper(b, 6), await paper(b, 7)];
     expect(at16(may)).toEqual({ base: '1000.00', iva: '160.00' });
@@ -171,11 +166,9 @@ describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () =
     expect(at16(july)).toEqual({ base: '0.00', iva: '0.00' });
     expect(contribution(july, inv)?.breakdown.tasa16).toEqual({ base: '1000.0000', iva: '160.0000' });
     expect(contribution(july, receipt.paymentId)?.breakdown.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
-    expect(july.ledger.iva_trasladado).toBe('-160.0000');
-    expect(codes(june)).toContain('IVA-WP-CHARGED-VS-LEDGER');
-    const gap = finding(july, 'IVA-WP-CHARGED-VS-LEDGER');
-    expect(gap?.mensaje).toContain(receipt.paymentNumber);
-    expect(gap?.mensaje).toContain(again.journalEntry!.entry_number);
+    // MNE-001-574: the application nets the 160.00 the cash carries against the share it releases.
+    expect(july.ledger.iva_trasladado).toBe('0.0000');
+    for (const wp of [june, july]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 
   it('a partial unapply nets only its own iva_reclass_amount', async () => {
@@ -190,7 +183,7 @@ describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () =
     expect(contribution(june, one)?.breakdown.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
     expect(contribution(june, two)).toBeUndefined();
     expect(contribution(june, receipt.paymentId)?.breakdown.tasa16).toEqual({ base: '1000.0000', iva: '160.0000' });
-    expect(june.ledger.iva_trasladado).toBe('160.0000');
+    expect(june.ledger.iva_trasladado).toBe('0.0000');
   }, 120_000);
 
   it('undone in its own month, the share still counts there: only a cheque reversal counts in no month', async () => {
@@ -200,23 +193,15 @@ describe('rule 1 · an unapply moves no IVA while the firm holds the cash', () =
     await unapply(b, receipt.paymentId, inv, day(5, 25));
     const may = await paper(b, 5);
     expect(at16(may)).toEqual({ base: '1000.00', iva: '160.00' });
-    expect(finding(may, 'IVA-WP-CHARGED-VS-LEDGER')?.mensaje).toContain(receipt.paymentNumber);
+    expect(codes(may)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 
-  it('if the ledger does not re-park, the month is silent', async () => {
+  // MNE-001-574 posts what this case used to simulate with a synthetic entry: 2120 is not debited.
+  it('the ledger does not re-park, so the month is silent', async () => {
     const b = await book('no re-park');
     const inv = await ppd(b);
     const receipt = await collect(b, [inv]);
     await unapply(b, receipt.paymentId, inv, day(6, 10));
-    // What the unapply would post under «no re-park»: 2120 is not debited.
-    await createJournalEntry(
-      b.f.entityId, day(6, 10), JournalEntryType.STANDARD, 'Synthetic: the re-park undone',
-      [
-        { account_id: b.f.roles['iva_trasladado_no_cobrado'], debit_amount: '160.0000', credit_amount: null, description: 'Back in 2125' },
-        { account_id: b.f.roles['iva_trasladado'], debit_amount: null, credit_amount: '160.0000', description: 'Caused again' },
-      ],
-      b.f.userId, { autoPost: true }
-    );
     const june = await paper(b, 6);
     expect(june.ledger.iva_trasladado).toBe('0.0000');
     expect(codes(june)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
