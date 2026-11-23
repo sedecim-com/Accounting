@@ -86,6 +86,16 @@ export const CONSERVATIVE_METODO: Readonly<Record<DocumentSide, MetodoPago>> = O
  */
 export const VAT_OVERCREDIT_CORRECTION_SOURCE = 'vat_overcredit_correction';
 
+/**
+ * MNE-001-599 · The entry that takes out of 1135, against the discount, the
+ * VAT of an early-payment discount posted before migration 341
+ * (accounting/discount-vat-correction.ts). Its `source_id` is the PAYMENT, so
+ * `payment reverse` mirrors it with the payment's own entries. It is not one
+ * of `ivaStillParked`'s sources: the application row stores the same figure
+ * (`discount_iva_amount`), and `receivedVatStillParked` nets it from there.
+ */
+export const DISCOUNT_VAT_CORRECTION_SOURCE = 'discount_vat_correction';
+
 const ISSUED_IVA_ROLES: readonly AccountRole[] = ['iva_trasladado', 'iva_trasladado_no_cobrado'];
 const RECEIVED_IVA_ROLES: readonly AccountRole[] = ['iva_acreditable', 'iva_pendiente_acreditar'];
 

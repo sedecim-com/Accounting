@@ -64,10 +64,9 @@ export const E0_2: Criterio[] = [
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
-        // MNE-001-533 (#308): migration 337 is part 1; its service is part 2 and deletes these three.
-        filed_tax_returns: 'MNE-001-576: the service of filed returns writes and reads here',
-        filed_tax_return_credits: 'MNE-001-576: each earlier balance a filed return credited',
-        tax_balance_uses: 'MNE-001-576 and the refund and compensation leaf: the uses of a balance',
+        // MNE-001-533 (#308): migration 337. MNE-001-576 writes and reads the returns and their
+        // credits; the uses of a balance wait for their own writer.
+        tax_balance_uses: 'the refund and compensation leaf of #308: the refund requests and compensations of a balance',
       };
       const dirMigraciones = 'src/database/migrations';
       const sql = fs

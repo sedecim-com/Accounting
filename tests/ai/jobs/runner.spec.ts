@@ -192,6 +192,13 @@ describe('runDueJobs', () => {
     expect(outcomes[1].recordError).toBeUndefined();
   });
 
+  it('passes `only` to the claim (MNE-001-453): the tick claims nothing outside the set', async () => {
+    const deps = makeDeps();
+    const only = new Set(['job-1']);
+    await runDueJobs(CTX, { ...deps, only });
+    expect(deps.claim).toHaveBeenCalledWith(CTX, undefined, { only });
+  });
+
   it('no due jobs → no gate, no agent, no records', async () => {
     const deps = makeDeps({ claim: mockFn<ClaimFn>().mockResolvedValue([]) });
     const outcomes = await runDueJobs(CTX, deps);

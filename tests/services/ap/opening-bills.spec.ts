@@ -392,7 +392,10 @@ describe('writeOpeningBills', () => {
     expect(lines).toHaveLength(2);
     expect(lines[1][1]).toEqual(['bill-new', 'id-201-001', 'Open at the opening balance · F-78', '10000.0000',
       '1600.0000', '11600.0000', '16.00', 'tasa']);
-    expect(sqls().some((s) => s.startsWith('UPDATE'))).toBe(false);
+    // MNE-001-601: the only UPDATE is the birth check of each new bill, by its id and entity.
+    const marks = calls(/SET cfdi_cancellation_noted_at = NOW\(\)/);
+    expect(marks.map((c) => c[1] as unknown)).toEqual([['ent-1', 'bill-new'], ['ent-1', 'bill-new']]);
+    expect(sqls().filter((s) => s.startsWith('UPDATE'))).toHaveLength(2);
   });
 
   it('a generic RFC is looked up by name: two foreign vendors are two vendors, both keeping XEXX010101000', async () => {
@@ -433,7 +436,10 @@ describe('writeOpeningBills', () => {
     expect(update).toMatch(/^UPDATE bills/);
     expect(update).toContain("WHERE id = $11 AND entity_id = $8 AND status = 'approved' AND amount_paid = 0");
     expect(client.query.mock.calls[1][1]).toEqual(['ven-9', '9000.0000', 'MXN', '2025-12-01', '2026-01-15', null, 'je-2', 'ent-1',
-      '9000.0000', '0.0000', 'bill-1']);
+      '9000.0000', '0.0000', 'bill-1', null]);
+    // MNE-001-601: the mark stays only for the same UUID, and the bill is measured again.
+    expect(update).toContain('cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)');
+    expect(calls(/SET cfdi_cancellation_noted_at = NOW\(\)/).map((c) => c[1] as unknown)).toEqual([['ent-1', 'bill-1']]);
     expect(sqls()[2]).toBe('DELETE FROM bill_lines WHERE bill_id = $1');
     expect((calls(/INSERT INTO bill_lines/)[0][1] as unknown[])[0]).toBe('bill-1');
     expect(sqls().some((s) => /entity_sequences/.test(s))).toBe(false);
