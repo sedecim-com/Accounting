@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 250 of 400 subcommands
+  spelling is `-T` at the root and `-t` on the 252 of 402 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -10825,19 +10825,27 @@ Persisted scheduled agent tasks (all output is reviewable drafts, never direct
 writes)
 
 Options:
-  -h, --help                 display help for command
+  -h, --help                            display help for command
 
 Commands:
-  list [options]             List the scheduled jobs of this entity
-  create [options]           Create a scheduled job
-  enable [options] <jobId>   Enable a job (resets its failure counter and
-                             recomputes the next run)
-  disable [options] <jobId>  Disable a job (it stays configured; runs stop)
-  run-due [options]          Tick entry point: claim and run every due job (call
-                             this from cron/launchd; --live enables the external
-                             reads)
-  history [options]          Execution log (most recent first)
-  help [command]             display help for command
+  list [options]                        List the scheduled jobs of this entity
+  create [options]                      Create a scheduled job
+  adopt|adoptar [options] [jobId]       Adopt a job: with jobs.run_due set to
+                                        "adopted" in ~/.mnemosine/config.json,
+                                        jobs run-due runs only the jobs you
+                                        adopted
+  unadopt|desadoptar [options] <jobId>  Stop adopting a job: with jobs.run_due
+                                        set to "adopted", jobs run-due no longer
+                                        runs it
+  enable [options] <jobId>              Enable a job (resets its failure counter
+                                        and recomputes the next run)
+  disable [options] <jobId>             Disable a job (it stays configured; runs
+                                        stop)
+  run-due [options]                     Tick entry point: claim and run every
+                                        due job (call this from cron/launchd;
+                                        --live enables the external reads)
+  history [options]                     Execution log (most recent first)
+  help [command]                        display help for command
 ```
 
 ### `mnemosine jobs list`
@@ -10872,6 +10880,61 @@ Options:
   --user <email>           Who creates the job (audit)
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # A nightly close check at 02:00; it is adopted for you as it is created.
+  mnemosine jobs create --name nightly-close --kind close_verification --schedule "0 2 * * *"
+```
+
+### `mnemosine jobs adopt` (alias: adoptar)
+
+```
+Usage: mnemosine jobs adopt|adoptar [options] [jobId]
+
+Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json,
+jobs run-due runs only the jobs you adopted
+
+Arguments:
+  jobId                    Job id (omit it with --list)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  --list                   List the jobs you adopted in this entity, and the
+                           value of jobs.run_due
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Adopt a job of this entity: with "jobs": { "run_due": "adopted" } in
+  # ~/.mnemosine/config.json, your jobs run-due runs only the jobs you adopted.
+  mnemosine jobs adopt 00000000-0000-4000-8000-000000000001
+  # The jobs you adopted here, and the value of jobs.run_due.
+  mnemosine jobs adopt --list
+```
+
+### `mnemosine jobs unadopt` (alias: desadoptar)
+
+```
+Usage: mnemosine jobs unadopt|desadoptar [options] <jobId>
+
+Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer
+runs it
+
+Arguments:
+  jobId                    Job id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Stop adopting a job: with jobs.run_due set to "adopted", your tick no longer runs it.
+  mnemosine jobs unadopt 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs enable`
@@ -10889,6 +10952,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Re-enable a job its failure limit disabled.
+  mnemosine jobs enable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs disable`
@@ -10906,6 +10973,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Stop a job's runs and keep its configuration.
+  mnemosine jobs disable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs run-due`
@@ -10927,6 +10998,14 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # What this tick would run, and skip, claiming nothing.
+  mnemosine jobs run-due --dry-run
+  # The tick for cron/launchd, with the reads against the client's external system.
+  mnemosine jobs run-due --live
+Which due jobs it runs on your credential is jobs.run_due in ~/.mnemosine/config.json:
+"adopted" (only the jobs you adopted) or "all" (every due job of the entity).
 ```
 
 ### `mnemosine jobs history`

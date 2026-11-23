@@ -3300,6 +3300,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por humano, acuerdo {agreement} (encender «on» exige ≥{minDays} días, ≥{minDecided} decididos y ≥{minAgreement})',
   'platform.jobs.run_due.retry_reruns': 'un reintento vuelve a ejecutar los trabajos vencidos',
 
+  // MNE-001-453 (#646): qué trabajos vencidos corre `jobs run-due` con la credencial de su operador.
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due vale "all": este tic corre con tu credencial todos los trabajos vencidos de la entidad, también los que crearon otras personas.',
+  'platform.jobs.run_due.skipped': '  no adoptado, no corrió: {name}  {id} · adóptalo con: mnemosine jobs adopt {id}',
+  'platform.jobs.run_due.no_adopted_due': 'Ningún trabajo adoptado está vencido.',
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {Este tic corrió con tu credencial # trabajo que no has adoptado:} other {Este tic corrió con tu credencial # trabajos que no has adoptado:}}',
+  'platform.jobs.run_due.hint.choose':
+    'Pon jobs.run_due en ~/.mnemosine/config.json: "adopted" corre sólo los trabajos que adoptaste (mnemosine jobs adopt <id>), y "all" corre todos los vencidos sin este aviso.',
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} define jobs.run_due, que ahí no se lee: con qué credencial corre un tic lo elige cada operador, en ~/.mnemosine/config.json.',
+  'platform.jobs.run_due.adoptions_unreadable': '{error} Este tic corre todos los trabajos vencidos, como sin jobs.run_due.',
+  'platform.jobs.adopt.done':
+    'Trabajo "{name}" adoptado. Con jobs.run_due en "adopted", jobs run-due lo corre con tu credencial. Quedó en {file}.',
+  'platform.jobs.adopt.already': 'El trabajo "{name}" ya estaba adoptado ({file}).',
+  'platform.jobs.adopt.not_found': 'El trabajo {id} no existe en esta entidad; no se adoptó nada.',
+  'platform.jobs.adopt.id_xor_list': 'Da el id de un trabajo para adoptarlo, o --list para ver los que adoptaste.',
+  'platform.jobs.adopt.list.header': 'Trabajos que adoptaste en esta entidad ({file}):',
+  'platform.jobs.adopt.list.none': 'No has adoptado ningún trabajo de esta entidad. Adopta uno con: mnemosine jobs adopt <id>',
+  'platform.jobs.adopt.list.gone': '(ya no es un trabajo de esta entidad)',
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due en {file}: {scope, select, adopted {"adopted", así que jobs run-due corre sólo éstos} all {"all", así que jobs run-due corre todos los vencidos} other {sin definir, así que jobs run-due corre todos los vencidos y nombra los que no has adoptado}}',
+  'platform.jobs.unadopt.done': 'El trabajo {id} ya no está adoptado ({file}).',
+  'platform.jobs.unadopt.not_adopted': 'El trabajo {id} no estaba adoptado; no cambió nada.',
+  'platform.jobs.create.adopted': '  Adoptado para ti: con jobs.run_due en "adopted", tu tic lo corre.',
+  'platform.jobs.create.adopt_failed':
+    'El trabajo se creó, pero no se pudo adoptar para ti ({error}). Adóptalo con: mnemosine jobs adopt {id}',
+  'help.jobs.adopt.description':
+    'Adopta un trabajo: con jobs.run_due en "adopted" en ~/.mnemosine/config.json, jobs run-due corre sólo los trabajos que adoptaste',
+  'help.jobs.adopt.argument.job_id': 'Id del trabajo (se omite con --list)',
+  'help.jobs.adopt.option.list': 'Lista los trabajos que adoptaste en esta entidad, y el valor de jobs.run_due',
+  'help.jobs.unadopt.description': 'Deja de adoptar un trabajo: con jobs.run_due en "adopted", jobs run-due ya no lo corre',
+  'help.jobs.unadopt.argument.job_id': 'Id del trabajo',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====

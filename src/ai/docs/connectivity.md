@@ -88,6 +88,13 @@ output when a connection problem is unclear.
   out loud after writing. The legacy `language` key keeps its OLD order (the
   first file that exists wins entire, project before user) and is still read
   as a fallback below `locale`.
+- A second key is read from `~/.mnemosine/config.json` ALONE: `jobs.run_due`,
+  `"adopted"` or `"all"`, which due jobs `jobs run-due` runs on the
+  credential of whoever runs it (#646). `adopted` runs only the jobs that
+  operator adopted (`jobs adopt <id>`, kept in `~/.mnemosine/adopted-jobs.json`,
+  never in the database) and lists the rest; `all` runs every due job; unset
+  behaves as `all` and names on stderr the jobs it ran that were not adopted.
+  In a project file the key is not read, and the tick says so.
 - `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
   copying it, so a built-in keeps its declared window: `--model` >
   `models.<profile>` > the profile's `model`. A name that is no profile is

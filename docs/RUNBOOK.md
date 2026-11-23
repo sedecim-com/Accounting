@@ -49,6 +49,16 @@ El CLI carga `./.env` y, después, `~/.mnemosine/.env` (`src/config/env-file.ts`
 
 La llave de un proveedor que tecleas en `mnemosine init --section ai` es tuya y va siempre a `~/.mnemosine/.env`, aunque exista `./.env`: una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta. Si `./.env` define esa variable vacía (como la trae `.env.example`), init borra esa línea, porque taparía tu llave; si la define con valor, la deja y te avisa que en esa carpeta gana.
 
+## Trabajos programados
+
+`mnemosine jobs run-due`, el tic que corre cron o launchd, gasta la credencial de modelo de **quien lo corre** (#646). Qué trabajos vencidos de la entidad corre lo elige cada operador en su propio `~/.mnemosine/config.json`, con `"jobs": { "run_due": "adopted" }` o `"all"`:
+
+- **`adopted`**: sólo los que ese operador adoptó. Cada vencido que salta sale con su id y `mnemosine jobs adopt <id>`; queda vencido para quien sí lo adoptó.
+- **`all`**: todos, como antes; la primera línea dice que corre con su credencial trabajos que crearon otras personas.
+- **Sin definir**: igual que `all`, sin cambiar ningún horario, y stderr nombra los trabajos que corrió sin que su operador los adoptara. Elegir cualquiera de los dos valores calla el aviso.
+
+La adopción vive en `~/.mnemosine/adopted-jobs.json` (0600), por usuario del sistema: dos personas que comparten una cuenta del sistema comparten la lista, como ya comparten la credencial. `jobs create` adopta el trabajo para quien lo crea; `jobs adopt --list` muestra las adoptadas y `jobs unadopt <id>` quita una. Nada de esto va a la base ni a un archivo de proyecto, y la clave en un `mnemosine.config.json` de proyecto no se lee (el tic lo avisa). Un `adopted-jobs.json` que no se lee detiene el tic con `adopted` y sólo avisa sin definir o con `all`.
+
 ## Identidad con Cognito
 
 Con `AUTH_OIDC_PROVIDER=cognito`, la API acepta los access tokens del user pool (#369):
