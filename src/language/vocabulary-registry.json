@@ -2385,6 +2385,14 @@
     },
     {
       "class": "policy-key",
+      "where": "discount_vat_correction_period",
+      "es": "discount_vat_correction_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): `discount_vat` is the VAT of an early-payment discount, `correction_period` the period its correction entry is dated in, as `vat_overcredit_correction_period` names it. Read by `correctDiscountVat` (accounting/discount-vat-correction.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "received_line_without_account",
       "es": "received_line_without_account",
       "en": null,
@@ -3066,6 +3074,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-562): the literal `correctVatOvercredit` compares; one correction per bill and month is dated in the month each payment's VAT was credited (`CREDIT_DATE`, sat/diot/hechos.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/ask",
+      "es": "ask",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599), as `vat_overcredit_correction_period/ask`: the literal `correctDiscountVat` compares; nothing is posted."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/current_period",
+      "es": "current_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): the literal `correctDiscountVat` compares; one correction per bill and payment is dated today, in the open period."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): the literal `correctDiscountVat` compares; one correction per bill, payment and month is dated on the day the entry that took the discount was posted."
     },
     {
       "class": "policy-value",

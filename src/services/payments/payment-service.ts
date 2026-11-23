@@ -28,7 +28,7 @@ import {
 } from '../accounting/moneda-origen.js';
 import {
   ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago, issuedVatStillParked, issuedVatOfOpenBalance,
-  reclassRoles,
+  reclassRoles, DISCOUNT_VAT_CORRECTION_SOURCE,
 } from '../accounting/iva-cash-basis.js';
 import { iepsKeptOnAccount, iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
@@ -3598,8 +3598,8 @@ async function assertAfterLastEvent(
   const last = await client.query<{ d: string | null }>(
     `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
       WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')`,
-    [entityId, vp.id]
+        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing', $3)`,
+    [entityId, vp.id, DISCOUNT_VAT_CORRECTION_SOURCE]
   );
   const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
   if (date < since) {
@@ -3952,15 +3952,17 @@ export async function reverseVendorPayment(
     }
 
     // Every posted event of the payment not yet mirrored, oldest first, the
-    // cashing of a cheque included: reversed, it leaves nothing in 1130.
+    // cashing of a cheque included: reversed, it leaves nothing in 1130. So is
+    // the correction that took a pre-341 discount's VAT out of 1135
+    // (MNE-001-599): the row it filled is closed here, so its VAT goes back.
     // FOR UPDATE because reverseWithinTransaction expects the caller to hold it.
     const entries = await client.query<JournalEntry>(
       `SELECT * FROM journal_entries
         WHERE entity_id = $1 AND source_id = $2 AND status = 'posted' AND reversed_by_entry_id IS NULL
-          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')
+          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing', $3)
         ORDER BY created_at
         FOR UPDATE`,
-      [entityId, paymentId]
+      [entityId, paymentId, DISCOUNT_VAT_CORRECTION_SOURCE]
     );
     const reversals: VendorReverseResult['reversals'] = [];
     const attestations: VendorReverseResult['attestations'] = [];

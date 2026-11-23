@@ -19,7 +19,14 @@ vi.mock('../../src/ai/jobs/runner.js', () => ({
   }),
 }));
 
-import { providerLines, tickCredentialLine } from '../../src/cli/provider-readiness.js';
+import {
+  credentialErrorHint,
+  missingCredentialHint,
+  providerLines,
+  switchProvider,
+  tickCredentialLine,
+} from '../../src/cli/provider-readiness.js';
+import { MissingProviderCredentialError } from '../../src/ai/providers/config.js';
 import { registerJobsCommand } from '../../src/cli/jobs-command.js';
 
 // MNE-001-443: `mnemosine providers` and the `jobs run-due` tick print the
@@ -146,5 +153,125 @@ describe('jobs run-due prints the tick\'s credential line before the first job',
     expect(line).toBeLessThan(order.indexOf('runDueJobs'));
     expect(order.join('\n')).not.toContain(SECRET_CMD_PART);
     expect(fs.existsSync(marker())).toBe(false);
+  });
+});
+
+// MNE-001-444: chat's `/provider` and the startup errors of chat and ask read
+// the same answer, with the Anthropic SDK's own sources. HOME is the temporary
+// home, so the SDK's config root is built there; every value is invented.
+describe('/provider — says what is missing and keeps the session', () => {
+  const anthropicSignIn = () => {
+    const dir = path.join(home, '.config', 'anthropic', 'configs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'default.json'), '{"authentication":{"type":"user_oauth"}}');
+  };
+
+  it('an anthropic profile with no credential: names it, its variable, the link and the alternative, and opens nothing', async () => {
+    const open = vi.fn();
+    const r = await switchProvider('anthropic', {
+      currentLabel: 'ollama · llama3', open, readiness: { cwd, home, env: { HOME: home } },
+    });
+    expect(r.switched).toBe(false);
+    if (r.switched) return;
+    expect(r.message).toBe(
+      'Provider anthropic has no credential: set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env ' +
+        '(get it at https://platform.claude.com/settings/keys). Or sign in with `ant auth login`, or set ' +
+        'ANTHROPIC_AUTH_TOKEN. The session stays on ollama · llama3.'
+    );
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('a keyless remote profile: says it names no credential, and keeps the session', async () => {
+    userConfig({ providers: { nim: { type: 'openai-compatible', model: 'n', base_url: 'https://nim.example.test/v1' } } });
+    const open = vi.fn();
+    const r = await switchProvider('nim', { currentLabel: 'current', open, readiness: { cwd, home, env: {} } });
+    expect(r).toEqual({
+      switched: false,
+      message:
+        'Provider nim has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint ' +
+        'needs no key, start the chat with --provider nim. The session stays on current.',
+    });
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('an installation secret named as the key: refused before anything is read', async () => {
+    userConfig({ providers: { bad: { type: 'openai-compatible', model: 'b', base_url: 'https://b.example.test/v1', api_key_env: 'JWT_SECRET' } } });
+    const open = vi.fn();
+    const r = await switchProvider('bad', { currentLabel: 'current', open, readiness: { cwd, home, env: { JWT_SECRET: 'fake-jwt-secret' } } });
+    expect(r.switched).toBe(false);
+    expect(JSON.stringify(r)).toMatch(/names JWT_SECRET in api_key_env/);
+    expect(JSON.stringify(r)).not.toContain('fake-jwt-secret');
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('a signed-in anthropic profile switches, on a new session', async () => {
+    anthropicSignIn();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    const open = vi.fn(async (p: { name: string }) => `session on ${p.name}`);
+    const r = await switchProvider('anthropic', { currentLabel: 'current', open, readiness: { cwd, home, env: { HOME: home } } });
+    expect(r).toMatchObject({
+      switched: true,
+      session: 'session on anthropic',
+      profile: { name: 'anthropic' },
+      credential: 'signed in: Anthropic profile default in ~/.config/anthropic/configs/default.json',
+    });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('a local profile switches, as before', async () => {
+    const open = vi.fn(async () => 'ollama session');
+    const r = await switchProvider('ollama', { currentLabel: 'current', open, readiness: { cwd, home, env: {} } });
+    expect(r).toMatchObject({ switched: true, session: 'ollama session', credential: 'local, no credential' });
+  });
+
+  it('an unknown name still throws resolveProfile\'s own error', async () => {
+    await expect(
+      switchProvider('ghost', { currentLabel: 'current', open: vi.fn(), readiness: { cwd, home, env: {} } })
+    ).rejects.toThrow(/does not exist/);
+  });
+});
+
+describe('the startup errors of chat and ask', () => {
+  it('the SDK\'s «Could not resolve authentication method» names the profile, its variable, the link, the alternative and init', () => {
+    const err = new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.');
+    expect(credentialErrorHint(err, undefined, { cwd, home, env: { HOME: home } })).toEqual([
+      'Provider anthropic has no credential: set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env ' +
+        '(get it at https://platform.claude.com/settings/keys). Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+      'To set it up: mnemosine init --section ai',
+    ]);
+  });
+
+  it('a MissingProviderCredentialError for the --provider profile names its variable and the helper alternative', () => {
+    const err = new MissingProviderCredentialError('Provider "grok" requires the environment variable XAI_API_KEY');
+    expect(credentialErrorHint(err, 'grok', { cwd, home, env: {} })).toEqual([
+      'Provider grok has no credential: set XAI_API_KEY in your shell or ~/.mnemosine/.env (get it at https://console.x.ai). ' +
+        'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+      'To set it up: mnemosine init --section ai',
+    ]);
+  });
+
+  it('any other error, or a credential the readiness answer can see, is left to the usual report', () => {
+    expect(credentialErrorHint(new Error('ECONNREFUSED'), undefined, { cwd, home, env: {} })).toBeNull();
+    const err = new Error('Could not resolve authentication method.');
+    expect(credentialErrorHint(err, undefined, { cwd, home, env: { ANTHROPIC_AUTH_TOKEN: 'fake' } })).toBeNull();
+  });
+
+  it('a helper profile is never run to build the hint', () => {
+    userConfig({
+      default_provider: 'vault',
+      providers: { vault: { type: 'openai-compatible', model: 'vm', base_url: 'https://v.example.test/v1', api_key_cmd: helperCmd() } },
+    });
+    const err = new MissingProviderCredentialError('x');
+    expect(credentialErrorHint(err, undefined, { cwd, home, env: {} })).toBeNull();
+    expect(fs.existsSync(marker())).toBe(false);
+  });
+});
+
+describe('missingCredentialHint', () => {
+  it('nothing to say for a ready profile', () => {
+    const profile = { type: 'openai-compatible' as const, model: 'm', api_key_env: 'FAKE_KEY' };
+    const state = { source: { kind: 'env' as const, variable: 'FAKE_KEY' }, ready: true, folderEnv: null, label: 'FAKE_KEY set' };
+    expect(missingCredentialHint('p', profile, state)).toBeNull();
   });
 });

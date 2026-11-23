@@ -1118,6 +1118,25 @@ export const EN = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Post one correction per bill and month, in each payment\'s month',
 
+  'policy.discount_vat_correction_period.question':
+    'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+  'policy.discount_vat_correction_period.impact':
+    'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+  'policy.discount_vat_correction_period.rationale':
+    'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.discount_vat_correction_period.why':
+    'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+  'policy.discount_vat_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.discount_vat_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Post one correction per bill and payment, dated today in the open period',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Post one correction per bill and payment, in the month the discount was posted',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
@@ -4274,11 +4293,23 @@ export const EN = {
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
   'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
-  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.description':
+    'Payables controls: reconcile the vendor subledger against the control account, and run the named checks',
   'help.ap.reconcile.description':
     'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
   'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
   'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.ap.check.description':
+    'Named payables checks; `--check` with no value lists them, `--check a,b` selects',
+  'help.ap.check.option.check': 'comma-separated checks to run; bare --check lists the battery',
+  'ap.check.title': 'AP checks',
+  'ap.check.cancelled_cfdi_open.found':
+    'open bills whose received CFDI the SAT reports cancelled: hold the payment until the vendor sends the CFDI that replaces it; ' +
+    'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_open.none': 'none',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
   'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
   'help.cashflow.generate.option.method':
@@ -5340,6 +5371,69 @@ export const EN = {
   'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
   'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
   'help.entry.void.argument.number': 'entry number or id',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // The last ledger task, split from 235 by answer 2: both families whole,
+  // roots and the `fx rate` group included, with the English these commands
+  // already showed. Every generic flag a leaf declares keeps its own key: the
+  // `--json` of `batch post` and `batch reverse` (no --format there), and the
+  // `--since`/`--until` of `fx rate list`, whose words are the kernel's but
+  // which parse no date. Lists travel as {kinds} and {categories}. The
+  // categories of `batch check --check` are values the user types (`cuenta`
+  // among them): they move as they are in both languages, left for I23
+  // (MNE-001-200), so ux-status keeps counting that node.
+  'help.batch.description': 'Staged entry batches: list, inspect, check, post transactionally and reverse as a unit',
+  'help.batch.list.description': 'List batches with their state, row counts, posted entries and content hash',
+  'help.batch.list.option.kind': 'batch class (available: {kinds})',
+  'help.batch.show.description':
+    'One batch in full: rows with their generated entries, stored parse errors by category, and the file hash',
+  'help.batch.show.argument.id': 'batch id',
+  'help.batch.show.option.errors_only': 'only the rows whose parser rejected them',
+  'help.batch.check.description':
+    'Run the posting validations over every row and report each finding; exits 4 when any blocks',
+  'help.batch.check.argument.id': 'batch id',
+  'help.batch.check.option.check':
+    'finding categories to display, comma-separated (available: {categories}); the full battery always runs',
+  'help.batch.post.description':
+    'Post the whole batch in one transaction; --partial applies the valid rows and leaves the rest staged',
+  'help.batch.post.argument.id': 'batch id',
+  'help.batch.post.option.partial':
+    'apply the valid rows and leave the invalid ones in staging (accepts an unchecked batch)',
+  'help.batch.post.option.json': 'JSON output',
+  'help.batch.reverse.description':
+    'Mirror every entry the batch posted, as one unit in one transaction — import errors are batch-shaped, not ' +
+    'entry-shaped',
+  'help.batch.reverse.argument.id': 'batch id',
+  'help.batch.reverse.option.as_of': 'date for every mirror entry (YYYY-MM-DD); defaults to today',
+  'help.batch.reverse.option.json': 'JSON output',
+  'help.fx.description': 'Exchange rates: the origin every foreign-currency amount converts from',
+  'help.fx.rate.description': 'Published exchange rates by pair, date, type and source',
+  'help.fx.rate.list.description': 'List stored exchange rates by pair, date, type and source',
+  'help.fx.rate.list.option.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.list.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'only rates of this type',
+  'help.fx.rate.list.option.source': 'only rates from this source',
+  'help.fx.rate.show.description': 'Resolve the applicable rate: direct, then inverse, then crossed through USD',
+  'help.fx.rate.show.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.show.argument.date': 'date the rate applies to (YYYY-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'rate type to resolve',
+  'help.fx.rate.show.option.source': 'resolve using only this publisher',
+  'help.fx.rate.set.description': 'Record an exchange rate, naming its source',
+  'help.fx.rate.set.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.set.argument.date': 'effective date (YYYY-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'the rate, up to 10 decimals',
+  'help.fx.rate.set.option.source': 'who published the rate (required)',
+  'help.fx.rate.set.option.rate_type': 'rate type',
+  'help.fx.rate.set.option.until': 'last date the rate remains effective (YYYY-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'show what would be recorded without writing',
+  'help.fx.rate.download.description':
+    'Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)',
+  'help.fx.rate.download.option.source': 'which publisher to download from (required)',
+  'help.fx.rate.download.option.as_of': 'single date to download (YYYY-MM-DD)',
+  'help.fx.rate.download.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.download.option.until': 'inclusive upper bound (YYYY-MM-DD)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -5692,4 +5786,43 @@ export const EN = {
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  // credential-state.ts builds the label every surface prints (doctor,
+  // providers, status, init, the jobs tick, chat); provider-readiness.ts the
+  // hint that a chat or ask with no credential prints. A label never carries a
+  // value or a helper's command, only names.
+  'provider.credential.env': '{variable} set',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd in {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd in {file}, a project file shared by everyone who runs mnemosine in that folder',
+  'provider.credential.local': 'local, no credential',
+  'provider.credential.none': 'no credential configured',
+  'provider.credential.missing': '{variable} missing',
+  'provider.credential.missing_at': '{variable} missing (get it at {where})',
+  'provider.credential.refused': '{variable} is not a provider credential',
+  'provider.credential.folder_key':
+    '{label}; {file} defines it, so that key serves everyone who runs mnemosine in that folder',
+  'provider.credential.folder_empty': '{label}; the empty {variable}= in {file} hides ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY set, which the Anthropic SDK reads',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN set, a bearer token the Anthropic SDK sends',
+  'provider.credential.anthropic.custom_header': 'an {header} line in ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'signed in: Anthropic profile {profile} in {file}',
+  'provider.credential.anthropic.federation':
+    'workload identity federation (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID and an identity token)',
+  'provider.credential.hint.missing':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env (get it at {where}).',
+  'provider.credential.hint.anthropic_alternative': 'Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'Provider {name} names {variable} in api_key_env, which is not a provider credential: name a variable of its own that holds the key.',
+  'provider.credential.hint.keyless':
+    'Provider {name} has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint needs no key, start the chat with --provider {name}.',
+  'provider.credential.hint.init': 'To set it up: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env, or run `ant auth login`.',
+  'provider.switch.kept': 'The session stays on {current}.',
+  'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
+  // ==== end of MNE-001-444 ====
 } as const;
