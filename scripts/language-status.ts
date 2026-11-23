@@ -59,6 +59,11 @@
  * (scripts/language/lanes/help.ts, #314), does not measure the rendered prose
  * either: it asks each description whether it comes from a catalog KEY, a
  * question `ux-status.ts` does not ask. The prose itself stays its business.
+ *
+ * `cli-user-strings-without-key` (scripts/language/lanes/cli-strings.ts,
+ * MNE-001-476) is the run-time half: English literals the CLI prints without a
+ * key. It reads the source, not the tree, and leaves help registration to the
+ * lane above.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -69,6 +74,7 @@ import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
+import { cliStringsLanes } from './language/lanes/cli-strings.js';
 import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -93,7 +99,14 @@ interface Baseline {
 
 /** Every lane, in the order they are published. The count is the meter's to say, not this comment's. */
 export function measure(): Lane[] {
-  return [...codeLanes(), ...planLanes(), ...docsLanes(), ...commentTagsLanes(), ...helpLanes()];
+  return [
+    ...codeLanes(),
+    ...planLanes(),
+    ...docsLanes(),
+    ...commentTagsLanes(),
+    ...helpLanes(),
+    ...cliStringsLanes(),
+  ];
 }
 
 function readBaseline(): Baseline | null {

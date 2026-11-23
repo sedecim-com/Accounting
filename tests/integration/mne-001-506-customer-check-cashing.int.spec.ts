@@ -372,14 +372,21 @@ describe('a cheque releases its IVA the day the bank cashes it', () => {
     expect(await stored(late.id)).toEqual(['160.0000']);
   });
 
-  it('T8 · applied and unapplied before the cashing: nothing is re-parked or estimated, and the cashing releases nothing', async () => {
+  // MNE-001-586 (#792, part 3/3): the cash the unapply put back on account is collected on the cashing day
+  // (LIVA art. 1-B), so the cashing causes the 160.00 the unapply stored for it, from 2150.
+  it('T8 · applied and unapplied before the cashing: nothing is re-parked or estimated, and the cashing causes the 160.00 its cash carries', async () => {
     const { id } = await pay(null);
     const invoiceId = await invoice();
     await apply(id, invoiceId);
     const undone = await unapplyCustomerPayment(mx.entityId, id, { invoiceId, reason: 'wrong invoice' }, mx.userId);
-    expect(undone).toMatchObject({ ivaReAparcado: '0.0000', ivaEstimado: false });
+    expect(undone).toMatchObject({ ivaReAparcado: '0.0000', ivaEstimado: false, ivaAtCashing: '160.00' });
     expect((await linesOf(undone.journalEntry.id)).map((l) => l.account).sort()).toEqual(['anticipo_clientes', 'cxc']);
-    expect(await record(id, await bankLine(account, '2026-06-02', '1160.00'))).toMatchObject({ released: '0.0000', entryId: null });
+    const cashed = await record(id, await bankLine(account, '2026-06-02', '1160.00'));
+    expect(cashed).toMatchObject({ released: '160.0000', advanceIva: '160.0000' });
+    expect(await linesOf(cashed.entryId as string)).toEqual([
+      { account: 'anticipo_clientes', debit: '160.0000', credit: null },
+      DUE('160.0000'),
+    ]);
   });
 
   it('T9 · two halves of one invoice: 80.00 on the transfer\'s day, 80.00 on the cashing day, and 2125 ends where it began', async () => {
