@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 227,
+    "help-descriptions-without-key": 180,
     "cli-user-strings-without-key": 926
   },
   "perFile": {
@@ -1489,7 +1489,6 @@
     "help-descriptions-without-key": {
       "ai": 2,
       "ask": 4,
-      "asset": 26,
       "audit": 14,
       "backup": 21,
       "chat": 6,
@@ -1504,7 +1503,6 @@
       "onboard": 8,
       "outbox": 6,
       "prompt-size": 4,
-      "report": 21,
       "review": 2,
       "sessions": 2,
       "status": 5,

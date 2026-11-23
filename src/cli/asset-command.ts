@@ -19,9 +19,12 @@ import {
 import type { Palette } from './palette.js';
 import {
   ExitCode,
+  argumentByKey,
   declareRisk,
+  describeCommand,
   exitCodeFor,
   gateMutation,
+  optionByKey,
   render,
   requireExplicitEntity,
   usageError,
@@ -244,10 +247,7 @@ Examples:
 } as const;
 
 export function registerAssetCommand(program: Command, deps: AssetCommandDeps): void {
-  const asset = program
-    .command('asset')
-    .alias('activo')
-    .description('Fixed asset register: the ledger of what the company owns and depreciates');
+  const asset = describeCommand(program.command('asset').alias('activo'), 'help.asset.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -268,48 +268,33 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
   };
 
   // ---- asset create --------------------------------------------------
-  const create = asset
-    .command('create')
-    .alias('crear')
-    .argument('<name>', 'what the asset is called in the register')
-    .description(
-      'Register a fixed asset with its class, dates, cost and accounts — writes no journal entry'
-    );
+  const create = describeCommand(asset.command('create').alias('crear'), 'help.asset.create.description');
+  argumentByKey(create, '<name>', 'help.asset.create.argument.name');
   withContext(create);
   withOutput(create);
   withNote(create);
-  create
-    .option('--category <idOrName>', 'asset class: its id, or enough of its name to be unambiguous')
-    .option('--cost <amount>', 'original cost of the investment (MOI), as a decimal')
-    .option('--acquired <date>', 'acquisition date (YYYY-MM-DD)')
-    .option(
-      '--in-service <date>',
-      'date depreciation starts (YYYY-MM-DD); defaults from the first-month convention on the panel'
-    )
-    .option('--book <book|tax>', 'the depreciation book you believe you are working on; checked against the panel')
-    .option(
-      '--capitalized <yes|no>',
-      'whether the cost is ALREADY charged to the asset account in the ledger — no default'
-    )
-    .option('--source-entry <id>', 'the journal entry the cost already sits in, when it is known')
-    .option('--salvage <amount>', 'residual value at the end of its life (default 0)')
-    .option('--life-years <n>', 'useful life in years', enteroPositivo('--life-years'))
-    .option(
-      '--life-months <n>',
-      'useful life in months; years are the ceiling of months over twelve',
-      enteroPositivo('--life-months')
-    )
-    .option('--method <method>', `BOOK depreciation method: ${METODOS.join(', ')}`)
-    .option('--tax-method <method>', `TAX depreciation method: ${METODOS.join(', ')}`)
-    .option('--asset-account <id>', 'GL account the cost sits in (defaults from the class)')
-    .option('--accum-account <id>', 'accumulated depreciation account (defaults from the class)')
-    .option('--expense-account <id>', 'depreciation expense account (defaults from the class)')
-    .option('--number <folio>', 'asset number; generated from the entity series when omitted')
-    .option('--description <text>', 'what the asset is')
-    .option('--vendor <id>', 'vendor it was bought from')
-    .option('--serial <text>', 'serial number, so the register can find the physical thing')
-    .option('--location <text>', 'where it is')
-    .option('--dry-run', 'run the real path and undo it: shows the asset that would be created');
+  const methods = { methods: METODOS.join(', ') };
+  optionByKey(create, '--category <idOrName>', 'help.asset.create.option.category');
+  optionByKey(create, '--cost <amount>', 'help.asset.create.option.cost');
+  optionByKey(create, '--acquired <date>', 'help.asset.create.option.acquired');
+  optionByKey(create, '--in-service <date>', 'help.asset.create.option.in_service');
+  optionByKey(create, '--book <book|tax>', 'help.asset.create.option.book');
+  optionByKey(create, '--capitalized <yes|no>', 'help.asset.create.option.capitalized');
+  optionByKey(create, '--source-entry <id>', 'help.asset.create.option.source_entry');
+  optionByKey(create, '--salvage <amount>', 'help.asset.create.option.salvage');
+  optionByKey(create, '--life-years <n>', 'help.asset.create.option.life_years', { parser: enteroPositivo('--life-years') });
+  optionByKey(create, '--life-months <n>', 'help.asset.create.option.life_months', { parser: enteroPositivo('--life-months') });
+  optionByKey(create, '--method <method>', 'help.asset.create.option.method', { params: methods });
+  optionByKey(create, '--tax-method <method>', 'help.asset.create.option.tax_method', { params: methods });
+  optionByKey(create, '--asset-account <id>', 'help.asset.create.option.asset_account');
+  optionByKey(create, '--accum-account <id>', 'help.asset.create.option.accum_account');
+  optionByKey(create, '--expense-account <id>', 'help.asset.create.option.expense_account');
+  optionByKey(create, '--number <folio>', 'help.asset.create.option.number');
+  optionByKey(create, '--description <text>', 'help.asset.create.option.description');
+  optionByKey(create, '--vendor <id>', 'help.asset.create.option.vendor');
+  optionByKey(create, '--serial <text>', 'help.asset.create.option.serial');
+  optionByKey(create, '--location <text>', 'help.asset.create.option.location');
+  optionByKey(create, '--dry-run', 'help.asset.create.option.dry_run');
   // ESCRITURA de dato maestro, y el agente NO puede llamarla. El catálogo la
   // marca IA ✓, pero `fixed_assets` no es una cola de revisión y `declareRisk`
   // sólo admite escritura + agente con `draftOnly`, que aquí sería mentira.
@@ -438,14 +423,8 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
   // entities born before that. Same seeder, so both paths give the same rows,
   // and it only ever adds what is missing. Human-only for the reason `asset
   // create` gives: master data, not a review queue.
-  const category = asset
-    .command('category')
-    .alias('categoria')
-    .description('Asset classes: useful life, LISR rate and the three default accounts');
-  const categorySeed = category
-    .command('seed')
-    .alias('sembrar')
-    .description('Create the missing Mexican asset classes, with their LISR art. 34/35 maximum rate');
+  const category = describeCommand(asset.command('category').alias('categoria'), 'help.asset.category.description');
+  const categorySeed = describeCommand(category.command('seed').alias('sembrar'), 'help.asset.category.seed.description');
   withContext(categorySeed);
   withOutput(categorySeed);
   declareRisk(categorySeed, {
