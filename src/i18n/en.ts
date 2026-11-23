@@ -3653,6 +3653,64 @@ export const EN = {
   /** Why `jobs run-due` does not honour an idempotency key. */
   'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
 
+  // MNE-001-453 (#646): which due jobs `jobs run-due` runs on its operator's credential.
+  /** The first line of a tick under `jobs.run_due = all`. */
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due is "all": this tick runs every due job of the entity on your credential, including jobs that other people created.',
+  /** A due job a tick under `jobs.run_due = adopted` did not run. */
+  'platform.jobs.run_due.skipped': '  not adopted, not run: {name}  {id} · adopt it: mnemosine jobs adopt {id}',
+  /** A tick under `jobs.run_due = adopted` that found due jobs, none of them adopted. */
+  'platform.jobs.run_due.no_adopted_due': 'No adopted job due.',
+  /** The notice of an unset tick: the jobs it ran that its operator has not adopted. */
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {This tick ran # job you have not adopted, on your credential:} other {This tick ran # jobs you have not adopted, on your credential:}}',
+  /** The notice of an unset tick: the key and its two values. */
+  'platform.jobs.run_due.hint.choose':
+    'Set jobs.run_due in ~/.mnemosine/config.json to "adopted" to run only the jobs you adopted (mnemosine jobs adopt <id>), or to "all" to run every due job without this notice.',
+  /** A project file that sets `jobs.run_due`, which is not read there. */
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} sets jobs.run_due, which is not read there: whose credential a tick spends is each operator\'s choice, in ~/.mnemosine/config.json.',
+  /** An unset tick whose list of adopted jobs does not read. */
+  'platform.jobs.run_due.adoptions_unreadable': '{error} This tick runs every due job, as it does with jobs.run_due unset.',
+  /** `jobs adopt` of a job. */
+  'platform.jobs.adopt.done':
+    'Job "{name}" adopted. With jobs.run_due set to "adopted", jobs run-due runs it on your credential. Recorded in {file}.',
+  /** `jobs adopt` of a job already adopted. */
+  'platform.jobs.adopt.already': 'Job "{name}" was already adopted ({file}).',
+  /** `jobs adopt` of an id that is not a job of this entity. */
+  'platform.jobs.adopt.not_found': 'Job {id} does not exist in this entity; nothing was adopted.',
+  /** `jobs adopt` with both a job id and --list, or with neither. */
+  'platform.jobs.adopt.id_xor_list': 'Give either a job id to adopt, or --list to see the jobs you adopted.',
+  /** The header of `jobs adopt --list`. */
+  'platform.jobs.adopt.list.header': 'Jobs you adopted in this entity ({file}):',
+  /** `jobs adopt --list` with nothing adopted in this entity. */
+  'platform.jobs.adopt.list.none': 'You have adopted no job of this entity. Adopt one with: mnemosine jobs adopt <id>',
+  /** An adopted id that is no longer a job of this entity. */
+  'platform.jobs.adopt.list.gone': '(no longer a job of this entity)',
+  /** The last line of `jobs adopt --list`: the value of the key. */
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due in {file}: {scope, select, adopted {"adopted", so jobs run-due runs only these} all {"all", so jobs run-due runs every due job} other {unset, so jobs run-due runs every due job and names the ones you have not adopted}}',
+  /** `jobs unadopt` of an adopted job. */
+  'platform.jobs.unadopt.done': 'Job {id} is no longer adopted ({file}).',
+  /** `jobs unadopt` of a job that was not adopted. */
+  'platform.jobs.unadopt.not_adopted': 'Job {id} was not adopted; nothing changed.',
+  /** `jobs create`: the new job is adopted for its creator. */
+  'platform.jobs.create.adopted': '  Adopted for you: with jobs.run_due set to "adopted", your tick runs it.',
+  /** `jobs create` whose adoption could not be written. */
+  'platform.jobs.create.adopt_failed':
+    'The job was created, but it could not be adopted for you ({error}). Adopt it with: mnemosine jobs adopt {id}',
+  /** Help of `jobs adopt`. */
+  'help.jobs.adopt.description':
+    'Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json, jobs run-due runs only the jobs you adopted',
+  /** Help of the job id of `jobs adopt`. */
+  'help.jobs.adopt.argument.job_id': 'Job id (omit it with --list)',
+  /** Help of `jobs adopt --list`. */
+  'help.jobs.adopt.option.list': 'List the jobs you adopted in this entity, and the value of jobs.run_due',
+  /** Help of `jobs unadopt`. */
+  'help.jobs.unadopt.description': 'Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer runs it',
+  /** Help of the job id of `jobs unadopt`. */
+  'help.jobs.unadopt.argument.job_id': 'Job id',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====

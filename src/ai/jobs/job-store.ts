@@ -232,7 +232,20 @@ export async function setEnabled(ctx: AgentContext, jobId: string, enabled: bool
  * second runner immediately re-claim the same slot — the clamp guarantees
  * the replacement is always strictly in the DB's future.
  */
-export async function claimDueJobs(ctx: AgentContext, now: Date = new Date()): Promise<JobRow[]> {
+export interface ClaimOptions {
+  /**
+   * Only these job ids may be claimed (MNE-001-453, `jobs.run_due = adopted`).
+   * A due job outside the set is left UNCLAIMED, its next_run_at untouched, so
+   * the operator who did adopt it still finds it due on their own tick.
+   */
+  only?: ReadonlySet<string>;
+}
+
+export async function claimDueJobs(
+  ctx: AgentContext,
+  now: Date = new Date(),
+  options: ClaimOptions = {}
+): Promise<JobRow[]> {
   const due = await query<{ id: string; schedule: string; next_run_at: Date }>(
     `SELECT id, schedule, next_run_at FROM ai_jobs
      WHERE entity_id = $1 AND enabled = true AND next_run_at <= NOW()
@@ -242,6 +255,7 @@ export async function claimDueJobs(ctx: AgentContext, now: Date = new Date()): P
 
   const claimed: JobRow[] = [];
   for (const candidate of due.rows) {
+    if (options.only && !options.only.has(candidate.id)) continue;
     let next: Date;
     try {
       next = nextRunAt(candidate.schedule, now);
