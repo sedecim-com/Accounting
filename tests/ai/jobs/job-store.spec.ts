@@ -217,6 +217,23 @@ describe('claimDueJobs', () => {
     expect(claimed.map((j) => j.id)).toEqual(['job-2']);
   });
 
+  it('with `only` (MNE-001-453), a due job outside the set is not claimed: its next_run_at stays put', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'job-1', schedule: '0 2 * * *', next_run_at: DUE_AT },
+        { id: 'job-2', schedule: '0 3 * * *', next_run_at: DUE_AT },
+      ],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [{ ...JOB, id: 'job-2' }], rowCount: 1 });
+    const claimed = await claimDueJobs(CTX, new Date(2026, 7, 24, 3, 0), { only: new Set(['job-2']) });
+    expect(claimed.map((j) => j.id)).toEqual(['job-2']);
+    // One SELECT and ONE guarded UPDATE, for job-2 alone: job-1 is still due
+    // for whoever adopted it.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const [, updateParams] = mockQuery.mock.calls[1] as [string, unknown[]];
+    expect(updateParams[1]).toBe('job-2');
+  });
+
   it('skips (and does not crash on) a job with an unparseable schedule', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'job-1', schedule: 'garbage' }] });
     const claimed = await claimDueJobs(CTX);
