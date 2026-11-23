@@ -8,6 +8,8 @@ import {
 import type { MnemosineConfig } from '../../ai/providers/config.js';
 import { checkModelProvider } from '../../ai/doctor-service.js';
 import { credentialState, isLoopbackUrl, KEY_URLS } from '../../ai/providers/credential-state.js';
+import { isTrialEndpoint, trialTermsLines } from '../../ai/providers/trial-endpoint.js';
+import { t } from '../../i18n/index.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import { userEnvPath } from '../../config/env-file.js';
 import { readEnvVar, upsertEnvVar } from './s0-infra.js';
@@ -155,6 +157,16 @@ export class IaSection implements SetupSection {
       if (!row) {
         ctx.print(`  "${chosen}" does not exist. Leaving the config as is.`);
         return;
+      }
+
+      // NVIDIA's hosted trial records what it receives (MNE-001-448): its terms
+      // come first, before a key, a probe or a write. Default No, which --yes keeps.
+      if (isTrialEndpoint(row.profile.base_url)) {
+        for (const line of trialTermsLines(chosen)) ctx.print(`  ${line}`);
+        if (!(await ctx.confirm(`  ${t('providers.trial.accept_default', { profile: chosen })}`, false))) {
+          ctx.print(`  ${t('providers.trial.not_saved', { profile: chosen })}`);
+          return;
+        }
       }
 
       // Credential, only when it is missing: a helper is not asked for a key.

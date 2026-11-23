@@ -5950,6 +5950,25 @@ export const EN = {
   /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
   'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
   // ==== end of I11 · doctor by key ====
+  // ==== NVIDIA's hosted trial (MNE-001-448, #644 P8) ====
+  // The terms init, chat and ask print before a session on the hosted catalog,
+  // and the refusals of src/ai/providers/trial-endpoint.ts.
+  'providers.trial.terms.what':
+    "{profile} uses NVIDIA's hosted API catalog ({host}), a trial for development and evaluation.",
+  'providers.trial.terms.records':
+    "NVIDIA's API Trial Terms of Service let it record what you send and what comes back, and ask you not to send personal data: never send it a client's books or documents.",
+  'providers.trial.terms.limits':
+    'Its endpoints can be retired without notice. For client work choose another provider, or NVIDIA NIM on your own host.',
+  'providers.trial.accept_default': 'Save {profile} as your default provider under these terms?',
+  'providers.trial.not_saved': 'Terms not accepted: {profile} was not saved as the default.',
+  'providers.trial.accept_session': 'Use {profile} for this session under these terms?',
+  'providers.trial.refused.unattended':
+    "{profile} is on NVIDIA's hosted trial ({host}), which records what it receives: ingest, jobs run-due and init's import never open a session there. Choose another provider for them.",
+  'providers.trial.refused.no_terminal':
+    "{profile} is on NVIDIA's hosted trial ({host}), whose terms need a yes at a terminal, and there is none here. Run it at a terminal, or choose another provider.",
+  'providers.trial.refused.declined': 'Terms not accepted: no session was opened on {profile}.',
+  'providers.trial.refused.not_accepted':
+    "{profile} is on NVIDIA's hosted trial ({host}), and its terms were not accepted in this session. Start mnemosine chat --provider {profile} at a terminal to read and accept them.",
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
