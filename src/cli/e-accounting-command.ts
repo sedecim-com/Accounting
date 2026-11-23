@@ -386,10 +386,10 @@ export function registerEAccountingCommand(
   program: Command,
   deps: EAccountingCommandDeps
 ): void {
-  const familia = program
-    .command('e-accounting')
-    .alias('contabilidad-electronica')
-    .description('Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it');
+  const familia = describeCommand(
+    program.command('e-accounting').alias('contabilidad-electronica'),
+    'help.e_accounting.description'
+  );
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -462,11 +462,9 @@ export function registerEAccountingCommand(
    * `ap reconcile`. Se corrige la DESCRIPCIÓN de esta hoja; la grafía y la
    * forma corta las sigue gobernando el diccionario y no se tocan.
    */
-  const outputNombraElXml = (cmd: Command, que: string): void => {
+  const outputNombraElXml = (cmd: Command, key: TranslationKey): void => {
     const opcion = cmd.options.find((o) => o.long === '--output');
-    if (opcion) {
-      opcion.description = `write the ${que} XML to this path (the artifact store keeps its own copy)`;
-    }
+    if (opcion) describeOption(opcion, key);
   };
 
   /**
@@ -572,25 +570,19 @@ Examples:
   // ==========================================================
   // catalog · catalogo
   // ==========================================================
-  const catalogo = familia
-    .command('catalog')
-    .alias('catalogo')
-    .description('The chart of accounts as the SAT wants it: CtaCatalogo 1.3');
+  const catalogo = describeCommand(familia.command('catalog').alias('catalogo'), 'help.e_accounting.catalog.description');
 
   // ---- catalog generate ------------------------------------
-  const generarCatalogo = catalogo
-    .command('generate')
-    .alias('generar')
-    .description(
-      'Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its hash'
-    );
+  const generarCatalogo = describeCommand(
+    catalogo.command('generate').alias('generar'),
+    'help.e_accounting.catalog.generate.description'
+  );
   withContext(generarCatalogo);
   withOutput(generarCatalogo);
-  generarCatalogo
-    .option('--period <YYYY-MM>', 'month the catalog declares (Mes and Anio of its header)')
-    .option('--dry-run', 'build it and show the verdict; archive nothing and write no file')
-    .option('-y, --yes', 'skip the overwrite prompt when -o names an existing file');
-  outputNombraElXml(generarCatalogo, 'CtaCatalogo');
+  optionByKey(generarCatalogo, '--period <YYYY-MM>', 'help.e_accounting.catalog.generate.option.period');
+  optionByKey(generarCatalogo, '--dry-run', 'help.e_accounting.catalog.generate.option.dry_run');
+  optionByKey(generarCatalogo, '-y, --yes', 'help.e_accounting.catalog.generate.option.yes');
+  outputNombraElXml(generarCatalogo, 'help.e_accounting.catalog.generate.option.output');
   avisoDeAyuda(generarCatalogo);
   generarCatalogo.addHelpText('after', EJEMPLOS.catalogGenerate);
   // ESCRITURA + IA ✓ con `draftOnly`, y aquí es literal: lo único que escribe
@@ -710,10 +702,7 @@ Examples:
   // ==========================================================
   // balance · balanza
   // ==========================================================
-  const balanza = familia
-    .command('balance')
-    .alias('balanza')
-    .description('The trial balance the SAT expects: BCE 1.3, normal, amended or year-end');
+  const balanza = describeCommand(familia.command('balance').alias('balanza'), 'help.e_accounting.balance.description');
 
   /** La cabecera común de las dos hojas de balanza. */
   const cabeceraDeBalanza = (
@@ -750,22 +739,21 @@ Examples:
   };
 
   // ---- balance generate ------------------------------------
-  const generarBalanzaHoja = balanza
-    .command('generate')
-    .alias('generar')
-    .description(
-      "Build and archive the period's trial balance XML (SaldoIni, Debe, Haber, SaldoFin) with its hash"
-    );
+  const generarBalanzaHoja = describeCommand(
+    balanza.command('generate').alias('generar'),
+    'help.e_accounting.balance.generate.description'
+  );
   withContext(generarBalanzaHoja);
   withOutput(generarBalanzaHoja);
-  generarBalanzaHoja
-    .option('--period <expr>', 'period to declare: 2026-02, its name, or the fiscal period id')
-    .option('--type <N|C>', "envelope type: N normal, C amended (needs --modified)", 'N')
-    .option('--closing', "the year-end balance, filed as month 13 — not December again")
-    .option('--modified <date>', 'date the balance being amended was modified (FechaModBal); required with --type C')
-    .option('--dry-run', 'build it and show the verdict; archive nothing and write no file')
-    .option('-y, --yes', 'skip the overwrite prompt when -o names an existing file');
-  outputNombraElXml(generarBalanzaHoja, 'Balanza');
+  optionByKey(generarBalanzaHoja, '--period <expr>', 'help.e_accounting.balance.generate.option.period');
+  optionByKey(generarBalanzaHoja, '--type <N|C>', 'help.e_accounting.balance.generate.option.type', {
+    defaultValue: 'N',
+  });
+  optionByKey(generarBalanzaHoja, '--closing', 'help.e_accounting.balance.generate.option.closing');
+  optionByKey(generarBalanzaHoja, '--modified <date>', 'help.e_accounting.balance.generate.option.modified');
+  optionByKey(generarBalanzaHoja, '--dry-run', 'help.e_accounting.balance.generate.option.dry_run');
+  optionByKey(generarBalanzaHoja, '-y, --yes', 'help.e_accounting.balance.generate.option.yes');
+  outputNombraElXml(generarBalanzaHoja, 'help.e_accounting.balance.generate.option.output');
   avisoDeAyuda(generarBalanzaHoja);
   generarBalanzaHoja.addHelpText('after', EJEMPLOS.balanceGenerate);
   // ESCRITURA + IA ✓ con `draftOnly`, por lo mismo que su hermana.
@@ -864,25 +852,19 @@ Examples:
   );
 
   // ---- balance check ---------------------------------------
-  const verificar = balanza
-    .command('check')
-    .alias('verificar')
-    .description(
-      'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, and every account in the catalog'
-    );
+  const verificar = describeCommand(
+    balanza.command('check').alias('verificar'),
+    'help.e_accounting.balance.check.description'
+  );
   withContext(verificar);
   withOutput(verificar);
   withStrict(verificar);
-  verificar
-    .option('--period <expr>', 'period to check: 2026-02, its name, or the fiscal period id')
-    // `--closing` también aquí, aunque su fila sólo liste cuatro banderas: una
-    // balanza de cierre que se puede GENERAR y no se puede VERIFICAR es un
-    // archivo que sólo se revisa cuando la autoridad lo rechaza.
-    .option('--closing', 'check the year-end balance (month 13) instead of a month')
-    .option(
-      '--check [names]',
-      'comma-separated check names; with no value, prints the available ones'
-    );
+  optionByKey(verificar, '--period <expr>', 'help.e_accounting.balance.check.option.period');
+  // `--closing` también aquí, aunque su fila sólo liste cuatro banderas: una
+  // balanza de cierre que se puede GENERAR y no se puede VERIFICAR es un
+  // archivo que sólo se revisa cuando la autoridad lo rechaza.
+  optionByKey(verificar, '--closing', 'help.e_accounting.balance.check.option.closing');
+  optionByKey(verificar, '--check [names]', 'help.e_accounting.balance.check.option.check');
   // --type/--modified as in `generate`: an amended balance (C with FechaModBal)
   // is other bytes, and whether it was sealed is asked of those bytes.
   optionByKey(verificar, '--type <N|C>', 'help.e_accounting.balance.check.option.type', { defaultValue: 'N' });

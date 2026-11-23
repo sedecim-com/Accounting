@@ -2866,7 +2866,9 @@ export async function reverseCustomerPayment(
       attestations.push({ entityId, entryId: correction.id });
     }
     // MNE-001-593: a note's restitution from this receipt's kept cash leaves 2150 and 2120 with it.
-    const restituted = (await keptRestitutions(client, entityId, paymentId)).filter((x) => new Decimal(x.iva).greaterThan('0.005'));
+    // MNE-001-607: one from a held cheque's moved neither, and its cashing's mirror takes out what that caused.
+    const restituted = (await keptRestitutions(client, entityId, paymentId))
+      .filter((x) => !x.held && new Decimal(x.iva).greaterThan('0.005'));
     if (restituted.length > 0) {
       const correction = await postReceiptReversalRestitutionEntry(
         client, { id: paymentId, entity_id: entityId, payment_number: pago.payment_number }, restituted, userId

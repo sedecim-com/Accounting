@@ -4986,6 +4986,79 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tax_deposit.list.option.period': 'sólo los pasivos cuyo periodo toca este mes',
   'help.tax_deposit.list.option.until': 'sólo lo que vence en esta fecha o antes (AAAA-MM-DD)',
   'help.tax_deposit.list.option.all_entities': 'todas las entidades del inquilino, no sólo la activa',
+  // ==== MNE-001-240 · help by key, cfdi, e-accounting and sat (issue #314) ====
+  'help.cfdi.description':
+    'El espejo de CFDI: listar, inspeccionar, estatus en el SAT, el rastro del clasificador y contabilizar un CFDI emitido',
+  'help.cfdi.list.description': 'El espejo, filtrado por dirección, tipo, estatus y fecha',
+  'help.cfdi.list.option.direction': 'emitido, recibido o ajeno (se deriva contra el RFC de la entidad)',
+  'help.cfdi.list.option.type': 'filtra por document_type, por ejemplo cfdi_ingreso, cfdi_egreso o cfdi_pago',
+  'help.cfdi.show.description':
+    'Un CFDI: encabezado, conceptos, impuestos y estatus en el SAT; --format xml imprime los bytes exactos',
+  'help.cfdi.show.argument.uuid': 'UUID del CFDI (timbre fiscal)',
+  'help.cfdi.status.description':
+    'Estatus del espejo en el SAT (ConsultaCFDIService público; no interviene la e.firma)',
+  'help.cfdi.status.show.description': 'Estado, EsCancelable y EstatusCancelacion según la última respuesta del SAT',
+  'help.cfdi.status.show.argument.uuid': 'UUID del CFDI',
+  'help.cfdi.status.show.option.refresh': 'pregunta al SAT ahora y actualiza la caché sat_* del documento',
+  'help.cfdi.status.sync.description':
+    'Vuelve a revisar todo el espejo contra el SAT: primero lo desactualizado o nunca consultado',
+  'help.cfdi.status.sync.option.limit': 'máximo de CFDI a consultar en esta corrida',
+  'help.cfdi.status.sync.option.stale_hours': 'horas tras las que una consulta queda desactualizada',
+  'help.cfdi.explain.description':
+    'POR QUÉ se registró como se registró: caso, hechos y decisiones que dejó el clasificador',
+  'help.cfdi.explain.argument.uuid': 'UUID del CFDI',
+  'help.e_accounting.description': 'Contabilidad electrónica (Anexo 24): arma el XML que espera el SAT y lo verifica',
+  'help.e_accounting.catalog.description': 'El catálogo de cuentas como lo pide el SAT: CtaCatalogo 1.3',
+  'help.e_accounting.catalog.generate.description':
+    'Genera y archiva el XML CtaCatalogo 1.3 (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) con su hash',
+  'help.e_accounting.catalog.generate.option.output':
+    'escribe el XML de CtaCatalogo en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.catalog.generate.option.period': 'mes que declara el catálogo (Mes y Anio de su encabezado)',
+  'help.e_accounting.catalog.generate.option.dry_run':
+    'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.catalog.generate.option.yes':
+    'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'help.e_accounting.balance.description':
+    'La balanza de comprobación que espera el SAT: BCE 1.3, normal, complementaria o de cierre',
+  'help.e_accounting.balance.generate.description':
+    'Genera y archiva el XML de la balanza de comprobación del periodo (SaldoIni, Debe, Haber, SaldoFin) con su hash',
+  'help.e_accounting.balance.generate.option.output':
+    'escribe el XML de la Balanza en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.balance.generate.option.period':
+    'periodo a declarar: 2026-02, su nombre o el id del periodo fiscal',
+  'help.e_accounting.balance.generate.option.type': 'tipo de envío: N normal, C complementaria (pide --modified)',
+  'help.e_accounting.balance.generate.option.closing':
+    'la balanza de cierre, presentada como mes 13, no como otro diciembre',
+  'help.e_accounting.balance.generate.option.modified':
+    'fecha en que se modificó la balanza que se complementa (FechaModBal); obligatoria con --type C',
+  'help.e_accounting.balance.generate.option.dry_run':
+    'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.balance.generate.option.yes':
+    'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'help.e_accounting.balance.check.description':
+    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, y cada cuenta en el catálogo',
+  'help.e_accounting.balance.check.option.period': 'periodo a verificar: 2026-02, su nombre o el id del periodo fiscal',
+  'help.e_accounting.balance.check.option.closing': 'verifica la balanza de cierre (mes 13) en lugar de la de un mes',
+  'help.e_accounting.balance.check.option.check':
+    'nombres de verificaciones separados por comas; sin valor, imprime los disponibles',
+  'help.sat.description': 'Servicios del SAT (credenciales de e.firma y la descarga masiva de CFDI)',
+  'help.sat.cred.description': 'Credenciales fiscales (e.firma)',
+  'help.sat.cred.add.description':
+    'Registra la e.firma de una entidad (valida en local; guardarla en la bóveda pide --live)',
+  'help.sat.cred.add.option.cer': 'Certificado .cer del SAT (DER)',
+  'help.sat.cred.add.option.key': 'Llave privada .key del SAT (DER)',
+  'help.sat.cred.add.option.entity': 'Entidad legal',
+  'help.sat.cred.add.option.user': 'Quién otorga el consentimiento',
+  'help.sat.cred.add.option.no_unattended': 'Prohíbe el uso sin un operador presente',
+  'help.sat.cred.add.option.max_diario': 'Límite de accesos por 24 h',
+  'help.sat.cred.status.description': 'Muestra las credenciales de la entidad y su vigencia',
+  'help.sat.cred.status.option.entity': 'Entidad legal',
+  'help.sat.cred.audit.description': 'Historial de accesos a la credencial (quién la usó, cuándo y para qué)',
+  'help.sat.cred.audit.option.entity': 'Entidad legal',
+  'help.sat.cred.audit.option.limit': 'Cuántos eventos mostrar',
+  'help.sat.cred.revoke.description': 'Revoca la credencial y borra el material de la bóveda (irreversible)',
+  'help.sat.cred.revoke.option.entity': 'Entidad legal',
+  'help.sat.cred.revoke.option.user': 'Quién revoca',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   'help.approvals.description':
     'Políticas de aprobación graduadas para las escrituras en espera (once / session / always)',

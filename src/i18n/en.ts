@@ -5431,6 +5431,80 @@ export const EN = {
   'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
   'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
   'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
+  // ==== MNE-001-240 · help by key, cfdi, e-accounting and sat (issue #314) ====
+  //
+  // Fiscal 1/2: the three families whole, roots included, English as shown
+  // (the leaves keyed before, such as `cfdi post`, the seal leaves and `sat
+  // download`, keep their keys). The author prose in Castilian of `cfdi list
+  // --direction` and `cfdi status show --refresh` already got its English with
+  // MNE-001-226 (#871). Every generic flag keeps a key of its own: `-o` of the
+  // two generate leaves names the XML (withOutput's flag, reworded through
+  // describeOption), their `--dry-run` and `-y` are the leaf's own, and the
+  // `-e`, `-u` and `-n` of `sat cred` and `cfdi status sync` say other things
+  // than cli.flag.*.
+  'help.cfdi.description':
+    'The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI',
+  'help.cfdi.list.description': 'The mirror, filtered by direction, type, status and date',
+  'help.cfdi.list.option.direction': 'emitido, recibido or ajeno (derived against the RFC of the entity)',
+  'help.cfdi.list.option.type': 'filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago',
+  'help.cfdi.show.description': 'One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes',
+  'help.cfdi.show.argument.uuid': 'CFDI UUID (timbre fiscal)',
+  'help.cfdi.status.description': 'SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)',
+  'help.cfdi.status.show.description': 'Estado, EsCancelable and EstatusCancelacion as the SAT last answered',
+  'help.cfdi.status.show.argument.uuid': 'CFDI UUID',
+  'help.cfdi.status.show.option.refresh': 'ask the SAT now and update the sat_* cache of the document',
+  'help.cfdi.status.sync.description': 'Re-check the whole mirror against the SAT: stale or never-consulted first',
+  'help.cfdi.status.sync.option.limit': 'maximum CFDIs to consult in this run',
+  'help.cfdi.status.sync.option.stale_hours': 'a consultation older than this is stale',
+  'help.cfdi.explain.description': 'WHY it was recorded the way it was: case, facts and decisions the classifier left',
+  'help.cfdi.explain.argument.uuid': 'CFDI UUID',
+  'help.e_accounting.description': 'Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it',
+  'help.e_accounting.catalog.description': 'The chart of accounts as the SAT wants it: CtaCatalogo 1.3',
+  'help.e_accounting.catalog.generate.description':
+    'Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its hash',
+  'help.e_accounting.catalog.generate.option.output':
+    'write the CtaCatalogo XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.catalog.generate.option.period': 'month the catalog declares (Mes and Anio of its header)',
+  'help.e_accounting.catalog.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.catalog.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.description': 'The trial balance the SAT expects: BCE 1.3, normal, amended or year-end',
+  'help.e_accounting.balance.generate.description':
+    "Build and archive the period's trial balance XML (SaldoIni, Debe, Haber, SaldoFin) with its hash",
+  'help.e_accounting.balance.generate.option.output':
+    'write the Balanza XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.balance.generate.option.period': 'period to declare: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.generate.option.type': 'envelope type: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.generate.option.closing': 'the year-end balance, filed as month 13 — not December again',
+  'help.e_accounting.balance.generate.option.modified':
+    'date the balance being amended was modified (FechaModBal); required with --type C',
+  'help.e_accounting.balance.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.balance.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.check.description':
+    'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, and every account in the catalog',
+  'help.e_accounting.balance.check.option.period': 'period to check: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.check.option.closing': 'check the year-end balance (month 13) instead of a month',
+  'help.e_accounting.balance.check.option.check':
+    'comma-separated check names; with no value, prints the available ones',
+  'help.sat.description': 'SAT services (e.firma credentials and the CFDI bulk download)',
+  'help.sat.cred.description': 'Fiscal credentials (e.firma)',
+  'help.sat.cred.add.description':
+    'Registers the e.firma of an entity (validates locally; storing in the vault requires --live)',
+  'help.sat.cred.add.option.cer': 'SAT .cer certificate (DER)',
+  'help.sat.cred.add.option.key': 'SAT .key private key (DER)',
+  'help.sat.cred.add.option.entity': 'Legal entity',
+  'help.sat.cred.add.option.user': 'Who grants the consent',
+  'help.sat.cred.add.option.no_unattended': 'Forbid use without an operator present',
+  'help.sat.cred.add.option.max_diario': 'Access limit per 24 h',
+  'help.sat.cred.status.description': 'Shows the entity credentials and their validity',
+  'help.sat.cred.status.option.entity': 'Legal entity',
+  'help.sat.cred.audit.description': 'Credential access history (who used it, when and what for)',
+  'help.sat.cred.audit.option.entity': 'Legal entity',
+  'help.sat.cred.audit.option.limit': 'How many events to show',
+  'help.sat.cred.revoke.description': 'Revokes the credential and deletes the material from the vault (irreversible)',
+  'help.sat.cred.revoke.option.entity': 'Legal entity',
+  'help.sat.cred.revoke.option.user': 'Who revokes',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   //
   // The first agent task: the six families whole, English as shown (the roots
