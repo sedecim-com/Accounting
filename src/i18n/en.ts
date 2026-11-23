@@ -4525,6 +4525,9 @@ export const EN = {
   'help.filing.workpaper.generate.option.ptu_paid': 'PTU paid in the year (ISR), captured by a person',
   'help.filing.workpaper.generate.option.prior_provisional':
     'provisional ISR already paid this year (ISR), captured by a person',
+  'help.filing.workpaper.generate.option.prior_balance':
+    'prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason',
+  'help.filing.workpaper.generate.option.prior_balance_reason': 'why the prior balance is overridden, shown on its line',
   'help.filing.workpaper.generate.footer':
     'This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' +
     '\nExamples:\n' +
@@ -4533,13 +4536,17 @@ export const EN = {
     '  Only the IVA, the whole paper (with the entries) as JSON to a file:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
     '  The ISR with the PTU paid in the year and the provisional payments already made:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
+    '  The IVA with a prior balance a person gives instead of the one the filed returns give:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"',
   'filing.workpaper.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" is not known: use iva, isr or all.',
   'filing.workpaper.label_blocks': 'BLOCKS',
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  'filing.workpaper.prior_balance_override_incomplete':
+    'An override of the prior balance in favour gives the amount and the reason for it, both (--prior-balance and --prior-balance-reason).',
   // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
   'help.filing.record.description':
     'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',

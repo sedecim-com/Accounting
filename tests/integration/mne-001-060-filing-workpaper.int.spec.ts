@@ -109,8 +109,9 @@ describe('every line points to its pólizas', () => {
   });
 
   it('a captured or derived line says so and lists no entry', () => {
+    // MNE-001-386: with no return filed, the prior balance comes from the record and credits none.
     expect(line('iva', 'prior_balance_in_favor').source).toEqual({
-      kind: 'captured', accounts: [], entries: [], ref: 'prior_balance_in_favor',
+      kind: 'filed_returns', accounts: [], entries: [], ref: 'prior_balance_in_favor', returns: [],
     });
     expect(line('isr', 'tax_caused').source.kind).toBe('derived');
   });
@@ -373,7 +374,8 @@ describe('the ISR lines trace what the builder counted', () => {
   it('the IVA proration and the prior balance are explained, even when nothing was prorated', () => {
     const iva = june.sections[0];
     expect(iva.inputs.proration).toMatchObject({ method: 'monthly', applied: false });
-    expect(juneLine('iva', 'prior_balance_in_favor').source).toMatchObject({ kind: 'captured', ref: 'prior_balance_in_favor' });
+    expect(juneLine('iva', 'prior_balance_in_favor').source).toMatchObject({ kind: 'filed_returns', ref: 'prior_balance_in_favor' });
+    expect(iva.inputs.prior_balance_in_favor).toMatchObject({ origin: 'filed_returns', value: '0.0000' });
   });
 });
 
