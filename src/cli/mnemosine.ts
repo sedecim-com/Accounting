@@ -155,6 +155,7 @@ import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
+import { registerFilingRecordCommand } from './filing-record-command.js';
 import { registerAnnualFigureCommand } from './annual-figure-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
@@ -3601,6 +3602,8 @@ registerPayCalendarCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-577 (#308): the record of a monthly IVA return a person already filed.
+registerFilingRecordCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-457 (#622): the profit coefficient of a filed annual return, which
 // the ISR of the workpaper above cannot settle without.
 registerAnnualFigureCommand(program, { palette: c, shutdown, reportError });
