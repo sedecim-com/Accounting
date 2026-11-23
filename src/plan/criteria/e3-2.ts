@@ -345,6 +345,58 @@ export const E3_2: Criterio[] = [
     },
   },
 
+  // ---- MNE-001-610 (#643) · the AP control names the marked paid bill ----
+  {
+    paquete: 'E3.2',
+    id: 'cancelled-received-cfdi-paid-named',
+    enunciado: 'El control de CxP nombra cada bill pagado y sin saldo cuyo CFDI recibido el SAT canceló, con lo pagado, leyendo la marca que escribe su puente',
+    mutantes: [
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'WHERE b.cfdi_cancellation_noted_at IS NOT NULL',
+        a: "WHERE b.status = 'cancelled'",
+        porque: 'the paid probe reads a value the mark never writes: every paid bill on a cancelled CFDI goes unnamed',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'AND b.entity_id = $1',
+        a: 'AND $1::uuid IS NOT NULL',
+        porque: 'the paid probe loses its entity scope: a sister entity with the same UUID shows its paid bill here',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: "AND b.status = 'paid'",
+        a: 'AND b.status IS NOT NULL',
+        porque: 'the paid probe forgets the status: a void bill with nothing due is named as paid',
+      },
+    ],
+    evaluar: () => {
+      // The second reader of the mark of MNE-001-431. Like 432's criterion, it
+      // takes the column from the bridge's SET rather than from a copy here.
+      const bridgeFile = 'src/services/ap/bill-cfdi-cancellation.ts';
+      const file = 'src/services/ap/ap-checks.ts';
+      if (!existe(bridgeFile)) return falla('no existe el puente del bill: no hay marca que el control pueda leer');
+      if (!existe(file)) return falla('no existe ap-checks.ts: ningún control de CxP lee la marca del CFDI cancelado');
+      const column = /SET (\w+) = NOW\(\)/.exec(codigoDe(bridgeFile))?.[1];
+      if (!column) return falla('el puente del bill no escribe una marca con fecha');
+      const src = codigoDe(file);
+      const i = src.indexOf("name: 'cancelled-cfdi-paid'");
+      const probe = i >= 0 ? src.slice(i, src.indexOf('\n  },', i)) : '';
+      if (!probe) return falla('ap check no tiene la sonda cancelled-cfdi-paid');
+      if (!probe.includes(`WHERE b.${column} IS NOT NULL`)) {
+        return falla(`la sonda de pagados no lee b.${column}, la marca que escribe el puente: lee un valor que la marca nunca escribe`);
+      }
+      if (!/AND b\.entity_id = \$1\b/.test(probe)) return falla('la sonda de pagados perdió el alcance de la entidad: invariante 4');
+      if (!/AND b\.status = 'paid'/.test(probe) || !/AND b\.amount_due = 0\b/.test(probe)) {
+        return falla('la sonda de pagados no se limita a los bills pagados y sin saldo');
+      }
+      if (!/b\.amount_paid\b/.test(probe)) return falla('la sonda de pagados no dice lo pagado');
+      return /\bLIMIT\b/.test(probe)
+        ? falla('la sonda de pagados recorta el listado: la aceptación pide cada bill')
+        : ok('ap check nombra cada bill pagado y sin saldo de la entidad cuyo CFDI recibido el SAT canceló, con lo pagado, por la marca que escribe su puente');
+    },
+  },
+
   // ---- EFIRMA-1 · MNE-001-141 (#439) · the SAT authentication signs through withCredential ----
   {
     paquete: 'E3.2',
