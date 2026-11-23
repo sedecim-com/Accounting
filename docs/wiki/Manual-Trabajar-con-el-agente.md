@@ -8,20 +8,21 @@ La frase que gobierna todo lo demás: **el agente propone y una persona dispone.
 
 ---
 
-## Antes de nada: la interfaz está en inglés
+## Antes de nada: el idioma
 
-Décelo aquí para que no lo descubras a mitad de un cierre. Los nombres de comando tienen alias en español —`revisar`, `borradores`, `pendientes`, `memoria`, `duda`— y funcionan siempre. Pero la **ayuda** de los comandos y casi todos los mensajes salen en inglés. Lo que sí habla español es el agente:
+Los nombres de comando tienen alias en español —`revisar`, `borradores`, `pendientes`, `memoria`, `duda`— y funcionan siempre. El idioma en que te hablan **el CLI y el agente** es uno solo, y `mnemosine lang` (o `idioma`) te dice cuál es y qué lo decidió:
 
 ```bash
 mnemosine lang
 ```
 
 ```text
-Agent response language: es
-Change it with: mnemosine lang es|en|es-MX|en-US (or MNEMOSINE_LANG env var)
+Idioma: español (es-MX), el del CLI y el del agente. Lo decide el valor por omisión del sistema: nada más eligió uno.
+Cámbialo con: mnemosine lang es|en|es-MX|en-US (o con la variable de entorno MNEMOSINE_LANG)
+Quita tu elección guardada con: mnemosine lang --unset
 ```
 
-`es` es el valor por omisión. Esa opción gobierna el idioma de las **respuestas del agente**, no el de la interfaz. Es una brecha conocida y está registrada en [[Auditorias]].
+`es` es el valor por omisión. `mnemosine lang en` guarda tu elección en `~/.mnemosine/config.json`, y desde el siguiente comando la ayuda, los mensajes que ya tienen traducción y las respuestas del agente salen en ese idioma; `mnemosine lang --unset` la quita y deja decidir a lo siguiente (el `mnemosine.config.json` de la carpeta, o el valor por omisión). Una parte de los mensajes todavía sale en inglés: es una brecha conocida y está registrada en [[Auditorias]].
 
 ---
 

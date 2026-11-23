@@ -32,6 +32,8 @@ import {
   chooseSelectBranch,
   pluralCategory,
 } from '../../src/i18n/plural.js';
+import { judgeLanguage } from '../../scripts/language/extract.js';
+import { classifyToken } from '../../scripts/language/lexicon.js';
 
 // ============================================================
 // LA SINCRONÍA DEL CATÁLOGO (I6 · issue #148)
@@ -731,5 +733,102 @@ describe('the I8 family blocks', () => {
     const expected = FAMILIES.flatMap((f) => [`open ${f}`, `end ${f}`]);
     expect(markersOf('en.ts')).toEqual(expected);
     expect(markersOf('es.ts')).toEqual(expected);
+  });
+});
+
+// ---- §13 · The English source is English (MNE-001-472, issue #658) ---
+//
+// Rule 2 of docs/language.md: moving Spanish prose into en.ts is not
+// translating it (the owner's «a» on #314, 2026-11-15; D14 on #141). Two
+// judges, as scripts/language/extract.ts uses them: `judgeLanguage` on every
+// value, and `classifyToken` on each folded word of a value of one or two
+// words, which the judge cannot rule on (it needs two words).
+//
+// THE JUDGES' LIMITS: a short Spanish word the lexicon lacks still passes
+// («Idioma» reads as English), and so does Spanish outnumbered by English
+// function words. This catches prose and the domain nouns the lexicon knows;
+// it is not a translator.
+
+/** en.ts values allowed to read as Spanish, each with its reason. The list only shrinks. */
+const SPANISH_BY_EXCEPTION = new Map<TranslationKey, string>([
+  ['help.account.role.description', 'its role ids (cxc, banco, iva_acreditable) are Spanish until I23 renames them'],
+  ['policy.rep_amount_tolerance.option.1_00', '«peso» is the currency'],
+  [
+    'receipt.cheque.cashed_label',
+    '«cheque» is the English word the catalogue uses for the instrument, and the lexicon reads it as the Spanish root',
+  ],
+]);
+
+/** A value's words: `{placeholders}`, ICU syntax and language tags out, branch text kept. */
+function wordsOfValue(value: string): string {
+  return value
+    .replace(/\{[A-Za-z_]\w*\}/g, ' ')
+    .replace(/\{\s*[A-Za-z_]\w*\s*,\s*(?:plural|selectordinal|select)\s*,/g, ' ')
+    .replace(/(?:=\d+|[A-Za-z_]\w*)\s*\{/g, ' ')
+    .replace(/[{}#]/g, ' ')
+    .replace(/(^|[^A-Za-z-])(?:es-MX|en-US|es|en)(?![A-Za-z-])/g, '$1 ');
+}
+
+const foldWord = (word: string): string =>
+  word.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '');
+
+/** Why a value reads as Spanish, or null when it does not. */
+function spanishIn(value: string): string | null {
+  const prose = wordsOfValue(value);
+  if (judgeLanguage(prose).spanish) return 'judged Spanish';
+  const words = prose.split(/\s+/).map(foldWord).filter((word) => word.length > 0);
+  if (words.length > 2) return null;
+  const spanish = words.filter((word) => classifyToken(word) === 'es');
+  return spanish.length > 0 ? `Spanish word ${spanish.join(', ')}` : null;
+}
+
+/** The keys of a catalogue whose value reads as Spanish, outside the exemption list. */
+function spanishValues(catalog: Readonly<Record<string, string>>): string[] {
+  return Object.entries(catalog)
+    .filter(([key, value]) => !SPANISH_BY_EXCEPTION.has(key as TranslationKey) && spanishIn(value) !== null)
+    .map(([key, value]) => `${key}: ${spanishIn(value)} in ${JSON.stringify(value)}`);
+}
+
+describe('the English source is English', () => {
+  it('no en.ts value reads as Spanish outside the exemption list', () => {
+    expect(spanishValues(EN)).toEqual([]);
+  });
+
+  it('every exemption still reads as Spanish, and the list does not grow', () => {
+    for (const [key, reason] of SPANISH_BY_EXCEPTION) {
+      expect(reason.length, `${key} needs its reason`).toBeGreaterThan(0);
+      expect(spanishIn(EN[key]), `${key} reads as English now: drop it from the list`).not.toBeNull();
+    }
+    expect(SPANISH_BY_EXCEPTION.size).toBeLessThanOrEqual(3);
+  });
+
+  it('a Spanish sentence or a Spanish word written into en.ts turns it red', () => {
+    const sentence = { ...EN, no_changes_ledger_untouched: 'Muestra el saldo de la cuenta' };
+    expect(spanishValues(sentence)).toEqual([
+      'no_changes_ledger_untouched: judged Spanish in "Muestra el saldo de la cuenta"',
+    ]);
+    const word = { ...EN, prepaid_no_live_schedule: 'Proveedor' };
+    expect(spanishValues(word)).toEqual(['prepaid_no_live_schedule: Spanish word proveedor in "Proveedor"']);
+  });
+
+  it('folds accents, strips tags and placeholders, and passes names and acronyms', () => {
+    expect(spanishIn('Póliza')).not.toBeNull();
+    expect(spanishIn('Poliza')).not.toBeNull();
+    expect(spanishIn('Importe total')).not.toBeNull();
+    expect(spanishIn('{count, plural, one {# póliza} other {# pólizas}}')).not.toBeNull();
+    expect(spanishIn('Locale {locale}: es-MX or en-US')).toBeNull();
+    for (const name of ['SAT', 'CFDI', 'RFC', 'Mnemosine', '{amount}']) expect(spanishIn(name)).toBeNull();
+  });
+
+  it('the values #653 adds read as English, and a short word the lexicon lacks passes', () => {
+    for (const value of [
+      "Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)",
+      'To use Mnemosine in English: mnemosine lang en',
+      'Language',
+    ]) {
+      expect(spanishIn(value), value).toBeNull();
+    }
+    // The limit, written down: «idioma» is not in the lexicon, so it passes.
+    expect(spanishIn('Idioma')).toBeNull();
   });
 });

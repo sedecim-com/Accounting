@@ -110,7 +110,7 @@ export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
     agent: false,
     writes: 'ai_sessions, ai_messages; and, through its tools, ai_drafts, ai_questions, ai_external_ops',
   },
-  lang: { risk: 'escritura', agent: false, writes: 'mnemosine.config.json (the agent language)' },
+  lang: { risk: 'escritura', agent: false, writes: '~/.mnemosine/config.json (the language of the CLI and the agent)' },
   login: { risk: 'escritura', agent: false, writes: 'the identity provider local credential' },
   logout: { risk: 'escritura', agent: false, writes: 'the local credential (it deletes it)' },
   init: {

@@ -2494,8 +2494,7 @@ export const EN = {
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
-    "Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command " +
-    'aliases always work)',
+    "Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)",
   'help.onboard.description':
     "Imports a client's accounting from an external system (chart of accounts + opening balances)",
   'help.outbox.description':
@@ -3308,7 +3307,7 @@ export const EN = {
   'root.ingest.auto_post_turn_on':
     'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
   /** `lang`: a language that is not one of the accepted spellings. */
-  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or {languages}',
   /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
   'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
@@ -4389,7 +4388,7 @@ export const EN = {
   'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
   'help.depreciation.post.option.file':
     'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
-  'help.filing.description': 'Tax returns of the entity: the working papers behind them',
+  'help.filing.description': 'Tax returns of the entity: the working papers behind them, and the record of those filed',
   'help.filing.workpaper.description': 'The auditable working paper of the month, line by line',
   'help.filing.workpaper.generate.description':
     'Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the entries behind each line',
@@ -4399,7 +4398,7 @@ export const EN = {
   'help.filing.workpaper.generate.option.prior_provisional':
     'provisional ISR already paid this year (ISR), captured by a person',
   'help.filing.workpaper.generate.option.prior_balance':
-    'prior balance in favour (IVA) instead of the one the filed returns give; needs --prior-balance-reason',
+    'prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason',
   'help.filing.workpaper.generate.option.prior_balance_reason': 'why the prior balance is overridden, shown on its line',
   'help.filing.workpaper.generate.footer':
     'This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' +
@@ -4420,6 +4419,42 @@ export const EN = {
   'filing.workpaper.more_entries': '+{count} more',
   'filing.workpaper.prior_balance_override_incomplete':
     'An override of the prior balance in favour gives the amount and the reason for it, both (--prior-balance and --prior-balance-reason).',
+  // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
+  'help.filing.record.description':
+    'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',
+  'help.filing.record.option.form': 'which return it is: {forms} (the monthly IVA)',
+  'help.filing.record.option.period': 'month the return covers',
+  'help.filing.record.option.filed_on': 'day the return was filed (YYYY-MM-DD), after its month ends',
+  'help.filing.record.option.acuse': 'operation number of the acknowledgement («acuse»): how the record names this return',
+  'help.filing.record.option.capture_line': 'payment reference the SAT gave with the filing (the capture line), when the return has something to pay',
+  'help.filing.record.option.payable': 'amount payable the return left, up to two decimals (use 0 for a return at zero)',
+  'help.filing.record.option.in_favor': 'balance in favour the return left, up to two decimals; never together with --payable',
+  'help.filing.record.option.paid': 'what was paid with the capture line; goes with --paid-on',
+  'help.filing.record.option.paid_on': 'day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid',
+  'help.filing.record.option.credit':
+    'an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each',
+  'help.filing.record.footer':
+    'This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.\n' +
+    'An amended return («complementaria») is not recorded here.\n' +
+    '\nExamples:\n' +
+    '  See the row the July return would leave, with its balance in favour, writing nothing:\n' +
+    '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
+    '  August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:\n' +
+    '    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json',
+  'filing.record.form_invalid': '--form "{value}" is not a return this command records: use {forms}. The provisional ISR is not recorded yet. Nothing was written.',
+  'filing.record.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-08). Nothing was written.',
+  'filing.record.date_invalid': '{flag} "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filing.record.acuse_required': 'Missing --acuse: the operation number of the acknowledgement is how the record names a return. Nothing was written.',
+  'filing.record.capture_line_blank': '--capture-line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filing.record.result_required': 'Say what the return left: --payable <amount> or --in-favor <amount> (--payable 0 for a return at zero). Nothing was written.',
+  'filing.record.result_both': 'A return leaves an amount payable or a balance in favour, never both: give --payable or --in-favor, not the two. Nothing was written.',
+  'filing.record.amount_invalid': '{flag} "{value}" is not an amount: use zero or more, with at most two decimals and no thousands separator (for example 5000.00). Nothing was written.',
+  'filing.record.payment_incomplete': 'Missing {missing}: a payment states both what was paid (--paid) and the day (--paid-on). Nothing was written.',
+  'filing.record.credit_invalid': '--credit "{value}" is not valid: use <acuse>:<amount>, the acuse of the earlier return and the amount credited (for example OP-0701:3000.00). Nothing was written.',
+  'filing.record.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'filing.record.paid_on_in_future': '--paid-on {value} is after today ({today}): only a payment already made is recorded. Nothing was written.',
+  'filing.record.dry_run': 'Dry run: the return is valid and was rolled back; nothing was written.',
+  'filing.record.recorded': 'Recorded: {acuse} is the {period} return in force. Nothing was sent to the SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
   'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
@@ -5913,4 +5948,37 @@ export const EN = {
   'provider.switch.kept': 'The session stays on {current}.',
   'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
+  'help.lang.argument.language':
+    'the language to set: {choices}; omit it to see the language in effect and what decided it',
+  'help.lang.option.unset':
+    'remove the language saved in ~/.mnemosine/config.json, so the next source decides again',
+  'cli.lang.examples':
+    '\nExamples:\n' +
+    '  Which language the CLI and the agent use right now, and what decided it:\n' +
+    '    mnemosine lang\n' +
+    '  Use Spanish for both; it is saved in ~/.mnemosine/config.json:\n' +
+    '    mnemosine lang es\n' +
+    '  Remove that choice, so the next source decides again:\n' +
+    '    mnemosine lang --unset\n',
+  'cli.lang.name.es': 'Spanish',
+  'cli.lang.name.en': 'English',
+  'cli.lang.in_effect': 'Language: {language} ({locale}), for the CLI and the agent. Decided by {rung}.',
+  'cli.lang.rung.flag': 'the {flag} flag of this run',
+  'cli.lang.rung.env': '{variable}={value} in the environment',
+  'cli.lang.rung.user_config': 'your own choice, saved in {file}',
+  'cli.lang.rung.project_config': "this folder's {file}",
+  'cli.lang.rung.legacy_config': 'the legacy "language" key in {file}',
+  'cli.lang.rung.entity': 'the language of the entity {entity}',
+  'cli.lang.rung.default': 'the system default: nothing else chose one',
+  'cli.lang.change_hint': 'Change it with: mnemosine lang {choices} (or the {variable} environment variable)',
+  'cli.lang.unset_hint': 'Remove your saved choice with: mnemosine lang --unset',
+  'cli.lang.set': 'Language set to {language} ({locale}) for the CLI and the agent, in {file}',
+  'cli.lang.quarantined': 'Your previous {file} could not be read and was replaced; a copy is at {copy}',
+  'cli.lang.takes_effect': 'Takes effect from the next command.',
+  'cli.lang.shadowed_env': '{variable}={value} is set and takes precedence — unset it for this change to apply.',
+  'cli.lang.shadowed': 'It does not apply yet: {rung} takes precedence; change it for this to apply.',
+  'cli.lang.unset.done': 'Removed your language choice ({keys}) from {file}.',
+  'cli.lang.unset.nothing': 'No language choice is saved in {file}; there is nothing to remove.',
+  'cli.lang.unset_with_language': '--unset takes no language: it removes your saved choice (got "{language}").',
 } as const;

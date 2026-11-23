@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 253 of 403 subcommands
+  spelling is `-T` at the root and `-t` on the 254 of 404 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -49,7 +49,7 @@ Commands:
   drafts|borradores [options]            Lists the journal entry drafts created by the AI
   review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
   ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
-  lang|idioma [options] [language]       Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  lang|idioma [options] [language]       Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
@@ -94,7 +94,7 @@ Commands:
   pay-period|periodo-nomina              Pay periods of the entity: create the next ones of a schedule, list them
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
-  filing|declaracion                     Tax returns of the entity: the working papers behind them
+  filing|declaracion                     Tax returns of the entity: the working papers behind them, and the record of those filed
   annual|anual                           The annual return of the entity: the figures read off it once it is filed
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
@@ -333,21 +333,26 @@ Examples:
 ```
 Usage: mnemosine lang|idioma [options] [language]
 
-Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish
-command aliases always work)
+Shows or sets your language: the CLI and the agent's answers (Spanish command
+aliases always work)
 
 Arguments:
-  language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
+  language    the language to set: es, en, es-MX, en-US; omit it to see the
+              language in effect and what decided it
 
 Options:
+  --unset     remove the language saved in ~/.mnemosine/config.json, so the next
+              source decides again
   -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
+  Which language the CLI and the agent use right now, and what decided it:
+    mnemosine lang
+  Use Spanish for both; it is saved in ~/.mnemosine/config.json:
+    mnemosine lang es
+  Remove that choice, so the next source decides again:
+    mnemosine lang --unset
 ```
 
 ## `mnemosine onboard` (alias: alta)
@@ -8775,15 +8780,19 @@ Examples:
 ```
 Usage: mnemosine filing|declaracion [options] [command]
 
-Tax returns of the entity: the working papers behind them
+Tax returns of the entity: the working papers behind them, and the record of
+those filed
 
 Options:
-  -h, --help               display help for command
+  -h, --help                  display help for command
 
 Commands:
-  workpaper|papel-trabajo  The auditable working paper of the month, line by
-                           line
-  help [command]           display help for command
+  workpaper|papel-trabajo     The auditable working paper of the month, line by
+                              line
+  record|registrar [options]  Record a monthly IVA return already filed in the
+                              SAT portal: its acuse, what it left payable or in
+                              favour, its payment and the balances it credited
+  help [command]              display help for command
 ```
 
 ### `mnemosine filing workpaper` (alias: papel-trabajo)
@@ -8824,7 +8833,7 @@ Options:
   --form <iva|isr|all>                     which settlement to include (default: "all")
   --ptu-paid <amount>                      PTU paid in the year (ISR), captured by a person
   --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
-  --prior-balance <amount>                 prior balance in favour (IVA) instead of the one the filed returns give; needs --prior-balance-reason
+  --prior-balance <amount>                 prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason
   --prior-balance-reason <text>            why the prior balance is overridden, shown on its line
   -h, --help                               display help for command
 
@@ -8839,6 +8848,47 @@ Examples:
     mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
   The IVA with a prior balance a person gives instead of the one the filed returns give:
     mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"
+```
+
+### `mnemosine filing record` (alias: registrar)
+
+```
+Usage: mnemosine filing record|registrar [options]
+
+Record a monthly IVA return already filed in the SAT portal: its acuse, what it
+left payable or in favour, its payment and the balances it credited
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --form <form>                            which return it is: iva (the monthly IVA)
+  --period <YYYY-MM>                       month the return covers
+  --filed-on <date>                        day the return was filed (YYYY-MM-DD), after its month ends
+  --acuse <number>                         operation number of the acknowledgement («acuse»): how the record names this return
+  --capture-line <line>                    payment reference the SAT gave with the filing (the capture line), when the return has something to pay
+  --payable <amount>                       amount payable the return left, up to two decimals (use 0 for a return at zero)
+  --in-favor <amount>                      balance in favour the return left, up to two decimals; never together with --payable
+  --paid <amount>                          what was paid with the capture line; goes with --paid-on
+  --paid-on <date>                         day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid
+  --credit <acuse:amount>                  an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.
+An amended return («complementaria») is not recorded here.
+
+Examples:
+  See the row the July return would leave, with its balance in favour, writing nothing:
+    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run
+  August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:
+    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json
 ```
 
 ## `mnemosine annual` (alias: anual)
