@@ -6,7 +6,8 @@ import fsModule from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { setUserLocale, userConfigPath } from '../../src/ai/providers/config.js';
+import { setUserLocale, unsetUserLocale, userConfigPath } from '../../src/ai/providers/config.js';
+import { languageInEffectLine } from '../../src/cli/lang-line.js';
 import { DEFAULT_LOCALE, describeLocale, languageOfLocale, type LocaleDecision } from '../../src/i18n/locale.js';
 import { t } from '../../src/i18n/index.js';
 import { ExitCode } from '../../src/cli/kernel/exit.js';
@@ -122,6 +123,11 @@ function run(
     },
   });
   return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+/** The first line a command printed: `lang`'s answer to «which language, and why». */
+function firstLine(stdout: string): string {
+  return stdout.split('\n')[0] ?? '';
 }
 
 describe('the locale is written to the file the resolver reads first', () => {
@@ -344,7 +350,10 @@ describe('the `lang` command, launched as the binary', () => {
       const shown = run(['lang']);
 
       expect(shown.status).toBe(ExitCode.OK);
-      expect(shown.stdout).toContain('Agent response language: es');
+      expect(firstLine(shown.stdout)).toBe(
+        'Idioma: español (es-MX), el del CLI y el del agente. ' +
+          'Lo decide tu propia elección, guardada en ~/.mnemosine/config.json.'
+      );
     },
     180_000
   );
@@ -363,7 +372,7 @@ describe('the `lang` command, launched as the binary', () => {
       // The write itself happened; it is shadowed, not skipped. Unsetting the
       // variable is all the warning asks for, and it has to be enough.
       expect(readUserConfig()).toEqual({ locale: 'es-MX' });
-      expect(run(['lang']).stdout).toContain('Agent response language: es');
+      expect(firstLine(run(['lang']).stdout)).toContain('Idioma: español (es-MX), el del CLI y el del agente.');
     },
     180_000
   );
@@ -382,8 +391,158 @@ describe('with no entity in context, the binary reads the system default', () =>
       expect(help.stdout.trimStart().split(/\s+/)[0]).toBe(t('cli.chrome.usage', {}, expected));
       const shown = run(['lang']);
       expect(shown.status, shown.stderr).toBe(ExitCode.OK);
-      expect(shown.stdout).toContain(`Agent response language: ${expected}`);
+      expect(firstLine(shown.stdout)).toBe(
+        languageInEffectLine({ locale: DEFAULT_LOCALE, kind: 'default', label: null, raw: null }, expected, home)
+      );
     },
     180_000
+  );
+});
+
+// ============================================================
+// `lang` NAMES THE RUNG, AND `lang --unset` GIVES THE CHOICE BACK (MNE-001-469 · #653)
+//
+// The CLI reads the same `locale` the agent does, so `lang` sets both, and its
+// first line says so and says which rung decided. `--unset` removes the
+// person's own choice from ~/.mnemosine/config.json and nothing else, so the
+// next rung decides again: today the default, once #655 lands the entity's.
+// The expected lines are written by hand.
+// ============================================================
+describe('removing the saved language from the user file', () => {
+  it('removes `locale` and the legacy `language`, and keeps every other key', () => {
+    fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+    fs.writeFileSync(
+      userConfigPath(home),
+      JSON.stringify({ default_provider: 'ollama', locale: 'en-US', language: 'en' })
+    );
+
+    const removed = unsetUserLocale(home);
+
+    expect(removed).toEqual({ file: userConfigPath(home), removed: ['locale', 'language'] });
+    expect(readUserConfig()).toEqual({ default_provider: 'ollama' });
+  });
+
+  it('writes nothing, and creates nothing, when there is no file', () => {
+    expect(unsetUserLocale(home)).toEqual({ file: userConfigPath(home), removed: [] });
+    expect(fs.existsSync(path.join(home, '.mnemosine'))).toBe(false);
+  });
+
+  it('leaves a file without a saved language byte for byte as it was', () => {
+    fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+    const bytes = '{"default_provider":"ollama"}';
+    fs.writeFileSync(userConfigPath(home), bytes);
+
+    expect(unsetUserLocale(home).removed).toEqual([]);
+    expect(fs.readFileSync(userConfigPath(home), 'utf8')).toBe(bytes);
+  });
+
+  it('refuses a file that is not JSON, names it, and leaves it untouched', () => {
+    fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+    const broken = '{ "locale": "es-MX",, }';
+    fs.writeFileSync(userConfigPath(home), broken);
+
+    expect(() => unsetUserLocale(home)).toThrow(userConfigPath(home));
+    expect(fs.readFileSync(userConfigPath(home), 'utf8')).toBe(broken);
+  });
+});
+
+describe('`lang` names the rung that chose the language, launched as the binary', () => {
+  it(
+    'names the environment, the flag, the folder and the legacy key, each by its own phrase',
+    () => {
+      const env = run(['lang'], { MNEMOSINE_LOCALE: 'en-US' });
+      expect(env.status, env.stderr).toBe(ExitCode.OK);
+      expect(firstLine(env.stdout)).toBe(
+        'Language: English (en-US), for the CLI and the agent. Decided by MNEMOSINE_LOCALE=en-US in the environment.'
+      );
+
+      const flag = run(['--locale', 'en-US', 'lang']);
+      expect(flag.status, flag.stderr).toBe(ExitCode.OK);
+      expect(firstLine(flag.stdout)).toBe(
+        'Language: English (en-US), for the CLI and the agent. Decided by the --locale flag of this run.'
+      );
+
+      const projectFile = writeProjectConfig({ locale: 'en-US' });
+      const folder = run(['lang']);
+      expect(folder.status, folder.stderr).toBe(ExitCode.OK);
+      expect(firstLine(folder.stdout)).toBe(
+        `Language: English (en-US), for the CLI and the agent. Decided by this folder's ${projectFile}.`
+      );
+
+      writeProjectConfig({ language: 'en' });
+      const legacy = run(['lang']);
+      expect(legacy.status, legacy.stderr).toBe(ExitCode.OK);
+      expect(firstLine(legacy.stdout)).toBe(
+        `Language: English (en-US), for the CLI and the agent. Decided by the legacy "language" key in ${projectFile}.`
+      );
+    },
+    360_000
+  );
+
+  it(
+    'after `idioma es --yes`, says in Spanish that your own choice in ~/.mnemosine/config.json decides',
+    () => {
+      const set = run(['idioma', 'es', '--yes'], { MNEMOSINE_LOCALE: 'en-US' });
+      expect(set.status, set.stderr).toBe(ExitCode.OK);
+      expect(set.stdout).toContain(
+        '✔ Language set to Spanish (es-MX) for the CLI and the agent, in ~/.mnemosine/config.json'
+      );
+
+      const shown = run(['lang']);
+      expect(shown.status, shown.stderr).toBe(ExitCode.OK);
+      expect(firstLine(shown.stdout)).toBe(
+        'Idioma: español (es-MX), el del CLI y el del agente. ' +
+          'Lo decide tu propia elección, guardada en ~/.mnemosine/config.json.'
+      );
+    },
+    180_000
+  );
+});
+
+describe('`lang --unset`, launched as the binary', () => {
+  it(
+    'removes your choice, keeps the other keys, and says which language now decides',
+    () => {
+      fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+      fs.writeFileSync(userConfigPath(home), JSON.stringify({ default_provider: 'ollama', locale: 'en-US' }));
+
+      const result = run(['lang', '--unset']);
+
+      expect(result.status, result.stderr).toBe(ExitCode.OK);
+      expect(readUserConfig()).toEqual({ default_provider: 'ollama' });
+      // The run started in English (the file said so) and says so in English.
+      const [done, now] = result.stdout.split('\n');
+      expect(done).toBe('✔ Removed your language choice (locale) from ~/.mnemosine/config.json.');
+      expect(now).toBe(
+        languageInEffectLine({ locale: DEFAULT_LOCALE, kind: 'default', label: null, raw: null }, 'en', home)
+      );
+    },
+    90_000
+  );
+
+  it(
+    'with no saved language, says so and exits 0',
+    () => {
+      const result = run(['lang', '--unset'], { MNEMOSINE_LOCALE: 'en-US' });
+
+      expect(result.status, result.stderr).toBe(ExitCode.OK);
+      expect(firstLine(result.stdout)).toBe(
+        'No language choice is saved in ~/.mnemosine/config.json; there is nothing to remove.'
+      );
+      expect(fs.existsSync(userConfigPath(home))).toBe(false);
+    },
+    90_000
+  );
+
+  it(
+    'refuses a language beside --unset with a usage error, and writes nothing',
+    () => {
+      const result = run(['lang', '--unset', 'es'], { MNEMOSINE_LOCALE: 'en-US' });
+
+      expect(result.status).toBe(ExitCode.USAGE);
+      expect(result.stdout + result.stderr).toContain('--unset takes no language');
+      expect(fs.existsSync(userConfigPath(home))).toBe(false);
+    },
+    90_000
   );
 });
