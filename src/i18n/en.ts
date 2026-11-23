@@ -1118,6 +1118,25 @@ export const EN = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Post one correction per bill and month, in each payment\'s month',
 
+  'policy.discount_vat_correction_period.question':
+    'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+  'policy.discount_vat_correction_period.impact':
+    'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+  'policy.discount_vat_correction_period.rationale':
+    'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.discount_vat_correction_period.why':
+    'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+  'policy.discount_vat_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.discount_vat_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Post one correction per bill and payment, dated today in the open period',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Post one correction per bill and payment, in the month the discount was posted',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
