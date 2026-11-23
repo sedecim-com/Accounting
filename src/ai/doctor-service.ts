@@ -12,8 +12,9 @@ import {
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
-import { listProfiles } from './providers/config.js';
+import { listProfiles, resolveFailoverChain } from './providers/config.js';
 import { credentialState } from './providers/credential-state.js';
+import { isTrialEndpoint, NVIDIA_TRIAL_HOST } from './providers/trial-endpoint.js';
 import { scanOrphans, type Orphan } from './orphan-scan.js';
 import {
   detectMemoryConflicts,
@@ -720,6 +721,41 @@ export async function checkCredentials(now: Date): Promise<CheckResult> {
 }
 
 export function checkModelProvider(cwd?: string): CheckResult {
+  return withTrialEndpointWarning(checkProviderCredential(cwd), cwd);
+}
+
+/**
+ * NVIDIA's hosted catalog is a trial that records what it receives
+ * (MNE-001-448): doctor warns while the default, or a link of its chain, is
+ * on it. A failure stays a failure.
+ */
+function withTrialEndpointWarning(result: CheckResult, cwd?: string): CheckResult {
+  if (result.level === 'fail') return result;
+  let chain: Array<{ name: string; base_url?: string }>;
+  try {
+    chain = resolveFailoverChain(listProfiles(cwd).defaultName, cwd);
+  } catch {
+    return result;
+  }
+  const notes: string[] = [];
+  if (isTrialEndpoint(chain[0]?.base_url)) {
+    notes.push(`on NVIDIA's hosted trial (${NVIDIA_TRIAL_HOST}), which records what it receives: never with a client's data`);
+  }
+  const links = chain.slice(1).filter((p) => isTrialEndpoint(p.base_url)).map((p) => p.name);
+  if (links.length > 0) {
+    notes.push(`the failover chain names ${links.join(', ')}, on NVIDIA's hosted trial (${NVIDIA_TRIAL_HOST}); a failover never moves into it`);
+  }
+  if (notes.length === 0) return result;
+  const fix = 'For client work choose another provider: mnemosine init --section ai';
+  return {
+    ...result,
+    level: 'warn',
+    detail: `${result.detail} · ${notes.join('; ')}`,
+    fix: result.fix ? `${fix}. ${result.fix}` : fix,
+  };
+}
+
+function checkProviderCredential(cwd?: string): CheckResult {
   let profiles: ReturnType<typeof listProfiles>;
   try {
     profiles = listProfiles(cwd);

@@ -20,6 +20,7 @@ mnemosine providers
 | `openai` | OpenAI-compatible | `gpt-5.1` | `OPENAI_API_KEY` | Usa `max_completion_tokens` |
 | `gemini` | OpenAI-compatible | `gemini-3.8-flash` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio; esfuerzo `low`. Sin verificar en vivo: [su ficha](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), leída el 20-nov-2026 |
 | `grok` | OpenAI-compatible | `grok-4.3` | `XAI_API_KEY` | Esfuerzo `low`; ventana declarada de 200 000, el escalón donde xAI dobla el precio. Sin verificar en vivo: [su ficha](https://docs.x.ai/developers/models/grok-4.3), leída el 20-nov-2026 |
+| `nvidia` | OpenAI-compatible | `nvidia/nemotron-3-super-120b-a12b` | `NVIDIA_API_KEY` | El catálogo alojado de NVIDIA, **una prueba que registra lo que recibe: nunca datos de clientes**. Esfuerzo `low`; ventana declarada de 262 144. Sin verificar en vivo: [su ficha](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b), leída por extracto de búsqueda el 23-nov-2026. Ver «La prueba alojada de NVIDIA» |
 | `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible; URL en ruta de deprecación (ver deriva) |
 | `minimax` | OpenAI-compatible | `MiniMax-M2` | `MINIMAX_API_KEY` | Endpoint global; para China se cambia `base_url` |
 | `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos. El alias `auto` es deriva garantizada por diseño |
@@ -29,7 +30,18 @@ mnemosine providers
 | `ollama` | OpenAI-compatible | `llama3.1` | ninguna | Local, sin llave |
 | `openclaw` | OpenAI-compatible | `openclaw:main` | `OPENCLAW_GATEWAY_TOKEN` | Pasarela local. **`tools: false`** |
 
-El catálogo no se cuenta a mano: `mnemosine providers` imprime la lista efectiva —predefinidos más los del archivo— con el modelo, el endpoint, si el perfil lleva herramientas y si la variable de entorno que nombra está puesta. (El README enumera once porque agrupa `hermes` y `hermes-agent`; el archivo define los dos por separado, y son cosas distintas, como se explica más abajo.)
+### La prueba alojada de NVIDIA
+
+`integrate.api.nvidia.com` es una prueba para desarrollo y evaluación: los términos de servicio de la prueba de la API de NVIDIA le permiten registrar lo que se le envía y piden no mandar datos personales. Por eso mnemosine la cerca, la haya elegido quien la haya elegido (`--provider`, `MNEMOSINE_PROVIDER` o un `default_provider` en cualquier archivo):
+
+- `mnemosine init` imprime los términos y pregunta antes de guardarla como proveedor por omisión. La respuesta por omisión es No, y `--yes` no los acepta.
+- `chat` y `ask` imprimen los términos y piden un sí una vez por sesión; sin terminal se niegan.
+- `ingest`, `jobs run-due` y la importación de `init` se niegan siempre: son las corridas que mandan documentos de clientes.
+- Una cadena de failover nunca entra en ella, y `doctor` avisa mientras el perfil por omisión o un eslabón de su cadena la usa.
+
+NVIDIA NIM en un servidor propio no es ese host y no lleva estas guardas: se declara como perfil propio, con su `base_url`, la ventana del `--max-model-len` con que se arrancó y `--enable-auto-tool-choice` con un analizador de llamadas para que funcionen las herramientas contables.
+
+El catálogo no se cuenta a mano: `mnemosine providers` imprime la lista efectiva —predefinidos más los del archivo— con el modelo, el endpoint, si el perfil lleva herramientas y si la variable de entorno que nombra está puesta.
 
 ---
 

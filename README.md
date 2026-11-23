@@ -174,9 +174,10 @@ mnemosine no está casado con un proveedor. Hay dos motores de sesión: el nativ
 de Anthropic (`MnemosineAgent`, con caché de prompt y bloques de razonamiento) y
 un adaptador OpenAI-compatible (`OpenAiCompatSession`) que sirve a todo lo demás.
 Los perfiles de fábrica (`BUILTIN_PROFILES`, en `src/ai/providers/config.ts`)
-son anthropic, openai, gemini, grok, qwen, minimax, openrouter, copilot y hermes,
-más tres locales: `ollama`, `hermes-agent` y `openclaw`. Se añaden o se
-redefinen en `mnemosine.config.json`.
+son trece: anthropic, openai, gemini, grok, nvidia, qwen, minimax, openrouter,
+copilot y hermes, más tres locales: `ollama`, `hermes-agent` y `openclaw`.
+`nvidia` es la prueba alojada de NVIDIA, que registra lo que recibe: nunca para
+datos de clientes. Se añaden o se redefinen en `mnemosine.config.json`.
 
 La credencial del proveedor es de cada usuario: la pone en su entorno. No hay
 una llave compartida, y ninguna vive en el repositorio.
