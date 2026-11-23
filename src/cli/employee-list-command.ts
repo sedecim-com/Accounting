@@ -1,6 +1,17 @@
 import type { Command } from 'commander';
 import { listEmployees } from '../services/payroll/common/employee-service.js';
-import { ExitCode, dateOnly, declareRisk, render, usageError, withContext, withOutput, withSelection } from './kernel/index.js';
+import {
+  ExitCode,
+  dateOnly,
+  declareRisk,
+  describeCommand,
+  optionByKey,
+  render,
+  usageError,
+  withContext,
+  withOutput,
+  withSelection,
+} from './kernel/index.js';
 import type { EmployeeCommonOpts, EmployeeLeafKit } from './employee-command.js';
 
 // ============================================================
@@ -51,14 +62,11 @@ export function statusFilter(opts: { status?: string[]; all?: boolean }): string
 }
 
 export function registerEmployeeList(family: Command, kit: EmployeeLeafKit): void {
-  const list = family
-    .command('list')
-    .alias('listar')
-    .description('List the employees of the entity, active by default, with no tax identifiers');
+  const list = describeCommand(family.command('list').alias('listar'), 'help.employee.list.description');
   withContext(list);
   withSelection(list);
   withOutput(list);
-  list.option('--country <MX|US>', 'only employees of this country');
+  optionByKey(list, '--country <MX|US>', 'help.employee.list.option.country');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EXAMPLES);
   list.action((opts: ListOpts) =>

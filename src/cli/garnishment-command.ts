@@ -14,9 +14,12 @@ import {
 import type { Palette } from './palette.js';
 import {
   ExitCode,
+  argumentByKey,
   declareRisk,
+  describeCommand,
   exitCodeFor,
   gateMutation,
+  optionByKey,
   render,
   requireExplicitEntity,
   resolveActiveEntity,
@@ -225,10 +228,7 @@ Examples:
 } as const;
 
 export function registerGarnishmentCommand(program: Command, deps: GarnishmentCommandDeps): void {
-  const garnishment = program
-    .command('garnishment')
-    .alias('embargo')
-    .description('Court-ordered wage withholding: file an order, see the cascade, stop it');
+  const garnishment = describeCommand(program.command('garnishment').alias('embargo'), 'help.garnishment.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -256,28 +256,24 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
   };
 
   // ---- garnishment record · embargo registrar -------------------------
-  const record = garnishment
-    .command('record')
-    .alias('registrar')
-    .argument('<employee>', 'employee number or id the order is against')
-    .description('File a court order already dictated, with its basis, its authority and its caps');
+  const record = describeCommand(garnishment.command('record').alias('registrar'), 'help.garnishment.record.description');
+  argumentByKey(record, '<employee>', 'help.garnishment.record.argument.employee');
   withContext(record);
   withOutput(record);
   withNote(record);
-  record
-    .option(`--type ${TYPE_MARKER}`, 'the order type, in the vocabulary the column stores')
-    .option('--amount <n>', 'a fixed amount per period')
-    .option('--percent-disposable <n>', 'a percentage of DISPOSABLE earnings (gross minus employee taxes)')
-    .option('--percent-gross <n>', 'a percentage of GROSS wages — different money from --percent-disposable')
-    .option('--priority <n>', 'tie-breaker WITHIN a statutory rank; it does not decide the rank', wholeNumber('--priority'))
-    .option('--case <number>', 'the court file number, unique per worker while the order is live')
-    .option('--court <text>', 'the authority that issued the order (required)')
-    .option('--payee <name>', 'who the withholding is remitted to')
-    .option('--start <date>', 'the date the order bears (YYYY-MM-DD); withholding starts when it is ACTIVE')
-    .option('--exempt-amount <n>', 'IRS Pub 1494 exempt amount; required on a tax levy, read by nothing else')
-    .option('--supports-second-family <yes|no>', 'does this worker support another family? decides a 50 % or 60 % CCPA cap — no default')
-    .option('--arrears-12wk <yes|no>', 'are arrears more than twelve weeks old? adds five points to the cap — no default')
-    .option('--dry-run', 'run the real path and undo it: shows the order and the cascade it would join');
+  optionByKey(record, `--type ${TYPE_MARKER}`, 'help.garnishment.record.option.type');
+  optionByKey(record, '--amount <n>', 'help.garnishment.record.option.amount');
+  optionByKey(record, '--percent-disposable <n>', 'help.garnishment.record.option.percent_disposable');
+  optionByKey(record, '--percent-gross <n>', 'help.garnishment.record.option.percent_gross');
+  optionByKey(record, '--priority <n>', 'help.garnishment.record.option.priority', { parser: wholeNumber('--priority') });
+  optionByKey(record, '--case <number>', 'help.garnishment.record.option.case');
+  optionByKey(record, '--court <text>', 'help.garnishment.record.option.court');
+  optionByKey(record, '--payee <name>', 'help.garnishment.record.option.payee');
+  optionByKey(record, '--start <date>', 'help.garnishment.record.option.start');
+  optionByKey(record, '--exempt-amount <n>', 'help.garnishment.record.option.exempt_amount');
+  optionByKey(record, '--supports-second-family <yes|no>', 'help.garnishment.record.option.supports_second_family');
+  optionByKey(record, '--arrears-12wk <yes|no>', 'help.garnishment.record.option.arrears_12wk');
+  optionByKey(record, '--dry-run', 'help.garnishment.record.option.dry_run');
   // ESCRITURA, and the agent may NOT call it. A court order is not a review
   // queue: what is written here reduces a person's pay every period until
   // someone archives it. `declareRisk` only admits escritura + agent with
@@ -394,15 +390,12 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
   );
 
   // ---- garnishment list · embargo listar ------------------------------
-  const list = garnishment
-    .command('list')
-    .alias('listar')
-    .argument('[employee]', 'narrow to one worker, by employee number or id')
-    .description('List orders in the sequence money is taken: statutory rank, then priority, then date');
+  const list = describeCommand(garnishment.command('list').alias('listar'), 'help.garnishment.list.description');
+  argumentByKey(list, '[employee]', 'help.garnishment.list.argument.employee');
   withContext(list);
   withSelection(list);
   withOutput(list);
-  list.option(`--type ${TYPE_MARKER}`, 'only orders of this type');
+  optionByKey(list, `--type ${TYPE_MARKER}`, 'help.garnishment.list.option.type');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EXAMPLES.list);
   list.action((employee: string | undefined, opts: ListOpts) =>
@@ -446,17 +439,11 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
   );
 
   // ---- garnishment archive · embargo archivar -------------------------
-  const archive = garnishment
-    .command('archive')
-    .alias('archivar')
-    .argument('<id>', 'the order id, as `garnishment list` prints it')
-    .description('Stop the withholding by clearing is_active, keeping the order and its history');
+  const archive = describeCommand(garnishment.command('archive').alias('archivar'), 'help.garnishment.archive.description');
+  argumentByKey(archive, '<id>', 'help.garnishment.archive.argument.id');
   withContext(archive);
   withOutput(archive);
-  archive.option(
-    '--as-of <date>',
-    'the date the order ceased (YYYY-MM-DD), recorded in end_date alongside the halt'
-  );
+  optionByKey(archive, '--as-of <date>', 'help.garnishment.archive.option.as_of');
   // ESCRITURA and agent ✗, like `record`. `archive` is an undo verb, so
   // `declareRisk` injects --reason and `gateMutation` refuses without it.
   declareRisk(archive, {
