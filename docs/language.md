@@ -116,7 +116,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 397 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 932 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 933 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->

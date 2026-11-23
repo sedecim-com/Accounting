@@ -22,7 +22,7 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 397,
-    "cli-user-strings-without-key": 932
+    "cli-user-strings-without-key": 933
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1546,7 +1546,7 @@
       "src/cli/employee-list-command.ts": 3,
       "src/cli/entity-command.ts": 14,
       "src/cli/entry-command.ts": 38,
-      "src/cli/first-run.ts": 5,
+      "src/cli/first-run.ts": 6,
       "src/cli/fx-command.ts": 8,
       "src/cli/garnishment-command.ts": 7,
       "src/cli/init-command.ts": 16,
