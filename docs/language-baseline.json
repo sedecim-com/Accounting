@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10464,
+    "spanish-identifiers-src": 10463,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 315,
+    "help-descriptions-without-key": 263,
     "cli-user-strings-without-key": 926
   },
   "perFile": {
@@ -96,7 +96,7 @@
       "src/cli/customer-command.ts": 4,
       "src/cli/depreciation-command.ts": 37,
       "src/cli/diot-command.ts": 70,
-      "src/cli/e-accounting-command.ts": 76,
+      "src/cli/e-accounting-command.ts": 75,
       "src/cli/entry-command.ts": 12,
       "src/cli/fx-command.ts": 32,
       "src/cli/init/s1-identity.ts": 4,
@@ -1490,10 +1490,8 @@
       "asset": 26,
       "audit": 14,
       "backup": 21,
-      "cfdi": 15,
       "completion": 2,
       "credit-note": 26,
-      "e-accounting": 20,
       "employee": 12,
       "garnishment": 22,
       "isn": 21,
@@ -1503,7 +1501,6 @@
       "receipt": 25,
       "rep": 8,
       "report": 21,
-      "sat": 17,
       "status": 5,
       "subscription": 6,
       "webhooks": 17

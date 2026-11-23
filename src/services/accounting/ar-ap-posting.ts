@@ -23,7 +23,7 @@ import {
 } from './iva-cash-basis.js';
 import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines, type IepsMove } from './ieps-cash-basis.js';
 import { splitNoteVat } from '../xml-ingestion/received-credit-note.js';
-import { capKept, issuedVatKeptOnAccount, KEPT_RESTITUTION_TAG } from '../payments/customer-advance.js';
+import { capKept, HELD_RESTITUTION_TAG, issuedVatKeptOnAccount, KEPT_RESTITUTION_TAG } from '../payments/customer-advance.js';
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
@@ -424,6 +424,14 @@ interface CreditNoteRow {
  * and a note then end with the same 2120, 2125 and 2150.
  * CONTRACT: the ledger: a note's entry can carry DR 2125 / CR 2150 lines
  * tagged `kept_restitution`, which the pool and a reversal read back.
+ *
+ * MNE-001-607 (#792, decision (A), risk 2 of #891): part of that kept cash
+ * may be a held cheque's, whose IVA the cashing will cause and is not in
+ * iva_trasladado yet (`issuedVatKeptOnAccount` with `held`). The note's share
+ * of it is restituted all the same, but from 2125 alone, one line per cheque
+ * tagged `held_restitution`; the cashing then causes the marker less it, so
+ * the two orders of a note and a cashing end with the same 2120, 2125, 2150.
+ * CONTRACT: the ledger: a note's 2125 debit can carry `held_restitution`.
  */
 export async function postCreditNoteEntry(
   client: pg.PoolClient,
@@ -458,11 +466,19 @@ export async function postCreditNoteEntry(
   const parked = ivaRole === 'iva_trasladado_no_cobrado' && note.invoice_id && tax.greaterThan(0)
     ? await issuedVatStillParked(client, note.entity_id, note.invoice_id)
     : null;
-  const holds = parked ? await issuedVatKeptOnAccount(client, note.entity_id, note.invoice_id as string) : [];
+  const cashedHolds = parked ? await issuedVatKeptOnAccount(client, note.entity_id, note.invoice_id as string) : [];
+  const heldHolds = parked ? await issuedVatKeptOnAccount(client, note.entity_id, note.invoice_id as string, { held: true }) : [];
   const split = parked
-    ? splitNoteVatOnKept(tax, parked.parked, holds.reduce((sum, h) => sum.plus(h.iva), new Decimal(0)))
+    ? splitNoteVatOnKept(tax, parked.parked, [...cashedHolds, ...heldHolds].reduce((sum, h) => sum.plus(h.iva), new Decimal(0)))
     : { fromPending: tax.toFixed(4), fromCreditable: '0.0000', fromKept: '0.0000' };
-  const fromKept = new Decimal(split.fromKept).greaterThan(0);
+  // MNE-001-607 · the restitution from kept cash, shared across receipts; a held cheque's share leaves 2125 only.
+  const keptShares = capKept([...cashedHolds, ...heldHolds].map((h) => h.iva), split.fromKept);
+  const holds = cashedHolds.map((h, i) => ({ ...h, share: keptShares[i] }));
+  const heldShares = heldHolds.map((h, i) => ({ ...h, share: keptShares[cashedHolds.length + i] }))
+    .filter((h) => new Decimal(h.share).greaterThan(0));
+  const fromHeld = heldShares.reduce((sum, h) => sum.plus(h.share), new Decimal(0));
+  const fromKeptCashed = new Decimal(split.fromKept).minus(fromHeld);
+  const fromKept = fromKeptCashed.greaterThan(0);
   const roles = await roleAccounts(client, note.entity_id, [
     'cxc', ivaRole, 'iva_trasladado', isAdvance ? 'anticipo_clientes' : 'devolucion_ventas',
     ...(fromKept && !isAdvance ? ['anticipo_clientes'] : []),
@@ -487,10 +503,21 @@ export async function postCreditNoteEntry(
         : `IVA reversed - Credit note ${note.credit_note_number} · no linked invoice: PUE assumed`,
     });
   }
-  if (new Decimal(split.fromCreditable).greaterThan(0)) {
+  for (const h of heldShares) {
+    jeLines.push({
+      account_id: requireRole(roles, ivaRole),
+      debit_amount: h.share,
+      credit_amount: null,
+      description: `IVA reversed - Credit note ${note.credit_note_number}, restituted from the cash held cheque ` +
+        `${h.paymentNumber} keeps on account: its cashing will not cause it (LIVA arts. 1-B, 7, decision (A))`,
+      tags: { [HELD_RESTITUTION_TAG]: { payment_id: h.paymentId, invoice_id: note.invoice_id } },
+    });
+  }
+  const fromCreditable = new Decimal(split.fromCreditable).minus(fromHeld);
+  if (fromCreditable.greaterThan(0)) {
     jeLines.push({
       account_id: requireRole(roles, 'iva_trasladado'),
-      debit_amount: split.fromCreditable,
+      debit_amount: fromCreditable.toFixed(4),
       credit_amount: null,
       description: `IVA restituted (LIVA art. 7), already caused on collection - Credit note ${note.credit_note_number}` +
         (parked?.estimated ? ' · the invoice\'s release of an allocation that stored none is estimated pro rata' : ''),
@@ -499,17 +526,16 @@ export async function postCreditNoteEntry(
   if (fromKept) {
     jeLines.push({
       account_id: requireRole(roles, ivaRole),
-      debit_amount: split.fromKept,
+      debit_amount: fromKeptCashed.toFixed(4),
       credit_amount: null,
       description: `IVA of the cash kept on account that credit note ${note.credit_note_number} restituted leaves ${ivaRole}`,
     });
-    const shares = capKept(holds.map((h) => h.iva), split.fromKept);
-    holds.forEach((h, i) => {
-      if (!new Decimal(shares[i]).greaterThan(0)) return;
+    holds.forEach((h) => {
+      if (!new Decimal(h.share).greaterThan(0)) return;
       jeLines.push({
         account_id: requireRole(roles, 'anticipo_clientes'),
         debit_amount: null,
-        credit_amount: shares[i],
+        credit_amount: h.share,
         description: `IVA of credit note ${note.credit_note_number}'s reduction restituted from cash kept on account by ` +
           `${h.paymentNumber}: now owed back (LIVA art. 7, decision (A))`,
         tags: { [KEPT_RESTITUTION_TAG]: { payment_id: h.paymentId, invoice_id: note.invoice_id } },

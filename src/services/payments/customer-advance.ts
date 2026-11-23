@@ -207,6 +207,15 @@ export interface KeptPool {
  */
 export const KEPT_RESTITUTION_TAG = 'kept_restitution';
 
+/**
+ * MNE-001-607 (#792, decision (A), risk 2 of #891) · The tag a credit note
+ * leaves on its 2125 line for the IVA it restituted from a held cheque's cash
+ * kept on account (`postCreditNoteEntry`): none of it was in 2120 yet, so the
+ * note takes it from 2125 alone, and the cashing causes the marker less it.
+ * `held_restitution: { payment_id, invoice_id }`.
+ */
+export const HELD_RESTITUTION_TAG = 'held_restitution';
+
 export interface KeptRestitution {
   invoiceId: string;
   noteNumber: string;
@@ -215,6 +224,11 @@ export interface KeptRestitution {
   /** The invoice's total and IVA, whose ratio gives the cash that IVA covered (`restitutedCash`). */
   total: string;
   tax: string;
+  /**
+   * MNE-001-607 · Taken from a held cheque's cash (`held_restitution`): the note took it from 2125 alone, so
+   * a reversal of the receipt has no 2150 / 2120 pair to take out for it.
+   */
+  held: boolean;
 }
 
 /**
@@ -222,23 +236,30 @@ export interface KeptRestitution {
  * account, one row per note and invoice: the tagged 2150 lines of posted,
  * unreversed note entries. A reversed note stops counting by itself.
  * Entity-scoped in the SQL.
+ *
+ * MNE-001-607 · and the tagged 2125 lines of a note issued while the cheque
+ * was held (`held_restitution`), read as their debit: the cash they cover is
+ * owed back too, so the pool, the cashing and a later note read them alike.
  */
 export async function keptRestitutions(client: pg.PoolClient, entityId: string, receiptId: string): Promise<KeptRestitution[]> {
-  const r = await client.query<{ invoice_id: string; note_number: string; iva: string; total: string; tax: string }>(
+  const r = await client.query<{ invoice_id: string; note_number: string; iva: string; total: string; tax: string; held: boolean }>(
     `SELECT i.id::text AS invoice_id, cn.credit_note_number AS note_number,
-            SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0))::text AS iva,
-            i.total_amount::text AS total, i.tax_amount::text AS tax
+            SUM(CASE WHEN t.held THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)
+                     ELSE COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0) END)::text AS iva,
+            i.total_amount::text AS total, i.tax_amount::text AS tax, t.held
        FROM journal_entry_lines l
        JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $1 AND je.source_type = 'credit_note'
                               AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false
        JOIN credit_notes cn ON cn.id = je.source_id AND cn.entity_id = $1
-       JOIN invoices i ON i.id::text = l.tags -> '${KEPT_RESTITUTION_TAG}' ->> 'invoice_id' AND i.entity_id = $1
-      WHERE l.tags -> '${KEPT_RESTITUTION_TAG}' ->> 'payment_id' = $2::text
-      GROUP BY i.id, cn.credit_note_number, i.total_amount, i.tax_amount
+      CROSS JOIN LATERAL (SELECT l.tags ? '${HELD_RESTITUTION_TAG}' AS held,
+                                 COALESCE(l.tags -> '${KEPT_RESTITUTION_TAG}', l.tags -> '${HELD_RESTITUTION_TAG}') AS tag) t
+       JOIN invoices i ON i.id::text = t.tag ->> 'invoice_id' AND i.entity_id = $1
+      WHERE t.tag ->> 'payment_id' = $2::text
+      GROUP BY i.id, cn.credit_note_number, i.total_amount, i.tax_amount, t.held
       ORDER BY cn.credit_note_number`,
     [entityId, receiptId]
   );
-  return r.rows.map((x) => ({ invoiceId: x.invoice_id, noteNumber: x.note_number, iva: x.iva, total: x.total, tax: x.tax }));
+  return r.rows.map((x) => ({ invoiceId: x.invoice_id, noteNumber: x.note_number, iva: x.iva, total: x.total, tax: x.tax, held: x.held }));
 }
 
 /**
@@ -265,21 +286,27 @@ export function restitutedCash(iva: string, total: string, tax: string): string 
  * MNE-001-586 · A cheque the bank has not cashed holds none: its rows' marker
  * is IVA the cashing will cause (LIVA art. 1-B, second paragraph), not yet in
  * 2120, so there is nothing there to restitute.
+ *
+ * MNE-001-607 · With `held`, only those cheques, read the same way: what a
+ * note may still restitute from their marker, which it takes from 2125 and
+ * the cashing then does not cause (decision (A)).
  */
 export async function issuedVatKeptOnAccount(
   client: pg.PoolClient,
   entityId: string,
-  invoiceId: string
+  invoiceId: string,
+  opts: { held?: boolean } = {}
 ): Promise<{ paymentId: string; paymentNumber: string; iva: string }[]> {
+  // MNE-001-607 · `held` reads the other side: what held cheques' rows marked for their cashing, by the same rule.
   const marked = await client.query<{ payment_id: string; payment_number: string; marked: string }>(
     `SELECT cp.id::text AS payment_id, cp.payment_number, SUM(pa.unapply_kept_iva_amount)::text AS marked
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 AND cp.status = 'completed'
       WHERE pa.invoice_id = $2 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0
-        AND NOT (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL)
+        AND (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL) = $3::boolean
       GROUP BY cp.id, cp.payment_number
       ORDER BY cp.payment_number`,
-    [entityId, invoiceId]
+    [entityId, invoiceId, opts.held === true]
   );
   const out: { paymentId: string; paymentNumber: string; iva: string }[] = [];
   for (const row of marked.rows) {
