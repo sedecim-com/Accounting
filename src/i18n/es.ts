@@ -3856,11 +3856,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
   'help.ar.check.option.strict': 'sale con 4 también ante avisos, no sólo ante hallazgos bloqueantes',
   'help.ap.description':
-    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control',
+    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control y corre las verificaciones por nombre',
   'help.ap.reconcile.description':
     'Auxiliar de proveedores (facturas abiertas) contra la cuenta de control de cxp, nombrando las partidas en conciliación',
   'help.ap.reconcile.option.as_of': 'fecha de corte de los dos lados de la conciliación (AAAA-MM-DD; por omisión, hoy)',
   'help.ap.reconcile.option.explain': 'explica en prosa cada partida en conciliación, no sólo la tabla',
+  'help.ap.check.description':
+    'Verificaciones de cuentas por pagar por nombre; `--check` sin valor las lista, `--check a,b` elige',
+  'help.ap.check.option.check': 'verificaciones a correr, separadas por comas; --check sin valor lista la batería',
+  'ap.check.title': 'Verificaciones de CxP',
+  'ap.check.cancelled_cfdi_open.found':
+    'facturas de proveedor abiertas cuyo CFDI recibido el SAT reporta cancelado: detén el pago hasta que el proveedor mande el CFDI que lo sustituye; ' +
+    'qué significa para la deducción y el IVA lo decide el contador, y no se revirtió nada',
+  'ap.check.cancelled_cfdi_open.none': 'ninguna',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · debe {amount} {currency} · marcada el {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# bloqueante} other {# bloqueantes}} · {warnings, plural, one {# aviso} other {# avisos}}',
   'help.cashflow.description':
     'Estado de flujos de efectivo (NIF B-2 / ASC 230): armarlo y cuadrarlo contra el efectivo real',
   'help.cashflow.generate.description':
@@ -4960,6 +4971,70 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.entry.void.description':
     'Anula una póliza: un borrador queda anulado y una contabilizada recibe su espejo ligado',
   'help.entry.void.argument.number': 'número o id de la póliza',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // Same keys and order as en.ts. The categories of `batch check --check`
+  // arrive in {categories} as the user types them, untranslated (I23).
+  'help.batch.description':
+    'Lotes de pólizas en preparación: listar, inspeccionar, verificar, contabilizar en una transacción y ' +
+    'reversar como una unidad',
+  'help.batch.list.description':
+    'Lista los lotes con su estado, conteo de filas, pólizas contabilizadas y hash del contenido',
+  'help.batch.list.option.kind': 'clase de lote (disponibles: {kinds})',
+  'help.batch.show.description':
+    'Un lote completo: las filas con sus pólizas generadas, los errores de lectura guardados por categoría y el ' +
+    'hash del archivo',
+  'help.batch.show.argument.id': 'id del lote',
+  'help.batch.show.option.errors_only': 'sólo las filas que el analizador rechazó',
+  'help.batch.check.description':
+    'Corre las validaciones de contabilización sobre cada fila e informa cada hallazgo; sale con 4 si alguno ' +
+    'bloquea',
+  'help.batch.check.argument.id': 'id del lote',
+  'help.batch.check.option.check':
+    'categorías de hallazgo a mostrar, separadas por comas (disponibles: {categories}); la batería completa ' +
+    'corre siempre',
+  'help.batch.post.description':
+    'Contabiliza el lote entero en una transacción; --partial aplica las filas válidas y deja las demás en ' +
+    'preparación',
+  'help.batch.post.argument.id': 'id del lote',
+  'help.batch.post.option.partial':
+    'aplica las filas válidas y deja las inválidas en preparación (acepta un lote sin verificar)',
+  'help.batch.post.option.json': 'salida en JSON',
+  'help.batch.reverse.description':
+    'Refleja cada póliza que contabilizó el lote, como una unidad y en una transacción: un error de importación ' +
+    'es del lote, no de una póliza',
+  'help.batch.reverse.argument.id': 'id del lote',
+  'help.batch.reverse.option.as_of': 'fecha de cada póliza espejo (AAAA-MM-DD); por omisión, hoy',
+  'help.batch.reverse.option.json': 'salida en JSON',
+  'help.fx.description': 'Tipos de cambio: el origen del que se convierte todo importe en moneda extranjera',
+  'help.fx.rate.description': 'Tipos de cambio publicados, por par, fecha, clase y fuente',
+  'help.fx.rate.list.description': 'Lista los tipos de cambio guardados, por par, fecha, clase y fuente',
+  'help.fx.rate.list.option.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.list.option.since': 'límite inferior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.list.option.until': 'límite superior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'sólo los tipos de cambio de esta clase',
+  'help.fx.rate.list.option.source': 'sólo los tipos de cambio de esta fuente',
+  'help.fx.rate.show.description':
+    'Resuelve el tipo de cambio aplicable: directo, luego inverso, luego cruzado a través del USD',
+  'help.fx.rate.show.argument.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.show.argument.date': 'fecha a la que aplica el tipo de cambio (AAAA-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'clase de tipo de cambio a resolver',
+  'help.fx.rate.show.option.source': 'resuelve sólo con lo que publicó esta fuente',
+  'help.fx.rate.set.description': 'Registra un tipo de cambio, con la fuente que lo publicó',
+  'help.fx.rate.set.argument.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.set.argument.date': 'fecha desde la que rige (AAAA-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'el tipo de cambio, hasta 10 decimales',
+  'help.fx.rate.set.option.source': 'quién publicó el tipo de cambio (obligatoria)',
+  'help.fx.rate.set.option.rate_type': 'clase de tipo de cambio',
+  'help.fx.rate.set.option.until': 'último día en que el tipo de cambio sigue vigente (AAAA-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'muestra lo que se registraría, sin escribir',
+  'help.fx.rate.download.description':
+    'Descarga el tipo de cambio del DOF o el FIX de Banxico, guardado por fuente (el mismo día difieren)',
+  'help.fx.rate.download.option.source': 'de qué fuente descargar (obligatoria)',
+  'help.fx.rate.download.option.as_of': 'una sola fecha a descargar (AAAA-MM-DD)',
+  'help.fx.rate.download.option.since': 'límite inferior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.download.option.until': 'límite superior inclusivo (AAAA-MM-DD)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -5286,6 +5361,41 @@ export const ES: Record<keyof typeof EN, string> = {
   'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'es un CFDI que emitió esta entidad, una venta y no una factura de proveedor: contabilízalo en CxC con `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  'provider.credential.env': '{variable} definida',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd en {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd en {file}, un archivo de proyecto que comparte todo el que corre mnemosine en esa carpeta',
+  'provider.credential.local': 'local, sin credencial',
+  'provider.credential.none': 'sin credencial configurada',
+  'provider.credential.missing': 'falta {variable}',
+  'provider.credential.missing_at': 'falta {variable} (se obtiene en {where})',
+  'provider.credential.refused': '{variable} no es una credencial de proveedor',
+  'provider.credential.folder_key':
+    '{label}; {file} la define, así que esa llave le sirve a todo el que corre mnemosine en esa carpeta',
+  'provider.credential.folder_empty': '{label}; el {variable}= vacío de {file} tapa ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY definida, que lee el SDK de Anthropic',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN definida, un token bearer que envía el SDK de Anthropic',
+  'provider.credential.anthropic.custom_header': 'una línea {header} en ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'sesión iniciada: perfil de Anthropic {profile} en {file}',
+  'provider.credential.anthropic.federation':
+    'federación de identidad de cargas de trabajo (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID y un token de identidad)',
+  'provider.credential.hint.missing':
+    'El proveedor {name} no tiene credencial: define {variable} en tu shell o en ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'El proveedor {name} no tiene credencial: define {variable} en tu shell o en ~/.mnemosine/.env (se obtiene en {where}).',
+  'provider.credential.hint.anthropic_alternative': 'O inicia sesión con `ant auth login`, o define ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'O dale al perfil un api_key_cmd en ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'El proveedor {name} nombra {variable} en api_key_env, y no es una credencial de proveedor: nombra una variable propia que guarde la llave.',
+  'provider.credential.hint.keyless':
+    'El proveedor {name} no tiene credencial configurada: dale un api_key_env o un api_key_cmd. Si su endpoint no pide llave, abre el chat con --provider {name}.',
+  'provider.credential.hint.init': 'Para configurarlo: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Define ANTHROPIC_API_KEY en tu shell o en ~/.mnemosine/.env, o corre `ant auth login`.',
+  'provider.switch.kept': 'La sesión sigue en {current}.',
+  'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
+  // ==== end of MNE-001-444 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'el idioma que se fija: {choices}; sin él, muestra el idioma en efecto y qué lo decidió',

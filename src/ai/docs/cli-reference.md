@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 250 of 400 subcommands
+  spelling is `-T` at the root and `-t` on the 251 of 401 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -80,7 +80,7 @@ Commands:
   receipt|cobro                          Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks
   credit-note|nota-credito               Credit notes: returns, discounts and corrections against the receivable (never stamped here)
   ar|cxc                                 Receivables controls: reconcile the subledger against the control account, run named diagnostics
-  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account
+  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account, and run the named checks
   bank|banco                             Bank accounts and bank statements: master data and imported statements
   asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
   depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
@@ -5313,7 +5313,8 @@ Examples:
 ```
 Usage: mnemosine ap|cxp [options] [command]
 
-Payables controls: reconcile the vendor subledger against the control account
+Payables controls: reconcile the vendor subledger against the control account,
+and run the named checks
 
 Options:
   -h, --help                     display help for command
@@ -5321,6 +5322,8 @@ Options:
 Commands:
   reconcile|conciliar [options]  Vendor subledger (open bills) vs the cxp
                                  control account, naming the reconciling items
+  check|verificar [options]      Named payables checks; `--check` with no value
+                                 lists them, `--check a,b` selects
   help [command]                 display help for command
 ```
 
@@ -5353,6 +5356,35 @@ Examples:
   mnemosine ap reconcile --as-of 2026-07-31 --explain
   # Exit 4 on any delta, for CI.
   mnemosine ap reconcile --as-of 2026-07-31 --strict
+```
+
+### `mnemosine ap check` (alias: verificar)
+
+```
+Usage: mnemosine ap check|verificar [options]
+
+Named payables checks; `--check` with no value lists them, `--check a,b` selects
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [names]                          comma-separated checks to run; bare --check lists the battery
+  -h, --help                               display help for command
+
+Examples:
+  # Every named payables check, for the active entity.
+  mnemosine ap check
+  # The names of the checks, without touching the database.
+  mnemosine ap check --check
+  # One check, exit 4 on its warning too, for CI.
+  mnemosine ap check --check cancelled-cfdi-open --strict
 ```
 
 ## `mnemosine bank` (alias: banco)
