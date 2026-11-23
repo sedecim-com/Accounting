@@ -1645,6 +1645,8 @@ function discountVatLine(accountId: string, role: string, amount: string, billNu
  * can be less than the rows released; `ivaKept` is the rest, which stays in
  * 2120 because the note already restituted it (LIVA art. 7). It moves no
  * amount: the first IVA line, or the AR line when there is none, names it.
+ * MNE-001-592: the caller passes `advanceIva` net of the advance IVA the note
+ * restituted, which is not caused again; `ivaKept.restituted` names it there.
  *
  * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
  * role for the invoice, read back from the ledger by the caller: it goes
@@ -1668,8 +1670,11 @@ export async function postReceiptUnapplicationEntry(
     ieps?: IepsMove;
     /** MNE-001-590: the IEPS this receipt moved for the invoice that stays caused, back on account with the cash. */
     iepsKept?: IepsMove;
-    /** MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries. */
-    ivaKept?: { amount: string; notes: string; carries: string };
+    /**
+     * MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries.
+     * MNE-001-592: `restituted`, the advance's IVA those notes restituted, already out of `advanceIva`.
+     */
+    ivaKept?: { amount: string; notes: string; carries: string; restituted?: string };
   },
   userId: string
 ): Promise<JournalEntry> {
@@ -1753,6 +1758,10 @@ export async function postReceiptUnapplicationEntry(
     const at = jeLines.length > lineCountBeforeIva ? jeLines[lineCountBeforeIva] : jeLines[0];
     at.description += ` · kept in iva_trasladado: ${new Decimal(app.ivaKept.amount).toFixed(4)} restituted by credit note ` +
       `${app.ivaKept.notes} (LIVA art. 7); the reopened balance carries ${new Decimal(app.ivaKept.carries).toFixed(4)}`;
+    const restituted = new Decimal(app.ivaKept.restituted ?? '0');
+    if (restituted.greaterThan(0)) {
+      at.description += `; advance IVA restituted by credit note ${app.ivaKept.notes} stays out (LIVA art. 7): ${restituted.toFixed(4)}`;
+    }
   }
   if (app.ieps) {
     jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));

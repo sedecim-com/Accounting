@@ -13,7 +13,7 @@ import {
 } from '../ai/skills/skill-drafts.js';
 import type { SkillScanReport } from '../ai/skills/trust-scanner.js';
 import { listSkills, viewSkill, visibleSkills } from '../ai/skills/store.js';
-import { exitCodeFor, notFound } from './kernel/index.js';
+import { argumentByKey, describeCommand, exitCodeFor, notFound, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine skills (alias: habilidades)
@@ -92,17 +92,13 @@ function leerHabilidad(name: string): ReturnType<typeof viewSkill> {
 export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps): void {
   const { palette: c, shutdown, reportError } = deps;
 
-  const skills = program
-    .command('skills')
-    .alias('habilidades')
-    .description('Firm skills: list, review staged changes, view content');
+  const skills = describeCommand(program.command('skills').alias('habilidades'), 'help.skills.description');
 
-  skills
-    .command('list')
-    .description('Visible skills and how many staged changes await review')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--json', 'JSON output')
+  const list = describeCommand(skills.command('list'), 'help.skills.list.description');
+  optionByKey(list, '-e, --entity <idOrName>', 'help.skills.list.option.entity');
+  optionByKey(list, '-t, --tenant <id>', 'help.skills.list.option.tenant');
+  optionByKey(list, '--json', 'help.skills.list.option.json');
+  list
     .action(async (opts: { entity?: string; tenant?: string; json?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);
@@ -141,21 +137,14 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
       }
     });
 
-  skills
-    .command('drafts')
-    .description('Review staged skill changes: diff + trust-scan report, approve or reject')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('-u, --user <email>', 'Reviewer')
-    .option(
-      '--accept-risk',
-      'Allow approving drafts the trust scanner flagged (recorded in the audit trail)'
-    )
-    .option(
-      '--override-drift',
-      'Approve even if the skill file drifted from the draft diff base (recorded in the audit trail)'
-    )
-    .option('--json', 'List pending drafts as JSON (no interactive review)')
+  const drafts = describeCommand(skills.command('drafts'), 'help.skills.drafts.description');
+  optionByKey(drafts, '-e, --entity <idOrName>', 'help.skills.drafts.option.entity');
+  optionByKey(drafts, '-t, --tenant <id>', 'help.skills.drafts.option.tenant');
+  optionByKey(drafts, '-u, --user <email>', 'help.skills.drafts.option.user');
+  optionByKey(drafts, '--accept-risk', 'help.skills.drafts.option.accept_risk');
+  optionByKey(drafts, '--override-drift', 'help.skills.drafts.option.override_drift');
+  optionByKey(drafts, '--json', 'help.skills.drafts.option.json');
+  drafts
     .action(
       async (opts: {
         entity?: string;
@@ -249,10 +238,9 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
       }
     );
 
-  skills
-    .command('view')
-    .description("Print one skill's SKILL.md")
-    .argument('<name>', 'Skill name')
+  const view = describeCommand(skills.command('view'), 'help.skills.view.description');
+  argumentByKey(view, '<name>', 'help.skills.view.argument.name');
+  view
     .action(async (name: string) => {
       try {
         const skill = leerHabilidad(name);

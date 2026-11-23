@@ -558,14 +558,18 @@ const MIRROR_OF_RECEIPT = `
  * what went back to 2125. Then the row kept less than its plain cash's share
  * of the release (`capKept`), and what it ended is what it kept plus the
  * advance's IVA it took, the same figure its cash carries back on account.
+ *
+ * MNE-001-592 (#814) · Less the advance's IVA the note restituted, which the
+ * unapply did not restore (migration 342): what it ended is what went back to
+ * 2125, and the advance it returns to carries no more than that.
  */
-const ENDED_SHARE_IVA = `CASE
+const ENDED_SHARE_IVA = `(CASE
          WHEN pa.unapply_kept_iva_amount IS NOT NULL AND pa.unapply_kept_iva_amount < CASE
                 WHEN pa.advance_base_amount + pa.advance_iva_amount = 0 THEN pa.iva_reclass_amount
                 ELSE ROUND(pa.iva_reclass_amount * (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)
                            / pa.amount_applied, 4) END
            THEN pa.unapply_kept_iva_amount + pa.advance_iva_amount
-         ELSE COALESCE(pa.iva_reclass_amount, 0) END`;
+         ELSE COALESCE(pa.iva_reclass_amount, 0) END - COALESCE(pa.unapply_restituted_iva_amount, 0))`;
 
 const SHARE_EVENTS = `
        SELECT se.* FROM (
@@ -619,6 +623,40 @@ function scaledBase(d: Desglose, factor: Decimal.Value): Desglose {
   };
 }
 
+/** MNE-001-592 · The IVA scaled by `factor` and the bases left as they are. */
+function scaledIva(d: Desglose, factor: Decimal.Value): Desglose {
+  const box = (c: { base: string; iva: string }) => ({ base: c.base, iva: q4(new Decimal(c.iva).times(factor)) });
+  return {
+    tasa16: box(d.tasa16), tasa8: box(d.tasa8), tasa0: box(d.tasa0), exento: box(d.exento),
+    otras: d.otras.map((o) => ({ etiqueta: o.etiqueta, ...box(o) })),
+  };
+}
+
+/**
+ * MNE-001-592 (#814, decision (A)) · What an unapply puts back of the taxed
+ * cash its row took, after a credit note restituted part of that IVA
+ * (`restituted`, migration 342): the month's contribution keeps its base and
+ * drops that IVA, as the ledger does; the pool carried forward loses the IVA
+ * and the cash it covers (`restitutedCash`, the invoice's total over its tax),
+ * which is owed back and carries none. With nothing restituted, all of it.
+ */
+function restitutedOut(
+  took: { cash: Decimal; breakdown: Desglose; notSubject: Decimal },
+  restituted: string | null,
+  invoice: Pick<InvoiceRow, 'total_amount' | 'tax_amount'> | undefined
+): [Desglose, Decimal, boolean, { cash: Decimal; split: Desglose; notSubject: Decimal } | undefined] {
+  const iva = new Decimal(ivaDelDesglose(took.breakdown));
+  const out = Decimal.min(new Decimal(restituted ?? '0'), iva);
+  if (!out.greaterThan(0)) return [took.breakdown, took.notSubject, false, undefined];
+  const split = scaledIva(took.breakdown, iva.minus(out).dividedBy(iva));
+  const covered = invoice
+    ? new Decimal(restitutedCash(out.toFixed(4), invoice.total_amount, invoice.tax_amount))
+    : took.cash.times(out).dividedBy(iva);
+  const cash = Decimal.max(took.cash.minus(covered), 0);
+  const part = cash.dividedBy(took.cash);
+  return [split, took.notSubject, false, { cash, split: scaledBase(split, part), notSubject: new Decimal(q4(took.notSubject.times(part))) }];
+}
+
 /** One advance's net in the month: collected (+), applied (−) and unapplied (+), as the allocations stored them. */
 interface AdvanceOfMonth {
   id: string;
@@ -642,6 +680,10 @@ interface AdvanceOfMonth {
  * back: the ledger cancels that IVA in the invoice's month on the day of the
  * application (and restores it on the unapply's), against the IVA the
  * invoice caused when issued, so the paper counts them on their own day too.
+ *
+ * MNE-001-592 (#814) · An unapply's put-back drops the IVA a credit note
+ * restituted (migration 342) and keeps its base, so the month nets as the
+ * ledger does: that IVA is not caused again (LIVA art. 7).
  */
 async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
   const pue = await pueInvoicesOfCheckAdvances(client, entityId);
@@ -657,7 +699,7 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND ${CARRIED_AN_ADVANCE}
        UNION ALL
-       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount,
+       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount - COALESCE(pa.unapply_restituted_iva_amount, 0),
               CASE WHEN pa.invoice_id = ANY($4::uuid[]) THEN pa.unapplied_at::date
                    ELSE ${countedOn('cp', 'pa.unapplied_at::date')} END
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
@@ -796,6 +838,8 @@ interface AllocationEventRow {
   advance_taken: string;
   /** MNE-001-574 · The IVA the row's unapply kept caused for its plain cash (migration 338); null otherwise. */
   kept: string | null;
+  /** MNE-001-592 · The advance's IVA its unapply did not restore because a credit note restituted it (342). */
+  restituted: string | null;
   /** The days the paper counts each event on (`countedOn`), and the days they were dated. */
   applied_day: string;
   undone_day: string | null;
@@ -851,7 +895,7 @@ async function cashOnAccountOfMonth(
      SELECT pa.id::text AS allocation_id, pa.payment_id::text, cp.payment_amount::text,
             pa.invoice_id::text, pa.amount_applied::text AS amount, COALESCE(pa.iva_reclass_amount, 0)::text AS vat,
             (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken,
-            pa.unapply_kept_iva_amount::text AS kept,
+            pa.unapply_kept_iva_amount::text AS kept, pa.unapply_restituted_iva_amount::text AS restituted,
             d.applied::text AS applied_day, d.undone::text AS undone_day,
             COALESCE(pa.applied_on, cp.payment_date)::text AS dated_applied,
             CASE WHEN d.undone IS NULL THEN NULL ELSE pa.unapplied_at::date::text END AS dated_undone,
@@ -945,8 +989,9 @@ async function cashOnAccountOfMonth(
         onAccount = onAccount.plus(amount);
         // MNE-001-574: the taxed cash this row took goes back with the IVA it carried.
         const took = tookBy.get(a.allocation_id);
-        if (took) putBack(inMonth, took.cash, took.breakdown, took.notSubject, false);
         const sale = sales.get(a.invoice_id);
+        // MNE-001-592: less what a credit note restituted, which the pool also loses with the cash it covers.
+        if (took) putBack(inMonth, took.cash, ...restitutedOut(took, a.restituted, sale?.row));
         const plainCash = amount.minus(advanceTaken);
         if (!sale || !plainCash.greaterThan(0)) continue;
         // The ended share, read the way the invoice's own telescope reads it.
