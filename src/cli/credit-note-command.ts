@@ -31,6 +31,9 @@ import {
   abortedByUser,
   exitCodeFor,
   dateOnly as day,
+  optionByKey,
+  argumentByKey,
+  describeCommand,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 
@@ -130,10 +133,9 @@ Examples:
 } as const;
 
 export function registerCreditNoteCommand(program: Command, deps: CreditNoteCommandDeps): void {
-  const creditNote = program
-    .command('credit-note')
-    .alias('nota-credito')
-    .description('Credit notes: returns, discounts and corrections against the receivable (never stamped here)');
+  const creditNote = describeCommand(program.command('credit-note').alias('nota-credito'), 'help.credit_note.description');
+  // `create --type` and `list --type` name the types as a message parameter.
+  const types = CREDIT_NOTE_TYPES.join(', ');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -192,21 +194,17 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   };
 
   // ---- credit-note create ------------------------------------------
-  const create = creditNote
-    .command('create')
-    .alias('crear')
-    .description('Create a DRAFT credit note, linked to its invoice (fiscal tie) or standalone with an explicit customer');
+  const create = describeCommand(creditNote.command('create').alias('crear'), 'help.credit_note.create.description');
   withContext(create);
-  create
-    .requiredOption('--type <type>', `one of: ${CREDIT_NOTE_TYPES.join(', ')}`)
-    .requiredOption('--amount <amount>', 'subtotal of the credit, before tax')
-    .option('--tax <amount>', 'tax (IVA) portion of the credit', '0')
-    .option('--invoice <ref>', 'the invoice this note credits (recommended: it drives the IVA side)')
-    .option('--customer <ref>', 'customer, when there is no linked invoice')
-    .option('--relates-to <uuid>', 'UUID of the original CFDI, when the invoice is not in the system')
-    .option('--date <date>', 'credit date (YYYY-MM-DD); defaults to today in the zona_horaria policy zone')
-    .option('--memo <text>', 'memo')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--type <type>', 'help.credit_note.create.option.type', { params: { types }, mandatory: true });
+  optionByKey(create, '--amount <amount>', 'help.credit_note.create.option.amount', { mandatory: true });
+  optionByKey(create, '--tax <amount>', 'help.credit_note.create.option.tax', { defaultValue: '0' });
+  optionByKey(create, '--invoice <ref>', 'help.credit_note.create.option.invoice');
+  optionByKey(create, '--customer <ref>', 'help.credit_note.create.option.customer');
+  optionByKey(create, '--relates-to <uuid>', 'help.credit_note.create.option.relates_to');
+  optionByKey(create, '--date <date>', 'help.credit_note.create.option.date');
+  optionByKey(create, '--memo <text>', 'help.credit_note.create.option.memo');
+  optionByKey(create, '--json', 'help.credit_note.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'credit_notes (draft)' });
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
@@ -259,11 +257,8 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   );
 
   // ---- credit-note show --------------------------------------------
-  const show = creditNote
-    .command('show')
-    .alias('ver')
-    .argument('<ref>', 'credit note number (CN-2026-00042) or id')
-    .description('Show one credit note with its applications, available balance and ledger entry');
+  const show = describeCommand(creditNote.command('show').alias('ver'), 'help.credit_note.show.description');
+  argumentByKey(show, '<ref>', 'help.credit_note.show.argument.ref');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
@@ -315,15 +310,11 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   );
 
   // ---- credit-note list --------------------------------------------
-  const list = creditNote
-    .command('list')
-    .alias('listar')
-    .description('List credit notes by customer, type, state or unapplied balance');
+  const list = describeCommand(creditNote.command('list').alias('listar'), 'help.credit_note.list.description');
   withOutput(withSelection(withTime(withContext(list))));
-  list
-    .option('--customer <ref>', 'only this customer (number, name or id)')
-    .option('--type <type>', `only this type: ${CREDIT_NOTE_TYPES.join(', ')}`)
-    .option('--open', 'only issued notes with balance left to apply (the live customer credit)');
+  optionByKey(list, '--customer <ref>', 'help.credit_note.list.option.customer');
+  optionByKey(list, '--type <type>', 'help.credit_note.list.option.type', { params: { types } });
+  optionByKey(list, '--open', 'help.credit_note.list.option.open');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action(
@@ -373,13 +364,10 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   );
 
   // ---- credit-note issue -------------------------------------------
-  const issue = creditNote
-    .command('issue')
-    .alias('emitir')
-    .argument('<ref>', 'credit note number or id')
-    .description('Issue the note: post DR returns + DR VAT / CR receivable. Does not stamp');
+  const issue = describeCommand(creditNote.command('issue').alias('emitir'), 'help.credit_note.issue.description');
+  argumentByKey(issue, '<ref>', 'help.credit_note.issue.argument.ref');
   withContext(issue);
-  issue.option('--json', 'JSON output');
+  optionByKey(issue, '--json', 'help.credit_note.issue.option.json');
   declareRisk(issue, {
     risk: 'irreversible',
     llave: { sinLlave: { key: 'ar.credit_note.retry_reissues' } },
@@ -437,17 +425,13 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   );
 
   // ---- credit-note apply -------------------------------------------
-  const apply = creditNote
-    .command('apply')
-    .alias('aplicar')
-    .argument('<ref>', 'credit note number or id')
-    .description('Apply an issued note to invoices; what is not applied stays as customer credit');
+  const apply = describeCommand(creditNote.command('apply').alias('aplicar'), 'help.credit_note.apply.description');
+  argumentByKey(apply, '<ref>', 'help.credit_note.apply.argument.ref');
   withContext(apply);
-  apply
-    .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
-    .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
-    .option('--dry-run', 'run the real path and roll back')
-    .option('--json', 'JSON output');
+  optionByKey(apply, '--invoice <spec...>', 'help.credit_note.apply.option.invoice');
+  optionByKey(apply, '--amount <amount>', 'help.credit_note.apply.option.amount');
+  optionByKey(apply, '--dry-run', 'help.credit_note.apply.option.dry_run');
+  optionByKey(apply, '--json', 'help.credit_note.apply.option.json');
   declareRisk(apply, {
     risk: 'escritura',
     agent: false,
