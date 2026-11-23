@@ -5,6 +5,7 @@ import { docsLanes } from '../../scripts/language/lanes/docs.js';
 import { planLanes } from '../../scripts/language/lanes/plan.js';
 import { commentTagsLanes } from '../../scripts/language/lanes/comment-tags.js';
 import { helpLanes } from '../../scripts/language/lanes/help.js';
+import { cliStringsLanes } from '../../scripts/language/lanes/cli-strings.js';
 
 // ============================================================
 // EL CONTRATO QUE VALE PARA LOS DIECISÉIS (I2 · issue #144)
@@ -37,7 +38,14 @@ beforeAll(() => {
   // Los tres metros cuestan unos dos segundos juntos y se corren una vez: la
   // población de esta prueba es «todo lo que el trinquete va a publicar», y
   // recortarla a un módulo sería volver al problema.
-  LANES = [...codeLanes(), ...docsLanes(), ...planLanes(), ...commentTagsLanes(), ...helpLanes()];
+  LANES = [
+    ...codeLanes(),
+    ...docsLanes(),
+    ...planLanes(),
+    ...commentTagsLanes(),
+    ...helpLanes(),
+    ...cliStringsLanes(),
+  ];
 }, 120_000);
 
 describe('lo que el trinquete da por hecho de cualquier carril', () => {

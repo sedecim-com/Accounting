@@ -22,6 +22,12 @@
 export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'accrue'     : 'devengar',
   'add'        : 'agregar',
+  // Deliberate amendment (2026-11-23, MNE-001-453 · #646): `jobs adopt` and
+  // `jobs unadopt` record, under the operator's own home, which jobs their
+  // `jobs run-due` spends their credential on. No verb absorbs it: `set` is a
+  // mapping and `add`/`remove` a member of a collection the system owns, and
+  // this is a choice the operator owns. The /confirmar on #646 names the leaves.
+  'adopt'      : 'adoptar',
   'allocate'   : 'prorratear',
   'answer'     : 'responder',
   'apply'      : 'aplicar',
@@ -118,6 +124,8 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'sync'       : 'sincronizar',
   'test'       : 'probar',
   'trace'      : 'rastrear',
+  // MNE-001-453 · #646: the inverse of `adopt`, named by the same /confirmar.
+  'unadopt'    : 'desadoptar',
   'unapply'    : 'desaplicar',
   'unlock'     : 'desbloquear',
   'unset'      : 'limpiar',

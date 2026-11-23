@@ -344,8 +344,8 @@ export async function censusVatOvercredit(tenantId: string, entityId?: string | 
 // ============================================================
 
 const CORRECTION_PERIOD_KEY = 'vat_overcredit_correction_period';
-const CORRECTION_PERIODS = ['ask', 'current_period', 'payment_month'] as const;
-type CorrectionPeriod = (typeof CORRECTION_PERIODS)[number];
+export const CORRECTION_PERIODS = ['ask', 'current_period', 'payment_month'] as const;
+export type CorrectionPeriod = (typeof CORRECTION_PERIODS)[number];
 
 export interface CorrectionOptions {
   /** Under `payment_month`, reopen a closed month and put it back. A locked one never. */
@@ -398,6 +398,85 @@ async function postingsOf(x: OvercreditFinding, option: CorrectionPeriod): Promi
 }
 
 /**
+ * The answer each entity gave the panel key, read for every entity before
+ * anything posts: a value this system does not know stops the whole run.
+ * Shared with the early-payment discount's correction (MNE-001-599).
+ */
+export async function correctionPeriodOf(
+  scopes: ReadonlyArray<{ tenantId: string; entityId: string }>,
+  key: string,
+  read: (scope: { tenantId: string; entityId: string }) => Promise<{ value: string }>
+): Promise<Map<string, CorrectionPeriod>> {
+  const optionOf = new Map<string, CorrectionPeriod>();
+  for (const x of scopes) {
+    if (optionOf.has(x.entityId)) continue;
+    const value = (await read({ tenantId: x.tenantId, entityId: x.entityId })).value;
+    if (!(CORRECTION_PERIODS as readonly string[]).includes(value)) {
+      throw new AccountingError(
+        'POLICY_VALUE_UNKNOWN',
+        `${key} = "${value}" is not a value this system knows (${CORRECTION_PERIODS.join(' | ')}); nothing was posted.`
+      );
+    }
+    optionOf.set(x.entityId, value as CorrectionPeriod);
+  }
+  return optionOf;
+}
+
+/**
+ * Every period a correction would post in, checked first: a bill is
+ * corrected whole or not at all. Only `payment_month` posts in a closed month,
+ * and only with `reopen`; a locked month is never reopened.
+ */
+export async function periodsFor(
+  entityId: string, dates: readonly string[], option: CorrectionPeriod, reopen: boolean
+): Promise<{ toReopen: Array<{ id: string; name: string }> } | { blocked: string }> {
+  const toReopen: Array<{ id: string; name: string }> = [];
+  for (const date of dates) {
+    const { rows: [period] } = await withTransaction((client) =>
+      client.query<{ id: string; period_name: string; status: string }>(
+        `SELECT id, period_name, status FROM fiscal_periods
+          WHERE entity_id = $1 AND $2::date BETWEEN start_date AND end_date`,
+        [entityId, date]
+      )
+    );
+    if (!period) return { blocked: `no fiscal period holds ${date}` };
+    if (period.status === 'locked') return { blocked: `${period.period_name} is locked: it is never reopened` };
+    if (period.status === 'open') continue;
+    if (option !== 'payment_month' || (period.status !== 'soft_close' && period.status !== 'hard_close')) {
+      return { blocked: `${period.period_name} is ${period.status}, not open` };
+    }
+    if (!reopen) return { blocked: `${period.period_name} is ${period.status}: run with --reopen to post in it` };
+    if (!toReopen.some((p) => p.id === period.id)) toReopen.push({ id: period.id, name: period.period_name });
+  }
+  return { toReopen };
+}
+
+/** Runs `write` with those periods reopened, and puts each back however it ends. */
+export async function inReopenedPeriods<T>(
+  entityId: string,
+  toReopen: ReadonlyArray<{ id: string; name: string }>,
+  actorUserId: string,
+  reason: string,
+  onRestoreFailure: (message: string) => void,
+  write: () => Promise<T>
+): Promise<T> {
+  const restore: Array<{ id: string; name: string; previous: string }> = [];
+  try {
+    for (const period of toReopen) {
+      const r = await reopenClosedPeriod(entityId, period.id, actorUserId, reason);
+      restore.push({ ...period, previous: r.previousStatus });
+    }
+    return await write();
+  } finally {
+    for (const period of restore) {
+      await restorePeriodStatus(
+        entityId, period.id, period.previous, actorUserId, `${reason}; the period goes back to ${period.previous}.`
+      ).catch((e) => onRestoreFailure(`could not put ${period.name} back to ${period.previous}: ${(e as Error).message}`));
+    }
+  }
+}
+
+/**
  * Posts the open excess of each correctable finding back from 1130 to 1135.
  * The panel key is read for every entity before anything is written. Each bill
  * is its own transaction: it is locked, read again, and skipped when the
@@ -412,18 +491,7 @@ export async function correctVatOvercredit(
   let total = new Decimal(0);
   const toAttest: Array<{ tenantId: string; entityId: string; entryId: string }> = [];
 
-  const optionOf = new Map<string, CorrectionPeriod>();
-  for (const x of findings) {
-    if (optionOf.has(x.entityId)) continue;
-    const value = (await getPolicy({ tenantId: x.tenantId, entityId: x.entityId }, 'vat_overcredit_correction_period')).value;
-    if (!(CORRECTION_PERIODS as readonly string[]).includes(value)) {
-      throw new AccountingError(
-        'POLICY_VALUE_UNKNOWN',
-        `${CORRECTION_PERIOD_KEY} = "${value}" is not a value this system knows (${CORRECTION_PERIODS.join(' | ')}); nothing was posted.`
-      );
-    }
-    optionOf.set(x.entityId, value as CorrectionPeriod);
-  }
+  const optionOf = await correctionPeriodOf(findings, CORRECTION_PERIOD_KEY, (scope) => getPolicy(scope, CORRECTION_PERIOD_KEY));
 
   for (const x of findings) {
     const skip = (why: string) => out.skipped.push({ billId: x.billId, billNumber: x.billNumber, why });
@@ -446,39 +514,15 @@ export async function correctVatOvercredit(
       continue;
     }
 
-    // Every period first: a bill is corrected whole or not at all.
-    const toReopen: Array<{ id: string; name: string }> = [];
-    let blocked: string | null = null;
-    for (const p of postings) {
-      const { rows: [period] } = await withTransaction((client) =>
-        client.query<{ id: string; period_name: string; status: string }>(
-          `SELECT id, period_name, status FROM fiscal_periods
-            WHERE entity_id = $1 AND $2::date BETWEEN start_date AND end_date`,
-          [x.entityId, p.date]
-        )
-      );
-      if (!period) blocked = `no fiscal period holds ${p.date}`;
-      else if (period.status === 'locked') blocked = `${period.period_name} is locked: it is never reopened`;
-      else if (period.status === 'open') continue;
-      else if (option === 'payment_month' && (period.status === 'soft_close' || period.status === 'hard_close')) {
-        if (opts.reopen) toReopen.push({ id: period.id, name: period.period_name });
-        else blocked = `${period.period_name} is ${period.status}: run with --reopen to post in it`;
-      } else blocked = `${period.period_name} is ${period.status}, not open`;
-      if (blocked) break;
-    }
-    if (blocked) {
-      skip(blocked);
+    const periods = await periodsFor(x.entityId, postings.map((p) => p.date), option, opts.reopen === true);
+    if ('blocked' in periods) {
+      skip(periods.blocked);
       continue;
     }
 
     const reason = `MNE-001-562 · VAT released above the CFDI's VAT on ${x.billNumber} is put back in 1135`;
-    const restore: Array<{ id: string; name: string; previous: string }> = [];
     try {
-      for (const period of toReopen) {
-        const r = await reopenClosedPeriod(x.entityId, period.id, actorUserId, reason);
-        restore.push({ ...period, previous: r.previousStatus });
-      }
-      const entryIds = await withTransaction(async (client) => {
+      const entryIds = await inReopenedPeriods(x.entityId, periods.toReopen, actorUserId, reason, (m) => out.failures.push(m), () => withTransaction(async (client) => {
         const locked = await client.query(`SELECT 1 FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`, [x.billId, x.entityId]);
         if (locked.rowCount !== 1) throw new ChangedMeanwhile();
         const [fresh] = await readFindings(client, x.tenantId, x.entityId, x.billId);
@@ -540,19 +584,13 @@ export async function correctVatOvercredit(
           reason,
         });
         return ids;
-      });
+      }));
       for (const entryId of entryIds) toAttest.push({ tenantId: x.tenantId, entityId: x.entityId, entryId });
       out.corrected.push({ billId: x.billId, billNumber: x.billNumber, entryIds, amount: x.open });
       total = total.plus(x.open);
     } catch (e) {
       if (e instanceof ChangedMeanwhile) skip('the bill changed since the census, or another run corrected it: run the census again');
       else out.failures.push(`${x.billNumber}: ${(e as Error).message}`);
-    } finally {
-      for (const period of restore) {
-        await restorePeriodStatus(
-          x.entityId, period.id, period.previous, actorUserId, `${reason}; the period goes back to ${period.previous}.`
-        ).catch((e) => out.failures.push(`could not put ${period.name} back to ${period.previous}: ${(e as Error).message}`));
-      }
     }
   }
 

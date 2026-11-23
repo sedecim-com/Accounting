@@ -1118,6 +1118,25 @@ export const EN = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Post one correction per bill and month, in each payment\'s month',
 
+  'policy.discount_vat_correction_period.question':
+    'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+  'policy.discount_vat_correction_period.impact':
+    'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+  'policy.discount_vat_correction_period.rationale':
+    'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.discount_vat_correction_period.why':
+    'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+  'policy.discount_vat_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.discount_vat_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Post one correction per bill and payment, dated today in the open period',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Post one correction per bill and payment, in the month the discount was posted',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
@@ -3634,6 +3653,64 @@ export const EN = {
   /** Why `jobs run-due` does not honour an idempotency key. */
   'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
 
+  // MNE-001-453 (#646): which due jobs `jobs run-due` runs on its operator's credential.
+  /** The first line of a tick under `jobs.run_due = all`. */
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due is "all": this tick runs every due job of the entity on your credential, including jobs that other people created.',
+  /** A due job a tick under `jobs.run_due = adopted` did not run. */
+  'platform.jobs.run_due.skipped': '  not adopted, not run: {name}  {id} · adopt it: mnemosine jobs adopt {id}',
+  /** A tick under `jobs.run_due = adopted` that found due jobs, none of them adopted. */
+  'platform.jobs.run_due.no_adopted_due': 'No adopted job due.',
+  /** The notice of an unset tick: the jobs it ran that its operator has not adopted. */
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {This tick ran # job you have not adopted, on your credential:} other {This tick ran # jobs you have not adopted, on your credential:}}',
+  /** The notice of an unset tick: the key and its two values. */
+  'platform.jobs.run_due.hint.choose':
+    'Set jobs.run_due in ~/.mnemosine/config.json to "adopted" to run only the jobs you adopted (mnemosine jobs adopt <id>), or to "all" to run every due job without this notice.',
+  /** A project file that sets `jobs.run_due`, which is not read there. */
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} sets jobs.run_due, which is not read there: whose credential a tick spends is each operator\'s choice, in ~/.mnemosine/config.json.',
+  /** An unset tick whose list of adopted jobs does not read. */
+  'platform.jobs.run_due.adoptions_unreadable': '{error} This tick runs every due job, as it does with jobs.run_due unset.',
+  /** `jobs adopt` of a job. */
+  'platform.jobs.adopt.done':
+    'Job "{name}" adopted. With jobs.run_due set to "adopted", jobs run-due runs it on your credential. Recorded in {file}.',
+  /** `jobs adopt` of a job already adopted. */
+  'platform.jobs.adopt.already': 'Job "{name}" was already adopted ({file}).',
+  /** `jobs adopt` of an id that is not a job of this entity. */
+  'platform.jobs.adopt.not_found': 'Job {id} does not exist in this entity; nothing was adopted.',
+  /** `jobs adopt` with both a job id and --list, or with neither. */
+  'platform.jobs.adopt.id_xor_list': 'Give either a job id to adopt, or --list to see the jobs you adopted.',
+  /** The header of `jobs adopt --list`. */
+  'platform.jobs.adopt.list.header': 'Jobs you adopted in this entity ({file}):',
+  /** `jobs adopt --list` with nothing adopted in this entity. */
+  'platform.jobs.adopt.list.none': 'You have adopted no job of this entity. Adopt one with: mnemosine jobs adopt <id>',
+  /** An adopted id that is no longer a job of this entity. */
+  'platform.jobs.adopt.list.gone': '(no longer a job of this entity)',
+  /** The last line of `jobs adopt --list`: the value of the key. */
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due in {file}: {scope, select, adopted {"adopted", so jobs run-due runs only these} all {"all", so jobs run-due runs every due job} other {unset, so jobs run-due runs every due job and names the ones you have not adopted}}',
+  /** `jobs unadopt` of an adopted job. */
+  'platform.jobs.unadopt.done': 'Job {id} is no longer adopted ({file}).',
+  /** `jobs unadopt` of a job that was not adopted. */
+  'platform.jobs.unadopt.not_adopted': 'Job {id} was not adopted; nothing changed.',
+  /** `jobs create`: the new job is adopted for its creator. */
+  'platform.jobs.create.adopted': '  Adopted for you: with jobs.run_due set to "adopted", your tick runs it.',
+  /** `jobs create` whose adoption could not be written. */
+  'platform.jobs.create.adopt_failed':
+    'The job was created, but it could not be adopted for you ({error}). Adopt it with: mnemosine jobs adopt {id}',
+  /** Help of `jobs adopt`. */
+  'help.jobs.adopt.description':
+    'Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json, jobs run-due runs only the jobs you adopted',
+  /** Help of the job id of `jobs adopt`. */
+  'help.jobs.adopt.argument.job_id': 'Job id (omit it with --list)',
+  /** Help of `jobs adopt --list`. */
+  'help.jobs.adopt.option.list': 'List the jobs you adopted in this entity, and the value of jobs.run_due',
+  /** Help of `jobs unadopt`. */
+  'help.jobs.unadopt.description': 'Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer runs it',
+  /** Help of the job id of `jobs unadopt`. */
+  'help.jobs.unadopt.argument.job_id': 'Job id',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
@@ -4372,6 +4449,29 @@ export const EN = {
   'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
   'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
   'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
+  'filed_return.obligation_not_written': 'Only the monthly IVA return is recorded for now: "{value}" is not. Nothing was written.',
+  'filed_return.obligation_invalid': '"{value}" is not an obligation of the record of filed returns: use {obligations}.',
+  'filed_return.period_invalid': '"{value}" is not a month: use YYYY-MM (for example 2026-08).',
+  'filed_return.filed_on_not_a_day': 'The filing date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filed_return.filed_before_period_ends': 'The return for {period} is filed once its month ends, on {earliest} or later: {value} cannot be its filing date. Nothing was written.',
+  'filed_return.paid_on_not_a_day': 'The payment date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-16). Nothing was written.',
+  'filed_return.paid_before_filed': 'The payment on {paidOn} comes before the filing on {filedOn}: a return is paid with the capture line its filing gives, that day or later. Nothing was written.',
+  'filed_return.payment_incomplete': 'A payment states both what was paid and the day it was paid. Nothing was written.',
+  'filed_return.payable_and_in_favor': 'A return leaves an amount payable or a balance in favour, never both: {payable} payable and {inFavor} in favour. Nothing was written.',
+  'filed_return.amount_invalid': '"{value}" is not an amount of a return: use zero or more, with at most two decimals and seventeen digits before the point (for example 5000.00). Nothing was written.',
+  'filed_return.credit_amount_not_positive': 'A credited balance is above zero: leave out a credit of nothing. Nothing was written.',
+  'filed_return.acknowledgement_required': 'Missing the operation number of the acknowledgement («acuse»): it is how the record names a return. Nothing was written.',
+  'filed_return.capture_line_blank': 'The capture line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filed_return.credit_repeated': 'The balance of return {acknowledgement} is credited twice in this return: put both amounts in one credit. Nothing was written.',
+  'filed_return.credit_source_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: record that return first, then the one that credits its balance. Nothing was written.',
+  'filed_return.credit_source_not_earlier': 'Return {acknowledgement} covers {sourcePeriod}: a return for {period} credits balances of earlier months only (LIVA art. 6). Nothing was written.',
+  'filed_return.credit_source_no_balance': 'Return {acknowledgement} left no balance in favour: there is nothing of it to credit. Nothing was written.',
+  'filed_return.replaced_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: an amended return replaces one already recorded. Nothing was written.',
+  'filed_return.replaced_other_period': 'Return {acknowledgement} covers {replacedPeriod}: an amended return for {period} replaces a return of the same month. Nothing was written.',
+  'filed_return.amended_before_replaced': 'The amended return is filed on {filedOn}, before return {acknowledgement}, which it replaces, was filed on {replacedFiledOn}: an amendment comes after (CFF art. 32). Nothing was written.',
+  'filed_return.acknowledgement_taken': 'The operation number {acknowledgement} is already recorded for this entity: each acknowledgement is one return. Nothing was written.',
+  'filed_return.original_exists': 'The {period} return of this tax is already recorded: another return for that month is an amendment, which names the return in force it replaces. Nothing was written.',
+  'filed_return.already_replaced': 'Return {acknowledgement} was already replaced by another amended return: an amendment replaces the return in force of {period}, the last one filed. Nothing was written.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':
