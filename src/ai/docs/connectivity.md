@@ -100,7 +100,9 @@ output when a connection problem is unclear.
   hide it. `MNEMOSINE_PROVIDER` still outranks the saved default, and init
   says so.
 - An openai-compatible profile may declare `reasoning_effort` (none, minimal,
-  low, medium, high, xhigh, max); it is sent only then. A turn that spends
+  low, medium, high, xhigh, max); it is sent only then. The built-ins `grok`
+  (`grok-4.3`) and `gemini` (`gemini-3.8-flash`) declare `low`; their model
+  ids ship not verified live, as their notes say. A turn that spends
   the whole 8192-token output cap without text or a tool call fails with an
   error that says so: suggest a lower `reasoning_effort`, not a retry. Tool
   calls keep the provider's `extra_content` (Gemini 3's thought signature)

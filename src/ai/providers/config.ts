@@ -83,7 +83,7 @@ export type PerfilReproducible = ProviderProfile & { reproducibilidad: Reproduci
 //    —el umbral queda por encima de lo que el proveedor acepta y la sesión
 //    revienta igual que antes—, mientras que `desconocida` cae al respaldo
 //    global de 150 000, o sea exactamente la conducta de hoy. De doce
-//    perfiles, cuatro traen número y ocho dicen que no lo saben.
+//    perfiles, cinco traen número y siete dicen que no lo saben.
 //
 // 2) CUÁNTO DE LA VENTANA SE PUEDE LLENAR DE HISTORIA. La mitad, y el resto
 //    es reserva. El número sale de lo que el umbral NO PUEDE VER, porque
@@ -309,33 +309,49 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
     reproducibilidad: {
       muestreo: 'no-admite',
       instantanea: null,
+      // MNE-001-449 (#644): decided again. The old reason said reasoning was on
+      // by default, which is not true of gpt-5.1.
       razon:
-        'Modelo de razonamiento — este mismo perfil ya lo delata con `max_tokens_param: ' +
-        'max_completion_tokens`. Con el razonamiento activo (el default) la API sólo acepta la ' +
-        'temperatura por omisión: cualquier otro valor vuelve como 400 «Unsupported value: ' +
-        "'temperature' … Only the default (1) value is supported». No se fija.",
+        'gpt-5.1 razona con esfuerzo `none` por omisión (developers.openai.com/api/docs/models/' +
+        'gpt-5.1, leída el 2026-11-20), y este perfil no declara otro. OpenAI documenta ' +
+        '`temperature` con esfuerzo `none` sólo para GPT-5.2 en adelante (developers.openai.com/' +
+        'api/docs/guides/latest-model?model=gpt-5.2, leída el 2026-11-20), y con cualquier otro ' +
+        'esfuerzo la rechaza. Fijarla en gpt-5.1 sería afirmar algo que su proveedor no documenta: ' +
+        'no se fija. Sin instantánea fechada establecida (la página lista gpt-5.1-2025-11-13).',
     },
   },
+  // MNE-001-449 (#644): grok-4 named a slug xAI retired on 2026-05-15, which
+  // it now serves with grok-4.3 at low effort. The owner chose «Salen sin
+  // verificar»: the id ships with its page and the date it was read.
   grok: {
     type: 'openai-compatible',
-    model: 'grok-4',
+    model: 'grok-4.3',
     base_url: 'https://api.x.ai/v1',
     api_key_env: 'XAI_API_KEY',
-    note: 'xAI Grok — OpenAI-compatible API',
+    reasoning_effort: 'low',
+    note:
+      'xAI Grok — OpenAI-compatible API. Model not verified live: grok-4.3 as ' +
+      'docs.x.ai/developers/models/grok-4.3 lists it, read 2026-11-20',
     ventana: {
-      postura: 'desconocida',
+      postura: 'declarada',
+      tokens: 200_000,
       razon:
-        'xAI documenta la ventana de grok-4 en su referencia de modelos y nadie la ha traído aquí. ' +
-        'Es un dato de una línea que se comprueba en un minuto; hasta que se compruebe, respaldo ' +
-        'global, que es lo que este perfil ya hacía.',
+        'grok-4.3 sirve 1 000 000 de tokens (docs.x.ai/developers/models/grok-4.3), pero xAI cobra ' +
+        'todo el turno al doble cuando el prompt llega a 200 000 (docs.x.ai/developers/pricing, ' +
+        'leídas el 2026-11-20). La ventana declarada se detiene en ese escalón para que la ' +
+        'compactación corra antes de que el precio cambie. No verificado en vivo.',
     },
     reproducibilidad: {
       muestreo: 'fijado',
       temperature: 0,
       instantanea: null,
       razon:
-        'xAI documenta `temperature` en 0–2 para grok-4 (lo que grok-4 sí rechaza es ' +
-        '`reasoning_effort`, que este arnés no envía). Sin instantánea fechada establecida.',
+        'Chat Completions de xAI acepta `temperature` hasta 1 (docs.x.ai/developers/model-' +
+        'capabilities/text/best-practices, leída el 2026-11-20); 0 es el ajuste del clasificador, ' +
+        'aunque xAI recomienda 0.7. El esfuerzo `low` es el que grok-4.3 usa por omisión y con el ' +
+        'que xAI sirve el slug retirado (docs.x.ai/developers/migration/may-15-retirement); ' +
+        'declararlo lo deja escrito y deja espacio bajo el tope de 8 192 tokens de salida. Sin ' +
+        'instantánea fechada establecida. No verificado en vivo.',
     },
   },
   minimax: {
@@ -383,28 +399,37 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
         'midiendo modelos distintos.',
     },
   },
+  // MNE-001-449 (#644): gemini-2.5-pro is no longer served to new projects;
+  // gemini-3.8-flash is the model Google recommends for them. Not verified
+  // live, by the owner's choice («Salen sin verificar»).
   gemini: {
     type: 'openai-compatible',
-    model: 'gemini-2.5-pro',
+    model: 'gemini-3.8-flash',
     base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
     api_key_env: 'GEMINI_API_KEY',
-    note: 'Google AI Studio (Gemini) — OpenAI-compatible endpoint; set "model" to the version your account has',
+    reasoning_effort: 'low',
+    note:
+      'Google AI Studio (Gemini) — OpenAI-compatible endpoint. Model not verified live: ' +
+      'gemini-3.8-flash as ai.google.dev/gemini-api/docs/models/gemini-3.8-flash lists it, read 2026-11-20',
     ventana: {
       postura: 'declarada',
       tokens: 1_048_576,
       razon:
-        'gemini-2.5-pro admite 1 048 576 tokens de entrada — el número que Google publica en la ' +
-        'ficha del modelo de AI Studio, y que la capa compatible con OpenAI no recorta. Igual que ' +
-        'el perfil por defecto, aquí el respaldo global no era peligroso sino desperdiciado.',
+        'gemini-3.8-flash admite 1 048 576 tokens de entrada y 65 536 de salida, según su ficha ' +
+        '(ai.google.dev/gemini-api/docs/models/gemini-3.8-flash, leída el 2026-11-20), y la página ' +
+        'de precios no le publica un escalón por tamaño de prompt. Aquí el respaldo global no ' +
+        'sería peligroso sino desperdiciado. No verificado en vivo.',
     },
     reproducibilidad: {
-      muestreo: 'fijado',
-      temperature: 0,
+      muestreo: 'no-admite',
       instantanea: null,
       razon:
-        'La capa compatible con OpenAI de AI Studio acepta `temperature`. El alias ya lleva ' +
-        'versión menor (2.5-pro), pero Google publica instantáneas fechadas por debajo: SIN ' +
-        'ESTABLECER aquí.',
+        'La guía de Gemini 3.8 da `temperature`, `top_p` y `top_k` por obsoletos y pide quitarlos ' +
+        '(ai.google.dev/gemini-api/docs/whats-new-gemini-3.8, leída el 2026-11-20): fijar uno ' +
+        'sería pedir lo que Google retira. El esfuerzo `low` se declara porque el de omisión es ' +
+        '`medium` y el pensamiento cuenta como salida bajo el tope de 8 192 tokens; la capa ' +
+        'compatible acepta low, medium y high (ai.google.dev/gemini-api/docs/openai). No ' +
+        'verificado en vivo.',
     },
   },
   openrouter: {
@@ -449,10 +474,13 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
     reproducibilidad: {
       muestreo: 'no-admite',
       instantanea: null,
+      // MNE-001-449 (#644): rewritten with openai's reason, which it leans on.
       razon:
-        'Mismo modelo de razonamiento que el perfil `openai` (gpt-5.1) y por tanto el mismo 400 al ' +
-        'fijar temperatura; encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no ' +
-        'se versiona hacia el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
+        'Mismo modelo que el perfil `openai` (gpt-5.1), con su misma razón: esfuerzo `none` por ' +
+        'omisión, y `temperature` con `none` documentada sólo de GPT-5.2 en adelante ' +
+        '(developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2, leída el 2026-11-20). ' +
+        'Encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no se versiona hacia ' +
+        'el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
     },
   },
   openclaw: {

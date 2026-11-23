@@ -11,7 +11,8 @@ import {
   clampTokenCount,
   type TurnUsage,
 } from '../../src/ai/usage-ledger.js';
-import { lookupPrice } from '../../src/ai/providers/prices.js';
+import { lookupPrice, PRICE_TABLE, PRECIOS_VIGENTES_A } from '../../src/ai/providers/prices.js';
+import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 import { query } from '../../src/database/connection.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
@@ -78,6 +79,11 @@ describe('lookupPrice', () => {
       ['gpt-5-pro', 15, 120],
       ['gpt-5-pro-2025-10-06', 15, 120],
       ['gpt-5-2025-08-07', 1.25, 10],
+      // MNE-001-449: the new defaults at their own rows, and gemini-2.5-pro at
+      // its above-200K rate, because the gemini profile declares a 1M window.
+      ['grok-4.3', 1.25, 2.5],
+      ['gemini-3.8-flash', 1.5, 7.5],
+      ['gemini-2.5-pro', 2.5, 15],
       // Claude 3-generation haiku ids put the generation BEFORE the family
       // name; a 'claude-haiku-3' prefix would be dead and leave them unpriced.
       ['claude-3-5-haiku-20241022', 0.8, 4],
@@ -96,6 +102,33 @@ describe('lookupPrice', () => {
     // the generation AFTER the family name matches nothing that exists.
     expect(lookupPrice('claude-3-5-haiku-20241022')!.prefix).toBe('claude-3-5-haiku');
     expect(lookupPrice('claude-3-haiku-20240307')!.prefix).toBe('claude-3-haiku');
+  });
+});
+
+// MNE-001-449 (#644, P9): each row cites its official page and the date it was
+// read, and the table's as-of date moves with the rows.
+describe('the price table cites its sources', () => {
+  const READ_DATE = /\bread (\d{4}-\d{2}-\d{2})\b/;
+
+  it('every row names an official page and the date it was read', () => {
+    for (const row of PRICE_TABLE) {
+      expect(row.source, `source of ${row.prefix}`).toMatch(/^https:\/\/\S+/);
+      expect(row.source, `read date of ${row.prefix}`).toMatch(READ_DATE);
+    }
+  });
+
+  it('PRECIOS_VIGENTES_A is the latest date a row was read', () => {
+    const dates = PRICE_TABLE.map((row) => READ_DATE.exec(row.source)![1]).sort();
+    expect(PRECIOS_VIGENTES_A).toBe(dates[dates.length - 1]);
+  });
+
+  it('the grok and gemini defaults are priced at their own rows', () => {
+    const grok = lookupPrice(BUILTIN_PROFILES.grok.model)!;
+    expect(grok).toMatchObject({ prefix: 'grok-4.3', inputPerMTok: 1.25, outputPerMTok: 2.5, cacheReadPerMTok: 0.2 });
+    const gemini = lookupPrice(BUILTIN_PROFILES.gemini.model)!;
+    // The higher published rate, which starts on 2027-01-01.
+    expect(gemini).toMatchObject({ prefix: 'gemini-3.8-flash', inputPerMTok: 1.5, outputPerMTok: 7.5, cacheReadPerMTok: 0.15 });
+    expect(lookupPrice(BUILTIN_PROFILES.openai.model)!.prefix).toBe('gpt-5.1');
   });
 });
 

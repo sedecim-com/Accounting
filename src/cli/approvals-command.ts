@@ -11,7 +11,7 @@ import {
   type ApprovalPattern,
   type ApprovalScope,
 } from '../ai/approval-policy.js';
-import { exitCodeFor, usageError } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine approvals — graduated approval policies
@@ -69,19 +69,16 @@ function buildPattern(opts: GrantOpts): ApprovalPattern {
 
 export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps): void {
   const c = deps.palette;
-  const approvals = program
-    .command('approvals')
-    .alias('aprobaciones')
-    .description('Graduated approval policies for staged writes (once / session / always)');
+  const approvals = describeCommand(program.command('approvals').alias('aprobaciones'), 'help.approvals.description');
+  const scopes = { scopes: SCOPES.join(' | ') };
 
-  approvals
-    .command('list')
-    .description('List approval policies of the entity')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--scope <scope>', `Filter by scope (${SCOPES.join(' | ')})`)
-    .option('--all', 'Include revoked policies')
-    .option('--json', 'JSON output')
+  const list = describeCommand(approvals.command('list'), 'help.approvals.list.description');
+  optionByKey(list, '-e, --entity <idOrName>', 'help.approvals.list.option.entity');
+  optionByKey(list, '-t, --tenant <id>', 'help.approvals.list.option.tenant');
+  optionByKey(list, '--scope <scope>', 'help.approvals.list.option.scope', { params: scopes });
+  optionByKey(list, '--all', 'help.approvals.list.option.all');
+  optionByKey(list, '--json', 'help.approvals.list.option.json');
+  list
     .action(async (opts: { entity?: string; tenant?: string; scope?: string; all?: boolean; json?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);
@@ -111,24 +108,18 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
       }
     });
 
-  approvals
-    .command('grant')
-    .description('Grant a pattern-based approval policy (conservative matching; the floor always wins)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .requiredOption('--scope <scope>', `Scope of the policy (${SCOPES.join(' | ')})`)
-    .requiredOption('--mode <mode>', `Policy mode (${MODES.join(' | ')})`)
-    .option(
-      '--kind <kind>',
-      "Match field: candidate kind. For drafts this is the draft payload's " +
-        '"kind" (or "entry_type") field, falling back to "journal_entry" when ' +
-        'absent — kinds in use today: journal_entry (default), payroll'
-    )
-    .option('--max-amount <amount>', 'Match field: maximum amount authorized (numeric string)')
-    .option('--provider <provider>', 'Match field: external provider (e.g. contalink)')
-    .option('--operation <operation>', 'Match field: external operation (e.g. create_policy)')
-    .option('--session <id>', "Granting session id (required for --mode session)")
-    .option('-u, --user <email>', 'Granting user (required when the tenant has several active users)')
+  const grant = describeCommand(approvals.command('grant'), 'help.approvals.grant.description');
+  optionByKey(grant, '-e, --entity <idOrName>', 'help.approvals.grant.option.entity');
+  optionByKey(grant, '-t, --tenant <id>', 'help.approvals.grant.option.tenant');
+  optionByKey(grant, '--scope <scope>', 'help.approvals.grant.option.scope', { params: scopes, mandatory: true });
+  optionByKey(grant, '--mode <mode>', 'help.approvals.grant.option.mode', { params: { modes: MODES.join(' | ') }, mandatory: true });
+  optionByKey(grant, '--kind <kind>', 'help.approvals.grant.option.kind');
+  optionByKey(grant, '--max-amount <amount>', 'help.approvals.grant.option.max_amount');
+  optionByKey(grant, '--provider <provider>', 'help.approvals.grant.option.provider');
+  optionByKey(grant, '--operation <operation>', 'help.approvals.grant.option.operation');
+  optionByKey(grant, '--session <id>', 'help.approvals.grant.option.session');
+  optionByKey(grant, '-u, --user <email>', 'help.approvals.grant.option.user');
+  grant
     .action(async (opts: GrantOpts) => {
       try {
         bootstrapTenant(opts.tenant);
@@ -168,11 +159,10 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
       }
     });
 
-  approvals
-    .command('revoke <id>')
-    .description('Revoke an active approval policy')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
+  const revoke = describeCommand(approvals.command('revoke <id>'), 'help.approvals.revoke.description');
+  optionByKey(revoke, '-e, --entity <idOrName>', 'help.approvals.revoke.option.entity');
+  optionByKey(revoke, '-t, --tenant <id>', 'help.approvals.revoke.option.tenant');
+  revoke
     .action(async (id: string, opts: { entity?: string; tenant?: string }) => {
       try {
         bootstrapTenant(opts.tenant);

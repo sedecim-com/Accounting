@@ -8,7 +8,7 @@ import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { resolveReviewer } from '../ai/draft-service.js';
-import { exitCodeFor } from './kernel/index.js';
+import { argumentByKey, describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine memory
@@ -154,16 +154,14 @@ export function renderDigestCoverage(
 }
 
 export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): void {
-  const mem = program
-    .command('memory')
-    .alias('memoria')
-    .description('Firm precedents: what the AI learned and you control')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('-b, --search <text>', 'Filter by text')
-    .option('--all', 'Include retired ones')
-    .option('--conflicts', 'Only the precedents that contradict each other, and how to resolve them')
-    .option('--json', 'JSON output')
+  const mem = describeCommand(program.command('memory').alias('memoria'), 'help.memory.description');
+  optionByKey(mem, '-e, --entity <idOrName>', 'help.memory.option.entity');
+  optionByKey(mem, '-t, --tenant <id>', 'help.memory.option.tenant');
+  optionByKey(mem, '-b, --search <text>', 'help.memory.option.search');
+  optionByKey(mem, '--all', 'help.memory.option.all');
+  optionByKey(mem, '--conflicts', 'help.memory.option.conflicts');
+  optionByKey(mem, '--json', 'help.memory.option.json');
+  mem
     .action(async (opts: {
       entity?: string; tenant?: string; search?: string; all?: boolean;
       conflicts?: boolean; json?: boolean;
@@ -237,14 +235,12 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
     return { ctx, reviewer };
   };
 
-  mem
-    .command('teach')
-    .aliases(['enseña', 'ensena'])
-    .description('Seeds a firm criterion without waiting for the AI to ask')
-    .argument('<rule>', 'The situation, e.g. "Telmex invoices"')
-    .argument('<criterion>', 'What to do, e.g. "they go to 6130 Utilities"')
-    .option('-u, --user <email>', 'Who teaches it')
-    .option('--topic <slug>', 'Topic for grouping precedents')
+  const teach = describeCommand(mem.command('teach').aliases(['enseña', 'ensena']), 'help.memory.teach.description');
+  argumentByKey(teach, '<rule>', 'help.memory.teach.argument.rule');
+  argumentByKey(teach, '<criterion>', 'help.memory.teach.argument.criterion');
+  optionByKey(teach, '-u, --user <email>', 'help.memory.teach.option.user');
+  optionByKey(teach, '--topic <slug>', 'help.memory.teach.option.topic');
+  teach
     .action(async function (this: Command, rule: string, criterion: string) {
       try {
         const opts = this.optsWithGlobals();
@@ -261,13 +257,11 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
       }
     });
 
-  mem
-    .command('correct')
-    .aliases(['corrige'])
-    .description('Changes the answer of a precedent (the previous one stays in the history)')
-    .argument('<id>', 'Precedent id')
-    .argument('<answer>', 'The correct answer')
-    .option('-u, --user <email>', 'Who corrects')
+  const correct = describeCommand(mem.command('correct').aliases(['corrige']), 'help.memory.correct.description');
+  argumentByKey(correct, '<id>', 'help.memory.correct.argument.id');
+  argumentByKey(correct, '<answer>', 'help.memory.correct.argument.answer');
+  optionByKey(correct, '-u, --user <email>', 'help.memory.correct.option.user');
+  correct
     .action(async function (this: Command, id: string, answer: string) {
       try {
         const { ctx, reviewer } = await withEntity(this.optsWithGlobals());
@@ -280,15 +274,13 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
       }
     });
 
-  mem
-    .command('retire')
-    .aliases(['retira'])
-    .description('The AI stops using this precedent (not deleted: the history remains)')
-    .argument('<id>', 'Precedent id')
-    .option('-u, --user <email>', 'Who retires it')
-    // El motivo es lo que convierte «lo apagué» en rastro auditable, y es lo
-    // que un conflicto resuelto necesita: contra qué otro criterio perdió.
-    .option('--reason <text>', 'Why it no longer applies (kept in the precedent history)')
+  const retire = describeCommand(mem.command('retire').aliases(['retira']), 'help.memory.retire.description');
+  argumentByKey(retire, '<id>', 'help.memory.retire.argument.id');
+  optionByKey(retire, '-u, --user <email>', 'help.memory.retire.option.user');
+  // El motivo es lo que convierte «lo apagué» en rastro auditable, y es lo
+  // que un conflicto resuelto necesita: contra qué otro criterio perdió.
+  optionByKey(retire, '--reason <text>', 'help.memory.retire.option.reason');
+  retire
     .action(async function (this: Command, id: string) {
       try {
         const opts: SubOpts & { reason?: string } = this.optsWithGlobals();
@@ -302,11 +294,9 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
       }
     });
 
-  mem
-    .command('restore')
-    .aliases(['restaura'])
-    .description('Reactivates a retired precedent')
-    .argument('<id>', 'Precedent id')
+  const restore = describeCommand(mem.command('restore').aliases(['restaura']), 'help.memory.restore.description');
+  argumentByKey(restore, '<id>', 'help.memory.restore.argument.id');
+  restore
     .action(async function (this: Command, id: string) {
       try {
         const opts = this.optsWithGlobals();
