@@ -3500,6 +3500,73 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  'ap.prepaid.flag.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
+  'ap.prepaid.flag.amount_invalid':
+    '{flag} debe ser un importe decimal sin signo; llegó "{value}". El punto separa los decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.',
+  'ap.prepaid.run.period_missing':
+    'Falta --period. La amortización es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar.',
+  'ap.prepaid.create.origin_missing':
+    'Falta --origin. Los tres orígenes son: {origins} — el CFDI que se clasificó como anticipado (exige --source-entry), el saldo que ya estaba en la 1160 sin calendario, y el pago que se contabilizó a mano. No tiene valor por omisión: suponerlo deja el rastro apuntando a un asiento que no es.',
+  'ap.prepaid.create.origin_unknown': '--origin "{value}" no existe. Los tres son: {origins}.',
+  'ap.prepaid.create.convention_unknown':
+    '--convention "{value}" no existe: las dos convenciones son {days} y {months} (los días que cada mes cubre, o el mes entero).',
+  'ap.prepaid.create.convention_contradicts_panel':
+    '--convention {requested} contradice al panel: `amortizacion_anticipados_convencion` vale "{panel}"{source, select, answered {} other { (defecto declarado, nadie ha contestado)}}, y es lo que se congela en el calendario. Esta bandera declara con qué convención crees estar dando de alta, no la elige: se cambia con {hint}.',
+  'ap.prepaid.create.flags_missing':
+    '{count, plural, one {Falta {flags}} other {Faltan {flags}}}. Un calendario sin importe, sin ventana de cobertura o sin decir de dónde salió el cargo no es una ficha incompleta: es una ficha que no se puede devengar ni cuadrar contra la cuenta.',
+  'ap.prepaid.create.cfdi_needs_source_entry':
+    '`--origin cfdi` exige `--source-entry <id>`: si el calendario nace de una factura ya contabilizada, el asiento que cargó la cuenta se conoce, y no anotarlo es perderlo para siempre.',
+  'ap.prepaid.skip.unknown_convention': 'convención guardada desconocida ("{convention}")',
+  'ap.prepaid.skip.not_started': 'la cobertura todavía no empieza',
+  'ap.prepaid.skip.ended': 'la cobertura ya terminó',
+  'ap.prepaid.skip.zero_row': 'el renglón del mes es cero',
+  'ap.prepaid.skip.nothing_left': 'no queda saldo por devengar',
+  'ap.prepaid.gap.warning':
+    '{amount} {currency} posteados en la cuenta de pagos anticipados que ningún calendario va a devengar, en {count, plural, one {# asiento} other {# asientos}}. Ese gasto no llegará nunca al resultado. Cada asiento se adopta con `mnemosine prepaid create --origin saldo_preexistente --source-entry <id> --start <fecha> --end <fecha>`, con la ventana de cobertura que diga el documento — no se adivina: vive en la póliza, no en el CFDI.',
+  'ap.prepaid.criteria.header':
+    'convención {convention}{convention_source, select, answered {} other { (defecto)}} · umbral {threshold} {currency}{threshold_source, select, answered {} other { (defecto)}}',
+  'ap.prepaid.criteria.default_rules':
+    'Rige al menos un defecto declarado y no una elección del despacho. Se contesta con `mnemosine pending define amortizacion_anticipados_convencion` / `umbral_anticipado_mxn`.',
+  'ap.prepaid.create.below_threshold':
+    '{amount} queda por debajo del umbral de {threshold} {currency} (`umbral_anticipado_mxn`): el alta real se detendría por materialidad (NIF A-4). Con --force y --reason se da de alta igual y el motivo queda escrito en la fila.',
+  'ap.prepaid.create.dry_run_done':
+    'Ensayo: no se escribió ninguna fila. {count, plural, one {# renglón} other {# renglones}} por {amount} {currency}, convención {convention}.',
+  'ap.prepaid.create.dry_run_no_backing':
+    'El ensayo NO comprueba el respaldo en la cuenta —cuánto saldo posteado queda sin calendario—: esa guarda vive dentro del alta y necesita el mayor. El alta real puede rechazar por ese motivo.',
+  'ap.prepaid.create.done':
+    'Calendario de {count, plural, one {# renglón} other {# renglones}} dado de alta. El mayor no se tocó: el cargo ya estaba. Se devenga con `mnemosine prepaid run --period <mes>`.',
+  'ap.prepaid.list.none_alive': 'No hay ningún calendario vivo en esta entidad.',
+  'ap.prepaid.list.none_on_date': 'Ningún calendario cubre el {date}. Con -a se listan todos.',
+  'ap.prepaid.show.unknown_convention':
+    'El calendario "{description}" guarda la convención "{convention}", que no es ninguna de las declaradas ({conventions}). Ningún importe se puede calcular con ella.',
+  'ap.prepaid.show.summary':
+    '{description} · {total} {currency} · {convention} · origen {origin} · devengado {accrued}, queda {remaining}',
+  'ap.prepaid.show.rows_are_schedule':
+    'Los renglones son el calendario que la corrida seguirá, no lo ya posteado: lo posteado es el devengado de la línea anterior.',
+  'ap.prepaid.show.not_found':
+    'No hay ningún calendario vivo que case con "{ref}" en esta entidad. `mnemosine prepaid list -a` los enumera todos.',
+  'ap.prepaid.show.ambiguous':
+    '"{ref}" casa con {count} calendarios vivos: {candidates}. Nombra el id, o un trozo de descripción que sólo case con uno.',
+  'ap.prepaid.run.header':
+    '{period} ({from}..{to}) · asientos con fecha {date} · {entering, plural, one {# calendario entra} other {# calendarios entran}}, {skipped} se omiten, {already} ya tienen renglón de este mes · total {total}',
+  'ap.prepaid.run.nothing': 'Nada que devengar en {period}: el mayor no se tocó.',
+  'ap.prepaid.run.skipped_line': 'omitido {description}: {reason}',
+  'ap.prepaid.run.capped':
+    '{description}: el renglón teórico es {theoretical} y se topa en {amount} contra lo que queda por devengar.',
+  'ap.prepaid.run.entries_note':
+    '{count, plural, one {# asiento de ajuste de dos líneas} other {# asientos de ajuste de dos líneas}}, uno por calendario — no uno de la corrida. Reversar esta corrida {count, plural, one {es # reversa} other {son # reversas}}.',
+  'ap.prepaid.run.dry_run_done': 'Ensayo: el mayor no se tocó y no se escribió ningún renglón.',
+  'ap.prepaid.run.confirm':
+    '¿Devengar {total} {currency} en {count, plural, one {# asiento} other {# asientos}} de {period}? El mayor no admite deshacer.',
+  'ap.prepaid.run.aborted': 'Sin cambios: el mayor no se tocó.',
+  'ap.prepaid.run.aborted_no_tty':
+    'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin preguntar, o --dry-run para ver los asientos completos sin escribir nada.',
+  'ap.prepaid.run.count_mismatch':
+    'La vista previa enseñaba {previewed, plural, one {# asiento} other {# asientos}} y la corrida hizo {processed}. La previa y el motor no coincidieron: revisa los errores antes de dar el mes por cerrado.',
+  'ap.prepaid.run.total_mismatch': 'La vista previa sumaba {previewed} y la corrida devengó {accrued}.',
+  'ap.prepaid.run.done':
+    '{count, plural, one {# asiento de devengo contabilizado} other {# asientos de devengo contabilizados}} en {period} por {total}.',
+
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
