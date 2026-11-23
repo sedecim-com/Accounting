@@ -20,11 +20,14 @@ import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
+  argumentByKey,
   blockedByState,
   declareRisk,
+  describeCommand,
   exitCodeFor,
   gateMutation,
   notFound,
+  optionByKey,
   render,
   resolveActiveEntity,
   usageError,
@@ -204,30 +207,22 @@ Examples:
 } as const;
 
 export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
-  const fx = program
-    .command('fx')
-    .alias('cambio')
-    .description('Exchange rates: the origin every foreign-currency amount converts from');
+  const fx = describeCommand(program.command('fx').alias('cambio'), 'help.fx.description');
 
-  const rate = fx
-    .command('rate')
-    .alias('tipo')
-    .description('Published exchange rates by pair, date, type and source');
+  const rate = describeCommand(fx.command('rate').alias('tipo'), 'help.fx.rate.description');
 
   const run = makeRunner(deps);
 
   // ---- fx rate list · cambio tipo listar ---------------------------
-  const list = rate
-    .command('list')
-    .alias('listar')
-    .description('List stored exchange rates by pair, date, type and source');
+  const list = describeCommand(rate.command('list').alias('listar'), 'help.fx.rate.list.description');
   withOutput(withSelection(withContext(list)));
-  list
-    .option('--pair <pair>', 'currency pair, e.g. USD/MXN')
-    .option('--since <date>', 'inclusive lower bound (YYYY-MM-DD)')
-    .option('--until <date>', 'inclusive upper bound (YYYY-MM-DD)')
-    .option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'only rates of this type')
-    .option(`--source <${FUENTES_DE_TIPO.join('|')}>`, 'only rates from this source');
+  optionByKey(list, '--pair <pair>', 'help.fx.rate.list.option.pair');
+  // NOTE: same words as cli.flag.since/until, but the kernel's flags parse the
+  // date and these do not, so they keep keys of their own (#314, answer 3).
+  optionByKey(list, '--since <date>', 'help.fx.rate.list.option.since');
+  optionByKey(list, '--until <date>', 'help.fx.rate.list.option.until');
+  optionByKey(list, `--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'help.fx.rate.list.option.rate_type');
+  optionByKey(list, `--source <${FUENTES_DE_TIPO.join('|')}>`, 'help.fx.rate.list.option.source');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.rateList);
   list.action(
@@ -300,19 +295,18 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   );
 
   // ---- fx rate show · cambio tipo ver ------------------------------
-  const show = rate
-    .command('show')
-    .alias('ver')
-    .argument('<pair>', 'currency pair, e.g. USD/MXN')
-    .argument('<date>', 'date the rate applies to (YYYY-MM-DD)')
-    .description('Resolve the applicable rate: direct, then inverse, then crossed through USD');
+  const show = describeCommand(rate.command('show').alias('ver'), 'help.fx.rate.show.description');
+  argumentByKey(show, '<pair>', 'help.fx.rate.show.argument.pair');
+  argumentByKey(show, '<date>', 'help.fx.rate.show.argument.date');
   withOutput(withContext(show));
-  show.option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'rate type to resolve', 'spot');
+  optionByKey(show, `--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'help.fx.rate.show.option.rate_type', {
+    defaultValue: 'spot',
+  });
   // Desde la 057 un par puede tener DOF y FIX del MISMO día. Sin esta bandera
   // la respuesta salía del orden físico de las filas —mudable con un VACUUM—;
   // desde la 084 el esquema se niega a elegir y esta bandera es cómo se le
   // dice cuál se quiere (T1, #88).
-  show.option(`--source <${FUENTES_DE_TIPO.join('|')}>`, 'resolve using only this publisher');
+  optionByKey(show, `--source <${FUENTES_DE_TIPO.join('|')}>`, 'help.fx.rate.show.option.source');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.rateShow);
   show.action(
@@ -380,19 +374,17 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   );
 
   // ---- fx rate set · cambio tipo fijar -----------------------------
-  const set = rate
-    .command('set')
-    .alias('fijar')
-    .argument('<pair>', 'currency pair, e.g. USD/MXN')
-    .argument('<date>', 'effective date (YYYY-MM-DD)')
-    .argument('<rate>', 'the rate, up to 10 decimals')
-    .description('Record an exchange rate, naming its source');
+  const set = describeCommand(rate.command('set').alias('fijar'), 'help.fx.rate.set.description');
+  argumentByKey(set, '<pair>', 'help.fx.rate.set.argument.pair');
+  argumentByKey(set, '<date>', 'help.fx.rate.set.argument.date');
+  argumentByKey(set, '<rate>', 'help.fx.rate.set.argument.rate');
   withContext(set);
-  set
-    .option(`--source <${FUENTES_DE_TIPO.join('|')}>`, 'who published the rate (required)')
-    .option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'rate type', 'spot')
-    .option('--until <date>', 'last date the rate remains effective (YYYY-MM-DD)')
-    .option('--dry-run', 'show what would be recorded without writing');
+  optionByKey(set, `--source <${FUENTES_DE_TIPO.join('|')}>`, 'help.fx.rate.set.option.source');
+  optionByKey(set, `--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'help.fx.rate.set.option.rate_type', {
+    defaultValue: 'spot',
+  });
+  optionByKey(set, '--until <date>', 'help.fx.rate.set.option.until');
+  optionByKey(set, '--dry-run', 'help.fx.rate.set.option.dry_run');
   declareRisk(set, { risk: 'escritura', agent: false, writes: 'exchange_rates' });
   set.addHelpText('after', EJEMPLOS.rateSet);
   set.action(
@@ -471,16 +463,12 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   // plan, y ejecutar FALLA CERRADO nombrando exactamente lo que falta y los
   // caminos honestos de hoy: fx rate set con el valor publicado, o el
   // fx rate import de fase 2.
-  const download = rate
-    .command('download')
-    .alias('descargar')
-    .description('Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)');
+  const download = describeCommand(rate.command('download').alias('descargar'), 'help.fx.rate.download.description');
   withContext(download);
-  download
-    .option('--source <dof|banxico-fix|fed|ecb>', 'which publisher to download from (required)')
-    .option('--as-of <date>', 'single date to download (YYYY-MM-DD)')
-    .option('--since <date>', 'inclusive lower bound (YYYY-MM-DD)')
-    .option('--until <date>', 'inclusive upper bound (YYYY-MM-DD)');
+  optionByKey(download, '--source <dof|banxico-fix|fed|ecb>', 'help.fx.rate.download.option.source');
+  optionByKey(download, '--as-of <date>', 'help.fx.rate.download.option.as_of');
+  optionByKey(download, '--since <date>', 'help.fx.rate.download.option.since');
+  optionByKey(download, '--until <date>', 'help.fx.rate.download.option.until');
   // externo: el núcleo añade --dry-run, --yes, --idempotency-key y --live.
   // El riesgo declarado es el de la clase de efecto de esta hoja —hablar con
   // un tercero y escribir la tabla global—, que es también el de su fila del

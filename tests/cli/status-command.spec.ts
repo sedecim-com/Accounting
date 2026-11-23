@@ -25,6 +25,7 @@ import {
   type StatusReport,
 } from '../../src/cli/status-command.js';
 import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 const mockQuery = query as unknown as Mock;
 
@@ -336,6 +337,10 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
 });
 
 describe('formatStatus — the readiness answer every surface gives (MNE-001-443)', () => {
+  // The credential label is the catalog's (MNE-001-444) and this file runs on
+  // the default locale; these cases read its English text.
+  beforeEach(() => setLanguage('en'));
+  afterEach(() => resetLanguage());
   it('a helper\'s credential reads as its api_key_cmd and file, not as «<VAR> set», and its command never prints', async () => {
     writeConfig({
       default_provider: 'vaulted',
@@ -436,6 +441,10 @@ describe('statusExitCode — DB is the primary gate; --strict adds probe failure
 });
 
 describe('redaction — the whole output is shareable in a support ticket', () => {
+  // The credential label is the catalog's (MNE-001-444) and this file runs on
+  // the default locale; these cases read its English text.
+  beforeEach(() => setLanguage('en'));
+  afterEach(() => resetLanguage());
   async function reportWithEchoingProvider(): Promise<StatusReport> {
     writeConfig();
     mockDbUp();

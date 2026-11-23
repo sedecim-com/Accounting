@@ -115,6 +115,8 @@ const IDENTICAL_BY_DESIGN = new Set<TranslationKey>([
   'policy.ingest_auto_post_max_amount.option.50000',
   // `pending define` confirmation: a tick, the key and the value, no words.
   'pending.define.done',
+  // A readiness answer that is only the name of a config key (MNE-001-444).
+  'provider.credential.helper',
 ]);
 
 // ---- §1 · Las claves -------------------------------------------------

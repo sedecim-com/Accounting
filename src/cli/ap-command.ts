@@ -1,6 +1,8 @@
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { apReconcile, type PartidaConciliatoria } from '../services/ap/ap-controls.js';
+import { AP_CHECK_NAMES, runApChecks } from '../services/ap/ap-checks.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -21,9 +23,11 @@ import { isRealCalendarDate } from '../utils/calendar-date.js';
 // ============================================================
 // mnemosine ap · cxp
 //
-// El control de la deuda con proveedores. Hoy una sola hoja, `ap reconcile`,
-// que responde la pregunta que un cierre de mes no puede saltarse: lo que el
-// subdiario dice que se debe, ¿está en el mayor?
+// El control de la deuda con proveedores. Dos hojas: `ap reconcile`, que
+// responde la pregunta que un cierre de mes no puede saltarse —lo que el
+// subdiario dice que se debe, ¿está en el mayor?—, y `ap check`, the named
+// payables checks (MNE-001-432), whose first probe names each open bill whose
+// received CFDI the SAT reports cancelled.
 //
 // Lectura pura y abierta al agente. Medir nunca es peligroso; lo peligroso es
 // cerrar un mes sin haber medido.
@@ -59,6 +63,7 @@ export interface ApCommandDeps {
 }
 
 interface CommonOpts {
+  check?: string | boolean;
   entity?: string;
   tenant?: string;
   format?: string;
@@ -100,6 +105,16 @@ Examples:
   mnemosine ap reconcile --as-of 2026-07-31 --explain
   # Exit 4 on any delta, for CI.
   mnemosine ap reconcile --as-of 2026-07-31 --strict
+`;
+
+const CHECK_EXAMPLES = `
+Examples:
+  # Every named payables check, for the active entity.
+  mnemosine ap check
+  # The names of the checks, without touching the database.
+  mnemosine ap check --check
+  # One check, exit 4 on its warning too, for CI.
+  mnemosine ap check --check cancelled-cfdi-open --strict
 `;
 
 export function registerApCommand(program: Command, deps: ApCommandDeps): void {
@@ -263,6 +278,57 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
         { blocking: bloqueantes, warning: nombradas.length },
         { strict: opts.strict === true }
       );
+    })
+  );
+
+  // ---- ap check ----------------------------------------------------
+  // MNE-001-432 (#643). The shape of `ar check`: named probes, `--check` bare
+  // lists them without touching the database, a blocking finding exits 4 and
+  // a warning only with --strict. Every bill a probe finds is printed.
+  const check = describeCommand(ap.command('check').alias('verificar'), 'help.ap.check.description');
+  withStrict(withOutput(withContext(check)));
+  optionByKey(check, '--check [names]', 'help.ap.check.option.check');
+  declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', CHECK_EXAMPLES);
+  check.action((opts: CommonOpts) =>
+    run(async () => {
+      if (opts.check === true) {
+        render(AP_CHECK_NAMES.map((name) => ({ check: name })), { ...opts, idField: 'check', total: AP_CHECK_NAMES.length });
+        return 0;
+      }
+      const ctx = await entityOf(opts);
+      const checks = typeof opts.check === 'string'
+        ? opts.check.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      const { results, blocking, warnings } = await runApChecks(ctx.entityId, { checks });
+      const p = deps.palette;
+
+      const format = opts.json ? 'json' : (opts.format ?? 'table');
+      if (format !== 'table' || opts.quiet || opts.output) {
+        render(
+          results.map((r) => ({
+            check: r.name, level: r.level, count: r.count, detail: t(r.detailKey), bills: r.bills,
+          })),
+          { ...opts, idField: 'check', total: results.length }
+        );
+      } else {
+        const out = process.stdout;
+        out.write(`\n${p.bold(t('ap.check.title'))} ${p.dim(`· ${ctx.entityName}`)}\n\n`);
+        for (const r of results) {
+          const icon = r.level === 'clean' ? p.green('✔') : r.level === 'warning' ? p.yellow('▲') : p.red('✘');
+          out.write(`  ${icon} ${r.name.padEnd(24)} ${p.dim(t(r.detailKey))}\n`);
+          for (const b of r.bills) {
+            const line = t('ap.check.bill_line', {
+              bill: b.bill_number, vendor: b.vendor, uuid: b.cfdi_uuid,
+              amount: b.amount_due, currency: b.currency, noted: b.noted_on,
+            });
+            out.write(`      · ${line}\n`);
+          }
+        }
+        out.write(`\n${t('ap.check.summary', { blocking, warnings })}\n`);
+      }
+
+      return checkExitCode({ blocking, warning: warnings }, { strict: opts.strict === true });
     })
   );
 }

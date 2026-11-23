@@ -19,6 +19,10 @@ import {
   rejectionReasonFrom,
   createProvenanceTracker,
 } from '../../src/cli/mnemosine.js';
+import { missingCredentialHint } from '../../src/cli/provider-readiness.js';
+import { KEY_URLS } from '../../src/ai/providers/credential-state.js';
+import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
+import { LANGUAGES, resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 describe('isAffirmative', () => {
   it('empty input takes the announced default (Y)', () => {
@@ -152,5 +156,29 @@ describe('createProvenanceTracker', () => {
     // A later, non-failing turn (no failover) does not inherit B.
     t.onTurnComplete();
     expect(committed).toEqual([]);
+  });
+});
+
+// MNE-001-444: a broken startup's provider reason is the readiness hint, in the
+// user's language; its repair line must still be `mnemosine init --section ai`.
+describe('repairCommandFor — the readiness hint of a missing credential', () => {
+  it('maps to the ai section for every built-in profile, in both languages', () => {
+    const profiles = Object.entries(BUILTIN_PROFILES).filter(([, p]) => p.api_key_env);
+    try {
+      for (const language of LANGUAGES) {
+        setLanguage(language);
+        for (const [name, profile] of profiles) {
+          const variable = profile.api_key_env!;
+          const missing = { source: { kind: 'missing' as const, variable, where: KEY_URLS[variable] ?? null }, ready: false, folderEnv: null, label: '' };
+          const refused = { source: { kind: 'refused' as const, variable: 'JWT_SECRET' }, ready: false, folderEnv: null, label: '' };
+          for (const state of [missing, refused]) {
+            const reason = missingCredentialHint(name, profile, state)!;
+            expect(repairCommandFor(reason), `${language} ${name}: ${reason}`).toBe('mnemosine init --section ai');
+          }
+        }
+      }
+    } finally {
+      resetLanguage();
+    }
   });
 });
