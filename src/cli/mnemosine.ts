@@ -2149,17 +2149,17 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
 const ingest = describeCommand(
   program.command('ingest').alias('ingesta'),
   'help.ingest.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
-  .option('-u, --user <email>', 'User the ingestion is attributed to (default: sole active user)')
-  .option('--auto-post', 'Enables threshold-based auto-posting (default: everything stays as draft)')
-  .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
-  .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
-  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
-  .option('--retry', 'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates')
-  .addHelpText('after', EJEMPLOS.ingest);
+).addHelpText('after', EJEMPLOS.ingest);
+optionByKey(ingest, '-e, --entity <idOrName>', 'help.ingest.option.entity');
+optionByKey(ingest, '-p, --provider <name>', 'help.ingest.option.provider');
+optionByKey(ingest, '-m, --model <model>', 'help.ingest.option.model');
+optionByKey(ingest, '-u, --user <email>', 'help.ingest.option.user');
+// The positive flag first: Commander then gives autoPost no default, and the panel decides.
+optionByKey(ingest, '--auto-post', 'help.ingest.option.auto_post');
+optionByKey(ingest, '--no-auto-post', 'help.ingest.option.no_auto_post');
+optionByKey(ingest, '--min-confidence <n>', 'help.ingest.option.min_confidence', { parser: parseFloat });
+optionByKey(ingest, '--max-amount <n>', 'help.ingest.option.max_amount', { parser: parseFloat });
+optionByKey(ingest, '--retry', 'help.ingest.option.retry');
 // MNE-001-096 (#312): the SAT census enters through the same leaf.
 argumentByKey(ingest, '<files...>', 'help.ingest.argument.files');
 optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml', parser: parseKind });
@@ -3306,10 +3306,10 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
 const question = describeCommand(
   program.command('question').aliases(['duda', 'questions', 'dudas']),
   'help.question.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without answering (deprecated: use `question list`)');
+);
+optionByKey(question, '-e, --entity <idOrName>', 'help.question.option.entity');
+optionByKey(question, '-u, --user <email>', 'help.question.option.user');
+optionByKey(question, '-l, --list', 'help.question.option.list');
 
 const questionList = describeCommand(
   question.command('list').alias('listar'),
@@ -3331,16 +3331,13 @@ questionList.action(async (_opts: unknown, cmdArg: Command) => {
 });
 
 const questionAnswer = describeCommand(
-  question
-    .command('answer')
-    .alias('responder')
-    .argument('[id]', 'question id; omit to answer the pending queue interactively')
-    .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)'),
+  question.command('answer').alias('responder'),
   'help.question.answer.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.questionAnswer);
+).addHelpText('after', EJEMPLOS.questionAnswer);
+argumentByKey(questionAnswer, '[id]', 'help.question.answer.argument.id');
+argumentByKey(questionAnswer, '[answer...]', 'help.question.answer.argument.answer');
+optionByKey(questionAnswer, '-e, --entity <idOrName>', 'help.question.answer.option.entity');
+optionByKey(questionAnswer, '-u, --user <email>', 'help.question.answer.option.user');
 declareRisk(questionAnswer, {
   risk: 'escritura',
   agent: false,

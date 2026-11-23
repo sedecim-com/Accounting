@@ -120,6 +120,18 @@ provides:
     # Rollback: the previous build ignores the column, so cash an unapply kept would cause
     # its IVA again when applied; before reverting, post DR 2120 / CR 2150 by hand for each
     # unapply_kept_iva_amount still on account: what its unapply posted beyond this one.
+    # CONTRACT: after a credit note, `receipt unapply` of cash that carried an advance's IVA
+    # (a receipt with a treatment, MNE-001-462, or a plain receipt's pool, MNE-001-574/591)
+    # restores to 2120 only the advance IVA the note did not restitute (MNE-001-592, #814;
+    # LIVA art. 7): 1,160.00 at 16 % on a 1,000.00 + 160.00 invoice with a 200.00 + 32.00
+    # note posts CR 2150 1,032.00 / CR 2125 128.00 with no 2120 line, where it posted CR
+    # 2150 1,000.00 / CR 2125 128.00 / CR 2120 32.00. The closed allocation stores the
+    # restitution in `unapply_restituted_iva_amount` (342), and the advance left loses it and
+    # the cash it covers (restituted × total / tax). `--json` is unchanged; the audit adds
+    # `advance_iva_restituted`. Rollback: the previous build ignores the column, so a later
+    # application would take the restituted IVA from the advance again; before reverting,
+    # post DR 2150 / CR 2120 by hand for each restituted amount still on account. The
+    # migration can stay.
     # CONTRACT: the panel key `plain_receipt_unapply_iva` (MNE-001-585, #792 part 2/3)
     # governs that unapply: `keep_caused`, the default, is the line above unchanged; under
     # `repark_same_month` a row whose IVA was released in the calendar month of the unapply

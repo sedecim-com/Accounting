@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type pg from 'pg';
 import {
-  capKept, issuedVatKeptOnAccount, keptCashOf, keptIvaOf, keptOnAccount, restitutedCash, takeFromAdvance,
+  capKept, issuedVatKeptOnAccount, keptCashOf, keptIvaOf, keptOnAccount, restitutedByRow, restitutedCash, restitutedOf, takeFromAdvance,
 } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-574 (#792, part 1/3) · The IVA one allocation's unapply keeps caused
@@ -75,6 +75,50 @@ describe('keptCashOf', () => {
     ['at four decimals, half up', { amount: '1000.0000', plain: '1000.0000', released: '160.0000', kept: '0.0002' }, '0.0013'],
   ] as const)('%s', (_case, row, cash) => {
     expect(keptCashOf(row)).toBe(cash);
+  });
+});
+
+// MNE-001-592 (#814, decision (A)): after a credit note, cash that carried an advance's IVA keeps caused only
+// the IVA of the balance owed again; what the note restituted is not caused again (LIVA art. 7).
+describe('restitutedOf', () => {
+  it.each([
+    ['A1: a note for the whole sale restitutes the advance\'s 16', ['16.0000', '16.0000', '16.0000'], { restituted: '16.0000', kept: '0.0000', back: '0.0000' }],
+    ['A1b and A1p: a note of 32 on an advance IVA of 160', ['160.0000', '160.0000', '32.0000'], { restituted: '32.0000', kept: '128.0000', back: '128.0000' }],
+    // c 160 against an invoice's g 80 and a note's 16: only the note leaves, c − g stays caused (MNE-001-461).
+    ['mixed rates: c 160, g 80, a note of 16 keeps 144, not the 64 that goes back', ['160.0000', '80.0000', '16.0000'], { restituted: '16.0000', kept: '144.0000', back: '64.0000' }],
+    ['no note: nothing restituted, the advance\'s IVA back whole', ['16.0000', '16.0000', '0'], { restituted: '0.0000', kept: '16.0000', back: '16.0000' }],
+    ['no advance IVA: nothing to restitute, whatever the note kept', ['0', '160.0000', '32.0000'], { restituted: '0.0000', kept: '0.0000', back: '128.0000' }],
+  ] as const)('%s', (_case, [advanceIva, released, noteKept], out) => {
+    expect(restitutedOf(advanceIva, released, noteKept)).toEqual(out);
+  });
+});
+
+describe('restitutedByRow', () => {
+  it.each([
+    // 16 × 10 / 32 = 5; the last row takes 16 − 5
+    ['two rows split 16 by their c of 10 and 22', ['10.0000', '22.0000'], '16.0000', ['5.0000', '11.0000']],
+    // a treated receipt's record-time cash (backAsAdvance, MNE-001-462) weighs like c: 32 × 16 / 160 = 3.2
+    ['a row\'s backAsAdvance IVA weighs with its c', ['144.0000', '16.0000'], '32.0000', ['28.8000', '3.2000']],
+    // 10 × 10 / 30 = 3.3333 twice; the last 10 − 6.6666 = 3.3334
+    ['a share that does not divide: the rows still add up to it', ['10.0000', '10.0000', '10.0000'], '10.0000', ['3.3333', '3.3333', '3.3334']],
+    ['a row that carried no advance IVA stores none', ['16.0000', '0.0000'], '16.0000', ['16.0000', '0.0000']],
+    ['nothing restituted, nothing stored', ['16.0000'], '0.0000', ['0.0000']],
+  ] as const)('%s', (_case, weights, restituted, out) => {
+    expect(restitutedByRow(weights, restituted)).toEqual(out);
+  });
+});
+
+// The cash the restitution covers, as `advanceLeft` and the paper read it (`restitutedCash`, shared with 593).
+describe('restitutedCash, for an unapply after a note', () => {
+  it.each([
+    // 32 × 1,160 / 160 = 232.0000
+    ['A1b: 32 restituted on S 1,160 / 160 covers 232', '32.0000', '1160.0000', '160.0000', '232.0000'],
+    ['A1: 16 on S 116 / 16 covers the whole 116', '16.0000', '116.0000', '16.0000', '116.0000'],
+    // 1 × 1,000 / 137.9310 = 7.2500018…
+    ['at four decimals, half up', '1.0000', '1000.0000', '137.9310', '7.2500'],
+    ['an invoice with no IVA covers nothing', '16.0000', '100.0000', '0.0000', '0.0000'],
+  ] as const)('%s', (_case, restituted, total, tax, cash) => {
+    expect(restitutedCash(restituted, total, tax)).toBe(cash);
   });
 });
 

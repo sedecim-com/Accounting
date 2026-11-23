@@ -26,10 +26,10 @@ CLI) is the same and the "brain" is swapped per profile. Built-in profiles
 | `hermes-agent` | OpenAI-compatible | 127.0.0.1:8642/v1 (`hermes gateway`) | `HERMES_AGENT_KEY` |
 | `ollama` | OpenAI-compatible | localhost:11434/v1 (local models) | none |
 | `openai` | OpenAI-compatible | api.openai.com/v1 (`gpt-5.1`) | `OPENAI_API_KEY` |
-| `grok` | OpenAI-compatible | api.x.ai/v1 (`grok-4`) | `XAI_API_KEY` |
+| `grok` | OpenAI-compatible | api.x.ai/v1 (`grok-4.3`, not verified live) | `XAI_API_KEY` |
 | `minimax` | OpenAI-compatible | api.minimax.io/v1 (`MiniMax-M2`) | `MINIMAX_API_KEY` |
 | `qwen` | OpenAI-compatible | dashscope-intl…/compatible-mode/v1 (`qwen3-max`) | `DASHSCOPE_API_KEY` |
-| `gemini` | OpenAI-compatible | generativelanguage.googleapis.com/v1beta/openai (`gemini-2.5-pro`) | `GEMINI_API_KEY` |
+| `gemini` | OpenAI-compatible | generativelanguage.googleapis.com/v1beta/openai (`gemini-3.8-flash`, not verified live) | `GEMINI_API_KEY` |
 | `openrouter` | OpenAI-compatible | openrouter.ai/api/v1 (`openrouter/auto`) | `OPENROUTER_API_KEY` |
 | `copilot` | OpenAI-compatible | api.githubcopilot.com | `COPILOT_API_TOKEN` ⚠ OAuth token |
 | `openclaw` | OpenAI-compatible | 127.0.0.1:18789/v1 (`openclaw:main`) | `OPENCLAW_GATEWAY_TOKEN` |
@@ -94,7 +94,7 @@ leverage them from mnemosine:
          "api_key_cmd": "jq -r '.tokens.access_token' ~/.codex/auth.json"
        },
        "con-1password": {
-         "type": "openai-compatible", "model": "grok-4",
+         "type": "openai-compatible", "model": "grok-4.3",
          "base_url": "https://api.x.ai/v1",
          "api_key_env": "XAI_API_KEY",
          "api_key_cmd": "op read op://vault/xai/credential"

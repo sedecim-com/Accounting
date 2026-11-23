@@ -157,6 +157,9 @@ function colaDe(nombre: string): number | undefined {
 const VENTANAS_DECLARADAS: Record<string, number> = {
   anthropic: 1_000_000,
   gemini: 1_048_576,
+  // grok-4.3 serves 1 000 000, but xAI bills a prompt of 200K or more at
+  // twice the rate for all its tokens: the window stops there (MNE-001-449).
+  grok: 200_000,
   hermes: 131_072,
   ollama: 32_768,
 };
@@ -164,7 +167,6 @@ const VENTANAS_DECLARADAS: Record<string, number> = {
 const SIN_VENTANA = [
   'hermes-agent',
   'openai',
-  'grok',
   'minimax',
   'qwen',
   'openrouter',
@@ -216,6 +218,7 @@ describe('umbral derivado de la ventana', () => {
     expect(`hermes:${umbralDe('hermes')}`).toBe('hermes:65536');
     expect(`anthropic:${umbralDe('anthropic')}`).toBe('anthropic:500000');
     expect(`gemini:${umbralDe('gemini')}`).toBe('gemini:524288');
+    expect(`grok:${umbralDe('grok')}`).toBe('grok:100000');
 
     // La fracción es la misma para todos y no es 1: compactar al 100% de la
     // ventana es reventar.
