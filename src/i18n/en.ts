@@ -5767,4 +5767,43 @@ export const EN = {
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  // credential-state.ts builds the label every surface prints (doctor,
+  // providers, status, init, the jobs tick, chat); provider-readiness.ts the
+  // hint that a chat or ask with no credential prints. A label never carries a
+  // value or a helper's command, only names.
+  'provider.credential.env': '{variable} set',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd in {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd in {file}, a project file shared by everyone who runs mnemosine in that folder',
+  'provider.credential.local': 'local, no credential',
+  'provider.credential.none': 'no credential configured',
+  'provider.credential.missing': '{variable} missing',
+  'provider.credential.missing_at': '{variable} missing (get it at {where})',
+  'provider.credential.refused': '{variable} is not a provider credential',
+  'provider.credential.folder_key':
+    '{label}; {file} defines it, so that key serves everyone who runs mnemosine in that folder',
+  'provider.credential.folder_empty': '{label}; the empty {variable}= in {file} hides ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY set, which the Anthropic SDK reads',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN set, a bearer token the Anthropic SDK sends',
+  'provider.credential.anthropic.custom_header': 'an {header} line in ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'signed in: Anthropic profile {profile} in {file}',
+  'provider.credential.anthropic.federation':
+    'workload identity federation (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID and an identity token)',
+  'provider.credential.hint.missing':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env (get it at {where}).',
+  'provider.credential.hint.anthropic_alternative': 'Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'Provider {name} names {variable} in api_key_env, which is not a provider credential: name a variable of its own that holds the key.',
+  'provider.credential.hint.keyless':
+    'Provider {name} has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint needs no key, start the chat with --provider {name}.',
+  'provider.credential.hint.init': 'To set it up: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env, or run `ant auth login`.',
+  'provider.switch.kept': 'The session stays on {current}.',
+  'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
+  // ==== end of MNE-001-444 ====
 } as const;
