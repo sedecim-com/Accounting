@@ -4924,6 +4924,95 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.net_income': 'Utilidad neta',
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  'doctor.check.permission_conflicts': 'Segregación de funciones (permisos)',
+  'doctor.summary.title': 'Revisión de salud de Mnemosine',
+  'doctor.summary.fail': 'Hay fallas que impiden operar. Resuélvelas en el orden en que aparecen.',
+  'doctor.summary.warn': 'Opera con avisos.',
+  'doctor.summary.ok': 'Todo en orden.',
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# violación nueva} other {# violaciones nuevas}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'La superficie del CLI se mantiene coherente porque cada verbo sale de una lista cerrada y cada bandera del diccionario único. ' +
+    'Corrige el comando, o —si el cambio es deliberado— amplía el vocabulario en src/cli/kernel/vocabulary.ts. ' +
+    'La línea base de src/cli/kernel/audit.ts NO se amplía.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# entrada de la línea base ya no se viola: bórrala} other {# entradas de la línea base ya no se violan: bórralas}}',
+  'doctor.cli_consistency.inherited':
+    'sin violaciones nuevas; {count, plural, one {queda # heredada} other {quedan # heredadas}} en la línea base{stale}',
+  'doctor.cli_consistency.clean': 'la superficie cumple todas las reglas{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'Las heredadas son deuda conocida y congelada: nueve son decisiones de nombre, tres exigen retirar una forma corta ya publicada, ' +
+    'y ocho piden que cuatro listados se puedan paginar.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ líneas posteadas, y todo posteado tiene su rastro',
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (cuenta, periodo) donde account_balances ≠ Σ líneas posteadas — todo reporte encima hereda la diferencia',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# asiento posteado} other {# asientos posteados}} sin fila 'post' en audit_log — hechos sin autor",
+  'doctor.ledger_integrity.fix':
+    'La deriva de saldos se investiga ANTES de recalcular: desde la 041 una línea posteada no se edita, ' +
+    'así que una diferencia nueva apunta al camino de escritura de account_balances, no a las líneas.',
+  'doctor.permission_conflicts.ok': 'ningún usuario activo acumula permisos en conflicto',
+  'doctor.permission_conflicts.fix':
+    'Reparte los permisos en conflicto entre usuarios distintos, o acepta el riesgo a sabiendas ' +
+    '(en un despacho unipersonal es inevitable; el maker-checker por póliza vive en el panel: segregacion_de_funciones).',
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} de {total, plural, one {# garantía} other {# garantías}} sin sellar{off, plural, =0 {} one { (# APAGADA)} other { (# APAGADAS)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <tabla> ENABLE ALWAYS TRIGGER <disparador>  — y averigua QUIÉN lo apagó y por qué',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# garantía en ENABLE ALWAYS: ni session_replication_role la calla} other {# garantías en ENABLE ALWAYS: ni session_replication_role las calla}}',
+  'doctor.bank_statements.unnamed_file': '(sin nombre)',
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# inquilino revisado} other {# inquilinos revisados}}{blind, plural, =0 {} other {, # sin poder mirarse}}',
+  'doctor.bank_statements.unrepaired': 'esta base registró la 051 antes de su corrección',
+  'doctor.bank_statements.unique_index': 'el índice de contenido es ÚNICO y se traga movimientos legítimamente idénticos',
+  'doctor.bank_statements.blind_trigger': 'el disparador no vigila content_hash, así que la huella se puede forjar a mano',
+  'doctor.bank_statements.already_missing':
+    'ya {lines, plural, one {falta # línea} other {faltan # líneas}} en {statements, plural, one {# extracto} other {# extractos}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — aplica la 072; las líneas ya perdidas hay que reimportarlas a mano, el remedio devuelve la capacidad, no el dato',
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# línea declarada y no presente} other {# líneas declaradas y no presentes}} en {statements, plural, one {# extracto} other {# extractos}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compara antes de tocar nada: si esas líneas están en la cuenta bajo OTRO extracto de periodo traslapado, la base está sana y ' +
+    'esto es el hueco declarado de la 051. Sólo si no aparecen en ninguna parte hubo pérdida, y entonces se reimporta el archivo con ' +
+    'la cuenta a la vista de un humano — nunca soltando la fila de bank_statements, que es evidencia',
+  'doctor.bank_statements.blind':
+    'el catálogo está reparado, pero {scope}: sin poder leer sus extractos no puedo decir que estén completos',
+  'doctor.bank_statements.blind_fix': 'revisa que el rol de la aplicación pueda consultar bank_statements con contexto de inquilino',
+  'doctor.bank_statements.ok':
+    'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor no existe: dar acceso a un auditor externo hoy exige prestarle credenciales de ESCRITURA sobre los libros',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (no cabe en una migración: el migrador no tiene CREATEROLE, y es a propósito)',
+  'doctor.auditor_role.bypasses_rls': 'IGNORA LA RLS (BYPASSRLS): ve los libros de TODOS los inquilinos',
+  'doctor.auditor_role.superuser': 'es SUPERUSUARIO',
+  'doctor.auditor_role.creates_roles': 'puede crear roles',
+  'doctor.auditor_role.writes': 'tiene ESCRITURA sobre {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — el guion reafirma NOBYPASSRLS y revoca; averigua además QUIÉN se lo concedió',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor tiene LOGIN: está pensado como paquete de privilegios que se concede a cuentas NOMINALES (una por auditor), no como cuenta compartida',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  y emite una cuenta por persona: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor lee {count, plural, one {# vista materializada} other {# vistas materializadas}} ({views}): ' +
+    'no las filtra la RLS y las construye un rol con BYPASSRLS, así que contienen los libros de TODOS los inquilinos',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — su bloque 4 revoca toda relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor existe y está bien acotado, pero no se pudo medir su cobertura de tablas',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (su bloque de verificación imprime los dos conteos)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor sólo lee {readable} de las {total} tablas aisladas: ' +
+    '{missing, plural, one {# tabla nació} other {# tablas nacieron}} después del último GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (vuelve a conceder y fija los privilegios por defecto de lo que venga)',
+  'doctor.auditor_role.global_tables':
+    'además {count, plural, one {# sin inquilino, que debe ser sólo referencia global} other {# sin inquilino, que deben ser sólo referencia global}} ({tables})',
+  'doctor.auditor_role.ok': 'sólo lectura sobre {count} tablas aisladas, NOLOGIN y sujeto a la RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
   'payrun.file_duplicate_employee':
