@@ -495,6 +495,14 @@ mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/sat-census/cancell
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its predicate: the same cancellation rewrites the mark and the count reports bills that did not move
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql	the backfill matches the mirror across entities: a bill of a sister entity with the same UUID is marked
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/xml-ingestion/pre-registration-service.ts	bill inbox run and the AI-draft approval write a bill on a CFDI already known cancelled, and it waits unmarked for the next sweep
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	an opening bill, new or taken over, whose UUID the census already reports cancelled is born unmarked
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark loses its entity scope: the statement no longer says whose bill it may touch
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark reads the mirror across entities: a sister entity that cancelled the same UUID marks this bill
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark reads the census across entities: another entity's metadata marks this bill
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark loses its predicate: measuring a bill again rewrites the moment the system first learned it
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	the takeover rewrites cfdi_uuid and keeps the old UUID's mark: ap check names a bill for a CFDI it no longer carries
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	the takeover compares the old UUID with itself, so it always keeps the mark, whatever UUID the bill now carries
 mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control reads a value the mark never writes: every marked bill with a balance goes unnamed
 mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the open set: a void or draft bill is named as owed
 mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the balance: a bill with nothing left to pay is named as owed
@@ -1255,6 +1263,14 @@ anchor	src/plan/criteria/e3-2.ts	de: 'bills += await markBillCfdiCancelled(scope
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: 'AND cfdi_cancellation_noted_at IS NULL',
 anchor	src/plan/criteria/e3-2.ts	de: 'x.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);',
+anchor	src/plan/criteria/e3-2.ts	de: 'await noteBillCfdiAlreadyCancelled(client, entityId, billId);',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: 'x.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'c.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.cfdi_cancellation_noted_at IS NULL',
+anchor	src/plan/criteria/e3-2.ts	de: ' cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)\n THEN cfdi_cancellation_noted_at END,\n',
+anchor	src/plan/criteria/e3-2.ts	de: 'lower($12::text)',
 anchor	src/plan/criteria/e3-2.ts	de: 'AND b.cfdi_cancellation_noted_at IS NOT NULL',
 anchor	src/plan/criteria/e3-2.ts	de: 'AND b.status = ANY($2::text[])',
 anchor	src/plan/criteria/e3-2.ts	de: 'AND b.amount_due > 0',
