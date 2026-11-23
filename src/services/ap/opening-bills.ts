@@ -6,6 +6,7 @@ import { nextEntityNumber, nextVendorNumber } from '../../utils/sequence.js';
 import type { OpeningFinding, OpeningPlan } from '../accounting/opening-balance.js';
 import { reclassRoles } from '../accounting/iva-cash-basis.js';
 import { controlDocuments, identityRfc } from '../ar/opening-invoices.js';
+import { noteBillCfdiAlreadyCancelled } from './bill-cfdi-cancellation.js';
 
 // ============================================================
 // OPEN PAYABLES OF A MIGRATION (MNE-001-023 · #310, layer 3 of O1)
@@ -509,9 +510,11 @@ export async function writeOpeningBills(
         `UPDATE bills
             SET vendor_id = $1, subtotal = $9, tax_amount = $10, total_amount = $2, amount_due = $2,
                 currency_code = $3, bill_date = $4, due_date = $5, cfdi_uuid = $6,
+                cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)
+                                                  THEN cfdi_cancellation_noted_at END,
                 journal_entry_id = $7, updated_at = NOW()
           WHERE id = $11 AND entity_id = $8 AND status = 'approved' AND amount_paid = 0`,
-        [...values, d.replacesId]
+        [...values, d.replacesId, d.cfdiUuid]
       );
       if (r.rowCount !== 1) {
         throw new ConflictError(
@@ -532,6 +535,10 @@ export async function writeOpeningBills(
       );
       billId = inserted.rows[0].id;
     }
+    // MNE-001-601: the takeover above kept the mark only for the same UUID
+    // (on the right of a SET, cfdi_uuid is the old value); either way the
+    // bill is measured against the UUID it now carries.
+    await noteBillCfdiAlreadyCancelled(client, entityId, billId);
     // One line: the DIOT breaks the paid IVA down by the rate of the lines.
     await client.query(
       `INSERT INTO bill_lines (bill_id, line_number, account_id, description, quantity, unit_price,
