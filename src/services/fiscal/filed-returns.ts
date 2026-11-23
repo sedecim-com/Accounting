@@ -215,14 +215,14 @@ export async function balancesInFavorBefore(
      ), sources AS (
        SELECT s.entity_id, s.acknowledgement_number AS "acknowledgementNumber",
               to_char(s.period, 'YYYY-MM') AS period, to_char(s.filed_on, 'YYYY-MM-DD') AS "filedOn",
-              s.balance_in_favor::text AS "balanceInFavor", COALESCE(c.amount, 0)::numeric(19,2)::text AS credited,
-              COALESCE(u.compensated, 0)::numeric(19,2)::text AS compensated,
-              COALESCE(u.refund, 0)::numeric(19,2)::text AS "refundRequested"
+              s.balance_in_favor::text AS "balanceInFavor", COALESCE(cr.amount, 0)::numeric(19,2)::text AS credited,
+              COALESCE(us.compensated, 0)::numeric(19,2)::text AS compensated,
+              COALESCE(us.refund, 0)::numeric(19,2)::text AS "refundRequested"
          FROM in_force s
-         LEFT JOIN credited c ON c.source_period = s.period
-         LEFT JOIN used u ON u.source_period = s.period
+         LEFT JOIN credited cr ON cr.source_period = s.period
+         LEFT JOIN used us ON us.source_period = s.period
         WHERE s.period < $4::date
-          AND (s.balance_in_favor > 0 OR c.amount > 0 OR u.compensated > 0 OR u.refund > 0)
+          AND (s.balance_in_favor > 0 OR cr.amount > 0 OR us.compensated > 0 OR us.refund > 0)
      )
      SELECT x."acknowledgementNumber", x.period, x."filedOn", x."balanceInFavor", x.credited, x.compensated,
             x."refundRequested"
