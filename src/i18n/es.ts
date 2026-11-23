@@ -3856,11 +3856,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
   'help.ar.check.option.strict': 'sale con 4 también ante avisos, no sólo ante hallazgos bloqueantes',
   'help.ap.description':
-    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control',
+    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control y corre las verificaciones por nombre',
   'help.ap.reconcile.description':
     'Auxiliar de proveedores (facturas abiertas) contra la cuenta de control de cxp, nombrando las partidas en conciliación',
   'help.ap.reconcile.option.as_of': 'fecha de corte de los dos lados de la conciliación (AAAA-MM-DD; por omisión, hoy)',
   'help.ap.reconcile.option.explain': 'explica en prosa cada partida en conciliación, no sólo la tabla',
+  'help.ap.check.description':
+    'Verificaciones de cuentas por pagar por nombre; `--check` sin valor las lista, `--check a,b` elige',
+  'help.ap.check.option.check': 'verificaciones a correr, separadas por comas; --check sin valor lista la batería',
+  'ap.check.title': 'Verificaciones de CxP',
+  'ap.check.cancelled_cfdi_open.found':
+    'facturas de proveedor abiertas cuyo CFDI recibido el SAT reporta cancelado: detén el pago hasta que el proveedor mande el CFDI que lo sustituye; ' +
+    'qué significa para la deducción y el IVA lo decide el contador, y no se revirtió nada',
+  'ap.check.cancelled_cfdi_open.none': 'ninguna',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · debe {amount} {currency} · marcada el {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# bloqueante} other {# bloqueantes}} · {warnings, plural, one {# aviso} other {# avisos}}',
   'help.cashflow.description':
     'Estado de flujos de efectivo (NIF B-2 / ASC 230): armarlo y cuadrarlo contra el efectivo real',
   'help.cashflow.generate.description':
