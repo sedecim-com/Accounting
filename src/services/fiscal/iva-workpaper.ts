@@ -1005,7 +1005,9 @@ async function cashOnAccountOfMonth(
         // carries is the share's own, the invoice's telescope read here.
         // MNE-001-574: what the unapply kept caused, where it stored it, is the
         // figure the ledger and the pool read.
-        const unreleased = a.held && new Decimal(a.vat).isZero();
+        // MNE-001-586: since then the unapply stores that figure too, and the cashing causes it in the ledger:
+        // only a row closed before it, with no marker, never released.
+        const unreleased = a.held && new Decimal(a.vat).isZero() && a.kept === null;
         // A row that also took taxed cash stored the kept IVA of its plain part
         // alone, which the scaling below brings back to that part.
         const vat = a.kept !== null

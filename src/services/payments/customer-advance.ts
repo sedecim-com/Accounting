@@ -261,6 +261,10 @@ export function restitutedCash(iva: string, total: string, tax: string): string 
  * every restitution) less the IVA its live rows took from it. A note on the
  * invoice restitutes up to H from 2120 (LIVA art. 7), as a note on a
  * collected invoice does. Entity-scoped in the SQL.
+ *
+ * MNE-001-586 · A cheque the bank has not cashed holds none: its rows' marker
+ * is IVA the cashing will cause (LIVA art. 1-B, second paragraph), not yet in
+ * 2120, so there is nothing there to restitute.
  */
 export async function issuedVatKeptOnAccount(
   client: pg.PoolClient,
@@ -272,6 +276,7 @@ export async function issuedVatKeptOnAccount(
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 AND cp.status = 'completed'
       WHERE pa.invoice_id = $2 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0
+        AND NOT (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL)
       GROUP BY cp.id, cp.payment_number
       ORDER BY cp.payment_number`,
     [entityId, invoiceId]
@@ -443,6 +448,34 @@ export function releaseDayOf(
   const day = appliedOn ?? receipt.paymentDate;
   const cashed = receipt.paymentMethod === 'check' ? receipt.checkCashedOn : null;
   return cashed !== null && cashed > day ? cashed : day;
+}
+
+/**
+ * MNE-001-586 (#792, part 3/3) · What each row of a held cheque's unapply
+ * keeps for the cashing: `share` is the IVA the cashing would have released
+ * for these rows (the invoice's telescope, less what they stored), and only
+ * the plain cash carries it, so the rows keep share × plain / amount at four
+ * decimals, half up, split by each row's plain cash, the last such row taking
+ * the exact remainder. A row that took cash from the pool gives that back on
+ * its own (`deferredAdvanceIva` stops subtracting it at the cashing).
+ */
+export function heldKeptByRow(share: Decimal.Value, rows: readonly { amount: string; plain: string }[]): string[] {
+  const zero = rows.map(() => '0.0000');
+  const amount = rows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
+  const plains = rows.map((r) => Decimal.max(new Decimal(r.plain), 0));
+  const plain = plains.reduce((s, p) => s.plus(p), new Decimal(0));
+  if (!new Decimal(share).greaterThan(0) || !amount.greaterThan(0) || !plain.greaterThan(0)) return zero;
+  const target = plain.greaterThanOrEqualTo(amount)
+    ? new Decimal(share)
+    : new Decimal(share).times(plain).dividedBy(amount).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+  const last = plains.map((p) => p.greaterThan(0)).lastIndexOf(true);
+  let given = new Decimal(0);
+  return plains.map((p, i) => {
+    if (!p.greaterThan(0)) return '0.0000';
+    const mine = i === last ? target.minus(given) : target.times(p).dividedBy(plain).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+    given = given.plus(mine);
+    return mine.toFixed(4);
+  });
 }
 
 /**
