@@ -2537,6 +2537,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
+  // MNE-001-594 (#695): un traspaso de crédito de un cliente no movió dinero, así que no tiene rastro.
+  'receipt.trace.balance_transfer':
+    '{number} es un traspaso de crédito de un cliente desde {source}: no se movió dinero, así que no tiene cheque, banco del cliente ni cuenta bancaria que completar, y ninguna póliza los declara. El rastro va en {source}, el cobro que recibió el dinero. No se escribió nada.',
   // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
   'payment.trace.bank_no_entry':
     'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',

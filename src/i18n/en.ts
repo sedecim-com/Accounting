@@ -2698,6 +2698,9 @@ export const EN = {
   // MNE-001-570 (#612): the trace of a registered receipt.
   'receipt.trace.nothing_given':
     'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
+  // MNE-001-594 (#695): a transfer of customer credit moved no money, so it has no trace.
+  'receipt.trace.balance_transfer':
+    '{number} is a transfer of customer credit from {source}: no money moved, so it has no cheque, payer bank or bank account to complete, and no voucher declares one. The trace belongs on {source}, the receipt that collected the money. Nothing was written.',
   // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
   'payment.trace.bank_no_entry':
     'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
