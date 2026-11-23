@@ -1346,6 +1346,7 @@
       "src/services/fiscal/inpc/periodo.ts": 32,
       "src/services/fiscal/issued-credit-notes.ts": 7,
       "src/services/fiscal/iva-workpaper.ts": 36,
+      "src/services/fiscal/prior-balance.ts": 7,
       "src/services/fiscal/provisional-income-tax-inputs.ts": 1,
       "src/services/fiscal/provisional-income-tax.ts": 9,
       "src/services/fiscal/sale-sources.ts": 7,
