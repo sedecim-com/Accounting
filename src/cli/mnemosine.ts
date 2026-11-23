@@ -31,7 +31,6 @@ import {
   resolveLanguage,
   setUserLocale,
   configFilePaths,
-  MissingProviderCredentialError,
 } from '../ai/providers/config.js';
 import {
   DEFAULT_LOCALE,
@@ -64,7 +63,13 @@ import {
   updateSessionProvider,
   type SessionRow,
 } from '../ai/session-store.js';
-import { ingestCfdiFiles, leftToCodeSummary, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import {
+  ingestCfdiFiles,
+  leftToCodeSummary,
+  previewCfdiFiles,
+  resolveIngestProfile,
+  type DraftCapture,
+} from '../ai/ingest-service.js';
 import {
   SUPERFICIE_DESATENDIDA,
   SUPERFICIE_DESATENDIDA_SANDBOX,
@@ -2298,12 +2303,10 @@ ingest.action(async (files: string[], opts: {
       // The run goes on with the deterministic layer (rules, the vendor's
       // default accounts) and leaves the rest in the inbox, instead of failing
       // each file with «Model failure».
-      let profile: ReturnType<typeof resolveProfile> | null = null;
-      try {
-        profile = resolveProfile(opts.provider, opts.model);
-      } catch (err) {
-        if (!(err instanceof MissingProviderCredentialError)) throw err;
-        console.error(c.yellow(`Warning: ${err.message}`) + c.dim('\n  Only the deterministic layer runs.'));
+      // A failing helper is not «no provider»: resolveIngestProfile throws it.
+      const { profile, warning } = resolveIngestProfile(() => resolveProfile(opts.provider, opts.model));
+      if (warning) {
+        console.error(c.yellow(`Warning: ${warning}`) + c.dim('\n  Only the deterministic layer runs.'));
       }
       // Batch pipeline with auto-post thresholds: the grounding corrective
       // turn is harness-initiated and must never be able to add drafts to

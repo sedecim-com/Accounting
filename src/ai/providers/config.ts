@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
 import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
 import { REASONING_EFFORT_LEVELS } from './types.js';
+import { RenewingHelperKey, runCredentialHelperSync } from './credential-helper.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -296,7 +296,7 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
     base_url: 'https://api.openai.com/v1',
     api_key_env: 'OPENAI_API_KEY',
     max_tokens_param: 'max_completion_tokens',
-    note: 'OpenAI via API key (API equivalent of the ChatGPT/Codex subscription)',
+    note: 'OpenAI via a project API key. A ChatGPT or Codex login is not accepted by the public API',
     ventana: {
       postura: 'desconocida',
       razon:
@@ -866,7 +866,7 @@ export function resolveProfile(
   modelOverride?: string,
   cwd = process.cwd()
 ): ResolvedProfile {
-  const { profiles, defaultName } = listProfiles(cwd);
+  const { profiles, defaultName, source } = listProfiles(cwd);
   const name = flagName || defaultName;
   const profile = profiles[name];
   if (!profile) {
@@ -890,24 +890,18 @@ export function resolveProfile(
   if (profile.api_key_env) {
     apiKey = process.env[profile.api_key_env] || undefined;
   }
-  // Credential helper: only if the env did not resolve. Lets you reuse OAuth
-  // tokens of already-logged-in subscriptions (e.g. Codex CLI) or vaults.
+  // Credential helper: only if the env did not resolve. For vaults, keychains
+  // and a short-lived token from the person's own login (gcloud). The first
+  // run is here, before any session opens, so a broken helper fails early,
+  // with CredentialHelperError's fixed message (never its command or stderr).
+  let keyRenewal: RenewingHelperKey | undefined;
   if (!apiKey && profile.api_key_cmd) {
-    try {
-      apiKey =
-        execSync(profile.api_key_cmd, {
-          encoding: 'utf-8',
-          timeout: 10_000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        }).trim() || undefined;
-    } catch (err) {
-      throw new Error(
-        `Provider "${name}" could not obtain its credential via api_key_cmd: ` +
-          (err instanceof Error ? err.message : String(err))
-      );
-    }
-    if (!apiKey) {
-      throw new Error(`The api_key_cmd of provider "${name}" did not print any credential`);
+    apiKey = runCredentialHelperSync(name, profile.api_key_cmd);
+    // SECURITY: only a helper from the person's OWN file is run again during
+    // the session. One from a project file keeps running once per session,
+    // until the follow-up issue decides what a shared file may run (#644).
+    if (profile.type === 'openai-compatible' && source === userConfigPath()) {
+      keyRenewal = new RenewingHelperKey(name, profile.api_key_cmd, apiKey);
     }
   }
   // Anthropic resolves credentials on its own (ant profile, auth token);
@@ -924,6 +918,7 @@ export function resolveProfile(
     name,
     model: modelOverride || profile.model,
     apiKey,
+    ...(keyRenewal ? { keyRenewal } : {}),
   };
 }
 
