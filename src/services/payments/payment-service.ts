@@ -2606,6 +2606,9 @@ export async function listCustomerPayments(
     where.push(`cp.cfdi_uuid IS NULL AND cp.status = 'completed'`);
     // MNE-001-421: a receipt that is all advance owes the advance CFDI the client issues, never a REP.
     where.push(`(cp.advance_base_amount IS NULL OR cp.advance_base_amount + cp.advance_iva_amount <> cp.payment_amount)`);
+    // MNE-001-594: a transfer of customer credit received no payment, so no REP documents it.
+    params.push(BALANCE_TRANSFER_METHOD);
+    where.push(`cp.payment_method <> $${params.length}`);
   }
   if (filtro.unapplied) {
     where.push(`cp.status = 'completed' AND ${cashOnAccountSql('cp')} > 0`);

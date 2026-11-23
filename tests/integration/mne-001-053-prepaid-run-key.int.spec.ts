@@ -167,7 +167,10 @@ describe('prepaid run honours its idempotency key', () => {
     expect(retry.exitCode, retry.err).toBe(ExitCode.OK);
     // It SAYS it is the recorded result, and shows it — not "nothing to accrue".
     expect(retry.err).toContain(t('prepaid.run.key_replayed'));
-    expect(retry.err).not.toContain('Nada que devengar');
+    const { period_name } = (
+      await query<{ period_name: string }>(`SELECT period_name FROM fiscal_periods WHERE id = $1`, [f.periodos[1]])
+    ).rows[0];
+    expect(retry.err).not.toContain(t('ap.prepaid.run.nothing', { period: period_name }));
     const shown = (JSON.parse(retry.out) as { rows: Array<Record<string, unknown>> }).rows;
     expect(shown[0]).toMatchObject({ devengados: 1, total: '1019.1781', asientos: entry });
     expect(await journalEntries()).toBe(before + 1);

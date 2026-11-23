@@ -2698,6 +2698,9 @@ export const EN = {
   // MNE-001-570 (#612): the trace of a registered receipt.
   'receipt.trace.nothing_given':
     'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
+  // MNE-001-594 (#695): a transfer of customer credit moved no money, so it has no trace.
+  'receipt.trace.balance_transfer':
+    '{number} is a transfer of customer credit from {source}: no money moved, so it has no cheque, payer bank or bank account to complete, and no voucher declares one. The trace belongs on {source}, the receipt that collected the money. Nothing was written.',
   // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
   'payment.trace.bank_no_entry':
     'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
@@ -3932,6 +3935,110 @@ export const EN = {
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // MNE-001-227: prepaid. The currency is the parameter {currency}, never text.
+  /** A date flag that is not a real calendar day. */
+  'ap.prepaid.flag.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
+  /** An amount flag that is not an unsigned decimal. */
+  'ap.prepaid.flag.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `prepaid run` without --period. */
+  'ap.prepaid.run.period_missing':
+    'Missing --period. The amortization is of one specific month and is not guessed from the clock: running «the current period» on day 1 at 00:05 would accrue the month that has just begun.',
+  /** `prepaid create` without --origin. */
+  'ap.prepaid.create.origin_missing':
+    'Missing --origin. The three origins are: {origins} — the CFDI that was classified as prepaid (needs --source-entry), the balance that was already in account 1160 with no schedule, and the payment that was posted by hand. It has no default: assuming it leaves the trail pointing at an entry that is not the one.',
+  /** An --origin outside the three. */
+  'ap.prepaid.create.origin_unknown': '--origin "{value}" does not exist. The three are: {origins}.',
+  /** A --convention outside the two. */
+  'ap.prepaid.create.convention_unknown':
+    '--convention "{value}" does not exist: the two conventions are {days} and {months} (the days each month covers, or the whole month).',
+  /** A --convention that contradicts the panel. `source` is `answered` when someone answered the key. */
+  'ap.prepaid.create.convention_contradicts_panel':
+    '--convention {requested} contradicts the panel: `amortizacion_anticipados_convencion` is "{panel}"{source, select, answered {} other { (declared default, nobody has answered)}}, and that is what is frozen in the schedule. This flag declares which convention you believe you are creating with, it does not choose it: it is changed with {hint}.',
+  /** The four required flags of `prepaid create`, named together. */
+  'ap.prepaid.create.flags_missing':
+    '{count, plural, one {Missing {flags}} other {Missing {flags}}}. A schedule with no amount, no coverage window or no word on where the charge came from is not an incomplete record: it is a record that cannot be accrued nor tied out against the account.',
+  /** `--origin cfdi` without `--source-entry`. */
+  'ap.prepaid.create.cfdi_needs_source_entry':
+    '`--origin cfdi` needs `--source-entry <id>`: if the schedule is born from a bill already posted, the entry that charged the account is known, and not recording it loses it for good.',
+  /** The reasons a schedule does not enter the month's run (`prepaid run`). */
+  'ap.prepaid.skip.unknown_convention': 'unknown stored convention ("{convention}")',
+  'ap.prepaid.skip.not_started': 'the coverage has not started yet',
+  'ap.prepaid.skip.ended': 'the coverage has already ended',
+  'ap.prepaid.skip.zero_row': 'the row of the month is zero',
+  'ap.prepaid.skip.nothing_left': 'no balance is left to accrue',
+  /** The posted balance of the prepaid account that no schedule will accrue. */
+  'ap.prepaid.gap.warning':
+    '{amount} {currency} posted to the prepaid expenses account that no schedule will accrue, in {count, plural, one {# entry} other {# entries}}. That expense will never reach the income statement. Each entry is adopted with `mnemosine prepaid create --origin saldo_preexistente --source-entry <id> --start <date> --end <date>`, with the coverage window the document states — it is not guessed: it lives in the journal entry, not in the CFDI.',
+  /** The panel criteria above `create`. Each `*_source` is `answered` when someone answered the key. */
+  'ap.prepaid.criteria.header':
+    'convention {convention}{convention_source, select, answered {} other { (default)}} · threshold {threshold} {currency}{threshold_source, select, answered {} other { (default)}}',
+  /** When a declared default rules instead of a choice of the firm. */
+  'ap.prepaid.criteria.default_rules':
+    'At least one declared default rules, not a choice of the firm. It is answered with `mnemosine pending define amortizacion_anticipados_convencion` / `umbral_anticipado_mxn`.',
+  /** `create --dry-run` below the materiality threshold. */
+  'ap.prepaid.create.below_threshold':
+    '{amount} is below the threshold of {threshold} {currency} (`umbral_anticipado_mxn`): the real creation would stop for materiality (NIF A-4). With --force and --reason it is created anyway and the reason is written in the row.',
+  /** `create --dry-run`: what it computed. */
+  'ap.prepaid.create.dry_run_done':
+    'Dry run: no row was written. {count, plural, one {# row} other {# rows}} for {amount} {currency}, convention {convention}.',
+  /** `create --dry-run` does not check the backing in the account. */
+  'ap.prepaid.create.dry_run_no_backing':
+    'The dry run does NOT check the backing in the account —how much posted balance is left with no schedule—: that guard lives inside the creation and needs the ledger. The real creation may refuse for that reason.',
+  /** The receipt of `prepaid create`. */
+  'ap.prepaid.create.done':
+    'Schedule of {count, plural, one {# row} other {# rows}} created. The ledger was not touched: the charge was already there. It is accrued with `mnemosine prepaid run --period <month>`.',
+  /** `prepaid list -a` with nothing alive. */
+  'ap.prepaid.list.none_alive': 'There is no live schedule in this entity.',
+  /** `prepaid list` with no schedule covering the date. */
+  'ap.prepaid.list.none_on_date': 'No schedule covers {date}. With -a all of them are listed.',
+  /** `prepaid show` of a schedule whose stored convention is none of the declared ones. */
+  'ap.prepaid.show.unknown_convention':
+    'The schedule "{description}" stores the convention "{convention}", which is none of the declared ones ({conventions}). No amount can be computed with it.',
+  /** The summary line under the `prepaid show` table. */
+  'ap.prepaid.show.summary':
+    '{description} · {total} {currency} · {convention} · origin {origin} · accrued {accrued}, {remaining} left',
+  /** Why the `prepaid show` table is not a statement of what was posted. */
+  'ap.prepaid.show.rows_are_schedule':
+    'The rows are the schedule the run will follow, not what was already posted: what was posted is the accrued figure of the line above.',
+  /** `prepaid show` with a reference that matches no schedule. */
+  'ap.prepaid.show.not_found':
+    'No live schedule matches "{ref}" in this entity. `mnemosine prepaid list -a` lists them all.',
+  /** `prepaid show` with a reference that matches several. */
+  'ap.prepaid.show.ambiguous':
+    '"{ref}" matches {count} live schedules: {candidates}. Name the id, or a piece of the description that matches only one.',
+  /** The header of `prepaid run`. */
+  'ap.prepaid.run.header':
+    '{period} ({from}..{to}) · entries dated {date} · {entering, plural, one {# schedule enters} other {# schedules enter}}, {skipped} skipped, {already} already have a row this month · total {total}',
+  /** `prepaid run` with nothing to accrue. */
+  'ap.prepaid.run.nothing': 'Nothing to accrue in {period}: the ledger was not touched.',
+  /** A schedule that does not enter the run, and why. */
+  'ap.prepaid.run.skipped_line': '{description} skipped: {reason}',
+  /** A row capped against what is left to accrue. */
+  'ap.prepaid.run.capped':
+    '{description}: the theoretical row is {theoretical} and is capped at {amount} against what is left to accrue.',
+  /** The run posts one entry per schedule, not one. */
+  'ap.prepaid.run.entries_note':
+    '{count, plural, one {# two-line adjusting entry} other {# two-line adjusting entries}}, one per schedule — not one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** `prepaid run --dry-run`. */
+  'ap.prepaid.run.dry_run_done': 'Dry run: the ledger was not touched and no row was written.',
+  /** The confirmation of `prepaid run`. */
+  'ap.prepaid.run.confirm':
+    'Accrue {total} {currency} in {count, plural, one {# entry} other {# entries}} of {period}? The ledger cannot be undone.',
+  /** `prepaid run` answered no. */
+  'ap.prepaid.run.aborted': 'No changes: the ledger was not touched.',
+  /** `prepaid run` with no terminal to confirm in. */
+  'ap.prepaid.run.aborted_no_tty':
+    'No changes: there is no terminal to confirm in. Add -y to accrue without asking, or --dry-run to see the full entries without writing anything.',
+  /** The engine posted another number of entries than the preview showed. */
+  'ap.prepaid.run.count_mismatch':
+    'The preview showed {previewed, plural, one {# entry} other {# entries}} and the run made {processed}. The preview and the engine did not agree: review the errors before calling the month closed.',
+  /** The engine accrued another total than the preview added. */
+  'ap.prepaid.run.total_mismatch': 'The preview added up to {previewed} and the run accrued {accrued}.',
+  /** The receipt of `prepaid run`. */
+  'ap.prepaid.run.done':
+    '{count, plural, one {# accrual entry} other {# accrual entries}} posted in {period} for {total}.',
+
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
@@ -4388,7 +4495,7 @@ export const EN = {
   'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
   'help.depreciation.post.option.file':
     'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
-  'help.filing.description': 'Tax returns of the entity: the working papers behind them',
+  'help.filing.description': 'Tax returns of the entity: the working papers behind them, and the record of those filed',
   'help.filing.workpaper.description': 'The auditable working paper of the month, line by line',
   'help.filing.workpaper.generate.description':
     'Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the entries behind each line',
@@ -4412,6 +4519,42 @@ export const EN = {
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
+  'help.filing.record.description':
+    'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',
+  'help.filing.record.option.form': 'which return it is: {forms} (the monthly IVA)',
+  'help.filing.record.option.period': 'month the return covers',
+  'help.filing.record.option.filed_on': 'day the return was filed (YYYY-MM-DD), after its month ends',
+  'help.filing.record.option.acuse': 'operation number of the acknowledgement («acuse»): how the record names this return',
+  'help.filing.record.option.capture_line': 'payment reference the SAT gave with the filing (the capture line), when the return has something to pay',
+  'help.filing.record.option.payable': 'amount payable the return left, up to two decimals (use 0 for a return at zero)',
+  'help.filing.record.option.in_favor': 'balance in favour the return left, up to two decimals; never together with --payable',
+  'help.filing.record.option.paid': 'what was paid with the capture line; goes with --paid-on',
+  'help.filing.record.option.paid_on': 'day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid',
+  'help.filing.record.option.credit':
+    'an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each',
+  'help.filing.record.footer':
+    'This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.\n' +
+    'An amended return («complementaria») is not recorded here.\n' +
+    '\nExamples:\n' +
+    '  See the row the July return would leave, with its balance in favour, writing nothing:\n' +
+    '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
+    '  August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:\n' +
+    '    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json',
+  'filing.record.form_invalid': '--form "{value}" is not a return this command records: use {forms}. The provisional ISR is not recorded yet. Nothing was written.',
+  'filing.record.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-08). Nothing was written.',
+  'filing.record.date_invalid': '{flag} "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filing.record.acuse_required': 'Missing --acuse: the operation number of the acknowledgement is how the record names a return. Nothing was written.',
+  'filing.record.capture_line_blank': '--capture-line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filing.record.result_required': 'Say what the return left: --payable <amount> or --in-favor <amount> (--payable 0 for a return at zero). Nothing was written.',
+  'filing.record.result_both': 'A return leaves an amount payable or a balance in favour, never both: give --payable or --in-favor, not the two. Nothing was written.',
+  'filing.record.amount_invalid': '{flag} "{value}" is not an amount: use zero or more, with at most two decimals and no thousands separator (for example 5000.00). Nothing was written.',
+  'filing.record.payment_incomplete': 'Missing {missing}: a payment states both what was paid (--paid) and the day (--paid-on). Nothing was written.',
+  'filing.record.credit_invalid': '--credit "{value}" is not valid: use <acuse>:<amount>, the acuse of the earlier return and the amount credited (for example OP-0701:3000.00). Nothing was written.',
+  'filing.record.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'filing.record.paid_on_in_future': '--paid-on {value} is after today ({today}): only a payment already made is recorded. Nothing was written.',
+  'filing.record.dry_run': 'Dry run: the return is valid and was rolled back; nothing was written.',
+  'filing.record.recorded': 'Recorded: {acuse} is the {period} return in force. Nothing was sent to the SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
   'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',

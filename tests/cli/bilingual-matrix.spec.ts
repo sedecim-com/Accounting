@@ -299,6 +299,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // MNE-001-457: `annual figure record`, nested the same way.
   annual: { figure: 'cifra' },
   'annual figure': { record: 'registrar' },
+  // MNE-001-577: `filing record`, beside the workpaper group of MNE-001-060.
+  filing: { workpaper: 'papel-trabajo', record: 'registrar' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },
@@ -407,7 +409,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'web', 'tenant', 'user'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'filing', 'web', 'tenant', 'user'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(...family.split(' '));
