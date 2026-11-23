@@ -25,7 +25,7 @@ describe('el sello de las garantías', () => {
   it('con todo sellado, doctor lo dice y cuenta cuántas son', async () => {
     const r = await checkSelloDeGarantias();
     expect(r.level, r.detail).toBe('ok');
-    expect(r.detail).toMatch(/\d+ garantías en ENABLE ALWAYS/);
+    expect(r.detail).toMatch(/\d+ guarantees in ENABLE ALWAYS/);
   });
 
   // El número NO se relaja cuando crece: se sube diciendo qué entró. La
@@ -55,7 +55,7 @@ describe('el sello de las garantías', () => {
       const r = await checkSelloDeGarantias();
       expect(r.level).toBe('fail');
       expect(r.detail).toMatch(/journal_entries\.journal_entries_posteado_inmutable=D/);
-      expect(r.detail).toMatch(/APAGADAS/);
+      expect(r.detail).toMatch(/DISABLED/);
       expect(r.fix).toMatch(/ENABLE ALWAYS TRIGGER/);
     } finally {
       await query(

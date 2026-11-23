@@ -5208,6 +5208,109 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  //
+  // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
+  // their one Spanish label, and the verdict of renderDoctor. `id` and `level`
+  // are the machine's and stay out of the catalogue; commands, tables and
+  // Postgres words inside the prose are typed or matched, so they stay as written.
+  /** The label of `conflicting-permissions`; it must share no word with the id. */
+  'doctor.check.permission_conflicts': 'Segregation of duties (user access)',
+  'doctor.summary.title': 'Mnemosine health check',
+  'doctor.summary.fail': 'There are failures that prevent operation. Resolve them in the order shown.',
+  'doctor.summary.warn': 'Operational with warnings.',
+  'doctor.summary.ok': 'All good.',
+  /** `sample` is the first three `command: detail` of the audit, which #150 keeps untranslated. */
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# new violation} other {# new violations}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'The CLI surface stays consistent because every verb comes from a closed list and every flag from the single dictionary. ' +
+    'Fix the command, or —if the change is deliberate— extend the vocabulary in src/cli/kernel/vocabulary.ts. ' +
+    'The baseline in src/cli/kernel/audit.ts is NOT extended.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# baseline entry is no longer violated: delete it} other {# baseline entries are no longer violated: delete them}}',
+  /** `stale` is empty, or « · » and the text of `doctor.cli_consistency.stale`. */
+  'doctor.cli_consistency.inherited':
+    'no new violations; {count, plural, one {# inherited one remains} other {# inherited ones remain}} in the baseline{stale}',
+  'doctor.cli_consistency.clean': 'the surface meets every rule{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'The inherited ones are known, frozen debt: nine are naming decisions, three require retiring a short form already published, ' +
+    'and eight ask for four listings to be paginated.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ posted lines, and everything posted has its trail',
+  /** `capped` is `yes` when the query hit its LIMIT 20. */
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (account, period) where account_balances ≠ Σ posted lines — every report on top inherits the difference',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# posted entry} other {# posted entries}} without a 'post' row in audit_log — facts with no author",
+  'doctor.ledger_integrity.fix':
+    'Balance drift is investigated BEFORE recalculating: since migration 041 a posted line cannot be edited, ' +
+    'so a new difference points at the write path of account_balances, not at the lines.',
+  'doctor.permission_conflicts.ok': 'no active user holds conflicting permissions',
+  'doctor.permission_conflicts.fix':
+    'Split the conflicting permissions between different users, or accept the risk knowingly ' +
+    '(in a one-person firm it is unavoidable; the per-entry maker-checker lives in the panel: segregacion_de_funciones).',
+  /** `list` is `table.trigger=state`, as pg_trigger spells it. */
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} of {total, plural, one {# guarantee} other {# guarantees}} unsealed{off, plural, =0 {} other { (# DISABLED)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <table> ENABLE ALWAYS TRIGGER <trigger>  — and find out WHO disabled it and why',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# guarantee in ENABLE ALWAYS: not even session_replication_role silences it} other {# guarantees in ENABLE ALWAYS: not even session_replication_role silences them}}',
+  'doctor.bank_statements.unnamed_file': '(unnamed)',
+  /** How many tenants the check read: a green that does not say so is green by not looking. */
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# tenant checked} other {# tenants checked}}{blind, plural, =0 {} other {, # could not be checked}}',
+  'doctor.bank_statements.unrepaired': 'this database recorded migration 051 before its correction',
+  'doctor.bank_statements.unique_index': 'the content index is UNIQUE and swallows legitimately identical transactions',
+  'doctor.bank_statements.blind_trigger': 'the trigger does not watch content_hash, so the fingerprint can be forged by hand',
+  'doctor.bank_statements.already_missing':
+    '{lines, plural, one {# line is} other {# lines are}} already missing in {statements, plural, one {# statement} other {# statements}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — applies 072; lines already lost must be re-imported by hand: the remedy gives back the capacity, not the data',
+  /** It does not say «missing»: a line skipped as a duplicate of an overlapping statement is not lost. */
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# line declared and not present} other {# lines declared and not present}} in {statements, plural, one {# statement} other {# statements}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compare before touching anything: if those lines are in the account under ANOTHER statement of an overlapping period, ' +
+    'the database is sound and this is the declared gap of 051. Only if they appear nowhere was there a loss, and then the file is ' +
+    're-imported with the account in view of a human — never by removing the bank_statements row, which is evidence',
+  'doctor.bank_statements.blind':
+    'the catalogue is repaired, but {scope}: without reading their statements I cannot say they are complete',
+  'doctor.bank_statements.blind_fix': 'check that the application role can query bank_statements with a tenant context',
+  'doctor.bank_statements.ok':
+    'the content index is not unique, the trigger enforces the fingerprint, and no statement has fewer lines than it declared ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor does not exist: giving an outside auditor access today means lending them WRITE credentials over the books',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (it does not fit in a migration: the migrator has no CREATEROLE, on purpose)',
+  /** The four grave findings follow «mnemosine_auditor», joined by «; ». */
+  'doctor.auditor_role.bypasses_rls': 'IGNORES RLS (BYPASSRLS): it sees the books of ALL tenants',
+  'doctor.auditor_role.superuser': 'is a SUPERUSER',
+  'doctor.auditor_role.creates_roles': 'can create roles',
+  'doctor.auditor_role.writes': 'has WRITE on {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — the script reasserts NOBYPASSRLS and revokes; also find out WHO granted it',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor has LOGIN: it is meant as a privilege bundle granted to NAMED accounts (one per auditor), not as a shared account',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  and issue one account per person: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor reads {count, plural, one {# materialized view} other {# materialized views}} ({views}): ' +
+    'RLS does not filter them and a role with BYPASSRLS builds them, so they hold the books of ALL tenants',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — its block 4 revokes every relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor exists and is well bounded, but its table coverage could not be measured',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (its verification block prints both counts)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor reads only {readable} of the {total} isolated tables: ' +
+    '{missing, plural, one {# table was} other {# tables were}} created after the last GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (grants again and sets the default privileges for whatever comes next)',
+  'doctor.auditor_role.global_tables':
+    'also {count, plural, other {# without a tenant, which must be global reference only}} ({tables})',
+  /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
+  'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
