@@ -296,6 +296,36 @@ describe('runDoctor — model provider', () => {
     expect(c.level).toBe('fail');
     expect(c.fix).toMatch(/^Set OPENAI_API_KEY in your shell or ~\/\.mnemosine\/\.env \(get it at https:\/\/platform\.openai\.com\/api-keys\)/);
   });
+
+  // MNE-001-448 (#644 P8): NVIDIA's hosted catalog is a trial that records what it receives.
+  it('warns while the default is on NVIDIA\'s hosted trial', async () => {
+    mockDb();
+    process.env.NVIDIA_API_KEY = 'clave-falsa-de-prueba';
+    config({ default_provider: 'nvidia' });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/^nvidia · .*NVIDIA's hosted trial \(integrate\.api\.nvidia\.com\), which records what it receives/);
+    expect(c.fix).toMatch(/another provider/);
+  });
+
+  it('warns while a link of the default\'s chain is on it, which a failover never enters', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'clave-falsa-de-prueba';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY', failover: ['nvidia'] } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/the failover chain names nvidia, on NVIDIA's hosted trial .*a failover never moves into it/);
+  });
+
+  it('a failure stays a failure: the trial warning never softens it', async () => {
+    mockDb();
+    delete process.env.NVIDIA_API_KEY;
+    config({ default_provider: 'nvidia' });
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider').level).toBe('fail');
+  });
 });
 
 describe('runDoctor — encryption key', () => {

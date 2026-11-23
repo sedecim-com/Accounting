@@ -6,6 +6,8 @@ import {
   soloHistoria,
   diasEntre,
   prDe,
+  prOfCommit,
+  SQUASH_WITHOUT_PR_NUMBER,
   prsNombrados,
   render,
 } from '../../scripts/historial-estado.js';
@@ -53,6 +55,28 @@ describe('prDe — las dos formas en que un PR entra a `main`', () => {
     // Si contara, cualquier commit que citara un PR se daría por fusionado y el
     // guardián exigiría filas de PRs que nunca entraron.
     expect(prDe('Revierte lo que el #170 dejó a medias')).toBeNull();
+  });
+});
+
+describe('prOfCommit — a squash on the base branch whose subject lost its number', () => {
+  const sha896 = 'd1b08fee202fbf2bf1e282ac75f1f996787364a1';
+
+  it('names the PR a listed squash carried, although its subject has no (#N)', () => {
+    expect(prDe('PLACEHOLDER')).toBeNull();
+    expect(prOfCommit(sha896, 'PLACEHOLDER')).toBe(896);
+  });
+
+  it('leaves any other commit without a number as a direct commit', () => {
+    expect(prOfCommit('0'.repeat(40), 'PLACEHOLDER')).toBeNull();
+  });
+
+  it('lets the subject win when it does declare a PR', () => {
+    expect(prOfCommit(sha896, 'Something else (#910)')).toBe(910);
+    expect(prOfCommit('0'.repeat(40), 'Merge pull request #53 from x/y')).toBe(53);
+  });
+
+  it('keys every entry by a full 40-character SHA, so a short prefix cannot match a stranger', () => {
+    for (const sha of SQUASH_WITHOUT_PR_NUMBER.keys()) expect(sha).toMatch(/^[0-9a-f]{40}$/);
   });
 });
 
