@@ -91,6 +91,15 @@ provides:
     # in INSTALLATION_SECRET_VARIABLES) is refused by resolveProfile before anything is
     # read or sent, and readiness says «not a provider credential» (MNE-001-445, #644).
     # A tightening: such a profile used to send that secret as its bearer token.
+    # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
+    # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
+    # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs
+    # every due job as before and adds a notice on stderr naming the jobs it ran that
+    # its operator has not adopted; "all" adds a first line on stdout; "adopted" runs
+    # only the jobs in ~/.mnemosine/adopted-jobs.json and lists the rest. New leaves
+    # `jobs adopt [id] [--list]` and `jobs unadopt <id>`; `jobs create` adopts the new
+    # job for its creator. Rollback: remove `jobs` from the config file, which the
+    # previous build refuses, and delete ~/.mnemosine/adopted-jobs.json.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount

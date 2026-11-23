@@ -693,7 +693,33 @@ const PLURAL_SHAPE = /\([a-zA-Z]{1,3}\)/;
  * `RangeError` que este comentario prometía y que no ocurre.
  */
 export function userStrings(code: string, file: string): UserString[] {
+  return userStringsWhere(code, file, () => (text) => judgeLanguage(text).spanish);
+}
+
+/**
+ * The language test a lane applies to a candidate literal, after the shared
+ * exclusions (data positions, SQL) have run. It gets the node too, so a lane
+ * can rule a literal out by where it sits and not only by what it says.
+ */
+export type ProseTest = (text: string, node: ts.Node) => boolean;
+
+/**
+ * THE SAME WALKER, WITH THE LANGUAGE TEST AS A PARAMETER (MNE-001-476, #150).
+ *
+ * `userStrings` is this walker with the Spanish verdict. The English lane of
+ * `lanes/cli-strings.ts` is this walker with its own test, so the two lanes
+ * share every exclusion written above — joined `+` strings, the data
+ * positions, the compared values, SQL — instead of growing a second copy that
+ * drifts. `testFor` receives the parsed file once, because a lane may need to
+ * ask the whole file something first, as `comparedValues` does here.
+ */
+export function userStringsWhere(
+  code: string,
+  file: string,
+  testFor: (source: ts.SourceFile) => ProseTest
+): UserString[] {
   const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const accepts = testFor(source);
 
   // Qué compara este archivo consigo mismo. Se calcula UNA vez, antes del
   // recorrido, porque la pregunta es del archivo entero: una cadena escrita en
@@ -752,7 +778,7 @@ export function userStrings(code: string, file: string): UserString[] {
 
     if (positionalReason(node, compared) !== null) continue;
     if (SQL_HEAD.test(text)) continue;
-    if (!judgeLanguage(text).spanish) continue;
+    if (!accepts(text, node)) continue;
 
     const start = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
     const end = source.getLineAndCharacterOfPosition(node.getEnd()).line + 1;

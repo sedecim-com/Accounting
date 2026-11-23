@@ -36,6 +36,8 @@ export interface RunnerDeps {
   gate?: typeof checkForWork;
   record?: typeof recordRun;
   onProgress?: (message: string) => void;
+  /** Claim only these job ids (MNE-001-453); absent, every due job. */
+  only?: ReadonlySet<string>;
 }
 
 export interface JobRunOutcome {
@@ -114,7 +116,7 @@ export async function runDueJobs(ctx: AgentContext, deps: RunnerDeps): Promise<J
     }
   };
 
-  const jobs = await claim(ctx);
+  const jobs = await claim(ctx, undefined, deps.only ? { only: deps.only } : {});
   const outcomes: JobRunOutcome[] = [];
 
   for (const job of jobs) {
