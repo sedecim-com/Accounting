@@ -1159,6 +1159,7 @@
       "src/cli/employee-list-command.ts": 1,
       "src/cli/employee-show-command.ts": 1,
       "src/cli/entry-command.ts": 36,
+      "src/cli/filing-record-command.ts": 7,
       "src/cli/filing-workpaper-command.ts": 3,
       "src/cli/fx-command.ts": 77,
       "src/cli/garnishment-command.ts": 12,
