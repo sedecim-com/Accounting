@@ -18,8 +18,8 @@ mnemosine providers
 |---|---|---|---|---|
 | `anthropic` | nativo | `claude-opus-5` | `ANTHROPIC_API_KEY` | El proveedor por omisión |
 | `openai` | OpenAI-compatible | `gpt-5.1` | `OPENAI_API_KEY` | Usa `max_completion_tokens` |
-| `gemini` | OpenAI-compatible | `gemini-2.5-pro` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio (capa aún en beta; ver deriva) |
-| `grok` | OpenAI-compatible | `grok-4` | `XAI_API_KEY` | Modelo derivado; ver abajo |
+| `gemini` | OpenAI-compatible | `gemini-3.8-flash` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio; esfuerzo `low`. Sin verificar en vivo: [su ficha](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), leída el 20-nov-2026 |
+| `grok` | OpenAI-compatible | `grok-4.3` | `XAI_API_KEY` | Esfuerzo `low`; ventana declarada de 200 000, el escalón donde xAI dobla el precio. Sin verificar en vivo: [su ficha](https://docs.x.ai/developers/models/grok-4.3), leída el 20-nov-2026 |
 | `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible; URL en ruta de deprecación (ver deriva) |
 | `minimax` | OpenAI-compatible | `MiniMax-M2` | `MINIMAX_API_KEY` | Endpoint global; para China se cambia `base_url` |
 | `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos. El alias `auto` es deriva garantizada por diseño |
@@ -130,8 +130,8 @@ Los defaults de un catálogo estático envejecen. La verificación con fuentes v
 
 | Perfil | Lo cableado | Lo encontrado |
 |---|---|---|
-| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. |
-| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. |
+| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. **Resuelto el 20-nov-2026** (MNE-001-449): xAI retiró el slug el 15-may-2026 y lo sirve con `grok-4.3`, el nuevo default. |
+| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. **Resuelto el 20-nov-2026** (MNE-001-449): Google ya no sirve `gemini-2.5-pro` a proyectos nuevos; el default es `gemini-3.8-flash`. |
 | `minimax` | `MiniMax-M2` | Sigue listado, pero el vigente es M3; la [doc de MiniMax](https://platform.minimax.io/docs/guides/text-generation) además recomienda ya su endpoint Anthropic-compatible (irrelevante mientras el perfil sea OpenAI-compatible). Letra chica verificada del modo compatible: `n` solo 1, penalizaciones ignoradas ([referencia](https://platform.minimax.io/docs/api-reference/text-openai-api)). |
 | `qwen` | `dashscope-intl.aliyuncs.com/compatible-mode/v1` | **La deriva más seria.** La [doc oficial de Model Studio](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) ya empuja URLs por región y por *workspace*; la URL cableada sigue funcionando según terceros activos, pero está en ruta de deprecación. La misma doc acota el *function calling* a ciertos modelos. Existen snapshots fechados (`qwen3-max-2026-01-23`) útiles para fijar la deriva. |
 | `anthropic` | — | El endpoint no cambió, pero la documentación se mudó: docs.anthropic.com redirige a [platform.claude.com](https://platform.claude.com/docs/en/api/overview). Referencias internas por actualizar. |

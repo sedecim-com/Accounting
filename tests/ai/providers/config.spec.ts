@@ -69,6 +69,60 @@ describe('BUILTIN_PROFILES', () => {
   });
 });
 
+// MNE-001-449 (#644, P9): the defaults that went stale. The owner chose «Salen
+// sin verificar»: each new id names its official page and the date it was read.
+describe('the defaults of grok, gemini and openai, with their sources', () => {
+  const READ = '2026-11-20';
+  const citesItsPage = (text: string, page: string) => {
+    expect(text).toContain(page);
+    expect(text).toContain(READ);
+  };
+
+  it('grok serves grok-4.3 at low effort, with the window cut at the price step', () => {
+    const p = BUILTIN_PROFILES.grok;
+    expect(p.model).toBe('grok-4.3');
+    expect(p.reasoning_effort).toBe('low');
+    expect(p.ventana).toMatchObject({ postura: 'declarada', tokens: 200_000 });
+    expect(p.reproducibilidad).toMatchObject({ muestreo: 'fijado', temperature: 0 });
+    citesItsPage(p.ventana.razon, 'docs.x.ai/developers/pricing');
+    citesItsPage(p.reproducibilidad.razon, 'docs.x.ai/developers/model-capabilities/text/best-practices');
+    expect(p.note).toMatch(/not verified live/);
+    citesItsPage(p.note!, 'docs.x.ai/developers/models/grok-4.3');
+  });
+
+  it('gemini serves gemini-3.8-flash at low effort and does not claim a temperature', () => {
+    const p = BUILTIN_PROFILES.gemini;
+    expect(p.model).toBe('gemini-3.8-flash');
+    expect(p.reasoning_effort).toBe('low');
+    expect(p.ventana).toMatchObject({ postura: 'declarada', tokens: 1_048_576 });
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    citesItsPage(p.ventana.razon, 'ai.google.dev/gemini-api/docs/models/gemini-3.8-flash');
+    citesItsPage(p.reproducibilidad.razon, 'ai.google.dev/gemini-api/docs/whats-new-gemini-3.8');
+    expect(p.note).toMatch(/not verified live/);
+    citesItsPage(p.note!, 'ai.google.dev/gemini-api/docs/models/gemini-3.8-flash');
+  });
+
+  it('openai stays on gpt-5.1, sends no effort, and its posture says what its default is', () => {
+    const p = BUILTIN_PROFILES.openai;
+    expect(p.model).toBe('gpt-5.1');
+    expect(p.reasoning_effort).toBeUndefined();
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    expect(p.reproducibilidad.razon).toMatch(/`none`/);
+    expect(p.reproducibilidad.razon).toMatch(/GPT-5\.2/);
+    citesItsPage(p.reproducibilidad.razon, 'developers.openai.com/api/docs/models/gpt-5.1');
+  });
+
+  it('copilot and anthropic keep their model, and copilot leans on what openai now says', () => {
+    expect(BUILTIN_PROFILES.anthropic.model).toBe('claude-opus-5');
+    const p = BUILTIN_PROFILES.copilot;
+    expect(p.model).toBe('gpt-5.1');
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    expect(p.reproducibilidad.razon).toMatch(/`none`/);
+    expect(p.reproducibilidad.razon).toMatch(/GPT-5\.2/);
+    expect(p.reproducibilidad.razon).not.toMatch(/400/);
+  });
+});
+
 describe('api_key_cmd (credential helper)', () => {
   const writeProfile = (extra: Record<string, unknown>) =>
     fs.writeFileSync(

@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 579,
+    "help-descriptions-without-key": 490,
     "cli-user-strings-without-key": 936
   },
   "perFile": {
@@ -1481,15 +1481,11 @@
       "src/utils/xml-reader.ts": 4,
       "src/utils/zod-client-errors.ts": 1
     },
-    "docs-spanish-twins-stale": {
-      "docs/language.es.md": 1
-    },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
     },
     "help-descriptions-without-key": {
       "ai": 2,
-      "approvals": 21,
       "ask": 4,
       "asset": 26,
       "audit": 14,
@@ -1508,26 +1504,21 @@
       "entry": 50,
       "fx": 26,
       "garnishment": 22,
-      "ingest": 9,
       "init": 12,
       "isn": 21,
       "jobs": 28,
       "lang": 1,
       "login": 1,
-      "memory": 22,
       "onboard": 8,
       "outbox": 6,
       "payroll": 3,
-      "pending": 16,
       "prompt-size": 4,
-      "question": 7,
       "receipt": 25,
       "rep": 8,
       "report": 21,
       "review": 2,
       "sat": 17,
       "sessions": 2,
-      "skills": 14,
       "status": 5,
       "subscription": 6,
       "usage": 6,
