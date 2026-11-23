@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 206,
+    "spanish-user-strings-cli": 205,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -21,8 +21,8 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 490,
-    "cli-user-strings-without-key": 936
+    "help-descriptions-without-key": 440,
+    "cli-user-strings-without-key": 933
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -850,7 +850,7 @@
       "src/cli/ap-command.ts": 2,
       "src/cli/batch-command.ts": 35,
       "src/cli/bill-command.ts": 40,
-      "src/cli/entry-command.ts": 10,
+      "src/cli/entry-command.ts": 9,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
       "src/cli/payment-command.ts": 13,
@@ -1501,7 +1501,6 @@
       "e-accounting": 20,
       "employee": 12,
       "entity": 24,
-      "entry": 50,
       "fx": 26,
       "garnishment": 22,
       "init": 12,
@@ -1544,7 +1543,6 @@
       "src/cli/compact-command.ts": 5,
       "src/cli/credit-note-command.ts": 20,
       "src/cli/customer-command.ts": 16,
-      "src/cli/doctor-command.ts": 3,
       "src/cli/employee-create-command.ts": 8,
       "src/cli/employee-list-command.ts": 3,
       "src/cli/entity-command.ts": 14,

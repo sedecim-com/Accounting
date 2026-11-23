@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: ef0e7ee2d43620e4dbd5cd1414c9155e38f177ee
+> Gemela en español de [`language.md`](language.md) · source_sha: d9b326022041027c812e6610d946b2abf7b5c27c
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -104,7 +104,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
-| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 206 | 0 |
+| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 205 | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 | 0 |
 | `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 30 | 0 |
@@ -115,8 +115,8 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 490 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 936 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 440 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 933 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
