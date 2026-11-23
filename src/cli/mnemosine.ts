@@ -1304,11 +1304,12 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
     }
   });
 
-describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description')
-  .argument('<question...>', 'The question for the assistant')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
+const askCommand = describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description');
+argumentByKey(askCommand, '<question...>', 'help.ask.argument.question');
+optionByKey(askCommand, '-e, --entity <idOrName>', 'help.ask.option.entity');
+optionByKey(askCommand, '-p, --provider <name>', 'help.ask.option.provider');
+optionByKey(askCommand, '-m, --model <model>', 'help.ask.option.model');
+askCommand
   .addHelpText('after', EJEMPLOS.ask)
   .action(async (questionParts: string[], opts: { entity?: string; provider?: string; model?: string }) => {
     try {
@@ -1326,13 +1327,14 @@ describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description'
     }
   });
 
-describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
-  .option('--continue', 'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)')
-  .option('--resume <id>', 'Resume a specific session by id (see: mnemosine sessions)')
-  .option('--no-banner', 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)')
+const chatCommand = describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description');
+optionByKey(chatCommand, '-e, --entity <idOrName>', 'help.chat.option.entity');
+optionByKey(chatCommand, '-p, --provider <name>', 'help.chat.option.provider');
+optionByKey(chatCommand, '-m, --model <model>', 'help.chat.option.model');
+optionByKey(chatCommand, '--continue', 'help.chat.option.continue');
+optionByKey(chatCommand, '--resume <id>', 'help.chat.option.resume');
+optionByKey(chatCommand, '--no-banner', 'help.chat.option.no_banner');
+chatCommand
   .addHelpText('after', EJEMPLOS.chat)
   .action(async (opts: {
     entity?: string; provider?: string; model?: string;
@@ -1679,13 +1681,17 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
     }
   });
 
-describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-n, --limit <n>', 'Maximum number of sessions to show', (v: string) => {
+const sessionsCommand = describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.description');
+optionByKey(sessionsCommand, '-e, --entity <idOrName>', 'help.sessions.option.entity');
+optionByKey(sessionsCommand, '-n, --limit <n>', 'help.sessions.option.limit', {
+  parser: (v: string) => {
     const n = parseInt(v, 10);
     if (!Number.isFinite(n)) throw new InvalidArgumentError('Expected a number.');
     return n;
-  }, 20)
+  },
+  defaultValue: 20,
+});
+sessionsCommand
   .addHelpText('after', EJEMPLOS.sessions)
   .action(async (opts: { entity?: string; limit?: number }) => {
     try {
@@ -1751,9 +1757,10 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
   console.log(c.dim(`  ${''.padEnd(54)}  ${debits.toFixed(2).padStart(11)}  ${credits.toFixed(2).padStart(11)}`));
 }
 
-describeCommand(program.command('drafts').alias('borradores'), 'help.drafts.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-s, --status <status>', 'pending_review | approved | rejected')
+const draftsCommand = describeCommand(program.command('drafts').alias('borradores'), 'help.drafts.description');
+optionByKey(draftsCommand, '-e, --entity <idOrName>', 'help.drafts.option.entity');
+optionByKey(draftsCommand, '-s, --status <status>', 'help.drafts.option.status');
+draftsCommand
   .addHelpText('after', EJEMPLOS.drafts)
   .action(async (opts: { entity?: string; status?: 'pending_review' | 'approved' | 'rejected' }) => {
     try {
@@ -2006,13 +2013,10 @@ async function offerToSeedPrecedent(
   }
 }
 
-const review = describeCommand(
-  program.command('review').alias('revisar'),
-  'help.review.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.review);
+const review = describeCommand(program.command('review').alias('revisar'), 'help.review.description');
+optionByKey(review, '-e, --entity <idOrName>', 'help.review.option.entity');
+optionByKey(review, '-u, --user <email>', 'help.review.option.user');
+review.addHelpText('after', EJEMPLOS.review);
 // Aprobar POSTEA al mayor: irreversible, declarado junto a su registro (S0.6;
 // antes vivía en la tabla de retrofit). El kernel añade --dry-run, --yes e
 // --idempotency-key y le niega el comando al agente.
@@ -2602,19 +2606,16 @@ optionByKey(
     }
   });
 
-const onboard = describeCommand(
-  program.command('onboard').alias('alta'),
-  'help.onboard.description'
-)
-  .requiredOption('-p, --provider <name>', 'External system, e.g. contalink')
-  .requiredOption('--cutoff <YYYY-MM-DD>', 'Cutoff date: opening balances are taken as of this date')
-  .option('--from <YYYY-MM-DD>', 'Start of the remote trial balance period (default: January 1st of the cutoff year)')
-  .option('-e, --entity <idOrName>', 'Target legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who runs it (default: sole active user of the tenant)')
-  .option('--balance-account <code>', 'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)')
-  .option('--post', 'Post the opening balance immediately (default: stays as a draft for mnemosine review)')
-  .option('--dry-run', 'Only show the plan, without executing anything')
-  .addHelpText('after', EJEMPLOS.onboard);
+const onboard = describeCommand(program.command('onboard').alias('alta'), 'help.onboard.description');
+optionByKey(onboard, '-p, --provider <name>', 'help.onboard.option.provider', { mandatory: true });
+optionByKey(onboard, '--cutoff <YYYY-MM-DD>', 'help.onboard.option.cutoff', { mandatory: true });
+optionByKey(onboard, '--from <YYYY-MM-DD>', 'help.onboard.option.from');
+optionByKey(onboard, '-e, --entity <idOrName>', 'help.onboard.option.entity');
+optionByKey(onboard, '-u, --user <email>', 'help.onboard.option.user');
+optionByKey(onboard, '--balance-account <code>', 'help.onboard.option.balance_account');
+optionByKey(onboard, '--post', 'help.onboard.option.post');
+optionByKey(onboard, '--dry-run', 'help.onboard.option.dry_run');
+onboard.addHelpText('after', EJEMPLOS.onboard);
 // Irreversible por su camino más grave (--post postea el asiento de apertura),
 // declarado junto a su registro (S0.6). Su --dry-run existía desde antes del
 // kernel y ya era honesta (sólo el plan); el kernel añade --yes e
@@ -3499,8 +3500,9 @@ registerPendingCommands(program, {
   ask,
 });
 
-describeCommand(program.command('login').alias('entrar'), 'help.login.description')
-  .option('--device', 'Use the device-code flow (SSH, server without a browser)')
+const loginCommand = describeCommand(program.command('login').alias('entrar'), 'help.login.description');
+optionByKey(loginCommand, '--device', 'help.login.option.device');
+loginCommand
   .addHelpText('after', EJEMPLOS.login)
   .action(async (opts: { device?: boolean }) => {
     try {

@@ -33,6 +33,8 @@ import {
   globalsOf,
   exitCodeFor,
   optionByKey,
+  argumentByKey,
+  describeCommand,
 } from './kernel/index.js';
 
 const ZONE_PARAMS = { params: { zones: MINIMUM_WAGE_ZONES.join(' | ') } };
@@ -121,10 +123,7 @@ interface ListOpts {
 }
 
 export function registerEntityCommand(program: Command, deps: EntityCommandDeps): void {
-  const entity = program
-    .command('entity')
-    .alias('entidad')
-    .description('Select and inspect the legal entity commands operate on');
+  const entity = describeCommand(program.command('entity').alias('entidad'), 'help.entity.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -137,10 +136,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   };
 
   // ---- entity list -------------------------------------------------
-  const list = entity
-    .command('list')
-    .alias('listar')
-    .description('List the active legal entities');
+  const list = describeCommand(entity.command('list').alias('listar'), 'help.entity.list.description');
   withOutput(withSelection(withContext(list)));
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EXAMPLES.list);
@@ -164,11 +160,8 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   );
 
   // ---- entity show -------------------------------------------------
-  const show = entity
-    .command('show')
-    .alias('ver')
-    .argument('[idOrName]', 'entity to describe; omit for the active one')
-    .description('Show one entity — with no argument, the one commands would use, and why');
+  const show = describeCommand(entity.command('show').alias('ver'), 'help.entity.show.description');
+  argumentByKey(show, '[idOrName]', 'help.entity.show.argument.id_or_name');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EXAMPLES.show);
@@ -209,11 +202,8 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   );
 
   // ---- entity use --------------------------------------------------
-  const use = entity
-    .command('use')
-    .alias('usar')
-    .argument('<idOrName>', 'entity id, tax id, or a fragment of the name')
-    .description('Pin the entity that later commands operate on');
+  const use = describeCommand(entity.command('use').alias('usar'), 'help.entity.use.description');
+  argumentByKey(use, '<idOrName>', 'help.entity.use.argument.id_or_name');
   withContext(use);
   // Writes a local cursor, never the ledger — but not the agent's to change:
   // silently redirecting the operator's next command is exactly the kind of
@@ -237,21 +227,17 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   // Until now the ONLY way to create a company was the interactive wizard,
   // which held it as a private method. Every other capability in the product
   // is downstream of an entity existing, so this is the root of the tree.
-  const create = entity
-    .command('create')
-    .alias('crear')
-    .argument('<name>', 'legal name of the company')
-    .description('Create a legal entity with its chart of accounts, roles and payroll mapping');
+  const create = describeCommand(entity.command('create').alias('crear'), 'help.entity.create.description');
+  argumentByKey(create, '<name>', 'help.entity.create.argument.name');
   withContext(create);
-  create
-    .requiredOption('--tax-id <id>', 'RFC (Mexico) or EIN (USA)')
-    .option('--country <code>', `MX or USA`, 'MX')
-    .option('--currency <code>', 'functional currency (defaults to the country\'s)')
-    .option('--chart <strategy>', 'auto | siempre | nunca — whether to seed the base chart', 'auto')
-    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
-    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)');
+  optionByKey(create, '--tax-id <id>', 'help.entity.create.option.tax_id', { mandatory: true });
+  optionByKey(create, '--country <code>', 'help.entity.create.option.country', { defaultValue: 'MX' });
+  optionByKey(create, '--currency <code>', 'help.entity.create.option.currency');
+  optionByKey(create, '--chart <strategy>', 'help.entity.create.option.chart', { defaultValue: 'auto' });
+  optionByKey(create, '--tax-regime <code>', 'help.entity.create.option.tax_regime');
+  optionByKey(create, '--tax-postal-code <cp>', 'help.entity.create.option.tax_postal_code');
   optionByKey(create, '--minimum-wage-zone <zone>', 'help.entity.option.minimum_wage_zone', ZONE_PARAMS);
-  create.option('--json', 'JSON output');
+  optionByKey(create, '--json', 'help.entity.create.option.json');
   // Creates rows but touches no ledger, and it is not the agent's to do:
   // bringing a company into existence is a decision with legal consequences.
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'legal_entities, organizations, accounts, asset_categories' });
@@ -351,19 +337,14 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   // Only the fiscal profile for now (#321): regime and fiscal postal code,
   // validated like `entity create` validates them. Name, RFC and standard
   // stay out until their own slice decides what a posted ledger allows.
-  const edit = entity
-    .command('edit')
-    .alias('editar')
-    .argument('<idOrName>', 'entity id, tax id, or a fragment of the name')
-    .description('Set the tax regime, fiscal postal code or minimum-wage zone of an entity');
+  const edit = describeCommand(entity.command('edit').alias('editar'), 'help.entity.edit.description');
+  argumentByKey(edit, '<idOrName>', 'help.entity.edit.argument.id_or_name');
   withContext(edit);
-  edit
-    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
-    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)');
+  optionByKey(edit, '--tax-regime <code>', 'help.entity.edit.option.tax_regime');
+  optionByKey(edit, '--tax-postal-code <cp>', 'help.entity.edit.option.tax_postal_code');
   optionByKey(edit, '--minimum-wage-zone <zone>', 'help.entity.option.minimum_wage_zone', ZONE_PARAMS);
-  edit
-    .option('--reason <text>', 'justification recorded in the audit trail')
-    .option('--json', 'JSON output');
+  optionByKey(edit, '--reason <text>', 'help.entity.edit.option.reason');
+  optionByKey(edit, '--json', 'help.entity.edit.option.json');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'legal_entities.tax_regime/tax_postal_code/minimum_wage_zone' });
   edit.addHelpText('after', EXAMPLES.edit);
   edit.action((idOrName: string, _opts: ListOpts, command: Command) =>
@@ -409,11 +390,8 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   );
 
   // ---- entity archive ----------------------------------------------
-  const archive = entity
-    .command('archive')
-    .alias('archivar')
-    .argument('<idOrName>', 'entity to archive')
-    .description('Archive an entity (never deletes: its ledger has to survive)');
+  const archive = describeCommand(entity.command('archive').alias('archivar'), 'help.entity.archive.description');
+  argumentByKey(archive, '<idOrName>', 'help.entity.archive.argument.id_or_name');
   withContext(archive);
   // --reason is NOT declared here: declareRisk owns it for undo verbs, and
   // declaring it twice is a Commander error at startup. That collision is
@@ -435,10 +413,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   );
 
   // ---- entity unset ------------------------------------------------
-  const unset = entity
-    .command('unset')
-    .alias('limpiar')
-    .description('Clear the pinned entity; commands go back to requiring --entity');
+  const unset = describeCommand(entity.command('unset').alias('limpiar'), 'help.entity.unset.description');
   declareRisk(unset, { risk: 'escritura', agent: false, writes: 'active entity pointer' });
   unset.addHelpText('after', EXAMPLES.unset);
   unset.action(() =>

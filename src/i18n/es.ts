@@ -4119,6 +4119,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.filing.workpaper.generate.option.ptu_paid': 'PTU pagada en el ejercicio (ISR), la captura una persona',
   'help.filing.workpaper.generate.option.prior_provisional':
     'ISR provisional ya pagado en el ejercicio (ISR), lo captura una persona',
+  'help.filing.workpaper.generate.option.prior_balance':
+    'saldo a favor de periodos anteriores (IVA) en lugar del que dan las declaraciones registradas con `filing record`; pide --prior-balance-reason',
+  'help.filing.workpaper.generate.option.prior_balance_reason': 'por qué se sobrescribe el saldo a favor; se muestra en su renglón',
   'help.filing.workpaper.generate.footer':
     'Esto calcula el papel. NO presenta nada: una persona lo revisa y declara en el portal del SAT.\n' +
     '\nEjemplos:\n' +
@@ -4127,13 +4130,17 @@ export const ES: Record<keyof typeof EN, string> = {
     '  Sólo el IVA, el papel completo (con las pólizas) como JSON en un archivo:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
     '  El ISR con la PTU pagada en el ejercicio y los pagos provisionales ya hechos:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
+    '  El IVA con un saldo a favor que da una persona en lugar del que dan las declaraciones presentadas:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "declaración anterior al sistema"',
   'filing.workpaper.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" no se conoce: usa iva, isr o all.',
   'filing.workpaper.label_blocks': 'BLOQUEA',
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  'filing.workpaper.prior_balance_override_incomplete':
+    'Sobrescribir el saldo a favor de periodos anteriores pide el importe y su motivo, los dos (--prior-balance y --prior-balance-reason).',
   // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
   'help.filing.record.description':
     'Registra una declaración mensual de IVA ya presentada en el portal del SAT: su acuse, lo que quedó a cargo o a favor, su pago y los saldos que acreditó',
@@ -5537,6 +5544,101 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.fx.rate.download.option.as_of': 'una sola fecha a descargar (AAAA-MM-DD)',
   'help.fx.rate.download.option.since': 'límite inferior inclusivo (AAAA-MM-DD)',
   'help.fx.rate.download.option.until': 'límite superior inclusivo (AAAA-MM-DD)',
+  // ==== MNE-001-243 · help by key, entity, init, onboard, lang, login, ask, chat, compact, drafts, review, sessions, prompt-size, ai, doctor and usage (issue #314) ====
+  'help.entity.description': 'Elige y consulta la entidad legal sobre la que operan los comandos',
+  'help.entity.list.description': 'Lista las entidades legales activas',
+  'help.entity.show.description':
+    'Muestra una entidad; sin argumento, la que usarían los comandos, y por qué',
+  'help.entity.show.argument.id_or_name': 'entidad que se describe; omítela para la activa',
+  'help.entity.use.description': 'Fija la entidad sobre la que operan los comandos que siguen',
+  'help.entity.use.argument.id_or_name': 'id de la entidad, su RFC o una parte del nombre',
+  'help.entity.create.description':
+    'Crea una entidad legal con su catálogo de cuentas, sus roles y el mapeo de la nómina',
+  'help.entity.create.argument.name': 'razón social de la empresa',
+  'help.entity.create.option.tax_id': 'RFC (México) o EIN (EE. UU.)',
+  'help.entity.create.option.country': 'MX o USA',
+  'help.entity.create.option.currency': 'moneda funcional (por omisión, la del país)',
+  'help.entity.create.option.chart': 'auto | siempre | nunca: si se siembra el catálogo base',
+  'help.entity.create.option.tax_regime': 'clave de c_RegimenFiscal: 601, 612, 626…',
+  'help.entity.create.option.tax_postal_code': 'código postal del domicilio fiscal (5 dígitos)',
+  'help.entity.create.option.json': 'salida en JSON',
+  'help.entity.edit.description':
+    'Fija el régimen fiscal, el código postal fiscal o la zona de salario mínimo de una entidad',
+  'help.entity.edit.argument.id_or_name': 'id de la entidad, su RFC o una parte del nombre',
+  'help.entity.edit.option.tax_regime': 'clave de c_RegimenFiscal: 601, 612, 626…',
+  'help.entity.edit.option.tax_postal_code': 'código postal del domicilio fiscal (5 dígitos)',
+  'help.entity.edit.option.reason': 'justificación que queda en el rastro de auditoría',
+  'help.entity.edit.option.json': 'salida en JSON',
+  'help.entity.archive.description': 'Archiva una entidad (nunca la borra: su contabilidad tiene que sobrevivir)',
+  'help.entity.archive.argument.id_or_name': 'entidad que se archiva',
+  'help.entity.unset.description': 'Quita la entidad fijada; los comandos vuelven a pedir --entity',
+  'help.init.description':
+    'Configuración guiada: infraestructura, entidad, usuarios, proveedor de IA y tu contabilidad',
+  'help.init.option.status': 'Sólo muestra el estado; no configura nada',
+  'help.init.option.section': 'Configura una sola sección (infra|identity|users|ai|policies|import)',
+  'help.init.option.yes': 'No interactivo: usa los valores por omisión y las banderas, sin preguntar nada',
+  'help.init.option.tenant': 'Inquilino (despacho)',
+  'help.init.option.entity': 'Nombre de la entidad legal que se crea',
+  'help.init.option.rfc': 'RFC/EIN de la entidad',
+  'help.init.option.country': 'MX o USA',
+  'help.init.option.currency': 'Moneda funcional',
+  'help.init.option.provider': 'Proveedor de IA por omisión',
+  'help.init.option.model': 'Modelo del proveedor',
+  'help.init.option.user': 'Correo del usuario que se crea',
+  'help.onboard.option.provider': 'Sistema externo, p. ej., contalink',
+  'help.onboard.option.cutoff': 'Fecha de corte: los saldos iniciales se toman a esta fecha',
+  'help.onboard.option.from':
+    'Inicio del periodo de la balanza remota (por omisión: el 1 de enero del año del corte)',
+  'help.onboard.option.entity': 'Entidad legal de destino (id, RFC o parte del nombre)',
+  'help.onboard.option.user': 'Quién la corre (por omisión: el único usuario activo del inquilino)',
+  'help.onboard.option.balance_account':
+    'Cuenta de cuadre si la balanza remota no suma cero (p. ej., 3200)',
+  'help.onboard.option.post':
+    'Contabiliza el saldo inicial de inmediato (por omisión, se queda en borrador para mnemosine review)',
+  'help.onboard.option.dry_run': 'Sólo muestra el plan, sin ejecutar nada',
+  'help.login.option.device': 'Usa el flujo con código de dispositivo (SSH, servidor sin navegador)',
+  'help.ask.argument.question': 'La pregunta para el asistente',
+  'help.ask.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.ask.option.provider': 'Proveedor del modelo (ver: mnemosine providers)',
+  'help.ask.option.model': 'Sustituye el modelo del perfil',
+  'help.chat.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.chat.option.provider': 'Proveedor del modelo (ver: mnemosine providers)',
+  'help.chat.option.model': 'Sustituye el modelo del perfil',
+  'help.chat.option.continue':
+    'Retoma la última sesión de esta terminal y entidad (continúa la transcripción; el contexto ' +
+    'del modelo empieza de cero)',
+  'help.chat.option.resume': 'Retoma una sesión por su id (ver: mnemosine sessions)',
+  'help.chat.option.no_banner': 'Omite el banner de inicio (también: MNEMOSINE_NO_BANNER=1)',
+  'help.compact.description':
+    'Informe de compactación, sin aplicarla, de la transcripción de una sesión (sin llamadas a la API)',
+  'help.compact.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.compact.option.tenant': 'Inquilino (despacho)',
+  'help.compact.option.session': 'Id de la sesión (por omisión: la más reciente)',
+  'help.compact.option.keep': 'Cola reciente que se conserva intacta, en tokens',
+  'help.compact.option.json': 'salida en JSON',
+  'help.drafts.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.drafts.option.status': 'Estado: pending_review | approved | rejected',
+  'help.review.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.review.option.user': 'Correo de quien revisa (por omisión: el primer usuario activo del inquilino)',
+  'help.sessions.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.sessions.option.limit': 'Número máximo de sesiones que se muestran',
+  'help.prompt_size.description':
+    'Desglose, sin conexión, del prompt de sistema y los esquemas de herramientas (sin llamadas a la API)',
+  'help.prompt_size.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.prompt_size.option.tenant': 'Inquilino (despacho)',
+  'help.prompt_size.option.json': 'salida en JSON',
+  'help.ai.description': 'Métricas y calibración del agente contable',
+  'help.ai.stats.description':
+    'Aprobación por tramo de confianza, desfase entre confianza y realidad, costo y eventos',
+  'help.doctor.description':
+    'Diagnostica la salud del sistema: base de datos, migraciones, proveedor, credenciales, aislamiento',
+  'help.doctor.option.json': 'salida en JSON para scripts',
+  'help.usage.description': 'Consumo de tokens y costo estimado según el registro local (sin llamadas a la API)',
+  'help.usage.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.usage.option.tenant': 'Inquilino (despacho)',
+  'help.usage.option.since': 'Ventana: Nd (p. ej., 7d, 30d) o AAAA-MM-DD',
+  'help.usage.option.by': 'Agrupa por: {choices}',
+  'help.usage.option.json': 'salida en JSON',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
