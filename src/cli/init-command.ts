@@ -7,7 +7,7 @@ import {
 } from './init/index.js';
 import { runDoctor } from '../ai/doctor-service.js';
 import { bootstrapTenant } from '../ai/context.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine init
@@ -289,22 +289,20 @@ export async function runInitWizard(
 }
 
 export function registerInitCommand(program: Command, deps: InitCliDeps): void {
-  program
-    .command('init')
-    .alias('configurar')
-    .description('Guided setup: infrastructure, entity, users, AI provider, and your books')
-    .addHelpText('after', '\n.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,\n~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.')
-    .option('--status', 'Only show the status, configure nothing')
-    .option('--section <id>', 'Configure a single section (infra|identity|users|ai|policies|import)')
-    .option('-y, --yes', 'Non-interactive: use defaults and flags, ask nothing')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--entity <name>', 'Name of the legal entity to create')
-    .option('--rfc <rfc>', 'RFC/EIN of the entity')
-    .option('--country <country>', 'MX | USA')
-    .option('--currency <currency>', 'Functional currency')
-    .option('--provider <name>', 'Default AI provider')
-    .option('--model <model>', 'Provider model')
-    .option('-u, --user <email>', 'Email of the user to create')
+  const init = describeCommand(program.command('init').alias('configurar'), 'help.init.description')
+    .addHelpText('after', '\n.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,\n~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.');
+  optionByKey(init, '--status', 'help.init.option.status');
+  optionByKey(init, '--section <id>', 'help.init.option.section');
+  optionByKey(init, '-y, --yes', 'help.init.option.yes');
+  optionByKey(init, '-t, --tenant <id>', 'help.init.option.tenant');
+  optionByKey(init, '--entity <name>', 'help.init.option.entity');
+  optionByKey(init, '--rfc <rfc>', 'help.init.option.rfc');
+  optionByKey(init, '--country <country>', 'help.init.option.country');
+  optionByKey(init, '--currency <currency>', 'help.init.option.currency');
+  optionByKey(init, '--provider <name>', 'help.init.option.provider');
+  optionByKey(init, '--model <model>', 'help.init.option.model');
+  optionByKey(init, '-u, --user <email>', 'help.init.option.user');
+  init
     .action(async (opts: InitWizardOptions & { status?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);

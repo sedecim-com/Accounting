@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 180,
+    "help-descriptions-without-key": 99,
     "cli-user-strings-without-key": 926
   },
   "perFile": {
@@ -1488,27 +1488,13 @@
       "src/services/accounting/validation.ts": 1
     },
     "help-descriptions-without-key": {
-      "ai": 2,
-      "ask": 4,
       "audit": 14,
       "backup": 21,
-      "chat": 6,
-      "compact": 6,
       "completion": 2,
-      "doctor": 2,
-      "drafts": 2,
-      "entity": 24,
-      "init": 12,
       "jobs": 28,
-      "login": 1,
-      "onboard": 8,
       "outbox": 6,
-      "prompt-size": 4,
-      "review": 2,
-      "sessions": 2,
       "status": 5,
       "subscription": 6,
-      "usage": 6,
       "webhooks": 17
     },
     "cli-user-strings-without-key": {

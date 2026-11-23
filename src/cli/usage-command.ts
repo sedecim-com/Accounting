@@ -6,7 +6,7 @@ import {
   type UsageSummary,
 } from '../ai/usage-ledger.js';
 import { PRECIOS_VIGENTES_A } from '../ai/providers/prices.js';
-import { exitCodeFor, usageError } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine usage
@@ -138,15 +138,16 @@ export interface UsageCommandDeps {
 }
 
 export function registerUsageCommand(program: Command, deps: UsageCommandDeps): void {
-  program
-    .command('usage')
-    .alias('uso')
-    .description('Token usage and estimated cost from the local ledger (no API calls)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--since <window>', 'Window: Nd (e.g. 7d, 30d) or YYYY-MM-DD')
-    .option('--by <dimension>', `Group by: ${GROUP_CHOICES.join(', ')}`, 'model')
-    .option('--json', 'JSON output')
+  const usage = describeCommand(program.command('usage').alias('uso'), 'help.usage.description');
+  optionByKey(usage, '-e, --entity <idOrName>', 'help.usage.option.entity');
+  optionByKey(usage, '-t, --tenant <id>', 'help.usage.option.tenant');
+  optionByKey(usage, '--since <window>', 'help.usage.option.since');
+  optionByKey(usage, '--by <dimension>', 'help.usage.option.by', {
+    params: { choices: GROUP_CHOICES.join(', ') },
+    defaultValue: 'model',
+  });
+  optionByKey(usage, '--json', 'help.usage.option.json');
+  usage
     .action(async (opts: { entity?: string; tenant?: string; since?: string; by?: string; json?: boolean }) => {
       try {
         const groupBy = parseGroupBy(opts.by);
