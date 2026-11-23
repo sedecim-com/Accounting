@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: d3608d394a87cea4ff696e6a39f31c3bc439e379
+> Gemela en español de [`language.md`](language.md) · source_sha: f2a6601c918f717b35651e2c6d1cea63c2efc1b1
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -115,8 +115,8 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 338 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 932 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 337 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 926 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
@@ -127,7 +127,7 @@ Regla propia de ESLint, **en línea** en `eslint.config.mjs` (sin paquete), nive
 
 ### 3.4 El catálogo tipado, el resolutor y el formateador
 
-- **`src/i18n/en.ts`** es la fuente (`as const`); **`src/i18n/es.ts`** se declara `Record<keyof typeof EN, string>`; `t(key, params)` con plurales y selección propios sobre `Intl.PluralRules` (Node ≥ 20 lo garantiza): **cero dependencias**, claves que `tsc`, `codigoDe` y el metro ven. La prueba de sincronía cubre lo que el tipo no: parámetros iguales entre idiomas, cadenas vacías, idioma equivocado, claves huérfanas, y que `LANGUAGES[0] === 'es'`. Un marcador `__TRANSLATE__` en `en.ts` se rechaza. **Por ahora son dos idiomas**, `es-MX` y `en-US` (decisión del dueño, 2026-09-07); el mecanismo no sabe cuántos hay, y un tercero será un archivo más y un renglón en la sincronía, no un tramo.
+- **`src/i18n/en.ts`** es la fuente (`as const`); **`src/i18n/es.ts`** se declara `Record<keyof typeof EN, string>`; `t(key, params)` con plurales y selección propios sobre `Intl.PluralRules` (Node ≥ 20 lo garantiza): **cero dependencias**, claves que `tsc`, `codigoDe` y el metro ven. La prueba de sincronía cubre lo que el tipo no: parámetros iguales entre idiomas, cadenas vacías, idioma equivocado (incluido un valor de `en.ts` que se juzga español), claves huérfanas, y que `LANGUAGES[0] === 'es'`. Un marcador `__TRANSLATE__` en `en.ts` se rechaza. **Por ahora son dos idiomas**, `es-MX` y `en-US` (decisión del dueño, 2026-09-07); el mecanismo no sabe cuántos hay, y un tercero será un archivo más y un renglón en la sincronía, no un tramo.
 - **`src/i18n/locale.ts`**: `describeLocale()` (y `resolveLocale()`, sólo su locale), síncrono y sin base, toma el primero de cinco peldaños que responde: (1) esta corrida: `--locale` (bandera global en `FLAG_DICTIONARY`, un solo significado), después `MNEMOSINE_LOCALE` (con `MNEMOSINE_LANG` como alias permanente); (2) `locale` en `~/.mnemosine/config.json`, que escribe `mnemosine lang`; (3) `locale` en `./mnemosine.config.json`, después la clave vieja `language` del primero de los dos archivos que exista, que se conserva hasta I24; (4) el idioma de la entidad, su propio ajuste o si no el de su jurisdicción (#651), que quien llama lee donde tiene conexión y pasa ya leído: el CLI y el agente lo pasarán (#655, propuesta), y REST y el tablero lo leen por su propio camino (#656, propuesta); (5) `DEFAULT_LOCALE`, `es-MX` (`src/i18n/locale.ts:51`). No hay peldaño del despacho. `es` se canoniza a `es-MX` y `en` a `en-US`. En REST: `Accept-Language` > `DEFAULT_LOCALE`, y la respuesta declara `Content-Language`. **Uno solo** para la interfaz y el agente; `resolveLanguage` lo lee (`config.ts:1208`). `vitest.config.ts` fija `test.env.MNEMOSINE_LOCALE = 'en-US'` para que las 1 025 aserciones del CLI comparen la fuente.
 - **`src/i18n/format.ts`**: `formatMoney`, `formatDate`, `formatNumber` sobre `Intl` con el `formatLocale` que deriva de la jurisdicción y la moneda de la entidad (`jurisdictionOf(entity)`), **sólo para `table` y prosa**; `json`, `csv`, `ndjson` y `md` no cambian (`presentation.spec.ts:10-14`). Moneda con **código ISO** (`1,234.56 MXN`), fechas ISO en tabla. `formatMoneyMx` deja de llevar el locale en el nombre, con alias deprecado. CI fija `full-icu`, porque con `small-icu` todo locale cae a `en-US` en silencio y hoy ninguna prueba lo detecta.
 

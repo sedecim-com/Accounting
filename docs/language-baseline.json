@@ -21,8 +21,8 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 338,
-    "cli-user-strings-without-key": 932
+    "help-descriptions-without-key": 337,
+    "cli-user-strings-without-key": 926
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1185,7 +1185,7 @@
       "src/cli/kernel/vocabulary.ts": 8,
       "src/cli/ledger-command.ts": 18,
       "src/cli/memory-command.ts": 28,
-      "src/cli/mnemosine.ts": 531,
+      "src/cli/mnemosine.ts": 529,
       "src/cli/pay-run-command.ts": 3,
       "src/cli/pay-run-post-command.ts": 2,
       "src/cli/pay-schedule-command.ts": 4,
@@ -1505,7 +1505,6 @@
       "init": 12,
       "isn": 21,
       "jobs": 28,
-      "lang": 1,
       "login": 1,
       "onboard": 8,
       "outbox": 6,
@@ -1563,7 +1562,7 @@
       "src/cli/kernel/render-keyed.ts": 1,
       "src/cli/kernel/risk.ts": 2,
       "src/cli/memory-command.ts": 17,
-      "src/cli/mnemosine.ts": 145,
+      "src/cli/mnemosine.ts": 139,
       "src/cli/pay-run-command.ts": 1,
       "src/cli/payment-command.ts": 24,
       "src/cli/payroll-isn-command.ts": 45,
