@@ -23,6 +23,7 @@ import {
 } from './iva-cash-basis.js';
 import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines, type IepsMove } from './ieps-cash-basis.js';
 import { splitNoteVat } from '../xml-ingestion/received-credit-note.js';
+import { capKept, issuedVatKeptOnAccount, KEPT_RESTITUTION_TAG } from '../payments/customer-advance.js';
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
@@ -412,6 +413,17 @@ interface CreditNoteRow {
  * A note with no linked invoice assumes PUE and says so in the entry:
  * reversing tax that was already caused is the conservative direction for a
  * credit against collected sales.
+ *
+ * MNE-001-593 (#814, decision (A)): part of what is parked may be the IVA of
+ * a price whose cash the firm still holds on account, kept caused after an
+ * unapply (`issuedVatKeptOnAccount`). That price was collected, so the note
+ * treats it as collected (`splitNoteVatOnKept`): its IVA is restituted from
+ * iva_trasladado, and the same IVA of the kept cash leaves 2125 for 2150 with
+ * the balance it no longer carries, owed back to the customer. One 2150 line
+ * per receipt, tagged with it and the invoice. The two orders of an unapply
+ * and a note then end with the same 2120, 2125 and 2150.
+ * CONTRACT: the ledger: a note's entry can carry DR 2125 / CR 2150 lines
+ * tagged `kept_restitution`, which the pool and a reversal read back.
  */
 export async function postCreditNoteEntry(
   client: pg.PoolClient,
@@ -446,11 +458,14 @@ export async function postCreditNoteEntry(
   const parked = ivaRole === 'iva_trasladado_no_cobrado' && note.invoice_id && tax.greaterThan(0)
     ? await issuedVatStillParked(client, note.entity_id, note.invoice_id)
     : null;
+  const holds = parked ? await issuedVatKeptOnAccount(client, note.entity_id, note.invoice_id as string) : [];
   const split = parked
-    ? splitNoteVat(tax, parked.parked)
-    : { fromPending: tax.toFixed(4), fromCreditable: '0.0000' };
+    ? splitNoteVatOnKept(tax, parked.parked, holds.reduce((sum, h) => sum.plus(h.iva), new Decimal(0)))
+    : { fromPending: tax.toFixed(4), fromCreditable: '0.0000', fromKept: '0.0000' };
+  const fromKept = new Decimal(split.fromKept).greaterThan(0);
   const roles = await roleAccounts(client, note.entity_id, [
     'cxc', ivaRole, 'iva_trasladado', isAdvance ? 'anticipo_clientes' : 'devolucion_ventas',
+    ...(fromKept && !isAdvance ? ['anticipo_clientes'] : []),
   ]);
 
   const jeLines: JeLine[] = [
@@ -479,6 +494,26 @@ export async function postCreditNoteEntry(
       credit_amount: null,
       description: `IVA restituted (LIVA art. 7), already caused on collection - Credit note ${note.credit_note_number}` +
         (parked?.estimated ? ' · the invoice\'s release of an allocation that stored none is estimated pro rata' : ''),
+    });
+  }
+  if (fromKept) {
+    jeLines.push({
+      account_id: requireRole(roles, ivaRole),
+      debit_amount: split.fromKept,
+      credit_amount: null,
+      description: `IVA of the cash kept on account that credit note ${note.credit_note_number} restituted leaves ${ivaRole}`,
+    });
+    const shares = capKept(holds.map((h) => h.iva), split.fromKept);
+    holds.forEach((h, i) => {
+      if (!new Decimal(shares[i]).greaterThan(0)) return;
+      jeLines.push({
+        account_id: requireRole(roles, 'anticipo_clientes'),
+        debit_amount: null,
+        credit_amount: shares[i],
+        description: `IVA of credit note ${note.credit_note_number}'s reduction restituted from cash kept on account by ` +
+          `${h.paymentNumber}: now owed back (LIVA art. 7, decision (A))`,
+        tags: { [KEPT_RESTITUTION_TAG]: { payment_id: h.paymentId, invoice_id: note.invoice_id } },
+      });
     });
   }
   jeLines.push({
@@ -510,6 +545,23 @@ export async function postCreditNoteEntry(
     );
   }
   return entry;
+}
+
+/**
+ * MNE-001-593 (#814, decision (A)) · A PPD note's IVA when `kept` of what the
+ * invoice has parked is the IVA of cash the firm holds on account, kept
+ * caused: that part of the price was collected, so the note takes from 2125
+ * only up to the rest (`splitNoteVat`), restitutes the remainder from 2120
+ * (LIVA art. 7), and `fromKept`, the part of that restitution the kept cash
+ * covers, moves the kept cash's IVA out of 2125. `fromPending + fromKept`
+ * never exceeds what is parked.
+ */
+export function splitNoteVatOnKept(
+  tax: Decimal.Value, parked: Decimal.Value, kept: Decimal.Value
+): { fromPending: string; fromCreditable: string; fromKept: string } {
+  const held = Decimal.min(Decimal.max(new Decimal(kept), 0), Decimal.max(new Decimal(parked), 0));
+  const split = splitNoteVat(tax, Decimal.max(new Decimal(parked).minus(held), 0));
+  return { ...split, fromKept: Decimal.min(split.fromCreditable, held).toFixed(4) };
 }
 
 /**
@@ -1100,6 +1152,13 @@ export interface AplicacionPosterior {
   advanceIvaDeferred?: string;
   /** MNE-001-573 · the cashing day of a cheque whose PUE invoice of an earlier month caused that IVA. */
   advanceIvaCashedOn?: string | null;
+  /**
+   * MNE-001-590 · customer side only: the IEPS that this cash carries, caused
+   * when it was collected and kept by an unapply (`iepsTakeOf`). It nets
+   * against the IEPS share the invoice releases: CR 2180 r − e, DR when
+   * negative, no line at zero. Only the rest of the cash leaves 2150.
+   */
+  advanceIeps?: string;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1128,6 +1187,10 @@ export interface AplicacionPosterior {
  * MNE-001-461: on a PPD invoice that debit meets the share released from
  * 2125 in one 2120 line per invoice, CR g − c (DR when negative, none at
  * zero). The release returned is g, what left 2125.
+ *
+ * MNE-001-590: the IEPS that the cash carries (`advanceIeps`, e) nets the
+ * same way against the invoice's IEPS share (r): CR 2180 r − e, DR when
+ * negative, none at zero, and 2150 gives up only the rest.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1150,6 +1213,7 @@ export async function postReceiptApplicationEntry(
   const documentos: string[] = [];
   const iepsDocs: string[] = [];
   const iepsLines: JeLine[] = [];
+  let iepsTaken = new Decimal(0);
 
   // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
   if (cashBasis && !payment.holdsIvaUntilCashed) {
@@ -1185,10 +1249,18 @@ export async function postReceiptApplicationEntry(
         priorApplied: app.priorApplied,
         appliedNow: new Decimal(app.amount).plus(app.withholdingIsr ?? '0').plus(app.withholdingIva ?? '0').toFixed(4),
       });
-      if (new Decimal(amount).greaterThan(0)) ieps.push({ invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount });
+      // MNE-001-590: the IEPS this cash already carries nets against the share (`take`).
+      const take = new Decimal(app.advanceIeps ?? '0');
+      if (new Decimal(amount).greaterThan(0) || take.greaterThan(0)) {
+        ieps.push({
+          invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount,
+          ...(take.greaterThan(0) ? { take: take.toFixed(4) } : {}),
+        });
+        iepsTaken = iepsTaken.plus(take);
+      }
     }
     iepsLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
-    iepsDocs.push(...ieps.map((m) => m.invoiceNumber));
+    iepsDocs.push(...ieps.filter((m) => new Decimal(m.amount).greaterThan(m.take ?? '0')).map((m) => m.invoiceNumber));
   }
 
   // MNE-001-422 / MNE-001-461: an advance's IVA, caused when it was collected
@@ -1257,7 +1329,7 @@ export async function postReceiptApplicationEntry(
     [
       {
         account_id: requireRole(roles, 'anticipo_clientes'),
-        debit_amount: total.minus(advanceIva).toFixed(4),
+        debit_amount: total.minus(advanceIva).minus(iepsTaken).toFixed(4),
         credit_amount: null,
         description: `On-account applied ${payment.payment_number}`,
       },
@@ -1577,6 +1649,10 @@ function discountVatLine(accountId: string, role: string, amount: string, billNu
  * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
  * role for the invoice, read back from the ledger by the caller: it goes
  * back exactly (DR ieps_por_pagar · CR the uncollected role).
+ *
+ * MNE-001-590 · `iepsKept` is that same figure when it stays caused: it goes
+ * back to the uncollected role (CR) with no 2180 line, and the cash back on
+ * account carries it, so 2150 is credited only for the rest.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -1590,6 +1666,8 @@ export async function postReceiptUnapplicationEntry(
     /** MNE-001-574: the IVA the rows' plain cash keeps caused, back on account with it. */
     keptIva?: string;
     ieps?: IepsMove;
+    /** MNE-001-590: the IEPS this receipt moved for the invoice that stays caused, back on account with the cash. */
+    iepsKept?: IepsMove;
     /** MNE-001-581: the release that stays in 2120, the notes that restituted it and what the open balance carries. */
     ivaKept?: { amount: string; notes: string; carries: string };
   },
@@ -1600,6 +1678,7 @@ export async function postReceiptUnapplicationEntry(
   const vat = new Decimal(app.withholdingIva ?? '0');
   const kept = new Decimal(app.keptIva ?? '0');
   const advanceIva = new Decimal(app.advanceIva ?? '0').plus(kept);
+  const iepsKept = new Decimal(app.iepsKept?.amount ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
@@ -1610,7 +1689,7 @@ export async function postReceiptUnapplicationEntry(
     {
       account_id: requireRole(roles, 'anticipo_clientes'),
       debit_amount: null,
-      credit_amount: new Decimal(app.amount).minus(advanceIva).toFixed(4),
+      credit_amount: new Decimal(app.amount).minus(advanceIva).minus(iepsKept).toFixed(4),
       description: `Back on account ${payment.payment_number}`,
     },
     ...(await withholdingLines(client, payment, isr, vat, 'credit')),
@@ -1678,6 +1757,9 @@ export async function postReceiptUnapplicationEntry(
   if (app.ieps) {
     jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));
   }
+  if (app.iepsKept) {
+    jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.iepsKept], 'keep', 'unapply')));
+  }
 
   return createJournalEntry(
     payment.entity_id,
@@ -1721,6 +1803,42 @@ export async function postReceiptReversalVatEntry(
       { account_id: requireRole(roles, from), debit_amount: amount, credit_amount: null, description: text },
       { account_id: requireRole(roles, to), debit_amount: null, credit_amount: amount, description: text },
     ],
+    userId,
+    { autoPost: true, client, sourceType: RECEIPT_REVERSAL_IVA_SOURCE, sourceId: payment.id, reference: payment.payment_number }
+  );
+}
+
+/**
+ * MNE-001-593 (#814, decision (A)) · After a credit note restituted IVA from
+ * the cash a receipt kept on account (`postCreditNoteEntry`), the receipt's
+ * mirrors leave that IVA credited in anticipo_clientes and debited in
+ * iva_trasladado, which no balance carries: the cash is gone with the
+ * reversal. One pair per note takes it out (DR anticipo_clientes · CR
+ * iva_trasladado), with the source of the reversal's IVA correction and
+ * dated with the mirrors, so the reversal ends as one before the note would.
+ */
+export async function postReceiptReversalRestitutionEntry(
+  client: pg.PoolClient,
+  payment: { id: string; entity_id: string; payment_number: string },
+  restitutions: readonly { noteNumber: string; iva: string }[],
+  userId: string
+): Promise<JournalEntry> {
+  const { to } = reclassRoles('issued');
+  const roles = await roleAccounts(client, payment.entity_id, ['anticipo_clientes', to]);
+  const lines = restitutions.flatMap((x): JeLine[] => {
+    const text = `IVA restituted by credit note ${x.noteNumber} from the cash ${payment.payment_number} kept on account ` +
+      'leaves with the reversal: no balance owes it back (LIVA art. 7, decision (A))';
+    return [
+      { account_id: requireRole(roles, 'anticipo_clientes'), debit_amount: x.iva, credit_amount: null, description: text },
+      { account_id: requireRole(roles, to), debit_amount: null, credit_amount: x.iva, description: text },
+    ];
+  });
+  return createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    `Reversal of ${payment.payment_number} · restitution from kept cash out of anticipo_clientes`,
+    lines,
     userId,
     { autoPost: true, client, sourceType: RECEIPT_REVERSAL_IVA_SOURCE, sourceId: payment.id, reference: payment.payment_number }
   );

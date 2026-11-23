@@ -159,6 +159,21 @@ describe('causes the old hand list did not see are warned too', () => {
     expect(err).toContain(await voucherFinding('08', r.entry));
     expect(err).toContain('receipt trace record');
   }, 60_000);
+
+  // #856: the payee of a collection is the customer, so its record is the one named.
+  it('a receipt from a customer with a malformed RFC names the customer record, not the entity', async () => {
+    const r = await receipt('2026-05-12', { bankAccountId: operativaId, payerBankCode: '002' });
+    await query(`UPDATE customers SET tax_id = 'CPU12345' WHERE id = $1 AND entity_id = $2`, [customerId, f.entityId]);
+    try {
+      const err = await warned('customer', r.id);
+      expect(err).toContain(await voucherFinding('05', r.entry));
+      expect(err).toContain(`el registro del cliente «Cliente Puntual SA» (id ${customerId})`);
+      expect(err).toContain('tiene «CPU12345» como RFC');
+      expect(err).not.toContain('de la entidad');
+    } finally {
+      await query(`UPDATE customers SET tax_id = 'CPU010101AB1' WHERE id = $1 AND entity_id = $2`, [customerId, f.entityId]);
+    }
+  }, 60_000);
 });
 
 describe('nothing is said when there is nothing to say', () => {

@@ -3716,6 +3716,143 @@ export const EN = {
   'fiscal_mx.e_accounting.output.kept':
     'Nothing was written: {target} is kept as it was. Use another path, or --yes if you really want to replace it.',
 
+  // MNE-001-226: diot (generate, check, export: the not-filed block, the header and totals, the verdicts).
+  /** The warning of every diot leaf: the DIOT was not filed, and the output is not the return. */
+  'fiscal_mx.diot.unfiled.headline': 'THIS DIOT WAS NOT FILED AND THIS FILE IS NOT THE RETURN.',
+  /** Under the headline: building the return and filing it are not the same act. */
+  'fiscal_mx.diot.unfiled.two_hands': 'Building the return and filing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.diot.unfiled.step_tie_out':
+    'Tie the working paper out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture — "almost matches" is a request from the SAT within a year.',
+  /** Step 2: the capture in the portal, which no command does. */
+  'fiscal_mx.diot.unfiled.step_capture':
+    'Capture or upload the return YOURSELF in the SAT portal. This binary does not enter the portal, does not load the e.firma and files nothing.',
+  /** Step 3: the acknowledgement, the only proof of filing. */
+  'fiscal_mx.diot.unfiled.step_acknowledgement':
+    'Keep the acknowledgement with its operation number: it is the only proof that it was filed.',
+  /** Step 4: recording the acknowledgement, which has no command yet. */
+  'fiscal_mx.diot.unfiled.step_record':
+    'Record the acknowledgement in the month\'s file. That record has NO command YET (`diot record` is not built).',
+  /** `diot` with no --period. */
+  'fiscal_mx.diot.period.missing':
+    'The DIOT is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no period to declare.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.diot.period.not_month':
+    '--period "{value}" is not a month. The DIOT is monthly (LIVA art. 32 fr. VIII), so only the form YYYY-MM (2026-02) is valid here. A quarter or a fiscal year is not declared.',
+  /** A month outside 01..12; 13 belongs to the year-end balance of Anexo 24. */
+  'fiscal_mx.diot.period.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance of Anexo 24 (`e-accounting balance generate --closing`); an informative return has no month 13.',
+  /** What `--check hecho-pagado` verifies. Stored English in the `detalle` column; the table renders it. */
+  'fiscal_mx.diot.check.paid_event':
+    'the event the DIOT declares exists in the ledger and releases no more IVA than is parked',
+  /** What `--check desglose-por-tasa` verifies. */
+  'fiscal_mx.diot.check.rate_breakdown':
+    'each expense is split by rate (16/8/0/exempt) and the sum reproduces the IVA of the header',
+  /** What `--check base-de-lo-exento` verifies. */
+  'fiscal_mx.diot.check.exempt_base':
+    'exempt acts declare their base, which is what the DIOT reports even when there is no tax',
+  /** What `--check tercero-identificado` verifies. */
+  'fiscal_mx.diot.check.third_party_identified':
+    'each third party arrives with a usable RFC, or with tax ID, country and nationality if foreign',
+  /** What `--check tipo-de-operacion` verifies. */
+  'fiscal_mx.diot.check.operation_type':
+    'each third party carries a captured operation type that the 2025 catalogue allows for its type of third party, not an assumed one',
+  /** What `--check creditable-iva-proportion` verifies (LIVA art. 5 frac. V). */
+  'fiscal_mx.diot.check.creditable_iva_proportion':
+    'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue in the fiscal year',
+  /** What `--check politica-en-catalogo` verifies. */
+  'fiscal_mx.diot.check.catalog_policy': 'the DIOT policies hold a value their own catalogue allows',
+  /** The envelope of `diot check --json`, on stderr. */
+  'fiscal_mx.diot.check.envelope':
+    '{rfc} · DIOT {month}/{year} · {parties, plural, one {# third party} other {# third parties}} · creditable IVA paid {amount} · checks: {checks}',
+  /** `diot check` with no findings. */
+  'fiscal_mx.diot.check.clean':
+    'no findings: the DIOT passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `diot check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.diot.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the return from being captured.',
+  /** The line beside the DIOT title. */
+  'fiscal_mx.diot.header.summary':
+    'RFC {rfc} — {name} · {from} → {to} · {parties, plural, one {# third party} other {# third parties}} · {documents, plural, one {# document} other {# documents}}',
+  /** The basis of the DIOT: paid, not accrued. */
+  'fiscal_mx.diot.header.basis': 'basis: PAID transactions (LIVA art. 5 frac. III), not accrued',
+  /** After a panel criterion nobody answered: its value is the default. */
+  'fiscal_mx.diot.header.by_default': '(default)',
+  /** The 8 % rate row of the totals. */
+  'fiscal_mx.diot.totals.rate_8': '8 % (border zone)',
+  /** The exempt row of the totals. */
+  'fiscal_mx.diot.totals.exempt': 'exempt',
+  /** A row for any other rate, with its label. */
+  'fiscal_mx.diot.totals.other': 'other ({label})',
+  /** The creditable IVA paid in the month; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.creditable_paid': 'Creditable IVA paid in the month',
+  /** The IVA withheld from third parties; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.withheld': 'IVA withheld from third parties',
+  /** Under the totals: tie them out before capturing. */
+  'fiscal_mx.diot.totals.tie_out':
+    'Tie it out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture.',
+  /** `diot generate` with blocking findings. */
+  'fiscal_mx.diot.generate.not_capturable':
+    '{count, plural, one {# finding stops} other {# findings stop}} this DIOT from being captured as it is. {count, plural, one {Fix it} other {Fix them}} and build it again; `diot check --check` lists the checks by name so you can tackle them one at a time.',
+  /** A --layout that does not exist. */
+  'fiscal_mx.diot.export.layout_unknown':
+    '--layout "{value}" does not exist. The layouts are: {layouts} (working-paper is the reconciliation by third party that is tied out before capturing; sat is the authority\'s batch file).',
+  /** A period with no grounded batch layout: what to do meanwhile. `message` is the service's. */
+  'fiscal_mx.diot.export.meanwhile':
+    '{message}\n\nMeanwhile: `{command}` produces the reconciliation by third party to capture in the portal.',
+  /** The working paper is not the file that is uploaded. */
+  'fiscal_mx.diot.export.working_paper':
+    'Layout "{layout}": this is a WORKING PAPER. It is not uploaded to the SAT portal.',
+  /** The line of `diot export -o`: layout, size and where it went. */
+  'fiscal_mx.diot.export.written':
+    'layout {layout} · {bytes, plural, one {# byte} other {# bytes}} · target {target}',
+  /** `diot export` wrote the file, but blocking findings stop the capture. */
+  'fiscal_mx.diot.export.written_not_capturable':
+    'The file was written, but {count, plural, one {# finding stops} other {# findings stop}} the return from being captured as it is.',
+  /** `-o` names a file that exists, without --yes. */
+  'fiscal_mx.diot.export.exists':
+    '{target} already exists and is not overwritten unless asked: use another path, or --yes. A working paper reviewed and annotated by hand is not replaced silently.',
+
+  // MNE-001-226: cfdi (show, status show, status sync, explain) and rep (missing list, reconcile).
+  /** Above the line items of `cfdi show`. */
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# line item:} other {# line items:}}',
+  /** `cfdi status show` for a UUID the mirror does not have. */
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} is not in the mirror of this entity.',
+  /** `cfdi status show` of a CFDI never consulted with the SAT. */
+  'fiscal_mx.cfdi.status.never_checked': 'Never consulted: run with --refresh to ask the SAT now.',
+  /** `cfdi status sync` without --live: how many it would consult. */
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDIs}} to consult with the SAT{mode, select, dry_run { (dry-run: nothing was consulted)} other {. Run with --live to really consult {count, plural, one {it} other {them}}.}}',
+  /** The tally of `cfdi status sync --live`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consulted} other {# consulted}}: {valid, plural, one {# valid} other {# valid}}, {cancelled, plural, one {# cancelled} other {# cancelled}}, {not_found, plural, one {# not found} other {# not found}}, {errors, plural, one {# error} other {# errors}}',
+  /** After the tally: CFDIs the issuer cancelled. */
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelled by its issuer: review its accounting effect} other {# CFDIs cancelled by their issuers: review their accounting effect}} with cfdi list --json',
+  /** The header of `cfdi explain`. Direction and status are the mirror's values. */
+  'fiscal_mx.cfdi.explain.header': '{uuid} · type {type} · {direction} · case {case} · {status}',
+  /** After the header, when the CFDI has a journal entry. */
+  'fiscal_mx.cfdi.explain.entry': 'entry {entry}',
+  /** `cfdi explain` with no pending decision. */
+  'fiscal_mx.cfdi.explain.no_decisions': 'No pending decisions: the case was resolved by the panel policies alone.',
+  /** `rep missing list --direction issued`: our collections without a REP. */
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# collection} other {# collections}} without an issued REP: our own tax obligation, with a SAT deadline.',
+  /** `rep missing list` (received): paid PPD bills without the supplier REP. */
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# payment} other {# payments}} without the supplier REP: the receipt that supports crediting the IVA of {count, plural, one {that payment} other {those payments}} is missing.',
+  /** Rows whose CFDI is not in the mirror, so their payment method is unknown. */
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated it as {method}; it is listed} other {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated them as {method}; they are listed}} with the doubt stated — a PUE needs no REP.',
+  /** A --min-amount that is not a number. */
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount is unreadable: "{value}".',
+  /** `rep reconcile --dry-run`: how many parked REPs it would retry. */
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# parked REP would be retried} other {# parked REPs would be retried}} (dry-run: nothing was touched).',
+  /** The tally of `rep reconcile`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# retried} other {# retried}}: {linked, plural, one {# linked} other {# linked}}, {parked, plural, one {# still parked} other {# still parked}}, {errors, plural, one {# error} other {# errors}}',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
@@ -4947,6 +5084,93 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  //
+  // The second payables task: the three families whole, roots included,
+  // English as shown (`payment trace` was keyed before). Every generic flag
+  // keeps a key of its own: none of these leaves has a --format, their --reason
+  // is not cli.flag.reason's text, and `prepaid list` declares -n and --offset
+  // by hand. The two withSelection flags `tax-deposit list` rewords go through
+  // describeOption. Lists travel as {conventions} and {states}.
+  'help.payment.description': 'Vendor payments: record cash that already left the bank and settle the bill it pays',
+  'help.payment.create.description': 'Record a payment made against a bill and recognize the IVA it was holding',
+  'help.payment.create.argument.bill': 'bill number, vendor invoice number or id',
+  'help.payment.create.option.amount': 'amount, in the document currency',
+  'help.payment.create.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.payment.create.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.payment.create.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.payment.create.option.json': 'JSON output',
+  'help.payment.create.option.check_number': 'cheque number; only valid with --method check',
+  'help.payment.create.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.create.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.create.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.create.option.discount': 'early-payment discount taken',
+  'help.payment.create.option.memo': 'note stored with the payment',
+  'help.payment.apply.description':
+    'Apply an existing payment to specific bills: partial, with discount, or short-paid',
+  'help.payment.apply.argument.payment': 'payment number or id whose on-account balance is to be applied',
+  'help.payment.apply.option.bill': 'bill to apply to; repeat it, paired in order with --amount',
+  'help.payment.apply.option.amount': 'amount applied to the bill in the same position',
+  'help.payment.apply.option.discount': 'early-payment discount for the bill in the same position',
+  'help.payment.apply.option.mode': 'partial (leave the rest open) or residual (close it short)',
+  'help.payment.apply.option.short_pay_reason':
+    'why the unpaid balance is being written off; required by --mode residual',
+  'help.payment.apply.option.json': 'JSON output',
+  'help.payment.unapply.description':
+    'Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account',
+  'help.payment.unapply.argument.payment': 'payment number or id',
+  'help.payment.unapply.option.bill': 'the bill to unapply from',
+  'help.payment.unapply.option.reason': 'why: it lands in the audit trail',
+  'help.payment.unapply.option.date':
+    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today',
+  'help.payment.unapply.option.json': 'JSON output',
+  'help.payment.reverse.description':
+    'Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again',
+  'help.payment.reverse.argument.payment': 'payment number or id',
+  'help.payment.reverse.option.reason': 'why: it lands in the audit trail',
+  'help.payment.reverse.option.date':
+    'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today',
+  'help.payment.reverse.option.json': 'JSON output',
+  'help.prepaid.description': 'Prepaid expenses: the schedule that takes them out of 1160, month by month',
+  'help.prepaid.create.description':
+    'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing',
+  'help.prepaid.create.argument.description': 'what the prepayment covers, as it will read in the entries',
+  'help.prepaid.create.option.amount': 'amount to accrue, as a decimal',
+  'help.prepaid.create.option.start': 'first day the coverage runs (YYYY-MM-DD)',
+  'help.prepaid.create.option.end': 'last day the coverage runs, inclusive (YYYY-MM-DD)',
+  'help.prepaid.create.option.origin': 'where the charge already in the account came from — no default',
+  'help.prepaid.create.option.source_entry':
+    'the journal entry that charged the account; required with --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'the CFDI this prepayment came in on, for the trail',
+  'help.prepaid.create.option.vendor': 'vendor name kept on the schedule',
+  'help.prepaid.create.option.reference': 'the document this points at: policy number, contract, order',
+  'help.prepaid.create.option.convention':
+    'the convention you believe you are registering ({conventions}); checked against the panel',
+  'help.prepaid.create.option.prepaid_account':
+    'prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)',
+  'help.prepaid.create.option.expense_account':
+    'account the accrual will charge each month (defaults to the `gasto` role)',
+  'help.prepaid.create.option.reason': 'why the threshold is being overridden; required with --force',
+  'help.prepaid.create.option.dry_run': 'show the schedule that would be registered; write nothing',
+  'help.prepaid.list.description': 'Live schedules with their remaining balance and how many periods are left',
+  'help.prepaid.list.option.limit': 'maximum rows to return',
+  'help.prepaid.list.option.offset': 'skip this many rows',
+  'help.prepaid.list.option.all': 'every live schedule, including those not started yet and already ended',
+  'help.prepaid.list.option.as_of':
+    'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)',
+  'help.prepaid.show.description': 'One schedule with its period-by-period table',
+  'help.prepaid.show.argument.id_or_description':
+    'the schedule: its id, or enough of its description to be unambiguous',
+  'help.prepaid.run.description': 'Post the month accrual — one adjusting entry per schedule, irreversible',
+  'help.prepaid.run.option.period': 'period to accrue: 2026-08, or any unambiguous part of its name',
+  'help.tax_deposit.description': 'Employer tax liabilities: what is owed, to whom, and by when',
+  'help.tax_deposit.list.description':
+    'Accrued employer liabilities with their due date and status, soonest due first',
+  'help.tax_deposit.list.option.status': 'filter by liability status ({states}); repeatable',
+  'help.tax_deposit.list.option.all': 'include what is already settled: deposited and waived rows too',
+  'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
+  'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   //
   // The first agent task: the six families whole, English as shown (the roots

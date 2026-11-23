@@ -105,6 +105,14 @@ output when a connection problem is unclear.
   error that says so: suggest a lower `reasoning_effort`, not a retry. Tool
   calls keep the provider's `extra_content` (Gemini 3's thought signature)
   and send it back unchanged.
+- `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and the lines of `OPENAI_CUSTOM_HEADERS`,
+  which the `openai` SDK reads on its own, reach only OpenAI's hosts
+  (`api.openai.com` and its regional ones); every other host gets the
+  profile's own key and `headers`, nothing more. A profile whose
+  `api_key_env` names an installation secret (`DATABASE_URL`,
+  `ENCRYPTION_KEY`, `JWT_SECRET`…) is refused before anything is sent, and
+  readiness says «not a provider credential»: tell the person to name the
+  provider's own key variable instead.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.

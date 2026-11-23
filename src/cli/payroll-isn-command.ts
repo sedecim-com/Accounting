@@ -38,6 +38,9 @@ import {
   withOutput,
   withSelection,
   withStrict,
+  describeCommand,
+  describeOption,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -1305,34 +1308,28 @@ export function registerTaxDepositCommand(program: Command, deps: PayrollIsnComm
   const { run, entidad, legible } = utilidades(deps);
   const c = deps.palette;
 
-  const familia = program
-    .command('tax-deposit')
-    .alias('entero')
-    .description('Employer tax liabilities: what is owed, to whom, and by when');
+  const familia = describeCommand(program.command('tax-deposit').alias('entero'), 'help.tax_deposit.description');
 
-  const listar = familia
-    .command('list')
-    .alias('listar')
-    .description('Accrued employer liabilities with their due date and status, soonest due first');
+  const listar = describeCommand(familia.command('list').alias('listar'), 'help.tax_deposit.list.description');
   withContext(listar);
   withOutput(listar);
   withSelection(listar);
-  listar
-    .option('--period <YYYY-MM>', 'only liabilities whose period touches this month')
-    .option('--until <date>', 'only what falls due on or before this date (YYYY-MM-DD)')
-    .option('--all-entities', 'every entity of the tenant, not just the active one');
+  optionByKey(listar, '--period <YYYY-MM>', 'help.tax_deposit.list.option.period');
+  optionByKey(listar, '--until <date>', 'help.tax_deposit.list.option.until');
+  optionByKey(listar, '--all-entities', 'help.tax_deposit.list.option.all_entities');
   // LAS DOS DESCRIPCIONES QUE `withSelection` INYECTA NO DICEN LA VERDAD AQUÍ,
   // y una ayuda que promete algo distinto de lo que el código hace es la clase
   // de mentira que este repositorio ya cazó en `ap reconcile`. La GRAFÍA y la
   // forma corta las sigue gobernando el diccionario; lo que se corrige es lo
   // que la línea dice. `-a` no quita el tope de filas —lo quita no pasar
   // `-n`— y en esta tabla no hay nada «archivado»: hay depositado y dispensado.
+  // MNE-001-239: the rewording goes by key, through describeOption (#314).
   {
     const todo = listar.options.find((o) => o.long === '--all');
-    if (todo) todo.description = 'include what is already settled: deposited and waived rows too';
+    if (todo) describeOption(todo, 'help.tax_deposit.list.option.all');
     const estado = listar.options.find((o) => o.long === '--status');
     if (estado) {
-      estado.description = `filter by liability status (${ESTADOS_DE_PASIVO.join('|')}); repeatable`;
+      describeOption(estado, 'help.tax_deposit.list.option.status', { states: ESTADOS_DE_PASIVO.join('|') });
     }
   }
   declareRisk(listar, { risk: 'lectura', agent: true });
