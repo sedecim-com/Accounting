@@ -8,7 +8,7 @@ import { resolveReviewer } from '../ai/draft-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
 import { getClient, query } from '../database/connection.js';
-import { t } from '../i18n/index.js';
+import { t, type Language, type TranslationKey } from '../i18n/index.js';
 import {
   conLlave,
   mirarLlave,
@@ -143,7 +143,23 @@ import { isRealCalendarDate } from '../utils/calendar-date.js';
 // remanente (`min(teórico, restante)`). Por eso, tras la corrida real, se
 // COMPARA lo procesado contra lo que la previa prometió y se dice en voz alta
 // si no coincide, en vez de descubrirlo en una balanza.
+//
+// LA OCTAVA · LAS HOJAS HABLAN POR CLAVE (MNE-001-227, I8.8). Every sentence
+// comes from the I8.8 block of the catalogue, with ICU plurals instead of
+// «(s)», and the currency is the parameter `{currency}`, never text: see
+// `PREPAID_CURRENCY`. What scripts read (--json, csv) stays English under
+// every locale; the table labels it in the user's language.
 // ============================================================
+
+/**
+ * The currency every amount of this module is in, passed to the catalogue as
+ * a parameter. `prepaid_expenses` has no currency column (migration 059) and
+ * the panel threshold is `umbral_anticipado_mxn`, so the books' pesos are the
+ * only currency the module handles today. A sentence that wrote «MXN» would
+ * have to be found and rewritten the day an entity keeps other books; this
+ * constant is the one line that changes then.
+ */
+export const PREPAID_CURRENCY = 'MXN';
 
 export interface PrepaidCommandDeps {
   palette: Palette;
@@ -176,7 +192,7 @@ const IMPORTE_RE = /^\d+(\.\d+)?$/;
  */
 export function exigirFecha(flag: string, valor: string): string {
   if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
-    throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
+    throw usageError({ key: 'ap.prepaid.flag.date_invalid', params: { flag, value: valor } });
   }
   return valor;
 }
@@ -189,20 +205,14 @@ export function exigirFecha(flag: string, valor: string): string {
 export function exigirImporte(flag: string, valor: string): string {
   const limpio = valor.trim().replace(/,/g, '');
   if (!IMPORTE_RE.test(limpio)) {
-    throw usageError(
-      `${flag} debe ser un importe decimal sin signo; llegó "${valor}". El punto separa los ` +
-        'decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.'
-    );
+    throw usageError({ key: 'ap.prepaid.flag.amount_invalid', params: { flag, value: valor } });
   }
   return new Decimal(limpio).toFixed(4);
 }
 
 export function exigirPeriodo(periodo: string | undefined): string {
   if (!periodo) {
-    throw usageError(
-      'Falta --period. La amortización es de un mes concreto y no se adivina del reloj: correr ' +
-        '«el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar.'
-    );
+    throw usageError({ key: 'ap.prepaid.run.period_missing' });
   }
   return periodo;
 }
@@ -219,16 +229,14 @@ export type OrigenDeAnticipo = (typeof ORIGENES_DE_ANTICIPO)[number];
  */
 export function exigirOrigen(valor: string | undefined): OrigenDeAnticipo {
   if (valor === undefined) {
-    throw usageError(
-      `Falta --origin. Los tres orígenes son: ${ORIGENES_DE_ANTICIPO.join(', ')} — el CFDI que se ` +
-        'clasificó como anticipado (exige --source-entry), el saldo que ya estaba en la 1160 sin ' +
-        'calendario, y el pago que se contabilizó a mano. No tiene valor por omisión: suponerlo ' +
-        'deja el rastro apuntando a un asiento que no es.'
-    );
+    throw usageError({ key: 'ap.prepaid.create.origin_missing', params: { origins: ORIGENES_DE_ANTICIPO.join(', ') } });
   }
   const v = valor.trim().toLowerCase();
   if (!(ORIGENES_DE_ANTICIPO as readonly string[]).includes(v)) {
-    throw usageError(`--origin "${valor}" no existe. Los tres son: ${ORIGENES_DE_ANTICIPO.join(', ')}.`);
+    throw usageError({
+      key: 'ap.prepaid.create.origin_unknown',
+      params: { value: valor, origins: ORIGENES_DE_ANTICIPO.join(', ') },
+    });
   }
   return v as OrigenDeAnticipo;
 }
@@ -249,18 +257,21 @@ export function exigirConvencionDelPanel(
   if (declarada === undefined) return criterios.convencion;
   const pedida = declarada.trim().toLowerCase();
   if (!esConvencionDeAmortizacion(pedida)) {
-    throw usageError(
-      `--convention "${declarada}" no existe: las dos convenciones son ` +
-        `${CONVENCIONES_AMORTIZACION.join(' y ')} (los días que cada mes cubre, o el mes entero).`
-    );
+    throw usageError({
+      key: 'ap.prepaid.create.convention_unknown',
+      params: { value: declarada, days: CONVENCIONES_AMORTIZACION[0], months: CONVENCIONES_AMORTIZACION[1] },
+    });
   }
   if (pedida !== criterios.convencion) {
-    throw validationFailed(
-      `--convention ${pedida} contradice al panel: \`amortizacion_anticipados_convencion\` vale ` +
-        `"${criterios.convencion}"${criterios.convencionDefinida ? '' : ' (defecto declarado, nadie ha contestado)'}, ` +
-        'y es lo que se congela en el calendario. Esta bandera declara con qué convención crees ' +
-        `estar dando de alta, no la elige: se cambia con ${changePolicyHint('amortizacion_anticipados_convencion')}.`
-    );
+    throw validationFailed({
+      key: 'ap.prepaid.create.convention_contradicts_panel',
+      params: {
+        requested: pedida,
+        panel: criterios.convencion,
+        source: criterios.convencionDefinida ? 'answered' : 'default',
+        hint: changePolicyHint('amortizacion_anticipados_convencion'),
+      },
+    });
   }
   return criterios.convencion;
 }
@@ -346,11 +357,29 @@ export interface RenglonPrevisto {
   prepaid_account_id: string;
 }
 
+/** Why a schedule does not enter the month's run: a code, never prose. */
+export type SkipCause = 'unknown_convention' | 'not_started' | 'ended' | 'zero_row' | 'nothing_left';
+
+const CAUSE_KEYS: Readonly<Record<SkipCause, TranslationKey>> = Object.freeze({
+  unknown_convention: 'ap.prepaid.skip.unknown_convention',
+  not_started: 'ap.prepaid.skip.not_started',
+  ended: 'ap.prepaid.skip.ended',
+  zero_row: 'ap.prepaid.skip.zero_row',
+  nothing_left: 'ap.prepaid.skip.nothing_left',
+});
+
 export interface RenglonOmitido {
   estado: 'omitido';
   id: string;
   description: string;
-  motivo: string;
+  cause: SkipCause;
+  /** The stored convention, for `unknown_convention`; empty otherwise. */
+  storedConvention: string;
+}
+
+/** The reason of an omitted row, in `language` (the user's by default). */
+export function skipReason(p: RenglonOmitido, language?: Language): string {
+  return t(CAUSE_KEYS[p.cause], { convention: p.storedConvention }, language);
 }
 
 export type PrevisionDelPeriodo = RenglonPrevisto | RenglonOmitido;
@@ -365,16 +394,15 @@ export type PrevisionDelPeriodo = RenglonPrevisto | RenglonOmitido;
  * compara contra la previa al terminar.
  */
 export function renglonDelPeriodo(a: PrepaidExpenseRow, inicioDelPeriodo: Date): PrevisionDelPeriodo {
-  const omitido = (motivo: string): RenglonOmitido => ({
+  const omitido = (cause: SkipCause): RenglonOmitido => ({
     estado: 'omitido',
     id: a.id,
     description: a.description,
-    motivo,
+    cause,
+    storedConvention: cause === 'unknown_convention' ? a.amortization_convention : '',
   });
 
-  if (!esConvencionDeAmortizacion(a.amortization_convention)) {
-    return omitido(`convención guardada desconocida ("${a.amortization_convention}")`);
-  }
+  if (!esConvencionDeAmortizacion(a.amortization_convention)) return omitido('unknown_convention');
   const convencion: ConvencionAmortizacion = a.amortization_convention;
   const inicio = medianocheLocal(a.coverage_start_date);
   const calendario = calcularAmortizacion({
@@ -388,13 +416,13 @@ export function renglonDelPeriodo(a: PrepaidExpenseRow, inicioDelPeriodo: Date):
   // milisegundos: fue el defecto A de F06a, donde marzo repetía la fila de
   // febrero y desde abril el índice quedaba atrasado para siempre.
   const indice = indiceDeCalendario(primerDiaDelMes(inicio), inicioDelPeriodo);
-  if (indice < 0) return omitido('la cobertura todavía no empieza');
+  if (indice < 0) return omitido('not_started');
   const fila = calendario[indice];
-  if (!fila) return omitido('la cobertura ya terminó');
-  if (esImporteCero(fila.amortization_amount)) return omitido('el renglón del mes es cero');
+  if (!fila) return omitido('ended');
+  if (esImporteCero(fila.amortization_amount)) return omitido('zero_row');
 
   const restante = new Decimal(a.remaining_amount);
-  if (restante.lessThanOrEqualTo(0)) return omitido('no queda saldo por devengar');
+  if (restante.lessThanOrEqualTo(0)) return omitido('nothing_left');
 
   const teorico = new Decimal(fila.amortization_amount);
   const monto = teorico.greaterThan(restante) ? restante : teorico;
@@ -414,7 +442,11 @@ export function renglonDelPeriodo(a: PrepaidExpenseRow, inicioDelPeriodo: Date):
   };
 }
 
-/** Un renglón por anticipo, entre o no, con su motivo. */
+/**
+ * Un renglón por anticipo, entre o no, con su motivo. The `motivo` column is
+ * English under every locale, because --json and csv are read by scripts; a
+ * table renders it in the user's language through `reasonLabel`.
+ */
 export function filasPrevistas(previsiones: PrevisionDelPeriodo[]): Row[] {
   return previsiones.map((p) =>
     p.estado === 'entra'
@@ -434,7 +466,7 @@ export function filasPrevistas(previsiones: PrevisionDelPeriodo[]): Row[] {
           id: p.id,
           description: p.description,
           estado: 'omitido',
-          motivo: p.motivo,
+          motivo: skipReason(p, 'en'),
           convencion: '',
           indice: '',
           periodos: '',
@@ -443,6 +475,14 @@ export function filasPrevistas(previsiones: PrevisionDelPeriodo[]): Row[] {
           topado: '',
         }
   );
+}
+
+/** The table's label of the `motivo` column: the same reason in the user's language. */
+export function reasonLabel(previsiones: PrevisionDelPeriodo[]): (value: string, row: Row) => string {
+  return (value, row) => {
+    const p = previsiones.find((x) => x.id === row.id);
+    return p?.estado === 'omitido' ? skipReason(p) : value;
+  };
 }
 
 /**
@@ -676,7 +716,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -704,12 +744,11 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
     if (!hueco.hayHueco) return;
     process.stderr.write(
       deps.palette.yellow(
-        `  ⚠ ${new Decimal(hueco.hueco).toFixed(2)} MXN posteados en la cuenta de pagos ` +
-          `anticipados que ningún calendario va a devengar, en ${hueco.asientos.length} asiento(s). ` +
-          'Ese gasto no llegará nunca al resultado. Cada asiento se adopta con `mnemosine prepaid ' +
-          'create --origin saldo_preexistente --source-entry <id> --start <fecha> --end <fecha>`, ' +
-          'con la ventana de cobertura que diga el documento — no se adivina: vive en la póliza, ' +
-          'no en el CFDI.\n'
+        `  ⚠ ${t('ap.prepaid.gap.warning', {
+          amount: new Decimal(hueco.hueco).toFixed(2),
+          currency: PREPAID_CURRENCY,
+          count: hueco.asientos.length,
+        })}\n`
       )
     );
     for (const a of hueco.asientos) {
@@ -724,17 +763,19 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   const cabeceraDeCriterios = (criterios: CriteriosDeAnticipo): void => {
     process.stderr.write(
       deps.palette.dim(
-        `convención ${criterios.convencion}${criterios.convencionDefinida ? '' : ' (defecto)'} · ` +
-          `umbral ${new Decimal(criterios.umbral).toFixed(2)} MXN` +
-          `${criterios.umbralDefinido ? '' : ' (defecto)'}\n`
+        `${t('ap.prepaid.criteria.header', {
+          convention: criterios.convencion,
+          convention_source: criterios.convencionDefinida ? 'answered' : 'default',
+          threshold: new Decimal(criterios.umbral).toFixed(2),
+          currency: PREPAID_CURRENCY,
+          threshold_source: criterios.umbralDefinido ? 'answered' : 'default',
+        })}\n`
       )
     );
     if (!criterios.convencionDefinida || !criterios.umbralDefinido) {
       process.stderr.write(
         deps.palette.yellow(
-          '  ⚠ Rige al menos un defecto declarado y no una elección del despacho. Se contesta con ' +
-            '`mnemosine pending define amortizacion_anticipados_convencion` / ' +
-            '`umbral_anticipado_mxn`.\n'
+          `  ⚠ ${t('ap.prepaid.criteria.default_rules')}\n`
         )
       );
     }
@@ -769,7 +810,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   declareRisk(crear, {
     risk: 'escritura',
     agent: false,
-    writes: 'prepaid_expenses (la cabecera del calendario); ninguna póliza — el cargo ya está en el mayor',
+    writes: 'prepaid_expenses (the schedule header); no journal entry — the charge is already in the ledger',
   });
   crear.addHelpText('after', EJEMPLOS.create);
   crear.action((
@@ -806,11 +847,10 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         opts.origin ? null : '--origin',
       ].filter((f): f is string => f !== null);
       if (faltantes.length > 0) {
-        throw usageError(
-          `Faltan ${faltantes.join(', ')}. Un calendario sin importe, sin ventana de cobertura o ` +
-            'sin decir de dónde salió el cargo no es una ficha incompleta: es una ficha que no se ' +
-            'puede devengar ni cuadrar contra la cuenta.'
-        );
+        throw usageError({
+          key: 'ap.prepaid.create.flags_missing',
+          params: { count: faltantes.length, flags: faltantes.join(', ') },
+        });
       }
 
       const importe = exigirImporte('--amount', opts.amount as string);
@@ -818,11 +858,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       const fin = exigirFecha('--end', opts.end as string);
       const origen = exigirOrigen(opts.origin);
       if (origen === 'cfdi' && opts.sourceEntry === undefined) {
-        throw usageError(
-          '`--origin cfdi` exige `--source-entry <id>`: si el calendario nace de una factura ya ' +
-            'contabilizada, el asiento que cargó la cuenta se conoce, y no anotarlo es perderlo ' +
-            'para siempre.'
-        );
+        throw usageError({ key: 'ap.prepaid.create.cfdi_needs_source_entry' });
       }
 
       const ctx = await entityForWrite(opts);
@@ -866,24 +902,27 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         if (bajoUmbral && opts.force !== true) {
           err.write(
             deps.palette.yellow(
-              `  ⚠ ${new Decimal(importe).toFixed(2)} queda por debajo del umbral de ` +
-                `${new Decimal(criterios.umbral).toFixed(2)} MXN (\`umbral_anticipado_mxn\`): el ` +
-                'alta real se detendría por materialidad (NIF A-4). Con --force y --reason se da ' +
-                'de alta igual y el motivo queda escrito en la fila.\n'
+              `  ⚠ ${t('ap.prepaid.create.below_threshold', {
+                amount: new Decimal(importe).toFixed(2),
+                threshold: new Decimal(criterios.umbral).toFixed(2),
+                currency: PREPAID_CURRENCY,
+              })}\n`
             )
           );
         }
         err.write(
           deps.palette.dim(
-            `Ensayo: no se escribió ninguna fila. ${calendario.length} renglón(es) por ` +
-              `${new Decimal(importe).toFixed(2)} MXN, convención ${convencion}.\n`
+            `${t('ap.prepaid.create.dry_run_done', {
+              count: calendario.length,
+              amount: new Decimal(importe).toFixed(2),
+              currency: PREPAID_CURRENCY,
+              convention: convencion,
+            })}\n`
           )
         );
         err.write(
           deps.palette.dim(
-            'El ensayo NO comprueba el respaldo en la cuenta —cuánto saldo posteado queda sin ' +
-              'calendario—: esa guarda vive dentro del alta y necesita el mayor. El alta real ' +
-              'puede rechazar por ese motivo.\n'
+            `${t('ap.prepaid.create.dry_run_no_backing')}\n`
           )
         );
         return ExitCode.OK;
@@ -933,8 +972,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       if (legible(opts)) {
         err.write(
           deps.palette.green(
-            `✔ Calendario de ${alta.calendario.length} renglón(es) dado de alta. El mayor no se ` +
-              'tocó: el cargo ya estaba. Se devenga con `mnemosine prepaid run --period <mes>`.\n'
+            `✔ ${t('ap.prepaid.create.done', { count: alta.calendario.length })}\n`
           )
         );
       }
@@ -992,8 +1030,8 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         process.stderr.write(
           deps.palette.dim(
             opts.all === true
-              ? 'No hay ningún calendario vivo en esta entidad.\n'
-              : `Ningún calendario cubre el ${dateOnly(alDia)}. Con -a se listan todos.\n`
+              ? `${t('ap.prepaid.list.none_alive')}\n`
+              : `${t('ap.prepaid.list.none_on_date', { date: dateOnly(alDia) })}\n`
           )
         );
       }
@@ -1017,11 +1055,14 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       const anticipo = elegirAnticipo(await anticiposActivos(ctx.entityId), ref);
       const calendario = calendarioDe(anticipo);
       if (calendario === null) {
-        throw validationFailed(
-          `El calendario "${anticipo.description}" guarda la convención ` +
-            `"${anticipo.amortization_convention}", que no es ninguna de las declaradas ` +
-            `(${CONVENCIONES_AMORTIZACION.join(', ')}). Ningún importe se puede calcular con ella.`
-        );
+        throw validationFailed({
+          key: 'ap.prepaid.show.unknown_convention',
+          params: {
+            description: anticipo.description,
+            convention: anticipo.amortization_convention,
+            conventions: CONVENCIONES_AMORTIZACION.join(', '),
+          },
+        });
       }
 
       render(filasDelCalendario(calendario), {
@@ -1033,10 +1074,15 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       const err = process.stderr;
       err.write(
         deps.palette.dim(
-          `${anticipo.description} · ${new Decimal(anticipo.total_amount).toFixed(2)} MXN · ` +
-            `${anticipo.amortization_convention} · origen ${anticipo.origin} · ` +
-            `devengado ${new Decimal(anticipo.amortized_to_date).toFixed(2)}, queda ` +
-            `${new Decimal(anticipo.remaining_amount).toFixed(2)}\n`
+          `${t('ap.prepaid.show.summary', {
+            description: anticipo.description,
+            total: new Decimal(anticipo.total_amount).toFixed(2),
+            currency: PREPAID_CURRENCY,
+            convention: anticipo.amortization_convention,
+            origin: anticipo.origin,
+            accrued: new Decimal(anticipo.amortized_to_date).toFixed(2),
+            remaining: new Decimal(anticipo.remaining_amount).toFixed(2),
+          })}\n`
         )
       );
       // LA TABLA ES EL CALENDARIO, NO LO POSTEADO, y la diferencia importa: el
@@ -1046,8 +1092,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       // SUMA de lo posteado. Decirlo evita leer esta tabla como un extracto.
       err.write(
         deps.palette.dim(
-          'Los renglones son el calendario que la corrida seguirá, no lo ya posteado: lo posteado ' +
-            'es el devengado de la línea anterior.\n'
+          `${t('ap.prepaid.show.rows_are_schedule')}\n`
         )
       );
       return ExitCode.OK;
@@ -1066,7 +1111,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
     risk: 'irreversible',
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (un asiento de ajuste por anticipo), ' +
+      'journal_entries + journal_entry_lines (one adjusting entry per prepaid), ' +
       'prepaid_amortization_schedules, prepaid_expenses',
     // The key is honoured and declared so R11 can cross the scope against the
     // call to the store (tests/cli/kernel/llave-honrada.spec.ts).
@@ -1109,10 +1154,16 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       const err = process.stderr;
       err.write(
         deps.palette.dim(
-          `${corrida.nombre} (${dateOnly(corrida.inicio)}..${dateOnly(corrida.fin)}) · asientos ` +
-            `con fecha ${dateOnly(fecha)} · ${entran.length} calendario(s) entran, ` +
-            `${previsiones.length - entran.length} se omiten, ${yaCorridos} ya tienen renglón de ` +
-            `este mes · total ${total.toFixed(4)}\n`
+          `${t('ap.prepaid.run.header', {
+            period: corrida.nombre,
+            from: dateOnly(corrida.inicio),
+            to: dateOnly(corrida.fin),
+            date: dateOnly(fecha),
+            entering: entran.length,
+            skipped: previsiones.length - entran.length,
+            already: yaCorridos,
+            total: total.toFixed(4),
+          })}\n`
         )
       );
 
@@ -1183,10 +1234,8 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       if (recorded !== undefined) return replay(recorded);
 
       if (entran.length === 0) {
-        render(filasPrevistas(previsiones), { ...opts, idField: 'id' });
-        err.write(
-          deps.palette.dim(`Nada que devengar en ${corrida.nombre}: el mayor no se tocó.\n`)
-        );
+        render(filasPrevistas(previsiones), { ...opts, idField: 'id', labelled: { motivo: reasonLabel(previsiones) } });
+        err.write(deps.palette.dim(`${t('ap.prepaid.run.nothing', { period: corrida.nombre })}\n`));
         return ExitCode.OK;
       }
 
@@ -1209,41 +1258,46 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       if (legible(opts)) {
         for (const p of previsiones) {
           if (p.estado === 'omitido') {
-            err.write(deps.palette.dim(`  · omitido ${p.description}: ${p.motivo}\n`));
+            err.write(
+              deps.palette.dim(
+                `  · ${t('ap.prepaid.run.skipped_line', { description: p.description, reason: skipReason(p) })}\n`
+              )
+            );
           } else if (p.topado) {
             err.write(
               deps.palette.yellow(
-                `  ⚠ ${p.description}: el renglón teórico es ${p.teorico} y se topa en ` +
-                  `${p.importe} contra lo que queda por devengar.\n`
+                `  ⚠ ${t('ap.prepaid.run.capped', {
+                  description: p.description,
+                  theoretical: p.teorico,
+                  amount: p.importe,
+                })}\n`
               )
             );
           }
         }
         err.write(
           deps.palette.dim(
-            `${entran.length} asiento(s) de ajuste de dos líneas, uno por calendario — no uno de ` +
-              `la corrida. Reversar esta corrida son ${entran.length} reversas.\n`
+            `${t('ap.prepaid.run.entries_note', { count: entran.length })}\n`
           )
         );
       }
 
       if (dryRun) {
-        err.write(deps.palette.dim('Ensayo: el mayor no se tocó y no se escribió ningún renglón.\n'));
+        err.write(deps.palette.dim(`${t('ap.prepaid.run.dry_run_done')}\n`));
         return ExitCode.OK;
       }
 
       if (opts.yes !== true) {
         const ok = await ask(
-          `¿Devengar ${total.toFixed(2)} MXN en ${entran.length} asiento(s) de ${corrida.nombre}? ` +
-            'El mayor no admite deshacer.'
+          t('ap.prepaid.run.confirm', {
+            total: total.toFixed(2),
+            currency: PREPAID_CURRENCY,
+            count: entran.length,
+            period: corrida.nombre,
+          })
         );
         if (!ok) {
-          throw abortedByUser(
-            stdin.isTTY
-              ? 'Sin cambios: el mayor no se tocó.'
-              : 'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin ' +
-                'preguntar, o --dry-run para ver los asientos completos sin escribir nada.'
-          );
+          throw abortedByUser({ key: stdin.isTTY ? 'ap.prepaid.run.aborted' : 'ap.prepaid.run.aborted_no_tty' });
         }
       }
 
@@ -1289,25 +1343,21 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       if (!repeated && result.processed !== entran.length) {
         err.write(
           deps.palette.yellow(
-            `  ⚠ La vista previa enseñaba ${entran.length} asiento(s) y la corrida hizo ` +
-              `${result.processed}. La previa y el motor no coincidieron: revisa los errores ` +
-              'antes de dar el mes por cerrado.\n'
+            `  ⚠ ${t('ap.prepaid.run.count_mismatch', { previewed: entran.length, processed: result.processed })}\n`
           )
         );
       }
       if (!repeated && !new Decimal(result.total).equals(total)) {
         err.write(
           deps.palette.yellow(
-            `  ⚠ La vista previa sumaba ${total.toFixed(4)} y la corrida devengó ` +
-              `${result.total}.\n`
+            `  ⚠ ${t('ap.prepaid.run.total_mismatch', { previewed: total.toFixed(4), accrued: result.total })}\n`
           )
         );
       }
       for (const e of result.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
       err.write(
         deps.palette.green(
-          `✔ ${result.processed} asiento(s) de devengo contabilizados en ${corrida.nombre} por ` +
-            `${result.total}.\n`
+          `✔ ${t('ap.prepaid.run.done', { count: result.processed, period: corrida.nombre, total: result.total })}\n`
         )
       );
 
@@ -1330,17 +1380,16 @@ export function elegirAnticipo(anticipos: PrepaidExpenseRow[], ref: string): Pre
   const candidatos = anticipos.filter((a) => a.description.toLowerCase().includes(buscado));
   if (candidatos.length === 1) return candidatos[0];
   if (candidatos.length === 0) {
-    throw notFound(
-      `No hay ningún calendario vivo que case con "${ref}" en esta entidad. ` +
-        '`mnemosine prepaid list -a` los enumera todos.',
-      ref
-    );
+    throw notFound({ key: 'ap.prepaid.show.not_found', params: { ref } }, ref);
   }
-  throw usageError(
-    `"${ref}" casa con ${candidatos.length} calendarios vivos: ` +
-      candidatos.map((a) => `${a.description} [${a.id}]`).join(', ') +
-      '. Nombra el id, o un trozo de descripción que sólo case con uno.'
-  );
+  throw usageError({
+    key: 'ap.prepaid.show.ambiguous',
+    params: {
+      ref,
+      count: candidatos.length,
+      candidates: candidatos.map((a) => `${a.description} [${a.id}]`).join(', '),
+    },
+  });
 }
 
 /**
