@@ -5336,6 +5336,85 @@ export const EN = {
   'help.customer.tax.list.description':
     'The pre-billing control: customers whose fiscal profile is incomplete or malformed',
   'help.customer.tax.list.option.missing': 'only customers that could NOT be stamped today',
+  // ==== MNE-001-237 · help by key, receipt, credit-note and rep (issue #314) ====
+  //
+  // The second receivables task: the descriptions of these three families that
+  // earlier tasks had not keyed, roots included, with the English they already
+  // showed. Every generic flag a leaf declares is worded for it and keeps its
+  // own key; what the kernel injects stays on cli.flag.*. The credit note types
+  // travel as {types}.
+  'help.receipt.description':
+    'Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks',
+  'help.receipt.record.option.amount': 'amount, in the document currency',
+  'help.receipt.record.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.receipt.record.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.receipt.record.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.receipt.record.option.reference': 'bank reference or transfer number',
+  'help.receipt.record.option.json': 'JSON output',
+  'help.receipt.show.description':
+    'Show one collection: its applications (live and history), REP status and ledger entry',
+  'help.receipt.show.argument.ref': 'payment number (PMT-2026-00042) or id',
+  'help.receipt.list.description': 'List collections by customer, date, application state or missing REP',
+  'help.receipt.list.option.customer': 'only this customer (number, name or id)',
+  'help.receipt.list.option.unapplied': 'only collections with an on-account remainder',
+  'help.receipt.list.option.needs_rep': 'only completed collections with no REP linked',
+  'help.receipt.apply.argument.ref': 'payment number or id',
+  'help.receipt.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.receipt.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.receipt.apply.option.json': 'JSON output',
+  'help.receipt.unapply.description':
+    'Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account',
+  'help.receipt.unapply.argument.ref': 'payment number or id',
+  'help.receipt.unapply.option.invoice': 'the invoice to unapply from',
+  'help.receipt.unapply.option.reason': 'why: it lands in the audit trail and the ledger description',
+  'help.receipt.unapply.option.json': 'JSON output',
+  'help.receipt.reverse.argument.ref': 'payment number or id',
+  'help.receipt.reverse.option.fee':
+    'bank fee charged for the return (not yet supported: needs a fee role account)',
+  'help.receipt.reverse.option.json': 'JSON output',
+  'help.credit_note.description':
+    'Credit notes: returns, discounts and corrections against the receivable (never stamped here)',
+  'help.credit_note.create.description':
+    'Create a DRAFT credit note, linked to its invoice (fiscal tie) or standalone with an explicit customer',
+  'help.credit_note.create.option.type': 'one of: {types}',
+  'help.credit_note.create.option.amount': 'subtotal of the credit, before tax',
+  'help.credit_note.create.option.tax': 'tax (IVA) portion of the credit',
+  'help.credit_note.create.option.invoice': 'the invoice this note credits (recommended: it drives the IVA side)',
+  'help.credit_note.create.option.customer': 'customer, when there is no linked invoice',
+  'help.credit_note.create.option.relates_to': 'UUID of the original CFDI, when the invoice is not in the system',
+  'help.credit_note.create.option.date':
+    'credit date (YYYY-MM-DD); defaults to today in the zona_horaria policy zone',
+  'help.credit_note.create.option.memo': 'memo',
+  'help.credit_note.create.option.json': 'JSON output',
+  'help.credit_note.show.description':
+    'Show one credit note with its applications, available balance and ledger entry',
+  'help.credit_note.show.argument.ref': 'credit note number (CN-2026-00042) or id',
+  'help.credit_note.list.description': 'List credit notes by customer, type, state or unapplied balance',
+  'help.credit_note.list.option.customer': 'only this customer (number, name or id)',
+  'help.credit_note.list.option.type': 'only this type: {types}',
+  'help.credit_note.list.option.open': 'only issued notes with balance left to apply (the live customer credit)',
+  'help.credit_note.issue.description': 'Issue the note: post DR returns + DR VAT / CR receivable. Does not stamp',
+  'help.credit_note.issue.argument.ref': 'credit note number or id',
+  'help.credit_note.issue.option.json': 'JSON output',
+  'help.credit_note.apply.description':
+    'Apply an issued note to invoices; what is not applied stays as customer credit',
+  'help.credit_note.apply.argument.ref': 'credit note number or id',
+  'help.credit_note.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.credit_note.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.credit_note.apply.option.dry_run': 'run the real path and roll back',
+  'help.credit_note.apply.option.json': 'JSON output',
+  'help.rep.description': 'Payment receipts (REP): what is missing one, and the parked ones to retry',
+  'help.rep.missing.description': 'Payments and collections whose REP has not arrived or been issued',
+  'help.rep.missing.list.description':
+    'received: paid PPD bills without the supplier REP (the REP supports the VAT credit); issued: our collections without a REP',
+  'help.rep.missing.list.option.direction': 'received (default) or issued',
+  'help.rep.missing.list.option.min_amount': 'only payments at or above this amount',
+  'help.rep.reconcile.description':
+    'Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped',
+  'help.rep.reconcile.option.limit': 'maximum parked REPs to retry',
+  'help.rep.reconcile.option.dry_run': 'list what would be retried, retry nothing',
   // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
   //
   // The first payables task: both families whole, roots included, English as

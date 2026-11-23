@@ -270,10 +270,7 @@ export function idempotencyHitNote(key: string, paymentNumber: string): string {
 }
 
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
-  const receipt = program
-    .command('receipt')
-    .alias('cobro')
-    .description('Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks');
+  const receipt = describeCommand(program.command('receipt').alias('cobro'), 'help.receipt.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -366,13 +363,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(record, '--payer-bank <code>', 'help.receipt.record.option.payer_bank');
   optionByKey(record, '--payer-account <number>', 'help.receipt.record.option.payer_account');
   optionByKey(record, '--payer-foreign-bank <name>', 'help.receipt.record.option.payer_foreign_bank');
-  record
-    .requiredOption('--amount <amount>', 'amount, in the document currency')
-    .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
-    .option('--method <method>', 'cash, check, ach, wire, spei, credit_card or other', 'spei')
-    .option('--bank <account>', "bank account name or id; without it the entity's `banco` role is used")
-    .option('--reference <text>', 'bank reference or transfer number')
-    .option('--json', 'JSON output');
+  optionByKey(record, '--amount <amount>', 'help.receipt.record.option.amount', { mandatory: true });
+  optionByKey(record, '--date <date>', 'help.receipt.record.option.date');
+  optionByKey(record, '--method <method>', 'help.receipt.record.option.method', { defaultValue: 'spei' });
+  optionByKey(record, '--bank <account>', 'help.receipt.record.option.bank');
+  optionByKey(record, '--reference <text>', 'help.receipt.record.option.reference');
+  optionByKey(record, '--json', 'help.receipt.record.option.json');
   withContext(record);
   declareRisk(record, {
     risk: 'irreversible',
@@ -609,11 +605,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   );
 
   // ---- receipt show ------------------------------------------------
-  const show = receipt
-    .command('show')
-    .alias('ver')
-    .argument('<ref>', 'payment number (PMT-2026-00042) or id')
-    .description('Show one collection: its applications (live and history), REP status and ledger entry');
+  const show = describeCommand(receipt.command('show').alias('ver'), 'help.receipt.show.description');
+  argumentByKey(show, '<ref>', 'help.receipt.show.argument.ref');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
@@ -698,15 +691,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   );
 
   // ---- receipt list ------------------------------------------------
-  const list = receipt
-    .command('list')
-    .alias('listar')
-    .description('List collections by customer, date, application state or missing REP');
+  const list = describeCommand(receipt.command('list').alias('listar'), 'help.receipt.list.description');
   withOutput(withSelection(withTime(withContext(list))));
-  list
-    .option('--customer <ref>', 'only this customer (number, name or id)')
-    .option('--unapplied', 'only collections with an on-account remainder')
-    .option('--needs-rep', 'only completed collections with no REP linked');
+  optionByKey(list, '--customer <ref>', 'help.receipt.list.option.customer');
+  optionByKey(list, '--unapplied', 'help.receipt.list.option.unapplied');
+  optionByKey(list, '--needs-rep', 'help.receipt.list.option.needs_rep');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action(
@@ -759,14 +748,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   // ---- receipt apply -----------------------------------------------
   const apply = receipt
     .command('apply')
-    .alias('aplicar')
-    .argument('<ref>', 'payment number or id');
+    .alias('aplicar');
+  argumentByKey(apply, '<ref>', 'help.receipt.apply.argument.ref');
   describeCommand(apply, 'help.receipt.apply.description');
   withContext(apply);
-  apply
-    .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
-    .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
-    .option('--json', 'JSON output');
+  optionByKey(apply, '--invoice <spec...>', 'help.receipt.apply.option.invoice');
+  optionByKey(apply, '--amount <amount>', 'help.receipt.apply.option.amount');
+  optionByKey(apply, '--json', 'help.receipt.apply.option.json');
   optionByKey(apply, '--withholding <spec...>', 'help.receipt.apply.option.withholding');
   optionByKey(apply, '--date <date>', 'help.receipt.apply.option.date');
   declareRisk(apply, {
@@ -829,16 +817,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   );
 
   // ---- receipt unapply ---------------------------------------------
-  const unapply = receipt
-    .command('unapply')
-    .alias('desaplicar')
-    .argument('<ref>', 'payment number or id')
-    .description('Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account');
+  const unapply = describeCommand(receipt.command('unapply').alias('desaplicar'), 'help.receipt.unapply.description');
+  argumentByKey(unapply, '<ref>', 'help.receipt.unapply.argument.ref');
   withContext(unapply);
-  unapply
-    .requiredOption('--invoice <ref>', 'the invoice to unapply from')
-    .requiredOption('--reason <text>', 'why: it lands in the audit trail and the ledger description')
-    .option('--json', 'JSON output');
+  optionByKey(unapply, '--invoice <ref>', 'help.receipt.unapply.option.invoice', { mandatory: true });
+  optionByKey(unapply, '--reason <text>', 'help.receipt.unapply.option.reason', { mandatory: true });
+  optionByKey(unapply, '--json', 'help.receipt.unapply.option.json');
   optionByKey(unapply, '--date <date>', 'help.receipt.unapply.option.date');
   declareRisk(unapply, {
     risk: 'irreversible',
@@ -936,14 +920,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   // ---- receipt reverse ---------------------------------------------
   const reverse = receipt
     .command('reverse')
-    .alias('reversar')
-    .argument('<ref>', 'payment number or id');
+    .alias('reversar');
+  argumentByKey(reverse, '<ref>', 'help.receipt.reverse.argument.ref');
   describeCommand(reverse, 'help.receipt.reverse.description');
   withContext(reverse);
   optionByKey(reverse, '--cause <cause>', 'help.receipt.reverse.option.cause');
-  reverse
-    .option('--fee <amount>', 'bank fee charged for the return (not yet supported: needs a fee role account)')
-    .option('--json', 'JSON output');
+  optionByKey(reverse, '--fee <amount>', 'help.receipt.reverse.option.fee');
+  optionByKey(reverse, '--json', 'help.receipt.reverse.option.json');
   declareRisk(reverse, {
     risk: 'irreversible',
     llave: { sinLlave: { key: 'ar.receipt.retry_reverses' } },

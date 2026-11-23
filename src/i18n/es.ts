@@ -4859,6 +4859,83 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.customer.tax.list.description':
     'El control previo a facturar: clientes cuyo perfil fiscal está incompleto o mal formado',
   'help.customer.tax.list.option.missing': 'sólo los clientes a los que hoy NO se les podría timbrar un CFDI',
+  // ==== MNE-001-237 · help by key, receipt, credit-note and rep (issue #314) ====
+  'help.receipt.description':
+    'Cobros a clientes: registrar el dinero, aplicar el saldo a cuenta, desaplicar y reversar cheques devueltos',
+  'help.receipt.record.option.amount': 'importe, en la moneda del documento',
+  'help.receipt.record.option.date': 'fecha valor (AAAA-MM-DD); por omisión, hoy',
+  'help.receipt.record.option.method': 'forma de pago, una de: cash, check, ach, wire, spei, credit_card, other',
+  'help.receipt.record.option.bank':
+    'nombre o id de la cuenta bancaria; sin ella se usa la cuenta del rol `banco` de la entidad',
+  'help.receipt.record.option.reference': 'referencia bancaria o número de transferencia',
+  'help.receipt.record.option.json': 'salida en JSON',
+  'help.receipt.show.description':
+    'Muestra un cobro: sus aplicaciones (vigentes e historial), el estado de su REP y su póliza',
+  'help.receipt.show.argument.ref': 'número del cobro (PMT-2026-00042) o id',
+  'help.receipt.list.description': 'Lista cobros por cliente, fecha, estado de aplicación o REP faltante',
+  'help.receipt.list.option.customer': 'sólo este cliente (número, nombre o id)',
+  'help.receipt.list.option.unapplied': 'sólo los cobros con un remanente a cuenta',
+  'help.receipt.list.option.needs_rep': 'sólo los cobros completados sin un REP ligado',
+  'help.receipt.apply.argument.ref': 'número o id del cobro',
+  'help.receipt.apply.option.invoice':
+    'factura con importe: "INV-2026-00042:2500" (repetible), o sólo el folio junto con --amount',
+  'help.receipt.apply.option.amount': 'importe para una sola --invoice que no trae importe',
+  'help.receipt.apply.option.json': 'salida en JSON',
+  'help.receipt.unapply.description':
+    'Desaplica un cobro de una factura como un evento NUEVO: la reabre y devuelve el dinero al saldo a cuenta',
+  'help.receipt.unapply.argument.ref': 'número o id del cobro',
+  'help.receipt.unapply.option.invoice': 'la factura de la que se desaplica',
+  'help.receipt.unapply.option.reason': 'por qué: queda en el rastro de auditoría y en la descripción de la póliza',
+  'help.receipt.unapply.option.json': 'salida en JSON',
+  'help.receipt.reverse.argument.ref': 'número o id del cobro',
+  'help.receipt.reverse.option.fee':
+    'comisión bancaria cobrada por la devolución (aún no se admite: necesita una cuenta con el rol de comisiones)',
+  'help.receipt.reverse.option.json': 'salida en JSON',
+  'help.credit_note.description':
+    'Notas de crédito: devoluciones, descuentos y correcciones contra la cuenta por cobrar (aquí nunca se timbran)',
+  'help.credit_note.create.description':
+    'Crea una nota de crédito en BORRADOR, ligada a su factura (vínculo fiscal) o suelta con un cliente explícito',
+  'help.credit_note.create.option.type': 'uno de: {types}',
+  'help.credit_note.create.option.amount': 'subtotal del crédito, antes de impuestos',
+  'help.credit_note.create.option.tax': 'parte de impuesto (IVA) del crédito',
+  'help.credit_note.create.option.invoice':
+    'la factura que acredita esta nota (recomendado: de ella depende el lado del IVA)',
+  'help.credit_note.create.option.customer': 'el cliente, cuando no hay factura ligada',
+  'help.credit_note.create.option.relates_to': 'UUID del CFDI original, cuando la factura no está en el sistema',
+  'help.credit_note.create.option.date':
+    'fecha del crédito (AAAA-MM-DD); por omisión, hoy en la zona de la política zona_horaria',
+  'help.credit_note.create.option.memo': 'observaciones',
+  'help.credit_note.create.option.json': 'salida en JSON',
+  'help.credit_note.show.description':
+    'Muestra una nota de crédito con sus aplicaciones, su saldo disponible y su póliza',
+  'help.credit_note.show.argument.ref': 'número de la nota de crédito (CN-2026-00042) o id',
+  'help.credit_note.list.description': 'Lista notas de crédito por cliente, tipo, estado o saldo sin aplicar',
+  'help.credit_note.list.option.customer': 'sólo este cliente (número, nombre o id)',
+  'help.credit_note.list.option.type': 'sólo este tipo: {types}',
+  'help.credit_note.list.option.open':
+    'sólo las notas emitidas con saldo por aplicar (el crédito vigente del cliente)',
+  'help.credit_note.issue.description':
+    'Emite la nota: postea cargo a devoluciones + cargo al IVA / abono a clientes. No timbra',
+  'help.credit_note.issue.argument.ref': 'número o id de la nota de crédito',
+  'help.credit_note.issue.option.json': 'salida en JSON',
+  'help.credit_note.apply.description':
+    'Aplica una nota emitida a facturas; lo que no se aplica queda como crédito del cliente',
+  'help.credit_note.apply.argument.ref': 'número o id de la nota de crédito',
+  'help.credit_note.apply.option.invoice':
+    'factura con importe: "INV-2026-00042:2500" (repetible), o sólo el folio junto con --amount',
+  'help.credit_note.apply.option.amount': 'importe para una sola --invoice que no trae importe',
+  'help.credit_note.apply.option.dry_run': 'recorre el camino real y lo revierte al final',
+  'help.credit_note.apply.option.json': 'salida en JSON',
+  'help.rep.description': 'Complementos de pago (REP): a qué le falta uno, y los aparcados por reintentar',
+  'help.rep.missing.description': 'Pagos y cobros cuyo REP no ha llegado o no se ha emitido',
+  'help.rep.missing.list.description':
+    'received: facturas PPD de proveedor pagadas sin el REP del proveedor (el REP sostiene el acreditamiento del IVA); issued: nuestros cobros sin REP',
+  'help.rep.missing.list.option.direction': 'received (por omisión) o issued',
+  'help.rep.missing.list.option.min_amount': 'sólo los pagos de este importe o más',
+  'help.rep.reconcile.description':
+    'Reintenta los REP aparcados (needs_review): se puede repetir sin riesgo, y los nodos ya resueltos se saltan',
+  'help.rep.reconcile.option.limit': 'máximo de REP aparcados que se reintentan',
+  'help.rep.reconcile.option.dry_run': 'lista lo que se reintentaría, sin reintentar nada',
   // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
   'help.bill.description': 'Facturas de proveedor: capturar, codificar, revisar y aprobar lo que debemos',
   'help.bill.list.description':

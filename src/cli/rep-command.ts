@@ -18,6 +18,8 @@ import {
   usageError,
   exitCodeFor,
   type Row,
+  optionByKey,
+  describeCommand,
 } from './kernel/index.js';
 
 // ============================================================
@@ -70,9 +72,7 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
     parked: listRepAparcados,
     retry: reprocesarREPsAparcados,
   };
-  const rep = program
-    .command('rep')
-    .description('Payment receipts (REP): what is missing one, and the parked ones to retry');
+  const rep = describeCommand(program.command('rep'), 'help.rep.description');
 
   const note = (m: string) => process.stderr.write(deps.palette.dim(`${m}\n`));
 
@@ -96,18 +96,11 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
   };
 
   // ---- rep missing list --------------------------------------------
-  const missing = rep
-    .command('missing')
-    .alias('faltante')
-    .description('Payments and collections whose REP has not arrived or been issued');
-  const missingList = missing
-    .command('list')
-    .alias('listar')
-    .description('received: paid PPD bills without the supplier REP (the REP supports the VAT credit); issued: our collections without a REP');
+  const missing = describeCommand(rep.command('missing').alias('faltante'), 'help.rep.missing.description');
+  const missingList = describeCommand(missing.command('list').alias('listar'), 'help.rep.missing.list.description');
   withOutput(withSelection(withContext(missingList)));
-  missingList
-    .option('--direction <d>', 'received (default) or issued', 'received')
-    .option('--min-amount <n>', 'only payments at or above this amount');
+  optionByKey(missingList, '--direction <d>', 'help.rep.missing.list.option.direction', { defaultValue: 'received' });
+  optionByKey(missingList, '--min-amount <n>', 'help.rep.missing.list.option.min_amount');
   declareRisk(missingList, { risk: 'lectura', agent: true });
   missingList.action((opts: CommonOpts & { direction: string; minAmount?: string }) =>
     run(async () => {
@@ -142,14 +135,10 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
   );
 
   // ---- rep reconcile -----------------------------------------------
-  const reconcile = rep
-    .command('reconcile')
-    .alias('conciliar')
-    .description('Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped');
+  const reconcile = describeCommand(rep.command('reconcile').alias('conciliar'), 'help.rep.reconcile.description');
   withContext(reconcile);
-  reconcile
-    .option('-n, --limit <n>', 'maximum parked REPs to retry', '50')
-    .option('--dry-run', 'list what would be retried, retry nothing');
+  optionByKey(reconcile, '-n, --limit <n>', 'help.rep.reconcile.option.limit', { defaultValue: '50' });
+  optionByKey(reconcile, '--dry-run', 'help.rep.reconcile.option.dry_run');
   // Reprocesar LIGA o CREA pagos por la puerta de pagos: dinero real. El
   // catálogo imaginó borradores; la ligadura de AUD-5 es determinista y no
   // los produce — por eso agent:false, no un draftOnly que mentiría.
