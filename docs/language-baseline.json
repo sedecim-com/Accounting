@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 440
+    "help-descriptions-without-key": 397
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1136,7 +1136,7 @@
       "src/cli/audit-command.ts": 119,
       "src/cli/backup-command.ts": 77,
       "src/cli/bank-command.ts": 800,
-      "src/cli/batch-command.ts": 116,
+      "src/cli/batch-command.ts": 106,
       "src/cli/bill-command.ts": 174,
       "src/cli/bill-rule-command.ts": 1,
       "src/cli/cashflow-command.ts": 130,
@@ -1489,7 +1489,6 @@
       "asset": 26,
       "audit": 14,
       "backup": 21,
-      "batch": 17,
       "cfdi": 15,
       "chat": 6,
       "compact": 6,
@@ -1500,7 +1499,6 @@
       "e-accounting": 20,
       "employee": 12,
       "entity": 24,
-      "fx": 26,
       "garnishment": 22,
       "init": 12,
       "isn": 21,

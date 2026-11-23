@@ -5352,6 +5352,69 @@ export const EN = {
   'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
   'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
   'help.entry.void.argument.number': 'entry number or id',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // The last ledger task, split from 235 by answer 2: both families whole,
+  // roots and the `fx rate` group included, with the English these commands
+  // already showed. Every generic flag a leaf declares keeps its own key: the
+  // `--json` of `batch post` and `batch reverse` (no --format there), and the
+  // `--since`/`--until` of `fx rate list`, whose words are the kernel's but
+  // which parse no date. Lists travel as {kinds} and {categories}. The
+  // categories of `batch check --check` are values the user types (`cuenta`
+  // among them): they move as they are in both languages, left for I23
+  // (MNE-001-200), so ux-status keeps counting that node.
+  'help.batch.description': 'Staged entry batches: list, inspect, check, post transactionally and reverse as a unit',
+  'help.batch.list.description': 'List batches with their state, row counts, posted entries and content hash',
+  'help.batch.list.option.kind': 'batch class (available: {kinds})',
+  'help.batch.show.description':
+    'One batch in full: rows with their generated entries, stored parse errors by category, and the file hash',
+  'help.batch.show.argument.id': 'batch id',
+  'help.batch.show.option.errors_only': 'only the rows whose parser rejected them',
+  'help.batch.check.description':
+    'Run the posting validations over every row and report each finding; exits 4 when any blocks',
+  'help.batch.check.argument.id': 'batch id',
+  'help.batch.check.option.check':
+    'finding categories to display, comma-separated (available: {categories}); the full battery always runs',
+  'help.batch.post.description':
+    'Post the whole batch in one transaction; --partial applies the valid rows and leaves the rest staged',
+  'help.batch.post.argument.id': 'batch id',
+  'help.batch.post.option.partial':
+    'apply the valid rows and leave the invalid ones in staging (accepts an unchecked batch)',
+  'help.batch.post.option.json': 'JSON output',
+  'help.batch.reverse.description':
+    'Mirror every entry the batch posted, as one unit in one transaction — import errors are batch-shaped, not ' +
+    'entry-shaped',
+  'help.batch.reverse.argument.id': 'batch id',
+  'help.batch.reverse.option.as_of': 'date for every mirror entry (YYYY-MM-DD); defaults to today',
+  'help.batch.reverse.option.json': 'JSON output',
+  'help.fx.description': 'Exchange rates: the origin every foreign-currency amount converts from',
+  'help.fx.rate.description': 'Published exchange rates by pair, date, type and source',
+  'help.fx.rate.list.description': 'List stored exchange rates by pair, date, type and source',
+  'help.fx.rate.list.option.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.list.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'only rates of this type',
+  'help.fx.rate.list.option.source': 'only rates from this source',
+  'help.fx.rate.show.description': 'Resolve the applicable rate: direct, then inverse, then crossed through USD',
+  'help.fx.rate.show.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.show.argument.date': 'date the rate applies to (YYYY-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'rate type to resolve',
+  'help.fx.rate.show.option.source': 'resolve using only this publisher',
+  'help.fx.rate.set.description': 'Record an exchange rate, naming its source',
+  'help.fx.rate.set.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.set.argument.date': 'effective date (YYYY-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'the rate, up to 10 decimals',
+  'help.fx.rate.set.option.source': 'who published the rate (required)',
+  'help.fx.rate.set.option.rate_type': 'rate type',
+  'help.fx.rate.set.option.until': 'last date the rate remains effective (YYYY-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'show what would be recorded without writing',
+  'help.fx.rate.download.description':
+    'Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)',
+  'help.fx.rate.download.option.source': 'which publisher to download from (required)',
+  'help.fx.rate.download.option.as_of': 'single date to download (YYYY-MM-DD)',
+  'help.fx.rate.download.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.download.option.until': 'inclusive upper bound (YYYY-MM-DD)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -5704,4 +5767,43 @@ export const EN = {
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  // credential-state.ts builds the label every surface prints (doctor,
+  // providers, status, init, the jobs tick, chat); provider-readiness.ts the
+  // hint that a chat or ask with no credential prints. A label never carries a
+  // value or a helper's command, only names.
+  'provider.credential.env': '{variable} set',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd in {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd in {file}, a project file shared by everyone who runs mnemosine in that folder',
+  'provider.credential.local': 'local, no credential',
+  'provider.credential.none': 'no credential configured',
+  'provider.credential.missing': '{variable} missing',
+  'provider.credential.missing_at': '{variable} missing (get it at {where})',
+  'provider.credential.refused': '{variable} is not a provider credential',
+  'provider.credential.folder_key':
+    '{label}; {file} defines it, so that key serves everyone who runs mnemosine in that folder',
+  'provider.credential.folder_empty': '{label}; the empty {variable}= in {file} hides ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY set, which the Anthropic SDK reads',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN set, a bearer token the Anthropic SDK sends',
+  'provider.credential.anthropic.custom_header': 'an {header} line in ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'signed in: Anthropic profile {profile} in {file}',
+  'provider.credential.anthropic.federation':
+    'workload identity federation (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID and an identity token)',
+  'provider.credential.hint.missing':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env (get it at {where}).',
+  'provider.credential.hint.anthropic_alternative': 'Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'Provider {name} names {variable} in api_key_env, which is not a provider credential: name a variable of its own that holds the key.',
+  'provider.credential.hint.keyless':
+    'Provider {name} has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint needs no key, start the chat with --provider {name}.',
+  'provider.credential.hint.init': 'To set it up: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env, or run `ant auth login`.',
+  'provider.switch.kept': 'The session stays on {current}.',
+  'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
+  // ==== end of MNE-001-444 ====
 } as const;

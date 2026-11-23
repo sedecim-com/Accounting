@@ -52,6 +52,13 @@ const PROVISTAS_POR_EL_ENTORNO = new Set([
   'PR_TITLE',
   'PR_AUTHOR',
   'PR_CREATED_AT',
+  // Las lee credential-state (MNE-001-444) para hallar la raíz de configuración
+  // del SDK de Anthropic, como la halla el propio SDK: las pone el sistema
+  // operativo o la sesión del usuario, no quien despliega.
+  'HOME',
+  'XDG_CONFIG_HOME',
+  'APPDATA', // Windows
+  'USERPROFILE', // Windows
 ]);
 
 /** Directorios que se recorren buscando lecturas del entorno. */
