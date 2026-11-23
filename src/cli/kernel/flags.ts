@@ -521,6 +521,10 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // media pieza, y un trinquete que se afloja para esperar no vuelve a
   // apretarse.
   '--locale': null,
+  // MNE-001-469 (#653): `lang --unset` removes the person's saved language, so
+  // the next rung decides again. Frozen here with its leaf in the same commit:
+  // a row without its leaf moves the surface census off 11 (see above).
+  '--unset': null,
 
   // ── F08 · the court order and its cascade ─────────────────────────────
   //

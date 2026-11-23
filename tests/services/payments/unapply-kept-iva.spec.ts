@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type pg from 'pg';
 import {
-  capKept, issuedVatKeptOnAccount, keptCashOf, keptIvaOf, keptOnAccount, restitutedByRow, restitutedCash, restitutedOf, takeFromAdvance,
+  capKept, heldKeptByRow, issuedVatKeptOnAccount, keptCashOf, keptIvaOf, keptOnAccount, restitutedByRow, restitutedCash, restitutedOf, takeFromAdvance,
 } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-574 (#792, part 1/3) · The IVA one allocation's unapply keeps caused
@@ -165,5 +165,29 @@ describe('keptOnAccount after a restitution, and H', () => {
   it('U4p: T took c = 80 of the pool, so it holds 80; once S took all of it, H is none', async () => {
     expect((await issuedVatKeptOnAccount(poolClient({ restituted: null, took: '80.0000' }), 'E', 'S'))[0].iva).toBe('80.0000');
     expect(await issuedVatKeptOnAccount(poolClient({ restituted: '32.0000', took: '128.0000' }), 'E', 'S')).toEqual([]);
+  });
+});
+
+// MNE-001-586 (#792, part 3/3) · What a held cheque's unapply keeps for the cashing, split by plain cash.
+describe('heldKeptByRow', () => {
+  it('one plain row keeps the whole share: 160.0000 of 1,160.00, 80.0000 of 580.00', () => {
+    expect(heldKeptByRow('160.0000', [{ amount: '1160.0000', plain: '1160.0000' }])).toEqual(['160.0000']);
+    expect(heldKeptByRow('80.0000', [{ amount: '580.0000', plain: '580.0000' }])).toEqual(['80.0000']);
+  });
+
+  it('three rows of 1.00 share 0.1379 as 0.0460, 0.0460 and the remainder 0.0459', () => {
+    // 0.1379 / 3 = 0.045966… → 0.0460 twice, and 0.1379 − 0.0920 = 0.0459 for the last.
+    const rows = [1, 2, 3].map(() => ({ amount: '1.0000', plain: '1.0000' }));
+    expect(heldKeptByRow('0.1379', rows)).toEqual(['0.0460', '0.0460', '0.0459']);
+  });
+
+  it('a row that took 1,160.00 of 1,740.00 from the pool keeps only its plain part: 240 × 580 / 1,740 = 80.0000', () => {
+    expect(heldKeptByRow('240.0000', [{ amount: '1740.0000', plain: '580.0000' }])).toEqual(['80.0000']);
+  });
+
+  it('nothing to keep: no share, or no plain cash', () => {
+    expect(heldKeptByRow('0', [{ amount: '1160.0000', plain: '1160.0000' }])).toEqual(['0.0000']);
+    expect(heldKeptByRow('-1.0000', [{ amount: '1160.0000', plain: '1160.0000' }])).toEqual(['0.0000']);
+    expect(heldKeptByRow('160.0000', [{ amount: '1160.0000', plain: '0.0000' }])).toEqual(['0.0000']);
   });
 });
