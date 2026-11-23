@@ -10,6 +10,7 @@ import { exitCodeFor } from './kernel/index.js';
 import { calendarDateTimeIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { tickCredentialLine } from './provider-readiness.js';
+import { assertDefaultNotOnTrial } from '../ai/providers/trial-endpoint.js';
 
 // ============================================================
 // mnemosine jobs — persisted scheduled agent tasks.
@@ -213,6 +214,9 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
             'A reconciliation cron needs the full surface: schedule `mnemosine jobs run-due --live`.'
         ));
       }
+      // NVIDIA's hosted trial records what it receives: an unattended tick
+      // refuses it before it claims any job (MNE-001-448).
+      assertDefaultNotOnTrial();
       // Before the first job: the profile the tick opens sessions on and where
       // its credential comes from. It is the credential of whoever runs the
       // tick, spent on every due job of the entity (#644, question 3).

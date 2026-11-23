@@ -16,10 +16,12 @@ import {
 import { assertWithinBudget, BudgetGuard, type BudgetStatus } from '../budget.js';
 import { estimateCostUsd } from '../usage-ledger.js';
 import {
+  AllProvidersFailedError,
   CooldownRegistry,
   runWithFailover,
   type ProviderErrorCategory,
 } from './failover.js';
+import { assertTrialEndpointAllowed, isTrialEndpoint, type TrialEndpointAllowance } from './trial-endpoint.js';
 
 export { resolveProfile, listProfiles, BUILTIN_PROFILES, configFilePaths, resolveCompactionConfig, resolveFailoverChain } from './config.js';
 export { classifyProviderError, runWithFailover, CooldownRegistry } from './failover.js';
@@ -60,6 +62,12 @@ export interface CreateLlmSessionOptions {
   cwd?: string;
   /** A3: aviso al 80% del presupuesto — el chat lo imprime; los jobs a stderr. */
   onBudgetWarning?: (status: BudgetStatus) => void;
+  /**
+   * NVIDIA's hosted trial (trial-endpoint.ts): only the eval passes this, and
+   * only over its synthetic golden set. Every other unattended session on that
+   * host is refused, and an attended one needs the terms accepted.
+   */
+  trialEndpoint?: TrialEndpointAllowance;
 }
 
 export async function createLlmSession(
@@ -76,6 +84,9 @@ export async function createLlmSession(
   const unattended = opts.grounding?.enabled === false;
   const { guard } = await assertWithinBudget(ctx, opts.cwd, { unattended });
   if (guard.status.state === 'warn') opts.onBudgetWarning?.(guard.status);
+  // SECURITY: NVIDIA's hosted trial records what it receives (MNE-001-448).
+  // Refused here, before any client exists, however the profile was chosen.
+  assertTrialEndpointAllowed(profile, { unattended, allowance: opts.trialEndpoint });
   const budgeted: SessionCallbacks = {
     ...callbacks,
     onUsage: (u) => {
@@ -194,6 +205,10 @@ export async function createLlmSessionWithFailover(
   const cwd = opts.cwd ?? process.cwd();
   const name = profileName || listProfiles(cwd).defaultName;
   const chain = resolveFailoverChain(name, cwd);
+  // A fallback is chosen by an error, not by a person who read NVIDIA's trial
+  // terms: the walk never moves into the hosted endpoint (MNE-001-448).
+  const walk = chain.filter((p, i) => i === 0 || !isTrialEndpoint(p.base_url));
+  const notTried = chain.filter((p) => !walk.includes(p)).map((p) => p.name);
   const make = opts.sessionFactory ?? createLlmSession;
   // SE REENVÍA POR EXCLUSIÓN, NO POR ENUMERACIÓN, y la diferencia era una fuga.
   //
@@ -233,7 +248,7 @@ export async function createLlmSessionWithFailover(
 
   const firstTurn = async (userInput: string, signal?: AbortSignal): Promise<string> => {
     const { result } = await runWithFailover<{ session: LlmSession; text: string }>(
-      chain,
+      walk,
       async (candidate) => {
         // Setup (credential resolution + construction) and the first turn's
         // connection are ONE attempt: either can trip the walk.
@@ -247,7 +262,13 @@ export async function createLlmSessionWithFailover(
         return { session, text };
       },
       { onFailover: onFailoverEvent, cooldowns: opts.cooldowns, signal }
-    );
+    ).catch((err: unknown) => {
+      if (!(err instanceof AllProvidersFailedError) || notTried.length === 0) throw err;
+      throw new AllProvidersFailedError(
+        `${err.message}; not tried: ${notTried.join(', ')} (NVIDIA's hosted trial, never a fallback)`,
+        err.failures
+      );
+    });
     live = result.session;
     liveLabel = result.session.label;
     return result.text;

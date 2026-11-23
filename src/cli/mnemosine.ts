@@ -33,6 +33,7 @@ import {
   configFilePaths,
   MissingProviderCredentialError,
 } from '../ai/providers/config.js';
+import { acceptTrialTermsFor } from '../ai/providers/trial-endpoint.js';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -448,6 +449,13 @@ async function buildSession(
   onFailover?: (from: string, errorType: string, to: string) => void
 ): Promise<{ session: LlmSession; ctx: AgentContext }> {
   const ctx = await resolveEntity(entityArg);
+  // NVIDIA's hosted trial records what it receives (MNE-001-448): chat and ask
+  // open a session there only after its terms and a yes, asked here, before
+  // chat's own prompt exists. Without a terminal it is refused.
+  await acceptTrialTermsFor(providerFlag, {
+    confirm: stdin.isTTY === true ? confirmAtTerminal : null,
+    print: (line) => stderr.write(`${line}\n`),
+  });
   // Failover walks the profile's configured chain only on eligible errors
   // (auth/429/5xx/timeout/billing); the winning provider is pinned for the
   // session and surfaced here so the operator always knows who answered.
@@ -467,6 +475,14 @@ async function buildSession(
     },
   });
   return { session, ctx };
+}
+
+/** One yes/no at the terminal on its own short-lived readline; default No. */
+async function confirmAtTerminal(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: stdin, output: stderr });
+  const answer = await ask(rl, c.cyan(yesNoPrompt(question)));
+  rl.close();
+  return esAfirmativa(answer);
 }
 
 /** Interactive ask_user channel for chat mode: renders the agent's question

@@ -5080,6 +5080,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'además {count, plural, one {# sin inquilino, que debe ser sólo referencia global} other {# sin inquilino, que deben ser sólo referencia global}} ({tables})',
   'doctor.auditor_role.ok': 'sólo lectura sobre {count} tablas aisladas, NOLOGIN y sujeto a la RLS{note}',
   // ==== end of I11 · doctor by key ====
+  // ==== el periodo de prueba alojado de NVIDIA (MNE-001-448, #644 P8) ====
+  'providers.trial.terms.what':
+    '{profile} usa el catálogo de API alojado de NVIDIA ({host}), una prueba para desarrollo y evaluación.',
+  'providers.trial.terms.records':
+    'Los términos de servicio de la prueba de la API de NVIDIA le permiten registrar lo que envías y lo que vuelve, y piden no enviar datos personales: nunca le envíes la contabilidad ni los documentos de un cliente.',
+  'providers.trial.terms.limits':
+    'Sus endpoints pueden retirarse sin aviso. Para trabajo de clientes elige otro proveedor, o NVIDIA NIM en tu propio servidor.',
+  'providers.trial.accept_default': '¿Guardar {profile} como tu proveedor por omisión con estos términos?',
+  'providers.trial.not_saved': 'Términos no aceptados: {profile} no se guardó como proveedor por omisión.',
+  'providers.trial.accept_session': '¿Usar {profile} en esta sesión con estos términos?',
+  'providers.trial.refused.unattended':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), que registra lo que recibe: ingest, jobs run-due y la importación de init nunca abren una sesión ahí. Elige otro proveedor para ellos.',
+  'providers.trial.refused.no_terminal':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), cuyos términos piden un sí en una terminal, y aquí no hay ninguna. Córrelo en una terminal o elige otro proveedor.',
+  'providers.trial.refused.declined': 'Términos no aceptados: no se abrió ninguna sesión con {profile}.',
+  'providers.trial.refused.not_accepted':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), y sus términos no se aceptaron en esta sesión. Inicia mnemosine chat --provider {profile} en una terminal para leerlos y aceptarlos.',
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
   'payrun.file_duplicate_employee':

@@ -496,6 +496,9 @@ async function main(): Promise<void> {
           // aquí sería el defecto de vuelta con otra forma — divergiría en el
           // primer diff que toque una de las dos.
           herramientas: SUPERFICIE_INGESTA,
+          // The golden set is synthetic: the only thing from this repository
+          // NVIDIA's hosted trial may receive (MNE-001-448).
+          trialEndpoint: 'synthetic-golden-set',
         }
       );
     } catch (err) {

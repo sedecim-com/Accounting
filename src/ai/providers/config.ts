@@ -432,6 +432,44 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
         'verificado en vivo.',
     },
   },
+  // MNE-001-448 (#644 P8): NVIDIA's hosted API catalog, the model of the
+  // owner's answer 1 of 16 Nov, shipped «sin verificar». NVIDIA's documentation
+  // hosts did not resolve where this was built: the page is cited with the
+  // date of the search extract it was read through. The host is a trial that
+  // records inputs, so trial-endpoint.ts keeps it out of every unattended run
+  // and out of failover, and behind a yes in chat and ask.
+  nvidia: {
+    type: 'openai-compatible',
+    model: 'nvidia/nemotron-3-super-120b-a12b',
+    base_url: 'https://integrate.api.nvidia.com/v1',
+    api_key_env: 'NVIDIA_API_KEY',
+    reasoning_effort: 'low',
+    note:
+      "NVIDIA's hosted API catalog: a trial for development and evaluation that records what it receives, " +
+      'never for client data. Model not verified live: nvidia/nemotron-3-super-120b-a12b as ' +
+      'docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b lists it, read through a search extract 2026-11-23',
+    ventana: {
+      postura: 'declarada',
+      tokens: 262_144,
+      razon:
+        'Nemotron 3 Super se anuncia con hasta 1M de tokens (docs.api.nvidia.com/nim/reference/' +
+        'nvidia-nemotron-3-super-120b-a12b, leída por extracto de búsqueda el 2026-11-23), pero el ' +
+        'millón se enciende aparte y el endpoint alojado no publica su tope. 262 144 es su ventana ' +
+        'nativa: declarar menos de lo anunciado compacta antes, que es la dirección segura. No ' +
+        'verificado en vivo.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Chat Completions acepta `temperature`, y 0 es el ajuste del clasificador, pero que el ' +
+        'endpoint alojado acepte 0 no está confirmado: su referencia acota la temperatura en 1 y ' +
+        'NVIDIA recomienda 1.0. `seed` es de mejor esfuerzo, los ids no tienen instantáneas ' +
+        'fechadas y los endpoints gratuitos se retiran sin aviso. El esfuerzo `low` deja espacio ' +
+        'bajo el tope de 8 192 tokens de salida. No verificado en vivo.',
+    },
+  },
   openrouter: {
     type: 'openai-compatible',
     model: 'openrouter/auto',
