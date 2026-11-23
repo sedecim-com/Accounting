@@ -101,7 +101,8 @@ describe('the agent families, help by key, family by family (#314, MNE-001-242)'
     ['entity unset', 'help.entity.unset.description'],
     ['init', 'help.init.option.yes'],
     ['onboard', 'help.onboard.option.cutoff'],
-    ['lang', 'help.lang.argument.language'],
+    // lang is MNE-001-469's (#889): its argument carries {choices} mid-sentence, so the sample is --unset.
+    ['lang', 'help.lang.option.unset'],
     ['login', 'help.login.option.device'],
     ['ask', 'help.ask.argument.question'],
     ['chat', 'help.chat.option.continue'],
