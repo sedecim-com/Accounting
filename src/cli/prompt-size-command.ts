@@ -3,7 +3,7 @@ import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { buildSystemBlocks } from '../ai/system-prompt.js';
 import { buildTools } from '../ai/tools/index.js';
 import { docsIndex } from '../ai/tools/docs-tools.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine prompt-size (OFFLINE — zero API calls)
@@ -152,13 +152,11 @@ export function splitStableBlock(stableText: string): Pick<PromptSections, 'role
 }
 
 export function registerPromptSizeCommand(program: Command, deps: PromptSizeDeps): void {
-  program
-    .command('prompt-size')
-    .alias('tamano-prompt')
-    .description('Offline breakdown of the system prompt and tool schemas (no API calls)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--json', 'JSON output')
+  const promptSize = describeCommand(program.command('prompt-size').alias('tamano-prompt'), 'help.prompt_size.description');
+  optionByKey(promptSize, '-e, --entity <idOrName>', 'help.prompt_size.option.entity');
+  optionByKey(promptSize, '-t, --tenant <id>', 'help.prompt_size.option.tenant');
+  optionByKey(promptSize, '--json', 'help.prompt_size.option.json');
+  promptSize
     .action(async (opts: { entity?: string; tenant?: string; json?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);

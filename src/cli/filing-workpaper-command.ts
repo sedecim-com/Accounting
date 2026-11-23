@@ -57,6 +57,8 @@ interface Opts {
   form?: string;
   ptuPaid?: string;
   priorProvisional?: string;
+  priorBalance?: string;
+  priorBalanceReason?: string;
 }
 
 /** Entries a table cell lists before it says how many more there are. */
@@ -99,6 +101,8 @@ export function workpaperRows(wp: FilingWorkpaper, cap?: number): Row[] {
       source:
         l.source.kind === 'accounts' ? l.source.accounts.join('+')
         : l.source.kind === 'documents' ? `documents(${l.source.accounts.join('+')})`
+        : l.source.kind === 'filed_returns'
+          ? (l.source.returns?.length ? `filed_returns(${l.source.returns.map((r) => r.acknowledgementNumber).join(' ')})` : 'filed_returns')
         : l.source.ref ? `${l.source.kind}:${l.source.ref}` : l.source.kind,
       entries: entriesCell(l.source.entries.map((e) => e.entryNumber), cap),
     })),
@@ -129,6 +133,8 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
   optionByKey(generate, '--form <iva|isr|all>', 'help.filing.workpaper.generate.option.form', { defaultValue: 'all' });
   optionByKey(generate, '--ptu-paid <amount>', 'help.filing.workpaper.generate.option.ptu_paid');
   optionByKey(generate, '--prior-provisional <amount>', 'help.filing.workpaper.generate.option.prior_provisional');
+  optionByKey(generate, '--prior-balance <amount>', 'help.filing.workpaper.generate.option.prior_balance');
+  optionByKey(generate, '--prior-balance-reason <text>', 'help.filing.workpaper.generate.option.prior_balance_reason');
   declareRisk(generate, { risk: 'lectura', agent: true });
   generate.addHelpText('after', helpFooter);
   generate.action(async (opts: Opts) => {
@@ -140,6 +146,7 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
       const wp = await generateFilingWorkpaper({
         tenantId: ctx.tenantId, entityId: ctx.entityId, year, month, forms,
         ptuPaidInYear: opts.ptuPaid, priorProvisionalPayments: opts.priorProvisional,
+        priorBalanceInFavor: opts.priorBalance, priorBalanceReason: opts.priorBalanceReason,
       });
       if (opts.json || opts.format === 'json') {
         emit(JSON.stringify(wp, null, 2) + '\n', opts);

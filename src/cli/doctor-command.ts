@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { runDoctor, type DoctorReport, type CheckLevel } from '../ai/doctor-service.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 import { t } from '../i18n/index.js';
 
 // ============================================================
@@ -40,10 +40,9 @@ export function renderDoctor(report: DoctorReport, c: DoctorCliDeps['palette']):
 }
 
 export function registerDoctorCommand(program: Command, deps: DoctorCliDeps): void {
-  program
-    .command('doctor')
-    .description('Diagnoses system health: DB, migrations, provider, credentials, isolation')
-    .option('--json', 'JSON output for scripts')
+  const doctor = describeCommand(program.command('doctor'), 'help.doctor.description');
+  optionByKey(doctor, '--json', 'help.doctor.option.json');
+  doctor
     .action(async (opts: { json?: boolean }) => {
       try {
         const report = await runDoctor();

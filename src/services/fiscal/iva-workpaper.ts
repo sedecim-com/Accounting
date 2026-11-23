@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
+import { entityScope } from '../../database/scope.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { queryEntryMovementsOnAccount, queryTrialBalanceRows } from '../reporting/report-service.js';
@@ -11,6 +12,8 @@ import {
 import { saleSources, type SaleSource } from './sale-sources.js';
 import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
 import { bankFeesOfRange } from './bank-fee-iva.js';
+import { balancesInFavorBefore } from './filed-returns.js';
+import { overrideFindings, proposePriorCredit, type PriorBalance } from './prior-balance.js';
 import { backAsAdvance, HELD_RESTITUTION_TAG, keptCashOf, KEPT_RESTITUTION_TAG, restitutedCash, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
@@ -244,7 +247,7 @@ export interface IvaWorkpaperFigures {
   withheldByCustomers: string;
   /** IVA the entity withheld and remits (role iva_retenido_por_pagar). Shown, not netted (#309). */
   withheldToRemit: string;
-  /** Balance in favor from earlier periods applied this month. */
+  /** Balance in favor from earlier periods applied this month: the record's, capped (MNE-001-386), or a person's. */
   priorBalanceInFavor: string;
   /** LIVA art. 5 fr. V. Null when the reference period collected no exempt or no objeto act. */
   proration: Proration | null;
@@ -2167,6 +2170,21 @@ export interface IvaWorkpaper {
   settlement: IvaSettlement | null;
   /** The codes of the blocking findings that withheld the settlement. */
   blockedBy: string[];
+  /**
+   * Where `figures.priorBalanceInFavor` comes from (MNE-001-386): the returns
+   * filed, oldest first and capped at the month's tax (LIVA art. 6), or a
+   * person's figure with its reason. Amounts in two decimals.
+   */
+  priorBalance: {
+    origin: 'filed_returns' | 'override';
+    reason: string | null;
+    cap: string;
+    available: string;
+    /** What the record would credit. */
+    proposed: string;
+    credited: string;
+    balances: PriorBalance[];
+  };
   /** The month's net movement of each IVA role account, debit positive. */
   ledger: Record<IvaRole, string>;
   findings: Hallazgo[];
@@ -2177,8 +2195,12 @@ export interface IvaWorkpaperOptions {
   entityId: string;
   year: number;
   month: number;
-  /** Balance in favor from earlier periods to apply. Captured by a person. */
+  /**
+   * A person's figure instead of the one the returns filed give, and why:
+   * both or neither. Without them the record of filed returns decides.
+   */
   priorBalanceInFavor?: string;
+  priorBalanceReason?: string;
   client?: pg.PoolClient;
 }
 
@@ -2228,7 +2250,11 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new ValidationError(`El mes ${String(month)} no existe: el IVA definitivo es mensual.`, 'month');
   }
-  const priorBalanceInFavor = priorBalanceOf(opts.priorBalanceInFavor);
+  const reason = opts.priorBalanceReason?.trim() || undefined;
+  if ((opts.priorBalanceInFavor === undefined) !== (reason === undefined)) {
+    throw new ValidationError({ key: 'filing.workpaper.prior_balance_override_incomplete', params: {} }, 'priorBalanceReason');
+  }
+  const override = opts.priorBalanceInFavor === undefined ? null : priorBalanceOf(opts.priorBalanceInFavor);
   const run = async (client: pg.PoolClient): Promise<IvaWorkpaper> => {
     const { rowCount } = await client.query('SELECT 1 FROM legal_entities WHERE id = $1 AND tenant_id = $2', [
       entityId,
@@ -2357,16 +2383,24 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       // taxed_only when the ledger shows exempt revenue).
     }
 
-    const figures: IvaWorkpaperFigures = {
+    const noPrior: IvaWorkpaperFigures = {
       charged: charged.breakdown,
       chargedNotSubject: charged.notSubject,
       creditable,
       withheldByCustomers: charged.withheld,
       // Credits only, for the same reason: what was withheld in the month.
       withheldToRemit: q4(ledger.iva_retenido_por_pagar.credit),
-      priorBalanceInFavor,
+      priorBalanceInFavor: q4(0),
       proration,
     };
+    // MNE-001-386: the cap is the result with no prior balance, in the column it is declared in.
+    const before = settleIva(noPrior, rounding);
+    const sources = await balancesInFavorBefore(
+      entityScope(tenantId, entityId), 'iva_monthly', `${year}-${String(month).padStart(2, '0')}`, client
+    );
+    const proposal = proposePriorCredit(sources, rounding === 'cada_renglon' ? before.resultWhole : before.resultCents, rounding);
+    findings.push(...(override === null ? proposal.findings : overrideFindings(override, reason ?? '', proposal, rounding)));
+    const figures: IvaWorkpaperFigures = { ...noPrior, priorBalanceInFavor: override ?? q4(proposal.credited) };
     const blockedBy = [...new Set(findings.filter((h) => h.severidad === 'bloqueante').map((h) => h.codigo))];
     return {
       period: { year, month, ...range },
@@ -2376,6 +2410,17 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       contributions: { charged: charged.contributions, creditable: creditableContributions },
       settlement: blockedBy.length > 0 ? null : settleIva(figures, rounding),
       blockedBy,
+      priorBalance: {
+        origin: override === null ? 'filed_returns' : 'override',
+        reason: reason ?? null,
+        cap: proposal.cap,
+        available: proposal.available,
+        proposed: proposal.credited,
+        credited: new Decimal(figures.priorBalanceInFavor).toFixed(2),
+        balances: override === null
+          ? proposal.balances
+          : proposal.balances.map((x) => ({ ...x, creditedHere: '0.00', remnant: x.available })),
+      },
       ledger: Object.fromEntries(ROLES.map((r) => [r, q4(net(r))])) as Record<IvaRole, string>,
       findings,
     };

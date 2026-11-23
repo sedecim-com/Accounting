@@ -4510,6 +4510,9 @@ export const EN = {
   'help.filing.workpaper.generate.option.ptu_paid': 'PTU paid in the year (ISR), captured by a person',
   'help.filing.workpaper.generate.option.prior_provisional':
     'provisional ISR already paid this year (ISR), captured by a person',
+  'help.filing.workpaper.generate.option.prior_balance':
+    'prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason',
+  'help.filing.workpaper.generate.option.prior_balance_reason': 'why the prior balance is overridden, shown on its line',
   'help.filing.workpaper.generate.footer':
     'This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' +
     '\nExamples:\n' +
@@ -4518,13 +4521,17 @@ export const EN = {
     '  Only the IVA, the whole paper (with the entries) as JSON to a file:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
     '  The ISR with the PTU paid in the year and the provisional payments already made:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
+    '  The IVA with a prior balance a person gives instead of the one the filed returns give:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"',
   'filing.workpaper.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" is not known: use iva, isr or all.',
   'filing.workpaper.label_blocks': 'BLOCKS',
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  'filing.workpaper.prior_balance_override_incomplete':
+    'An override of the prior balance in favour gives the amount and the reason for it, both (--prior-balance and --prior-balance-reason).',
   // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
   'help.filing.record.description':
     'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',
@@ -5897,6 +5904,100 @@ export const EN = {
   'help.fx.rate.download.option.as_of': 'single date to download (YYYY-MM-DD)',
   'help.fx.rate.download.option.since': 'inclusive lower bound (YYYY-MM-DD)',
   'help.fx.rate.download.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  // ==== MNE-001-243 · help by key, entity, init, onboard, lang, login, ask, chat, compact, drafts, review, sessions, prompt-size, ai, doctor and usage (issue #314) ====
+  //
+  // The setup and session families whole, English as shown (the roots of ask,
+  // chat, sessions, drafts, review, lang, onboard and login, and entity's
+  // --minimum-wage-zone, were keyed before; ai's prose got its English in
+  // #844). `lang` is whole in MNE-001-469's block (#889): its argument key is
+  // that one's. Every generic flag keeps a key of its own: none of these texts
+  // is the kernel's, and none of these leaves has an output --format. The usage
+  // groupings travel as {choices}.
+  'help.entity.description': 'Select and inspect the legal entity commands operate on',
+  'help.entity.list.description': 'List the active legal entities',
+  'help.entity.show.description': 'Show one entity — with no argument, the one commands would use, and why',
+  'help.entity.show.argument.id_or_name': 'entity to describe; omit for the active one',
+  'help.entity.use.description': 'Pin the entity that later commands operate on',
+  'help.entity.use.argument.id_or_name': 'entity id, tax id, or a fragment of the name',
+  'help.entity.create.description': 'Create a legal entity with its chart of accounts, roles and payroll mapping',
+  'help.entity.create.argument.name': 'legal name of the company',
+  'help.entity.create.option.tax_id': 'RFC (Mexico) or EIN (USA)',
+  'help.entity.create.option.country': 'MX or USA',
+  'help.entity.create.option.currency': "functional currency (defaults to the country's)",
+  'help.entity.create.option.chart': 'auto | siempre | nunca — whether to seed the base chart',
+  'help.entity.create.option.tax_regime': 'c_RegimenFiscal code: 601, 612, 626…',
+  'help.entity.create.option.tax_postal_code': 'fiscal address postal code (5 digits)',
+  'help.entity.create.option.json': 'JSON output',
+  'help.entity.edit.description': 'Set the tax regime, fiscal postal code or minimum-wage zone of an entity',
+  'help.entity.edit.argument.id_or_name': 'entity id, tax id, or a fragment of the name',
+  'help.entity.edit.option.tax_regime': 'c_RegimenFiscal code: 601, 612, 626…',
+  'help.entity.edit.option.tax_postal_code': 'fiscal address postal code (5 digits)',
+  'help.entity.edit.option.reason': 'justification recorded in the audit trail',
+  'help.entity.edit.option.json': 'JSON output',
+  'help.entity.archive.description': 'Archive an entity (never deletes: its ledger has to survive)',
+  'help.entity.archive.argument.id_or_name': 'entity to archive',
+  'help.entity.unset.description': 'Clear the pinned entity; commands go back to requiring --entity',
+  'help.init.description': 'Guided setup: infrastructure, entity, users, AI provider, and your books',
+  'help.init.option.status': 'Only show the status, configure nothing',
+  'help.init.option.section': 'Configure a single section (infra|identity|users|ai|policies|import)',
+  'help.init.option.yes': 'Non-interactive: use defaults and flags, ask nothing',
+  'help.init.option.tenant': 'Tenant',
+  'help.init.option.entity': 'Name of the legal entity to create',
+  'help.init.option.rfc': 'RFC/EIN of the entity',
+  'help.init.option.country': 'MX | USA',
+  'help.init.option.currency': 'Functional currency',
+  'help.init.option.provider': 'Default AI provider',
+  'help.init.option.model': 'Provider model',
+  'help.init.option.user': 'Email of the user to create',
+  'help.onboard.option.provider': 'External system, e.g. contalink',
+  'help.onboard.option.cutoff': 'Cutoff date: opening balances are taken as of this date',
+  'help.onboard.option.from':
+    'Start of the remote trial balance period (default: January 1st of the cutoff year)',
+  'help.onboard.option.entity': 'Target legal entity (id, RFC or name fragment)',
+  'help.onboard.option.user': 'Who runs it (default: sole active user of the tenant)',
+  'help.onboard.option.balance_account':
+    'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)',
+  'help.onboard.option.post':
+    'Post the opening balance immediately (default: stays as a draft for mnemosine review)',
+  'help.onboard.option.dry_run': 'Only show the plan, without executing anything',
+  'help.login.option.device': 'Use the device-code flow (SSH, server without a browser)',
+  'help.ask.argument.question': 'The question for the assistant',
+  'help.ask.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.ask.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.ask.option.model': 'Override the profile model',
+  'help.chat.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.chat.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.chat.option.model': 'Override the profile model',
+  'help.chat.option.continue':
+    'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)',
+  'help.chat.option.resume': 'Resume a specific session by id (see: mnemosine sessions)',
+  'help.chat.option.no_banner': 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)',
+  'help.compact.description': 'Dry-run compaction report for a session transcript (no API calls)',
+  'help.compact.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.compact.option.tenant': 'Tenant',
+  'help.compact.option.session': 'Session id (default: the most recent session)',
+  'help.compact.option.keep': 'Recent tail to keep intact, in tokens',
+  'help.compact.option.json': 'JSON output',
+  'help.drafts.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.drafts.option.status': 'pending_review | approved | rejected',
+  'help.review.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.review.option.user': 'Reviewer email (default: first active user of the tenant)',
+  'help.sessions.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.sessions.option.limit': 'Maximum number of sessions to show',
+  'help.prompt_size.description': 'Offline breakdown of the system prompt and tool schemas (no API calls)',
+  'help.prompt_size.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.prompt_size.option.tenant': 'Tenant',
+  'help.prompt_size.option.json': 'JSON output',
+  'help.ai.description': 'Metrics and calibration of the accounting agent',
+  'help.ai.stats.description': 'Approval by confidence bucket, confidence-vs-reality delta, cost and events',
+  'help.doctor.description': 'Diagnoses system health: DB, migrations, provider, credentials, isolation',
+  'help.doctor.option.json': 'JSON output for scripts',
+  'help.usage.description': 'Token usage and estimated cost from the local ledger (no API calls)',
+  'help.usage.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.usage.option.tenant': 'Tenant',
+  'help.usage.option.since': 'Window: Nd (e.g. 7d, 30d) or YYYY-MM-DD',
+  'help.usage.option.by': 'Group by: {choices}',
+  'help.usage.option.json': 'JSON output',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

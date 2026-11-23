@@ -64,9 +64,8 @@ export const E0_2: Criterio[] = [
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
-        // MNE-001-533 (#308): migration 337. MNE-001-576 writes and reads the returns and their
-        // credits; the uses of a balance wait for their own writer.
-        tax_balance_uses: 'the refund and compensation leaf of #308: the refund requests and compensations of a balance',
+        // tax_balance_uses (migration 337) left this list with MNE-001-386 (#308): the IVA
+        // workpaper now reads it (balancesInFavorBefore), so it is no longer dead.
       };
       const dirMigraciones = 'src/database/migrations';
       const sql = fs
