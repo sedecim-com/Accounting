@@ -61,6 +61,8 @@ interface FakeState {
   taken?: Record<string, string>;
   /** MNE-001-593: the IVA each receipt's unapply kept caused on the invoice, all of it still in its pool. */
   kept?: Record<string, string>;
+  /** MNE-001-607: the same for held cheques, whose marker the cashing will cause. */
+  held?: Record<string, string>;
 }
 
 let state: FakeState;
@@ -76,11 +78,13 @@ function fakeClient(): pg.PoolClient {
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
     if (/^UPDATE credit_notes/.test(sql.trim())) return { rows: [], rowCount: state.noteRows };
     // MNE-001-593: the receipts that kept the invoice's IVA on account (`issuedVatKeptOnAccount`), none restituted yet.
-    if (state.kept && sql.includes('AS marked')) {
-      return { rows: Object.entries(state.kept).map(([id, marked]) => ({ payment_id: id, payment_number: `PMT-${id}`, marked })) };
+    // MNE-001-607: its third parameter asks for held cheques.
+    if ((state.kept || state.held) && sql.includes('AS marked')) {
+      const marked = (p[2] === true ? state.held : state.kept) ?? {};
+      return { rows: Object.entries(marked).map(([id, m]) => ({ payment_id: id, payment_number: `PMT-${id}`, marked: m })) };
     }
-    if (state.kept && sql.includes('AS kept')) {
-      const kept = state.kept[String(p[0])];
+    if ((state.kept || state.held) && sql.includes('AS kept')) {
+      const kept = { ...state.kept, ...state.held }[String(p[0])];
       return { rows: [{ invoice_id: 'inv-9', amount: '1160.0000', plain: '1160.0000', released: kept, kept }] };
     }
     if (state.applied !== undefined && sql.includes('AS aplicado')) return { rows: [{ aplicado: state.applied }] };
@@ -244,6 +248,46 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
       ['12.8000', { kept_restitution: { payment_id: 'P2', invoice_id: 'inv-9' } }],
     ]);
     expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('32.0000');
+  });
+
+  // MNE-001-607 (#792, decision (A)): a held cheque's marker is not in 2120 yet, so its share leaves 2125 alone.
+  it('MNE-001-607 · a held cheque kept all 160: the note takes 32 from 2125 on one line tagged held_restitution, with no 2120 or 2150 line', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.held = { H: '160.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null],
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:cxc', null, '232.0000'],
+    ]);
+    const held = lineFor('acct:iva_trasladado_no_cobrado') as { description: string; tags?: unknown };
+    expect(held.description).toMatch(/held cheque PMT-H keeps on account: its cashing will not cause it/);
+    expect(held.tags).toEqual({ held_restitution: { payment_id: 'H', invoice_id: 'inv-9' } });
+  });
+
+  it('MNE-001-607 · a cashed receipt kept 96 and a held cheque 64: 19.20 from 2120 moved to 2150, 12.80 from 2125 alone', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P: '96.0000' };
+    state.held = { H: '64.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount, (l as { tags?: unknown }).tags ?? null])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null, null],
+      ['acct:iva_trasladado_no_cobrado', '12.8000', null, { held_restitution: { payment_id: 'H', invoice_id: 'inv-9' } }],
+      ['acct:iva_trasladado', '19.2000', null, null],
+      ['acct:iva_trasladado_no_cobrado', '19.2000', null, null],
+      ['acct:anticipo_clientes', null, '19.2000', { kept_restitution: { payment_id: 'P', invoice_id: 'inv-9' } }],
+      ['acct:cxc', null, '232.0000', null],
+    ]);
   });
 
   it.each([
