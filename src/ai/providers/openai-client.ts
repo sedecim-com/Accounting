@@ -64,12 +64,40 @@ class HostScopedOpenAI extends OpenAI {
   }
 }
 
-export function createOpenAiClient(profile: Pick<ResolvedProfile, 'base_url' | 'apiKey' | 'headers'>): OpenAI {
+export interface OpenAiClientOptions {
+  /**
+   * Called with every token a renewing helper prints, before the request that
+   * uses it is sent (the eval's redactor). The first token is the caller's:
+   * it is already in `profile.apiKey`.
+   */
+  onCredential?: (token: string) => void;
+}
+
+export function createOpenAiClient(
+  profile: Pick<ResolvedProfile, 'base_url' | 'apiKey' | 'headers' | 'keyRenewal'>,
+  opts: OpenAiClientOptions = {}
+): OpenAI {
+  const renewal = profile.keyRenewal;
+  if (renewal && opts.onCredential) renewal.onToken(opts.onCredential);
   return new HostScopedOpenAI({
     baseURL: profile.base_url,
+    // SECURITY: a helper from the person's own config is the SDK's async
+    // `apiKey`, which the SDK calls for every request's auth header; the
+    // token is renewed after five minutes and after a 401 (MNE-001-446).
     // Local endpoints (Ollama, LM Studio) require no key, but the SDK
     // demands a string — a placeholder is the standard practice.
-    apiKey: profile.apiKey ?? 'not-needed',
+    apiKey: renewal ? () => renewal.apiKey() : (profile.apiKey ?? 'not-needed'),
     defaultHeaders: profile.headers,
+    // The SDK does not retry a 401, so the failing turn surfaces it; marking
+    // the token stale makes the NEXT request run the helper again.
+    ...(renewal
+      ? {
+          fetch: async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+            const response = await globalThis.fetch(url, init);
+            if (response.status === 401) renewal.markStale();
+            return response;
+          },
+        }
+      : {}),
   });
 }

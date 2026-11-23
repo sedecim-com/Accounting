@@ -199,7 +199,7 @@ describe('safety declarations', () => {
     expect(risks.get('prepaid create')?.writes).toMatch(/prepaid_expenses/);
     // Y dice lo que NO escribe, que es la mitad del asunto: el cargo a la 1160
     // ya está en el mayor y el alta lo adopta, no lo vuelve a postear.
-    expect(risks.get('prepaid create')?.writes).toMatch(/ninguna póliza/);
+    expect(risks.get('prepaid create')?.writes).toMatch(/no journal entry/);
     expect(risks.get('prepaid run')?.writes).toMatch(/journal_entries/);
     expect(risks.get('prepaid run')?.writes).toMatch(/prepaid_amortization_schedules/);
   });
@@ -279,7 +279,7 @@ describe('exigirConvencionDelPanel', () => {
   });
 
   it('rechaza la que contradice al panel, en vez de obedecerla', () => {
-    expect(() => exigirConvencionDelPanel('meses_completos', panel)).toThrow(/contradice al panel/);
+    expect(() => exigirConvencionDelPanel('meses_completos', panel)).toThrow(/contradicts the panel/);
   });
 
   it('nombra la política que sí decide, para que la contradicción tenga salida', () => {
@@ -294,11 +294,11 @@ describe('exigirConvencionDelPanel', () => {
         convencion: 'meses_completos',
         convencionDefinida: false,
       })
-    ).toThrow(/defecto declarado/);
+    ).toThrow(/declared default/);
   });
 
   it('rechaza un valor que no es ninguna de las dos convenciones', () => {
-    expect(() => exigirConvencionDelPanel('lineal', panel)).toThrow(/no existe/);
+    expect(() => exigirConvencionDelPanel('lineal', panel)).toThrow(/does not exist/);
   });
 });
 
@@ -314,7 +314,7 @@ describe('exigirFecha', () => {
   it('rechaza un día que no existe en vez de correrlo al mes siguiente', () => {
     // JavaScript acepta 2026-02-31 y lo mueve al 3 de marzo: así es como una
     // cobertura acaba empezando un día que nadie tecleó.
-    expect(() => exigirFecha('--start', '2026-02-31')).toThrow(/fecha real/);
+    expect(() => exigirFecha('--start', '2026-02-31')).toThrow(/real date/);
   });
 
   it('rechaza otro formato', () => {
@@ -336,14 +336,14 @@ describe('exigirImporte', () => {
   });
 
   it('rechaza un importe con signo', () => {
-    expect(() => exigirImporte('--amount', '-100')).toThrow(/sin signo/);
+    expect(() => exigirImporte('--amount', '-100')).toThrow(/unsigned/);
   });
 });
 
 describe('exigirPeriodo', () => {
   it('exige el mes en vez de deducirlo del reloj', () => {
-    expect(() => exigirPeriodo(undefined)).toThrow(/Falta --period/);
-    expect(() => exigirPeriodo(undefined)).toThrow(/el mes que acaba de empezar/);
+    expect(() => exigirPeriodo(undefined)).toThrow(/Missing --period/);
+    expect(() => exigirPeriodo(undefined)).toThrow(/the month that has just begun/);
   });
 
   it('deja pasar el que llega', () => {
@@ -353,7 +353,7 @@ describe('exigirPeriodo', () => {
 
 describe('exigirOrigen', () => {
   it('no tiene valor por omisión: suponerlo apunta el rastro a otro asiento', () => {
-    expect(() => exigirOrigen(undefined)).toThrow(/Falta --origin/);
+    expect(() => exigirOrigen(undefined)).toThrow(/Missing --origin/);
   });
 
   it('acepta los tres del vocabulario', () => {
@@ -361,7 +361,7 @@ describe('exigirOrigen', () => {
   });
 
   it('rechaza cualquier otro', () => {
-    expect(() => exigirOrigen('factura')).toThrow(/no existe/);
+    expect(() => exigirOrigen('factura')).toThrow(/does not exist/);
   });
 });
 
@@ -425,24 +425,23 @@ describe('renglonDelPeriodo — los mismos números que devengarUnAnticipo', () 
 
   it('omite el anticipo cuya cobertura todavía no empieza', () => {
     const r = renglonDelPeriodo(POLIZA, new Date(2025, 11, 1));
-    expect(r).toMatchObject({ estado: 'omitido', motivo: 'la cobertura todavía no empieza' });
+    expect(r).toMatchObject({ estado: 'omitido', cause: 'not_started' });
   });
 
   it('omite el anticipo cuya cobertura ya terminó', () => {
     const r = renglonDelPeriodo(POLIZA, new Date(2027, 0, 1));
-    expect(r).toMatchObject({ estado: 'omitido', motivo: 'la cobertura ya terminó' });
+    expect(r).toMatchObject({ estado: 'omitido', cause: 'ended' });
   });
 
   it('omite el que ya no tiene saldo, en vez de dejar la cuenta en negativo', () => {
     const r = renglonDelPeriodo(con({ remaining_amount: '0.0000' }), new Date(2026, 0, 1));
-    expect(r).toMatchObject({ estado: 'omitido', motivo: 'no queda saldo por devengar' });
+    expect(r).toMatchObject({ estado: 'omitido', cause: 'nothing_left' });
   });
 
   it('omite —y no revienta— el que guarda una convención que nadie declaró', () => {
     // La fila escrita por SQL a mano antes de que existiera el CHECK de la 059.
     const r = renglonDelPeriodo(con({ amortization_convention: 'lineal' }), new Date(2026, 0, 1));
-    expect(r).toMatchObject({ estado: 'omitido' });
-    expect((r as { motivo: string }).motivo).toMatch(/convención guardada desconocida/);
+    expect(r).toMatchObject({ estado: 'omitido', cause: 'unknown_convention', storedConvention: 'lineal' });
   });
 
   it('TOPA el renglón contra lo que queda, y lo dice', () => {
@@ -476,7 +475,7 @@ describe('filasPrevistas', () => {
       renglonDelPeriodo(POLIZA, new Date(2027, 0, 1)),
     ]);
     expect(filas.map((f) => f.estado)).toEqual(['entra', 'omitido']);
-    expect(filas[1].motivo).toBe('la cobertura ya terminó');
+    expect(filas[1].motivo).toBe('the coverage has already ended');
     expect(filas[1].amortizacion).toBe('');
   });
 });
@@ -562,12 +561,12 @@ describe('elegirAnticipo', () => {
   });
 
   it('no elige «el primero» cuando hay dos: pregunta, y enumera los ids', () => {
-    expect(() => elegirAnticipo([POLIZA, con({ id: 'p3' })], 'seguro')).toThrow(/casa con 2/);
+    expect(() => elegirAnticipo([POLIZA, con({ id: 'p3' })], 'seguro')).toThrow(/matches 2/);
     expect(() => elegirAnticipo([POLIZA, con({ id: 'p3' })], 'seguro')).toThrow(/p3/);
   });
 
   it('dice que no existe cuando no casa con nada, con el código 5', () => {
-    expect(() => elegirAnticipo([POLIZA], 'licencia')).toThrow(/ningún calendario vivo/);
+    expect(() => elegirAnticipo([POLIZA], 'licencia')).toThrow(/No live schedule/);
     try {
       elegirAnticipo([POLIZA], 'licencia');
       expect.unreachable('debía lanzar');

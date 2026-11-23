@@ -91,6 +91,12 @@ provides:
     # in INSTALLATION_SECRET_VARIABLES) is refused by resolveProfile before anything is
     # read or sent, and readiness says «not a provider credential» (MNE-001-445, #644).
     # A tightening: such a profile used to send that secret as its bearer token.
+    # CONTRACT: an api_key_cmd that fails or prints nothing raises CredentialHelperError
+    # with a fixed message (the profile and its exit code or its 10 s limit), never its
+    # command or stderr; it is not a missing credential, so `ingest` fails at start. On
+    # an openai-compatible profile from ~/.mnemosine/config.json the helper is the openai
+    # SDK's async apiKey, re-run after five minutes and after a 401; from a project file
+    # it runs once per session (src/ai/providers/credential-helper.ts, MNE-001-446, #644).
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
     # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs
