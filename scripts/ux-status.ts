@@ -99,7 +99,7 @@ import type { Command } from 'commander';
 // AL CARGAR mnemosine.js. Con una salvedad que hay que decir porque este
 // comentario decía otra cosa: MEDIDO HOY, reordenarlos NO mueve ninguna de las
 // seis cifras. Construido el árbol en es-MX, `censar` devuelve exactamente lo
-// mismo —`nodos-fuera-del-idioma-canonico` sigue en 3— porque lee la
+// mismo —`nodos-fuera-del-idioma-canonico` sigue en 1— porque lee la
 // descripción GUARDADA en el objeto de Commander, y `kernel/help.ts` guarda ahí
 // el inglés y traduce sólo el renderizado. Aquí esto es blindaje, no
 // reparación: lo protege una decisión que vive en OTRO archivo. El porqué
@@ -183,16 +183,16 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * `entity` is out of the list above; the other sixteen families stay as they
  * were.
  *
- * ── `nodos-fuera-del-idioma-canonico` = 3 (SUBIÓ A MANO A 7, BAJA DESDE EL 15 NOV) ──
+ * ── `nodos-fuera-del-idioma-canonico` = 1 (SUBIÓ A MANO A 7, BAJA DESDE EL 15 NOV) ──
  *
  * BAJÓ A 6 EL 15 NOV 2026. El dueño decidió en #314 que la prosa de autor en
  * castellano reciba inglés de verdad, y MNE-001-234 se lo dio a `account map
  * import <file>`. BAJÓ A 4 EL 20 NOV con MNE-001-224 (#844), que dio inglés a
- * `ai` y `ai stats` al pasarlos al bloque I8.6. BAJÓ A 3 con MNE-001-235, que
- * se lo dio a `entry import --layout`. De los seis de siempre quedan dos, que
- * reciben su inglés en 240 (`cfdi list` y `cfdi status show`) y bajan este
- * número con `--apretar`. El séptimo, `batch check`, sigue aquí por lo que
- * explica lo que sigue.
+ * `ai` y `ai stats` al pasarlos al bloque I8.6. BAJÓ A 2 con MNE-001-226
+ * (#871), que se lo dio a `cfdi list` y `cfdi status show` al pasarlos al
+ * bloque I8.7. BAJÓ A 1 con MNE-001-235, que se lo dio a `entry import
+ * --layout`. De los seis de siempre no queda ninguno. El que queda, el
+ * séptimo, `batch check`, sigue aquí por lo que explica lo que sigue.
  *
  * Fue el único de los seis que SUBIÓ en su lote, y subió porque el árbol creció
  * con un nodo más fuera del idioma. Los seis de siempre eran `account map
@@ -247,7 +247,7 @@ export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
   'hojas-sin-ejemplo': 39,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
-  'nodos-fuera-del-idioma-canonico': 3,
+  'nodos-fuera-del-idioma-canonico': 1,
   'hojas-graves-sin-las-tres-banderas': 0,
   'banderas-del-diccionario-sin-hoja': 11,
 });

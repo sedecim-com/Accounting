@@ -26,7 +26,7 @@ import {
   postReceiptUnapplicationEntry,
 } from '../../src/services/accounting/ar-ap-posting.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
-import { iepsCausedBy, iepsCausedByReceipt } from '../../src/services/accounting/ieps-cash-basis.js';
+import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines } from '../../src/services/accounting/ieps-cash-basis.js';
 
 const mockCreate = createJournalEntry as unknown as Mock;
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
@@ -64,6 +64,7 @@ beforeEach(() => {
   mockCreate.mockClear();
   (iepsCausedByReceipt as Mock).mockClear();
   (iepsCausedBy as Mock).mockClear();
+  (iepsMoveLines as Mock).mockClear();
   country = 'MX';
 });
 
@@ -113,5 +114,49 @@ describe('MNE-001-504 · the IEPS move rides on the entry that moves the VAT', (
     expect((mockCreate.mock.calls.at(-1) as unknown[])[1]).toBe('2026-08-21');
     await postReceiptUnapplicationEntry(fakeClient(), payment, app, 'u1');
     expect(iepsOf(posted().lines)).toEqual([]);
+  });
+});
+
+describe('MNE-001-590 · the IEPS the cash on account carries nets, and an unapply keeps it caused', () => {
+  const later = {
+    invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '626.40', priorApplied: '0',
+    taxAmount: '172.80', totalAmount: '1252.80', cfdiUuid: null, terms: null, memo: null,
+  };
+  const debitOf = (lines: Line[], account: string) => lines.find((l) => l.account_id === account)?.debit_amount;
+  const creditOf = (lines: Line[], account: string) => lines.find((l) => l.account_id === account)?.credit_amount;
+
+  it('an application hands the take with the share, and only the rest of the cash leaves 2150', async () => {
+    await postReceiptApplicationEntry(fakeClient(), payment, [{ ...later, advanceIeps: '40.0000' }], 'u1', '2026-08-20');
+    expect((iepsMoveLines as Mock).mock.calls.at(-1)?.[3]).toEqual([
+      { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '40.0000', take: '40.0000' },
+    ]);
+    const { description, lines } = posted();
+    expect(debitOf(lines, 'acct:anticipo_clientes')).toBe('586.4000');
+    // The share equals the take, so nothing is caused on this collection.
+    expect(description).toBe('Application of PMT-1');
+  });
+
+  it('a take on an invoice that releases no IEPS is still handed over, and the description names none', async () => {
+    (iepsCausedBy as Mock).mockResolvedValueOnce('0.0000');
+    await postReceiptApplicationEntry(fakeClient(), payment, [{ ...later, advanceIeps: '74.0741' }], 'u1', '2026-08-20');
+    expect((iepsMoveLines as Mock).mock.calls.at(-1)?.[3]).toEqual([
+      { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '0.0000', take: '74.0741' },
+    ]);
+    expect(debitOf(posted().lines, 'acct:anticipo_clientes')).toBe('552.3259');
+    expect(posted().description).toBe('Application of PMT-1');
+  });
+
+  it('a held cheque moves no IEPS, so its take leaves 2150 whole', async () => {
+    await postReceiptApplicationEntry(fakeClient(), { ...payment, holdsIvaUntilCashed: true }, [{ ...later, advanceIeps: '40.0000' }], 'u1', '2026-08-20');
+    expect(iepsMoveLines).not.toHaveBeenCalled();
+    expect(debitOf(posted().lines, 'acct:anticipo_clientes')).toBe('626.4000');
+  });
+
+  it('an unapply that keeps the IEPS caused asks for the keep line and credits 2150 only the rest', async () => {
+    const app = { invoiceNumber: 'INV-1', amount: '626.40', ivaReclass: '0', ivaEstimado: '0', date: '2026-08-21' };
+    const kept = { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '40.0000' };
+    await postReceiptUnapplicationEntry(fakeClient(), payment, { ...app, iepsKept: kept }, 'u1');
+    expect((iepsMoveLines as Mock).mock.calls.at(-1)?.slice(3)).toEqual([[kept], 'keep', 'unapply']);
+    expect(creditOf(posted().lines, 'acct:anticipo_clientes')).toBe('586.4000');
   });
 });

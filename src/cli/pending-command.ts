@@ -19,7 +19,7 @@ import { previewFor } from '../services/policy/policy-preview.js';
 import { panelTranslator, previewText } from '../i18n/panel-text.js';
 import { specWording } from '../services/policy/policy-text-key.js';
 import { t } from '../i18n/index.js';
-import { exitCodeFor, notFound } from './kernel/index.js';
+import { argumentByKey, describeCommand, exitCodeFor, notFound, optionByKey } from './kernel/index.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from './policy-answer.js';
@@ -313,13 +313,11 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
   // painted is now a CliError, and `reportError` owns that ink.
   const { color: c, shutdown, reportError, ask } = deps;
 
-  const cmd = program
-    .command('pending')
-    .alias('pendientes')
-    .description('What you need to do: work to resolve and policy decisions to define')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-v, --verbose', 'Explain each decision: why I ask, what I do, what skipping costs, and what your own data says')
-    .option('-a, --all', 'Include definitions already resolved and dismissed')
+  const cmd = describeCommand(program.command('pending').alias('pendientes'), 'help.pending.description');
+  optionByKey(cmd, '-e, --entity <idOrName>', 'help.pending.option.entity');
+  optionByKey(cmd, '-v, --verbose', 'help.pending.option.verbose');
+  optionByKey(cmd, '-a, --all', 'help.pending.option.all');
+  cmd
     .action(async (opts: { entity?: string; verbose?: boolean; all?: boolean }) => {
       try {
         const ctx = await resolveEntity(opts.entity);
@@ -354,15 +352,13 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
       }
     });
 
-  cmd
-    .command('define')
-    .aliases(['definir'])
-    .description('Defines a pending decision (the value takes effect immediately)')
-    .argument('<key>', 'Decision key (see: mnemosine pending)')
-    .argument('[value]', 'Chosen value; if omitted, asked interactively')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-u, --user <email>', 'Who defines it')
-    .option('-n, --note <text>', 'Note or rationale')
+  const define = describeCommand(cmd.command('define').aliases(['definir']), 'help.pending.define.description');
+  argumentByKey(define, '<key>', 'help.pending.define.argument.key');
+  argumentByKey(define, '[value]', 'help.pending.define.argument.value');
+  optionByKey(define, '-e, --entity <idOrName>', 'help.pending.define.option.entity');
+  optionByKey(define, '-u, --user <email>', 'help.pending.define.option.user');
+  optionByKey(define, '-n, --note <text>', 'help.pending.define.option.note');
+  define
     .action(async (key: string, value: string | undefined, opts: { entity?: string; user?: string; note?: string }, command: unknown) => {
       let rl: readline.Interface | undefined;
       try {
@@ -447,14 +443,11 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
       }
     });
 
-  cmd
-    .command('dismiss')
-    .aliases(['descartar'])
-    .description('Marks a definition as not applicable (leaves the agenda)')
-    .argument('<key>')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-u, --user <email>', 'Who dismisses it')
-    .option('-n, --note <text>', 'Why it does not apply')
+  const dismiss = describeCommand(cmd.command('dismiss').aliases(['descartar']).argument('<key>'), 'help.pending.dismiss.description');
+  optionByKey(dismiss, '-e, --entity <idOrName>', 'help.pending.dismiss.option.entity');
+  optionByKey(dismiss, '-u, --user <email>', 'help.pending.dismiss.option.user');
+  optionByKey(dismiss, '-n, --note <text>', 'help.pending.dismiss.option.note');
+  dismiss
     .action(async (key: string, opts: { entity?: string; user?: string; note?: string }, command: unknown) => {
       try {
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));
@@ -468,12 +461,9 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
       }
     });
 
-  cmd
-    .command('reopen')
-    .aliases(['reabrir'])
-    .description('Reopens an already resolved definition (the policy changed)')
-    .argument('<key>')
-    .option('-e, --entity <idOrName>', 'Legal entity')
+  const reopen = describeCommand(cmd.command('reopen').aliases(['reabrir']).argument('<key>'), 'help.pending.reopen.description');
+  optionByKey(reopen, '-e, --entity <idOrName>', 'help.pending.reopen.option.entity');
+  reopen
     .action(async (key: string, opts: { entity?: string }, command: unknown) => {
       try {
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));

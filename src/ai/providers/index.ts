@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
 import type { AgentContext } from '../context.js';
 import { buildSystemBlocks } from '../system-prompt.js';
 import { MnemosineAgent } from '../agent.js';
 import { OpenAiCompatSession } from './openai-compat.js';
+import { createOpenAiClient } from './openai-client.js';
 import type { LlmSession, ResolvedProfile, SessionCallbacks } from './types.js';
 import type { CompactionConfig, CompactionResult } from '../compaction.js';
 import type { GroundingOptions } from '../grounding.js';
@@ -112,13 +112,11 @@ export async function createLlmSession(
       herramientas: opts.herramientas,
     });
   } else {
-    const client = new OpenAI({
-      baseURL: profile.base_url,
-      // Local endpoints (Ollama, LM Studio) require no key, but the SDK
-      // demands a string — a placeholder is the standard practice.
-      apiKey: profile.apiKey ?? 'not-needed',
-      defaultHeaders: profile.headers,
-    });
+    // SECURITY / CONTRACT: built in openai-client.ts, which keeps the
+    // environment's OpenAI headers (organization, project, custom lines)
+    // for OpenAI's own hosts; anywhere else only the profile's key and
+    // headers go (MNE-001-445).
+    const client = createOpenAiClient(profile);
     const systemText = systemBlocks.map((b) => b.text).join('\n\n');
     session = new OpenAiCompatSession(client, profile, ctx, systemText, budgeted, {
       compaction,

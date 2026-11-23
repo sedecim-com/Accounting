@@ -3354,6 +3354,93 @@ export const ES: Record<keyof typeof EN, string> = {
   'fiscal_mx.e_accounting.output.kept':
     'No se escribió nada: {target} se conserva tal cual. Usa otra ruta, o --yes si de verdad quieres reemplazarlo.',
 
+  'fiscal_mx.diot.unfiled.headline': 'ESTA DIOT NO SE PRESENTÓ Y ESTE ARCHIVO NO ES LA DECLARACIÓN.',
+  'fiscal_mx.diot.unfiled.two_hands':
+    'Armar la declaración y presentarla son actos distintos y de manos distintas.',
+  'fiscal_mx.diot.unfiled.step_tie_out':
+    'Coteja el papel de trabajo contra el movimiento del mes de la cuenta de IVA acreditable: si no cuadra al centavo, no captures — «casi cuadra» es un requerimiento dentro de un año.',
+  'fiscal_mx.diot.unfiled.step_capture':
+    'Captura o carga la declaración TÚ en el portal del SAT. Este binario no entra al portal, no carga la e.firma y no presenta nada.',
+  'fiscal_mx.diot.unfiled.step_acknowledgement':
+    'Guarda el acuse con su número de operación: es la única prueba de que se presentó.',
+  'fiscal_mx.diot.unfiled.step_record':
+    'Registra el acuse en el expediente del mes. Ese registro TODAVÍA NO tiene comando (`diot record` no está construido).',
+  'fiscal_mx.diot.period.missing':
+    'La DIOT se declara por mes: indica --period YYYY-MM (por ejemplo --period 2026-02). Sin él no hay periodo que declarar.',
+  'fiscal_mx.diot.period.not_month':
+    '--period «{value}» no es un mes. La DIOT es mensual (LIVA art. 32 fr. VIII), así que aquí sólo vale la forma YYYY-MM (2026-02). Un trimestre o un ejercicio no se declaran.',
+  'fiscal_mx.diot.period.month_out_of_range':
+    '--period «{value}»: el mes ha de ir de 01 a 12. El mes 13 es de la balanza de cierre del Anexo 24 (`e-accounting balance generate --closing`); una declaración informativa no tiene mes 13.',
+  'fiscal_mx.diot.check.paid_event':
+    'el suceso que la DIOT declara existe en el mayor y no libera más IVA del que hay aparcado',
+  'fiscal_mx.diot.check.rate_breakdown':
+    'cada gasto se reparte por tasa (16/8/0/exento) y la suma reproduce el IVA de la cabecera',
+  'fiscal_mx.diot.check.exempt_base':
+    'los actos exentos declaran su base, que es lo que la DIOT informa aunque no haya impuesto',
+  'fiscal_mx.diot.check.third_party_identified':
+    'cada tercero llega con RFC usable, o con identificación fiscal, país y nacionalidad si es extranjero',
+  'fiscal_mx.diot.check.operation_type':
+    'cada tercero trae un tipo de operación capturado que el catálogo 2025 admite para su tipo de tercero, no supuesto',
+  'fiscal_mx.diot.check.creditable_iva_proportion':
+    'todo el IVA se declara como vinculado exclusivamente a actividades gravadas sólo si el mayor no tiene ingresos exentos en el ejercicio',
+  'fiscal_mx.diot.check.catalog_policy': 'las políticas de la DIOT valen algo que su propio catálogo admite',
+  'fiscal_mx.diot.check.envelope':
+    '{rfc} · DIOT {month}/{year} · {parties, plural, one {# tercero} other {# terceros}} · IVA acreditable pagado {amount} · verificaciones: {checks}',
+  'fiscal_mx.diot.check.clean':
+    'sin hallazgos: la DIOT pasa {count, plural, one {la # verificación pedida} other {las # verificaciones pedidas}}.',
+  'fiscal_mx.diot.check.summary':
+    '{blocking, plural, one {# bloqueante} other {# bloqueantes}}, {warning, plural, one {# aviso} other {# avisos}}. Un bloqueante impide capturar la declaración.',
+  'fiscal_mx.diot.header.summary':
+    'RFC {rfc} — {name} · {from} → {to} · {parties, plural, one {# tercero} other {# terceros}} · {documents, plural, one {# documento} other {# documentos}}',
+  'fiscal_mx.diot.header.basis': 'base: operaciones PAGADAS (LIVA art. 5 frac. III), no devengadas',
+  'fiscal_mx.diot.header.by_default': '(omisión)',
+  'fiscal_mx.diot.totals.rate_8': '8 % (frontera)',
+  'fiscal_mx.diot.totals.exempt': 'exento',
+  'fiscal_mx.diot.totals.other': 'otras ({label})',
+  'fiscal_mx.diot.totals.creditable_paid': 'IVA acreditable pagado en el mes',
+  'fiscal_mx.diot.totals.withheld': 'IVA retenido a terceros',
+  'fiscal_mx.diot.totals.tie_out':
+    'Cotéjalo contra el movimiento del mes de la cuenta de IVA acreditable: si no cuadra al centavo, no captures.',
+  'fiscal_mx.diot.generate.not_capturable':
+    '{count, plural, one {# hallazgo impide} other {# hallazgos impiden}} capturar esta DIOT tal cual. {count, plural, one {Arréglalo} other {Arréglalos}} y vuelve a armarla; `diot check --check` lista las verificaciones por nombre para atacarlas de una en una.',
+  'fiscal_mx.diot.export.layout_unknown':
+    '--layout «{value}» no existe. Los layouts son: {layouts} (working-paper es la conciliación por tercero que se coteja antes de capturar; sat es el archivo de lote de la autoridad).',
+  'fiscal_mx.diot.export.meanwhile':
+    '{message}\n\nMientras tanto: `{command}` produce la conciliación por tercero para capturar en el portal.',
+  'fiscal_mx.diot.export.working_paper':
+    'Layout «{layout}»: esto es un PAPEL DE TRABAJO. No se sube al portal del SAT.',
+  'fiscal_mx.diot.export.written':
+    'layout {layout} · {bytes, plural, one {# byte} other {# bytes}} · destino {target}',
+  'fiscal_mx.diot.export.written_not_capturable':
+    'El archivo se escribió, pero {count, plural, one {# hallazgo impide} other {# hallazgos impiden}} capturar la declaración tal cual.',
+  'fiscal_mx.diot.export.exists':
+    '{target} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes. Un papel de trabajo revisado y anotado a mano no se reemplaza en silencio.',
+
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# concepto:} other {# conceptos:}}',
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} no está en el espejo de esta entidad.',
+  'fiscal_mx.cfdi.status.never_checked': 'Nunca consultado: corre con --refresh para preguntarle al SAT ahora.',
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDI}} por consultar al SAT{mode, select, dry_run { (dry-run: nada se consultó)} other {. Corre con --live para {count, plural, one {consultarlo} other {consultarlos}} de verdad.}}',
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consultado} other {# consultados}}: {valid, plural, one {# vigente} other {# vigentes}}, {cancelled, plural, one {# cancelado} other {# cancelados}}, {not_found, plural, one {# no encontrado} other {# no encontrados}}, {errors, plural, one {# error} other {# errores}}',
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelado} other {# CFDI cancelados}} por el emisor: revisa su efecto contable con cfdi list --json',
+  'fiscal_mx.cfdi.explain.header': '{uuid} · tipo {type} · {direction} · caso {case} · {status}',
+  'fiscal_mx.cfdi.explain.entry': 'asiento {entry}',
+  'fiscal_mx.cfdi.explain.no_decisions':
+    'Sin decisiones pendientes: el caso se resolvió solo con las políticas del panel.',
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# cobro} other {# cobros}} sin REP emitido: obligación fiscal propia con plazo del SAT.',
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# pago} other {# pagos}} sin REP del proveedor: falta el comprobante que respalda el acreditamiento del IVA de {count, plural, one {ese pago} other {esos pagos}}.',
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# con método de pago desconocido (el CFDI no está en el espejo): el mayor lo trató como {method}; se lista} other {# con método de pago desconocido (el CFDI no está en el espejo): el mayor los trató como {method}; se listan}} con la duda dicha — un PUE no exige REP.',
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount ilegible: "{value}".',
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# REP aparcado se reintentaría} other {# REP aparcados se reintentarían}} (dry-run: nada se tocó).',
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# reintentado} other {# reintentados}}: {linked, plural, one {# ligado} other {# ligados}}, {parked, plural, one {# sigue aparcado} other {# siguen aparcados}}, {errors, plural, one {# error} other {# errores}}',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
@@ -4611,6 +4698,201 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.vendor.terms.set.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': 'código ISO de 3 letras',
   'help.vendor.terms.set.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  'help.payment.description':
+    'Pagos a proveedores: registra el dinero que ya salió del banco y liquida la factura que paga',
+  'help.payment.create.description':
+    'Registra un pago hecho contra una factura de proveedor y reconoce el IVA que tenía pendiente',
+  'help.payment.create.argument.bill': 'número propio, folio del proveedor o id',
+  'help.payment.create.option.amount': 'importe, en la moneda del documento',
+  'help.payment.create.option.date': 'fecha valor (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.create.option.method': 'forma de pago, una de: cash, check, ach, wire, spei, credit_card, other',
+  'help.payment.create.option.bank':
+    'nombre o id de la cuenta bancaria; sin ella se usa la cuenta con el rol `banco` de la entidad',
+  'help.payment.create.option.json': 'salida en JSON',
+  'help.payment.create.option.check_number': 'número de cheque; sólo vale con --method check',
+  'help.payment.create.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
+  'help.payment.create.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
+  'help.payment.create.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.create.option.discount': 'descuento por pronto pago que se tomó',
+  'help.payment.create.option.memo': 'nota que se guarda con el pago',
+  'help.payment.apply.description':
+    'Aplica un pago ya registrado a facturas concretas: en parcialidad, con descuento o con pago corto',
+  'help.payment.apply.argument.payment': 'número o id del pago cuyo saldo a cuenta se va a aplicar',
+  'help.payment.apply.option.bill':
+    'factura a la que se aplica; se repite, y cada una se empareja en orden con un --amount',
+  'help.payment.apply.option.amount': 'importe que se aplica a la factura de la misma posición',
+  'help.payment.apply.option.discount': 'descuento por pronto pago de la factura de la misma posición',
+  'help.payment.apply.option.mode': 'partial (deja abierto el resto) o residual (la cierra pagando de menos)',
+  'help.payment.apply.option.short_pay_reason':
+    'por qué se da de baja el saldo que no se pagó; obligatorio con --mode residual',
+  'help.payment.apply.option.json': 'salida en JSON',
+  'help.payment.unapply.description':
+    'Desaplica un pago de una factura como un evento NUEVO y fechado: la factura vuelve a deberse y el ' +
+    'dinero vuelve a quedar a cuenta',
+  'help.payment.unapply.argument.payment': 'número o id del pago',
+  'help.payment.unapply.option.bill': 'la factura de la que se desaplica',
+  'help.payment.unapply.option.reason': 'por qué: queda en el rastro de auditoría',
+  'help.payment.unapply.option.date':
+    'fecha de la desaplicación, para el renglón cerrado y su póliza (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.unapply.option.json': 'salida en JSON',
+  'help.payment.reverse.description':
+    'Reversa un pago que regresó: cada póliza que contabilizó recibe su espejo fechado, y sus facturas ' +
+    'vuelven a deberse',
+  'help.payment.reverse.argument.payment': 'número o id del pago',
+  'help.payment.reverse.option.reason': 'por qué: queda en el rastro de auditoría',
+  'help.payment.reverse.option.date':
+    'fecha de la reversión, para sus espejos y los renglones cerrados (AAAA-MM-DD); por omisión, hoy',
+  'help.payment.reverse.option.json': 'salida en JSON',
+  'help.prepaid.description': 'Pagos anticipados: el calendario que los saca de la 1160, mes a mes',
+  'help.prepaid.create.description':
+    'Registra el calendario de amortización de un cargo que ya está en pagos anticipados; no contabiliza nada',
+  'help.prepaid.create.argument.description': 'qué cubre el pago anticipado, tal como se leerá en las pólizas',
+  'help.prepaid.create.option.amount': 'importe por amortizar, en decimal',
+  'help.prepaid.create.option.start': 'primer día de la cobertura (AAAA-MM-DD)',
+  'help.prepaid.create.option.end': 'último día de la cobertura, incluido (AAAA-MM-DD)',
+  'help.prepaid.create.option.origin': 'de dónde vino el cargo que ya está en la cuenta; no tiene valor por omisión',
+  'help.prepaid.create.option.source_entry': 'la póliza que cargó la cuenta; obligatoria con --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'el CFDI con el que llegó este pago anticipado, para el rastro',
+  'help.prepaid.create.option.vendor': 'nombre del proveedor que se guarda en el calendario',
+  'help.prepaid.create.option.reference':
+    'el documento al que remite: número de póliza de seguro, contrato, pedido',
+  'help.prepaid.create.option.convention':
+    'la convención que crees estar registrando ({conventions}); se contrasta con el panel',
+  'help.prepaid.create.option.prepaid_account':
+    'cuenta de pagos anticipados donde está el cargo (por omisión, la del rol `gasto_anticipado`)',
+  'help.prepaid.create.option.expense_account':
+    'cuenta a la que la amortización cargará cada mes (por omisión, la del rol `gasto`)',
+  'help.prepaid.create.option.reason': 'por qué se rebasa el umbral; obligatorio con --force',
+  'help.prepaid.create.option.dry_run': 'muestra el calendario que se registraría; no escribe nada',
+  'help.prepaid.list.description':
+    'Calendarios vivos con su saldo por amortizar y cuántos periodos les quedan',
+  'help.prepaid.list.option.limit': 'máximo de renglones a devolver',
+  'help.prepaid.list.option.offset': 'salta estos renglones',
+  'help.prepaid.list.option.all':
+    'todos los calendarios vivos, incluidos los que aún no empiezan y los que ya terminaron',
+  'help.prepaid.list.option.as_of':
+    'sólo los calendarios cuya cobertura está abierta en esta fecha (AAAA-MM-DD; por omisión, hoy)',
+  'help.prepaid.show.description': 'Un calendario con su tabla periodo por periodo',
+  'help.prepaid.show.argument.id_or_description':
+    'el calendario: su id, o lo suficiente de su descripción para que no sea ambiguo',
+  'help.prepaid.run.description':
+    'Contabiliza la amortización del mes: una póliza de ajuste por calendario, irreversible',
+  'help.prepaid.run.option.period': 'periodo a amortizar: 2026-08 o cualquier parte inequívoca de su nombre',
+  'help.tax_deposit.description': 'Pasivos patronales por impuestos: qué se debe, a quién y para cuándo',
+  'help.tax_deposit.list.description':
+    'Pasivos patronales acumulados con su fecha de vencimiento y su estado, primero los que vencen antes',
+  'help.tax_deposit.list.option.status': 'filtra por estado del pasivo ({states}); se puede repetir',
+  'help.tax_deposit.list.option.all':
+    'incluye lo que ya está saldado: también los renglones depositados y dispensados',
+  'help.tax_deposit.list.option.period': 'sólo los pasivos cuyo periodo toca este mes',
+  'help.tax_deposit.list.option.until': 'sólo lo que vence en esta fecha o antes (AAAA-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'todas las entidades del inquilino, no sólo la activa',
+  // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
+  'help.approvals.description':
+    'Políticas de aprobación graduadas para las escrituras en espera (once / session / always)',
+  'help.approvals.list.description': 'Lista las políticas de aprobación de la entidad',
+  'help.approvals.list.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.approvals.list.option.tenant': 'Inquilino (despacho)',
+  'help.approvals.list.option.scope': 'Filtra por alcance ({scopes})',
+  'help.approvals.list.option.all': 'Incluye las políticas revocadas',
+  'help.approvals.list.option.json': 'salida en JSON',
+  'help.approvals.grant.description':
+    'Otorga una política de aprobación por patrón (coincidencia conservadora; el piso siempre gana)',
+  'help.approvals.grant.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.approvals.grant.option.tenant': 'Inquilino (despacho)',
+  'help.approvals.grant.option.scope': 'Alcance de la política ({scopes})',
+  'help.approvals.grant.option.mode': 'Modo de la política ({modes})',
+  'help.approvals.grant.option.kind':
+    'Campo de coincidencia: tipo de candidato. En un borrador es el campo "kind" (o "entry_type") ' +
+    'de su contenido y, si falta, "journal_entry"; tipos en uso hoy: journal_entry (por omisión), payroll',
+  'help.approvals.grant.option.max_amount': 'Campo de coincidencia: monto máximo autorizado (cadena numérica)',
+  'help.approvals.grant.option.provider': 'Campo de coincidencia: proveedor externo (p. ej., contalink)',
+  'help.approvals.grant.option.operation': 'Campo de coincidencia: operación externa (p. ej., create_policy)',
+  'help.approvals.grant.option.session': 'Id de la sesión que otorga (obligatorio con --mode session)',
+  'help.approvals.grant.option.user':
+    'Usuario que otorga (obligatorio cuando el inquilino tiene varios usuarios activos)',
+  'help.approvals.revoke.description': 'Revoca una política de aprobación activa',
+  'help.approvals.revoke.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.approvals.revoke.option.tenant': 'Inquilino (despacho)',
+  'help.memory.description': 'Precedentes del despacho: lo que la IA aprendió y tú controlas',
+  'help.memory.option.entity': 'Entidad legal',
+  'help.memory.option.tenant': 'Inquilino (despacho)',
+  'help.memory.option.search': 'Filtra por texto',
+  'help.memory.option.all': 'Incluye los retirados',
+  'help.memory.option.conflicts': 'Sólo los precedentes que se contradicen entre sí, y cómo resolverlos',
+  'help.memory.option.json': 'salida en JSON',
+  'help.memory.teach.description': 'Siembra un criterio del despacho sin esperar a que la IA pregunte',
+  'help.memory.teach.argument.rule': 'La situación, p. ej., "facturas de Telmex"',
+  'help.memory.teach.argument.criterion': 'Qué hacer, p. ej., "van a 6130 Servicios"',
+  'help.memory.teach.option.user': 'Quién lo enseña',
+  'help.memory.teach.option.topic': 'Tema para agrupar los precedentes',
+  'help.memory.correct.description':
+    'Cambia la respuesta de un precedente (la anterior se queda en el historial)',
+  'help.memory.correct.argument.id': 'Id del precedente',
+  'help.memory.correct.argument.answer': 'La respuesta correcta',
+  'help.memory.correct.option.user': 'Quién corrige',
+  'help.memory.retire.description': 'La IA deja de usar este precedente (no se borra: el historial se queda)',
+  'help.memory.retire.argument.id': 'Id del precedente',
+  'help.memory.retire.option.user': 'Quién lo retira',
+  'help.memory.retire.option.reason': 'Por qué ya no aplica (queda en el historial del precedente)',
+  'help.memory.restore.description': 'Reactiva un precedente retirado',
+  'help.memory.restore.argument.id': 'Id del precedente',
+  'help.pending.description': 'Lo que te toca: trabajo por resolver y decisiones de política por definir',
+  'help.pending.option.entity': 'Entidad legal',
+  'help.pending.option.verbose':
+    'Explica cada decisión: por qué pregunto, qué hago, qué cuesta omitirla y qué dicen tus propios datos',
+  'help.pending.option.all': 'Incluye las definiciones ya resueltas y descartadas',
+  'help.pending.define.description': 'Define una decisión pendiente (el valor surte efecto de inmediato)',
+  'help.pending.define.argument.key': 'Clave de la decisión (ver: mnemosine pending)',
+  'help.pending.define.argument.value': 'Valor elegido; si se omite, se pregunta de forma interactiva',
+  'help.pending.define.option.entity': 'Entidad legal',
+  'help.pending.define.option.user': 'Quién la define',
+  'help.pending.define.option.note': 'Nota o justificación',
+  'help.pending.dismiss.description': 'Marca una definición como no aplicable (sale de la agenda)',
+  'help.pending.dismiss.option.entity': 'Entidad legal',
+  'help.pending.dismiss.option.user': 'Quién la descarta',
+  'help.pending.dismiss.option.note': 'Por qué no aplica',
+  'help.pending.reopen.description': 'Reabre una definición ya resuelta (la política cambió)',
+  'help.pending.reopen.option.entity': 'Entidad legal',
+  'help.skills.description': 'Habilidades del despacho: listar, revisar los cambios en espera y ver su contenido',
+  'help.skills.list.description': 'Las habilidades visibles y cuántos cambios en espera aguardan revisión',
+  'help.skills.list.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.skills.list.option.tenant': 'Inquilino (despacho)',
+  'help.skills.list.option.json': 'salida en JSON',
+  'help.skills.drafts.description':
+    'Revisa los cambios de habilidades en espera: diff e informe del escáner de confianza; aprueba o rechaza',
+  'help.skills.drafts.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.skills.drafts.option.tenant': 'Inquilino (despacho)',
+  'help.skills.drafts.option.user': 'Quién revisa',
+  'help.skills.drafts.option.accept_risk':
+    'Permite aprobar los borradores que el escáner de confianza marcó (queda en el rastro de auditoría)',
+  'help.skills.drafts.option.override_drift':
+    'Aprueba aunque el archivo de la habilidad se haya apartado de la base del diff del borrador ' +
+    '(queda en el rastro de auditoría)',
+  'help.skills.drafts.option.json': 'Lista en JSON los borradores pendientes (sin revisión interactiva)',
+  'help.skills.view.description': 'Imprime el SKILL.md de una habilidad',
+  'help.skills.view.argument.name': 'Nombre de la habilidad',
+  'help.ingest.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.ingest.option.provider': 'Proveedor del modelo (ver: mnemosine providers)',
+  'help.ingest.option.model': 'Sustituye el modelo del perfil',
+  'help.ingest.option.user': 'Usuario al que se atribuye la ingesta (por omisión: el único usuario activo)',
+  'help.ingest.option.auto_post':
+    'Activa la contabilización automática por umbrales (por omisión, todo se queda en borrador)',
+  'help.ingest.option.no_auto_post':
+    'Desactiva la contabilización automática aunque la configuración la tenga encendida',
+  'help.ingest.option.min_confidence': 'Confianza mínima para contabilizar en automático (0-1)',
+  'help.ingest.option.max_amount': 'Monto máximo que se puede contabilizar en automático',
+  'help.ingest.option.retry':
+    'Reprocesa los CFDI ya registrados cuyo procesamiento falló, en vez de reportarlos como duplicados',
+  'help.question.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.question.option.user': 'Quién responde (por omisión: el único usuario activo del inquilino)',
+  'help.question.option.list': 'Sólo lista, sin responder (obsoleta: usa `question list`)',
+  'help.question.answer.argument.id':
+    'id de la pregunta; omítelo para atender de forma interactiva la cola de pendientes',
+  'help.question.answer.argument.answer': 'el texto de la respuesta, o el número de una opción (requiere <id>)',
+  'help.question.answer.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.question.answer.option.user': 'Quién responde (por omisión: el único usuario activo del inquilino)',
   // ==== MNE-001-235 · help by key, entry (issue #314) ====
   'help.entry.description': 'Pólizas: redactar, consultar, validar, contabilizar, reversar y anular',
   'help.entry.list.description': 'Busca pólizas por texto, cuenta, fecha, importe, estado, tipo u origen',
