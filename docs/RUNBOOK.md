@@ -34,7 +34,17 @@
 
 El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pierde datos. Todo lo pendiente queda en las colas `ai_drafts` y `ai_external_ops`.
 
-- **En una instalación:** quitar la llave del proveedor de modelo (variables en `.env.example`). El trabajo sigue por el camino manual (#319).
+- **En una instalación:** quitar cada credencial del proveedor de modelo que el agente puede usar. El trabajo sigue por el camino manual (#319): sin credencial, `ingest` corre sólo la capa determinista y deja el resto en la bandeja. Las fuentes, una por una, y cómo apagar cada una:
+  - **La variable del perfil** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … la que nombra su `api_key_env`): borrarla o vaciarla donde viva, sea tu shell, el `./.env` de la carpeta o `~/.mnemosine/.env`. Recuerda que `./.env` gana sobre `~/.mnemosine/.env`, y que una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta.
+  - **`api_key_cmd`** del perfil, en `~/.mnemosine/config.json` o en el `mnemosine.config.json` de la carpeta: quitar la clave, o el perfil.
+  - Para un perfil `anthropic`, además, lo que el SDK de Anthropic lee por su cuenta (el espejo es de `@anthropic-ai/sdk` 0.128.0):
+    - `ANTHROPIC_API_KEY`, aunque el perfil nombre otra variable;
+    - `ANTHROPIC_AUTH_TOKEN`: borrarla;
+    - una línea `x-api-key` o `Authorization` en `ANTHROPIC_CUSTOM_HEADERS`: quitar esa línea, o la variable;
+    - la sesión de `ant auth login`: el perfil activo (el de `ANTHROPIC_PROFILE`, si no el de `active_config`, si no `default`) es `configs/<perfil>.json` bajo `ANTHROPIC_CONFIG_DIR`, si no `$XDG_CONFIG_HOME/anthropic`, si no `~/.config/anthropic` (en Windows, `%APPDATA%\Anthropic`). Para cerrarla, borrar ese archivo y `credentials/<perfil>.json`;
+    - la federación de identidad de cargas de trabajo: borrar `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN` y `ANTHROPIC_IDENTITY_TOKEN_FILE`; con una sola de las tres entradas fuera ya no cuenta.
+  - **Un perfil por omisión que no pide llave** (`ollama`, un `base_url` de loopback, un NIM propio): cambiar `default_provider` (o `MNEMOSINE_PROVIDER`) a uno sin credencial, o detener el servidor local.
+  - Después, `mnemosine doctor` y `mnemosine providers` nombran cualquier fuente que quede: la respuesta es la misma en los dos, y ninguno corre un helper ni imprime una llave.
 - **Kill switch de los agentes que desarrollan el repo:** **pendiente** (#332).
 
 ## Secretos

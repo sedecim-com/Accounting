@@ -21,8 +21,8 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 440,
-    "cli-user-strings-without-key": 933
+    "help-descriptions-without-key": 397,
+    "cli-user-strings-without-key": 932
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1137,7 +1137,7 @@
       "src/cli/audit-command.ts": 119,
       "src/cli/backup-command.ts": 77,
       "src/cli/bank-command.ts": 800,
-      "src/cli/batch-command.ts": 116,
+      "src/cli/batch-command.ts": 106,
       "src/cli/bill-command.ts": 174,
       "src/cli/bill-rule-command.ts": 1,
       "src/cli/cashflow-command.ts": 130,
@@ -1286,6 +1286,7 @@
       "src/services/accruals/prepaid-service.ts": 212,
       "src/services/accruals/provisions-math.ts": 187,
       "src/services/accruals/provisions-run.ts": 277,
+      "src/services/ap/ap-checks.ts": 1,
       "src/services/ap/ap-controls.ts": 138,
       "src/services/ap/bill-service.ts": 6,
       "src/services/ap/cash-deductibility.ts": 8,
@@ -1490,7 +1491,6 @@
       "asset": 26,
       "audit": 14,
       "backup": 21,
-      "batch": 17,
       "cfdi": 15,
       "chat": 6,
       "compact": 6,
@@ -1501,7 +1501,6 @@
       "e-accounting": 20,
       "employee": 12,
       "entity": 24,
-      "fx": 26,
       "garnishment": 22,
       "init": 12,
       "isn": 21,
@@ -1566,7 +1565,7 @@
       "src/cli/kernel/render-keyed.ts": 1,
       "src/cli/kernel/risk.ts": 2,
       "src/cli/memory-command.ts": 17,
-      "src/cli/mnemosine.ts": 147,
+      "src/cli/mnemosine.ts": 145,
       "src/cli/pay-run-command.ts": 1,
       "src/cli/payment-command.ts": 24,
       "src/cli/payroll-isn-command.ts": 45,
