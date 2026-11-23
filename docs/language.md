@@ -98,7 +98,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10464 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10463 | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
@@ -115,7 +115,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 337 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 285 | 0 |
 | `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 926 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
