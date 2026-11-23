@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { capKept, keptCashOf, keptIvaOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
+import type pg from 'pg';
+import {
+  capKept, issuedVatKeptOnAccount, keptCashOf, keptIvaOf, keptOnAccount, restitutedCash, takeFromAdvance,
+} from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-574 (#792, part 1/3) · The IVA one allocation's unapply keeps caused
 // on a receipt with no treatment, and how a later application takes it back.
@@ -72,5 +75,51 @@ describe('keptCashOf', () => {
     ['at four decimals, half up', { amount: '1000.0000', plain: '1000.0000', released: '160.0000', kept: '0.0002' }, '0.0013'],
   ] as const)('%s', (_case, row, cash) => {
     expect(keptCashOf(row)).toBe(cash);
+  });
+});
+
+// MNE-001-593 (#814, decision (A)): a credit note issued after the unapply restitutes from 2120 the IVA of the
+// price whose cash is still kept on account. Figures by hand: S 1,000.00 + 160.00, P 1,160 unapplied, N 200 + 32.
+describe('restitutedCash', () => {
+  it.each([
+    ['U4: 32 restituted covers 32 × 1,160 / 160', '32.0000', '1160.0000', '160.0000', '232.0000'],
+    // 10 × 1,160 / 160 = 72.5; 0.01 × 1,160 / 160 = 0.0725
+    ['four decimals, half up', '0.0100', '1160.0000', '160.0000', '0.0725'],
+    ['an invoice with no IVA covers none', '32.0000', '1000.0000', '0.0000', '0.0000'],
+  ] as const)('%s', (_case, iva, total, tax, cash) => {
+    expect(restitutedCash(iva, total, tax)).toBe(cash);
+  });
+});
+
+/** A client that answers the pool's queries by shape: P's rows on S, N's restitution, and what P's live rows took. */
+function poolClient(o: { restituted: string | null; took: string; status?: string }): pg.PoolClient {
+  const query = async (text: string) => {
+    const sql = String(text).replace(/\s+/g, ' ');
+    if (sql.includes('AS marked')) return { rows: o.status === 'reversed' ? [] : [{ payment_id: 'P', payment_number: 'PMT-1', marked: '160.0000' }] };
+    if (sql.includes('AS note_number')) {
+      return { rows: o.restituted === null ? [] : [{ invoice_id: 'S', note_number: 'CN-1', iva: o.restituted, total: '1160.0000', tax: '160.0000' }] };
+    }
+    if (sql.includes('AS kept')) return { rows: [{ invoice_id: 'S', amount: '1160.0000', plain: '1160.0000', released: '160.0000', kept: '160.0000' }] };
+    if (sql.includes('AS took')) return { rows: [{ took: o.took }] };
+    return { rows: [] };
+  };
+  return { query } as unknown as pg.PoolClient;
+}
+
+describe('keptOnAccount after a restitution, and H', () => {
+  it('U4: the pool loses the 32 and the 232 it covers, and S joins the invoices that take it first', async () => {
+    const pool = await keptOnAccount(poolClient({ restituted: '32.0000', took: '0' }), 'E', 'P');
+    expect([pool.cash, pool.iva, [...pool.own]]).toEqual(['928.0000', '128.0000', ['S']]);
+  });
+
+  it('before the note H is the 160 the unapply kept; after it, what is left of the marker, 128', async () => {
+    expect(await issuedVatKeptOnAccount(poolClient({ restituted: null, took: '0' }), 'E', 'S'))
+      .toEqual([{ paymentId: 'P', paymentNumber: 'PMT-1', iva: '160.0000' }]);
+    expect((await issuedVatKeptOnAccount(poolClient({ restituted: '32.0000', took: '0' }), 'E', 'S'))[0].iva).toBe('128.0000');
+  });
+
+  it('U4p: T took c = 80 of the pool, so it holds 80; once S took all of it, H is none', async () => {
+    expect((await issuedVatKeptOnAccount(poolClient({ restituted: null, took: '80.0000' }), 'E', 'S'))[0].iva).toBe('80.0000');
+    expect(await issuedVatKeptOnAccount(poolClient({ restituted: '32.0000', took: '128.0000' }), 'E', 'S')).toEqual([]);
   });
 });
