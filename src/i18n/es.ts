@@ -3959,6 +3959,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.filing.workpaper.generate.option.ptu_paid': 'PTU pagada en el ejercicio (ISR), la captura una persona',
   'help.filing.workpaper.generate.option.prior_provisional':
     'ISR provisional ya pagado en el ejercicio (ISR), lo captura una persona',
+  'help.filing.workpaper.generate.option.prior_balance':
+    'saldo a favor de periodos anteriores (IVA) en lugar del que dan las declaraciones presentadas; pide --prior-balance-reason',
+  'help.filing.workpaper.generate.option.prior_balance_reason': 'por qué se sobrescribe el saldo a favor; se muestra en su renglón',
   'help.filing.workpaper.generate.footer':
     'Esto calcula el papel. NO presenta nada: una persona lo revisa y declara en el portal del SAT.\n' +
     '\nEjemplos:\n' +
@@ -3967,13 +3970,17 @@ export const ES: Record<keyof typeof EN, string> = {
     '  Sólo el IVA, el papel completo (con las pólizas) como JSON en un archivo:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
     '  El ISR con la PTU pagada en el ejercicio y los pagos provisionales ya hechos:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
+    '  El IVA con un saldo a favor que da una persona en lugar del que dan las declaraciones presentadas:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "declaración anterior al sistema"',
   'filing.workpaper.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" no se conoce: usa iva, isr o all.',
   'filing.workpaper.label_blocks': 'BLOQUEA',
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  'filing.workpaper.prior_balance_override_incomplete':
+    'Sobrescribir el saldo a favor de periodos anteriores pide el importe y su motivo, los dos (--prior-balance y --prior-balance-reason).',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
   'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',

@@ -8824,6 +8824,8 @@ Options:
   --form <iva|isr|all>                     which settlement to include (default: "all")
   --ptu-paid <amount>                      PTU paid in the year (ISR), captured by a person
   --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
+  --prior-balance <amount>                 prior balance in favour (IVA) instead of the one the filed returns give; needs --prior-balance-reason
+  --prior-balance-reason <text>            why the prior balance is overridden, shown on its line
   -h, --help                               display help for command
 
 This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
@@ -8835,6 +8837,8 @@ Examples:
     mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
   The ISR with the PTU paid in the year and the provisional payments already made:
     mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
+  The IVA with a prior balance a person gives instead of the one the filed returns give:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"
 ```
 
 ## `mnemosine annual` (alias: anual)

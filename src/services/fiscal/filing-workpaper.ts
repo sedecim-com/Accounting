@@ -48,6 +48,9 @@ import {
 // the revenue accounts before the zero-net filter. A captured line says
 // `captured`; a derived one says `derived` and points, by `ref`, to the
 // section's `inputs` that explain it (coefficient, losses, rate, proration…).
+// The prior balance in favour says `filed_returns` and lists, by acknowledgement,
+// the earlier returns whose balances it credits (MNE-001-386); a person's
+// override of it says `captured`, and its reason is in the input.
 //
 // Nothing is filed: a person reviews this paper and declares.
 // ============================================================
@@ -79,13 +82,16 @@ export interface LineSource {
    * documents: the documents (and their entries) that make the line up.
    * accounts: the entries that move the listed accounts.
    * captured: a person gave it. derived: arithmetic on other lines or inputs.
+   * filed_returns: the earlier returns whose balances it credits (MNE-001-386).
    */
-  kind: 'documents' | 'accounts' | 'captured' | 'derived';
+  kind: 'documents' | 'accounts' | 'captured' | 'derived' | 'filed_returns';
   /** Role or account codes whose movement `net` is measured on. */
   accounts: string[];
   /** Every entry behind the line, each once. */
   entries: TraceEntry[];
   documents?: TraceDocument[];
+  /** filed_returns: each earlier return credited here, by its acknowledgement, and how much. */
+  returns?: Array<{ acknowledgementNumber: string; period: string; amount: string }>;
   /** The key of the section `inputs` that explains a captured or derived line. */
   ref?: string;
 }
@@ -131,6 +137,9 @@ export interface FilingWorkpaperOptions {
   /** Captured by a person: see the ISR workpaper. */
   ptuPaidInYear?: string;
   priorProvisionalPayments?: string;
+  /** A person's prior balance in favour instead of the filed returns', with its reason: see the IVA workpaper. */
+  priorBalanceInFavor?: string;
+  priorBalanceReason?: string;
   client?: pg.PoolClient;
 }
 
@@ -141,6 +150,7 @@ export type SourceRule =
   | { documents: { side: 'charged' | 'creditable'; box: string; field: DocumentField } }
   | { roles: string[]; creditsOnly?: boolean }
   | { revenue: true }
+  | { filedReturns: true }
   | { withheldIsr: true }
   | { kind: 'captured' | 'derived'; ref?: string };
 
@@ -156,7 +166,7 @@ export function ivaSourceRule(key: string): SourceRule {
     case 'charged.no_objeto.base': return { documents: { side: 'charged', box: 'no_objeto', field: 'base' } };
     case 'withheld_by_customers': return { documents: { side: 'charged', box: 'withheld', field: 'withheld' } };
     case 'withheld_to_remit': return { roles: ['iva_retenido_por_pagar'], creditsOnly: true };
-    case 'prior_balance_in_favor': return { kind: 'captured', ref: 'prior_balance_in_favor' };
+    case 'prior_balance_in_favor': return { filedReturns: true };
     case 'creditable.prorated': return { kind: 'derived', ref: 'proration' };
     default: return { kind: 'derived' };
   }
@@ -304,6 +314,15 @@ async function ivaSection(client: pg.PoolClient, o: FilingWorkpaperOptions, wp: 
       };
     } else if ('kind' in rule) {
       source = { kind: rule.kind, accounts: [], entries: [], ...(rule.ref ? { ref: rule.ref } : {}) };
+    } else if ('filedReturns' in rule) {
+      const pb = wp.priorBalance;
+      source = pb.origin === 'override'
+        ? { kind: 'captured', accounts: [], entries: [], ref: 'prior_balance_in_favor' }
+        : {
+            kind: 'filed_returns', accounts: [], entries: [], ref: 'prior_balance_in_favor',
+            returns: pb.balances.filter((b) => new Decimal(b.creditedHere).greaterThan(0))
+              .map((b) => ({ acknowledgementNumber: b.acknowledgementNumber, period: b.period, amount: b.creditedHere })),
+          };
     } else {
       source = { kind: 'derived', accounts: [], entries: [] };
     }
@@ -322,7 +341,12 @@ async function ivaSection(client: pg.PoolClient, o: FilingWorkpaperOptions, wp: 
   const inputs: Record<string, SectionInput> = {
     prior_balance_in_favor: {
       value: wp.figures.priorBalanceInFavor,
-      capturedBy: 'a person: no filed declaration stores the balance yet (MNE-001-386)',
+      origin: wp.priorBalance.origin,
+      reason: wp.priorBalance.reason,
+      proposed: wp.priorBalance.proposed,
+      available: wp.priorBalance.available,
+      cap: wp.priorBalance.cap,
+      rule: 'LIVA art. 6: credited only against the tax payable, oldest balance first',
     },
     proration: {
       policy: wp.proration.key,
@@ -417,7 +441,10 @@ export async function generateFilingWorkpaper(opts: FilingWorkpaperOptions): Pro
     for (const form of opts.forms) {
       sections.push(
         form === 'iva'
-          ? await ivaSection(client, opts, await buildIvaWorkpaper({ tenantId, entityId, year, month, client }))
+          ? await ivaSection(client, opts, await buildIvaWorkpaper({
+              tenantId, entityId, year, month, client,
+              priorBalanceInFavor: opts.priorBalanceInFavor, priorBalanceReason: opts.priorBalanceReason,
+            }))
           : await isrSection(
               client,
               opts,
