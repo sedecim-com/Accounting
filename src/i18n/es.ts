@@ -4271,6 +4271,86 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ledger.balance.show.option.period': 'sólo este periodo: 2026-07, su id o una parte de su nombre',
   'help.ledger.balance.show.option.dim':
     'desglose por dimensión (no disponible: la familia dimension todavía no existe)',
+  // ==== MNE-001-241 · help by key, employee, garnishment, isn and payroll (issue #314) ====
+  'help.employee.description': 'El padrón de nómina: dar de alta a un empleado, ver un expediente, listar el padrón',
+  'help.employee.create.description':
+    'Da de alta a un empleado desde un archivo JSON, con sus identificadores fiscales',
+  'help.employee.create.option.file': 'objeto JSON con el expediente del empleado (obligatorio)',
+  'help.employee.create.option.country': 'el país cuya nómina aplica; prevalece sobre el archivo',
+  'help.employee.create.option.hire_date': 'fecha de ingreso (AAAA-MM-DD); prevalece sobre el archivo',
+  'help.employee.create.option.pay_schedule': 'un calendario de pago de esta entidad; prevalece sobre el archivo',
+  'help.employee.create.option.dry_run': 'ejecuta la escritura real y la revierte: no se guarda nada',
+  'help.employee.show.description':
+    'Muestra el expediente de un empleado con los identificadores fiscales enmascarados',
+  'help.employee.show.argument.employee': 'número de empleado o id',
+  'help.employee.show.option.redacted':
+    'oculta por completo identificadores, correo y teléfono, para una pantalla compartida',
+  'help.employee.list.description':
+    'Lista los empleados de la entidad, los activos por omisión, sin identificadores fiscales',
+  'help.employee.list.option.country': 'sólo los empleados de este país',
+  'help.garnishment.description':
+    'Embargos de salario por orden judicial: registrar una orden, ver la cascada, detenerla',
+  'help.garnishment.record.description':
+    'Registra una orden judicial ya dictada, con su fundamento, su autoridad y sus topes',
+  'help.garnishment.record.argument.employee': 'número de empleado o id contra el que va la orden',
+  'help.garnishment.record.option.type': 'el tipo de orden, en el vocabulario que guarda la columna',
+  'help.garnishment.record.option.amount': 'un importe fijo por periodo',
+  'help.garnishment.record.option.percent_disposable':
+    'un porcentaje del ingreso DISPONIBLE (bruto menos los impuestos del empleado)',
+  'help.garnishment.record.option.percent_gross':
+    'un porcentaje del salario BRUTO: dinero distinto del de --percent-disposable',
+  'help.garnishment.record.option.priority': 'desempate DENTRO de un rango legal; no decide el rango',
+  'help.garnishment.record.option.case':
+    'el número de expediente judicial, único por trabajador mientras la orden está viva',
+  'help.garnishment.record.option.court': 'la autoridad que dictó la orden (obligatorio)',
+  'help.garnishment.record.option.payee': 'a quién se le entrega lo retenido',
+  'help.garnishment.record.option.start':
+    'la fecha que lleva la orden (AAAA-MM-DD); la retención empieza cuando está ACTIVA',
+  'help.garnishment.record.option.exempt_amount':
+    'importe exento de la IRS Pub 1494; obligatorio en un embargo fiscal, nada más lo lee',
+  'help.garnishment.record.option.supports_second_family':
+    '¿este trabajador mantiene a otra familia? decide un tope CCPA de 50 % o 60 %; sin valor por omisión',
+  'help.garnishment.record.option.arrears_12wk':
+    '¿los adeudos tienen más de doce semanas? suma cinco puntos al tope; sin valor por omisión',
+  'help.garnishment.record.option.dry_run':
+    'ejecuta el camino real y lo deshace: muestra la orden y la cascada a la que se sumaría',
+  'help.garnishment.list.description':
+    'Lista las órdenes en la secuencia en que se toma el dinero: rango legal, luego prioridad, luego fecha',
+  'help.garnishment.list.argument.employee': 'acota a un trabajador, por número de empleado o id',
+  'help.garnishment.list.option.type': 'sólo las órdenes de este tipo',
+  'help.garnishment.archive.description':
+    'Detiene la retención apagando is_active, y conserva la orden y su historia',
+  'help.garnishment.archive.argument.id': 'el id de la orden, como lo imprime `garnishment list`',
+  'help.garnishment.archive.option.as_of':
+    'la fecha en que cesó la orden (AAAA-MM-DD), que se anota en end_date junto con la suspensión',
+  'help.isn.description':
+    'Impuesto estatal sobre nóminas: captura las tasas estatales con su fundamento y ve lo que debe una corrida de nómina',
+  'help.isn.rate.description': 'Tasas estatales del ISN, por estado y por vigencia',
+  'help.isn.rate.set.description': 'Captura una tasa estatal con su vigencia y la ley que la sustenta',
+  'help.isn.rate.set.argument.state': 'clave c_Estado del SAT, como está escrita en tus trabajadores (JAL, NLE)',
+  'help.isn.rate.set.argument.rate': 'la tasa, como fracción (0.03) o como porcentaje (3%)',
+  'help.isn.rate.set.option.effective_from': 'primer día en que aplica esta tasa (AAAA-MM-DD)',
+  'help.isn.rate.set.option.superseded_on':
+    'día en que entra la siguiente tasa y ésta deja de aplicar (AAAA-MM-DD); omítela mientras sea la vigente',
+  'help.isn.rate.set.option.legal_basis': 'la ley y el artículo de donde sale la tasa (obligatorio)',
+  'help.isn.rate.set.option.regime': 'cómo lo cobra el estado; el motor sólo calcula tasa_plana',
+  'help.isn.rate.set.option.exemption': 'importe mensual exento; sólo con --regime con_exencion',
+  'help.isn.rate.set.option.dry_run': 'muestra exactamente lo que se escribiría y a quién alcanza; no escribe nada',
+  'help.isn.rate.set.option.yes': 'omite la confirmación',
+  'help.isn.rate.list.description': 'Las tasas estatales capturadas, con la vigente en una fecha dada marcada',
+  'help.isn.rate.list.option.limit': 'máximo de renglones a devolver',
+  'help.isn.rate.list.option.offset': 'salta estos renglones',
+  'help.isn.rate.list.option.all': 'todas las vigencias capturadas alguna vez, no sólo la que está en vigor',
+  'help.isn.rate.list.option.state': 'sólo este estado (clave c_Estado del SAT)',
+  'help.isn.rate.list.option.as_of': 'qué tasa estaba vigente en esta fecha (AAAA-MM-DD; por omisión, hoy)',
+  'help.isn.calculate.description':
+    'El ISN de una corrida de nómina, un renglón por estado, nombrando cada tasa que falta en lugar de calcular cero',
+  'help.isn.calculate.option.run': 'la corrida de nómina a calcular (obligatoria)',
+  'help.isn.calculate.option.state': 'acota los renglones a un estado; los hallazgos nunca se ocultan',
+  'help.payroll.description': 'Contabilidad de la nómina: el pasivo por prestaciones que nace el día trabajado',
+  'help.payroll.accrue.description':
+    'Registra el devengo mensual de prestaciones -- aguinaldo, vacaciones y prima vacacional, un asiento de ajuste, irreversible',
+  'help.payroll.accrue.option.period': 'periodo a devengar: 2026-03, o cualquier parte inequívoca de su nombre',
   // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
   'help.bank.description': 'Cuentas bancarias y estados de cuenta: los datos maestros y los estados importados',
   'help.bank.account.description':

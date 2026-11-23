@@ -38,6 +38,7 @@ import {
   withOutput,
   withSelection,
   withStrict,
+  argumentByKey,
   describeCommand,
   describeOption,
   optionByKey,
@@ -797,41 +798,25 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
   // Sin `.alias()`: «ISN» son las siglas del impuesto y se escriben igual en
   // los dos idiomas, como `diot`, `cfdi` y `sat`. Los VERBOS sí llevan el suyo.
-  const familia = program
-    .command('isn')
-    .description(
-      'Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes'
-    );
+  const familia = describeCommand(program.command('isn'), 'help.isn.description');
 
-  const tasa = familia
-    .command('rate')
-    .alias('tasa')
-    .description('State ISN rates, by state and by vigencia');
+  const tasa = describeCommand(familia.command('rate').alias('tasa'), 'help.isn.rate.description');
 
   // ---- isn rate set · isn tasa fijar -----------------------------------
-  const fijar = tasa
-    .command('set')
-    .alias('fijar')
-    .argument('<state>', 'SAT c_Estado key, as it is written on your workers (JAL, NLE)')
-    .argument('<rate>', 'the rate, as a fraction (0.03) or a percentage (3%)')
-    .description('Capture one state rate with its vigencia and the law behind it');
+  const fijar = describeCommand(tasa.command('set').alias('fijar'), 'help.isn.rate.set.description');
+  argumentByKey(fijar, '<state>', 'help.isn.rate.set.argument.state');
+  argumentByKey(fijar, '<rate>', 'help.isn.rate.set.argument.rate');
   withContext(fijar);
   withOutput(fijar);
-  fijar
-    .option('--effective-from <date>', 'first day this rate applies (YYYY-MM-DD)')
-    .option(
-      '--superseded-on <date>',
-      'day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one'
-    )
-    .option('--legal-basis <text>', 'the law and article the rate comes from (required)')
-    .option(
-      `--regime <${REGIMENES_ISN.join('|')}>`,
-      'how the state charges it; the engine only computes tasa_plana',
-      'tasa_plana'
-    )
-    .option('--exemption <amount>', 'monthly amount exempted; only with --regime con_exencion')
-    .option('--dry-run', 'show exactly what would be written, and who it reaches; write nothing')
-    .option('-y, --yes', 'skip the confirmation prompt');
+  optionByKey(fijar, '--effective-from <date>', 'help.isn.rate.set.option.effective_from');
+  optionByKey(fijar, '--superseded-on <date>', 'help.isn.rate.set.option.superseded_on');
+  optionByKey(fijar, '--legal-basis <text>', 'help.isn.rate.set.option.legal_basis');
+  optionByKey(fijar, `--regime <${REGIMENES_ISN.join('|')}>`, 'help.isn.rate.set.option.regime', {
+    defaultValue: 'tasa_plana',
+  });
+  optionByKey(fijar, '--exemption <amount>', 'help.isn.rate.set.option.exemption');
+  optionByKey(fijar, '--dry-run', 'help.isn.rate.set.option.dry_run');
+  optionByKey(fijar, '-y, --yes', 'help.isn.rate.set.option.yes');
   // ESCRITURA, y el agente NO puede llamarla. `mx_isn_tasas_estatales` no es
   // una cola de revisión: lo que se escribe aquí multiplica cada nómina del
   // estado a partir de esa fecha. `declareRisk` sólo admite escritura + agente
@@ -1056,10 +1041,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   );
 
   // ---- isn rate list · isn tasa listar ---------------------------------
-  const listar = tasa
-    .command('list')
-    .alias('listar')
-    .description('The captured state rates, with the one in force on a given date marked');
+  const listar = describeCommand(tasa.command('list').alias('listar'), 'help.isn.rate.list.description');
   withContext(listar);
   withOutput(listar);
   // LAS CUATRO BANDERAS DE SELECCIÓN SE DECLARAN A MANO Y NO CON
@@ -1069,12 +1051,11 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   // la bandera declarada que nadie lee, el defecto que este repositorio ya cazó
   // en `ap reconcile`. Y `-a/--all` se documenta por lo que de verdad hace
   // aquí: quitar la ventana de `--as-of`, es decir, enseñar la historia.
-  listar
-    .option('-n, --limit <n>', 'maximum rows to return', enteroNoNegativo('--limit'))
-    .option('--offset <n>', 'skip this many rows', enteroNoNegativo('--offset'))
-    .option('-a, --all', 'every vigencia ever captured, not only the one in force')
-    .option('--state <key>', 'only this state (SAT c_Estado key)')
-    .option('--as-of <date>', 'which rate was in force on this date (YYYY-MM-DD; default today)');
+  optionByKey(listar, '-n, --limit <n>', 'help.isn.rate.list.option.limit', { parser: enteroNoNegativo('--limit') });
+  optionByKey(listar, '--offset <n>', 'help.isn.rate.list.option.offset', { parser: enteroNoNegativo('--offset') });
+  optionByKey(listar, '-a, --all', 'help.isn.rate.list.option.all');
+  optionByKey(listar, '--state <key>', 'help.isn.rate.list.option.state');
+  optionByKey(listar, '--as-of <date>', 'help.isn.rate.list.option.as_of');
   declareRisk(listar, { risk: 'lectura', agent: true });
   listar.addHelpText('after', EJEMPLOS.rateList);
   listar.action(
@@ -1139,18 +1120,12 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   );
 
   // ---- isn calculate · isn calcular ------------------------------------
-  const calcular = familia
-    .command('calculate')
-    .alias('calcular')
-    .description(
-      "One pay run's ISN, one row per state, naming every rate that is missing instead of computing zero"
-    );
+  const calcular = describeCommand(familia.command('calculate').alias('calcular'), 'help.isn.calculate.description');
   withContext(calcular);
   withOutput(calcular);
   withStrict(calcular);
-  calcular
-    .option('--run <payRunId>', 'the pay run to compute (required)')
-    .option('--state <key>', 'narrow the rows to one state; findings are never hidden');
+  optionByKey(calcular, '--run <payRunId>', 'help.isn.calculate.option.run');
+  optionByKey(calcular, '--state <key>', 'help.isn.calculate.option.state');
   declareRisk(calcular, { risk: 'lectura', agent: true });
   calcular.addHelpText('after', EJEMPLOS.calculate);
   calcular.action(

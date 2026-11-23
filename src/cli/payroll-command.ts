@@ -26,9 +26,11 @@ import {
   abortedByUser,
   dateOnly,
   declareRisk,
+  describeCommand,
   exitCodeFor,
   gateMutation,
   legible,
+  optionByKey,
   render,
   requireExplicitEntity,
   usageError,
@@ -289,10 +291,7 @@ async function asientoVigente(id: string): Promise<boolean> {
 
 
 export function registerPayrollCommand(program: Command, deps: PayrollCommandDeps): void {
-  const payroll = program
-    .command('payroll')
-    .alias('nomina')
-    .description('Payroll accounting: the benefit liability that is born on the day worked');
+  const payroll = describeCommand(program.command('payroll').alias('nomina'), 'help.payroll.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -334,15 +333,10 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
   };
 
   // ---- payroll accrue --------------------------------------------------
-  const devengar = payroll
-    .command('accrue')
-    .alias('devengar')
-    .description(
-      'Post the month benefit accrual -- aguinaldo, vacation and vacation premium, one adjusting entry, irreversible'
-    );
+  const devengar = describeCommand(payroll.command('accrue').alias('devengar'), 'help.payroll.accrue.description');
   withContext(devengar);
   withOutput(devengar);
-  devengar.option('--period <expr>', 'period to accrue: 2026-03, or any unambiguous part of its name');
+  optionByKey(devengar, '--period <expr>', 'help.payroll.accrue.option.period');
   // IRREVERSIBLE: postea al mayor de la 041, donde un asiento no se edita ni se
   // borra. El núcleo inyecta --dry-run, --yes e --idempotency-key, y
   // `declareRisk` REHÚSA arrancar si alguien intenta darle acceso al agente.
