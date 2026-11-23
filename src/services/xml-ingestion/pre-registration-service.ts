@@ -28,6 +28,7 @@ import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { postReceivedCreditNote } from './received-credit-note-posting.js';
 import { SATValidationService } from './sat-validation.js';
+import { noteBillCfdiAlreadyCancelled } from '../ap/bill-cfdi-cancellation.js';
 
 /**
  * Tipo de comprobante del SAT → el vocabulario de `pre_registrations`.
@@ -1898,6 +1899,9 @@ async function insertarFacturaDePreRegistro(
       ]
     );
   }
+  // MNE-001-601: a CFDI its mirror or census already reports cancelled marks
+  // the bill in this same step, not at the next sweep.
+  await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);
 
   return { billId, billNumber, vendorId };
 }
