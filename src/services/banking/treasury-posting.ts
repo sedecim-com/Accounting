@@ -14,7 +14,7 @@ import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
 import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
-import { advanceBackOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
+import { advanceBackOnAccount, keptOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
 
 // ============================================================
 // LOS TRES ASIENTOS DE TESORERÍA (F05d · 055)
@@ -2330,8 +2330,15 @@ async function pendingRelease(
   // cheque was refused whole, so a stored IVA here is one no entry caused.
   // MNE-001-572 · so is the IVA of the cash its unapplies put back as an
   // advance while it was held, which they left whole in 2150 too.
+  // MNE-001-586 (#792, part 3/3) · and, on a receipt with no treatment, the share's IVA its plain rows stored
+  // when an unapply put their cash back while the cheque was held (`unapply_kept_iva_amount`, read by the
+  // pool's own reader): that cash is collected today too (LIVA art. 1-B), so the cashing causes it.
   const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
-  const back = functional && treatment !== null ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva : '0';
+  const back = !functional
+    ? '0'
+    : treatment !== null
+      ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva
+      : (await keptOnAccount(client, entityId, receipt.id)).iva;
   // MNE-001-573 · less the IVA its live PPD allocations took and cancelled
   // nothing for (`defer_to_cashing`): the share each one releases below
   // causes it, so the advance's own leaves 2150 only for the rest.

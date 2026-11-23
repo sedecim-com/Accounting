@@ -146,6 +146,17 @@ provides:
     # r - e (DR when negative, no line at zero) and DR 2150 less e. `--json` is unchanged.
     # Rollback: the previous build does not read that IEPS, so before reverting post DR 2181 /
     # CR 2150 by hand, tagged, for each kept IEPS still on account.
+    # CONTRACT: `receipt unapply` of a receipt with no treatment by a cheque the bank has not
+    # cashed, from a PPD invoice, still posts no IVA line (CR 2150 the whole cash), and now
+    # stores on each row the IVA its share would have released (`unapply_kept_iva_amount`);
+    # `--json` gives it as `iva_at_cashing`, which used to read 0.00 (MNE-001-586, #792 part
+    # 3/3; LIVA art. 1-B). `bank check reconcile --receipt` then posts DR 2150 / CR 2120 for
+    # it, where it posted nothing, under either answer to `plain_receipt_unapply_iva`. Until
+    # the cashing that cash is a held cheque's advance: `receipt apply` of it follows
+    # `cheque_advance_before_cashing` (refused by default), and a credit note restitutes none
+    # of it from 2120. Rollback: the previous build does not cause the marker at the cashing
+    # and reads it as IVA already caused, so before reverting record on this build the
+    # cashing of each such cheque, and clear the marker of one the bank has still not cashed.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed
