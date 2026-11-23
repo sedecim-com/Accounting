@@ -1979,6 +1979,40 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-ap-speaks-by-key',
+    // MNE-001-227 (issue #270, I8.8 part 1). The ap family starts with
+    // prepaid, which printed 43 Spanish strings from the code: the flag
+    // errors, the five reasons a schedule skips the run, the uncovered-balance
+    // warning, the panel criteria header, the create and run dry runs and
+    // receipts, the confirm question and its two aborts, and the
+    // preview-vs-engine mismatches. Seven counted with «(s)» and are ICU
+    // plurals now; the currency is the parameter {currency}, never text
+    // (`PREPAID_CURRENCY`). The skip reasons are codes; the `motivo` column is
+    // English for scripts and labelled in the table. Its two Spanish `writes`
+    // are English in place, which this criterion cannot see: language:status
+    // --check does. MNE-001-228 adds bill, payment, ap and vendor under this
+    // same id.
+    enunciado:
+      'The ap family (prepaid) prints no Spanish string from the code: its texts come from the I8.8 block of the catalogue (#270, MNE-001-227)',
+    evaluar: () => familySpeaksByKey('I8.8', 'ap', ['src/cli/prepaid-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/prepaid-command.ts',
+        de: "'ap.prepaid.run.entries_note'",
+        a: "'{count} asiento(s) de ajuste de dos líneas, uno por calendario' as never",
+        porque: 'string-back-in-the-code: prepaid run counts its adjusting entries in Spanish with «(s)» again, which only check 2 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/prepaid-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in prepaid again',
+      },
+    ],
+  },
+
 
 
   {

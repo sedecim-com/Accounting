@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 205,
+    "spanish-user-strings-cli": 162,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -854,7 +854,6 @@
       "src/cli/ledger-command.ts": 11,
       "src/cli/payment-command.ts": 13,
       "src/cli/period-command.ts": 5,
-      "src/cli/prepaid-command.ts": 43,
       "src/cli/vendor-command.ts": 1
     },
     "plan-criteria-grepping-spanish-identifiers": {

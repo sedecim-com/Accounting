@@ -3856,6 +3856,110 @@ export const EN = {
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // MNE-001-227: prepaid. The currency is the parameter {currency}, never text.
+  /** A date flag that is not a real calendar day. */
+  'ap.prepaid.flag.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
+  /** An amount flag that is not an unsigned decimal. */
+  'ap.prepaid.flag.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `prepaid run` without --period. */
+  'ap.prepaid.run.period_missing':
+    'Missing --period. The amortization is of one specific month and is not guessed from the clock: running «the current period» on day 1 at 00:05 would accrue the month that has just begun.',
+  /** `prepaid create` without --origin. */
+  'ap.prepaid.create.origin_missing':
+    'Missing --origin. The three origins are: {origins} — the CFDI that was classified as prepaid (needs --source-entry), the balance that was already in account 1160 with no schedule, and the payment that was posted by hand. It has no default: assuming it leaves the trail pointing at an entry that is not the one.',
+  /** An --origin outside the three. */
+  'ap.prepaid.create.origin_unknown': '--origin "{value}" does not exist. The three are: {origins}.',
+  /** A --convention outside the two. */
+  'ap.prepaid.create.convention_unknown':
+    '--convention "{value}" does not exist: the two conventions are {days} and {months} (the days each month covers, or the whole month).',
+  /** A --convention that contradicts the panel. `source` is `answered` when someone answered the key. */
+  'ap.prepaid.create.convention_contradicts_panel':
+    '--convention {requested} contradicts the panel: `amortizacion_anticipados_convencion` is "{panel}"{source, select, answered {} other { (declared default, nobody has answered)}}, and that is what is frozen in the schedule. This flag declares which convention you believe you are creating with, it does not choose it: it is changed with {hint}.',
+  /** The four required flags of `prepaid create`, named together. */
+  'ap.prepaid.create.flags_missing':
+    '{count, plural, one {Missing {flags}} other {Missing {flags}}}. A schedule with no amount, no coverage window or no word on where the charge came from is not an incomplete record: it is a record that cannot be accrued nor tied out against the account.',
+  /** `--origin cfdi` without `--source-entry`. */
+  'ap.prepaid.create.cfdi_needs_source_entry':
+    '`--origin cfdi` needs `--source-entry <id>`: if the schedule is born from a bill already posted, the entry that charged the account is known, and not recording it loses it for good.',
+  /** The reasons a schedule does not enter the month's run (`prepaid run`). */
+  'ap.prepaid.skip.unknown_convention': 'unknown stored convention ("{convention}")',
+  'ap.prepaid.skip.not_started': 'the coverage has not started yet',
+  'ap.prepaid.skip.ended': 'the coverage has already ended',
+  'ap.prepaid.skip.zero_row': 'the row of the month is zero',
+  'ap.prepaid.skip.nothing_left': 'no balance is left to accrue',
+  /** The posted balance of the prepaid account that no schedule will accrue. */
+  'ap.prepaid.gap.warning':
+    '{amount} {currency} posted to the prepaid expenses account that no schedule will accrue, in {count, plural, one {# entry} other {# entries}}. That expense will never reach the income statement. Each entry is adopted with `mnemosine prepaid create --origin saldo_preexistente --source-entry <id> --start <date> --end <date>`, with the coverage window the document states — it is not guessed: it lives in the journal entry, not in the CFDI.',
+  /** The panel criteria above `create`. Each `*_source` is `answered` when someone answered the key. */
+  'ap.prepaid.criteria.header':
+    'convention {convention}{convention_source, select, answered {} other { (default)}} · threshold {threshold} {currency}{threshold_source, select, answered {} other { (default)}}',
+  /** When a declared default rules instead of a choice of the firm. */
+  'ap.prepaid.criteria.default_rules':
+    'At least one declared default rules, not a choice of the firm. It is answered with `mnemosine pending define amortizacion_anticipados_convencion` / `umbral_anticipado_mxn`.',
+  /** `create --dry-run` below the materiality threshold. */
+  'ap.prepaid.create.below_threshold':
+    '{amount} is below the threshold of {threshold} {currency} (`umbral_anticipado_mxn`): the real creation would stop for materiality (NIF A-4). With --force and --reason it is created anyway and the reason is written in the row.',
+  /** `create --dry-run`: what it computed. */
+  'ap.prepaid.create.dry_run_done':
+    'Dry run: no row was written. {count, plural, one {# row} other {# rows}} for {amount} {currency}, convention {convention}.',
+  /** `create --dry-run` does not check the backing in the account. */
+  'ap.prepaid.create.dry_run_no_backing':
+    'The dry run does NOT check the backing in the account —how much posted balance is left with no schedule—: that guard lives inside the creation and needs the ledger. The real creation may refuse for that reason.',
+  /** The receipt of `prepaid create`. */
+  'ap.prepaid.create.done':
+    'Schedule of {count, plural, one {# row} other {# rows}} created. The ledger was not touched: the charge was already there. It is accrued with `mnemosine prepaid run --period <month>`.',
+  /** `prepaid list -a` with nothing alive. */
+  'ap.prepaid.list.none_alive': 'There is no live schedule in this entity.',
+  /** `prepaid list` with no schedule covering the date. */
+  'ap.prepaid.list.none_on_date': 'No schedule covers {date}. With -a all of them are listed.',
+  /** `prepaid show` of a schedule whose stored convention is none of the declared ones. */
+  'ap.prepaid.show.unknown_convention':
+    'The schedule "{description}" stores the convention "{convention}", which is none of the declared ones ({conventions}). No amount can be computed with it.',
+  /** The summary line under the `prepaid show` table. */
+  'ap.prepaid.show.summary':
+    '{description} · {total} {currency} · {convention} · origin {origin} · accrued {accrued}, {remaining} left',
+  /** Why the `prepaid show` table is not a statement of what was posted. */
+  'ap.prepaid.show.rows_are_schedule':
+    'The rows are the schedule the run will follow, not what was already posted: what was posted is the accrued figure of the line above.',
+  /** `prepaid show` with a reference that matches no schedule. */
+  'ap.prepaid.show.not_found':
+    'No live schedule matches "{ref}" in this entity. `mnemosine prepaid list -a` lists them all.',
+  /** `prepaid show` with a reference that matches several. */
+  'ap.prepaid.show.ambiguous':
+    '"{ref}" matches {count} live schedules: {candidates}. Name the id, or a piece of the description that matches only one.',
+  /** The header of `prepaid run`. */
+  'ap.prepaid.run.header':
+    '{period} ({from}..{to}) · entries dated {date} · {entering, plural, one {# schedule enters} other {# schedules enter}}, {skipped} skipped, {already} already have a row this month · total {total}',
+  /** `prepaid run` with nothing to accrue. */
+  'ap.prepaid.run.nothing': 'Nothing to accrue in {period}: the ledger was not touched.',
+  /** A schedule that does not enter the run, and why. */
+  'ap.prepaid.run.skipped_line': '{description} skipped: {reason}',
+  /** A row capped against what is left to accrue. */
+  'ap.prepaid.run.capped':
+    '{description}: the theoretical row is {theoretical} and is capped at {amount} against what is left to accrue.',
+  /** The run posts one entry per schedule, not one. */
+  'ap.prepaid.run.entries_note':
+    '{count, plural, one {# two-line adjusting entry} other {# two-line adjusting entries}}, one per schedule — not one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** `prepaid run --dry-run`. */
+  'ap.prepaid.run.dry_run_done': 'Dry run: the ledger was not touched and no row was written.',
+  /** The confirmation of `prepaid run`. */
+  'ap.prepaid.run.confirm':
+    'Accrue {total} {currency} in {count, plural, one {# entry} other {# entries}} of {period}? The ledger cannot be undone.',
+  /** `prepaid run` answered no. */
+  'ap.prepaid.run.aborted': 'No changes: the ledger was not touched.',
+  /** `prepaid run` with no terminal to confirm in. */
+  'ap.prepaid.run.aborted_no_tty':
+    'No changes: there is no terminal to confirm in. Add -y to accrue without asking, or --dry-run to see the full entries without writing anything.',
+  /** The engine posted another number of entries than the preview showed. */
+  'ap.prepaid.run.count_mismatch':
+    'The preview showed {previewed, plural, one {# entry} other {# entries}} and the run made {processed}. The preview and the engine did not agree: review the errors before calling the month closed.',
+  /** The engine accrued another total than the preview added. */
+  'ap.prepaid.run.total_mismatch': 'The preview added up to {previewed} and the run accrued {accrued}.',
+  /** The receipt of `prepaid run`. */
+  'ap.prepaid.run.done':
+    '{count, plural, one {# accrual entry} other {# accrual entries}} posted in {period} for {total}.',
+
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
