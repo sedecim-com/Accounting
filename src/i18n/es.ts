@@ -1047,6 +1047,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Una corrección por factura y mes, en el mes de cada pago',
 
+  'policy.discount_vat_correction_period.question':
+    'Descuentos por pronto pago registrados antes de la migración 341, cuyo IVA se quedó en la 1135: ¿en qué periodo va la corrección?',
+  'policy.discount_vat_correction_period.impact':
+    'Antes de la migración 341, un descuento por pronto pago iba completo a la 5200 y su parte del IVA de la factura se quedaba en la 1135, sin ser nunca acreditable. `npm run correct:discount-vat` lista cada factura, pago y mes, y con `--apply` contabiliza DR 5200 / CR 1135 por esa parte. Esta clave decide la fecha de esa póliza. Con «ask» no se contabiliza nada y cada factura se nombra con las dos opciones. Con «current_period» va una póliza por factura y pago con fecha de hoy, en el periodo abierto. Con «payment_month» va una póliza por factura, pago y mes, con la fecha en que se registró el descuento; un mes cerrado sólo se reabre si la corrida dice `--reopen`, y uno bloqueado nunca. El IVA declarado no cambia; las deducciones de ISR del mes en que va la póliza suben por esa parte.',
+  'policy.discount_vat_correction_period.rationale':
+    'Un descuento baja el precio y su IVA (LIVA art. 7), así que su parte no es acreditable ni es costo: la 5200 la guarda de más y el costo de la compra, que es deducción (LISR art. 27), queda corto en el mes del descuento. La NIF B-1 corrige ese error de forma retrospectiva, mientras que los errores inmateriales y los despachos que no reabren sus libros lo registran en el periodo actual. La norma deja margen, así que la opción por omisión es la conservadora del ADR-0006, decisión 1: no se contabiliza nada ni se reabre un mes cerrado hasta que una persona elija.',
+  'policy.discount_vat_correction_period.why':
+    'Los descuentos tomados al pagar a un proveedor, antes de la migración 341, dejaron su IVA en la 1135 y lo contaron como menor costo. La corrección puede fecharse en el mes de cada descuento, reabriéndolo si está cerrado, o en el periodo abierto de hoy.',
+  'policy.discount_vat_correction_period.what':
+    'Por omisión no contabilizo nada y nombro cada factura con las dos opciones. Con «current_period» contabilizo una corrección por factura y pago hoy; con «payment_month», una por factura, pago y mes, en ese mes.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'No contabilizo ninguna corrección hasta que elijas.',
+  'policy.discount_vat_correction_period.option.ask':
+    'No contabilizar nada hasta que alguien elija',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Una corrección por factura y pago, con fecha de hoy en el periodo abierto',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Una corrección por factura y pago, en el mes en que se registró el descuento',
+
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
   'policy.closing_entries_in_reports.impact':
