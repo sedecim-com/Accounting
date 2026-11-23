@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import type { Hallazgo } from '../sat/diot/index.js';
-import type { BalanceInFavorSource } from './filed-returns.js';
+import { availableOf, type BalanceInFavorSource } from './filed-returns.js';
 import { roundToWhole, toCents, type FilingRounding } from './iva-workpaper.js';
 
 // ============================================================
@@ -45,11 +45,8 @@ export interface PriorBalanceProposal {
 
 const q2 = (d: Decimal): string => d.toFixed(2);
 
-/** What a balance still holds to credit, never below zero. */
-export function availableOf(s: BalanceInFavorSource): Decimal {
-  if (new Decimal(s.refundRequested).greaterThan(0)) return new Decimal(0);
-  return Decimal.max(new Decimal(s.balanceInFavor).minus(s.credited).minus(s.compensated), 0);
-}
+/** What a balance still holds: one formula, next to its reader, which the writer also checks (MNE-001-613). */
+export { availableOf };
 
 /** The month's payable in the result's column: whole pesos or cents. */
 const inResultColumn = (amount: Decimal.Value, rounding: FilingRounding): Decimal =>
