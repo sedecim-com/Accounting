@@ -2339,8 +2339,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',
   'help.lang.description':
-    'Muestra o fija el idioma de las respuestas del AGENTE (la interfaz del CLI sigue su ' +
-    'propio locale; los alias españoles funcionan siempre)',
+    'Muestra o fija tu idioma: el del CLI y el de las respuestas del agente (los alias en español ' +
+    'funcionan siempre)',
   'help.onboard.description':
     'Importa la contabilidad de un cliente desde un sistema externo (catálogo de cuentas + ' +
     'saldos iniciales)',
@@ -3107,7 +3107,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
   'root.ingest.auto_post_turn_on':
     'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
-  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o {languages}',
   'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
@@ -5489,4 +5489,37 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.switch.kept': 'La sesión sigue en {current}.',
   'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
+  'help.lang.argument.language':
+    'el idioma que se fija: {choices}; sin él, muestra el idioma en efecto y qué lo decidió',
+  'help.lang.option.unset':
+    'quita el idioma guardado en ~/.mnemosine/config.json, para que decida de nuevo la siguiente fuente',
+  'cli.lang.examples':
+    '\nEjemplos:\n' +
+    '  Qué idioma usan ahora el CLI y el agente, y qué lo decidió:\n' +
+    '    mnemosine lang\n' +
+    '  Usar español en los dos; queda guardado en ~/.mnemosine/config.json:\n' +
+    '    mnemosine lang es\n' +
+    '  Quitar esa elección, para que decida de nuevo la siguiente fuente:\n' +
+    '    mnemosine lang --unset\n',
+  'cli.lang.name.es': 'español',
+  'cli.lang.name.en': 'inglés',
+  'cli.lang.in_effect': 'Idioma: {language} ({locale}), el del CLI y el del agente. Lo decide {rung}.',
+  'cli.lang.rung.flag': 'la bandera {flag} de esta ejecución',
+  'cli.lang.rung.env': '{variable}={value} en el entorno',
+  'cli.lang.rung.user_config': 'tu propia elección, guardada en {file}',
+  'cli.lang.rung.project_config': 'el {file} de esta carpeta',
+  'cli.lang.rung.legacy_config': 'la clave antigua «language» en {file}',
+  'cli.lang.rung.entity': 'el idioma de la entidad {entity}',
+  'cli.lang.rung.default': 'el valor por omisión del sistema: nada más eligió uno',
+  'cli.lang.change_hint': 'Cámbialo con: mnemosine lang {choices} (o con la variable de entorno {variable})',
+  'cli.lang.unset_hint': 'Quita tu elección guardada con: mnemosine lang --unset',
+  'cli.lang.set': 'Idioma fijado en {language} ({locale}) para el CLI y el agente, en {file}',
+  'cli.lang.quarantined': 'Tu {file} anterior no se pudo leer y se reemplazó; hay una copia en {copy}',
+  'cli.lang.takes_effect': 'Surte efecto desde el siguiente comando.',
+  'cli.lang.shadowed_env': '{variable}={value} está puesta y tiene prioridad: quítala para que este cambio se aplique.',
+  'cli.lang.shadowed': 'Todavía no se aplica: {rung} tiene prioridad; cámbialo para que esto se aplique.',
+  'cli.lang.unset.done': 'Se quitó tu elección de idioma ({keys}) de {file}.',
+  'cli.lang.unset.nothing': 'No hay elección de idioma guardada en {file}; no hay nada que quitar.',
+  'cli.lang.unset_with_language': '--unset no lleva idioma: quita tu elección guardada (llegó «{language}»).',
 };

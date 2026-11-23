@@ -1534,6 +1534,61 @@ export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWr
   return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };
 }
 
+/** The keys that hold a person's own language choice: the new one, then the legacy one. */
+const USER_LANGUAGE_KEYS = ['locale', 'language'] as const;
+
+export interface UserLocaleRemoval {
+  /** The user file that was looked at, written or not. */
+  readonly file: string;
+  /** The keys removed from it, in `USER_LANGUAGE_KEYS` order; empty when there was none. */
+  readonly removed: ReadonlyArray<(typeof USER_LANGUAGE_KEYS)[number]>;
+}
+
+/**
+ * Remove the USER's own language choice from `~/.mnemosine/config.json`, so
+ * the next rung of `describeLocale` decides again (MNE-001-469 · #653): the
+ * folder's file, the entity's language once a caller passes it (#655), or the
+ * default. It is the way back from `setUserLocale`.
+ *
+ * Both keys go. `locale` is what `mnemosine lang` writes; `language` is what it
+ * wrote before I11, and in the person's own file it is the same choice made
+ * earlier. Every other key stays: the tenant and the provider are not this
+ * command's to touch.
+ *
+ * NOTHING IS WRITTEN WHEN NOTHING CHANGES. No file, or a file with neither key,
+ * returns an empty `removed` and leaves the bytes as they were. A file that is
+ * not a JSON object is refused with its name and left alone: unlike
+ * `setUserLocale`, removing a choice gives no new content to rescue the person
+ * with, so quarantining their file would only take their other settings away.
+ *
+ * Not routed through `writeConfigPatch`, which merges and so cannot delete. The
+ * result is the person's own object minus two keys, so no secret and no shape
+ * the schema did not already have can enter; it is replaced through the same
+ * atomic step.
+ */
+export function unsetUserLocale(home = os.homedir()): UserLocaleRemoval {
+  const file = userConfigPath(home);
+  if (!fs.existsSync(file)) return { file, removed: [] };
+  let existing: unknown;
+  try {
+    existing = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    existing = undefined;
+  }
+  if (!isPlainObject(existing)) {
+    throw new Error(
+      `The configuration in ${file} is not a valid JSON object, so it was left untouched. ` +
+        'Fix or move the file, then remove the language again.'
+    );
+  }
+  const removed = USER_LANGUAGE_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(existing, key));
+  if (removed.length === 0) return { file, removed };
+  const rest: Record<string, unknown> = { ...existing };
+  for (const key of removed) delete rest[key];
+  replaceConfigFile(file, rest);
+  return { file, removed };
+}
+
 // ─── Config writer (secret auto-routing) ───
 
 // Well-known credential prefixes: Anthropic/OpenAI-style keys (sk-), GitHub
@@ -1636,18 +1691,24 @@ export function writeConfigPatch(
     throw new Error(`Refusing to write an invalid configuration to ${file}: ${issues}`);
   }
 
-  // REPLACED ATOMICALLY. Written beside the target and renamed over it, so a
-  // write that dies halfway (EIO, a full disk, a killed process) leaves the
-  // previous file whole instead of a truncated one; the mode of an existing
-  // file is carried over so a 0600 config does not come back world-readable.
+  replaceConfigFile(file, merged);
+  return file;
+}
+
+/**
+ * REPLACED ATOMICALLY. Written beside the target and renamed over it, so a
+ * write that dies halfway (EIO, a full disk, a killed process) leaves the
+ * previous file whole instead of a truncated one; the mode of an existing file
+ * is carried over so a 0600 config does not come back world-readable.
+ */
+function replaceConfigFile(file: string, contents: Record<string, unknown>): void {
   const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n');
+    fs.writeFileSync(tmp, JSON.stringify(contents, null, 2) + '\n');
     if (fs.existsSync(file)) fs.chmodSync(tmp, fs.statSync(file).mode & 0o777);
     fs.renameSync(tmp, file);
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
   }
-  return file;
 }

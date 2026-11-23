@@ -87,7 +87,9 @@ output when a connection problem is unclear.
   (`MNEMOSINE_LOCALE`, alias `MNEMOSINE_LANG`) outrank it, and `lang` says so
   out loud after writing. The legacy `language` key keeps its OLD order (the
   first file that exists wins entire, project before user) and is still read
-  as a fallback below `locale`.
+  as a fallback below `locale`. `mnemosine lang --unset` (`unsetUserLocale`)
+  removes `locale` and the legacy `language` from the USER file only, keeps
+  every other key, and writes nothing when neither is there.
 - A second key is read from `~/.mnemosine/config.json` ALONE: `jobs.run_due`,
   `"adopted"` or `"all"`, which due jobs `jobs run-due` runs on the
   credential of whoever runs it (#646). `adopted` runs only the jobs that
