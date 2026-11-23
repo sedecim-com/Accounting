@@ -160,7 +160,7 @@ const BATERIA: Caso[] = [
   {
     args: ['lang'],
     codigo: ExitCode.OK,
-    dice: 'Agent response language',
+    dice: 'for the CLI and the agent. Decided by',
     porque: 'la hoja que acabamos de tocar sigue saliendo 0 cuando no falla nada',
   },
 

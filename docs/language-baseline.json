@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 397,
     "cli-user-strings-without-key": 933,
-    "help-examples-without-key": 254
+    "help-examples-without-key": 253
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1624,7 +1624,7 @@
       "src/cli/invoice-command.ts": 9,
       "src/cli/jobs-command.ts": 6,
       "src/cli/ledger-command.ts": 4,
-      "src/cli/mnemosine.ts": 17,
+      "src/cli/mnemosine.ts": 16,
       "src/cli/pay-run-command.ts": 3,
       "src/cli/pay-run-post-command.ts": 1,
       "src/cli/pay-schedule-command.ts": 4,

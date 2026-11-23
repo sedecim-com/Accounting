@@ -333,7 +333,7 @@ export function formatStatus(report: StatusReport, c: StatusDeps['palette']): st
   out.push(`  config file        ${report.config.source ?? c.dim('(none — built-in defaults)')}`);
   out.push(`  provider           ${c.cyan(report.config.provider)}`);
   out.push(`  model              ${report.config.model}`);
-  out.push(`  agent language     ${report.config.language}`);
+  out.push(`  language           ${report.config.language}`);
   const t = report.config.thresholds;
   out.push(
     `  auto-post          ${t.autoPost ? 'on' : 'off'}  min confidence ${t.minConfidence}  ` +
