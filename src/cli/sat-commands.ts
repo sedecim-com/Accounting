@@ -14,7 +14,7 @@ import {
   CONSENT_TEXT,
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
+import { exitCodeFor, notFound, ExitCode, describeCommand, optionByKey } from './kernel/index.js';
 import { registerSatDownloadCommands } from './sat-download-commands.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
@@ -67,22 +67,17 @@ async function askHidden(prompt: string): Promise<string> {
 
 export function registerSatCommands(program: Command, deps: SatCommandDeps): void {
   const { color: c, colorErr: ce, shutdown, reportError, ask } = deps;
-  const sat = program
-    .command('sat')
-    .description('SAT services (e.firma credentials and the CFDI bulk download)');
-  const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
+  const sat = describeCommand(program.command('sat'), 'help.sat.description');
+  const cred = describeCommand(sat.command('cred'), 'help.sat.cred.description');
   registerSatCensus(sat, { shutdown, reportError });
 
-  const add = cred
-    .command('add')
-    .alias('agregar')
-    .description('Registers the e.firma of an entity (validates locally; storing in the vault requires --live)')
-    .requiredOption('--cer <file>', 'SAT .cer certificate (DER)')
-    .requiredOption('--key <file>', 'SAT .key private key (DER)')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-u, --user <email>', 'Who grants the consent')
-    .option('--no-unattended', 'Forbid use without an operator present')
-    .option('--max-diario <n>', 'Access limit per 24 h', (v) => parseInt(v, 10));
+  const add = describeCommand(cred.command('add').alias('agregar'), 'help.sat.cred.add.description');
+  optionByKey(add, '--cer <file>', 'help.sat.cred.add.option.cer', { mandatory: true });
+  optionByKey(add, '--key <file>', 'help.sat.cred.add.option.key', { mandatory: true });
+  optionByKey(add, '-e, --entity <idOrName>', 'help.sat.cred.add.option.entity');
+  optionByKey(add, '-u, --user <email>', 'help.sat.cred.add.option.user');
+  optionByKey(add, '--no-unattended', 'help.sat.cred.add.option.no_unattended');
+  optionByKey(add, '--max-diario <n>', 'help.sat.cred.add.option.max_diario', { parser: (v) => parseInt(v, 10) });
   // Externo, declarado junto a su registro (S0.6): el material viaja a la
   // bóveda (AWS Secrets Manager) — un sistema fuera de éste. El kernel añade
   // --dry-run, --yes, --idempotency-key y --live, y aquí se honran: --dry-run
@@ -227,11 +222,9 @@ Examples:
       }
     });
 
-  cred
-    .command('status')
-    .alias('estado')
-    .description('Shows the entity credentials and their validity')
-    .option('-e, --entity <idOrName>', 'Legal entity')
+  const status = describeCommand(cred.command('status').alias('estado'), 'help.sat.cred.status.description');
+  optionByKey(status, '-e, --entity <idOrName>', 'help.sat.cred.status.option.entity');
+  status
     .action(async (opts: { entity?: string }) => {
       try {
         const ctx = await resolveEntity(opts.entity);
@@ -262,12 +255,13 @@ Examples:
       }
     });
 
-  cred
-    .command('audit')
-    .alias('auditoria')
-    .description('Credential access history (who used it, when and what for)')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-n, --limit <n>', 'How many events to show', (v) => parseInt(v, 10), 30)
+  const audit = describeCommand(cred.command('audit').alias('auditoria'), 'help.sat.cred.audit.description');
+  optionByKey(audit, '-e, --entity <idOrName>', 'help.sat.cred.audit.option.entity');
+  optionByKey(audit, '-n, --limit <n>', 'help.sat.cred.audit.option.limit', {
+    parser: (v) => parseInt(v, 10),
+    defaultValue: 30,
+  });
+  audit
     .action(async (opts: { entity?: string; limit: number }) => {
       try {
         const ctx = await resolveEntity(opts.entity);
@@ -292,12 +286,9 @@ Examples:
       }
     });
 
-  const revoke = cred
-    .command('revoke')
-    .alias('revocar')
-    .description('Revokes the credential and deletes the material from the vault (irreversible)')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-u, --user <email>', 'Who revokes');
+  const revoke = describeCommand(cred.command('revoke').alias('revocar'), 'help.sat.cred.revoke.description');
+  optionByKey(revoke, '-e, --entity <idOrName>', 'help.sat.cred.revoke.option.entity');
+  optionByKey(revoke, '-u, --user <email>', 'help.sat.cred.revoke.option.user');
   // Irreversible, declarado junto a su registro (S0.6): la destrucción del
   // material en la bóveda es criptográfica. El kernel añade --dry-run, --yes,
   // --idempotency-key y —por ser un verbo que deshace— --reason obligatoria,
