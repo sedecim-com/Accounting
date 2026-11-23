@@ -129,7 +129,7 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string) {
+  constructor(message: string | ErrorMessageKey) {
     super(409, 'RESOURCE_ALREADY_EXISTS', message);
     this.name = 'ConflictError';
   }
