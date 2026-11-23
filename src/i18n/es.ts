@@ -1047,6 +1047,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Una corrección por factura y mes, en el mes de cada pago',
 
+  'policy.discount_vat_correction_period.question':
+    'Descuentos por pronto pago registrados antes de la migración 341, cuyo IVA se quedó en la 1135: ¿en qué periodo va la corrección?',
+  'policy.discount_vat_correction_period.impact':
+    'Antes de la migración 341, un descuento por pronto pago iba completo a la 5200 y su parte del IVA de la factura se quedaba en la 1135, sin ser nunca acreditable. `npm run correct:discount-vat` lista cada factura, pago y mes, y con `--apply` contabiliza DR 5200 / CR 1135 por esa parte. Esta clave decide la fecha de esa póliza. Con «ask» no se contabiliza nada y cada factura se nombra con las dos opciones. Con «current_period» va una póliza por factura y pago con fecha de hoy, en el periodo abierto. Con «payment_month» va una póliza por factura, pago y mes, con la fecha en que se registró el descuento; un mes cerrado sólo se reabre si la corrida dice `--reopen`, y uno bloqueado nunca. El IVA declarado no cambia; las deducciones de ISR del mes en que va la póliza suben por esa parte.',
+  'policy.discount_vat_correction_period.rationale':
+    'Un descuento baja el precio y su IVA (LIVA art. 7), así que su parte no es acreditable ni es costo: la 5200 la guarda de más y el costo de la compra, que es deducción (LISR art. 27), queda corto en el mes del descuento. La NIF B-1 corrige ese error de forma retrospectiva, mientras que los errores inmateriales y los despachos que no reabren sus libros lo registran en el periodo actual. La norma deja margen, así que la opción por omisión es la conservadora del ADR-0006, decisión 1: no se contabiliza nada ni se reabre un mes cerrado hasta que una persona elija.',
+  'policy.discount_vat_correction_period.why':
+    'Los descuentos tomados al pagar a un proveedor, antes de la migración 341, dejaron su IVA en la 1135 y lo contaron como menor costo. La corrección puede fecharse en el mes de cada descuento, reabriéndolo si está cerrado, o en el periodo abierto de hoy.',
+  'policy.discount_vat_correction_period.what':
+    'Por omisión no contabilizo nada y nombro cada factura con las dos opciones. Con «current_period» contabilizo una corrección por factura y pago hoy; con «payment_month», una por factura, pago y mes, en ese mes.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'No contabilizo ninguna corrección hasta que elijas.',
+  'policy.discount_vat_correction_period.option.ask':
+    'No contabilizar nada hasta que alguien elija',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Una corrección por factura y pago, con fecha de hoy en el periodo abierto',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Una corrección por factura y pago, en el mes en que se registró el descuento',
+
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
   'policy.closing_entries_in_reports.impact':
@@ -3300,6 +3319,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por humano, acuerdo {agreement} (encender «on» exige ≥{minDays} días, ≥{minDecided} decididos y ≥{minAgreement})',
   'platform.jobs.run_due.retry_reruns': 'un reintento vuelve a ejecutar los trabajos vencidos',
 
+  // MNE-001-453 (#646): qué trabajos vencidos corre `jobs run-due` con la credencial de su operador.
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due vale "all": este tic corre con tu credencial todos los trabajos vencidos de la entidad, también los que crearon otras personas.',
+  'platform.jobs.run_due.skipped': '  no adoptado, no corrió: {name}  {id} · adóptalo con: mnemosine jobs adopt {id}',
+  'platform.jobs.run_due.no_adopted_due': 'Ningún trabajo adoptado está vencido.',
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {Este tic corrió con tu credencial # trabajo que no has adoptado:} other {Este tic corrió con tu credencial # trabajos que no has adoptado:}}',
+  'platform.jobs.run_due.hint.choose':
+    'Pon jobs.run_due en ~/.mnemosine/config.json: "adopted" corre sólo los trabajos que adoptaste (mnemosine jobs adopt <id>), y "all" corre todos los vencidos sin este aviso.',
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} define jobs.run_due, que ahí no se lee: con qué credencial corre un tic lo elige cada operador, en ~/.mnemosine/config.json.',
+  'platform.jobs.run_due.adoptions_unreadable': '{error} Este tic corre todos los trabajos vencidos, como sin jobs.run_due.',
+  'platform.jobs.adopt.done':
+    'Trabajo "{name}" adoptado. Con jobs.run_due en "adopted", jobs run-due lo corre con tu credencial. Quedó en {file}.',
+  'platform.jobs.adopt.already': 'El trabajo "{name}" ya estaba adoptado ({file}).',
+  'platform.jobs.adopt.not_found': 'El trabajo {id} no existe en esta entidad; no se adoptó nada.',
+  'platform.jobs.adopt.id_xor_list': 'Da el id de un trabajo para adoptarlo, o --list para ver los que adoptaste.',
+  'platform.jobs.adopt.list.header': 'Trabajos que adoptaste en esta entidad ({file}):',
+  'platform.jobs.adopt.list.none': 'No has adoptado ningún trabajo de esta entidad. Adopta uno con: mnemosine jobs adopt <id>',
+  'platform.jobs.adopt.list.gone': '(ya no es un trabajo de esta entidad)',
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due en {file}: {scope, select, adopted {"adopted", así que jobs run-due corre sólo éstos} all {"all", así que jobs run-due corre todos los vencidos} other {sin definir, así que jobs run-due corre todos los vencidos y nombra los que no has adoptado}}',
+  'platform.jobs.unadopt.done': 'El trabajo {id} ya no está adoptado ({file}).',
+  'platform.jobs.unadopt.not_adopted': 'El trabajo {id} no estaba adoptado; no cambió nada.',
+  'platform.jobs.create.adopted': '  Adoptado para ti: con jobs.run_due en "adopted", tu tic lo corre.',
+  'platform.jobs.create.adopt_failed':
+    'El trabajo se creó, pero no se pudo adoptar para ti ({error}). Adóptalo con: mnemosine jobs adopt {id}',
+  'help.jobs.adopt.description':
+    'Adopta un trabajo: con jobs.run_due en "adopted" en ~/.mnemosine/config.json, jobs run-due corre sólo los trabajos que adoptaste',
+  'help.jobs.adopt.argument.job_id': 'Id del trabajo (se omite con --list)',
+  'help.jobs.adopt.option.list': 'Lista los trabajos que adoptaste en esta entidad, y el valor de jobs.run_due',
+  'help.jobs.unadopt.description': 'Deja de adoptar un trabajo: con jobs.run_due en "adopted", jobs run-due ya no lo corre',
+  'help.jobs.unadopt.argument.job_id': 'Id del trabajo',
+
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
@@ -3957,6 +4010,29 @@ export const ES: Record<keyof typeof EN, string> = {
   'income_tax_input.year_out_of_range': 'El ejercicio de la declaración fuente va de {min} a {max}: {year} queda fuera.',
   'income_tax_input.filed_on_not_a_day': '"{value}" no es un día real (AAAA-MM-DD): no puede ser la fecha de presentación de la declaración.',
   'income_tax_input.value_too_large': '"{value}" no cabe: una cifra tiene a lo más quince dígitos antes del punto.',
+  'filed_return.obligation_not_written': 'Por ahora sólo se registra la declaración mensual del IVA: "{value}" no lo es. No se escribió nada.',
+  'filed_return.obligation_invalid': '"{value}" no es una obligación del registro de declaraciones presentadas: usa {obligations}.',
+  'filed_return.period_invalid': '"{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-08).',
+  'filed_return.filed_on_not_a_day': 'La fecha de presentación "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-09-15). No se escribió nada.',
+  'filed_return.filed_before_period_ends': 'La declaración de {period} se presenta cuando termina su mes, el {earliest} o después: {value} no puede ser su fecha de presentación. No se escribió nada.',
+  'filed_return.paid_on_not_a_day': 'La fecha de pago "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-09-16). No se escribió nada.',
+  'filed_return.paid_before_filed': 'El pago del {paidOn} es anterior a la presentación del {filedOn}: una declaración se paga con la línea de captura que da su presentación, ese día o después. No se escribió nada.',
+  'filed_return.payment_incomplete': 'Un pago dice cuánto se pagó y qué día, las dos cosas. No se escribió nada.',
+  'filed_return.payable_and_in_favor': 'Una declaración deja un importe a cargo o un saldo a favor, nunca los dos: {payable} a cargo y {inFavor} a favor. No se escribió nada.',
+  'filed_return.amount_invalid': '"{value}" no es un importe de una declaración: usa cero o más, con a lo más dos decimales y diecisiete dígitos antes del punto (por ejemplo 5000.00). No se escribió nada.',
+  'filed_return.credit_amount_not_positive': 'Un saldo acreditado es mayor que cero: quita el acreditamiento de nada. No se escribió nada.',
+  'filed_return.acknowledgement_required': 'Falta el número de operación del acuse: es como el registro nombra una declaración. No se escribió nada.',
+  'filed_return.capture_line_blank': 'La línea de captura está en blanco: dala, u omítela cuando la declaración no tiene nada que pagar. No se escribió nada.',
+  'filed_return.credit_repeated': 'El saldo de la declaración {acknowledgement} se acredita dos veces en esta declaración: pon los dos importes en un solo acreditamiento. No se escribió nada.',
+  'filed_return.credit_source_unknown': 'No hay registrada una declaración con número de operación {acknowledgement} para esta entidad y este impuesto: registra primero esa declaración y después la que acredita su saldo. No se escribió nada.',
+  'filed_return.credit_source_not_earlier': 'La declaración {acknowledgement} es de {sourcePeriod}: una declaración de {period} acredita sólo saldos de meses anteriores (LIVA art. 6). No se escribió nada.',
+  'filed_return.credit_source_no_balance': 'La declaración {acknowledgement} no dejó saldo a favor: no hay nada de ella que acreditar. No se escribió nada.',
+  'filed_return.replaced_unknown': 'No hay registrada una declaración con número de operación {acknowledgement} para esta entidad y este impuesto: una complementaria reemplaza una ya registrada. No se escribió nada.',
+  'filed_return.replaced_other_period': 'La declaración {acknowledgement} es de {replacedPeriod}: una complementaria de {period} reemplaza una declaración del mismo mes. No se escribió nada.',
+  'filed_return.amended_before_replaced': 'La complementaria se presenta el {filedOn}, antes de que se presentara el {replacedFiledOn} la declaración {acknowledgement} que reemplaza: una complementaria va después (CFF art. 32). No se escribió nada.',
+  'filed_return.acknowledgement_taken': 'El número de operación {acknowledgement} ya está registrado para esta entidad: cada acuse es una declaración. No se escribió nada.',
+  'filed_return.original_exists': 'La declaración de {period} de este impuesto ya está registrada: otra declaración de ese mes es una complementaria, que nombra la vigente que reemplaza. No se escribió nada.',
+  'filed_return.already_replaced': 'La declaración {acknowledgement} ya la reemplazó otra complementaria: una complementaria reemplaza la vigente de {period}, la última presentada. No se escribió nada.',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':

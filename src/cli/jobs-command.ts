@@ -1,12 +1,16 @@
 import type { Command } from 'commander';
 import { resolveEntity, bootstrapTenant, type AgentContext } from '../ai/context.js';
 import {
-  createJob, listJobs, setEnabled, listRuns,
+  createJob, listJobs, getJob, setEnabled, listRuns,
   JOB_KINDS, type JobKind, type JobRow, type JobRunRow,
 } from '../ai/jobs/job-store.js';
+import { adoptJob, unadoptJob, adoptedJobIds, readAdoptions, adoptionPath } from '../ai/jobs/adoption.js';
+import { readRunDueScope } from '../ai/providers/config.js';
 import { runDueJobs, type RunAgentTurn } from '../ai/jobs/runner.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { exitCodeFor } from './kernel/index.js';
+import { exitCodeFor, notFound, usageError } from './kernel/index.js';
+import { argumentByKey, describeCommand, optionByKey } from './kernel/help.js';
+import { t } from '../i18n/index.js';
 import { calendarDateTimeIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { tickCredentialLine } from './provider-readiness.js';
@@ -40,6 +44,49 @@ interface CommonOpts {
   entity?: string;
   tenant?: string;
 }
+
+const ADOPT_EXAMPLES = `
+Examples:
+  # Adopt a job of this entity: with "jobs": { "run_due": "adopted" } in
+  # ~/.mnemosine/config.json, your jobs run-due runs only the jobs you adopted.
+  mnemosine jobs adopt 00000000-0000-4000-8000-000000000001
+  # The jobs you adopted here, and the value of jobs.run_due.
+  mnemosine jobs adopt --list
+`;
+
+const UNADOPT_EXAMPLES = `
+Examples:
+  # Stop adopting a job: with jobs.run_due set to "adopted", your tick no longer runs it.
+  mnemosine jobs unadopt 00000000-0000-4000-8000-000000000001
+`;
+
+const CREATE_EXAMPLES = `
+Examples:
+  # A nightly close check at 02:00; it is adopted for you as it is created.
+  mnemosine jobs create --name nightly-close --kind close_verification --schedule "0 2 * * *"
+`;
+
+const ENABLE_EXAMPLES = `
+Examples:
+  # Re-enable a job its failure limit disabled.
+  mnemosine jobs enable 00000000-0000-4000-8000-000000000001
+`;
+
+const DISABLE_EXAMPLES = `
+Examples:
+  # Stop a job's runs and keep its configuration.
+  mnemosine jobs disable 00000000-0000-4000-8000-000000000001
+`;
+
+const RUN_DUE_EXAMPLES = `
+Examples:
+  # What this tick would run, and skip, claiming nothing.
+  mnemosine jobs run-due --dry-run
+  # The tick for cron/launchd, with the reads against the client's external system.
+  mnemosine jobs run-due --live
+Which due jobs it runs on your credential is jobs.run_due in ~/.mnemosine/config.json:
+"adopted" (only the jobs you adopted) or "all" (every due job of the entity).
+`;
 
 const pad = (s: string, w: number): string => (s.length >= w ? s : s + ' '.repeat(w - s.length));
 const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : '—');
@@ -95,6 +142,12 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
       .option('-t, --tenant <id>', 'Tenant');
 
+  // The same two flags, with their help by key, for the leaves born keyed.
+  const withKeyedCommon = (cmd: Command): Command => {
+    optionByKey(cmd, '-e, --entity <idOrName>', 'cli.flag.entity');
+    return optionByKey(cmd, '-t, --tenant <id>', 'cli.flag.tenant_scope');
+  };
+
   const resolve = async (opts: CommonOpts): Promise<AgentContext> => {
     bootstrapTenant(opts.tenant);
     return resolveEntity(opts.entity);
@@ -125,6 +178,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
     .requiredOption('--schedule <cron>', '5-field cron expression, e.g. "0 2 * * *" (nightly at 02:00)')
     .option('--max-failures <n>', 'Auto-disable after N consecutive failures (default 3)')
     .option('--user <email>', 'Who creates the job (audit)')
+    .addHelpText('after', CREATE_EXAMPLES)
     .action(
       run(async (ctx, opts: { name: string; kind: string; schedule: string; maxFailures?: string; user?: string }) => {
         const job = await createJob(ctx, {
@@ -136,13 +190,74 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         });
         console.log(c.bold(`Job created: ${job.id}`));
         console.log(`  ${job.name} (${job.kind}) · schedule ${c.cyan(job.schedule)} · next run ${fmtDate(job.next_run_at, await zoneFor(ctx))}`);
+        // Adopted for its creator (MNE-001-453): an operator who chose
+        // `jobs.run_due = adopted` keeps their own new jobs running.
+        try {
+          adoptJob({ id: job.id, entityId: ctx.entityId });
+          console.log(c.dim(t('platform.jobs.create.adopted')));
+        } catch (err) {
+          process.stderr.write(`${t('platform.jobs.create.adopt_failed', { error: (err as Error).message, id: job.id })}\n`);
+        }
         console.log(c.dim('  Wire the tick: schedule `mnemosine jobs run-due` in cron/launchd.'));
       })
     );
 
+  // MNE-001-453 (#646): the jobs this operator adopted, under their own home.
+  const adopt = withKeyedCommon(describeCommand(jobs.command('adopt').alias('adoptar'), 'help.jobs.adopt.description'));
+  argumentByKey(adopt, '[jobId]', 'help.jobs.adopt.argument.job_id');
+  optionByKey(adopt, '--list', 'help.jobs.adopt.option.list');
+  declareRisk(adopt, { risk: 'escritura', agent: false, writes: "~/.mnemosine/adopted-jobs.json, the operator's own (never the database)" });
+  adopt.addHelpText('after', ADOPT_EXAMPLES);
+  adopt.action(async (jobId: string | undefined, opts: CommonOpts & { list?: boolean }) => {
+    try {
+      if (Boolean(jobId) === Boolean(opts.list)) throw usageError({ key: 'platform.jobs.adopt.id_xor_list' });
+      const ctx = await resolve(opts);
+      if (opts.list) {
+        const scope = readRunDueScope();
+        const mine = readAdoptions().filter((a) => a.entityId === ctx.entityId);
+        if (mine.length === 0) {
+          console.log(t('platform.jobs.adopt.list.none'));
+        } else {
+          const names = new Map((await listJobs(ctx)).map((j) => [j.id, j.name]));
+          console.log(c.bold(t('platform.jobs.adopt.list.header', { file: adoptionPath() })));
+          for (const a of mine) {
+            console.log(`  ${pad(a.jobId, 36)}  ${names.get(a.jobId) ?? c.dim(t('platform.jobs.adopt.list.gone'))}`);
+          }
+        }
+        console.log(c.dim(t('platform.jobs.adopt.list.scope', { file: scope.file, scope: scope.scope })));
+      } else {
+        const job = await getJob(ctx, jobId!);
+        if (!job) throw notFound({ key: 'platform.jobs.adopt.not_found', params: { id: jobId! } });
+        const { file, already } = adoptJob({ id: job.id, entityId: ctx.entityId });
+        console.log(t(already ? 'platform.jobs.adopt.already' : 'platform.jobs.adopt.done', { name: job.name, file }));
+      }
+      await deps.shutdown(0);
+    } catch (err) {
+      deps.reportError(err);
+      await deps.shutdown(exitCodeFor(err));
+    }
+  });
+
+  const unadopt = withKeyedCommon(describeCommand(jobs.command('unadopt').alias('desadoptar'), 'help.jobs.unadopt.description'));
+  argumentByKey(unadopt, '<jobId>', 'help.jobs.unadopt.argument.job_id');
+  declareRisk(unadopt, { risk: 'escritura', agent: false, writes: "~/.mnemosine/adopted-jobs.json, the operator's own (never the database)" });
+  unadopt.addHelpText('after', UNADOPT_EXAMPLES);
+  unadopt.action(async (jobId: string, opts: CommonOpts) => {
+    try {
+      await resolve(opts);
+      const { file, removed } = unadoptJob(jobId);
+      console.log(t(removed ? 'platform.jobs.unadopt.done' : 'platform.jobs.unadopt.not_adopted', { id: jobId, file }));
+      await deps.shutdown(0);
+    } catch (err) {
+      deps.reportError(err);
+      await deps.shutdown(exitCodeFor(err));
+    }
+  });
+
   withCommon(jobs.command('enable'))
     .description('Enable a job (resets its failure counter and recomputes the next run)')
     .argument('<jobId>', 'Job id')
+    .addHelpText('after', ENABLE_EXAMPLES)
     .action(async (jobId: string, opts: CommonOpts) => {
       try {
         const ctx = await resolve(opts);
@@ -158,6 +273,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   withCommon(jobs.command('disable'))
     .description('Disable a job (it stays configured; runs stop)')
     .argument('<jobId>', 'Job id')
+    .addHelpText('after', DISABLE_EXAMPLES)
     .action(async (jobId: string, opts: CommonOpts) => {
       try {
         const ctx = await resolve(opts);
@@ -183,8 +299,32 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
     agent: false,
     writes: "job_runs; and runs the work of each due job — with --live, with reads against the client's external system",
   });
+  runDue.addHelpText('after', RUN_DUE_EXAMPLES);
   runDue.action(run(async (ctx, opts: { dryRun?: boolean; live?: boolean; idempotencyKey?: string }) => {
       const { dryRun, live } = gateMutation(runDue, opts);
+      // Which due jobs this tick spends its operator's credential on
+      // (MNE-001-453, #646), from their own ~/.mnemosine/config.json.
+      const setting = readRunDueScope();
+      if (setting.projectCarriesKey) {
+        process.stderr.write(`${t('platform.jobs.run_due.project_key_ignored', { file: 'mnemosine.config.json' })}\n`);
+      }
+      let adopted: ReadonlySet<string> = new Set();
+      try {
+        adopted = adoptedJobIds(ctx.entityId);
+      } catch (err) {
+        // Under `adopted` it fails closed: an unreadable list cannot say what
+        // the operator chose to spend their credential on. Otherwise only the
+        // notice reads it, and a schedule must not stop over a notice.
+        if (setting.scope === 'adopted') throw err;
+        process.stderr.write(`${t('platform.jobs.run_due.adoptions_unreadable', { error: (err as Error).message })}\n`);
+      }
+      const only = setting.scope === 'adopted' ? adopted : undefined;
+      if (setting.scope === 'all') console.log(t('platform.jobs.run_due.all_first_line'));
+      const ahora = new Date();
+      const due = async (): Promise<JobRow[]> =>
+        (await listJobs(ctx)).filter((j) => j.enabled && j.next_run_at && new Date(j.next_run_at) <= ahora);
+      const skipped = only ? (await due()).filter((j) => !only.has(j.id)) : [];
+      for (const j of skipped) console.log(t('platform.jobs.run_due.skipped', { name: j.name.slice(0, 24), id: j.id }));
       if (opts.idempotencyKey) {
         process.stderr.write(
           '  --idempotency-key does not apply to the tick: each due job is claimed atomically, and ' +
@@ -193,13 +333,10 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
       if (dryRun) {
         // Puro censo: qué correría, sin reclamar ni despertar al modelo.
-        const ahora = new Date();
         const zone = await zoneFor(ctx);
-        const vencidos = (await listJobs(ctx)).filter(
-          (j) => j.enabled && j.next_run_at && new Date(j.next_run_at) <= ahora
-        );
+        const vencidos = (await due()).filter((j) => !only || only.has(j.id));
         if (vencidos.length === 0) {
-          console.log('No jobs due.');
+          console.log(skipped.length > 0 ? t('platform.jobs.run_due.no_adopted_due') : 'No jobs due.');
           return;
         }
         for (const j of vencidos) {
@@ -219,14 +356,15 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       assertDefaultNotOnTrial();
       // Before the first job: the profile the tick opens sessions on and where
       // its credential comes from. It is the credential of whoever runs the
-      // tick, spent on every due job of the entity (#644, question 3).
+      // tick, spent on the due jobs `jobs.run_due` lets through (#644, #646).
       console.log(c.dim(tickCredentialLine()));
       const outcomes = await runDueJobs(ctx, {
         runAgentTurn: deps.makeRunAgentTurn(ctx, { externo: live }),
         onProgress: (m) => console.log(c.dim(m)),
+        only,
       });
       if (outcomes.length === 0) {
-        console.log('No jobs due.');
+        console.log(skipped.length > 0 ? t('platform.jobs.run_due.no_adopted_due') : 'No jobs due.');
         return;
       }
       for (const o of outcomes) {
@@ -242,6 +380,19 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       const drafts = outcomes.reduce((sum, o) => sum + o.draftsCreated, 0);
       if (drafts > 0) {
         console.log(c.bold(`\n${drafts} draft(s) created — review them with \`mnemosine review\`.`));
+      }
+      if (setting.scope === 'unset') {
+        // The notice before any default changes: the jobs this tick ran that
+        // its operator has not adopted, with the key and its two values.
+        const foreign = outcomes.filter((o) => !adopted.has(o.jobId));
+        if (foreign.length > 0) {
+          const lines = [
+            t('platform.jobs.run_due.hint.header', { count: foreign.length }),
+            ...foreign.map((o) => `  ${o.name} (${o.jobId})`),
+            t('platform.jobs.run_due.hint.choose'),
+          ];
+          process.stderr.write(`${lines.join('\n')}\n`);
+        }
       }
     }));
 

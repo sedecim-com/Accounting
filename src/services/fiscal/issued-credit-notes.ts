@@ -13,7 +13,7 @@ import {
   type RangoDelMes,
   type RenglonDeGasto,
 } from '../sat/diot/index.js';
-import type { DocumentContribution } from './iva-workpaper.js';
+import type { DocumentContribution, UncausedRestitution } from './iva-workpaper.js';
 
 // ============================================================
 // THE ISSUED CREDIT NOTES OF THE IVA WORKPAPER (MNE-001-565, #799)
@@ -52,6 +52,11 @@ import type { DocumentContribution } from './iva-workpaper.js';
 //     stays in 2120. The paper subtracts nothing of it and
 //     IVA-WP-CREDIT-NOTE-AFTER-COLLECTION names the note; its entry stands
 //     (NIF B-1). A note that takes the excess from 2120 counts it above.
+//   · What a note restituted from a receipt later reversed as never
+//     collected (MNE-001-583, #814) was never caused (LIVA art. 1-B, the
+//     paper's rule 2 of MNE-001-518), so it restitutes nothing (art. 7): the
+//     share counted leaves it out, and the tie-out names it. Its month's
+//     amended return is named by IVA-WP-RECEIPT-REVERSED.
 // ============================================================
 
 /** One cancelled note's share of the charged side's gap with the ledger. */
@@ -218,7 +223,8 @@ function cancelledCause(n: NoteRow, range: RangoDelMes): NoteGapCause | null {
 export async function issuedCreditNotesOfRange(
   client: pg.PoolClient,
   entityId: string,
-  range: RangoDelMes
+  range: RangoDelMes,
+  uncaused: ReadonlyMap<string, readonly UncausedRestitution[]> = new Map()
 ): Promise<IssuedCreditNotesOfRange> {
   const out: IssuedCreditNotesOfRange = {
     contributions: [], breakdown: desgloseCero(), notSubject: new Decimal(0), manualZeroRate: new Decimal(0), findings: [], causes: [],
@@ -232,12 +238,22 @@ export async function issuedCreditNotesOfRange(
       continue;
     }
     if (!inRange(n.entry_date, range)) continue;
-    const iva = new Decimal(n.iva);
     const method = n.invoice_id
       ? (await resolveInvoiceMetodoPago(client, {
           id: n.invoice_id, invoice_number: n.invoice_number ?? undefined, cfdi_uuid: n.cfdi_uuid, terms: n.terms, memo: n.memo, entity_id: entityId,
         })).metodo
       : 'PUE';
+    // MNE-001-583: a PUE invoice's IVA counted when issued, whatever its receipts did.
+    const never = method === 'PPD' ? (uncaused.get(n.id) ?? []) : [];
+    for (const u of never) {
+      out.causes.push({
+        amount: u.amount,
+        text:
+          `la nota de crédito ${n.credit_note_number} restituyó ${q4(u.amount)} de IVA que el cobro ${u.paymentNumber}, ` +
+          `reversado como no cobrado el ${u.reversedOn}, nunca causó: el papel no lo resta (LIVA arts. 1-B y 7; ver IVA-WP-RECEIPT-REVERSED)`,
+      });
+    }
+    const iva = never.reduce((s, u) => s.minus(u.amount), new Decimal(n.iva));
     const tax = new Decimal(n.tax_amount);
     const share = method === 'PUE' ? new Decimal(1) : tax.greaterThan(0) ? iva.dividedBy(tax) : new Decimal(0);
     if (method === 'PPD' && n.invoice_id) {

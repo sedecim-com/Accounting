@@ -665,6 +665,22 @@ const compactionSchema = z
   })
   .strict();
 
+/**
+ * Which due jobs `jobs run-due` spends its operator's credential on
+ * (MNE-001-453, #646): `adopted` runs only the jobs that operator adopted
+ * (`jobs adopt`, src/ai/jobs/adoption.ts); `all` runs every due job of the
+ * entity. Unset behaves as `all` and the tick names the jobs it ran that its
+ * operator has not adopted. Read by `readRunDueScope` from the operator's OWN
+ * file only: a committed project file must not decide whose credential is spent.
+ */
+export const RUN_DUE_SCOPES = ['adopted', 'all'] as const;
+
+const jobsSchema = z
+  .object({
+    run_due: z.enum(RUN_DUE_SCOPES).optional(),
+  })
+  .strict();
+
 // CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
 // it, pinned by tests/ai/providers/config-contract.spec.ts (#367). The optional
 // `models` map (MNE-001-441, #644) and a profile's optional `reasoning_effort`
@@ -731,6 +747,7 @@ export const configFileSchema = z
     ingest: ingestSchema.optional(),
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
+    jobs: jobsSchema.optional(),
   })
   .strict()
   .superRefine((config, ctx) => {
@@ -761,6 +778,54 @@ export type MnemosineConfig = z.infer<typeof configFileSchema>;
  */
 export function userConfigPath(home = os.homedir()): string {
   return path.join(home, '.mnemosine', 'config.json');
+}
+
+export type RunDueScope = (typeof RUN_DUE_SCOPES)[number] | 'unset';
+
+export interface RunDueSetting {
+  readonly scope: RunDueScope;
+  /** The operator's own file, the only one read. */
+  readonly file: string;
+  /** True when ./mnemosine.config.json carries `jobs.run_due`, which is not read. */
+  readonly projectCarriesKey: boolean;
+}
+
+/**
+ * `jobs.run_due` from ~/.mnemosine/config.json alone (MNE-001-453). It cannot go
+ * through `loadConfigFile`, which reads only the first file that exists, project
+ * first: the setting belongs to whoever runs the tick, like the locale does
+ * (`describeLocale`). A file that does not parse, or a value that is neither,
+ * throws naming the file, the key and its two values.
+ */
+export function readRunDueScope(options: { home?: string; cwd?: string } = {}): RunDueSetting {
+  const file = userConfigPath(options.home);
+  const projectCarriesKey = projectSetsRunDue(path.join(options.cwd ?? process.cwd(), 'mnemosine.config.json'));
+  if (!fs.existsSync(file)) return { scope: 'unset', file, projectCarriesKey };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (err) {
+    throw new Error(`Invalid configuration in ${file}: ${(err as Error).message}`);
+  }
+  const jobs = (raw as { jobs?: unknown } | null)?.jobs;
+  if (jobs === undefined) return { scope: 'unset', file, projectCarriesKey };
+  const parsed = jobsSchema.safeParse(jobs);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid configuration in ${file}: jobs.run_due must be "adopted" or "all" (or be left out); ` +
+        `got ${JSON.stringify(jobs)}`
+    );
+  }
+  return { scope: parsed.data.run_due ?? 'unset', file, projectCarriesKey };
+}
+
+function projectSetsRunDue(file: string): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as { jobs?: { run_due?: unknown } } | null;
+    return raw?.jobs?.run_due !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 export function configFilePaths(cwd = process.cwd()): string[] {
