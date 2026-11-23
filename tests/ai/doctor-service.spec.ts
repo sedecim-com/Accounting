@@ -232,6 +232,21 @@ describe('runDoctor — model provider', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it('FAILS when the default names an installation secret: it is not a provider credential (MNE-001-445)', async () => {
+    mockDb();
+    config({
+      default_provider: 'fuga',
+      providers: {
+        fuga: { type: 'openai-compatible', model: 'm', base_url: 'https://f.example.test/v1', api_key_env: 'JWT_SECRET' },
+      },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toBe('fuga · m (JWT_SECRET is not a provider credential)');
+    expect(c.fix).toMatch(/^Name the provider's own key variable in api_key_env/);
+    expect(c.fix).toMatch(/, or use --provider \S+$/);
+  });
+
   it('an empty variable counts as unset', async () => {
     mockDb();
     process.env.SOME_KEY = '';
@@ -344,7 +359,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb();
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/credenciales de ESCRITURA/);
+    expect(c.detail).toMatch(/WRITE credentials/);
     expect(c.fix).toMatch(/rol-auditor\.sql/);
   });
 
@@ -352,7 +367,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '57', totales: '57' }] });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/57 tablas aisladas/);
+    expect(c.detail).toMatch(/57 isolated tables/);
   });
 
   it('ok nombrando lo que lee sin aislamiento: la lista es lo que hace que se note si crece', async () => {
@@ -367,7 +382,7 @@ describe('runDoctor — rol de auditor', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/exchange_rates, tax_tables/);
-    expect(c.detail).toMatch(/referencia global/);
+    expect(c.detail).toMatch(/global reference/);
   });
 
   it('fail si lee una vista materializada: la RLS no la filtra y la refresca un BYPASSRLS', async () => {
@@ -382,7 +397,7 @@ describe('runDoctor — rol de auditor', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/mv_trial_balance/);
-    expect(c.detail).toMatch(/TODOS los inquilinos/);
+    expect(c.detail).toMatch(/ALL tenants/);
   });
 
   it('fail con BYPASSRLS: es PEOR que no tenerlo — un solo-lectura que atraviesa el aislamiento', async () => {
@@ -391,7 +406,7 @@ describe('runDoctor — rol de auditor', () => {
     });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
-    expect(c.detail).toMatch(/TODOS los inquilinos/);
+    expect(c.detail).toMatch(/ALL tenants/);
   });
 
   it('fail si tiene escritura sobre cualquier tabla: deja de ser lo que su nombre dice', async () => {
@@ -410,7 +425,7 @@ describe('runDoctor — rol de auditor', () => {
     });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/NOMINALES/);
+    expect(c.detail).toMatch(/NAMED/);
   });
 
   it('warn cuando faltan GRANT: una tabla nueva nace invisible para el auditor', async () => {
@@ -421,7 +436,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '50', totales: '57' }] });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/7 tabla/);
+    expect(c.detail).toMatch(/7 tables were created/);
   });
 });
 
@@ -537,7 +552,7 @@ describe('the identity of every check', () => {
   //
   //   Tenant isolation              -> rls-enforced-on-connection
   //   Ledger integrity              -> balances-match-posted-lines
-  //   Segregacion de funciones ...  -> conflicting-permissions
+  //   Segregation of duties (...)   -> conflicting-permissions
   //   Memory conflicts              -> contradicting-precedents
   //   Memory in the prompt          -> precedents-outside-digest
   //
@@ -869,9 +884,9 @@ describe('checkExtractosCompletos', () => {
     mockDb({ formaBanco: [{ unico: true, ciego: true }], inquilinos: [{ id: 't1' }, { id: 't2' }] });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('fail');
-    expect(c.detail).toMatch(/índice de contenido es ÚNICO/);
-    expect(c.detail).toMatch(/huella se puede forjar/);
-    expect(c.detail).toMatch(/2 inquilino\(s\) revisado\(s\)/);
+    expect(c.detail).toMatch(/content index is UNIQUE/);
+    expect(c.detail).toMatch(/fingerprint can be forged/);
+    expect(c.detail).toMatch(/2 tenants checked/);
   });
 
   it('con el catálogo reparado, nombra los extractos cortos de CADA inquilino', async () => {
@@ -892,8 +907,8 @@ describe('checkExtractosCompletos', () => {
     // `insertarLineas` descartó porque su id nativo ya estaba en la cuenta —el
     // trimestral que contiene al mensual—, y ésa cuelga de otro extracto. Lo
     // que sí se afirma es la CIFRA, que es lo que WIT-02 vino a arreglar.
-    expect(c.detail).toMatch(/2 línea\(s\) declaradas y no presentes/);
-    expect(c.fix).not.toMatch(/soltar|DROP|borrar/i);
+    expect(c.detail).toMatch(/2 lines declared and not present/);
+    expect(c.fix).not.toMatch(/\bdrop\b|\bdelete\b|soltar|borrar/i);
     expect(c.detail).toMatch(/bbva\.csv/);
   });
 
@@ -910,14 +925,14 @@ describe('checkExtractosCompletos', () => {
     });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/sin poder mirarse/);
-    expect(c.detail).not.toMatch(/ningún extracto/);
+    expect(c.detail).toMatch(/could not be checked/);
+    expect(c.detail).not.toMatch(/no statement has fewer/);
   });
 
   it('sin nada que reprochar, el verde dice cuánto miró', async () => {
     mockDb({ inquilinos: [{ id: 't1' }] });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/1 inquilino\(s\) revisado\(s\)/);
+    expect(c.detail).toMatch(/1 tenant checked/);
   });
 });

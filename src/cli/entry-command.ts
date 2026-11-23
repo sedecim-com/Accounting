@@ -40,8 +40,11 @@ import {
 } from '../services/accounting/posting.js';
 import type { Palette } from './palette.js';
 import {
+  argumentByKey,
   declareRisk,
+  describeCommand,
   gateMutation,
+  optionByKey,
   render,
   legible,
   checkExitCode,
@@ -338,13 +341,15 @@ Examples:
 } as const;
 
 export function registerEntryCommand(program: Command, deps: EntryCommandDeps): void {
-  const entry = program
-    .command('entry')
-    .alias('poliza')
-    // Second Spanish spelling, following the `memory teach|enseña|ensena`
-    // precedent: an accountant types whichever word their firm uses.
-    .alias('asiento')
-    .description('Journal entries: draft, inspect, validate, post, reverse and void');
+  const entry = describeCommand(
+    program
+      .command('entry')
+      .alias('poliza')
+      // Second Spanish spelling, following the `memory teach|enseña|ensena`
+      // precedent: an accountant types whichever word their firm uses.
+      .alias('asiento'),
+    'help.entry.description'
+  );
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -428,18 +433,14 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   };
 
   // ---- entry list --------------------------------------------------
-  const list = entry
-    .command('list')
-    .alias('listar')
-    .argument('[search]', 'text to match in the description or reference')
-    .description('Search journal entries by text, account, date, amount, state, type or source');
+  const list = describeCommand(entry.command('list').alias('listar'), 'help.entry.list.description');
+  argumentByKey(list, '[search]', 'help.entry.list.argument.search');
   withOutput(withSelection(withTime(withContext(list))));
-  list
-    .option('--type <type...>', 'entry type (repeatable)')
-    .option('--source <name>', 'origin subledger: invoice, bill, payroll, manual…')
-    .option('--account <code>', 'only entries with a line on this account')
-    .option('--min-amount <amount>', 'minimum total debits')
-    .option('--max-amount <amount>', 'maximum total debits');
+  optionByKey(list, '--type <type...>', 'help.entry.list.option.type');
+  optionByKey(list, '--source <name>', 'help.entry.list.option.source');
+  optionByKey(list, '--account <code>', 'help.entry.list.option.account');
+  optionByKey(list, '--min-amount <amount>', 'help.entry.list.option.min_amount');
+  optionByKey(list, '--max-amount <amount>', 'help.entry.list.option.max_amount');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((
@@ -509,13 +510,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry show --------------------------------------------------
-  const show = entry
-    .command('show')
-    .alias('ver')
-    .argument('<number>', 'entry number (JE-2026-00042) or id')
-    .description('Show one entry with its lines, totals, period and linked reversal');
+  const show = describeCommand(entry.command('show').alias('ver'), 'help.entry.show.description');
+  argumentByKey(show, '<number>', 'help.entry.show.argument.number');
   withOutput(withContext(show));
-  show.option('--no-lines', 'header only, without the lines');
+  optionByKey(show, '--no-lines', 'help.entry.show.option.no_lines');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((number: string, opts: CommonOpts & { lines?: boolean }) =>
@@ -586,23 +584,18 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry create ------------------------------------------------
-  const create = entry
-    .command('create')
-    .alias('crear')
-    .description('Create a journal entry — ALWAYS a draft; posting is a separate human step');
+  const create = describeCommand(entry.command('create').alias('crear'), 'help.entry.create.description');
   withContext(create);
-  create
-    .option(
-      '--line <spec...>',
-      'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below'
-    )
-    .option('--file <path>', 'JSON document with date, type, description and lines')
-    .option('--date <date>', 'entry date (YYYY-MM-DD); defaults to today')
-    .option('--type <type>', `entry type: ${MANUAL_ENTRY_TYPES.join(', ')} (default: standard)`)
-    .option('--description <text>', 'what the entry records')
-    .option('--reference <text>', 'external reference (document, folio, memo)')
-    .option('--dry-run', 'validate and show the entry that would be drafted; write nothing')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--line <spec...>', 'help.entry.create.option.line');
+  optionByKey(create, '--file <path>', 'help.entry.create.option.file');
+  optionByKey(create, '--date <date>', 'help.entry.create.option.date');
+  optionByKey(create, '--type <type>', 'help.entry.create.option.type', {
+    params: { types: MANUAL_ENTRY_TYPES.join(', ') },
+  });
+  optionByKey(create, '--description <text>', 'help.entry.create.option.description');
+  optionByKey(create, '--reference <text>', 'help.entry.create.option.reference');
+  optionByKey(create, '--dry-run', 'help.entry.create.option.dry_run');
+  optionByKey(create, '--json', 'help.entry.create.option.json');
   // agent: true is safe here ONLY because every path through this command
   // produces status='draft'. The draft IS the review queue: it does not move
   // a single balance until a human runs `entry post`.
@@ -689,15 +682,11 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry check -------------------------------------------------
-  const check = entry
-    .command('check')
-    .alias('verificar')
-    .description('Run the seven NIF validation rules over an entry or a document; writes nothing');
+  const check = describeCommand(entry.command('check').alias('verificar'), 'help.entry.check.description');
   withOutput(withContext(check));
   withStrict(check);
-  check
-    .option('--entry <number>', 'an existing entry, by number or id')
-    .option('--file <path>', 'a JSON entry document that does not exist yet');
+  optionByKey(check, '--entry <number>', 'help.entry.check.option.entry');
+  optionByKey(check, '--file <path>', 'help.entry.check.option.file');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { entry?: string; file?: string; strict?: boolean }) =>
@@ -729,15 +718,9 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry line list (F01) ---------------------------------------
-  const line = entry
-    .command('line')
-    .alias('renglon')
-    .description('Ledger lines: from an account balance down to the entries behind it');
-  const lineList = line
-    .command('list')
-    .alias('listar')
-    .argument('<code>', 'account code')
-    .description('Posted lines of one account, each with the entry it belongs to');
+  const line = describeCommand(entry.command('line').alias('renglon'), 'help.entry.line.description');
+  const lineList = describeCommand(line.command('list').alias('listar'), 'help.entry.line.list.description');
+  argumentByKey(lineList, '<code>', 'help.entry.line.list.argument.code');
   withOutput(withSelection(withTime(withContext(lineList))));
   declareRisk(lineList, { risk: 'lectura', agent: true });
   lineList.addHelpText('after', EJEMPLOS.lineList);
@@ -767,11 +750,8 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry preview (F01) -----------------------------------------
-  const preview = entry
-    .command('preview')
-    .alias('previsualizar')
-    .argument('<number>', 'entry number or id')
-    .description('The exact account_balances delta this entry would produce, without touching anything');
+  const preview = describeCommand(entry.command('preview').alias('previsualizar'), 'help.entry.preview.description');
+  argumentByKey(preview, '<number>', 'help.entry.preview.argument.number');
   withOutput(withContext(preview));
   declareRisk(preview, { risk: 'lectura', agent: true });
   preview.addHelpText('after', EJEMPLOS.preview);
@@ -788,19 +768,15 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry edit (F01) --------------------------------------------
-  const edit = entry
-    .command('edit')
-    .alias('editar')
-    .argument('<number>', 'entry number or id')
-    .description('Edit a DRAFT entry: description, reference, note, date or full line replacement');
+  const edit = describeCommand(entry.command('edit').alias('editar'), 'help.entry.edit.description');
+  argumentByKey(edit, '<number>', 'help.entry.edit.argument.number');
   withContext(edit);
-  edit
-    .option('--description <text>', 'new description')
-    .option('--reference <text>', 'new external reference')
-    .option('--note <text>', 'new note')
-    .option('--date <date>', 'new entry date (YYYY-MM-DD)')
-    .option('--line <spec...>', 'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)')
-    .option('--file <path>', 'JSON document whose date/description/reference/lines replace the draft');
+  optionByKey(edit, '--description <text>', 'help.entry.edit.option.description');
+  optionByKey(edit, '--reference <text>', 'help.entry.edit.option.reference');
+  optionByKey(edit, '--note <text>', 'help.entry.edit.option.note');
+  optionByKey(edit, '--date <date>', 'help.entry.edit.option.date');
+  optionByKey(edit, '--line <spec...>', 'help.entry.edit.option.line');
+  optionByKey(edit, '--file <path>', 'help.entry.edit.option.file');
   // draft-only, igual que create: la edición jamás alcanza una póliza que ya
   // salió del borrador — el servicio lo garantiza bajo FOR UPDATE.
   declareRisk(edit, {
@@ -848,10 +824,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry export (F01) ------------------------------------------
-  const exportar = entry
-    .command('export')
-    .alias('exportar')
-    .description('Entries WITH their lines, flat, for audit or migration — no page cap');
+  const exportar = describeCommand(entry.command('export').alias('exportar'), 'help.entry.export.description');
   // withTime ya aporta --period/--since/--until: no se re-declaran.
   withOutput(withTime(withContext(exportar)));
   declareRisk(exportar, { risk: 'lectura', agent: true });
@@ -880,16 +853,15 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry import (F01: staging, jamás el mayor) ------------------
-  const importar = entry
-    .command('import')
-    .alias('importar')
-    .argument('<file>', 'file of journal entries to stage')
-    .description('Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger');
+  const importar = describeCommand(entry.command('import').alias('importar'), 'help.entry.import.description');
+  argumentByKey(importar, '<file>', 'help.entry.import.argument.file');
   withContext(importar);
-  importar
-    .option('--layout <name>', `file layout: ${IMPORT_LAYOUTS.join(', ')} (contpaqi/aspel/iif/sat-polizas: aún sin parser)`, 'csv')
-    .option('--dry-run', 'parse and report, stage nothing')
-    .option('--idempotency-key <key>', 'replay-safe key: the same key with the same file returns the first batch');
+  optionByKey(importar, '--layout <name>', 'help.entry.import.option.layout', {
+    params: { layouts: IMPORT_LAYOUTS.join(', ') },
+    defaultValue: 'csv',
+  });
+  optionByKey(importar, '--dry-run', 'help.entry.import.option.dry_run');
+  optionByKey(importar, '--idempotency-key <key>', 'help.entry.import.option.idempotency_key');
   // agent: true SOLO porque escribe staging: el lote no crea ni un borrador —
   // aplicarlo será un acto humano de la familia batch, con sus compuertas.
   declareRisk(importar, {
@@ -942,13 +914,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry post --------------------------------------------------
-  const post = entry
-    .command('post')
-    .alias('contabilizar')
-    .argument('<number>', 'entry number or id')
-    .description('Post ONE entry to the ledger: validates the seven rules, then moves balances');
+  const post = describeCommand(entry.command('post').alias('contabilizar'), 'help.entry.post.description');
+  argumentByKey(post, '<number>', 'help.entry.post.argument.number');
   withContext(post);
-  post.option('--json', 'JSON output');
+  optionByKey(post, '--json', 'help.entry.post.option.json');
   // Irreversible: declareRisk adds --dry-run, --yes and --idempotency-key,
   // and refuses to let the agent anywhere near this command.
   declareRisk(post, {
@@ -1016,13 +985,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry reverse -----------------------------------------------
-  const reverse = entry
-    .command('reverse')
-    .alias('reversar')
-    .argument('<number>', 'the POSTED entry to reverse')
-    .description('Create the linked posted mirror of an entry (NIF B-1: correct by reversal)');
+  const reverse = describeCommand(entry.command('reverse').alias('reversar'), 'help.entry.reverse.description');
+  argumentByKey(reverse, '<number>', 'help.entry.reverse.argument.number');
   withContext(reverse);
-  reverse.option('--date <date>', 'date of the mirror entry (YYYY-MM-DD); defaults to today');
+  optionByKey(reverse, '--date <date>', 'help.entry.reverse.option.date');
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
   declareRisk(reverse, {
     risk: 'irreversible',
@@ -1110,11 +1076,8 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   );
 
   // ---- entry void --------------------------------------------------
-  const voidCmd = entry
-    .command('void')
-    .alias('anular')
-    .argument('<number>', 'entry number or id')
-    .description('Annul an entry: a draft is marked void, a posted one gets its linked mirror');
+  const voidCmd = describeCommand(entry.command('void').alias('anular'), 'help.entry.void.description');
+  argumentByKey(voidCmd, '<number>', 'help.entry.void.argument.number');
   withContext(voidCmd);
   declareRisk(voidCmd, {
     risk: 'irreversible',

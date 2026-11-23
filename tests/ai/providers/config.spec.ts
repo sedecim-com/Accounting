@@ -13,7 +13,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 import {
   resolveProfile, listProfiles, resolveIngestThresholds, writeConfigPatch, loadConfigFile, setLanguage,
   resolveFailoverChain, resolveCompactionConfig, DEFAULT_COMPACTION_THRESHOLD_TOKENS,
-  BUILTIN_PROFILES,
+  BUILTIN_PROFILES, INSTALLATION_SECRET_VARIABLES, MissingProviderCredentialError, NotAProviderCredentialError,
 } from '../../../src/ai/providers/config.js';
 import { createLlmSessionWithFailover, CooldownRegistry } from '../../../src/ai/providers/index.js';
 import type { LlmSession, ResolvedProfile } from '../../../src/ai/providers/types.js';
@@ -66,6 +66,60 @@ describe('BUILTIN_PROFILES', () => {
   it('ships gemini via the Google AI Studio OpenAI-compatible endpoint', () => {
     expect(BUILTIN_PROFILES.gemini.base_url).toBe('https://generativelanguage.googleapis.com/v1beta/openai');
     expect(BUILTIN_PROFILES.gemini.api_key_env).toBe('GEMINI_API_KEY');
+  });
+});
+
+// MNE-001-449 (#644, P9): the defaults that went stale. The owner chose «Salen
+// sin verificar»: each new id names its official page and the date it was read.
+describe('the defaults of grok, gemini and openai, with their sources', () => {
+  const READ = '2026-11-20';
+  const citesItsPage = (text: string, page: string) => {
+    expect(text).toContain(page);
+    expect(text).toContain(READ);
+  };
+
+  it('grok serves grok-4.3 at low effort, with the window cut at the price step', () => {
+    const p = BUILTIN_PROFILES.grok;
+    expect(p.model).toBe('grok-4.3');
+    expect(p.reasoning_effort).toBe('low');
+    expect(p.ventana).toMatchObject({ postura: 'declarada', tokens: 200_000 });
+    expect(p.reproducibilidad).toMatchObject({ muestreo: 'fijado', temperature: 0 });
+    citesItsPage(p.ventana.razon, 'docs.x.ai/developers/pricing');
+    citesItsPage(p.reproducibilidad.razon, 'docs.x.ai/developers/model-capabilities/text/best-practices');
+    expect(p.note).toMatch(/not verified live/);
+    citesItsPage(p.note!, 'docs.x.ai/developers/models/grok-4.3');
+  });
+
+  it('gemini serves gemini-3.8-flash at low effort and does not claim a temperature', () => {
+    const p = BUILTIN_PROFILES.gemini;
+    expect(p.model).toBe('gemini-3.8-flash');
+    expect(p.reasoning_effort).toBe('low');
+    expect(p.ventana).toMatchObject({ postura: 'declarada', tokens: 1_048_576 });
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    citesItsPage(p.ventana.razon, 'ai.google.dev/gemini-api/docs/models/gemini-3.8-flash');
+    citesItsPage(p.reproducibilidad.razon, 'ai.google.dev/gemini-api/docs/whats-new-gemini-3.8');
+    expect(p.note).toMatch(/not verified live/);
+    citesItsPage(p.note!, 'ai.google.dev/gemini-api/docs/models/gemini-3.8-flash');
+  });
+
+  it('openai stays on gpt-5.1, sends no effort, and its posture says what its default is', () => {
+    const p = BUILTIN_PROFILES.openai;
+    expect(p.model).toBe('gpt-5.1');
+    expect(p.reasoning_effort).toBeUndefined();
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    expect(p.reproducibilidad.razon).toMatch(/`none`/);
+    expect(p.reproducibilidad.razon).toMatch(/GPT-5\.2/);
+    citesItsPage(p.reproducibilidad.razon, 'developers.openai.com/api/docs/models/gpt-5.1');
+  });
+
+  it('copilot and anthropic keep their model, and copilot leans on what openai now says', () => {
+    expect(BUILTIN_PROFILES.anthropic.model).toBe('claude-opus-5');
+    const p = BUILTIN_PROFILES.copilot;
+    expect(p.model).toBe('gpt-5.1');
+    expect(p.reproducibilidad.muestreo).toBe('no-admite');
+    expect(p.reproducibilidad.razon).toMatch(/`none`/);
+    expect(p.reproducibilidad.razon).toMatch(/GPT-5\.2/);
+    expect(p.reproducibilidad.razon).not.toMatch(/400/);
   });
 });
 
@@ -430,6 +484,92 @@ describe('writeConfigPatch (secrets never land in the config file)', () => {
     expect(() => writeConfigPatch({ unknown_root_key: true }, tmpDir)).toThrow(/invalid configuration/i);
     expect(fs.existsSync(configPath())).toBe(false);
   });
+});
+
+describe('MNE-001-445 · more key shapes are refused, and profile names are not key shapes', () => {
+  const configPath = () => path.join(tmpDir, 'mnemosine.config.json');
+  const sub = (extra: Record<string, unknown>) => ({
+    providers: { sub: { type: 'openai-compatible', model: 'x', ...extra } },
+  });
+
+  it.each([
+    ['an NVIDIA key as a model', sub({ model: 'nvapi-inventada-1' })],
+    ['an xAI key as a base_url', sub({ base_url: 'xai-inventada-2' })],
+    ['a Google key in a helper command', sub({ api_key_cmd: 'AIzaInventada3' })],
+    ['a Google key as a models entry', { models: { gemini: 'AIzaInventada4' } }],
+    ['an NVIDIA key as a note', sub({ note: 'nvapi-inventada-5' })],
+    ['a Bearer header', sub({ headers: { Authorization: 'Bearer inventado-6' } })],
+    ['a bearer header in any case', sub({ headers: { 'X-Gateway': 'bearer inventado-7' } })],
+  ])('refuses %s and writes nothing', (_label, patch) => {
+    expect(() => writeConfigPatch(patch, tmpDir)).toThrow(/looks like a credential/);
+    expect(fs.existsSync(configPath())).toBe(false);
+  });
+
+  it('default_provider "xai-vertex" and a failover entry of that name still save', () => {
+    const file = writeConfigPatch({
+      default_provider: 'xai-vertex',
+      providers: {
+        'xai-vertex': { type: 'openai-compatible', model: 'xai/grok-x', base_url: 'https://v.example.test/v1' },
+        sub: { type: 'openai-compatible', model: 'x', base_url: 'https://s.example.test/v1', failover: ['xai-vertex'] },
+      },
+    }, tmpDir);
+    const written = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      default_provider: string;
+      providers: Record<string, { failover?: string[] }>;
+    };
+    expect(written.default_provider).toBe('xai-vertex');
+    expect(written.providers.sub.failover).toEqual(['xai-vertex']);
+  });
+
+  it('a header that only mentions Bearer later is not a token', () => {
+    const file = writeConfigPatch(sub({ headers: { 'X-Note': 'no Bearer here' } }), tmpDir);
+    const written = JSON.parse(fs.readFileSync(file, 'utf-8')) as { providers: { sub: { headers: Record<string, string> } } };
+    expect(written.providers.sub.headers['X-Note']).toBe('no Bearer here');
+  });
+});
+
+describe('MNE-001-445 · resolveProfile never sends one of the installation\'s own secrets', () => {
+  const VARS = ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'ENCRYPTION_KEY', 'JWT_SECRET'];
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(VARS)('refuses a profile whose api_key_env is %s, fails closed and runs no helper', (variable) => {
+    vi.stubEnv(variable, 'valor-inventado-de-la-instalacion');
+    const marker = path.join(tmpDir, 'helper-ran');
+    fs.writeFileSync(configPath(), JSON.stringify({
+      providers: {
+        fuga: {
+          type: 'openai-compatible', model: 'm', base_url: 'https://fuga.example.test/v1',
+          api_key_env: variable, api_key_cmd: `touch ${marker}`,
+        },
+      },
+    }));
+    let err: unknown;
+    try {
+      resolveProfile('fuga', undefined, tmpDir);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(NotAProviderCredentialError);
+    expect(err).not.toBeInstanceOf(MissingProviderCredentialError);
+    expect((err as Error).message).toContain(`${variable} in api_key_env, which is not a provider credential`);
+    expect((err as Error).message).not.toContain('valor-inventado');
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('matches the name in any case, and refuses an anthropic profile too', () => {
+    fs.writeFileSync(configPath(), JSON.stringify({
+      providers: { a: { type: 'anthropic', model: 'm', api_key_env: 'encryption_key' } },
+    }));
+    expect(() => resolveProfile('a', undefined, tmpDir)).toThrow(NotAProviderCredentialError);
+  });
+
+  it('every name of the four is in the exported list', () => {
+    for (const v of VARS) expect(INSTALLATION_SECRET_VARIABLES.has(v)).toBe(true);
+  });
+
+  function configPath(): string {
+    return path.join(tmpDir, 'mnemosine.config.json');
+  }
 });
 
 describe('setLanguage (writes to the config file that currently WINS)', () => {

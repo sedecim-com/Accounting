@@ -193,8 +193,106 @@ export async function advanceBackOnAccount(
 export interface KeptPool {
   cash: string;
   iva: string;
-  /** MNE-001-591 · The invoices whose rows a credit note capped (`kept` below `keptIvaOf`). */
+  /**
+   * MNE-001-591 · The invoices whose rows a credit note capped (`kept` below `keptIvaOf`), and, MNE-001-593,
+   * those a later note restituted from this cash (`keptRestitutions`).
+   */
   own: ReadonlySet<string>;
+}
+
+/**
+ * MNE-001-593 (#814, decision (A)) · Every tag a credit note's restitution
+ * from kept cash leaves on its 2150 line (`postCreditNoteEntry`).
+ * `kept_restitution: { payment_id, invoice_id }`.
+ */
+export const KEPT_RESTITUTION_TAG = 'kept_restitution';
+
+export interface KeptRestitution {
+  invoiceId: string;
+  noteNumber: string;
+  /** The IVA the note restituted from this receipt's kept cash, four decimals. */
+  iva: string;
+  /** The invoice's total and IVA, whose ratio gives the cash that IVA covered (`restitutedCash`). */
+  total: string;
+  tax: string;
+}
+
+/**
+ * MNE-001-593 · What credit notes restituted from one receipt's cash kept on
+ * account, one row per note and invoice: the tagged 2150 lines of posted,
+ * unreversed note entries. A reversed note stops counting by itself.
+ * Entity-scoped in the SQL.
+ */
+export async function keptRestitutions(client: pg.PoolClient, entityId: string, receiptId: string): Promise<KeptRestitution[]> {
+  const r = await client.query<{ invoice_id: string; note_number: string; iva: string; total: string; tax: string }>(
+    `SELECT i.id::text AS invoice_id, cn.credit_note_number AS note_number,
+            SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0))::text AS iva,
+            i.total_amount::text AS total, i.tax_amount::text AS tax
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $1 AND je.source_type = 'credit_note'
+                              AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false
+       JOIN credit_notes cn ON cn.id = je.source_id AND cn.entity_id = $1
+       JOIN invoices i ON i.id::text = l.tags -> '${KEPT_RESTITUTION_TAG}' ->> 'invoice_id' AND i.entity_id = $1
+      WHERE l.tags -> '${KEPT_RESTITUTION_TAG}' ->> 'payment_id' = $2::text
+      GROUP BY i.id, cn.credit_note_number, i.total_amount, i.tax_amount
+      ORDER BY cn.credit_note_number`,
+    [entityId, receiptId]
+  );
+  return r.rows.map((x) => ({ invoiceId: x.invoice_id, noteNumber: x.note_number, iva: x.iva, total: x.total, tax: x.tax }));
+}
+
+/**
+ * MNE-001-593 · The cash a restitution of `iva` from kept cash covers: the
+ * price it lowered with its IVA, `iva` × total / tax of the invoice, at four
+ * decimals, half up. That cash is now owed back to the customer and carries
+ * no IVA. An invoice with no IVA covers none.
+ */
+export function restitutedCash(iva: string, total: string, tax: string): string {
+  if (!new Decimal(tax).greaterThan(0)) return '0.0000';
+  return new Decimal(iva).times(total).dividedBy(tax).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+/**
+ * MNE-001-593 (#814, decision (A)) · H: the IVA of an invoice's price whose
+ * cash the firm still holds on account, kept caused, receipt by receipt. For
+ * each live receipt with closed rows on the invoice that kept IVA, the
+ * smaller of what those rows kept less what notes already restituted from it
+ * for this invoice, and what its pool still holds (`keptOnAccount`, net of
+ * every restitution) less the IVA its live rows took from it. A note on the
+ * invoice restitutes up to H from 2120 (LIVA art. 7), as a note on a
+ * collected invoice does. Entity-scoped in the SQL.
+ */
+export async function issuedVatKeptOnAccount(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string
+): Promise<{ paymentId: string; paymentNumber: string; iva: string }[]> {
+  const marked = await client.query<{ payment_id: string; payment_number: string; marked: string }>(
+    `SELECT cp.id::text AS payment_id, cp.payment_number, SUM(pa.unapply_kept_iva_amount)::text AS marked
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 AND cp.status = 'completed'
+      WHERE pa.invoice_id = $2 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0
+      GROUP BY cp.id, cp.payment_number
+      ORDER BY cp.payment_number`,
+    [entityId, invoiceId]
+  );
+  const out: { paymentId: string; paymentNumber: string; iva: string }[] = [];
+  for (const row of marked.rows) {
+    const restituted = (await keptRestitutions(client, entityId, row.payment_id))
+      .filter((x) => x.invoiceId === invoiceId)
+      .reduce((sum, x) => sum.plus(x.iva), new Decimal(0));
+    const pool = await keptOnAccount(client, entityId, row.payment_id);
+    const took = (await client.query<{ took: string }>(
+      `SELECT COALESCE(SUM(pa.advance_iva_amount), 0)::text AS took
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+        WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL`,
+      [row.payment_id, entityId]
+    )).rows[0]?.took ?? '0';
+    const holds = Decimal.min(new Decimal(row.marked).minus(restituted), new Decimal(pool.iva).minus(took));
+    if (holds.greaterThan(0)) out.push({ paymentId: row.payment_id, paymentNumber: row.payment_number, iva: holds.toFixed(4) });
+  }
+  return out;
 }
 
 export async function keptOnAccount(
@@ -220,7 +318,14 @@ export async function keptOnAccount(
     iva = iva.plus(row.kept);
     if (new Decimal(row.kept).lessThan(keptIvaOf(row))) own.add(row.invoice_id);
   }
-  return { cash: cash.toFixed(4), iva: iva.toFixed(4), own };
+  // MNE-001-593: what a credit note restituted from this cash leaves it, its covered cash now owed back
+  // and carrying none; the invoice's cash applied again takes the rest first, as a capped row's does.
+  for (const x of r.rows.length > 0 ? await keptRestitutions(client, entityId, receiptId) : []) {
+    iva = iva.minus(x.iva);
+    cash = cash.minus(restitutedCash(x.iva, x.total, x.tax));
+    own.add(x.invoiceId);
+  }
+  return { cash: Decimal.max(cash, 0).toFixed(4), iva: Decimal.max(iva, 0).toFixed(4), own };
 }
 
 /**
@@ -266,16 +371,62 @@ export function capKept(kept: readonly string[], cap: string): string[] {
   const sum = kept.reduce((s, k) => s.plus(k), new Decimal(0));
   const limit = Decimal.max(new Decimal(cap), 0);
   if (sum.lessThanOrEqualTo(limit)) return [...kept];
-  const last = kept.reduce((at, k, i) => (new Decimal(k).greaterThan(0) ? i : at), -1);
+  return shareBy(kept, limit);
+}
+
+/**
+ * `amount` split across rows by their `weights`, at four decimals, half up,
+ * the last row with any weight taking the remainder, so the shares add up to
+ * it. A row with no weight gets 0, and so do all when no row has any.
+ */
+function shareBy(weights: readonly string[], amount: Decimal): string[] {
+  const sum = weights.reduce((s, w) => s.plus(Decimal.max(new Decimal(w), 0)), new Decimal(0));
+  const last = weights.reduce((at, w, i) => (new Decimal(w).greaterThan(0) ? i : at), -1);
   let given = new Decimal(0);
-  return kept.map((k, i) => {
-    if (!new Decimal(k).greaterThan(0)) return new Decimal(0).toFixed(4);
+  return weights.map((w, i) => {
+    if (!new Decimal(w).greaterThan(0) || !sum.greaterThan(0)) return new Decimal(0).toFixed(4);
     const share = i === last
-      ? limit.minus(given)
-      : new Decimal(k).times(limit).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      ? amount.minus(given)
+      : new Decimal(w).times(amount).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
     given = given.plus(share);
     return share.toFixed(4);
   });
+}
+
+/**
+ * MNE-001-592 (#814, decision (A) on #792) · After a credit note, what an
+ * unapply's cash carries back. Of the IVA the rows `released`, `noteKept`
+ * stays in 2120 (`keptAfterNotes`) and `back` goes back to 2125. Of the
+ * advance IVA they would restore (`advanceIva`: their c plus their
+ * `backAsAdvance` IVA), what the note restituted is not caused again: no
+ * more than `noteKept`, because the note reduced the consideration and
+ * restituted its IVA (LIVA art. 7) and no money is received again (art. 1-B).
+ * `kept` is what the cash still carries back on account. The cap is the
+ * note's, not `back`: when the advance's rate is above the invoice's, c − g
+ * stays caused, as MNE-001-461 keeps it.
+ */
+export function restitutedOf(
+  advanceIva: Decimal.Value,
+  released: Decimal.Value,
+  noteKept: Decimal.Value
+): { restituted: string; kept: string; back: string } {
+  const advance = Decimal.max(new Decimal(advanceIva), 0);
+  const note = Decimal.max(new Decimal(noteKept), 0);
+  const restituted = Decimal.min(advance, note);
+  return {
+    restituted: restituted.toFixed(4),
+    kept: advance.minus(restituted).toFixed(4),
+    back: Decimal.max(new Decimal(released).minus(note), 0).toFixed(4),
+  };
+}
+
+/**
+ * MNE-001-592 · Each closing row's share of `restituted`, by the advance IVA
+ * it carried back (`weights`: its c plus its `backAsAdvance` IVA), which the
+ * row stores (`unapply_restituted_iva_amount`, migration 342).
+ */
+export function restitutedByRow(weights: readonly string[], restituted: string): string[] {
+  return shareBy(weights, Decimal.max(new Decimal(restituted), 0));
 }
 
 /**

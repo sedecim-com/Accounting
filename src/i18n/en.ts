@@ -3813,6 +3813,46 @@ export const EN = {
   'fiscal_mx.diot.export.exists':
     '{target} already exists and is not overwritten unless asked: use another path, or --yes. A working paper reviewed and annotated by hand is not replaced silently.',
 
+  // MNE-001-226: cfdi (show, status show, status sync, explain) and rep (missing list, reconcile).
+  /** Above the line items of `cfdi show`. */
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# line item:} other {# line items:}}',
+  /** `cfdi status show` for a UUID the mirror does not have. */
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} is not in the mirror of this entity.',
+  /** `cfdi status show` of a CFDI never consulted with the SAT. */
+  'fiscal_mx.cfdi.status.never_checked': 'Never consulted: run with --refresh to ask the SAT now.',
+  /** `cfdi status sync` without --live: how many it would consult. */
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDIs}} to consult with the SAT{mode, select, dry_run { (dry-run: nothing was consulted)} other {. Run with --live to really consult {count, plural, one {it} other {them}}.}}',
+  /** The tally of `cfdi status sync --live`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consulted} other {# consulted}}: {valid, plural, one {# valid} other {# valid}}, {cancelled, plural, one {# cancelled} other {# cancelled}}, {not_found, plural, one {# not found} other {# not found}}, {errors, plural, one {# error} other {# errors}}',
+  /** After the tally: CFDIs the issuer cancelled. */
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelled by its issuer: review its accounting effect} other {# CFDIs cancelled by their issuers: review their accounting effect}} with cfdi list --json',
+  /** The header of `cfdi explain`. Direction and status are the mirror's values. */
+  'fiscal_mx.cfdi.explain.header': '{uuid} · type {type} · {direction} · case {case} · {status}',
+  /** After the header, when the CFDI has a journal entry. */
+  'fiscal_mx.cfdi.explain.entry': 'entry {entry}',
+  /** `cfdi explain` with no pending decision. */
+  'fiscal_mx.cfdi.explain.no_decisions': 'No pending decisions: the case was resolved by the panel policies alone.',
+  /** `rep missing list --direction issued`: our collections without a REP. */
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# collection} other {# collections}} without an issued REP: our own tax obligation, with a SAT deadline.',
+  /** `rep missing list` (received): paid PPD bills without the supplier REP. */
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# payment} other {# payments}} without the supplier REP: the receipt that supports crediting the IVA of {count, plural, one {that payment} other {those payments}} is missing.',
+  /** Rows whose CFDI is not in the mirror, so their payment method is unknown. */
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated it as {method}; it is listed} other {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated them as {method}; they are listed}} with the doubt stated — a PUE needs no REP.',
+  /** A --min-amount that is not a number. */
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount is unreadable: "{value}".',
+  /** `rep reconcile --dry-run`: how many parked REPs it would retry. */
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# parked REP would be retried} other {# parked REPs would be retried}} (dry-run: nothing was touched).',
+  /** The tally of `rep reconcile`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# retried} other {# retried}}: {linked, plural, one {# linked} other {# linked}}, {parked, plural, one {# still parked} other {# still parked}}, {errors, plural, one {# error} other {# errors}}',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
@@ -5044,6 +5084,262 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  //
+  // The second payables task: the three families whole, roots included,
+  // English as shown (`payment trace` was keyed before). Every generic flag
+  // keeps a key of its own: none of these leaves has a --format, their --reason
+  // is not cli.flag.reason's text, and `prepaid list` declares -n and --offset
+  // by hand. The two withSelection flags `tax-deposit list` rewords go through
+  // describeOption. Lists travel as {conventions} and {states}.
+  'help.payment.description': 'Vendor payments: record cash that already left the bank and settle the bill it pays',
+  'help.payment.create.description': 'Record a payment made against a bill and recognize the IVA it was holding',
+  'help.payment.create.argument.bill': 'bill number, vendor invoice number or id',
+  'help.payment.create.option.amount': 'amount, in the document currency',
+  'help.payment.create.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.payment.create.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.payment.create.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.payment.create.option.json': 'JSON output',
+  'help.payment.create.option.check_number': 'cheque number; only valid with --method check',
+  'help.payment.create.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.create.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.create.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.create.option.discount': 'early-payment discount taken',
+  'help.payment.create.option.memo': 'note stored with the payment',
+  'help.payment.apply.description':
+    'Apply an existing payment to specific bills: partial, with discount, or short-paid',
+  'help.payment.apply.argument.payment': 'payment number or id whose on-account balance is to be applied',
+  'help.payment.apply.option.bill': 'bill to apply to; repeat it, paired in order with --amount',
+  'help.payment.apply.option.amount': 'amount applied to the bill in the same position',
+  'help.payment.apply.option.discount': 'early-payment discount for the bill in the same position',
+  'help.payment.apply.option.mode': 'partial (leave the rest open) or residual (close it short)',
+  'help.payment.apply.option.short_pay_reason':
+    'why the unpaid balance is being written off; required by --mode residual',
+  'help.payment.apply.option.json': 'JSON output',
+  'help.payment.unapply.description':
+    'Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account',
+  'help.payment.unapply.argument.payment': 'payment number or id',
+  'help.payment.unapply.option.bill': 'the bill to unapply from',
+  'help.payment.unapply.option.reason': 'why: it lands in the audit trail',
+  'help.payment.unapply.option.date':
+    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today',
+  'help.payment.unapply.option.json': 'JSON output',
+  'help.payment.reverse.description':
+    'Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again',
+  'help.payment.reverse.argument.payment': 'payment number or id',
+  'help.payment.reverse.option.reason': 'why: it lands in the audit trail',
+  'help.payment.reverse.option.date':
+    'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today',
+  'help.payment.reverse.option.json': 'JSON output',
+  'help.prepaid.description': 'Prepaid expenses: the schedule that takes them out of 1160, month by month',
+  'help.prepaid.create.description':
+    'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing',
+  'help.prepaid.create.argument.description': 'what the prepayment covers, as it will read in the entries',
+  'help.prepaid.create.option.amount': 'amount to accrue, as a decimal',
+  'help.prepaid.create.option.start': 'first day the coverage runs (YYYY-MM-DD)',
+  'help.prepaid.create.option.end': 'last day the coverage runs, inclusive (YYYY-MM-DD)',
+  'help.prepaid.create.option.origin': 'where the charge already in the account came from — no default',
+  'help.prepaid.create.option.source_entry':
+    'the journal entry that charged the account; required with --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'the CFDI this prepayment came in on, for the trail',
+  'help.prepaid.create.option.vendor': 'vendor name kept on the schedule',
+  'help.prepaid.create.option.reference': 'the document this points at: policy number, contract, order',
+  'help.prepaid.create.option.convention':
+    'the convention you believe you are registering ({conventions}); checked against the panel',
+  'help.prepaid.create.option.prepaid_account':
+    'prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)',
+  'help.prepaid.create.option.expense_account':
+    'account the accrual will charge each month (defaults to the `gasto` role)',
+  'help.prepaid.create.option.reason': 'why the threshold is being overridden; required with --force',
+  'help.prepaid.create.option.dry_run': 'show the schedule that would be registered; write nothing',
+  'help.prepaid.list.description': 'Live schedules with their remaining balance and how many periods are left',
+  'help.prepaid.list.option.limit': 'maximum rows to return',
+  'help.prepaid.list.option.offset': 'skip this many rows',
+  'help.prepaid.list.option.all': 'every live schedule, including those not started yet and already ended',
+  'help.prepaid.list.option.as_of':
+    'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)',
+  'help.prepaid.show.description': 'One schedule with its period-by-period table',
+  'help.prepaid.show.argument.id_or_description':
+    'the schedule: its id, or enough of its description to be unambiguous',
+  'help.prepaid.run.description': 'Post the month accrual — one adjusting entry per schedule, irreversible',
+  'help.prepaid.run.option.period': 'period to accrue: 2026-08, or any unambiguous part of its name',
+  'help.tax_deposit.description': 'Employer tax liabilities: what is owed, to whom, and by when',
+  'help.tax_deposit.list.description':
+    'Accrued employer liabilities with their due date and status, soonest due first',
+  'help.tax_deposit.list.option.status': 'filter by liability status ({states}); repeatable',
+  'help.tax_deposit.list.option.all': 'include what is already settled: deposited and waived rows too',
+  'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
+  'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
+  // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
+  //
+  // The first agent task: the six families whole, English as shown (the roots
+  // of ingest and question, `ingest <files...>`, `--kind` and `question list`
+  // were keyed before). Every generic flag keeps a key of its own: «Legal
+  // entity», «Tenant» and «JSON output» are not the kernel's words, and none of
+  // these leaves has a --format. Lists travel as {scopes} and {modes}.
+  'help.approvals.description': 'Graduated approval policies for staged writes (once / session / always)',
+  'help.approvals.list.description': 'List approval policies of the entity',
+  'help.approvals.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.list.option.tenant': 'Tenant',
+  'help.approvals.list.option.scope': 'Filter by scope ({scopes})',
+  'help.approvals.list.option.all': 'Include revoked policies',
+  'help.approvals.list.option.json': 'JSON output',
+  'help.approvals.grant.description':
+    'Grant a pattern-based approval policy (conservative matching; the floor always wins)',
+  'help.approvals.grant.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.grant.option.tenant': 'Tenant',
+  'help.approvals.grant.option.scope': 'Scope of the policy ({scopes})',
+  'help.approvals.grant.option.mode': 'Policy mode ({modes})',
+  'help.approvals.grant.option.kind':
+    "Match field: candidate kind. For drafts this is the draft payload's " +
+    '"kind" (or "entry_type") field, falling back to "journal_entry" when ' +
+    'absent — kinds in use today: journal_entry (default), payroll',
+  'help.approvals.grant.option.max_amount': 'Match field: maximum amount authorized (numeric string)',
+  'help.approvals.grant.option.provider': 'Match field: external provider (e.g. contalink)',
+  'help.approvals.grant.option.operation': 'Match field: external operation (e.g. create_policy)',
+  'help.approvals.grant.option.session': 'Granting session id (required for --mode session)',
+  'help.approvals.grant.option.user': 'Granting user (required when the tenant has several active users)',
+  'help.approvals.revoke.description': 'Revoke an active approval policy',
+  'help.approvals.revoke.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.revoke.option.tenant': 'Tenant',
+  'help.memory.description': 'Firm precedents: what the AI learned and you control',
+  'help.memory.option.entity': 'Legal entity',
+  'help.memory.option.tenant': 'Tenant',
+  'help.memory.option.search': 'Filter by text',
+  'help.memory.option.all': 'Include retired ones',
+  'help.memory.option.conflicts': 'Only the precedents that contradict each other, and how to resolve them',
+  'help.memory.option.json': 'JSON output',
+  'help.memory.teach.description': 'Seeds a firm criterion without waiting for the AI to ask',
+  'help.memory.teach.argument.rule': 'The situation, e.g. "Telmex invoices"',
+  'help.memory.teach.argument.criterion': 'What to do, e.g. "they go to 6130 Utilities"',
+  'help.memory.teach.option.user': 'Who teaches it',
+  'help.memory.teach.option.topic': 'Topic for grouping precedents',
+  'help.memory.correct.description': 'Changes the answer of a precedent (the previous one stays in the history)',
+  'help.memory.correct.argument.id': 'Precedent id',
+  'help.memory.correct.argument.answer': 'The correct answer',
+  'help.memory.correct.option.user': 'Who corrects',
+  'help.memory.retire.description': 'The AI stops using this precedent (not deleted: the history remains)',
+  'help.memory.retire.argument.id': 'Precedent id',
+  'help.memory.retire.option.user': 'Who retires it',
+  'help.memory.retire.option.reason': 'Why it no longer applies (kept in the precedent history)',
+  'help.memory.restore.description': 'Reactivates a retired precedent',
+  'help.memory.restore.argument.id': 'Precedent id',
+  'help.pending.description': 'What you need to do: work to resolve and policy decisions to define',
+  'help.pending.option.entity': 'Legal entity',
+  'help.pending.option.verbose':
+    'Explain each decision: why I ask, what I do, what skipping costs, and what your own data says',
+  'help.pending.option.all': 'Include definitions already resolved and dismissed',
+  'help.pending.define.description': 'Defines a pending decision (the value takes effect immediately)',
+  'help.pending.define.argument.key': 'Decision key (see: mnemosine pending)',
+  'help.pending.define.argument.value': 'Chosen value; if omitted, asked interactively',
+  'help.pending.define.option.entity': 'Legal entity',
+  'help.pending.define.option.user': 'Who defines it',
+  'help.pending.define.option.note': 'Note or rationale',
+  'help.pending.dismiss.description': 'Marks a definition as not applicable (leaves the agenda)',
+  'help.pending.dismiss.option.entity': 'Legal entity',
+  'help.pending.dismiss.option.user': 'Who dismisses it',
+  'help.pending.dismiss.option.note': 'Why it does not apply',
+  'help.pending.reopen.description': 'Reopens an already resolved definition (the policy changed)',
+  'help.pending.reopen.option.entity': 'Legal entity',
+  'help.skills.description': 'Firm skills: list, review staged changes, view content',
+  'help.skills.list.description': 'Visible skills and how many staged changes await review',
+  'help.skills.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.skills.list.option.tenant': 'Tenant',
+  'help.skills.list.option.json': 'JSON output',
+  'help.skills.drafts.description': 'Review staged skill changes: diff + trust-scan report, approve or reject',
+  'help.skills.drafts.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.skills.drafts.option.tenant': 'Tenant',
+  'help.skills.drafts.option.user': 'Reviewer',
+  'help.skills.drafts.option.accept_risk':
+    'Allow approving drafts the trust scanner flagged (recorded in the audit trail)',
+  'help.skills.drafts.option.override_drift':
+    'Approve even if the skill file drifted from the draft diff base (recorded in the audit trail)',
+  'help.skills.drafts.option.json': 'List pending drafts as JSON (no interactive review)',
+  'help.skills.view.description': "Print one skill's SKILL.md",
+  'help.skills.view.argument.name': 'Skill name',
+  'help.ingest.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.ingest.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.ingest.option.model': 'Override the profile model',
+  'help.ingest.option.user': 'User the ingestion is attributed to (default: sole active user)',
+  'help.ingest.option.auto_post': 'Enables threshold-based auto-posting (default: everything stays as draft)',
+  'help.ingest.option.no_auto_post': 'Disables auto-posting even if the config has it turned on',
+  'help.ingest.option.min_confidence': 'Minimum confidence for auto-post (0-1)',
+  'help.ingest.option.max_amount': 'Maximum auto-postable amount',
+  'help.ingest.option.retry':
+    'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates',
+  'help.question.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.question.option.user': 'Who answers (default: sole active user of the tenant)',
+  'help.question.option.list': 'Only list, without answering (deprecated: use `question list`)',
+  'help.question.answer.argument.id': 'question id; omit to answer the pending queue interactively',
+  'help.question.answer.argument.answer': 'the answer text, or the number of an option (requires <id>)',
+  'help.question.answer.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.question.answer.option.user': 'Who answers (default: sole active user of the tenant)',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  //
+  // The second ledger task: the `entry` family whole, root included, English as
+  // shown (`batch` and `fx` are MNE-001-426). Every generic flag a leaf declares
+  // is worded for it and keeps its own key; what withContext, withOutput,
+  // withSelection, withTime, withStrict and declareRisk add stays on cli.flag.*.
+  // The lists travel as {types} and {layouts}. The English of `entry import
+  // --layout` was Spanish author prose on develop ("aún sin parser"); the owner
+  // chose on #314 (15 Nov 2026) to give those nodes real English, so it is the
+  // one English text this task changes.
+  'help.entry.description': 'Journal entries: draft, inspect, validate, post, reverse and void',
+  'help.entry.list.description': 'Search journal entries by text, account, date, amount, state, type or source',
+  'help.entry.list.argument.search': 'text to match in the description or reference',
+  'help.entry.list.option.type': 'entry type (repeatable)',
+  'help.entry.list.option.source': 'origin subledger: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'only entries with a line on this account',
+  'help.entry.list.option.min_amount': 'minimum total debits',
+  'help.entry.list.option.max_amount': 'maximum total debits',
+  'help.entry.show.description': 'Show one entry with its lines, totals, period and linked reversal',
+  'help.entry.show.argument.number': 'entry number (JE-2026-00042) or id',
+  'help.entry.show.option.no_lines': 'header only, without the lines',
+  'help.entry.create.description': 'Create a journal entry — ALWAYS a draft; posting is a separate human step',
+  'help.entry.create.option.line':
+    'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below',
+  'help.entry.create.option.file': 'JSON document with date, type, description and lines',
+  'help.entry.create.option.date': 'entry date (YYYY-MM-DD); defaults to today',
+  'help.entry.create.option.type': 'entry type: {types} (default: standard)',
+  'help.entry.create.option.description': 'what the entry records',
+  'help.entry.create.option.reference': 'external reference (document, folio, memo)',
+  'help.entry.create.option.dry_run': 'validate and show the entry that would be drafted; write nothing',
+  'help.entry.create.option.json': 'JSON output',
+  'help.entry.check.description': 'Run the seven NIF validation rules over an entry or a document; writes nothing',
+  'help.entry.check.option.entry': 'an existing entry, by number or id',
+  'help.entry.check.option.file': 'a JSON entry document that does not exist yet',
+  'help.entry.line.description': 'Ledger lines: from an account balance down to the entries behind it',
+  'help.entry.line.list.description': 'Posted lines of one account, each with the entry it belongs to',
+  'help.entry.line.list.argument.code': 'account code',
+  'help.entry.preview.description':
+    'The exact account_balances delta this entry would produce, without touching anything',
+  'help.entry.preview.argument.number': 'entry number or id',
+  'help.entry.edit.description': 'Edit a DRAFT entry: description, reference, note, date or full line replacement',
+  'help.entry.edit.argument.number': 'entry number or id',
+  'help.entry.edit.option.description': 'new description',
+  'help.entry.edit.option.reference': 'new external reference',
+  'help.entry.edit.option.note': 'new note',
+  'help.entry.edit.option.date': 'new entry date (YYYY-MM-DD)',
+  'help.entry.edit.option.line':
+    'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)',
+  'help.entry.edit.option.file': 'JSON document whose date/description/reference/lines replace the draft',
+  'help.entry.export.description': 'Entries WITH their lines, flat, for audit or migration — no page cap',
+  'help.entry.import.description':
+    'Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger',
+  'help.entry.import.argument.file': 'file of journal entries to stage',
+  'help.entry.import.option.layout': 'file layout: {layouts} (contpaqi/aspel/iif/sat-polizas: no parser yet)',
+  'help.entry.import.option.dry_run': 'parse and report, stage nothing',
+  'help.entry.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first batch',
+  'help.entry.post.description': 'Post ONE entry to the ledger: validates the seven rules, then moves balances',
+  'help.entry.post.argument.number': 'entry number or id',
+  'help.entry.post.option.json': 'JSON output',
+  'help.entry.reverse.description': 'Create the linked posted mirror of an entry (NIF B-1: correct by reversal)',
+  'help.entry.reverse.argument.number': 'the POSTED entry to reverse',
+  'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
+  'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
+  'help.entry.void.argument.number': 'entry number or id',
 
   // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
   //
@@ -5144,6 +5440,109 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  //
+  // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
+  // their one Spanish label, and the verdict of renderDoctor. `id` and `level`
+  // are the machine's and stay out of the catalogue; commands, tables and
+  // Postgres words inside the prose are typed or matched, so they stay as written.
+  /** The label of `conflicting-permissions`; it must share no word with the id. */
+  'doctor.check.permission_conflicts': 'Segregation of duties (user access)',
+  'doctor.summary.title': 'Mnemosine health check',
+  'doctor.summary.fail': 'There are failures that prevent operation. Resolve them in the order shown.',
+  'doctor.summary.warn': 'Operational with warnings.',
+  'doctor.summary.ok': 'All good.',
+  /** `sample` is the first three `command: detail` of the audit, which #150 keeps untranslated. */
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# new violation} other {# new violations}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'The CLI surface stays consistent because every verb comes from a closed list and every flag from the single dictionary. ' +
+    'Fix the command, or —if the change is deliberate— extend the vocabulary in src/cli/kernel/vocabulary.ts. ' +
+    'The baseline in src/cli/kernel/audit.ts is NOT extended.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# baseline entry is no longer violated: delete it} other {# baseline entries are no longer violated: delete them}}',
+  /** `stale` is empty, or « · » and the text of `doctor.cli_consistency.stale`. */
+  'doctor.cli_consistency.inherited':
+    'no new violations; {count, plural, one {# inherited one remains} other {# inherited ones remain}} in the baseline{stale}',
+  'doctor.cli_consistency.clean': 'the surface meets every rule{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'The inherited ones are known, frozen debt: nine are naming decisions, three require retiring a short form already published, ' +
+    'and eight ask for four listings to be paginated.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ posted lines, and everything posted has its trail',
+  /** `capped` is `yes` when the query hit its LIMIT 20. */
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (account, period) where account_balances ≠ Σ posted lines — every report on top inherits the difference',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# posted entry} other {# posted entries}} without a 'post' row in audit_log — facts with no author",
+  'doctor.ledger_integrity.fix':
+    'Balance drift is investigated BEFORE recalculating: since migration 041 a posted line cannot be edited, ' +
+    'so a new difference points at the write path of account_balances, not at the lines.',
+  'doctor.permission_conflicts.ok': 'no active user holds conflicting permissions',
+  'doctor.permission_conflicts.fix':
+    'Split the conflicting permissions between different users, or accept the risk knowingly ' +
+    '(in a one-person firm it is unavoidable; the per-entry maker-checker lives in the panel: segregacion_de_funciones).',
+  /** `list` is `table.trigger=state`, as pg_trigger spells it. */
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} of {total, plural, one {# guarantee} other {# guarantees}} unsealed{off, plural, =0 {} other { (# DISABLED)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <table> ENABLE ALWAYS TRIGGER <trigger>  — and find out WHO disabled it and why',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# guarantee in ENABLE ALWAYS: not even session_replication_role silences it} other {# guarantees in ENABLE ALWAYS: not even session_replication_role silences them}}',
+  'doctor.bank_statements.unnamed_file': '(unnamed)',
+  /** How many tenants the check read: a green that does not say so is green by not looking. */
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# tenant checked} other {# tenants checked}}{blind, plural, =0 {} other {, # could not be checked}}',
+  'doctor.bank_statements.unrepaired': 'this database recorded migration 051 before its correction',
+  'doctor.bank_statements.unique_index': 'the content index is UNIQUE and swallows legitimately identical transactions',
+  'doctor.bank_statements.blind_trigger': 'the trigger does not watch content_hash, so the fingerprint can be forged by hand',
+  'doctor.bank_statements.already_missing':
+    '{lines, plural, one {# line is} other {# lines are}} already missing in {statements, plural, one {# statement} other {# statements}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — applies 072; lines already lost must be re-imported by hand: the remedy gives back the capacity, not the data',
+  /** It does not say «missing»: a line skipped as a duplicate of an overlapping statement is not lost. */
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# line declared and not present} other {# lines declared and not present}} in {statements, plural, one {# statement} other {# statements}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compare before touching anything: if those lines are in the account under ANOTHER statement of an overlapping period, ' +
+    'the database is sound and this is the declared gap of 051. Only if they appear nowhere was there a loss, and then the file is ' +
+    're-imported with the account in view of a human — never by removing the bank_statements row, which is evidence',
+  'doctor.bank_statements.blind':
+    'the catalogue is repaired, but {scope}: without reading their statements I cannot say they are complete',
+  'doctor.bank_statements.blind_fix': 'check that the application role can query bank_statements with a tenant context',
+  'doctor.bank_statements.ok':
+    'the content index is not unique, the trigger enforces the fingerprint, and no statement has fewer lines than it declared ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor does not exist: giving an outside auditor access today means lending them WRITE credentials over the books',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (it does not fit in a migration: the migrator has no CREATEROLE, on purpose)',
+  /** The four grave findings follow «mnemosine_auditor», joined by «; ». */
+  'doctor.auditor_role.bypasses_rls': 'IGNORES RLS (BYPASSRLS): it sees the books of ALL tenants',
+  'doctor.auditor_role.superuser': 'is a SUPERUSER',
+  'doctor.auditor_role.creates_roles': 'can create roles',
+  'doctor.auditor_role.writes': 'has WRITE on {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — the script reasserts NOBYPASSRLS and revokes; also find out WHO granted it',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor has LOGIN: it is meant as a privilege bundle granted to NAMED accounts (one per auditor), not as a shared account',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  and issue one account per person: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor reads {count, plural, one {# materialized view} other {# materialized views}} ({views}): ' +
+    'RLS does not filter them and a role with BYPASSRLS builds them, so they hold the books of ALL tenants',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — its block 4 revokes every relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor exists and is well bounded, but its table coverage could not be measured',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (its verification block prints both counts)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor reads only {readable} of the {total} isolated tables: ' +
+    '{missing, plural, one {# table was} other {# tables were}} created after the last GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (grants again and sets the default privileges for whatever comes next)',
+  'doctor.auditor_role.global_tables':
+    'also {count, plural, other {# without a tenant, which must be global reference only}} ({tables})',
+  /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
+  'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
