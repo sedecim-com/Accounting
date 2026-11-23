@@ -49,7 +49,7 @@ Commands:
   drafts|borradores [options]            Lists the journal entry drafts created by the AI
   review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
   ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
-  lang|idioma [options] [language]       Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  lang|idioma [options] [language]       Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
@@ -333,21 +333,26 @@ Examples:
 ```
 Usage: mnemosine lang|idioma [options] [language]
 
-Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish
-command aliases always work)
+Shows or sets your language: the CLI and the agent's answers (Spanish command
+aliases always work)
 
 Arguments:
-  language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
+  language    the language to set: es, en, es-MX, en-US; omit it to see the
+              language in effect and what decided it
 
 Options:
+  --unset     remove the language saved in ~/.mnemosine/config.json, so the next
+              source decides again
   -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
+  Which language the CLI and the agent use right now, and what decided it:
+    mnemosine lang
+  Use Spanish for both; it is saved in ~/.mnemosine/config.json:
+    mnemosine lang es
+  Remove that choice, so the next source decides again:
+    mnemosine lang --unset
 ```
 
 ## `mnemosine onboard` (alias: alta)

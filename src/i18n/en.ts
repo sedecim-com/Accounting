@@ -2494,8 +2494,7 @@ export const EN = {
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
-    "Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command " +
-    'aliases always work)',
+    "Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)",
   'help.onboard.description':
     "Imports a client's accounting from an external system (chart of accounts + opening balances)",
   'help.outbox.description':
@@ -3308,7 +3307,7 @@ export const EN = {
   'root.ingest.auto_post_turn_on':
     'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
   /** `lang`: a language that is not one of the accepted spellings. */
-  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or {languages}',
   /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
   'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
@@ -5906,4 +5905,37 @@ export const EN = {
   'provider.switch.kept': 'The session stays on {current}.',
   'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
+  'help.lang.argument.language':
+    'the language to set: {choices}; omit it to see the language in effect and what decided it',
+  'help.lang.option.unset':
+    'remove the language saved in ~/.mnemosine/config.json, so the next source decides again',
+  'cli.lang.examples':
+    '\nExamples:\n' +
+    '  Which language the CLI and the agent use right now, and what decided it:\n' +
+    '    mnemosine lang\n' +
+    '  Use Spanish for both; it is saved in ~/.mnemosine/config.json:\n' +
+    '    mnemosine lang es\n' +
+    '  Remove that choice, so the next source decides again:\n' +
+    '    mnemosine lang --unset\n',
+  'cli.lang.name.es': 'Spanish',
+  'cli.lang.name.en': 'English',
+  'cli.lang.in_effect': 'Language: {language} ({locale}), for the CLI and the agent. Decided by {rung}.',
+  'cli.lang.rung.flag': 'the {flag} flag of this run',
+  'cli.lang.rung.env': '{variable}={value} in the environment',
+  'cli.lang.rung.user_config': 'your own choice, saved in {file}',
+  'cli.lang.rung.project_config': "this folder's {file}",
+  'cli.lang.rung.legacy_config': 'the legacy "language" key in {file}',
+  'cli.lang.rung.entity': 'the language of the entity {entity}',
+  'cli.lang.rung.default': 'the system default: nothing else chose one',
+  'cli.lang.change_hint': 'Change it with: mnemosine lang {choices} (or the {variable} environment variable)',
+  'cli.lang.unset_hint': 'Remove your saved choice with: mnemosine lang --unset',
+  'cli.lang.set': 'Language set to {language} ({locale}) for the CLI and the agent, in {file}',
+  'cli.lang.quarantined': 'Your previous {file} could not be read and was replaced; a copy is at {copy}',
+  'cli.lang.takes_effect': 'Takes effect from the next command.',
+  'cli.lang.shadowed_env': '{variable}={value} is set and takes precedence — unset it for this change to apply.',
+  'cli.lang.shadowed': 'It does not apply yet: {rung} takes precedence; change it for this to apply.',
+  'cli.lang.unset.done': 'Removed your language choice ({keys}) from {file}.',
+  'cli.lang.unset.nothing': 'No language choice is saved in {file}; there is nothing to remove.',
+  'cli.lang.unset_with_language': '--unset takes no language: it removes your saved choice (got "{language}").',
 } as const;

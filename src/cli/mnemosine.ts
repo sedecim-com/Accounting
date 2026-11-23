@@ -30,6 +30,7 @@ import {
 import {
   resolveLanguage,
   setUserLocale,
+  unsetUserLocale,
   configFilePaths,
   MissingProviderCredentialError,
 } from '../ai/providers/config.js';
@@ -48,10 +49,12 @@ import { zoneFor } from '../services/policy/today.js';
 
 // Two dials one letter apart, and this file touches both. The one imported here
 // pins the language the CLI PRINTS in: it lives in memory and dies with the
-// process. The other one — the language the AGENT answers in — is persisted to
-// disk, and `mnemosine lang` writes it through `setUserLocale`. Renaming this
-// one at the import keeps any call site from reading as the other.
-import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+// process. The other one — the person's saved language, which the CLI and the
+// agent both read — is persisted to disk, and `mnemosine lang` writes it
+// through `setUserLocale`. Renaming this one at the import keeps any call site
+// from reading as the other.
+import { LANGUAGES, setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+import { languageInEffectLine, languageName, rungPhrase, shownPath } from './lang-line.js';
 import { formatMoney } from '../i18n/format.js';
 import { AppError } from '../utils/errors.js';
 import {
@@ -867,13 +870,6 @@ Examples:
   mnemosine ingest ./sat/julio-recibidos.txt --kind metadata
   # Load the census from a SAT package of XML, and ingest each CFDI in it.
   mnemosine ingest ./sat/julio-emitidos.zip --kind zip
-`,
-  lang: `
-Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
 `,
   onboard: `
 Examples:
@@ -2463,20 +2459,60 @@ ingest.action(async (files: string[], opts: {
     }
   });
 
-describeCommand(program.command('lang').alias('idioma'), 'help.lang.description')
-  .argument('[language]', "'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting")
-  .addHelpText('after', EJEMPLOS.lang)
-  .action(async (language?: string) => {
+// ONE STATEMENT, ON PURPOSE (MNE-001-469 · #653). E0.0
+// `the-user-language-is-written-where-it-is-read` reads the top-level statement
+// that registers `lang` and looks for `normalizeLocale` and `setUserLocale`
+// inside it; split into `const lang = …; lang.action(…)`, the criterion would
+// see a command that writes nothing. So the keyed argument and option wrap the
+// command instead of following it.
+optionByKey(
+  argumentByKey(
+    describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'),
+    '[language]',
+    'help.lang.argument.language',
+    { params: { choices: [...LANGUAGES, ...LOCALES].join(', ') } }
+  ),
+  '--unset',
+  'help.lang.option.unset'
+)
+  .addHelpText('after', () => t('cli.lang.examples'))
+  .action(async (language: string | undefined, options: { unset?: boolean }) => {
     try {
-      if (!language) {
-        console.log(`Agent response language: ${c.bold(resolveLanguage())}`);
+      // The language in effect, for the CLI and the agent, and the rung that
+      // chose it: the first line of every answer `lang` gives.
+      const inEffect = (): string => languageInEffectLine(describeLocale(), undefined, undefined, (text) => c.bold(text));
+      if (options.unset) {
+        // An OPTION and not a fifth spelling of the argument: E0.0 refuses a
+        // raw argument compared with a string, and `lang unset` would be a
+        // language nobody speaks. A language beside it is a contradiction.
+        if (language !== undefined) {
+          throw usageError({ key: 'cli.lang.unset_with_language', params: { language } });
+        }
+        const { file, removed } = unsetUserLocale();
+        if (removed.length === 0) {
+          console.log(t('cli.lang.unset.nothing', { file: shownPath(file) }));
+        } else {
+          console.log(`✔ ${t('cli.lang.unset.done', { keys: removed.join(', '), file: shownPath(file) })}`);
+        }
+        // Asked AFTER removing: what decides now is the next rung — today the
+        // default, once #655 passes it the entity's.
+        console.log(inEffect());
+      } else if (!language) {
+        console.log(inEffect());
         // El nombre de la variable sale de la constante y no de una cadena
         // literal: I6 exige que `MNEMOSINE_LANG` se escriba en UN solo archivo
         // de `src/`, y una mención en un console.log cuenta para el grep tanto
-        // como una lectura. El texto que se imprime no cambia ni un byte
-        // —docs/wiki/Manual-Trabajar-con-el-agente.md:21 lo cita literal—: este
-        // comando es `lang`, y el alias es el nombre que le corresponde.
-        console.log(c.dim(`Change it with: mnemosine lang es|en|es-MX|en-US (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
+        // como una lectura. Este comando es `lang`, y el alias es el nombre que
+        // le corresponde.
+        console.log(
+          c.dim(
+            t('cli.lang.change_hint', {
+              choices: [...LANGUAGES, ...LOCALES].join('|'),
+              variable: LOCALE_ENV_VAR_ALIAS,
+            })
+          )
+        );
+        console.log(c.dim(t('cli.lang.unset_hint')));
       } else {
         // ONE TABLE OF SPELLINGS, AND IT IS NOT HERE (I11 · issue #153).
         //
@@ -2491,7 +2527,7 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // drifted before I6.
         const locale = normalizeLocale(language);
         if (locale === null) {
-          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } });
+          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } });
         }
         // WRITTEN WHERE IT IS READ. `setUserLocale` puts `locale` in the user's
         // own file, which is the step of the precedence that beats the project
@@ -2500,26 +2536,25 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // own `locale`, which outranks the legacy key everywhere — could leave
         // this command printing success over a change nobody would ever see.
         const { file, quarantined } = setUserLocale(locale);
+        // Said in the language this run started in: the CLI resolved it before
+        // anything was written, and the next command reads the new one.
         console.log(
-          `✔ Agent will now answer in ${c.bold(languageOfLocale(locale) === 'es' ? 'Spanish' : 'English')} ` +
-            c.dim(`(${locale} in ${file})`)
+          `✔ ${t('cli.lang.set', { language: c.bold(languageName({ locale })), locale, file: shownPath(file) })}`
         );
         // Said out loud, because the rest of that file is gone. The copy is
         // kept so nothing is lost, but a person who had providers or a tenant
         // configured has to know they are not there any more.
         if (quarantined !== null) {
-          console.log(
-            c.dim(`Your previous ${file} could not be read and was replaced; a copy is at ${quarantined}`)
-          );
+          console.log(c.dim(t('cli.lang.quarantined', { file: shownPath(file), copy: shownPath(quarantined) })));
         }
-        console.log(c.dim('Takes effect on the next session.'));
+        console.log(c.dim(t('cli.lang.takes_effect')));
         // THE WARNING ASKS THE RESOLVER, NOT THE ENVIRONMENT (I6).
         //
         // The environment variable used to be read by hand here — the second
-        // reader of the dial, mnemosine.ts:2238 — and reading it by hand made
-        // it lie twice: it announced precedence for a value `resolveLanguage`
-        // was DISCARDING as unusable, and it said nothing when the winner was
-        // `MNEMOSINE_LOCALE`, the canonical name of the same dial.
+        // reader of the dial — and reading it by hand made it lie twice: it
+        // announced precedence for a value `resolveLanguage` was DISCARDING as
+        // unusable, and it said nothing when the winner was `MNEMOSINE_LOCALE`,
+        // the canonical name of the same dial.
         //
         // It resolves again AFTER writing, which is the only question worth
         // asking: «with the file saved, does anything still beat it?». Since
@@ -2533,10 +2568,10 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
           // send the user to switch off something that no longer exists.
           const advice =
             winner.kind === 'env'
-              ? `${winner.label}=${winner.raw} is set and takes precedence — unset it for this change to apply.`
+              ? t('cli.lang.shadowed_env', { variable: winner.label, value: winner.raw ?? '' })
               : winner.kind === 'flag'
                 ? null
-                : `${winner.label} is "${winner.raw}" and takes precedence — remove it for this change to apply.`;
+                : t('cli.lang.shadowed', { rung: rungPhrase(winner) });
           if (advice !== null) console.log(c.dim(`  ⚠ ${advice}`));
         }
       }
