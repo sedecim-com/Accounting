@@ -4274,11 +4274,23 @@ export const EN = {
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
   'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
-  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.description':
+    'Payables controls: reconcile the vendor subledger against the control account, and run the named checks',
   'help.ap.reconcile.description':
     'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
   'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
   'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.ap.check.description':
+    'Named payables checks; `--check` with no value lists them, `--check a,b` selects',
+  'help.ap.check.option.check': 'comma-separated checks to run; bare --check lists the battery',
+  'ap.check.title': 'AP checks',
+  'ap.check.cancelled_cfdi_open.found':
+    'open bills whose received CFDI the SAT reports cancelled: hold the payment until the vendor sends the CFDI that replaces it; ' +
+    'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_open.none': 'none',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
   'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
   'help.cashflow.generate.option.method':
