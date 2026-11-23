@@ -109,6 +109,11 @@ export interface LocaleDecision {
   label: string | null;
   /** El texto crudo de la fuente, antes de normalizar. `null` en la omisión. */
   raw: string | null;
+  /**
+   * The config file that answered, on the three file rungs only, so that
+   * `mnemosine lang` can name it without parsing the English `label`.
+   */
+  file?: string;
 }
 
 /**
@@ -336,7 +341,7 @@ export function describeLocale(options: ResolveLocaleOptions = {}): LocaleDecisi
     const raw = readConfigString(file, 'locale', warn);
     if (raw === null) continue;
     const hit = accept(raw, kind, `locale in ${file}`, warn);
-    if (hit) return hit;
+    if (hit) return { ...hit, file };
   }
 
   // LA CLAVE VIEJA, CON SU PRECEDENCIA VIEJA INTACTA.
@@ -352,7 +357,7 @@ export function describeLocale(options: ResolveLocaleOptions = {}): LocaleDecisi
     const raw = readConfigString(activeConfig, 'language', warn);
     if (raw !== null) {
       const hit = accept(raw, 'legacy-config', `language in ${activeConfig}`, warn);
-      if (hit) return hit;
+      if (hit) return { ...hit, file: activeConfig };
     }
   }
 

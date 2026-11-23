@@ -1700,7 +1700,7 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'src/cli/mnemosine.ts',
-        de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+        de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } })",
         a: 'usageError(`Unsupported language "${language}". Options: ${LOCALES.join(\', \')}, or es, en`)',
         porque: 'key-unread: the language refusal goes back to a template in the leaf and stops following the user language',
       },
