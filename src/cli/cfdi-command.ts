@@ -149,9 +149,7 @@ Examples:
 } as const;
 
 export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): void {
-  const cfdi = program
-    .command('cfdi')
-    .description('The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI');
+  const cfdi = describeCommand(program.command('cfdi'), 'help.cfdi.description');
 
   const note = (m: string) => process.stderr.write(deps.palette.dim(`${m}\n`));
 
@@ -175,14 +173,10 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   };
 
   // ---- cfdi list ---------------------------------------------------
-  const list = cfdi
-    .command('list')
-    .alias('listar')
-    .description('The mirror, filtered by direction, type, status and date');
+  const list = describeCommand(cfdi.command('list').alias('listar'), 'help.cfdi.list.description');
   withOutput(withSelection(withTime(withContext(list))));
-  list
-    .option('--direction <d>', 'emitido, recibido or ajeno (derived against the RFC of the entity)')
-    .option('--type <t>', 'filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago');
+  optionByKey(list, '--direction <d>', 'help.cfdi.list.option.direction');
+  optionByKey(list, '--type <t>', 'help.cfdi.list.option.type');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: CommonOpts & { direction?: string; type?: string }) =>
@@ -202,11 +196,8 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   );
 
   // ---- cfdi show ---------------------------------------------------
-  const show = cfdi
-    .command('show')
-    .alias('ver')
-    .argument('<uuid>', 'CFDI UUID (timbre fiscal)')
-    .description('One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes');
+  const show = describeCommand(cfdi.command('show').alias('ver'), 'help.cfdi.show.description');
+  argumentByKey(show, '<uuid>', 'help.cfdi.show.argument.uuid');
   withOutput(withContext(show));
   // El SÉPTIMO formato, declarado donde el usuario lo lee. `withOutput` deletrea
   // los seis del kernel y esta hoja acepta uno más —`--format xml` imprime los
@@ -257,18 +248,12 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   );
 
   // ---- cfdi status -------------------------------------------------
-  const status = cfdi
-    .command('status')
-    .alias('estatus')
-    .description('SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)');
+  const status = describeCommand(cfdi.command('status').alias('estatus'), 'help.cfdi.status.description');
 
-  const statusShow = status
-    .command('show')
-    .alias('ver')
-    .argument('<uuid>', 'CFDI UUID')
-    .description('Estado, EsCancelable and EstatusCancelacion as the SAT last answered');
+  const statusShow = describeCommand(status.command('show').alias('ver'), 'help.cfdi.status.show.description');
+  argumentByKey(statusShow, '<uuid>', 'help.cfdi.status.show.argument.uuid');
   withOutput(withContext(statusShow));
-  statusShow.option('--refresh', 'ask the SAT now and update the sat_* cache of the document');
+  optionByKey(statusShow, '--refresh', 'help.cfdi.status.show.option.refresh');
   declareRisk(statusShow, { risk: 'lectura', agent: true });
   statusShow.addHelpText('after', EJEMPLOS.statusShow);
   statusShow.action((uuid: string, opts: CommonOpts & { refresh?: boolean }) =>
@@ -297,14 +282,10 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     })
   );
 
-  const statusSync = status
-    .command('sync')
-    .alias('sincronizar')
-    .description('Re-check the whole mirror against the SAT: stale or never-consulted first');
+  const statusSync = describeCommand(status.command('sync').alias('sincronizar'), 'help.cfdi.status.sync.description');
   withContext(statusSync);
-  statusSync
-    .option('-n, --limit <n>', 'maximum CFDIs to consult in this run', '100')
-    .option('--stale-hours <h>', 'a consultation older than this is stale', '24');
+  optionByKey(statusSync, '-n, --limit <n>', 'help.cfdi.status.sync.option.limit', { defaultValue: '100' });
+  optionByKey(statusSync, '--stale-hours <h>', 'help.cfdi.status.sync.option.stale_hours', { defaultValue: '24' });
   // Clase EXTERNO (la del catálogo): un barrido que llama afuera N veces.
   // Sin --live se queda en el informe de lo que consultaría; el kernel
   // inyecta --live/--dry-run/-y y gateMutation exige la confirmación.
@@ -354,11 +335,8 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   );
 
   // ---- cfdi explain ------------------------------------------------
-  const explain = cfdi
-    .command('explain')
-    .alias('explicar')
-    .argument('<uuid>', 'CFDI UUID')
-    .description('WHY it was recorded the way it was: case, facts and decisions the classifier left');
+  const explain = describeCommand(cfdi.command('explain').alias('explicar'), 'help.cfdi.explain.description');
+  argumentByKey(explain, '<uuid>', 'help.cfdi.explain.argument.uuid');
   withOutput(withContext(explain));
   declareRisk(explain, { risk: 'lectura', agent: true });
   explain.addHelpText('after', EJEMPLOS.explain);
