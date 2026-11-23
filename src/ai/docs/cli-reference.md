@@ -2892,7 +2892,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --layout <name>          file layout: csv, ndjson
-                           (contpaqi/aspel/iif/sat-polizas: aún sin parser)
+                           (contpaqi/aspel/iif/sat-polizas: no parser yet)
                            (default: "csv")
   --dry-run                parse and report, stage nothing
   --idempotency-key <key>  replay-safe key: the same key with the same file

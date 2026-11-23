@@ -123,7 +123,7 @@ describe('doctor consume la auditoría', () => {
     const r = await checkConsistenciaCli();
     expect(r.name).toBe('CLI consistency');
     expect(r.level, 'con deuda congelada avisa; sólo falla ante algo nuevo').not.toBe('fail');
-    expect(r.detail).toMatch(/heredadas|cumple/);
+    expect(r.detail).toMatch(/inherited|meets every rule/);
   });
 
   it('falla si aparece una violación que no está en la línea base', async () => {
@@ -136,7 +136,7 @@ describe('doctor consume la auditoría', () => {
       const r = await checkConsistenciaCli();
       expect(auditarContraLineaBase(program).nuevas.length).toBeGreaterThan(antes);
       expect(r.level, 'una violación nueva tiene que romper').toBe('fail');
-      expect(r.detail).toMatch(/nuevas/);
+      expect(r.detail).toMatch(/new violation/);
     } finally {
       // commander tipa `commands` como readonly y no publica ningún «quitar
       // comando», pero el array de verdad sí es mutable. El molde es sobre el
