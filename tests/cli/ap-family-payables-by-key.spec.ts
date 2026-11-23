@@ -153,7 +153,7 @@ describe('I8.8 · ap reconcile speaks by key', () => {
     await run(['ap', 'reconcile']);
     expect(out).toContain('AP reconciliation · control 2110 Proveedores · as of 2026-07-31\n');
     for (const label of ['Subledger (open bills)', 'Control account (ledger)', 'Difference', 'Explained by items', 'Unexplained']) {
-      expect(out).toMatch(new RegExp(`\\n  ${label.replace(/[()]/g, '\\$&')} +\\d`));
+      expect(out).toMatch(new RegExp(`\\n  ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} +\\d`));
     }
     expect(out).toContain('\n✔ Balanced.\n');
     expect(out).toContain('  No manual entries on the control account either.\n');
