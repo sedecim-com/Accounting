@@ -307,12 +307,15 @@ describe('a cheque with no cashing recorded', () => {
 });
 
 describe('the undo of a cheque before its cashing', () => {
-  it('unapplied on 2026-05-31 and cashed on 2026-06-01: May lists no ended share and no taxed cash; June counts the cash on account as received that day', async () => {
+  // MNE-001-586 (#792, part 3/3): the unapply stores the share's IVA for the cashing, and the cashing causes it,
+  // so the ledger's June now equals the paper's and the tie-out that named the gap is silent.
+  it('unapplied on 2026-05-31 and cashed on 2026-06-01: May lists no ended share and no taxed cash; June counts the cash on account as received that day, and the ledger agrees', async () => {
     const b = await book('unapplied');
     const inv = await ppd(b);
     const receipt = await collect(b, inv);
     await unapplyCustomerPayment(b.f.entityId, receipt.paymentId, { invoiceId: inv, reason: 'wrong invoice', date: day(5, 31) }, b.f.userId);
-    await cash(b, receipt.paymentId, await bankLine(b.account, day(6, 1), '1160.00'));
+    const cashed = await cash(b, receipt.paymentId, await bankLine(b.account, day(6, 1), '1160.00'));
+    expect(cashed).toMatchObject({ released: '160.0000', advanceIva: '160.0000' });
 
     const [may, june] = [await paper(b, 5), await paper(b, 6)];
     expect(at16(may)).toEqual({ base: '0.00', iva: '0.00' });
@@ -324,6 +327,8 @@ describe('the undo of a cheque before its cashing', () => {
       documentKind: 'receipt', breakdown: { tasa16: { base: '1000.0000', iva: '160.0000' } },
     });
     expect(at16(june)).toEqual({ base: '1000.00', iva: '160.00' });
+    expect([may.ledger.iva_trasladado, june.ledger.iva_trasladado]).toEqual(['0.0000', '-160.0000']);
+    for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 
   it('reversed before any cashing, no month counts or names it', async () => {

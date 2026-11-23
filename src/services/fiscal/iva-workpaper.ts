@@ -80,7 +80,9 @@ import {
 //      takes by default because it is paid when cashed (second paragraph).
 //      Each month it would have counted in names the reversal and the amended
 //      return (CFF art. 32). MNE-001-510: the stated cause decides, not the
-//      method (`REVERSAL_CAUSE`).
+//      method (`REVERSAL_CAUSE`). MNE-001-583: what a credit note restituted
+//      from it was never caused either (art. 7), so the note's month leaves
+//      it out and names its amended return too (`uncausedRestitutions`).
 //   3. A reversal whose money arrived and was taken back (`taken_back`) takes
 //      no IVA out: it leaves only by an art. 7 restitution with its document,
 //      an issued credit note, which the paper counts in its own month
@@ -558,14 +560,18 @@ const MIRROR_OF_RECEIPT = `
  * what went back to 2125. Then the row kept less than its plain cash's share
  * of the release (`capKept`), and what it ended is what it kept plus the
  * advance's IVA it took, the same figure its cash carries back on account.
+ *
+ * MNE-001-592 (#814) · Less the advance's IVA the note restituted, which the
+ * unapply did not restore (migration 342): what it ended is what went back to
+ * 2125, and the advance it returns to carries no more than that.
  */
-const ENDED_SHARE_IVA = `CASE
+const ENDED_SHARE_IVA = `(CASE
          WHEN pa.unapply_kept_iva_amount IS NOT NULL AND pa.unapply_kept_iva_amount < CASE
                 WHEN pa.advance_base_amount + pa.advance_iva_amount = 0 THEN pa.iva_reclass_amount
                 ELSE ROUND(pa.iva_reclass_amount * (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)
                            / pa.amount_applied, 4) END
            THEN pa.unapply_kept_iva_amount + pa.advance_iva_amount
-         ELSE COALESCE(pa.iva_reclass_amount, 0) END`;
+         ELSE COALESCE(pa.iva_reclass_amount, 0) END - COALESCE(pa.unapply_restituted_iva_amount, 0))`;
 
 const SHARE_EVENTS = `
        SELECT se.* FROM (
@@ -619,6 +625,40 @@ function scaledBase(d: Desglose, factor: Decimal.Value): Desglose {
   };
 }
 
+/** MNE-001-592 · The IVA scaled by `factor` and the bases left as they are. */
+function scaledIva(d: Desglose, factor: Decimal.Value): Desglose {
+  const box = (c: { base: string; iva: string }) => ({ base: c.base, iva: q4(new Decimal(c.iva).times(factor)) });
+  return {
+    tasa16: box(d.tasa16), tasa8: box(d.tasa8), tasa0: box(d.tasa0), exento: box(d.exento),
+    otras: d.otras.map((o) => ({ etiqueta: o.etiqueta, ...box(o) })),
+  };
+}
+
+/**
+ * MNE-001-592 (#814, decision (A)) · What an unapply puts back of the taxed
+ * cash its row took, after a credit note restituted part of that IVA
+ * (`restituted`, migration 342): the month's contribution keeps its base and
+ * drops that IVA, as the ledger does; the pool carried forward loses the IVA
+ * and the cash it covers (`restitutedCash`, the invoice's total over its tax),
+ * which is owed back and carries none. With nothing restituted, all of it.
+ */
+function restitutedOut(
+  took: { cash: Decimal; breakdown: Desglose; notSubject: Decimal },
+  restituted: string | null,
+  invoice: Pick<InvoiceRow, 'total_amount' | 'tax_amount'> | undefined
+): [Desglose, Decimal, boolean, { cash: Decimal; split: Desglose; notSubject: Decimal } | undefined] {
+  const iva = new Decimal(ivaDelDesglose(took.breakdown));
+  const out = Decimal.min(new Decimal(restituted ?? '0'), iva);
+  if (!out.greaterThan(0)) return [took.breakdown, took.notSubject, false, undefined];
+  const split = scaledIva(took.breakdown, iva.minus(out).dividedBy(iva));
+  const covered = invoice
+    ? new Decimal(restitutedCash(out.toFixed(4), invoice.total_amount, invoice.tax_amount))
+    : took.cash.times(out).dividedBy(iva);
+  const cash = Decimal.max(took.cash.minus(covered), 0);
+  const part = cash.dividedBy(took.cash);
+  return [split, took.notSubject, false, { cash, split: scaledBase(split, part), notSubject: new Decimal(q4(took.notSubject.times(part))) }];
+}
+
 /** One advance's net in the month: collected (+), applied (−) and unapplied (+), as the allocations stored them. */
 interface AdvanceOfMonth {
   id: string;
@@ -642,6 +682,10 @@ interface AdvanceOfMonth {
  * back: the ledger cancels that IVA in the invoice's month on the day of the
  * application (and restores it on the unapply's), against the IVA the
  * invoice caused when issued, so the paper counts them on their own day too.
+ *
+ * MNE-001-592 (#814) · An unapply's put-back drops the IVA a credit note
+ * restituted (migration 342) and keeps its base, so the month nets as the
+ * ledger does: that IVA is not caused again (LIVA art. 7).
  */
 async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
   const pue = await pueInvoicesOfCheckAdvances(client, entityId);
@@ -657,7 +701,7 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND ${CARRIED_AN_ADVANCE}
        UNION ALL
-       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount,
+       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount - COALESCE(pa.unapply_restituted_iva_amount, 0),
               CASE WHEN pa.invoice_id = ANY($4::uuid[]) THEN pa.unapplied_at::date
                    ELSE ${countedOn('cp', 'pa.unapplied_at::date')} END
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
@@ -796,6 +840,8 @@ interface AllocationEventRow {
   advance_taken: string;
   /** MNE-001-574 · The IVA the row's unapply kept caused for its plain cash (migration 338); null otherwise. */
   kept: string | null;
+  /** MNE-001-592 · The advance's IVA its unapply did not restore because a credit note restituted it (342). */
+  restituted: string | null;
   /** The days the paper counts each event on (`countedOn`), and the days they were dated. */
   applied_day: string;
   undone_day: string | null;
@@ -851,7 +897,7 @@ async function cashOnAccountOfMonth(
      SELECT pa.id::text AS allocation_id, pa.payment_id::text, cp.payment_amount::text,
             pa.invoice_id::text, pa.amount_applied::text AS amount, COALESCE(pa.iva_reclass_amount, 0)::text AS vat,
             (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken,
-            pa.unapply_kept_iva_amount::text AS kept,
+            pa.unapply_kept_iva_amount::text AS kept, pa.unapply_restituted_iva_amount::text AS restituted,
             d.applied::text AS applied_day, d.undone::text AS undone_day,
             COALESCE(pa.applied_on, cp.payment_date)::text AS dated_applied,
             CASE WHEN d.undone IS NULL THEN NULL ELSE pa.unapplied_at::date::text END AS dated_undone,
@@ -945,8 +991,9 @@ async function cashOnAccountOfMonth(
         onAccount = onAccount.plus(amount);
         // MNE-001-574: the taxed cash this row took goes back with the IVA it carried.
         const took = tookBy.get(a.allocation_id);
-        if (took) putBack(inMonth, took.cash, took.breakdown, took.notSubject, false);
         const sale = sales.get(a.invoice_id);
+        // MNE-001-592: less what a credit note restituted, which the pool also loses with the cash it covers.
+        if (took) putBack(inMonth, took.cash, ...restitutedOut(took, a.restituted, sale?.row));
         const plainCash = amount.minus(advanceTaken);
         if (!sale || !plainCash.greaterThan(0)) continue;
         // The ended share, read the way the invoice's own telescope reads it.
@@ -960,7 +1007,9 @@ async function cashOnAccountOfMonth(
         // carries is the share's own, the invoice's telescope read here.
         // MNE-001-574: what the unapply kept caused, where it stored it, is the
         // figure the ledger and the pool read.
-        const unreleased = a.held && new Decimal(a.vat).isZero();
+        // MNE-001-586: since then the unapply stores that figure too, and the cashing causes it in the ledger:
+        // only a row closed before it, with no marker, never released.
+        const unreleased = a.held && new Decimal(a.vat).isZero() && a.kept === null;
         // A row that also took taxed cash stored the kept IVA of its plain part
         // alone, which the scaling below brings back to that part.
         const vat = a.kept !== null
@@ -1236,6 +1285,74 @@ interface CollectedAgainRow {
   payment_number: string;
 }
 
+/** MNE-001-583 · What one issued credit note restituted from a receipt's cash that never became the firm's. */
+export interface UncausedRestitution {
+  noteId: string;
+  noteNumber: string;
+  entryNumber: string;
+  noteDate: string;
+  paymentId: string;
+  paymentNumber: string;
+  reversedOn: string;
+  amount: Decimal;
+}
+
+/**
+ * MNE-001-583 (#814; LIVA arts. 1-B and 7) · By note id, the IVA each issued
+ * credit note restituted from a receipt later reversed as `not_collected`:
+ * IVA that receipt never caused, so the note restituted nothing of it. What a
+ * receipt's notes restituted is read from the ledger: the mirrors cancel its
+ * other entries, so its life-net 2120 is the 2120 credit of its reversal's
+ * corrections (`receipt_reversal_iva`, MNE-001-581 and 593). It goes to the
+ * standing notes on the invoices it released IVA on, written before the
+ * reversal (the correction read those), in date and number order, each up to
+ * what its entry debited to 2120. The split by invoice is not stored, so a
+ * receipt over two invoices with notes in two months splits in that order.
+ */
+async function uncausedRestitutions(client: pg.PoolClient, entityId: string): Promise<Map<string, UncausedRestitution[]>> {
+  const out = new Map<string, UncausedRestitution[]>();
+  const receipts = await client.query<{ id: string; payment_number: string; reversed_on: string; entry_ids: string[] }>(
+    `SELECT cp.id::text, cp.payment_number, ${REVERSED_ON}::text AS reversed_on, array_agg(c.id::text) AS entry_ids
+       FROM customer_payments cp ${MIRROR_OF_RECEIPT}
+       JOIN journal_entries c ON c.entity_id = $1 AND c.source_type = 'receipt_reversal_iva' AND c.source_id = cp.id
+                             AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL
+      WHERE cp.entity_id = $1 AND cp.status = 'reversed' AND cp.journal_entry_id IS NOT NULL AND ${REVERSAL_CAUSE} = 'not_collected'
+      GROUP BY cp.id, cp.payment_number, cp.reversed_at, m.entry_date
+      ORDER BY cp.reversed_at, cp.payment_number`,
+    [entityId]
+  );
+  if (receipts.rows.length === 0) return out;
+  const notes = await client.query<{ id: string; credit_note_number: string; entry_id: string; entry_number: string; entry_date: string; payment_id: string }>(
+    `SELECT DISTINCT cn.id::text, cn.credit_note_number, je.id::text AS entry_id, je.entry_number,
+            je.entry_date::text AS entry_date, pa.payment_id::text
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN credit_notes cn ON cn.invoice_id = pa.invoice_id AND cn.entity_id = $1 AND cn.status NOT IN ('draft', 'void')
+       JOIN journal_entries je ON je.id = cn.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
+                              AND je.source_type = 'credit_note' AND je.reversed_by_entry_id IS NULL
+      WHERE pa.payment_id = ANY($2::uuid[]) AND COALESCE(pa.iva_reclass_amount, 0) > 0 AND je.created_at <= cp.reversed_at
+      ORDER BY entry_date, cn.credit_note_number`,
+    [entityId, receipts.rows.map((r) => r.id)]
+  );
+  const restituted = await netOnRole(client, entityId, 'iva_trasladado', [...new Set(notes.rows.map((n) => n.entry_id))]);
+  const left = new Map(notes.rows.map((n) => [n.id, restituted.get(n.entry_id) ?? new Decimal(0)]));
+  const kept = await netOnRole(client, entityId, 'iva_trasladado', receipts.rows.flatMap((r) => r.entry_ids));
+  for (const r of receipts.rows) {
+    let rest = r.entry_ids.reduce((s, id) => s.minus(kept.get(id) ?? 0), new Decimal(0));
+    for (const n of notes.rows.filter((x) => x.payment_id === r.id)) {
+      const take = Decimal.min(rest, left.get(n.id) ?? 0);
+      if (!take.greaterThan(0)) continue;
+      left.set(n.id, (left.get(n.id) as Decimal).minus(take));
+      rest = rest.minus(take);
+      out.set(n.id, [...(out.get(n.id) ?? []), {
+        noteId: n.id, noteNumber: n.credit_note_number, entryNumber: n.entry_number, noteDate: n.entry_date,
+        paymentId: r.id, paymentNumber: r.payment_number, reversedOn: r.reversed_on, amount: take,
+      }]);
+    }
+  }
+  return out;
+}
+
 /** How a finding names a receipt's cause, with the identifier the CLI takes. */
 const CAUSE_LABEL: Record<ReversalReading, string> = {
   not_collected: 'con la causa not_collected (no cobrado)',
@@ -1261,6 +1378,11 @@ const CAUSE_LABEL: Record<ReversalReading, string> = {
  * A cause stated after the reversal is a later event (rule 4): each month it
  * moved names it, with what it took out.
  *
+ * MNE-001-583 (#814) · What a credit note restituted from a receipt reversed
+ * as not_collected was never caused (`uncausedRestitutions`), so the note's
+ * month no longer subtracts it: that month names the note and its amended
+ * return, and every other month the finding is in names the note's month.
+ *
  * The figures named are the ones the paper counts for the receipt: a PPD
  * share's base is its cash, withholding included, less its IVA.
  */
@@ -1268,8 +1390,11 @@ async function reversalFindings(
   client: pg.PoolClient,
   entityId: string,
   range: RangoDelMes,
-  ledger: readonly ReceiptLedgerRow[]
+  ledger: readonly ReceiptLedgerRow[],
+  uncaused: ReadonlyMap<string, readonly UncausedRestitution[]>
 ): Promise<Hallazgo[]> {
+  const month = range.desde.slice(0, 7);
+  const restituted = [...uncaused.values()].flat();
   // Both ends of each payment_allocations bridge are scoped.
   const again = await client.query<CollectedAgainRow>(
     `SELECT DISTINCT r.id::text AS reversed_id, i.invoice_number, cp.payment_number
@@ -1295,7 +1420,9 @@ async function reversalFindings(
       WHERE cp.entity_id = $1 AND cp.status = 'reversed' AND cp.journal_entry_id IS NOT NULL
         AND (${REVERSED_ON} >= $2::date OR cp.id = ANY($3::uuid[]))
       ORDER BY cp.payment_number`,
-    [entityId, range.desde, [...new Set(again.rows.map((r) => r.reversed_id))]]
+    [entityId, range.desde, [...new Set([
+      ...again.rows.map((r) => r.reversed_id), ...restituted.filter((u) => u.noteDate.startsWith(month)).map((u) => u.paymentId),
+    ])]]
   );
   if (reversed.rows.length === 0) return [];
   const allocations = await client.query<ReversedAllocationRow>(
@@ -1335,7 +1462,6 @@ async function reversalFindings(
     }
   }
 
-  const month = range.desde.slice(0, 7);
   const findings: Hallazgo[] = [];
   for (const r of reversed.rows) {
     const months = counted.get(r.id) ?? new Map<string, { base: Decimal; iva: Decimal }>();
@@ -1346,7 +1472,9 @@ async function reversalFindings(
       .reduce((s, e) => s.plus(e.iva), new Decimal(0));
     const countsHere = here !== undefined && (!here.base.isZero() || !here.iva.isZero());
     const collectedAgain = again.rows.filter((g) => g.reversed_id === r.id);
-    if (!countsHere && mirrored.isZero() && collectedAgain.length === 0) continue;
+    const mine = restituted.filter((u) => u.paymentId === r.id);
+    const notesHere = mine.filter((u) => u.noteDate.startsWith(month));
+    if (!countsHere && mirrored.isZero() && collectedAgain.length === 0 && notesHere.length === 0) continue;
     const byCheck = r.payment_method === 'check';
     const entry = r.mirror_number ? `póliza ${r.mirror_number}` : 'sin póliza espejo';
     const before = live.filter((m) => m !== month);
@@ -1406,6 +1534,20 @@ async function reversalFindings(
             `${before.join(', ') || month} hasta que se declare la causa.`
         );
       }
+    }
+    for (const u of notesHere) {
+      parts.push(
+        `La nota de crédito ${u.noteNumber} del ${u.noteDate} (póliza ${u.entryNumber}) restituyó ${q4(u.amount)} de IVA que el ` +
+          `cobro ${r.payment_number} nunca causó: se reversó el ${r.reversed_on} ${CAUSE_LABEL[r.cause]} (LIVA art. 1-B), y lo ` +
+          `que no se causó no se restituye (LIVA art. 7), así que este mes no lo resta. Si la declaración de ${month} ya se ` +
+          `presentó restándolo, se corrige con una complementaria (CFF art. 32).`
+      );
+    }
+    for (const u of mine.filter((x) => !x.noteDate.startsWith(month))) {
+      parts.push(
+        `La nota ${u.noteNumber}, en ${u.noteDate.slice(0, 7)}, restituyó ${q4(u.amount)} que este cobro no causó: esa ` +
+          `declaración también se corrige con una complementaria.`
+      );
     }
     if (collectedAgain.length > 0) {
       const invoices = [...new Set(collectedAgain.map((g) => g.invoice_number))].join(', ');
@@ -1666,6 +1808,8 @@ interface ChargedOfMonth {
   cashOnAccount: Map<string, { back: Decimal; taken: Decimal; neverReleased: Decimal }>;
   /** MNE-001-565 · the cancelled credit notes whose entries moved 2120 in the month. */
   noteCauses: NoteGapCause[];
+  /** MNE-001-583 · what each note restituted from a receipt reversed as never collected, any month. */
+  uncaused: Map<string, UncausedRestitution[]>;
 }
 
 async function chargedOfMonth(
@@ -1837,7 +1981,9 @@ async function chargedOfMonth(
     });
   }
   // MNE-001-565 · each issued credit note, subtracted in the month its entry moved 2120.
-  const notes = await issuedCreditNotesOfRange(client, entityId, range);
+  // MNE-001-583: less what it restituted that a receipt reversed as never collected did not cause.
+  const uncaused = await uncausedRestitutions(client, entityId);
+  const notes = await issuedCreditNotesOfRange(client, entityId, range, uncaused);
   breakdown = sumarDesgloses(breakdown, notes.breakdown);
   notSubject = notSubject.plus(notes.notSubject);
   manualZeroRate = manualZeroRate.plus(notes.manualZeroRate);
@@ -1869,6 +2015,7 @@ async function chargedOfMonth(
     ivaByReceipt,
     cashOnAccount: new Map(cashOnAccount.map((c) => [c.paymentId, { back: c.back, taken: c.taken, neverReleased: c.neverReleased }])),
     noteCauses: notes.causes,
+    uncaused,
   };
 }
 
@@ -2107,7 +2254,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const ledger = await roleMovements(client, tenantId, entityId, range);
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
     const receiptLedger = await receiptLedgerOfMonth(client, entityId, range);
-    findings.push(...(await reversalFindings(client, entityId, range, receiptLedger)));
+    findings.push(...(await reversalFindings(client, entityId, range, receiptLedger, charged.uncaused)));
     findings.push(...(await checkFindings(client, entityId, range)));
     tieOut(
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',

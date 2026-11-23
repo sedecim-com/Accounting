@@ -99,7 +99,7 @@ import type { Command } from 'commander';
 // AL CARGAR mnemosine.js. Con una salvedad que hay que decir porque este
 // comentario decía otra cosa: MEDIDO HOY, reordenarlos NO mueve ninguna de las
 // seis cifras. Construido el árbol en es-MX, `censar` devuelve exactamente lo
-// mismo —`nodos-fuera-del-idioma-canonico` sigue en 6— porque lee la
+// mismo —`nodos-fuera-del-idioma-canonico` sigue en 1— porque lee la
 // descripción GUARDADA en el objeto de Commander, y `kernel/help.ts` guarda ahí
 // el inglés y traduce sólo el renderizado. Aquí esto es blindaje, no
 // reparación: lo protege una decisión que vive en OTRO archivo. El porqué
@@ -183,14 +183,16 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * `entity` is out of the list above; the other sixteen families stay as they
  * were.
  *
- * ── `nodos-fuera-del-idioma-canonico` = 6 (SUBIÓ A MANO A 7, BAJÓ EL 15 NOV) ──
+ * ── `nodos-fuera-del-idioma-canonico` = 1 (SUBIÓ A MANO A 7, BAJA DESDE EL 15 NOV) ──
  *
  * BAJÓ A 6 EL 15 NOV 2026. El dueño decidió en #314 que la prosa de autor en
  * castellano reciba inglés de verdad, y MNE-001-234 se lo dio a `account map
- * import <file>`. De los seis de siempre quedan cinco, que reciben su inglés en
- * 235 (`entry import`), 240 (`cfdi list` y `cfdi status show`) y 243 (`ai` y
- * `ai stats`); cada uno baja este número con `--apretar`. El séptimo, `batch
- * check`, sigue aquí por lo que explica lo que sigue.
+ * import <file>`. BAJÓ A 4 EL 20 NOV con MNE-001-224 (#844), que dio inglés a
+ * `ai` y `ai stats` al pasarlos al bloque I8.6. BAJÓ A 2 con MNE-001-226
+ * (#871), que se lo dio a `cfdi list` y `cfdi status show` al pasarlos al
+ * bloque I8.7. BAJÓ A 1 con MNE-001-235, que se lo dio a `entry import
+ * --layout`. De los seis de siempre no queda ninguno. El que queda, el
+ * séptimo, `batch check`, sigue aquí por lo que explica lo que sigue.
  *
  * Fue el único de los seis que SUBIÓ en su lote, y subió porque el árbol creció
  * con un nodo más fuera del idioma. Los seis de siempre eran `account map
@@ -218,22 +220,22 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  *
  * LO QUE SE MIRÓ Y NO SE HIZO. `fueraDeIdioma` descuenta lo entrecomillado y lo
  * marcado entre acentos graves —por eso la descripción de `lang`, con su literal
- * 'es', no cuenta—, así que marcar las cinco categorías bajaría el número a 6 y
+ * 'es', no cuenta—, así que marcar las cinco categorías bajaría el número en uno y
  * además le diría al lector que son valores literales. Es defendible, pero es
  * una edición de la ayuda de `batch check` (src/cli/batch-command.ts), no de
  * este censo, y hoy NO está hecha: ese archivo lleva un comentario que dice que
  * las cinco «van entre acentos graves» y la cadena que se imprime no los tiene.
- * Este 6 es la medición del árbol tal como está, no la del árbol que el
+ * Este 3 es la medición del árbol tal como está, no la del árbol que el
  * comentario describe; si alguien termina esa edición, el número baja uno más y
  * el trinquete lo va a pedir por holgura.
  *
- * Y ES UN 6 EN INGLÉS, aunque hoy no haga falta insistir. Desde I7 el árbol se
+ * Y ES UN 3 EN INGLÉS, aunque hoy no haga falta insistir. Desde I7 el árbol se
  * rinde en dos idiomas y el import de `./english-locale.js` de arriba fija el
- * locale para que este número signifique siempre lo mismo. Pero MEDIDO HOY el 6
+ * locale para que este número signifique siempre lo mismo. Pero MEDIDO HOY el 3
  * sale igual con el árbol construido en es-MX: `censar` lee la descripción
  * guardada en el objeto de Commander, que `kernel/help.ts` deja en inglés a
  * propósito. El locale fijado es la garantía de que siga siendo así el día que
- * alguien cambie esa decisión, no la razón de que hoy salga 6.
+ * alguien cambie esa decisión, no la razón de que hoy salga 3.
  *
  * ── `hojas-graves-sin-las-tres-banderas` = 0 ──────────────────────────────
  *
@@ -242,10 +244,10 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * día que alguien registre una hoja grave por fuera del núcleo.
  */
 export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
-  'hojas-sin-ejemplo': 39,
+  'hojas-sin-ejemplo': 35,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
-  'nodos-fuera-del-idioma-canonico': 2,
+  'nodos-fuera-del-idioma-canonico': 1,
   'hojas-graves-sin-las-tres-banderas': 0,
   'banderas-del-diccionario-sin-hoja': 11,
 });

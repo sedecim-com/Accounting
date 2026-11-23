@@ -493,6 +493,10 @@ mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/sat-census/cancell
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its predicate: the same cancellation rewrites the mark and the count reports bills that did not move
 mirror	memory	E3.2 sat-cancellation-reaches-bill	src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql	the backfill matches the mirror across entities: a bill of a sister entity with the same UUID is marked
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control reads a value the mark never writes: every marked bill with a balance goes unnamed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the open set: a void or draft bill is named as owed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the balance: a bill with nothing left to pay is named as owed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control loses its entity scope: a sister entity with the same UUID shows its bill here
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
@@ -799,7 +803,7 @@ anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
 anchor	src/plan/criteria/e0-0.ts	de: "t('root.ingest.auto_post_ignored')",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
-anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } })",
+anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } })",
 anchor	src/plan/criteria/e0-0.ts	de: "llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "t('ar.receipt.no_rep')",
@@ -1244,6 +1248,10 @@ anchor	src/plan/criteria/e3-2.ts	de: 'bills += await markBillCfdiCancelled(scope
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: 'AND cfdi_cancellation_noted_at IS NULL',
 anchor	src/plan/criteria/e3-2.ts	de: 'x.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.cfdi_cancellation_noted_at IS NOT NULL',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.status = ANY($2::text[])',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.amount_due > 0',
+anchor	src/plan/criteria/e3-2.ts	de: 'WHERE b.entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
 anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",

@@ -87,7 +87,16 @@ output when a connection problem is unclear.
   (`MNEMOSINE_LOCALE`, alias `MNEMOSINE_LANG`) outrank it, and `lang` says so
   out loud after writing. The legacy `language` key keeps its OLD order (the
   first file that exists wins entire, project before user) and is still read
-  as a fallback below `locale`.
+  as a fallback below `locale`. `mnemosine lang --unset` (`unsetUserLocale`)
+  removes `locale` and the legacy `language` from the USER file only, keeps
+  every other key, and writes nothing when neither is there.
+- A second key is read from `~/.mnemosine/config.json` ALONE: `jobs.run_due`,
+  `"adopted"` or `"all"`, which due jobs `jobs run-due` runs on the
+  credential of whoever runs it (#646). `adopted` runs only the jobs that
+  operator adopted (`jobs adopt <id>`, kept in `~/.mnemosine/adopted-jobs.json`,
+  never in the database) and lists the rest; `all` runs every due job; unset
+  behaves as `all` and names on stderr the jobs it ran that were not adopted.
+  In a project file the key is not read, and the tick says so.
 - `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
   copying it, so a built-in keeps its declared window: `--model` >
   `models.<profile>` > the profile's `model`. A name that is no profile is
@@ -100,7 +109,9 @@ output when a connection problem is unclear.
   hide it. `MNEMOSINE_PROVIDER` still outranks the saved default, and init
   says so.
 - An openai-compatible profile may declare `reasoning_effort` (none, minimal,
-  low, medium, high, xhigh, max); it is sent only then. A turn that spends
+  low, medium, high, xhigh, max); it is sent only then. The built-ins `grok`
+  (`grok-4.3`) and `gemini` (`gemini-3.8-flash`) declare `low`; their model
+  ids ship not verified live, as their notes say. A turn that spends
   the whole 8192-token output cap without text or a tool call fails with an
   error that says so: suggest a lower `reasoning_effort`, not a retry. Tool
   calls keep the provider's `extra_content` (Gemini 3's thought signature)

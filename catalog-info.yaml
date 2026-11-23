@@ -91,6 +91,15 @@ provides:
     # in INSTALLATION_SECRET_VARIABLES) is refused by resolveProfile before anything is
     # read or sent, and readiness says «not a provider credential» (MNE-001-445, #644).
     # A tightening: such a profile used to send that secret as its bearer token.
+    # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
+    # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
+    # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs
+    # every due job as before and adds a notice on stderr naming the jobs it ran that
+    # its operator has not adopted; "all" adds a first line on stdout; "adopted" runs
+    # only the jobs in ~/.mnemosine/adopted-jobs.json and lists the rest. New leaves
+    # `jobs adopt [id] [--list]` and `jobs unadopt <id>`; `jobs create` adopts the new
+    # job for its creator. Rollback: remove `jobs` from the config file, which the
+    # previous build refuses, and delete ~/.mnemosine/adopted-jobs.json.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
@@ -111,6 +120,18 @@ provides:
     # Rollback: the previous build ignores the column, so cash an unapply kept would cause
     # its IVA again when applied; before reverting, post DR 2120 / CR 2150 by hand for each
     # unapply_kept_iva_amount still on account: what its unapply posted beyond this one.
+    # CONTRACT: after a credit note, `receipt unapply` of cash that carried an advance's IVA
+    # (a receipt with a treatment, MNE-001-462, or a plain receipt's pool, MNE-001-574/591)
+    # restores to 2120 only the advance IVA the note did not restitute (MNE-001-592, #814;
+    # LIVA art. 7): 1,160.00 at 16 % on a 1,000.00 + 160.00 invoice with a 200.00 + 32.00
+    # note posts CR 2150 1,032.00 / CR 2125 128.00 with no 2120 line, where it posted CR
+    # 2150 1,000.00 / CR 2125 128.00 / CR 2120 32.00. The closed allocation stores the
+    # restitution in `unapply_restituted_iva_amount` (342), and the advance left loses it and
+    # the cash it covers (restituted × total / tax). `--json` is unchanged; the audit adds
+    # `advance_iva_restituted`. Rollback: the previous build ignores the column, so a later
+    # application would take the restituted IVA from the advance again; before reverting,
+    # post DR 2150 / CR 2120 by hand for each restituted amount still on account. The
+    # migration can stay.
     # CONTRACT: the panel key `plain_receipt_unapply_iva` (MNE-001-585, #792 part 2/3)
     # governs that unapply: `keep_caused`, the default, is the line above unchanged; under
     # `repark_same_month` a row whose IVA was released in the calendar month of the unapply
@@ -125,6 +146,17 @@ provides:
     # r - e (DR when negative, no line at zero) and DR 2150 less e. `--json` is unchanged.
     # Rollback: the previous build does not read that IEPS, so before reverting post DR 2181 /
     # CR 2150 by hand, tagged, for each kept IEPS still on account.
+    # CONTRACT: `receipt unapply` of a receipt with no treatment by a cheque the bank has not
+    # cashed, from a PPD invoice, still posts no IVA line (CR 2150 the whole cash), and now
+    # stores on each row the IVA its share would have released (`unapply_kept_iva_amount`);
+    # `--json` gives it as `iva_at_cashing`, which used to read 0.00 (MNE-001-586, #792 part
+    # 3/3; LIVA art. 1-B). `bank check reconcile --receipt` then posts DR 2150 / CR 2120 for
+    # it, where it posted nothing, under either answer to `plain_receipt_unapply_iva`. Until
+    # the cashing that cash is a held cheque's advance: `receipt apply` of it follows
+    # `cheque_advance_before_cashing` (refused by default), and a credit note restitutes none
+    # of it from 2120. Rollback: the previous build does not cause the marker at the cashing
+    # and reads it as IVA already caused, so before reverting record on this build the
+    # cashing of each such cheque, and clear the marker of one the bank has still not cashed.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed

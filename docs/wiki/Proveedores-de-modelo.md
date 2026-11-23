@@ -18,8 +18,8 @@ mnemosine providers
 |---|---|---|---|---|
 | `anthropic` | nativo | `claude-opus-5` | `ANTHROPIC_API_KEY` | El proveedor por omisión |
 | `openai` | OpenAI-compatible | `gpt-5.1` | `OPENAI_API_KEY` | Usa `max_completion_tokens` |
-| `gemini` | OpenAI-compatible | `gemini-2.5-pro` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio (capa aún en beta; ver deriva) |
-| `grok` | OpenAI-compatible | `grok-4` | `XAI_API_KEY` | Modelo derivado; ver abajo |
+| `gemini` | OpenAI-compatible | `gemini-3.8-flash` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio; esfuerzo `low`. Sin verificar en vivo: [su ficha](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), leída el 20-nov-2026 |
+| `grok` | OpenAI-compatible | `grok-4.3` | `XAI_API_KEY` | Esfuerzo `low`; ventana declarada de 200 000, el escalón donde xAI dobla el precio. Sin verificar en vivo: [su ficha](https://docs.x.ai/developers/models/grok-4.3), leída el 20-nov-2026 |
 | `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible; URL en ruta de deprecación (ver deriva) |
 | `minimax` | OpenAI-compatible | `MiniMax-M2` | `MINIMAX_API_KEY` | Endpoint global; para China se cambia `base_url` |
 | `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos. El alias `auto` es deriva garantizada por diseño |
@@ -64,7 +64,7 @@ Las secciones que el archivo admite:
 
 | Sección | Para qué |
 |---|---|
-| `language` | Idioma en que responde el **agente** (`en` \| `es`, por omisión `es`). La interfaz del CLI es inglés siempre; los alias en español de los comandos existen de todos modos. |
+| `locale` | Tu idioma, el del CLI y el de las respuestas del agente (`es-MX` \| `en-US`, o `es` \| `en`; por omisión `es-MX`). Lo escribe `mnemosine lang`, en `~/.mnemosine/config.json`, y `mnemosine lang --unset` lo quita. La clave antigua `language` se sigue leyendo; los alias en español de los comandos existen de todos modos. |
 | `default_provider` | El perfil por omisión. |
 | `providers` | Perfiles propios, o reemplazos de los predefinidos. |
 | `models` | El modelo que eliges para un perfil, por su nombre: `{ "gemini": "<id del modelo>" }`. El perfil predefinido conserva su ventana y su postura; `--model` sigue ganando. Un nombre que no es perfil se rechaza con la lista de los que hay. |
@@ -130,8 +130,8 @@ Los defaults de un catálogo estático envejecen. La verificación con fuentes v
 
 | Perfil | Lo cableado | Lo encontrado |
 |---|---|---|
-| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. |
-| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. |
+| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. **Resuelto el 20-nov-2026** (MNE-001-449): xAI retiró el slug el 15-may-2026 y lo sirve con `grok-4.3`, el nuevo default. |
+| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. **Resuelto el 20-nov-2026** (MNE-001-449): Google ya no sirve `gemini-2.5-pro` a proyectos nuevos; el default es `gemini-3.8-flash`. |
 | `minimax` | `MiniMax-M2` | Sigue listado, pero el vigente es M3; la [doc de MiniMax](https://platform.minimax.io/docs/guides/text-generation) además recomienda ya su endpoint Anthropic-compatible (irrelevante mientras el perfil sea OpenAI-compatible). Letra chica verificada del modo compatible: `n` solo 1, penalizaciones ignoradas ([referencia](https://platform.minimax.io/docs/api-reference/text-openai-api)). |
 | `qwen` | `dashscope-intl.aliyuncs.com/compatible-mode/v1` | **La deriva más seria.** La [doc oficial de Model Studio](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) ya empuja URLs por región y por *workspace*; la URL cableada sigue funcionando según terceros activos, pero está en ruta de deprecación. La misma doc acota el *function calling* a ciertos modelos. Existen snapshots fechados (`qwen3-max-2026-01-23`) útiles para fijar la deriva. |
 | `anthropic` | — | El endpoint no cambió, pero la documentación se mudó: docs.anthropic.com redirige a [platform.claude.com](https://platform.claude.com/docs/en/api/overview). Referencias internas por actualizar. |
@@ -245,9 +245,10 @@ La credencial se contesta igual en `doctor`, `mnemosine providers`, `mnemosine s
 - `<VARIABLE> set`: la variable del perfil está definida (una variable vacía cuenta como no definida);
 - `api_key_cmd in <archivo>`: hay un helper, nombrado con el archivo de donde se leyó; si es un archivo de proyecto se marca como compartido, porque lo lee todo el que corre mnemosine en esa carpeta;
 - `local, no credential` o `no credential configured`: el perfil no pide credencial, y sólo un `base_url` de loopback se llama local;
+- para un perfil `anthropic` sin variable ni helper, la fuente que el SDK de Anthropic lee por su cuenta, en su orden: `ANTHROPIC_API_KEY` (también cuando el perfil nombra otra variable), `ANTHROPIC_AUTH_TOKEN`, una línea `x-api-key` o `Authorization` de `ANTHROPIC_CUSTOM_HEADERS`, la sesión de `ant auth login` (`configs/<perfil>.json` bajo `ANTHROPIC_CONFIG_DIR`, `$XDG_CONFIG_HOME/anthropic` o `~/.config/anthropic`, y en Windows bajo `APPDATA`; el perfil es el de `ANTHROPIC_PROFILE` o el de `active_config`), y la federación de identidad, que sólo cuenta con sus tres entradas y una raíz de configuración. Se mira que el archivo exista, sin abrirlo, y nunca se abre `credentials/<perfil>.json`. El espejo es de `@anthropic-ai/sdk` 0.128.0: al subir el SDK se revisa;
 - `<VARIABLE> missing (get it at …)`: falta, con dónde obtenerla.
 
-Si el `./.env` de la carpeta define la variable, la respuesta lo añade: esa llave sirve a todo el que corre mnemosine ahí. La respuesta es orientativa —nada se niega a correr por ella— y **nunca corre el helper** ni imprime su comando o su salida; `status` y la sonda de `init` sí lo corren, como antes, para su llamada en vivo. El asistente no pide llave si hay helper, y `jobs run-due` dice en su primera línea qué perfil usa y de dónde sale su credencial, que es la de quien corre el tic.
+Si el `./.env` de la carpeta define la variable, la respuesta lo añade: esa llave sirve a todo el que corre mnemosine ahí. La respuesta es orientativa —nada se niega a correr por ella, salvo el cambio de `/provider`, que no cambia a un perfil sin credencial— y **nunca corre el helper** ni imprime su comando o su salida; `status` y la sonda de `init` sí lo corren, como antes, para su llamada en vivo. El asistente no pide llave si hay helper o si ya iniciaste sesión con Anthropic; `/provider` en el chat dice qué falta y se queda en la sesión actual cuando el perfil no tiene credencial; el chat y `ask` que no arrancan por falta de credencial nombran el perfil, su variable, dónde obtenerla, la alternativa y `mnemosine init --section ai`; y `jobs run-due` dice en su primera línea qué perfil usa y de dónde sale su credencial, que es la de quien corre el tic.
 
 ```bash
 mnemosine providers
@@ -278,7 +279,7 @@ Si algo no responde, el diagnóstico paso a paso está en [[Solucion-de-problema
 
 > **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
 
-- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` a `console.anthropic.com/settings/keys` hace 301 a `platform.claude.com/settings/keys`.
+- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` apuntaba a `console.anthropic.com/settings/keys`, que hace 301; desde MNE-001-444 apunta a `platform.claude.com/settings/keys`.
 - **Todos los proveedores relevantes exponen listado de modelos** (`GET /v1/models` o equivalente): la puerta `providers models` que la sonda del init podría usar para no adivinar el id sigue sin existir, y con ella la instantánea de deriva y una política `ia_deriva_modelo`.
 - **Siguen sin perfil** Mistral, Groq, Together, DeepSeek, Cerebras y Fireworks, y sin plantilla Azure OpenAI ni AWS Bedrock; `api_key_cmd` no tiene TTL (`config.ts:712-727`); el PKCE de OpenRouter no está en el init. La nota del perfil `openclaw` está incompleta: su endpoint sí acepta herramientas (`config.ts:473`).
 

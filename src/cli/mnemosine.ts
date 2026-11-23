@@ -30,6 +30,7 @@ import {
 import {
   resolveLanguage,
   setUserLocale,
+  unsetUserLocale,
   configFilePaths,
   MissingProviderCredentialError,
 } from '../ai/providers/config.js';
@@ -48,10 +49,12 @@ import { zoneFor } from '../services/policy/today.js';
 
 // Two dials one letter apart, and this file touches both. The one imported here
 // pins the language the CLI PRINTS in: it lives in memory and dies with the
-// process. The other one — the language the AGENT answers in — is persisted to
-// disk, and `mnemosine lang` writes it through `setUserLocale`. Renaming this
-// one at the import keeps any call site from reading as the other.
-import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+// process. The other one — the person's saved language, which the CLI and the
+// agent both read — is persisted to disk, and `mnemosine lang` writes it
+// through `setUserLocale`. Renaming this one at the import keeps any call site
+// from reading as the other.
+import { LANGUAGES, setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+import { languageInEffectLine, languageName, rungPhrase, shownPath } from './lang-line.js';
 import { formatMoney } from '../i18n/format.js';
 import { AppError } from '../utils/errors.js';
 import {
@@ -118,7 +121,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
-import { providerLines } from './provider-readiness.js';
+import { credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -351,7 +354,7 @@ function isInterrupt(err: unknown): boolean {
 export function reportError(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError) {
     console.error(ce.red('\nAuthentication error with the Anthropic API.'));
-    console.error('Set ANTHROPIC_API_KEY in your environment or .env, or run `ant auth login`.');
+    console.error(t('provider.credential.anthropic_rejected'));
   } else if (err instanceof OpenAI.AuthenticationError) {
     console.error(ce.red('\nThe provider rejected the credential (401).'));
     console.error('Check the environment variable named by api_key_env in the profile (mnemosine providers).');
@@ -393,6 +396,20 @@ export function reportError(err: unknown): void {
       if (remedio) console.error(`  → ${remedio}`);
     }
   }
+}
+
+/**
+ * reportError, except that a missing credential reads as the readiness answer
+ * every surface gives: the profile, its variable, where to get it, the
+ * alternative and `mnemosine init --section ai` (MNE-001-444). `providerName`
+ * is the profile the session runs on; undefined means the configured default.
+ */
+function reportSessionError(err: unknown, providerName: string | undefined): void {
+  const hint = credentialErrorHint(err, providerName);
+  if (!hint) return reportError(err);
+  const [problem, ...next] = hint;
+  console.error(ce.red(`\n${problem}`));
+  for (const line of next) console.error(`  → ${line}`);
 }
 
 function makeCallbacks(askUser?: AskUserFn, onDraftCreated?: SessionCallbacks['onDraftCreated']): SessionCallbacks {
@@ -854,13 +871,6 @@ Examples:
   # Load the census from a SAT package of XML, and ingest each CFDI in it.
   mnemosine ingest ./sat/julio-emitidos.zip --kind zip
 `,
-  lang: `
-Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
-`,
   onboard: `
 Examples:
   # Plan the import from the client's current system, writing nothing.
@@ -1290,7 +1300,7 @@ askCommand
       await shutdown(0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
@@ -1364,7 +1374,7 @@ chatCommand
         if (chatDbInitError) throw chatDbInitError;
         built = await buildSession(opts.entity, opts.provider, opts.model, callbacks, onChatFailover);
       } catch (startupErr) {
-        const state = await detectSetupState();
+        const state = await detectSetupState({ provider: opts.provider });
         // Ready but startup still failed → a genuine runtime/user error
         // (e.g. a bad --entity): keep today's error reporting.
         if (state.state === 'ready') throw startupErr;
@@ -1400,6 +1410,8 @@ chatCommand
       }
       const ctx = built.ctx;
       let session = built.session;
+      // The profile the session runs on, for the credential hint (MNE-001-444).
+      let currentProvider = opts.provider;
 
       // Usage accounting is fire-and-forget: it must never block or fail a
       // turn. sessionId is read at call time so rows attach to the session
@@ -1516,7 +1528,7 @@ chatCommand
         } catch (err) {
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1549,8 +1561,19 @@ chatCommand
             // Hot-swap: new session — history is not portable across
             // different provider formats. The startup --model is NOT
             // propagated: it was an override for the initial profile.
-            const profile = resolveProfile(target);
-            session = await createLlmSession(profile, ctx, callbacks);
+            // A profile with no credential is not switched to: the current
+            // session stays, and the answer says what is missing (MNE-001-444).
+            const swap = await switchProvider(target, {
+              currentLabel: session.label,
+              open: (p) => createLlmSession(p, ctx, callbacks),
+            });
+            if (!swap.switched) {
+              console.log(c.yellow(swap.message) + '\n');
+              continue;
+            }
+            const profile = swap.profile;
+            session = swap.session;
+            currentProvider = target;
             // Keep the audit row's provenance in sync with the provider now
             // producing turns. Chained on recordChain so it cannot
             // interleave with an in-flight recordTurn.
@@ -1560,7 +1583,7 @@ chatCommand
                 .then(() => updateSessionProvider(sid, profile.name, profile.model))
                 .catch(transcriptOff);
             }
-            console.log(c.dim(`Provider switched to ${session.label}. New conversation.\n`));
+            console.log(c.dim(`${t('provider.switch.done', { label: session.label, credential: swap.credential })}\n`));
           } catch (err) {
             reportError(err);
           }
@@ -1614,7 +1637,7 @@ chatCommand
           // failover staged so a later, non-failing turn never inherits it.
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1631,7 +1654,7 @@ chatCommand
     } catch (err) {
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
@@ -2440,21 +2463,60 @@ ingest.action(async (files: string[], opts: {
     }
   });
 
-const langCommand = describeCommand(program.command('lang').alias('idioma'), 'help.lang.description');
-argumentByKey(langCommand, '[language]', 'help.lang.argument.language');
-langCommand
-  .addHelpText('after', EJEMPLOS.lang)
-  .action(async (language?: string) => {
+// ONE STATEMENT, ON PURPOSE (MNE-001-469 · #653). E0.0
+// `the-user-language-is-written-where-it-is-read` reads the top-level statement
+// that registers `lang` and looks for `normalizeLocale` and `setUserLocale`
+// inside it; split into `const lang = …; lang.action(…)`, the criterion would
+// see a command that writes nothing. So the keyed argument and option wrap the
+// command instead of following it.
+optionByKey(
+  argumentByKey(
+    describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'),
+    '[language]',
+    'help.lang.argument.language',
+    { params: { choices: [...LANGUAGES, ...LOCALES].join(', ') } }
+  ),
+  '--unset',
+  'help.lang.option.unset'
+)
+  .addHelpText('after', () => t('cli.lang.examples'))
+  .action(async (language: string | undefined, options: { unset?: boolean }) => {
     try {
-      if (!language) {
-        console.log(`Agent response language: ${c.bold(resolveLanguage())}`);
+      // The language in effect, for the CLI and the agent, and the rung that
+      // chose it: the first line of every answer `lang` gives.
+      const inEffect = (): string => languageInEffectLine(describeLocale(), undefined, undefined, (text) => c.bold(text));
+      if (options.unset) {
+        // An OPTION and not a fifth spelling of the argument: E0.0 refuses a
+        // raw argument compared with a string, and `lang unset` would be a
+        // language nobody speaks. A language beside it is a contradiction.
+        if (language !== undefined) {
+          throw usageError({ key: 'cli.lang.unset_with_language', params: { language } });
+        }
+        const { file, removed } = unsetUserLocale();
+        if (removed.length === 0) {
+          console.log(t('cli.lang.unset.nothing', { file: shownPath(file) }));
+        } else {
+          console.log(`✔ ${t('cli.lang.unset.done', { keys: removed.join(', '), file: shownPath(file) })}`);
+        }
+        // Asked AFTER removing: what decides now is the next rung — today the
+        // default, once #655 passes it the entity's.
+        console.log(inEffect());
+      } else if (!language) {
+        console.log(inEffect());
         // El nombre de la variable sale de la constante y no de una cadena
         // literal: I6 exige que `MNEMOSINE_LANG` se escriba en UN solo archivo
         // de `src/`, y una mención en un console.log cuenta para el grep tanto
-        // como una lectura. El texto que se imprime no cambia ni un byte
-        // —docs/wiki/Manual-Trabajar-con-el-agente.md:21 lo cita literal—: este
-        // comando es `lang`, y el alias es el nombre que le corresponde.
-        console.log(c.dim(`Change it with: mnemosine lang es|en|es-MX|en-US (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
+        // como una lectura. Este comando es `lang`, y el alias es el nombre que
+        // le corresponde.
+        console.log(
+          c.dim(
+            t('cli.lang.change_hint', {
+              choices: [...LANGUAGES, ...LOCALES].join('|'),
+              variable: LOCALE_ENV_VAR_ALIAS,
+            })
+          )
+        );
+        console.log(c.dim(t('cli.lang.unset_hint')));
       } else {
         // ONE TABLE OF SPELLINGS, AND IT IS NOT HERE (I11 · issue #153).
         //
@@ -2469,7 +2531,7 @@ langCommand
         // drifted before I6.
         const locale = normalizeLocale(language);
         if (locale === null) {
-          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', ') } });
+          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } });
         }
         // WRITTEN WHERE IT IS READ. `setUserLocale` puts `locale` in the user's
         // own file, which is the step of the precedence that beats the project
@@ -2478,26 +2540,25 @@ langCommand
         // own `locale`, which outranks the legacy key everywhere — could leave
         // this command printing success over a change nobody would ever see.
         const { file, quarantined } = setUserLocale(locale);
+        // Said in the language this run started in: the CLI resolved it before
+        // anything was written, and the next command reads the new one.
         console.log(
-          `✔ Agent will now answer in ${c.bold(languageOfLocale(locale) === 'es' ? 'Spanish' : 'English')} ` +
-            c.dim(`(${locale} in ${file})`)
+          `✔ ${t('cli.lang.set', { language: c.bold(languageName({ locale })), locale, file: shownPath(file) })}`
         );
         // Said out loud, because the rest of that file is gone. The copy is
         // kept so nothing is lost, but a person who had providers or a tenant
         // configured has to know they are not there any more.
         if (quarantined !== null) {
-          console.log(
-            c.dim(`Your previous ${file} could not be read and was replaced; a copy is at ${quarantined}`)
-          );
+          console.log(c.dim(t('cli.lang.quarantined', { file: shownPath(file), copy: shownPath(quarantined) })));
         }
-        console.log(c.dim('Takes effect on the next session.'));
+        console.log(c.dim(t('cli.lang.takes_effect')));
         // THE WARNING ASKS THE RESOLVER, NOT THE ENVIRONMENT (I6).
         //
         // The environment variable used to be read by hand here — the second
-        // reader of the dial, mnemosine.ts:2238 — and reading it by hand made
-        // it lie twice: it announced precedence for a value `resolveLanguage`
-        // was DISCARDING as unusable, and it said nothing when the winner was
-        // `MNEMOSINE_LOCALE`, the canonical name of the same dial.
+        // reader of the dial — and reading it by hand made it lie twice: it
+        // announced precedence for a value `resolveLanguage` was DISCARDING as
+        // unusable, and it said nothing when the winner was `MNEMOSINE_LOCALE`,
+        // the canonical name of the same dial.
         //
         // It resolves again AFTER writing, which is the only question worth
         // asking: «with the file saved, does anything still beat it?». Since
@@ -2511,10 +2572,10 @@ langCommand
           // send the user to switch off something that no longer exists.
           const advice =
             winner.kind === 'env'
-              ? `${winner.label}=${winner.raw} is set and takes precedence — unset it for this change to apply.`
+              ? t('cli.lang.shadowed_env', { variable: winner.label, value: winner.raw ?? '' })
               : winner.kind === 'flag'
                 ? null
-                : `${winner.label} is "${winner.raw}" and takes precedence — remove it for this change to apply.`;
+                : t('cli.lang.shadowed', { rung: rungPhrase(winner) });
           if (advice !== null) console.log(c.dim(`  ⚠ ${advice}`));
         }
       }

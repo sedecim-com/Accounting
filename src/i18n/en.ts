@@ -1118,6 +1118,25 @@ export const EN = {
   'policy.vat_overcredit_correction_period.option.payment_month':
     'Post one correction per bill and month, in each payment\'s month',
 
+  'policy.discount_vat_correction_period.question':
+    'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+  'policy.discount_vat_correction_period.impact':
+    'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+  'policy.discount_vat_correction_period.rationale':
+    'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.discount_vat_correction_period.why':
+    'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+  'policy.discount_vat_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.discount_vat_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Post one correction per bill and payment, dated today in the open period',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Post one correction per bill and payment, in the month the discount was posted',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
@@ -2475,8 +2494,7 @@ export const EN = {
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
-    "Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command " +
-    'aliases always work)',
+    "Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)",
   'help.onboard.description':
     "Imports a client's accounting from an external system (chart of accounts + opening balances)",
   'help.outbox.description':
@@ -3289,7 +3307,7 @@ export const EN = {
   'root.ingest.auto_post_turn_on':
     'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
   /** `lang`: a language that is not one of the accepted spellings. */
-  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or es, en',
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or {languages}',
   /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
   'root.setup.run_now': 'Run setup now?',
   // ==== end of I8.2 ====
@@ -3633,6 +3651,64 @@ export const EN = {
     'shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided, plural, one {# decided} other {# decided}} by a person, agreement {agreement} (turning "on" requires ≥{minDays} days, ≥{minDecided} decided and ≥{minAgreement})',
   /** Why `jobs run-due` does not honour an idempotency key. */
   'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
+
+  // MNE-001-453 (#646): which due jobs `jobs run-due` runs on its operator's credential.
+  /** The first line of a tick under `jobs.run_due = all`. */
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due is "all": this tick runs every due job of the entity on your credential, including jobs that other people created.',
+  /** A due job a tick under `jobs.run_due = adopted` did not run. */
+  'platform.jobs.run_due.skipped': '  not adopted, not run: {name}  {id} · adopt it: mnemosine jobs adopt {id}',
+  /** A tick under `jobs.run_due = adopted` that found due jobs, none of them adopted. */
+  'platform.jobs.run_due.no_adopted_due': 'No adopted job due.',
+  /** The notice of an unset tick: the jobs it ran that its operator has not adopted. */
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {This tick ran # job you have not adopted, on your credential:} other {This tick ran # jobs you have not adopted, on your credential:}}',
+  /** The notice of an unset tick: the key and its two values. */
+  'platform.jobs.run_due.hint.choose':
+    'Set jobs.run_due in ~/.mnemosine/config.json to "adopted" to run only the jobs you adopted (mnemosine jobs adopt <id>), or to "all" to run every due job without this notice.',
+  /** A project file that sets `jobs.run_due`, which is not read there. */
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} sets jobs.run_due, which is not read there: whose credential a tick spends is each operator\'s choice, in ~/.mnemosine/config.json.',
+  /** An unset tick whose list of adopted jobs does not read. */
+  'platform.jobs.run_due.adoptions_unreadable': '{error} This tick runs every due job, as it does with jobs.run_due unset.',
+  /** `jobs adopt` of a job. */
+  'platform.jobs.adopt.done':
+    'Job "{name}" adopted. With jobs.run_due set to "adopted", jobs run-due runs it on your credential. Recorded in {file}.',
+  /** `jobs adopt` of a job already adopted. */
+  'platform.jobs.adopt.already': 'Job "{name}" was already adopted ({file}).',
+  /** `jobs adopt` of an id that is not a job of this entity. */
+  'platform.jobs.adopt.not_found': 'Job {id} does not exist in this entity; nothing was adopted.',
+  /** `jobs adopt` with both a job id and --list, or with neither. */
+  'platform.jobs.adopt.id_xor_list': 'Give either a job id to adopt, or --list to see the jobs you adopted.',
+  /** The header of `jobs adopt --list`. */
+  'platform.jobs.adopt.list.header': 'Jobs you adopted in this entity ({file}):',
+  /** `jobs adopt --list` with nothing adopted in this entity. */
+  'platform.jobs.adopt.list.none': 'You have adopted no job of this entity. Adopt one with: mnemosine jobs adopt <id>',
+  /** An adopted id that is no longer a job of this entity. */
+  'platform.jobs.adopt.list.gone': '(no longer a job of this entity)',
+  /** The last line of `jobs adopt --list`: the value of the key. */
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due in {file}: {scope, select, adopted {"adopted", so jobs run-due runs only these} all {"all", so jobs run-due runs every due job} other {unset, so jobs run-due runs every due job and names the ones you have not adopted}}',
+  /** `jobs unadopt` of an adopted job. */
+  'platform.jobs.unadopt.done': 'Job {id} is no longer adopted ({file}).',
+  /** `jobs unadopt` of a job that was not adopted. */
+  'platform.jobs.unadopt.not_adopted': 'Job {id} was not adopted; nothing changed.',
+  /** `jobs create`: the new job is adopted for its creator. */
+  'platform.jobs.create.adopted': '  Adopted for you: with jobs.run_due set to "adopted", your tick runs it.',
+  /** `jobs create` whose adoption could not be written. */
+  'platform.jobs.create.adopt_failed':
+    'The job was created, but it could not be adopted for you ({error}). Adopt it with: mnemosine jobs adopt {id}',
+  /** Help of `jobs adopt`. */
+  'help.jobs.adopt.description':
+    'Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json, jobs run-due runs only the jobs you adopted',
+  /** Help of the job id of `jobs adopt`. */
+  'help.jobs.adopt.argument.job_id': 'Job id (omit it with --list)',
+  /** Help of `jobs adopt --list`. */
+  'help.jobs.adopt.option.list': 'List the jobs you adopted in this entity, and the value of jobs.run_due',
+  /** Help of `jobs unadopt`. */
+  'help.jobs.unadopt.description': 'Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer runs it',
+  /** Help of the job id of `jobs unadopt`. */
+  'help.jobs.unadopt.argument.job_id': 'Job id',
 
   // ==== end of I8.6 ====
 
@@ -4274,11 +4350,23 @@ export const EN = {
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
   'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
-  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.description':
+    'Payables controls: reconcile the vendor subledger against the control account, and run the named checks',
   'help.ap.reconcile.description':
     'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
   'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
   'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.ap.check.description':
+    'Named payables checks; `--check` with no value lists them, `--check a,b` selects',
+  'help.ap.check.option.check': 'comma-separated checks to run; bare --check lists the battery',
+  'ap.check.title': 'AP checks',
+  'ap.check.cancelled_cfdi_open.found':
+    'open bills whose received CFDI the SAT reports cancelled: hold the payment until the vendor sends the CFDI that replaces it; ' +
+    'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_open.none': 'none',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
   'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
   'help.cashflow.generate.option.method':
@@ -4360,6 +4448,29 @@ export const EN = {
   'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
   'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
   'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
+  'filed_return.obligation_not_written': 'Only the monthly IVA return is recorded for now: "{value}" is not. Nothing was written.',
+  'filed_return.obligation_invalid': '"{value}" is not an obligation of the record of filed returns: use {obligations}.',
+  'filed_return.period_invalid': '"{value}" is not a month: use YYYY-MM (for example 2026-08).',
+  'filed_return.filed_on_not_a_day': 'The filing date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filed_return.filed_before_period_ends': 'The return for {period} is filed once its month ends, on {earliest} or later: {value} cannot be its filing date. Nothing was written.',
+  'filed_return.paid_on_not_a_day': 'The payment date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-16). Nothing was written.',
+  'filed_return.paid_before_filed': 'The payment on {paidOn} comes before the filing on {filedOn}: a return is paid with the capture line its filing gives, that day or later. Nothing was written.',
+  'filed_return.payment_incomplete': 'A payment states both what was paid and the day it was paid. Nothing was written.',
+  'filed_return.payable_and_in_favor': 'A return leaves an amount payable or a balance in favour, never both: {payable} payable and {inFavor} in favour. Nothing was written.',
+  'filed_return.amount_invalid': '"{value}" is not an amount of a return: use zero or more, with at most two decimals and seventeen digits before the point (for example 5000.00). Nothing was written.',
+  'filed_return.credit_amount_not_positive': 'A credited balance is above zero: leave out a credit of nothing. Nothing was written.',
+  'filed_return.acknowledgement_required': 'Missing the operation number of the acknowledgement («acuse»): it is how the record names a return. Nothing was written.',
+  'filed_return.capture_line_blank': 'The capture line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filed_return.credit_repeated': 'The balance of return {acknowledgement} is credited twice in this return: put both amounts in one credit. Nothing was written.',
+  'filed_return.credit_source_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: record that return first, then the one that credits its balance. Nothing was written.',
+  'filed_return.credit_source_not_earlier': 'Return {acknowledgement} covers {sourcePeriod}: a return for {period} credits balances of earlier months only (LIVA art. 6). Nothing was written.',
+  'filed_return.credit_source_no_balance': 'Return {acknowledgement} left no balance in favour: there is nothing of it to credit. Nothing was written.',
+  'filed_return.replaced_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: an amended return replaces one already recorded. Nothing was written.',
+  'filed_return.replaced_other_period': 'Return {acknowledgement} covers {replacedPeriod}: an amended return for {period} replaces a return of the same month. Nothing was written.',
+  'filed_return.amended_before_replaced': 'The amended return is filed on {filedOn}, before return {acknowledgement}, which it replaces, was filed on {replacedFiledOn}: an amendment comes after (CFF art. 32). Nothing was written.',
+  'filed_return.acknowledgement_taken': 'The operation number {acknowledgement} is already recorded for this entity: each acknowledgement is one return. Nothing was written.',
+  'filed_return.original_exists': 'The {period} return of this tax is already recorded: another return for that month is an amendment, which names the return in force it replaces. Nothing was written.',
+  'filed_return.already_replaced': 'Return {acknowledgement} was already replaced by another amended return: an amendment replaces the return in force of {period}, the last one filed. Nothing was written.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':
@@ -5275,13 +5386,142 @@ export const EN = {
   'help.question.answer.argument.answer': 'the answer text, or the number of an option (requires <id>)',
   'help.question.answer.option.entity': 'Legal entity (id, RFC or name fragment)',
   'help.question.answer.option.user': 'Who answers (default: sole active user of the tenant)',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  //
+  // The second ledger task: the `entry` family whole, root included, English as
+  // shown (`batch` and `fx` are MNE-001-426). Every generic flag a leaf declares
+  // is worded for it and keeps its own key; what withContext, withOutput,
+  // withSelection, withTime, withStrict and declareRisk add stays on cli.flag.*.
+  // The lists travel as {types} and {layouts}. The English of `entry import
+  // --layout` was Spanish author prose on develop ("aún sin parser"); the owner
+  // chose on #314 (15 Nov 2026) to give those nodes real English, so it is the
+  // one English text this task changes.
+  'help.entry.description': 'Journal entries: draft, inspect, validate, post, reverse and void',
+  'help.entry.list.description': 'Search journal entries by text, account, date, amount, state, type or source',
+  'help.entry.list.argument.search': 'text to match in the description or reference',
+  'help.entry.list.option.type': 'entry type (repeatable)',
+  'help.entry.list.option.source': 'origin subledger: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'only entries with a line on this account',
+  'help.entry.list.option.min_amount': 'minimum total debits',
+  'help.entry.list.option.max_amount': 'maximum total debits',
+  'help.entry.show.description': 'Show one entry with its lines, totals, period and linked reversal',
+  'help.entry.show.argument.number': 'entry number (JE-2026-00042) or id',
+  'help.entry.show.option.no_lines': 'header only, without the lines',
+  'help.entry.create.description': 'Create a journal entry — ALWAYS a draft; posting is a separate human step',
+  'help.entry.create.option.line':
+    'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below',
+  'help.entry.create.option.file': 'JSON document with date, type, description and lines',
+  'help.entry.create.option.date': 'entry date (YYYY-MM-DD); defaults to today',
+  'help.entry.create.option.type': 'entry type: {types} (default: standard)',
+  'help.entry.create.option.description': 'what the entry records',
+  'help.entry.create.option.reference': 'external reference (document, folio, memo)',
+  'help.entry.create.option.dry_run': 'validate and show the entry that would be drafted; write nothing',
+  'help.entry.create.option.json': 'JSON output',
+  'help.entry.check.description': 'Run the seven NIF validation rules over an entry or a document; writes nothing',
+  'help.entry.check.option.entry': 'an existing entry, by number or id',
+  'help.entry.check.option.file': 'a JSON entry document that does not exist yet',
+  'help.entry.line.description': 'Ledger lines: from an account balance down to the entries behind it',
+  'help.entry.line.list.description': 'Posted lines of one account, each with the entry it belongs to',
+  'help.entry.line.list.argument.code': 'account code',
+  'help.entry.preview.description':
+    'The exact account_balances delta this entry would produce, without touching anything',
+  'help.entry.preview.argument.number': 'entry number or id',
+  'help.entry.edit.description': 'Edit a DRAFT entry: description, reference, note, date or full line replacement',
+  'help.entry.edit.argument.number': 'entry number or id',
+  'help.entry.edit.option.description': 'new description',
+  'help.entry.edit.option.reference': 'new external reference',
+  'help.entry.edit.option.note': 'new note',
+  'help.entry.edit.option.date': 'new entry date (YYYY-MM-DD)',
+  'help.entry.edit.option.line':
+    'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)',
+  'help.entry.edit.option.file': 'JSON document whose date/description/reference/lines replace the draft',
+  'help.entry.export.description': 'Entries WITH their lines, flat, for audit or migration — no page cap',
+  'help.entry.import.description':
+    'Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger',
+  'help.entry.import.argument.file': 'file of journal entries to stage',
+  'help.entry.import.option.layout': 'file layout: {layouts} (contpaqi/aspel/iif/sat-polizas: no parser yet)',
+  'help.entry.import.option.dry_run': 'parse and report, stage nothing',
+  'help.entry.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first batch',
+  'help.entry.post.description': 'Post ONE entry to the ledger: validates the seven rules, then moves balances',
+  'help.entry.post.argument.number': 'entry number or id',
+  'help.entry.post.option.json': 'JSON output',
+  'help.entry.reverse.description': 'Create the linked posted mirror of an entry (NIF B-1: correct by reversal)',
+  'help.entry.reverse.argument.number': 'the POSTED entry to reverse',
+  'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
+  'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
+  'help.entry.void.argument.number': 'entry number or id',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // The last ledger task, split from 235 by answer 2: both families whole,
+  // roots and the `fx rate` group included, with the English these commands
+  // already showed. Every generic flag a leaf declares keeps its own key: the
+  // `--json` of `batch post` and `batch reverse` (no --format there), and the
+  // `--since`/`--until` of `fx rate list`, whose words are the kernel's but
+  // which parse no date. Lists travel as {kinds} and {categories}. The
+  // categories of `batch check --check` are values the user types (`cuenta`
+  // among them): they move as they are in both languages, left for I23
+  // (MNE-001-200), so ux-status keeps counting that node.
+  'help.batch.description': 'Staged entry batches: list, inspect, check, post transactionally and reverse as a unit',
+  'help.batch.list.description': 'List batches with their state, row counts, posted entries and content hash',
+  'help.batch.list.option.kind': 'batch class (available: {kinds})',
+  'help.batch.show.description':
+    'One batch in full: rows with their generated entries, stored parse errors by category, and the file hash',
+  'help.batch.show.argument.id': 'batch id',
+  'help.batch.show.option.errors_only': 'only the rows whose parser rejected them',
+  'help.batch.check.description':
+    'Run the posting validations over every row and report each finding; exits 4 when any blocks',
+  'help.batch.check.argument.id': 'batch id',
+  'help.batch.check.option.check':
+    'finding categories to display, comma-separated (available: {categories}); the full battery always runs',
+  'help.batch.post.description':
+    'Post the whole batch in one transaction; --partial applies the valid rows and leaves the rest staged',
+  'help.batch.post.argument.id': 'batch id',
+  'help.batch.post.option.partial':
+    'apply the valid rows and leave the invalid ones in staging (accepts an unchecked batch)',
+  'help.batch.post.option.json': 'JSON output',
+  'help.batch.reverse.description':
+    'Mirror every entry the batch posted, as one unit in one transaction — import errors are batch-shaped, not ' +
+    'entry-shaped',
+  'help.batch.reverse.argument.id': 'batch id',
+  'help.batch.reverse.option.as_of': 'date for every mirror entry (YYYY-MM-DD); defaults to today',
+  'help.batch.reverse.option.json': 'JSON output',
+  'help.fx.description': 'Exchange rates: the origin every foreign-currency amount converts from',
+  'help.fx.rate.description': 'Published exchange rates by pair, date, type and source',
+  'help.fx.rate.list.description': 'List stored exchange rates by pair, date, type and source',
+  'help.fx.rate.list.option.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.list.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'only rates of this type',
+  'help.fx.rate.list.option.source': 'only rates from this source',
+  'help.fx.rate.show.description': 'Resolve the applicable rate: direct, then inverse, then crossed through USD',
+  'help.fx.rate.show.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.show.argument.date': 'date the rate applies to (YYYY-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'rate type to resolve',
+  'help.fx.rate.show.option.source': 'resolve using only this publisher',
+  'help.fx.rate.set.description': 'Record an exchange rate, naming its source',
+  'help.fx.rate.set.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.set.argument.date': 'effective date (YYYY-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'the rate, up to 10 decimals',
+  'help.fx.rate.set.option.source': 'who published the rate (required)',
+  'help.fx.rate.set.option.rate_type': 'rate type',
+  'help.fx.rate.set.option.until': 'last date the rate remains effective (YYYY-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'show what would be recorded without writing',
+  'help.fx.rate.download.description':
+    'Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)',
+  'help.fx.rate.download.option.source': 'which publisher to download from (required)',
+  'help.fx.rate.download.option.as_of': 'single date to download (YYYY-MM-DD)',
+  'help.fx.rate.download.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.download.option.until': 'inclusive upper bound (YYYY-MM-DD)',
   // ==== MNE-001-243 · help by key, entity, init, onboard, lang, login, ask, chat, compact, drafts, review, sessions, prompt-size, ai, doctor and usage (issue #314) ====
   //
   // The setup and session families whole, English as shown (the roots of ask,
   // chat, sessions, drafts, review, lang, onboard and login, and entity's
   // --minimum-wage-zone, were keyed before; ai's prose got its English in
-  // #844). Every generic flag keeps a key of its own: none of these texts is
-  // the kernel's, and none of these leaves has an output --format. The usage
+  // #844). `lang` is whole in MNE-001-469's block (#889): its argument key is
+  // that one's. Every generic flag keeps a key of its own: none of these texts
+  // is the kernel's, and none of these leaves has an output --format. The usage
   // groupings travel as {choices}.
   'help.entity.description': 'Select and inspect the legal entity commands operate on',
   'help.entity.list.description': 'List the active legal entities',
@@ -5330,7 +5570,6 @@ export const EN = {
   'help.onboard.option.post':
     'Post the opening balance immediately (default: stays as a draft for mnemosine review)',
   'help.onboard.option.dry_run': 'Only show the plan, without executing anything',
-  'help.lang.argument.language': "'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting",
   'help.login.option.device': 'Use the device-code flow (SSH, server without a browser)',
   'help.ask.argument.question': 'The question for the assistant',
   'help.ask.option.entity': 'Legal entity (id, RFC or name fragment)',
@@ -5406,6 +5645,109 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  //
+  // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
+  // their one Spanish label, and the verdict of renderDoctor. `id` and `level`
+  // are the machine's and stay out of the catalogue; commands, tables and
+  // Postgres words inside the prose are typed or matched, so they stay as written.
+  /** The label of `conflicting-permissions`; it must share no word with the id. */
+  'doctor.check.permission_conflicts': 'Segregation of duties (user access)',
+  'doctor.summary.title': 'Mnemosine health check',
+  'doctor.summary.fail': 'There are failures that prevent operation. Resolve them in the order shown.',
+  'doctor.summary.warn': 'Operational with warnings.',
+  'doctor.summary.ok': 'All good.',
+  /** `sample` is the first three `command: detail` of the audit, which #150 keeps untranslated. */
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# new violation} other {# new violations}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'The CLI surface stays consistent because every verb comes from a closed list and every flag from the single dictionary. ' +
+    'Fix the command, or —if the change is deliberate— extend the vocabulary in src/cli/kernel/vocabulary.ts. ' +
+    'The baseline in src/cli/kernel/audit.ts is NOT extended.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# baseline entry is no longer violated: delete it} other {# baseline entries are no longer violated: delete them}}',
+  /** `stale` is empty, or « · » and the text of `doctor.cli_consistency.stale`. */
+  'doctor.cli_consistency.inherited':
+    'no new violations; {count, plural, one {# inherited one remains} other {# inherited ones remain}} in the baseline{stale}',
+  'doctor.cli_consistency.clean': 'the surface meets every rule{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'The inherited ones are known, frozen debt: nine are naming decisions, three require retiring a short form already published, ' +
+    'and eight ask for four listings to be paginated.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ posted lines, and everything posted has its trail',
+  /** `capped` is `yes` when the query hit its LIMIT 20. */
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (account, period) where account_balances ≠ Σ posted lines — every report on top inherits the difference',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# posted entry} other {# posted entries}} without a 'post' row in audit_log — facts with no author",
+  'doctor.ledger_integrity.fix':
+    'Balance drift is investigated BEFORE recalculating: since migration 041 a posted line cannot be edited, ' +
+    'so a new difference points at the write path of account_balances, not at the lines.',
+  'doctor.permission_conflicts.ok': 'no active user holds conflicting permissions',
+  'doctor.permission_conflicts.fix':
+    'Split the conflicting permissions between different users, or accept the risk knowingly ' +
+    '(in a one-person firm it is unavoidable; the per-entry maker-checker lives in the panel: segregacion_de_funciones).',
+  /** `list` is `table.trigger=state`, as pg_trigger spells it. */
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} of {total, plural, one {# guarantee} other {# guarantees}} unsealed{off, plural, =0 {} other { (# DISABLED)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <table> ENABLE ALWAYS TRIGGER <trigger>  — and find out WHO disabled it and why',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# guarantee in ENABLE ALWAYS: not even session_replication_role silences it} other {# guarantees in ENABLE ALWAYS: not even session_replication_role silences them}}',
+  'doctor.bank_statements.unnamed_file': '(unnamed)',
+  /** How many tenants the check read: a green that does not say so is green by not looking. */
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# tenant checked} other {# tenants checked}}{blind, plural, =0 {} other {, # could not be checked}}',
+  'doctor.bank_statements.unrepaired': 'this database recorded migration 051 before its correction',
+  'doctor.bank_statements.unique_index': 'the content index is UNIQUE and swallows legitimately identical transactions',
+  'doctor.bank_statements.blind_trigger': 'the trigger does not watch content_hash, so the fingerprint can be forged by hand',
+  'doctor.bank_statements.already_missing':
+    '{lines, plural, one {# line is} other {# lines are}} already missing in {statements, plural, one {# statement} other {# statements}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — applies 072; lines already lost must be re-imported by hand: the remedy gives back the capacity, not the data',
+  /** It does not say «missing»: a line skipped as a duplicate of an overlapping statement is not lost. */
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# line declared and not present} other {# lines declared and not present}} in {statements, plural, one {# statement} other {# statements}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compare before touching anything: if those lines are in the account under ANOTHER statement of an overlapping period, ' +
+    'the database is sound and this is the declared gap of 051. Only if they appear nowhere was there a loss, and then the file is ' +
+    're-imported with the account in view of a human — never by removing the bank_statements row, which is evidence',
+  'doctor.bank_statements.blind':
+    'the catalogue is repaired, but {scope}: without reading their statements I cannot say they are complete',
+  'doctor.bank_statements.blind_fix': 'check that the application role can query bank_statements with a tenant context',
+  'doctor.bank_statements.ok':
+    'the content index is not unique, the trigger enforces the fingerprint, and no statement has fewer lines than it declared ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor does not exist: giving an outside auditor access today means lending them WRITE credentials over the books',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (it does not fit in a migration: the migrator has no CREATEROLE, on purpose)',
+  /** The four grave findings follow «mnemosine_auditor», joined by «; ». */
+  'doctor.auditor_role.bypasses_rls': 'IGNORES RLS (BYPASSRLS): it sees the books of ALL tenants',
+  'doctor.auditor_role.superuser': 'is a SUPERUSER',
+  'doctor.auditor_role.creates_roles': 'can create roles',
+  'doctor.auditor_role.writes': 'has WRITE on {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — the script reasserts NOBYPASSRLS and revokes; also find out WHO granted it',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor has LOGIN: it is meant as a privilege bundle granted to NAMED accounts (one per auditor), not as a shared account',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  and issue one account per person: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor reads {count, plural, one {# materialized view} other {# materialized views}} ({views}): ' +
+    'RLS does not filter them and a role with BYPASSRLS builds them, so they hold the books of ALL tenants',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — its block 4 revokes every relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor exists and is well bounded, but its table coverage could not be measured',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (its verification block prints both counts)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor reads only {readable} of the {total} isolated tables: ' +
+    '{missing, plural, one {# table was} other {# tables were}} created after the last GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (grants again and sets the default privileges for whatever comes next)',
+  'doctor.auditor_role.global_tables':
+    'also {count, plural, other {# without a tenant, which must be global reference only}} ({tables})',
+  /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
+  'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
@@ -5618,4 +5960,76 @@ export const EN = {
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  // credential-state.ts builds the label every surface prints (doctor,
+  // providers, status, init, the jobs tick, chat); provider-readiness.ts the
+  // hint that a chat or ask with no credential prints. A label never carries a
+  // value or a helper's command, only names.
+  'provider.credential.env': '{variable} set',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd in {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd in {file}, a project file shared by everyone who runs mnemosine in that folder',
+  'provider.credential.local': 'local, no credential',
+  'provider.credential.none': 'no credential configured',
+  'provider.credential.missing': '{variable} missing',
+  'provider.credential.missing_at': '{variable} missing (get it at {where})',
+  'provider.credential.refused': '{variable} is not a provider credential',
+  'provider.credential.folder_key':
+    '{label}; {file} defines it, so that key serves everyone who runs mnemosine in that folder',
+  'provider.credential.folder_empty': '{label}; the empty {variable}= in {file} hides ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY set, which the Anthropic SDK reads',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN set, a bearer token the Anthropic SDK sends',
+  'provider.credential.anthropic.custom_header': 'an {header} line in ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'signed in: Anthropic profile {profile} in {file}',
+  'provider.credential.anthropic.federation':
+    'workload identity federation (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID and an identity token)',
+  'provider.credential.hint.missing':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env (get it at {where}).',
+  'provider.credential.hint.anthropic_alternative': 'Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'Provider {name} names {variable} in api_key_env, which is not a provider credential: name a variable of its own that holds the key.',
+  'provider.credential.hint.keyless':
+    'Provider {name} has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint needs no key, start the chat with --provider {name}.',
+  'provider.credential.hint.init': 'To set it up: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env, or run `ant auth login`.',
+  'provider.switch.kept': 'The session stays on {current}.',
+  'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
+  // ==== end of MNE-001-444 ====
+  // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
+  'help.lang.argument.language':
+    'the language to set: {choices}; omit it to see the language in effect and what decided it',
+  'help.lang.option.unset':
+    'remove the language saved in ~/.mnemosine/config.json, so the next source decides again',
+  'cli.lang.examples':
+    '\nExamples:\n' +
+    '  Which language the CLI and the agent use right now, and what decided it:\n' +
+    '    mnemosine lang\n' +
+    '  Use Spanish for both; it is saved in ~/.mnemosine/config.json:\n' +
+    '    mnemosine lang es\n' +
+    '  Remove that choice, so the next source decides again:\n' +
+    '    mnemosine lang --unset\n',
+  'cli.lang.name.es': 'Spanish',
+  'cli.lang.name.en': 'English',
+  'cli.lang.in_effect': 'Language: {language} ({locale}), for the CLI and the agent. Decided by {rung}.',
+  'cli.lang.rung.flag': 'the {flag} flag of this run',
+  'cli.lang.rung.env': '{variable}={value} in the environment',
+  'cli.lang.rung.user_config': 'your own choice, saved in {file}',
+  'cli.lang.rung.project_config': "this folder's {file}",
+  'cli.lang.rung.legacy_config': 'the legacy "language" key in {file}',
+  'cli.lang.rung.entity': 'the language of the entity {entity}',
+  'cli.lang.rung.default': 'the system default: nothing else chose one',
+  'cli.lang.change_hint': 'Change it with: mnemosine lang {choices} (or the {variable} environment variable)',
+  'cli.lang.unset_hint': 'Remove your saved choice with: mnemosine lang --unset',
+  'cli.lang.set': 'Language set to {language} ({locale}) for the CLI and the agent, in {file}',
+  'cli.lang.quarantined': 'Your previous {file} could not be read and was replaced; a copy is at {copy}',
+  'cli.lang.takes_effect': 'Takes effect from the next command.',
+  'cli.lang.shadowed_env': '{variable}={value} is set and takes precedence — unset it for this change to apply.',
+  'cli.lang.shadowed': 'It does not apply yet: {rung} takes precedence; change it for this to apply.',
+  'cli.lang.unset.done': 'Removed your language choice ({keys}) from {file}.',
+  'cli.lang.unset.nothing': 'No language choice is saved in {file}; there is nothing to remove.',
+  'cli.lang.unset_with_language': '--unset takes no language: it removes your saved choice (got "{language}").',
 } as const;

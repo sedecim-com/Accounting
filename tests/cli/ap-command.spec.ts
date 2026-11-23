@@ -48,6 +48,8 @@ const LEAVES = [
   // ING-2 (#319, MNE-001-032): the firm's processing rules.
   'bill rule create', 'bill rule list',
   'ap reconcile',
+  // MNE-001-432 (#643): the named payables checks.
+  'ap check',
 ];
 
 beforeAll(() => {
@@ -126,6 +128,7 @@ describe('the bilingual surface', () => {
     'bill rule list': 'listar',
     ap: 'cxp',
     'ap reconcile': 'conciliar',
+    'ap check': 'verificar',
   };
 
   it('gives every command exactly one Spanish alias', () => {
@@ -154,7 +157,7 @@ describe('safety declarations', () => {
     const agentAllowed = [
       'vendor list', 'vendor show', 'bill list', 'bill show',
       // La bandeja se LEE sin riesgo; ejecutarla crea pasivos y contrapartes.
-      'bill inbox list', 'ap reconcile',
+      'bill inbox list', 'ap reconcile', 'ap check',
     ];
     for (const path of agentAllowed) {
       expect(risks.get(path)?.risk, path).toBe('lectura');

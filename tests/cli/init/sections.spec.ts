@@ -1055,3 +1055,45 @@ describe('S3 · the wizard gives the readiness answer and asks no key when a hel
     expect(ctx.lines.join('\n')).toMatch(/○ grok\s+\S+ · XAI_API_KEY missing \(get it at https:\/\/console\.x\.ai\)$/m);
   });
 });
+
+describe('S3 · the wizard asks no key of someone signed in with Anthropic (MNE-001-444)', () => {
+  let cwd: string;
+  const saved: Record<string, string | undefined> = {};
+  const keys = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_CUSTOM_HEADERS', 'ANTHROPIC_CONFIG_DIR', 'ANTHROPIC_PROFILE', 'MNEMOSINE_PROVIDER'];
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+    for (const k of keys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterEach(() => {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('an ant auth login profile under ANTHROPIC_CONFIG_DIR: no key asked, the readiness answer names it', async () => {
+    const root = path.join(tmp, 'anthropic-config');
+    fs.mkdirSync(path.join(root, 'configs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'configs', 'default.json'), '{"authentication":{"type":"user_oauth"}}');
+    process.env.ANTHROPIC_CONFIG_DIR = root;
+    const askSecret = vi.fn();
+    const ctx = { ...makeCtx({ flags: { provider: 'anthropic' } }), askSecret };
+    const probe = vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
+    expect(askSecret).not.toHaveBeenCalled();
+    expect(ctx.lines.join('\n')).toMatch(/✔ anthropic\s+\S+ · signed in: Anthropic profile default in /m);
+    expect(probe).toHaveBeenCalledWith('anthropic', undefined);
+  });
+
+  it('with nothing, the key is still asked, with the page Anthropic names', async () => {
+    process.env.ANTHROPIC_CONFIG_DIR = path.join(tmp, 'no-anthropic-config');
+    const askSecret = vi.fn().mockResolvedValue(null);
+    const ctx = { ...makeCtx({ flags: { provider: 'anthropic' } }), askSecret };
+    await new IaSection({ cwd, home: tmp, probe: vi.fn().mockResolvedValue({ chat: false, detail: 'no' }), listOllamaModels: async () => [] }).configure(ctx);
+    expect(askSecret).toHaveBeenCalledTimes(1);
+    expect(ctx.lines.join('\n')).toContain('Get the credential at: https://platform.claude.com/settings/keys');
+  });
+});

@@ -261,6 +261,10 @@ export function restitutedCash(iva: string, total: string, tax: string): string 
  * every restitution) less the IVA its live rows took from it. A note on the
  * invoice restitutes up to H from 2120 (LIVA art. 7), as a note on a
  * collected invoice does. Entity-scoped in the SQL.
+ *
+ * MNE-001-586 · A cheque the bank has not cashed holds none: its rows' marker
+ * is IVA the cashing will cause (LIVA art. 1-B, second paragraph), not yet in
+ * 2120, so there is nothing there to restitute.
  */
 export async function issuedVatKeptOnAccount(
   client: pg.PoolClient,
@@ -272,6 +276,7 @@ export async function issuedVatKeptOnAccount(
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 AND cp.status = 'completed'
       WHERE pa.invoice_id = $2 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0
+        AND NOT (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL)
       GROUP BY cp.id, cp.payment_number
       ORDER BY cp.payment_number`,
     [entityId, invoiceId]
@@ -371,16 +376,62 @@ export function capKept(kept: readonly string[], cap: string): string[] {
   const sum = kept.reduce((s, k) => s.plus(k), new Decimal(0));
   const limit = Decimal.max(new Decimal(cap), 0);
   if (sum.lessThanOrEqualTo(limit)) return [...kept];
-  const last = kept.reduce((at, k, i) => (new Decimal(k).greaterThan(0) ? i : at), -1);
+  return shareBy(kept, limit);
+}
+
+/**
+ * `amount` split across rows by their `weights`, at four decimals, half up,
+ * the last row with any weight taking the remainder, so the shares add up to
+ * it. A row with no weight gets 0, and so do all when no row has any.
+ */
+function shareBy(weights: readonly string[], amount: Decimal): string[] {
+  const sum = weights.reduce((s, w) => s.plus(Decimal.max(new Decimal(w), 0)), new Decimal(0));
+  const last = weights.reduce((at, w, i) => (new Decimal(w).greaterThan(0) ? i : at), -1);
   let given = new Decimal(0);
-  return kept.map((k, i) => {
-    if (!new Decimal(k).greaterThan(0)) return new Decimal(0).toFixed(4);
+  return weights.map((w, i) => {
+    if (!new Decimal(w).greaterThan(0) || !sum.greaterThan(0)) return new Decimal(0).toFixed(4);
     const share = i === last
-      ? limit.minus(given)
-      : new Decimal(k).times(limit).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      ? amount.minus(given)
+      : new Decimal(w).times(amount).dividedBy(sum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
     given = given.plus(share);
     return share.toFixed(4);
   });
+}
+
+/**
+ * MNE-001-592 (#814, decision (A) on #792) · After a credit note, what an
+ * unapply's cash carries back. Of the IVA the rows `released`, `noteKept`
+ * stays in 2120 (`keptAfterNotes`) and `back` goes back to 2125. Of the
+ * advance IVA they would restore (`advanceIva`: their c plus their
+ * `backAsAdvance` IVA), what the note restituted is not caused again: no
+ * more than `noteKept`, because the note reduced the consideration and
+ * restituted its IVA (LIVA art. 7) and no money is received again (art. 1-B).
+ * `kept` is what the cash still carries back on account. The cap is the
+ * note's, not `back`: when the advance's rate is above the invoice's, c − g
+ * stays caused, as MNE-001-461 keeps it.
+ */
+export function restitutedOf(
+  advanceIva: Decimal.Value,
+  released: Decimal.Value,
+  noteKept: Decimal.Value
+): { restituted: string; kept: string; back: string } {
+  const advance = Decimal.max(new Decimal(advanceIva), 0);
+  const note = Decimal.max(new Decimal(noteKept), 0);
+  const restituted = Decimal.min(advance, note);
+  return {
+    restituted: restituted.toFixed(4),
+    kept: advance.minus(restituted).toFixed(4),
+    back: Decimal.max(new Decimal(released).minus(note), 0).toFixed(4),
+  };
+}
+
+/**
+ * MNE-001-592 · Each closing row's share of `restituted`, by the advance IVA
+ * it carried back (`weights`: its c plus its `backAsAdvance` IVA), which the
+ * row stores (`unapply_restituted_iva_amount`, migration 342).
+ */
+export function restitutedByRow(weights: readonly string[], restituted: string): string[] {
+  return shareBy(weights, Decimal.max(new Decimal(restituted), 0));
 }
 
 /**
@@ -397,6 +448,34 @@ export function releaseDayOf(
   const day = appliedOn ?? receipt.paymentDate;
   const cashed = receipt.paymentMethod === 'check' ? receipt.checkCashedOn : null;
   return cashed !== null && cashed > day ? cashed : day;
+}
+
+/**
+ * MNE-001-586 (#792, part 3/3) · What each row of a held cheque's unapply
+ * keeps for the cashing: `share` is the IVA the cashing would have released
+ * for these rows (the invoice's telescope, less what they stored), and only
+ * the plain cash carries it, so the rows keep share × plain / amount at four
+ * decimals, half up, split by each row's plain cash, the last such row taking
+ * the exact remainder. A row that took cash from the pool gives that back on
+ * its own (`deferredAdvanceIva` stops subtracting it at the cashing).
+ */
+export function heldKeptByRow(share: Decimal.Value, rows: readonly { amount: string; plain: string }[]): string[] {
+  const zero = rows.map(() => '0.0000');
+  const amount = rows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
+  const plains = rows.map((r) => Decimal.max(new Decimal(r.plain), 0));
+  const plain = plains.reduce((s, p) => s.plus(p), new Decimal(0));
+  if (!new Decimal(share).greaterThan(0) || !amount.greaterThan(0) || !plain.greaterThan(0)) return zero;
+  const target = plain.greaterThanOrEqualTo(amount)
+    ? new Decimal(share)
+    : new Decimal(share).times(plain).dividedBy(amount).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+  const last = plains.map((p) => p.greaterThan(0)).lastIndexOf(true);
+  let given = new Decimal(0);
+  return plains.map((p, i) => {
+    if (!p.greaterThan(0)) return '0.0000';
+    const mine = i === last ? target.minus(given) : target.times(p).dividedBy(plain).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+    given = given.plus(mine);
+    return mine.toFixed(4);
+  });
 }
 
 /**

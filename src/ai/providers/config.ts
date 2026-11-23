@@ -83,7 +83,7 @@ export type PerfilReproducible = ProviderProfile & { reproducibilidad: Reproduci
 //    —el umbral queda por encima de lo que el proveedor acepta y la sesión
 //    revienta igual que antes—, mientras que `desconocida` cae al respaldo
 //    global de 150 000, o sea exactamente la conducta de hoy. De doce
-//    perfiles, cuatro traen número y ocho dicen que no lo saben.
+//    perfiles, cinco traen número y siete dicen que no lo saben.
 //
 // 2) CUÁNTO DE LA VENTANA SE PUEDE LLENAR DE HISTORIA. La mitad, y el resto
 //    es reserva. El número sale de lo que el umbral NO PUEDE VER, porque
@@ -309,33 +309,49 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
     reproducibilidad: {
       muestreo: 'no-admite',
       instantanea: null,
+      // MNE-001-449 (#644): decided again. The old reason said reasoning was on
+      // by default, which is not true of gpt-5.1.
       razon:
-        'Modelo de razonamiento — este mismo perfil ya lo delata con `max_tokens_param: ' +
-        'max_completion_tokens`. Con el razonamiento activo (el default) la API sólo acepta la ' +
-        'temperatura por omisión: cualquier otro valor vuelve como 400 «Unsupported value: ' +
-        "'temperature' … Only the default (1) value is supported». No se fija.",
+        'gpt-5.1 razona con esfuerzo `none` por omisión (developers.openai.com/api/docs/models/' +
+        'gpt-5.1, leída el 2026-11-20), y este perfil no declara otro. OpenAI documenta ' +
+        '`temperature` con esfuerzo `none` sólo para GPT-5.2 en adelante (developers.openai.com/' +
+        'api/docs/guides/latest-model?model=gpt-5.2, leída el 2026-11-20), y con cualquier otro ' +
+        'esfuerzo la rechaza. Fijarla en gpt-5.1 sería afirmar algo que su proveedor no documenta: ' +
+        'no se fija. Sin instantánea fechada establecida (la página lista gpt-5.1-2025-11-13).',
     },
   },
+  // MNE-001-449 (#644): grok-4 named a slug xAI retired on 2026-05-15, which
+  // it now serves with grok-4.3 at low effort. The owner chose «Salen sin
+  // verificar»: the id ships with its page and the date it was read.
   grok: {
     type: 'openai-compatible',
-    model: 'grok-4',
+    model: 'grok-4.3',
     base_url: 'https://api.x.ai/v1',
     api_key_env: 'XAI_API_KEY',
-    note: 'xAI Grok — OpenAI-compatible API',
+    reasoning_effort: 'low',
+    note:
+      'xAI Grok — OpenAI-compatible API. Model not verified live: grok-4.3 as ' +
+      'docs.x.ai/developers/models/grok-4.3 lists it, read 2026-11-20',
     ventana: {
-      postura: 'desconocida',
+      postura: 'declarada',
+      tokens: 200_000,
       razon:
-        'xAI documenta la ventana de grok-4 en su referencia de modelos y nadie la ha traído aquí. ' +
-        'Es un dato de una línea que se comprueba en un minuto; hasta que se compruebe, respaldo ' +
-        'global, que es lo que este perfil ya hacía.',
+        'grok-4.3 sirve 1 000 000 de tokens (docs.x.ai/developers/models/grok-4.3), pero xAI cobra ' +
+        'todo el turno al doble cuando el prompt llega a 200 000 (docs.x.ai/developers/pricing, ' +
+        'leídas el 2026-11-20). La ventana declarada se detiene en ese escalón para que la ' +
+        'compactación corra antes de que el precio cambie. No verificado en vivo.',
     },
     reproducibilidad: {
       muestreo: 'fijado',
       temperature: 0,
       instantanea: null,
       razon:
-        'xAI documenta `temperature` en 0–2 para grok-4 (lo que grok-4 sí rechaza es ' +
-        '`reasoning_effort`, que este arnés no envía). Sin instantánea fechada establecida.',
+        'Chat Completions de xAI acepta `temperature` hasta 1 (docs.x.ai/developers/model-' +
+        'capabilities/text/best-practices, leída el 2026-11-20); 0 es el ajuste del clasificador, ' +
+        'aunque xAI recomienda 0.7. El esfuerzo `low` es el que grok-4.3 usa por omisión y con el ' +
+        'que xAI sirve el slug retirado (docs.x.ai/developers/migration/may-15-retirement); ' +
+        'declararlo lo deja escrito y deja espacio bajo el tope de 8 192 tokens de salida. Sin ' +
+        'instantánea fechada establecida. No verificado en vivo.',
     },
   },
   minimax: {
@@ -383,28 +399,37 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
         'midiendo modelos distintos.',
     },
   },
+  // MNE-001-449 (#644): gemini-2.5-pro is no longer served to new projects;
+  // gemini-3.8-flash is the model Google recommends for them. Not verified
+  // live, by the owner's choice («Salen sin verificar»).
   gemini: {
     type: 'openai-compatible',
-    model: 'gemini-2.5-pro',
+    model: 'gemini-3.8-flash',
     base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
     api_key_env: 'GEMINI_API_KEY',
-    note: 'Google AI Studio (Gemini) — OpenAI-compatible endpoint; set "model" to the version your account has',
+    reasoning_effort: 'low',
+    note:
+      'Google AI Studio (Gemini) — OpenAI-compatible endpoint. Model not verified live: ' +
+      'gemini-3.8-flash as ai.google.dev/gemini-api/docs/models/gemini-3.8-flash lists it, read 2026-11-20',
     ventana: {
       postura: 'declarada',
       tokens: 1_048_576,
       razon:
-        'gemini-2.5-pro admite 1 048 576 tokens de entrada — el número que Google publica en la ' +
-        'ficha del modelo de AI Studio, y que la capa compatible con OpenAI no recorta. Igual que ' +
-        'el perfil por defecto, aquí el respaldo global no era peligroso sino desperdiciado.',
+        'gemini-3.8-flash admite 1 048 576 tokens de entrada y 65 536 de salida, según su ficha ' +
+        '(ai.google.dev/gemini-api/docs/models/gemini-3.8-flash, leída el 2026-11-20), y la página ' +
+        'de precios no le publica un escalón por tamaño de prompt. Aquí el respaldo global no ' +
+        'sería peligroso sino desperdiciado. No verificado en vivo.',
     },
     reproducibilidad: {
-      muestreo: 'fijado',
-      temperature: 0,
+      muestreo: 'no-admite',
       instantanea: null,
       razon:
-        'La capa compatible con OpenAI de AI Studio acepta `temperature`. El alias ya lleva ' +
-        'versión menor (2.5-pro), pero Google publica instantáneas fechadas por debajo: SIN ' +
-        'ESTABLECER aquí.',
+        'La guía de Gemini 3.8 da `temperature`, `top_p` y `top_k` por obsoletos y pide quitarlos ' +
+        '(ai.google.dev/gemini-api/docs/whats-new-gemini-3.8, leída el 2026-11-20): fijar uno ' +
+        'sería pedir lo que Google retira. El esfuerzo `low` se declara porque el de omisión es ' +
+        '`medium` y el pensamiento cuenta como salida bajo el tope de 8 192 tokens; la capa ' +
+        'compatible acepta low, medium y high (ai.google.dev/gemini-api/docs/openai). No ' +
+        'verificado en vivo.',
     },
   },
   openrouter: {
@@ -449,10 +474,13 @@ export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
     reproducibilidad: {
       muestreo: 'no-admite',
       instantanea: null,
+      // MNE-001-449 (#644): rewritten with openai's reason, which it leans on.
       razon:
-        'Mismo modelo de razonamiento que el perfil `openai` (gpt-5.1) y por tanto el mismo 400 al ' +
-        'fijar temperatura; encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no ' +
-        'se versiona hacia el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
+        'Mismo modelo que el perfil `openai` (gpt-5.1), con su misma razón: esfuerzo `none` por ' +
+        'omisión, y `temperature` con `none` documentada sólo de GPT-5.2 en adelante ' +
+        '(developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2, leída el 2026-11-20). ' +
+        'Encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no se versiona hacia ' +
+        'el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
     },
   },
   openclaw: {
@@ -599,6 +627,22 @@ const compactionSchema = z
   })
   .strict();
 
+/**
+ * Which due jobs `jobs run-due` spends its operator's credential on
+ * (MNE-001-453, #646): `adopted` runs only the jobs that operator adopted
+ * (`jobs adopt`, src/ai/jobs/adoption.ts); `all` runs every due job of the
+ * entity. Unset behaves as `all` and the tick names the jobs it ran that its
+ * operator has not adopted. Read by `readRunDueScope` from the operator's OWN
+ * file only: a committed project file must not decide whose credential is spent.
+ */
+export const RUN_DUE_SCOPES = ['adopted', 'all'] as const;
+
+const jobsSchema = z
+  .object({
+    run_due: z.enum(RUN_DUE_SCOPES).optional(),
+  })
+  .strict();
+
 // CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
 // it, pinned by tests/ai/providers/config-contract.spec.ts (#367). The optional
 // `models` map (MNE-001-441, #644) and a profile's optional `reasoning_effort`
@@ -665,6 +709,7 @@ export const configFileSchema = z
     ingest: ingestSchema.optional(),
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
+    jobs: jobsSchema.optional(),
   })
   .strict()
   .superRefine((config, ctx) => {
@@ -695,6 +740,54 @@ export type MnemosineConfig = z.infer<typeof configFileSchema>;
  */
 export function userConfigPath(home = os.homedir()): string {
   return path.join(home, '.mnemosine', 'config.json');
+}
+
+export type RunDueScope = (typeof RUN_DUE_SCOPES)[number] | 'unset';
+
+export interface RunDueSetting {
+  readonly scope: RunDueScope;
+  /** The operator's own file, the only one read. */
+  readonly file: string;
+  /** True when ./mnemosine.config.json carries `jobs.run_due`, which is not read. */
+  readonly projectCarriesKey: boolean;
+}
+
+/**
+ * `jobs.run_due` from ~/.mnemosine/config.json alone (MNE-001-453). It cannot go
+ * through `loadConfigFile`, which reads only the first file that exists, project
+ * first: the setting belongs to whoever runs the tick, like the locale does
+ * (`describeLocale`). A file that does not parse, or a value that is neither,
+ * throws naming the file, the key and its two values.
+ */
+export function readRunDueScope(options: { home?: string; cwd?: string } = {}): RunDueSetting {
+  const file = userConfigPath(options.home);
+  const projectCarriesKey = projectSetsRunDue(path.join(options.cwd ?? process.cwd(), 'mnemosine.config.json'));
+  if (!fs.existsSync(file)) return { scope: 'unset', file, projectCarriesKey };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (err) {
+    throw new Error(`Invalid configuration in ${file}: ${(err as Error).message}`);
+  }
+  const jobs = (raw as { jobs?: unknown } | null)?.jobs;
+  if (jobs === undefined) return { scope: 'unset', file, projectCarriesKey };
+  const parsed = jobsSchema.safeParse(jobs);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid configuration in ${file}: jobs.run_due must be "adopted" or "all" (or be left out); ` +
+        `got ${JSON.stringify(jobs)}`
+    );
+  }
+  return { scope: parsed.data.run_due ?? 'unset', file, projectCarriesKey };
+}
+
+function projectSetsRunDue(file: string): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as { jobs?: { run_due?: unknown } } | null;
+    return raw?.jobs?.run_due !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 export function configFilePaths(cwd = process.cwd()): string[] {
@@ -1403,6 +1496,61 @@ export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWr
   return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };
 }
 
+/** The keys that hold a person's own language choice: the new one, then the legacy one. */
+const USER_LANGUAGE_KEYS = ['locale', 'language'] as const;
+
+export interface UserLocaleRemoval {
+  /** The user file that was looked at, written or not. */
+  readonly file: string;
+  /** The keys removed from it, in `USER_LANGUAGE_KEYS` order; empty when there was none. */
+  readonly removed: ReadonlyArray<(typeof USER_LANGUAGE_KEYS)[number]>;
+}
+
+/**
+ * Remove the USER's own language choice from `~/.mnemosine/config.json`, so
+ * the next rung of `describeLocale` decides again (MNE-001-469 · #653): the
+ * folder's file, the entity's language once a caller passes it (#655), or the
+ * default. It is the way back from `setUserLocale`.
+ *
+ * Both keys go. `locale` is what `mnemosine lang` writes; `language` is what it
+ * wrote before I11, and in the person's own file it is the same choice made
+ * earlier. Every other key stays: the tenant and the provider are not this
+ * command's to touch.
+ *
+ * NOTHING IS WRITTEN WHEN NOTHING CHANGES. No file, or a file with neither key,
+ * returns an empty `removed` and leaves the bytes as they were. A file that is
+ * not a JSON object is refused with its name and left alone: unlike
+ * `setUserLocale`, removing a choice gives no new content to rescue the person
+ * with, so quarantining their file would only take their other settings away.
+ *
+ * Not routed through `writeConfigPatch`, which merges and so cannot delete. The
+ * result is the person's own object minus two keys, so no secret and no shape
+ * the schema did not already have can enter; it is replaced through the same
+ * atomic step.
+ */
+export function unsetUserLocale(home = os.homedir()): UserLocaleRemoval {
+  const file = userConfigPath(home);
+  if (!fs.existsSync(file)) return { file, removed: [] };
+  let existing: unknown;
+  try {
+    existing = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    existing = undefined;
+  }
+  if (!isPlainObject(existing)) {
+    throw new Error(
+      `The configuration in ${file} is not a valid JSON object, so it was left untouched. ` +
+        'Fix or move the file, then remove the language again.'
+    );
+  }
+  const removed = USER_LANGUAGE_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(existing, key));
+  if (removed.length === 0) return { file, removed };
+  const rest: Record<string, unknown> = { ...existing };
+  for (const key of removed) delete rest[key];
+  replaceConfigFile(file, rest);
+  return { file, removed };
+}
+
 // ─── Config writer (secret auto-routing) ───
 
 // Well-known credential prefixes: Anthropic/OpenAI-style keys (sk-), GitHub
@@ -1505,18 +1653,24 @@ export function writeConfigPatch(
     throw new Error(`Refusing to write an invalid configuration to ${file}: ${issues}`);
   }
 
-  // REPLACED ATOMICALLY. Written beside the target and renamed over it, so a
-  // write that dies halfway (EIO, a full disk, a killed process) leaves the
-  // previous file whole instead of a truncated one; the mode of an existing
-  // file is carried over so a 0600 config does not come back world-readable.
+  replaceConfigFile(file, merged);
+  return file;
+}
+
+/**
+ * REPLACED ATOMICALLY. Written beside the target and renamed over it, so a
+ * write that dies halfway (EIO, a full disk, a killed process) leaves the
+ * previous file whole instead of a truncated one; the mode of an existing file
+ * is carried over so a 0600 config does not come back world-readable.
+ */
+function replaceConfigFile(file: string, contents: Record<string, unknown>): void {
   const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n');
+    fs.writeFileSync(tmp, JSON.stringify(contents, null, 2) + '\n');
     if (fs.existsSync(file)) fs.chmodSync(tmp, fs.statSync(file).mode & 0o777);
     fs.renameSync(tmp, file);
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
   }
-  return file;
 }

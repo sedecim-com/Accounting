@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 250 of 400 subcommands
+  spelling is `-T` at the root and `-t` on the 253 of 403 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -49,7 +49,7 @@ Commands:
   drafts|borradores [options]            Lists the journal entry drafts created by the AI
   review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
   ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
-  lang|idioma [options] [language]       Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  lang|idioma [options] [language]       Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
@@ -80,7 +80,7 @@ Commands:
   receipt|cobro                          Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks
   credit-note|nota-credito               Credit notes: returns, discounts and corrections against the receivable (never stamped here)
   ar|cxc                                 Receivables controls: reconcile the subledger against the control account, run named diagnostics
-  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account
+  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account, and run the named checks
   bank|banco                             Bank accounts and bank statements: master data and imported statements
   asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
   depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
@@ -333,21 +333,26 @@ Examples:
 ```
 Usage: mnemosine lang|idioma [options] [language]
 
-Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish
-command aliases always work)
+Shows or sets your language: the CLI and the agent's answers (Spanish command
+aliases always work)
 
 Arguments:
-  language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
+  language    the language to set: es, en, es-MX, en-US; omit it to see the
+              language in effect and what decided it
 
 Options:
+  --unset     remove the language saved in ~/.mnemosine/config.json, so the next
+              source decides again
   -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
+  Which language the CLI and the agent use right now, and what decided it:
+    mnemosine lang
+  Use Spanish for both; it is saved in ~/.mnemosine/config.json:
+    mnemosine lang es
+  Remove that choice, so the next source decides again:
+    mnemosine lang --unset
 ```
 
 ## `mnemosine onboard` (alias: alta)
@@ -2887,7 +2892,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --layout <name>          file layout: csv, ndjson
-                           (contpaqi/aspel/iif/sat-polizas: aún sin parser)
+                           (contpaqi/aspel/iif/sat-polizas: no parser yet)
                            (default: "csv")
   --dry-run                parse and report, stage nothing
   --idempotency-key <key>  replay-safe key: the same key with the same file
@@ -5308,7 +5313,8 @@ Examples:
 ```
 Usage: mnemosine ap|cxp [options] [command]
 
-Payables controls: reconcile the vendor subledger against the control account
+Payables controls: reconcile the vendor subledger against the control account,
+and run the named checks
 
 Options:
   -h, --help                     display help for command
@@ -5316,6 +5322,8 @@ Options:
 Commands:
   reconcile|conciliar [options]  Vendor subledger (open bills) vs the cxp
                                  control account, naming the reconciling items
+  check|verificar [options]      Named payables checks; `--check` with no value
+                                 lists them, `--check a,b` selects
   help [command]                 display help for command
 ```
 
@@ -5348,6 +5356,35 @@ Examples:
   mnemosine ap reconcile --as-of 2026-07-31 --explain
   # Exit 4 on any delta, for CI.
   mnemosine ap reconcile --as-of 2026-07-31 --strict
+```
+
+### `mnemosine ap check` (alias: verificar)
+
+```
+Usage: mnemosine ap check|verificar [options]
+
+Named payables checks; `--check` with no value lists them, `--check a,b` selects
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [names]                          comma-separated checks to run; bare --check lists the battery
+  -h, --help                               display help for command
+
+Examples:
+  # Every named payables check, for the active entity.
+  mnemosine ap check
+  # The names of the checks, without touching the database.
+  mnemosine ap check --check
+  # One check, exit 4 on its warning too, for CI.
+  mnemosine ap check --check cancelled-cfdi-open --strict
 ```
 
 ## `mnemosine bank` (alias: banco)
@@ -10825,19 +10862,27 @@ Persisted scheduled agent tasks (all output is reviewable drafts, never direct
 writes)
 
 Options:
-  -h, --help                 display help for command
+  -h, --help                            display help for command
 
 Commands:
-  list [options]             List the scheduled jobs of this entity
-  create [options]           Create a scheduled job
-  enable [options] <jobId>   Enable a job (resets its failure counter and
-                             recomputes the next run)
-  disable [options] <jobId>  Disable a job (it stays configured; runs stop)
-  run-due [options]          Tick entry point: claim and run every due job (call
-                             this from cron/launchd; --live enables the external
-                             reads)
-  history [options]          Execution log (most recent first)
-  help [command]             display help for command
+  list [options]                        List the scheduled jobs of this entity
+  create [options]                      Create a scheduled job
+  adopt|adoptar [options] [jobId]       Adopt a job: with jobs.run_due set to
+                                        "adopted" in ~/.mnemosine/config.json,
+                                        jobs run-due runs only the jobs you
+                                        adopted
+  unadopt|desadoptar [options] <jobId>  Stop adopting a job: with jobs.run_due
+                                        set to "adopted", jobs run-due no longer
+                                        runs it
+  enable [options] <jobId>              Enable a job (resets its failure counter
+                                        and recomputes the next run)
+  disable [options] <jobId>             Disable a job (it stays configured; runs
+                                        stop)
+  run-due [options]                     Tick entry point: claim and run every
+                                        due job (call this from cron/launchd;
+                                        --live enables the external reads)
+  history [options]                     Execution log (most recent first)
+  help [command]                        display help for command
 ```
 
 ### `mnemosine jobs list`
@@ -10872,6 +10917,61 @@ Options:
   --user <email>           Who creates the job (audit)
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # A nightly close check at 02:00; it is adopted for you as it is created.
+  mnemosine jobs create --name nightly-close --kind close_verification --schedule "0 2 * * *"
+```
+
+### `mnemosine jobs adopt` (alias: adoptar)
+
+```
+Usage: mnemosine jobs adopt|adoptar [options] [jobId]
+
+Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json,
+jobs run-due runs only the jobs you adopted
+
+Arguments:
+  jobId                    Job id (omit it with --list)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  --list                   List the jobs you adopted in this entity, and the
+                           value of jobs.run_due
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Adopt a job of this entity: with "jobs": { "run_due": "adopted" } in
+  # ~/.mnemosine/config.json, your jobs run-due runs only the jobs you adopted.
+  mnemosine jobs adopt 00000000-0000-4000-8000-000000000001
+  # The jobs you adopted here, and the value of jobs.run_due.
+  mnemosine jobs adopt --list
+```
+
+### `mnemosine jobs unadopt` (alias: desadoptar)
+
+```
+Usage: mnemosine jobs unadopt|desadoptar [options] <jobId>
+
+Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer
+runs it
+
+Arguments:
+  jobId                    Job id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Stop adopting a job: with jobs.run_due set to "adopted", your tick no longer runs it.
+  mnemosine jobs unadopt 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs enable`
@@ -10889,6 +10989,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Re-enable a job its failure limit disabled.
+  mnemosine jobs enable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs disable`
@@ -10906,6 +11010,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Stop a job's runs and keep its configuration.
+  mnemosine jobs disable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs run-due`
@@ -10927,6 +11035,14 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # What this tick would run, and skip, claiming nothing.
+  mnemosine jobs run-due --dry-run
+  # The tick for cron/launchd, with the reads against the client's external system.
+  mnemosine jobs run-due --live
+Which due jobs it runs on your credential is jobs.run_due in ~/.mnemosine/config.json:
+"adopted" (only the jobs you adopted) or "all" (every due job of the entity).
 ```
 
 ### `mnemosine jobs history`
