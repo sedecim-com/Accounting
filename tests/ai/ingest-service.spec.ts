@@ -42,6 +42,7 @@ import {
   scanImportedText,
   isProviderUnavailable,
   leftToCodeSummary,
+  resolveIngestProfile,
   previewRoute,
   UNTRUSTED_OPEN,
   UNTRUSTED_CLOSE,
@@ -53,7 +54,9 @@ import { ValidationError } from '../../src/utils/errors.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { LlmSession } from '../../src/ai/providers/types.js';
 import { NoMatchingApprovalPolicyError } from '../../src/ai/draft-service.js';
-import type { IngestThresholds } from '../../src/ai/providers/config.js';
+import { MissingProviderCredentialError, type IngestThresholds } from '../../src/ai/providers/config.js';
+import { CredentialHelperError } from '../../src/ai/providers/credential-helper.js';
+import { OpenAIError } from 'openai';
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -82,7 +85,7 @@ function makeUpload(overrides: Record<string, unknown> = {}, preReg: Record<stri
   };
 }
 
-type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double' | 'no-key';
+type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double' | 'no-key' | 'helper-fails';
 
 /** Fake session: each runTurn "creates" the draft via the harness capture. */
 function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
@@ -95,6 +98,11 @@ function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
       if (step === 'throw') throw new Error('model down');
       // What the Anthropic SDK throws when no credential resolves at all.
       if (step === 'no-key') throw new Error('Could not resolve authentication method. Expected one of apiKey, authToken');
+      // What the openai SDK throws when the async apiKey (a renewing helper) fails (MNE-001-446).
+      if (step === 'helper-fails') {
+        const cause = new CredentialHelperError('vault', { kind: 'exit', code: 4 });
+        throw new OpenAIError(`Failed to get token from 'apiKey' function: ${cause.message}`, { cause });
+      }
       if (step === 'question') return 'asked a question'; // no draft created
       if (step === 'double') {
         capture.drafts.push(
@@ -798,10 +806,49 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(session.runTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('a helper renewal that fails mid-batch stops asking the model for the rest (MNE-001-446)', async () => {
+    const { report, session } = run({
+      plan: [{ confidence: 0.99 }, 'helper-fails', { confidence: 0.99 }],
+      thresholds: CLOSED,
+      files: ['/tmp/a.xml', '/tmp/b.xml', '/tmp/c.xml'],
+      uploads: [makeUpload(), makeUpload({ cfdi_uuid: 'UUID-2' }), makeUpload({ cfdi_uuid: 'UUID-3' })],
+    });
+    const r = await report;
+    expect(r.results.map((x) => x.status)).toEqual(['draft', 'blocked', 'blocked']);
+    expect(r.counts.error).toBe(0);
+    expect(r.toCode).toBe(2);
+    expect(session.runTurn).toHaveBeenCalledTimes(2);
+    expect(r.results[2].detail).toMatch(/Provider "vault": its api_key_cmd exited with code 4/);
+  });
+
+  it('a failing helper at start fails ingest loudly; only a missing credential means «no model» (MNE-001-446)', () => {
+    const helperError = new CredentialHelperError('vault', { kind: 'empty' });
+    expect(() =>
+      resolveIngestProfile(() => {
+        throw helperError;
+      })
+    ).toThrow(helperError);
+    const missing = resolveIngestProfile(() => {
+      throw new MissingProviderCredentialError('Provider "openai" requires the environment variable OPENAI_API_KEY');
+    });
+    expect(missing.profile).toBeNull();
+    expect(missing.warning).toMatch(/OPENAI_API_KEY/);
+    expect(resolveIngestProfile(() => 'a profile')).toEqual({ profile: 'a profile' });
+    expect(() =>
+      resolveIngestProfile(() => {
+        throw new Error('Provider "x" does not exist');
+      })
+    ).toThrow(/does not exist/);
+  });
+
   it('isProviderUnavailable: credential and billing errors yes, a transient failure no', () => {
     expect(isProviderUnavailable(new Error('Could not resolve authentication method.'))).toBe(true);
     expect(isProviderUnavailable({ name: 'AuthenticationError', message: 'invalid x-api-key' })).toBe(true);
     expect(isProviderUnavailable(new Error('model down'))).toBe(false);
+    const helper = new CredentialHelperError('vault', { kind: 'deadline', ms: 10_000 });
+    expect(isProviderUnavailable(helper)).toBe(true);
+    expect(isProviderUnavailable(new OpenAIError('wrapped', { cause: helper }))).toBe(true);
+    expect(isProviderUnavailable(new OpenAIError('wrapped', { cause: new Error('model down') }))).toBe(false);
   });
 
   it('without --retry an already registered CFDI stays a duplicate, and the detail says how to reprocess it', async () => {
