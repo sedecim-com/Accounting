@@ -3950,7 +3950,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
-  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan',
+  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan, y el registro de las presentadas',
   'help.filing.workpaper.description': 'El papel de trabajo auditable del mes, renglón por renglón',
   'help.filing.workpaper.generate.description':
     'Genera el papel de trabajo del mes: IVA e ISR provisional, centavos y pesos, con las pólizas de cada renglón',
@@ -3974,6 +3974,42 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
+  'help.filing.record.description':
+    'Registra una declaración mensual de IVA ya presentada en el portal del SAT: su acuse, lo que quedó a cargo o a favor, su pago y los saldos que acreditó',
+  'help.filing.record.option.form': 'qué declaración es: {forms} (el IVA mensual)',
+  'help.filing.record.option.period': 'mes que cubre la declaración',
+  'help.filing.record.option.filed_on': 'día en que se presentó (AAAA-MM-DD), después de que termina su mes',
+  'help.filing.record.option.acuse': 'número de operación del acuse: así nombra el registro a esta declaración',
+  'help.filing.record.option.capture_line': 'línea de captura del pago, cuando la declaración tiene algo que pagar',
+  'help.filing.record.option.payable': 'importe a cargo que dejó la declaración, hasta dos decimales (0 para una declaración en ceros)',
+  'help.filing.record.option.in_favor': 'saldo a favor que dejó la declaración, hasta dos decimales; nunca junto con --payable',
+  'help.filing.record.option.paid': 'lo que se pagó con la línea de captura; va con --paid-on',
+  'help.filing.record.option.paid_on': 'día en que se pagó (AAAA-MM-DD), el de la presentación o después; va con --paid',
+  'help.filing.record.option.credit':
+    'un saldo a favor anterior que esta declaración acreditó (LIVA art. 6), como el acuse de la declaración que lo dejó y el importe; repítela por cada uno',
+  'help.filing.record.footer':
+    'Esto registra una declaración que una persona ya presentó. No envía nada al SAT, y una declaración registrada nunca se edita: cada declaración presentada es un renglón nuevo.\n' +
+    'Una complementaria no se registra aquí.\n' +
+    '\nEjemplos:\n' +
+    '  Ver el renglón que dejaría la declaración de julio, con su saldo a favor, sin escribir nada:\n' +
+    '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
+    '  Agosto: 8,000.00 de IVA menos 3,000.00 acreditados de julio, 5,000.00 a cargo pagados al día siguiente:\n' +
+    '    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json',
+  'filing.record.form_invalid': '--form "{value}" no es una declaración que este comando registre: usa {forms}. El ISR provisional todavía no se registra. No se escribió nada.',
+  'filing.record.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-08). No se escribió nada.',
+  'filing.record.date_invalid': '{flag} "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-09-15). No se escribió nada.',
+  'filing.record.acuse_required': 'Falta --acuse: el número de operación del acuse es como el registro nombra a una declaración. No se escribió nada.',
+  'filing.record.capture_line_blank': '--capture-line está en blanco: dala, o déjala fuera cuando la declaración no tiene nada que pagar. No se escribió nada.',
+  'filing.record.result_required': 'Di qué dejó la declaración: --payable <importe> o --in-favor <importe> (--payable 0 para una declaración en ceros). No se escribió nada.',
+  'filing.record.result_both': 'Una declaración deja un importe a cargo o un saldo a favor, nunca los dos: da --payable o --in-favor, no ambos. No se escribió nada.',
+  'filing.record.amount_invalid': '{flag} "{value}" no es un importe: usa cero o más, con a lo más dos decimales y sin separador de miles (por ejemplo 5000.00). No se escribió nada.',
+  'filing.record.payment_incomplete': 'Falta {missing}: un pago dice lo que se pagó (--paid) y el día (--paid-on). No se escribió nada.',
+  'filing.record.credit_invalid': '--credit "{value}" no es válido: usa <acuse>:<importe>, el acuse de la declaración anterior y el importe acreditado (por ejemplo OP-0701:3000.00). No se escribió nada.',
+  'filing.record.filed_on_in_future': '--filed-on {value} es posterior a hoy ({today}): sólo se registra una declaración ya presentada. No se escribió nada.',
+  'filing.record.paid_on_in_future': '--paid-on {value} es posterior a hoy ({today}): sólo se registra un pago ya hecho. No se escribió nada.',
+  'filing.record.dry_run': 'Simulación: la declaración es válida y se deshizo; no se escribió nada.',
+  'filing.record.recorded': 'Registrada: {acuse} es la declaración vigente de {period}. No se envió nada al SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
   'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',
