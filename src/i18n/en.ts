@@ -4274,11 +4274,23 @@ export const EN = {
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
   'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
-  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.description':
+    'Payables controls: reconcile the vendor subledger against the control account, and run the named checks',
   'help.ap.reconcile.description':
     'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
   'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
   'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.ap.check.description':
+    'Named payables checks; `--check` with no value lists them, `--check a,b` selects',
+  'help.ap.check.option.check': 'comma-separated checks to run; bare --check lists the battery',
+  'ap.check.title': 'AP checks',
+  'ap.check.cancelled_cfdi_open.found':
+    'open bills whose received CFDI the SAT reports cancelled: hold the payment until the vendor sends the CFDI that replaces it; ' +
+    'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_open.none': 'none',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
   'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
   'help.cashflow.generate.option.method':
@@ -5275,6 +5287,71 @@ export const EN = {
   'help.question.answer.argument.answer': 'the answer text, or the number of an option (requires <id>)',
   'help.question.answer.option.entity': 'Legal entity (id, RFC or name fragment)',
   'help.question.answer.option.user': 'Who answers (default: sole active user of the tenant)',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  //
+  // The second ledger task: the `entry` family whole, root included, English as
+  // shown (`batch` and `fx` are MNE-001-426). Every generic flag a leaf declares
+  // is worded for it and keeps its own key; what withContext, withOutput,
+  // withSelection, withTime, withStrict and declareRisk add stays on cli.flag.*.
+  // The lists travel as {types} and {layouts}. The English of `entry import
+  // --layout` was Spanish author prose on develop ("aún sin parser"); the owner
+  // chose on #314 (15 Nov 2026) to give those nodes real English, so it is the
+  // one English text this task changes.
+  'help.entry.description': 'Journal entries: draft, inspect, validate, post, reverse and void',
+  'help.entry.list.description': 'Search journal entries by text, account, date, amount, state, type or source',
+  'help.entry.list.argument.search': 'text to match in the description or reference',
+  'help.entry.list.option.type': 'entry type (repeatable)',
+  'help.entry.list.option.source': 'origin subledger: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'only entries with a line on this account',
+  'help.entry.list.option.min_amount': 'minimum total debits',
+  'help.entry.list.option.max_amount': 'maximum total debits',
+  'help.entry.show.description': 'Show one entry with its lines, totals, period and linked reversal',
+  'help.entry.show.argument.number': 'entry number (JE-2026-00042) or id',
+  'help.entry.show.option.no_lines': 'header only, without the lines',
+  'help.entry.create.description': 'Create a journal entry — ALWAYS a draft; posting is a separate human step',
+  'help.entry.create.option.line':
+    'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below',
+  'help.entry.create.option.file': 'JSON document with date, type, description and lines',
+  'help.entry.create.option.date': 'entry date (YYYY-MM-DD); defaults to today',
+  'help.entry.create.option.type': 'entry type: {types} (default: standard)',
+  'help.entry.create.option.description': 'what the entry records',
+  'help.entry.create.option.reference': 'external reference (document, folio, memo)',
+  'help.entry.create.option.dry_run': 'validate and show the entry that would be drafted; write nothing',
+  'help.entry.create.option.json': 'JSON output',
+  'help.entry.check.description': 'Run the seven NIF validation rules over an entry or a document; writes nothing',
+  'help.entry.check.option.entry': 'an existing entry, by number or id',
+  'help.entry.check.option.file': 'a JSON entry document that does not exist yet',
+  'help.entry.line.description': 'Ledger lines: from an account balance down to the entries behind it',
+  'help.entry.line.list.description': 'Posted lines of one account, each with the entry it belongs to',
+  'help.entry.line.list.argument.code': 'account code',
+  'help.entry.preview.description':
+    'The exact account_balances delta this entry would produce, without touching anything',
+  'help.entry.preview.argument.number': 'entry number or id',
+  'help.entry.edit.description': 'Edit a DRAFT entry: description, reference, note, date or full line replacement',
+  'help.entry.edit.argument.number': 'entry number or id',
+  'help.entry.edit.option.description': 'new description',
+  'help.entry.edit.option.reference': 'new external reference',
+  'help.entry.edit.option.note': 'new note',
+  'help.entry.edit.option.date': 'new entry date (YYYY-MM-DD)',
+  'help.entry.edit.option.line':
+    'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)',
+  'help.entry.edit.option.file': 'JSON document whose date/description/reference/lines replace the draft',
+  'help.entry.export.description': 'Entries WITH their lines, flat, for audit or migration — no page cap',
+  'help.entry.import.description':
+    'Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger',
+  'help.entry.import.argument.file': 'file of journal entries to stage',
+  'help.entry.import.option.layout': 'file layout: {layouts} (contpaqi/aspel/iif/sat-polizas: no parser yet)',
+  'help.entry.import.option.dry_run': 'parse and report, stage nothing',
+  'help.entry.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first batch',
+  'help.entry.post.description': 'Post ONE entry to the ledger: validates the seven rules, then moves balances',
+  'help.entry.post.argument.number': 'entry number or id',
+  'help.entry.post.option.json': 'JSON output',
+  'help.entry.reverse.description': 'Create the linked posted mirror of an entry (NIF B-1: correct by reversal)',
+  'help.entry.reverse.argument.number': 'the POSTED entry to reverse',
+  'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
+  'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
+  'help.entry.void.argument.number': 'entry number or id',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -5312,6 +5389,109 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  //
+  // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
+  // their one Spanish label, and the verdict of renderDoctor. `id` and `level`
+  // are the machine's and stay out of the catalogue; commands, tables and
+  // Postgres words inside the prose are typed or matched, so they stay as written.
+  /** The label of `conflicting-permissions`; it must share no word with the id. */
+  'doctor.check.permission_conflicts': 'Segregation of duties (user access)',
+  'doctor.summary.title': 'Mnemosine health check',
+  'doctor.summary.fail': 'There are failures that prevent operation. Resolve them in the order shown.',
+  'doctor.summary.warn': 'Operational with warnings.',
+  'doctor.summary.ok': 'All good.',
+  /** `sample` is the first three `command: detail` of the audit, which #150 keeps untranslated. */
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# new violation} other {# new violations}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'The CLI surface stays consistent because every verb comes from a closed list and every flag from the single dictionary. ' +
+    'Fix the command, or —if the change is deliberate— extend the vocabulary in src/cli/kernel/vocabulary.ts. ' +
+    'The baseline in src/cli/kernel/audit.ts is NOT extended.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# baseline entry is no longer violated: delete it} other {# baseline entries are no longer violated: delete them}}',
+  /** `stale` is empty, or « · » and the text of `doctor.cli_consistency.stale`. */
+  'doctor.cli_consistency.inherited':
+    'no new violations; {count, plural, one {# inherited one remains} other {# inherited ones remain}} in the baseline{stale}',
+  'doctor.cli_consistency.clean': 'the surface meets every rule{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'The inherited ones are known, frozen debt: nine are naming decisions, three require retiring a short form already published, ' +
+    'and eight ask for four listings to be paginated.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ posted lines, and everything posted has its trail',
+  /** `capped` is `yes` when the query hit its LIMIT 20. */
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (account, period) where account_balances ≠ Σ posted lines — every report on top inherits the difference',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# posted entry} other {# posted entries}} without a 'post' row in audit_log — facts with no author",
+  'doctor.ledger_integrity.fix':
+    'Balance drift is investigated BEFORE recalculating: since migration 041 a posted line cannot be edited, ' +
+    'so a new difference points at the write path of account_balances, not at the lines.',
+  'doctor.permission_conflicts.ok': 'no active user holds conflicting permissions',
+  'doctor.permission_conflicts.fix':
+    'Split the conflicting permissions between different users, or accept the risk knowingly ' +
+    '(in a one-person firm it is unavoidable; the per-entry maker-checker lives in the panel: segregacion_de_funciones).',
+  /** `list` is `table.trigger=state`, as pg_trigger spells it. */
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} of {total, plural, one {# guarantee} other {# guarantees}} unsealed{off, plural, =0 {} other { (# DISABLED)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <table> ENABLE ALWAYS TRIGGER <trigger>  — and find out WHO disabled it and why',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# guarantee in ENABLE ALWAYS: not even session_replication_role silences it} other {# guarantees in ENABLE ALWAYS: not even session_replication_role silences them}}',
+  'doctor.bank_statements.unnamed_file': '(unnamed)',
+  /** How many tenants the check read: a green that does not say so is green by not looking. */
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# tenant checked} other {# tenants checked}}{blind, plural, =0 {} other {, # could not be checked}}',
+  'doctor.bank_statements.unrepaired': 'this database recorded migration 051 before its correction',
+  'doctor.bank_statements.unique_index': 'the content index is UNIQUE and swallows legitimately identical transactions',
+  'doctor.bank_statements.blind_trigger': 'the trigger does not watch content_hash, so the fingerprint can be forged by hand',
+  'doctor.bank_statements.already_missing':
+    '{lines, plural, one {# line is} other {# lines are}} already missing in {statements, plural, one {# statement} other {# statements}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — applies 072; lines already lost must be re-imported by hand: the remedy gives back the capacity, not the data',
+  /** It does not say «missing»: a line skipped as a duplicate of an overlapping statement is not lost. */
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# line declared and not present} other {# lines declared and not present}} in {statements, plural, one {# statement} other {# statements}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compare before touching anything: if those lines are in the account under ANOTHER statement of an overlapping period, ' +
+    'the database is sound and this is the declared gap of 051. Only if they appear nowhere was there a loss, and then the file is ' +
+    're-imported with the account in view of a human — never by removing the bank_statements row, which is evidence',
+  'doctor.bank_statements.blind':
+    'the catalogue is repaired, but {scope}: without reading their statements I cannot say they are complete',
+  'doctor.bank_statements.blind_fix': 'check that the application role can query bank_statements with a tenant context',
+  'doctor.bank_statements.ok':
+    'the content index is not unique, the trigger enforces the fingerprint, and no statement has fewer lines than it declared ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor does not exist: giving an outside auditor access today means lending them WRITE credentials over the books',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (it does not fit in a migration: the migrator has no CREATEROLE, on purpose)',
+  /** The four grave findings follow «mnemosine_auditor», joined by «; ». */
+  'doctor.auditor_role.bypasses_rls': 'IGNORES RLS (BYPASSRLS): it sees the books of ALL tenants',
+  'doctor.auditor_role.superuser': 'is a SUPERUSER',
+  'doctor.auditor_role.creates_roles': 'can create roles',
+  'doctor.auditor_role.writes': 'has WRITE on {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — the script reasserts NOBYPASSRLS and revokes; also find out WHO granted it',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor has LOGIN: it is meant as a privilege bundle granted to NAMED accounts (one per auditor), not as a shared account',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  and issue one account per person: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor reads {count, plural, one {# materialized view} other {# materialized views}} ({views}): ' +
+    'RLS does not filter them and a role with BYPASSRLS builds them, so they hold the books of ALL tenants',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — its block 4 revokes every relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor exists and is well bounded, but its table coverage could not be measured',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (its verification block prints both counts)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor reads only {readable} of the {total} isolated tables: ' +
+    '{missing, plural, one {# table was} other {# tables were}} created after the last GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (grants again and sets the default privileges for whatever comes next)',
+  'doctor.auditor_role.global_tables':
+    'also {count, plural, other {# without a tenant, which must be global reference only}} ({tables})',
+  /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
+  'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':

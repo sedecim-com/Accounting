@@ -3856,11 +3856,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
   'help.ar.check.option.strict': 'sale con 4 también ante avisos, no sólo ante hallazgos bloqueantes',
   'help.ap.description':
-    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control',
+    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control y corre las verificaciones por nombre',
   'help.ap.reconcile.description':
     'Auxiliar de proveedores (facturas abiertas) contra la cuenta de control de cxp, nombrando las partidas en conciliación',
   'help.ap.reconcile.option.as_of': 'fecha de corte de los dos lados de la conciliación (AAAA-MM-DD; por omisión, hoy)',
   'help.ap.reconcile.option.explain': 'explica en prosa cada partida en conciliación, no sólo la tabla',
+  'help.ap.check.description':
+    'Verificaciones de cuentas por pagar por nombre; `--check` sin valor las lista, `--check a,b` elige',
+  'help.ap.check.option.check': 'verificaciones a correr, separadas por comas; --check sin valor lista la batería',
+  'ap.check.title': 'Verificaciones de CxP',
+  'ap.check.cancelled_cfdi_open.found':
+    'facturas de proveedor abiertas cuyo CFDI recibido el SAT reporta cancelado: detén el pago hasta que el proveedor mande el CFDI que lo sustituye; ' +
+    'qué significa para la deducción y el IVA lo decide el contador, y no se revirtió nada',
+  'ap.check.cancelled_cfdi_open.none': 'ninguna',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · debe {amount} {currency} · marcada el {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# bloqueante} other {# bloqueantes}} · {warnings, plural, one {# aviso} other {# avisos}}',
   'help.cashflow.description':
     'Estado de flujos de efectivo (NIF B-2 / ASC 230): armarlo y cuadrarlo contra el efectivo real',
   'help.cashflow.generate.description':
@@ -4893,6 +4904,73 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.question.answer.argument.answer': 'el texto de la respuesta, o el número de una opción (requiere <id>)',
   'help.question.answer.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
   'help.question.answer.option.user': 'Quién responde (por omisión: el único usuario activo del inquilino)',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  'help.entry.description': 'Pólizas: redactar, consultar, validar, contabilizar, reversar y anular',
+  'help.entry.list.description': 'Busca pólizas por texto, cuenta, fecha, importe, estado, tipo u origen',
+  'help.entry.list.argument.search': 'texto a buscar en la descripción o en la referencia',
+  'help.entry.list.option.type': 'tipo de póliza (se puede repetir)',
+  'help.entry.list.option.source': 'auxiliar de origen: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'sólo pólizas con una línea en esta cuenta',
+  'help.entry.list.option.min_amount': 'total mínimo de cargos',
+  'help.entry.list.option.max_amount': 'total máximo de cargos',
+  'help.entry.show.description': 'Muestra una póliza con sus líneas, totales, periodo y la reversa ligada',
+  'help.entry.show.argument.number': 'número de póliza (JE-2026-00042) o id',
+  'help.entry.show.option.no_lines': 'sólo el encabezado, sin las líneas',
+  'help.entry.create.description':
+    'Crea una póliza — SIEMPRE como borrador; contabilizarla es un paso humano aparte',
+  'help.entry.create.option.line':
+    'una línea: "account=6120;debit=45000.00;description=…"; se repite por cada línea. ' +
+    'La lista de claves está abajo',
+  'help.entry.create.option.file': 'documento JSON con fecha, tipo, descripción y líneas',
+  'help.entry.create.option.date': 'fecha de la póliza (AAAA-MM-DD); por omisión, hoy',
+  'help.entry.create.option.type': 'tipo de póliza: {types} (por omisión: standard)',
+  'help.entry.create.option.description': 'qué registra la póliza',
+  'help.entry.create.option.reference': 'referencia externa (documento, folio, memo)',
+  'help.entry.create.option.dry_run': 'valida y muestra la póliza que quedaría como borrador; no escribe nada',
+  'help.entry.create.option.json': 'salida en JSON',
+  'help.entry.check.description':
+    'Corre las siete reglas de validación de las NIF sobre una póliza o un documento; no escribe nada',
+  'help.entry.check.option.entry': 'una póliza que ya existe, por número o id',
+  'help.entry.check.option.file': 'un documento JSON de una póliza que todavía no existe',
+  'help.entry.line.description': 'Líneas del mayor: del saldo de una cuenta a las pólizas que lo forman',
+  'help.entry.line.list.description':
+    'Líneas contabilizadas de una cuenta, cada una con la póliza a la que pertenece',
+  'help.entry.line.list.argument.code': 'código de cuenta',
+  'help.entry.preview.description':
+    'El cambio exacto que esta póliza haría en account_balances, sin tocar nada',
+  'help.entry.preview.argument.number': 'número o id de la póliza',
+  'help.entry.edit.description':
+    'Edita una póliza en BORRADOR: descripción, referencia, nota, fecha o reemplazo de todas las líneas',
+  'help.entry.edit.argument.number': 'número o id de la póliza',
+  'help.entry.edit.option.description': 'nueva descripción',
+  'help.entry.edit.option.reference': 'nueva referencia externa',
+  'help.entry.edit.option.note': 'nueva nota',
+  'help.entry.edit.option.date': 'nueva fecha de la póliza (AAAA-MM-DD)',
+  'help.entry.edit.option.line':
+    'REEMPLAZA todas las líneas: "account=6120;debit=45000.00;description=…" ' +
+    '(la lista de claves está en entry create --help)',
+  'help.entry.edit.option.file':
+    'documento JSON cuya fecha, descripción, referencia y líneas reemplazan las del borrador',
+  'help.entry.export.description':
+    'Pólizas CON sus líneas, en plano, para auditoría o migración — sin tope de páginas',
+  'help.entry.import.description':
+    'Prepara un archivo de pólizas en un lote (devuelve un batch_id); NUNCA toca el mayor',
+  'help.entry.import.argument.file': 'archivo de pólizas que se va a preparar',
+  'help.entry.import.option.layout': 'formato del archivo: {layouts} (contpaqi/aspel/iif/sat-polizas: aún sin parser)',
+  'help.entry.import.option.dry_run': 'lee el archivo e informa; no prepara nada',
+  'help.entry.import.option.idempotency_key':
+    'llave para reintentar sin riesgo: la misma llave con el mismo archivo devuelve el primer lote',
+  'help.entry.post.description':
+    'Contabiliza UNA póliza en el mayor: valida las siete reglas y luego mueve los saldos',
+  'help.entry.post.argument.number': 'número o id de la póliza',
+  'help.entry.post.option.json': 'salida en JSON',
+  'help.entry.reverse.description':
+    'Crea la póliza espejo, contabilizada y ligada a la original (NIF B-1: se corrige por reversa)',
+  'help.entry.reverse.argument.number': 'la póliza CONTABILIZADA que se reversa',
+  'help.entry.reverse.option.date': 'fecha de la póliza espejo (AAAA-MM-DD); por omisión, hoy',
+  'help.entry.void.description':
+    'Anula una póliza: un borrador queda anulado y una contabilizada recibe su espejo ligado',
+  'help.entry.void.argument.number': 'número o id de la póliza',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -4924,6 +5002,95 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.net_income': 'Utilidad neta',
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  'doctor.check.permission_conflicts': 'Segregación de funciones (permisos)',
+  'doctor.summary.title': 'Revisión de salud de Mnemosine',
+  'doctor.summary.fail': 'Hay fallas que impiden operar. Resuélvelas en el orden en que aparecen.',
+  'doctor.summary.warn': 'Opera con avisos.',
+  'doctor.summary.ok': 'Todo en orden.',
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# violación nueva} other {# violaciones nuevas}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'La superficie del CLI se mantiene coherente porque cada verbo sale de una lista cerrada y cada bandera del diccionario único. ' +
+    'Corrige el comando, o —si el cambio es deliberado— amplía el vocabulario en src/cli/kernel/vocabulary.ts. ' +
+    'La línea base de src/cli/kernel/audit.ts NO se amplía.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# entrada de la línea base ya no se viola: bórrala} other {# entradas de la línea base ya no se violan: bórralas}}',
+  'doctor.cli_consistency.inherited':
+    'sin violaciones nuevas; {count, plural, one {queda # heredada} other {quedan # heredadas}} en la línea base{stale}',
+  'doctor.cli_consistency.clean': 'la superficie cumple todas las reglas{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'Las heredadas son deuda conocida y congelada: nueve son decisiones de nombre, tres exigen retirar una forma corta ya publicada, ' +
+    'y ocho piden que cuatro listados se puedan paginar.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ líneas posteadas, y todo posteado tiene su rastro',
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (cuenta, periodo) donde account_balances ≠ Σ líneas posteadas — todo reporte encima hereda la diferencia',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# asiento posteado} other {# asientos posteados}} sin fila 'post' en audit_log — hechos sin autor",
+  'doctor.ledger_integrity.fix':
+    'La deriva de saldos se investiga ANTES de recalcular: desde la 041 una línea posteada no se edita, ' +
+    'así que una diferencia nueva apunta al camino de escritura de account_balances, no a las líneas.',
+  'doctor.permission_conflicts.ok': 'ningún usuario activo acumula permisos en conflicto',
+  'doctor.permission_conflicts.fix':
+    'Reparte los permisos en conflicto entre usuarios distintos, o acepta el riesgo a sabiendas ' +
+    '(en un despacho unipersonal es inevitable; el maker-checker por póliza vive en el panel: segregacion_de_funciones).',
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} de {total, plural, one {# garantía} other {# garantías}} sin sellar{off, plural, =0 {} one { (# APAGADA)} other { (# APAGADAS)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <tabla> ENABLE ALWAYS TRIGGER <disparador>  — y averigua QUIÉN lo apagó y por qué',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# garantía en ENABLE ALWAYS: ni session_replication_role la calla} other {# garantías en ENABLE ALWAYS: ni session_replication_role las calla}}',
+  'doctor.bank_statements.unnamed_file': '(sin nombre)',
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# inquilino revisado} other {# inquilinos revisados}}{blind, plural, =0 {} other {, # sin poder mirarse}}',
+  'doctor.bank_statements.unrepaired': 'esta base registró la 051 antes de su corrección',
+  'doctor.bank_statements.unique_index': 'el índice de contenido es ÚNICO y se traga movimientos legítimamente idénticos',
+  'doctor.bank_statements.blind_trigger': 'el disparador no vigila content_hash, así que la huella se puede forjar a mano',
+  'doctor.bank_statements.already_missing':
+    'ya {lines, plural, one {falta # línea} other {faltan # líneas}} en {statements, plural, one {# extracto} other {# extractos}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — aplica la 072; las líneas ya perdidas hay que reimportarlas a mano, el remedio devuelve la capacidad, no el dato',
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# línea declarada y no presente} other {# líneas declaradas y no presentes}} en {statements, plural, one {# extracto} other {# extractos}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compara antes de tocar nada: si esas líneas están en la cuenta bajo OTRO extracto de periodo traslapado, la base está sana y ' +
+    'esto es el hueco declarado de la 051. Sólo si no aparecen en ninguna parte hubo pérdida, y entonces se reimporta el archivo con ' +
+    'la cuenta a la vista de un humano — nunca soltando la fila de bank_statements, que es evidencia',
+  'doctor.bank_statements.blind':
+    'el catálogo está reparado, pero {scope}: sin poder leer sus extractos no puedo decir que estén completos',
+  'doctor.bank_statements.blind_fix': 'revisa que el rol de la aplicación pueda consultar bank_statements con contexto de inquilino',
+  'doctor.bank_statements.ok':
+    'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor no existe: dar acceso a un auditor externo hoy exige prestarle credenciales de ESCRITURA sobre los libros',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (no cabe en una migración: el migrador no tiene CREATEROLE, y es a propósito)',
+  'doctor.auditor_role.bypasses_rls': 'IGNORA LA RLS (BYPASSRLS): ve los libros de TODOS los inquilinos',
+  'doctor.auditor_role.superuser': 'es SUPERUSUARIO',
+  'doctor.auditor_role.creates_roles': 'puede crear roles',
+  'doctor.auditor_role.writes': 'tiene ESCRITURA sobre {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — el guion reafirma NOBYPASSRLS y revoca; averigua además QUIÉN se lo concedió',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor tiene LOGIN: está pensado como paquete de privilegios que se concede a cuentas NOMINALES (una por auditor), no como cuenta compartida',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  y emite una cuenta por persona: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor lee {count, plural, one {# vista materializada} other {# vistas materializadas}} ({views}): ' +
+    'no las filtra la RLS y las construye un rol con BYPASSRLS, así que contienen los libros de TODOS los inquilinos',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — su bloque 4 revoca toda relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor existe y está bien acotado, pero no se pudo medir su cobertura de tablas',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (su bloque de verificación imprime los dos conteos)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor sólo lee {readable} de las {total} tablas aisladas: ' +
+    '{missing, plural, one {# tabla nació} other {# tablas nacieron}} después del último GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (vuelve a conceder y fija los privilegios por defecto de lo que venga)',
+  'doctor.auditor_role.global_tables':
+    'además {count, plural, one {# sin inquilino, que debe ser sólo referencia global} other {# sin inquilino, que deben ser sólo referencia global}} ({tables})',
+  'doctor.auditor_role.ok': 'sólo lectura sobre {count} tablas aisladas, NOLOGIN y sujeto a la RLS{note}',
+  // ==== end of I11 · doctor by key ====
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
   'payrun.file_duplicate_employee':
