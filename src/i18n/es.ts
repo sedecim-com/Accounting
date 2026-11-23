@@ -5025,4 +5025,39 @@ export const ES: Record<keyof typeof EN, string> = {
   'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',
   'bill.inbox.run.issued_not_a_bill':
     'es un CFDI que emitió esta entidad, una venta y no una factura de proveedor: contabilízalo en CxC con `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  'provider.credential.env': '{variable} definida',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd en {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd en {file}, un archivo de proyecto que comparte todo el que corre mnemosine en esa carpeta',
+  'provider.credential.local': 'local, sin credencial',
+  'provider.credential.none': 'sin credencial configurada',
+  'provider.credential.missing': 'falta {variable}',
+  'provider.credential.missing_at': 'falta {variable} (se obtiene en {where})',
+  'provider.credential.refused': '{variable} no es una credencial de proveedor',
+  'provider.credential.folder_key':
+    '{label}; {file} la define, así que esa llave le sirve a todo el que corre mnemosine en esa carpeta',
+  'provider.credential.folder_empty': '{label}; el {variable}= vacío de {file} tapa ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY definida, que lee el SDK de Anthropic',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN definida, un token bearer que envía el SDK de Anthropic',
+  'provider.credential.anthropic.custom_header': 'una línea {header} en ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'sesión iniciada: perfil de Anthropic {profile} en {file}',
+  'provider.credential.anthropic.federation':
+    'federación de identidad de cargas de trabajo (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID y un token de identidad)',
+  'provider.credential.hint.missing':
+    'El proveedor {name} no tiene credencial: define {variable} en tu shell o en ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'El proveedor {name} no tiene credencial: define {variable} en tu shell o en ~/.mnemosine/.env (se obtiene en {where}).',
+  'provider.credential.hint.anthropic_alternative': 'O inicia sesión con `ant auth login`, o define ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'O dale al perfil un api_key_cmd en ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'El proveedor {name} nombra {variable} en api_key_env, y no es una credencial de proveedor: nombra una variable propia que guarde la llave.',
+  'provider.credential.hint.keyless':
+    'El proveedor {name} no tiene credencial configurada: dale un api_key_env o un api_key_cmd. Si su endpoint no pide llave, abre el chat con --provider {name}.',
+  'provider.credential.hint.init': 'Para configurarlo: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Define ANTHROPIC_API_KEY en tu shell o en ~/.mnemosine/.env, o corre `ant auth login`.',
+  'provider.switch.kept': 'La sesión sigue en {current}.',
+  'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
+  // ==== end of MNE-001-444 ====
 };

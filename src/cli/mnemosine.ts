@@ -118,7 +118,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
-import { providerLines } from './provider-readiness.js';
+import { credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -351,7 +351,7 @@ function isInterrupt(err: unknown): boolean {
 export function reportError(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError) {
     console.error(ce.red('\nAuthentication error with the Anthropic API.'));
-    console.error('Set ANTHROPIC_API_KEY in your environment or .env, or run `ant auth login`.');
+    console.error(t('provider.credential.anthropic_rejected'));
   } else if (err instanceof OpenAI.AuthenticationError) {
     console.error(ce.red('\nThe provider rejected the credential (401).'));
     console.error('Check the environment variable named by api_key_env in the profile (mnemosine providers).');
@@ -393,6 +393,20 @@ export function reportError(err: unknown): void {
       if (remedio) console.error(`  → ${remedio}`);
     }
   }
+}
+
+/**
+ * reportError, except that a missing credential reads as the readiness answer
+ * every surface gives: the profile, its variable, where to get it, the
+ * alternative and `mnemosine init --section ai` (MNE-001-444). `providerName`
+ * is the profile the session runs on; undefined means the configured default.
+ */
+function reportSessionError(err: unknown, providerName: string | undefined): void {
+  const hint = credentialErrorHint(err, providerName);
+  if (!hint) return reportError(err);
+  const [problem, ...next] = hint;
+  console.error(ce.red(`\n${problem}`));
+  for (const line of next) console.error(`  → ${line}`);
 }
 
 function makeCallbacks(askUser?: AskUserFn, onDraftCreated?: SessionCallbacks['onDraftCreated']): SessionCallbacks {
@@ -1289,7 +1303,7 @@ describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description'
       await shutdown(0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
@@ -1362,7 +1376,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
         if (chatDbInitError) throw chatDbInitError;
         built = await buildSession(opts.entity, opts.provider, opts.model, callbacks, onChatFailover);
       } catch (startupErr) {
-        const state = await detectSetupState();
+        const state = await detectSetupState({ provider: opts.provider });
         // Ready but startup still failed → a genuine runtime/user error
         // (e.g. a bad --entity): keep today's error reporting.
         if (state.state === 'ready') throw startupErr;
@@ -1398,6 +1412,8 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
       }
       const ctx = built.ctx;
       let session = built.session;
+      // The profile the session runs on, for the credential hint (MNE-001-444).
+      let currentProvider = opts.provider;
 
       // Usage accounting is fire-and-forget: it must never block or fail a
       // turn. sessionId is read at call time so rows attach to the session
@@ -1514,7 +1530,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
         } catch (err) {
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1547,8 +1563,19 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
             // Hot-swap: new session — history is not portable across
             // different provider formats. The startup --model is NOT
             // propagated: it was an override for the initial profile.
-            const profile = resolveProfile(target);
-            session = await createLlmSession(profile, ctx, callbacks);
+            // A profile with no credential is not switched to: the current
+            // session stays, and the answer says what is missing (MNE-001-444).
+            const swap = await switchProvider(target, {
+              currentLabel: session.label,
+              open: (p) => createLlmSession(p, ctx, callbacks),
+            });
+            if (!swap.switched) {
+              console.log(c.yellow(swap.message) + '\n');
+              continue;
+            }
+            const profile = swap.profile;
+            session = swap.session;
+            currentProvider = target;
             // Keep the audit row's provenance in sync with the provider now
             // producing turns. Chained on recordChain so it cannot
             // interleave with an in-flight recordTurn.
@@ -1558,7 +1585,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
                 .then(() => updateSessionProvider(sid, profile.name, profile.model))
                 .catch(transcriptOff);
             }
-            console.log(c.dim(`Provider switched to ${session.label}. New conversation.\n`));
+            console.log(c.dim(`${t('provider.switch.done', { label: session.label, credential: swap.credential })}\n`));
           } catch (err) {
             reportError(err);
           }
@@ -1612,7 +1639,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
           // failover staged so a later, non-failing turn never inherits it.
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1629,7 +1656,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
     } catch (err) {
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
