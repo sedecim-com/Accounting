@@ -18,6 +18,9 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 //   · filedReturnInForce reads the last link of a period's chain: an amended
 //     return («complementaria», CFF art. 32) replaces the one before it, and
 //     the return in force is the one nobody replaces.
+//   · balancesInFavorBefore (MNE-001-386) reads, for the IVA workpaper, each
+//     earlier balance and what was already credited, compensated or asked
+//     back from it.
 //
 // THE RULES ARE SAID BY KEY, in en and es, before Postgres says them as a
 // constraint name: dates that are not days, a return filed before its month
@@ -27,7 +30,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 // the day of the return it replaces, and a credit (LIVA art. 6) comes from a
 // return of an EARLIER month that left a balance in favour. How much of that
 // balance is still available, and the cap at the tax payable, are rules of
-// its reader (MNE-001-386), not of this writer. The three UNIQUE violations
+// its reader (MNE-001-386, prior-balance.ts), not of this writer. The three UNIQUE violations
 // (the acknowledgement, the period's original, the replaced return) are a
 // race the pre-checks cannot close, so they are put into words when
 // Postgres raises them.
@@ -163,6 +166,73 @@ export async function filedReturnInForce(
   if (r.rows.length === 0) throw new NotFoundError('Entity', scope.entityId);
   const row = r.rows[0];
   return row.id ? (row as FiledReturn) : null;
+}
+
+/** An earlier period's balance in favour, with what the record says was already done with it. */
+export interface BalanceInFavorSource {
+  /** The return in force of that period. */
+  acknowledgementNumber: string;
+  /** YYYY-MM */
+  period: string;
+  filedOn: string;
+  balanceInFavor: string;
+  /** Credited by the returns in force of every period but the one being prepared. */
+  credited: string;
+  compensated: string;
+  refundRequested: string;
+}
+
+/**
+ * The balances in favour of the periods before `period`, oldest first: the
+ * return in force of each, with what the returns in force of OTHER periods
+ * credited from its chain and what was compensated or asked as a refund.
+ * Summed by the source period, not the source row: a credit taken from a
+ * return later amended still draws on that period's balance. A replaced
+ * return's credits do not count: its amendment restates its own. What is
+ * still available, and the cap, are the workpaper's (prior-balance.ts).
+ * A foreign entity answers 404, never an empty list.
+ */
+export async function balancesInFavorBefore(
+  scope: EntityScope,
+  obligation: FiledReturnObligation,
+  period: string,
+  client?: pg.PoolClient
+): Promise<BalanceInFavorSource[]> {
+  assertPeriod(period);
+  const r = await run(client)<Partial<BalanceInFavorSource>>(
+    `WITH in_force AS (
+       SELECT r.* FROM filed_tax_returns r
+        WHERE r.entity_id = $1 AND r.obligation = $3
+          AND NOT EXISTS (SELECT 1 FROM filed_tax_returns n WHERE n.replaces_return_id = r.id)
+     ), credited AS (
+       SELECT c.source_period, SUM(c.amount) AS amount FROM filed_tax_return_credits c
+         JOIN in_force f ON f.id = c.return_id
+        WHERE f.period <> $4::date GROUP BY c.source_period
+     ), used AS (
+       SELECT u.source_period, SUM(u.amount) FILTER (WHERE u.kind = 'compensation') AS compensated,
+              SUM(u.amount) FILTER (WHERE u.kind = 'refund_request') AS refund
+         FROM tax_balance_uses u WHERE u.entity_id = $1 AND u.obligation = $3 GROUP BY u.source_period
+     ), sources AS (
+       SELECT s.entity_id, s.acknowledgement_number AS "acknowledgementNumber",
+              to_char(s.period, 'YYYY-MM') AS period, to_char(s.filed_on, 'YYYY-MM-DD') AS "filedOn",
+              s.balance_in_favor::text AS "balanceInFavor", COALESCE(cr.amount, 0)::numeric(19,2)::text AS credited,
+              COALESCE(us.compensated, 0)::numeric(19,2)::text AS compensated,
+              COALESCE(us.refund, 0)::numeric(19,2)::text AS "refundRequested"
+         FROM in_force s
+         LEFT JOIN credited cr ON cr.source_period = s.period
+         LEFT JOIN used us ON us.source_period = s.period
+        WHERE s.period < $4::date
+          AND (s.balance_in_favor > 0 OR cr.amount > 0 OR us.compensated > 0 OR us.refund > 0)
+     )
+     SELECT x."acknowledgementNumber", x.period, x."filedOn", x."balanceInFavor", x.credited, x.compensated,
+            x."refundRequested"
+       FROM legal_entities le LEFT JOIN sources x ON x.entity_id = le.id
+      WHERE le.id = $1 AND le.tenant_id = $2
+      ORDER BY x.period`,
+    [scope.entityId, scope.tenantId, obligation, `${period}-01`]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Entity', scope.entityId);
+  return r.rows.filter((x) => x.acknowledgementNumber) as BalanceInFavorSource[];
 }
 
 async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling): Promise<FiledReturn> {
