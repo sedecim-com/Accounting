@@ -286,6 +286,127 @@ export const E3_2: Criterio[] = [
     },
   },
 
+  // ---- MNE-001-609 (#643) · a bill born from a CFDI already cancelled ----
+  {
+    paquete: 'E3.2',
+    id: 'cancelled-cfdi-noted-at-bill-birth',
+    enunciado: 'Un bill que nace de un CFDI que su entidad ya sabe cancelado lleva la marca desde su alta, por un UPDATE guardado en la misma transacción, y tomar un bill de apertura no le deja la marca de un UUID que ya no lleva',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);',
+        a: '',
+        porque: 'bill inbox run and the AI-draft approval write a bill on a CFDI already known cancelled, and it waits unmarked for the next sweep',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: 'await noteBillCfdiAlreadyCancelled(client, entityId, billId);',
+        a: '',
+        porque: 'an opening bill, new or taken over, whose UUID the census already reports cancelled is born unmarked',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND b.entity_id = $1',
+        a: 'AND $1::uuid IS NOT NULL',
+        porque: 'the birth mark loses its entity scope: the statement no longer says whose bill it may touch',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'x.entity_id = b.entity_id',
+        a: 'x.entity_id IS NOT NULL',
+        porque: 'the birth mark reads the mirror across entities: a sister entity that cancelled the same UUID marks this bill',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'c.entity_id = b.entity_id',
+        a: 'c.entity_id IS NOT NULL',
+        porque: 'the birth mark reads the census across entities: another entity\'s metadata marks this bill',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND b.cfdi_cancellation_noted_at IS NULL',
+        a: '',
+        porque: 'the birth mark loses its predicate: measuring a bill again rewrites the moment the system first learned it',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: '                cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)\n                                                  THEN cfdi_cancellation_noted_at END,\n',
+        a: '',
+        porque: 'the takeover rewrites cfdi_uuid and keeps the old UUID\'s mark: ap check names a bill for a CFDI it no longer carries',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: 'lower($12::text)',
+        a: 'lower(cfdi_uuid)',
+        porque: 'the takeover compares the old UUID with itself, so it always keeps the mark, whatever UUID the bill now carries',
+      },
+    ],
+    evaluar: () => {
+      // MNE-001-601 (#888): the bridge of 431 marks a bill that exists when
+      // the cancellation arrives. A bill born after the mirror or the census of
+      // its entity already says cancelled is marked by noteBillCfdiAlreadyCancelled,
+      // on the bill's own transaction, from the two writers that give a bill a
+      // cfdi_uuid. The takeover of an opening bill drops the mark of a UUID it
+      // no longer carries before that measure runs.
+      const file = 'src/services/ap/bill-cfdi-cancellation.ts';
+      if (!existe(file)) return falla('no existe el puente del bill: ningún bill nace marcado');
+      const src = codigoDe(file);
+      const n = src.indexOf('export async function noteBillCfdiAlreadyCancelled');
+      const note = n >= 0 ? src.slice(n, src.indexOf('\n}', n)) : '';
+      if (!note) return falla('no existe noteBillCfdiAlreadyCancelled: un bill que nace de un CFDI ya cancelado espera sin marca al siguiente barrido');
+      const set = /SET ([^\n]*)/.exec(note)?.[1] ?? '';
+      if (!/^cfdi_cancellation_noted_at = NOW\(\)\s*$/.test(set)) {
+        return falla('la marca al nacer escribe algo más que la marca (status, saldo, póliza o updated_at): el alta no es una edición del bill');
+      }
+      if (!/WHERE b\.id = \$2\s+AND b\.entity_id = \$1\s+AND b\.cfdi_cancellation_noted_at IS NULL/.test(note)) {
+        return falla('la marca al nacer perdió su guarda (el bill, su entidad o el predicado del bill ya marcado): invariante 3');
+      }
+      if (!/FROM xml_documents x\s+WHERE x\.entity_id = b\.entity_id/.test(note) ||
+          !/FROM sat_cfdi_census c\s+WHERE c\.entity_id = b\.entity_id/.test(note)) {
+        return falla('la marca al nacer lee el espejo o el censo de otra entidad: invariante 4');
+      }
+      if (!/const moved = r\.rowCount \?\? 0;\s+if \(moved > 1\) throw/.test(note)) {
+        return falla('la marca al nacer no comprueba su rowCount: por id mueve cero o una fila');
+      }
+
+      // The one core of `bill inbox run` and of the AI-draft approval.
+      const pre = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+      const c = pre.indexOf('async function insertarFacturaDePreRegistro(');
+      const core = c >= 0 ? pre.slice(c, pre.indexOf('\n}\n', c)) : '';
+      const born = core.indexOf('INSERT INTO bills (');
+      const preCall = core.indexOf('await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);');
+      if (!core || born < 0 || preCall < born || preCall > core.indexOf('return { billId')) {
+        return falla('insertarFacturaDePreRegistro no mide el bill tras escribirlo, en su transacción: bill inbox run y la aprobación de un borrador del agente lo dejan sin marca');
+      }
+      const body = (head: string, end: string): string => {
+        const i = pre.indexOf(head);
+        return i < 0 ? '' : pre.slice(i, pre.indexOf(end, i));
+      };
+      if (!body('private async createBillFromPreReg(', '\n  }\n').includes('await insertarFacturaDePreRegistro(') ||
+          !body('export async function registrarFacturaDeBorradorAprobado(', '\n}\n').includes('await insertarFacturaDePreRegistro(')) {
+        return falla('bill inbox run o la aprobación de un borrador ya no pasan por insertarFacturaDePreRegistro: un camino escribe el bill sin medirlo');
+      }
+
+      // The opening bills: both branches, then the measure.
+      const op = codigoDe('src/services/ap/opening-bills.ts');
+      const w = op.indexOf('export async function writeOpeningBills(');
+      const write = w >= 0 ? op.slice(w, op.indexOf('\n}\n', w)) : '';
+      const takeover = write.indexOf('billId = d.replacesId;');
+      const inserted = write.indexOf('billId = inserted.rows[0].id;');
+      const opCall = write.indexOf('await noteBillCfdiAlreadyCancelled(client, entityId, billId);');
+      if (!write || takeover < 0 || inserted < 0 || opCall < Math.max(takeover, inserted)) {
+        return falla('writeOpeningBills no mide cada bill de apertura, nuevo o tomado, contra el UUID que ya lleva');
+      }
+      const u = write.indexOf('UPDATE bills');
+      const update = u >= 0 && u < takeover ? write.slice(u, write.indexOf('`', u)) : '';
+      const kase = /cfdi_cancellation_noted_at = CASE WHEN lower\(cfdi_uuid\) IS NOT DISTINCT FROM lower\(\$12::text\)\s+THEN cfdi_cancellation_noted_at END,/.exec(update)?.[0];
+      return /cfdi_uuid = \$6,/.test(update) && kase !== undefined && !/\bELSE\b/.test(kase) &&
+        /\[\.\.\.values, d\.replacesId, d\.cfdiUuid\]/.test(write.slice(u, takeover))
+        ? ok('el bill que nace de un CFDI que su entidad ya sabe cancelado lleva la marca en su alta desde la bandeja, el borrador aprobado y la apertura, y la toma de un bill de apertura suelta la marca de un UUID que ya no lleva')
+        : falla('la toma de un bill de apertura reescribe cfdi_uuid y conserva la marca de un UUID distinto');
+    },
+  },
+
   // ---- MNE-001-432 (#643) · the AP control names the marked open bill ----
   {
     paquete: 'E3.2',
