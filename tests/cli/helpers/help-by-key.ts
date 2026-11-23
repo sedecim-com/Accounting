@@ -35,8 +35,9 @@ import { unkeyedDescriptions, type UnkeyedDescription } from '../../../scripts/l
 //     snake_case (`pay-run` is `pay_run`); an interpolated list becomes a
 //     message parameter. The four overwrites of a kernel flag move to
 //     `describeOption`: `--output` in `src/cli/e-accounting-command.ts` (240),
-//     `--all` and `--status` in `src/cli/payroll-isn-command.ts` (241), `--user`
-//     in `src/cli/audit-command.ts` (244).
+//     `--all` and `--status` of `tax-deposit list`, which lives in
+//     `src/cli/payroll-isn-command.ts` (239), `--user` in
+//     `src/cli/audit-command.ts` (244).
 //  3. Flags: a key per leaf, English unchanged. `cli.flag.*` only where the
 //     leaf's flag does exactly what the kernel text says; in doubt, per leaf, as
 //     `close --json` and `year create --json` are. No `--json` still without a

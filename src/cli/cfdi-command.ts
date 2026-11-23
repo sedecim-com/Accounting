@@ -181,8 +181,8 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .description('The mirror, filtered by direction, type, status and date');
   withOutput(withSelection(withTime(withContext(list))));
   list
-    .option('--direction <d>', 'emitido, recibido o ajeno (derivada contra el RFC de la entidad)')
-    .option('--type <t>', 'document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)');
+    .option('--direction <d>', 'emitido, recibido or ajeno (derived against the RFC of the entity)')
+    .option('--type <t>', 'filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: CommonOpts & { direction?: string; type?: string }) =>
@@ -251,7 +251,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         return;
       }
       render([cabecera], { ...opts, idField: 'cfdi_uuid' });
-      note(`${lineas.length} concepto(s):`);
+      note(t('fiscal_mx.cfdi.show.lines', { count: lineas.length }));
       render(lineas, { ...opts, idField: 'line_number' });
     })
   );
@@ -268,7 +268,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .argument('<uuid>', 'CFDI UUID')
     .description('Estado, EsCancelable and EstatusCancelacion as the SAT last answered');
   withOutput(withContext(statusShow));
-  statusShow.option('--refresh', 'consulta al SAT ahora y actualiza la caché sat_* del documento');
+  statusShow.option('--refresh', 'ask the SAT now and update the sat_* cache of the document');
   declareRisk(statusShow, { risk: 'lectura', agent: true });
   statusShow.addHelpText('after', EJEMPLOS.statusShow);
   statusShow.action((uuid: string, opts: CommonOpts & { refresh?: boolean }) =>
@@ -278,7 +278,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         `SELECT id FROM xml_documents WHERE entity_id = $1 AND cfdi_uuid = $2`,
         [ctx.entityId, uuid]
       );
-      if (doc.rows.length === 0) throw notFound(`CFDI ${uuid} no está en el espejo de esta entidad.`);
+      if (doc.rows.length === 0) throw notFound({ key: 'fiscal_mx.cfdi.status.not_in_mirror', params: { uuid } });
       if (opts.refresh) {
         const checked = await new SATValidationService().validateAndUpdate(doc.rows[0].id);
         if (checked?.status === 'cancelled') note(t('cfdi.status.bills_marked', { count: checked.billsMarked ?? 0 }));
@@ -291,7 +291,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         [doc.rows[0].id]
       );
       if (!opts.refresh && fila.rows[0].sat_validated_at === null) {
-        note('Nunca consultado: corre con --refresh para preguntarle al SAT ahora.');
+        note(t('fiscal_mx.cfdi.status.never_checked'));
       }
       render(fila.rows, { ...opts, idField: 'cfdi_uuid' });
     })
@@ -311,8 +311,8 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   declareRisk(statusSync, {
     risk: 'externo',
     agent: false,
-    llave: { sinLlave: 'un reintento vuelve a consultar al SAT y reescribe la caché' },
-    writes: 'xml_documents (caché sat_*)',
+    llave: { sinLlave: 'a retry consults the SAT again and rewrites the cache' },
+    writes: 'xml_documents (sat_* cache)',
   });
   statusSync.addHelpText('after', EJEMPLOS.statusSync);
   statusSync.action((opts: CommonOpts & { limit: string; staleHours: string; live?: boolean }) =>
@@ -327,8 +327,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
           [ctx.entityId, opts.staleHours]
         );
         process.stdout.write(
-          `${pendientes.rows[0].n} CFDI(s) por consultar al SAT` +
-            (dryRun ? ' (dry-run: nada se consultó)\n' : '. Corre con --live para consultarlos de verdad.\n')
+          `${t('fiscal_mx.cfdi.sync.pending', { count: Number(pendientes.rows[0].n), mode: dryRun ? 'dry_run' : 'not_live' })}\n`
         );
         return;
       }
@@ -336,14 +335,17 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         { entityId: ctx.entityId },
         { limit: parseInt(opts.limit, 10), staleHours: parseInt(opts.staleHours, 10) }
       );
-      process.stdout.write(
-        `${deps.palette.green('✔')} ${r.consultados} consultado(s): ` +
-          `${r.vigentes} vigente(s), ${r.cancelados} cancelado(s), ` +
-          `${r.no_encontrados} no encontrado(s), ${r.errores} error(es)\n`
-      );
+      const tally = t('fiscal_mx.cfdi.sync.done', {
+        checked: r.consultados,
+        valid: r.vigentes,
+        cancelled: r.cancelados,
+        not_found: r.no_encontrados,
+        errors: r.errores,
+      });
+      process.stdout.write(`${deps.palette.green('✔')} ${tally}\n`);
       if (r.cancelados > 0) {
         process.stderr.write(deps.palette.yellow(
-          `⚠ ${r.cancelados} CFDI cancelado(s) por el emisor: revisa su efecto contable con cfdi list --json\n`
+          `⚠ ${t('fiscal_mx.cfdi.sync.cancelled_warning', { count: r.cancelados })}\n`
         ));
         process.stderr.write(`${t('cfdi.status.bills_marked', { count: r.bills_marked })}\n`);
       }
@@ -365,9 +367,13 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       const ctx = await entityOf(opts);
       const rastro = await getClassificationTrail(ctx.entityId, uuid);
       note(
-        `${rastro.cfdi_uuid} · tipo ${rastro.tipo_comprobante} · ${rastro.direction} · ` +
-          `caso ${rastro.case_id ?? '—'} · ${rastro.status}` +
-          (rastro.journal_entry_id ? ` · asiento ${rastro.journal_entry_id}` : '')
+        t('fiscal_mx.cfdi.explain.header', {
+          uuid: rastro.cfdi_uuid,
+          type: rastro.tipo_comprobante,
+          direction: rastro.direction,
+          case: rastro.case_id ?? '—',
+          status: rastro.status,
+        }) + (rastro.journal_entry_id ? ` · ${t('fiscal_mx.cfdi.explain.entry', { entry: rastro.journal_entry_id })}` : '')
       );
       const decisiones = (rastro.decisions as Array<Record<string, unknown>>).map((d) => ({
         id: d.id, severity: d.severity, question: d.question,
@@ -375,7 +381,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       if (decisiones.length > 0) {
         render(decisiones, { ...opts, idField: 'id' });
       } else {
-        note('Sin decisiones pendientes: el caso se resolvió solo con las políticas del panel.');
+        note(t('fiscal_mx.cfdi.explain.no_decisions'));
       }
       if (opts.json) {
         render([rastro as unknown as Row], { json: true });

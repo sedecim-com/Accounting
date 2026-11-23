@@ -84,6 +84,13 @@ provides:
     # `stream_usage` is typed on the profile (MNE-001-442, #644); a value outside the
     # enum is refused. Rollback: remove `reasoning_effort` from any profile, which the
     # previous build refuses.
+    # CONTRACT: the config writer also refuses values starting with nvapi-, xai- or AIza
+    # (except a profile name: default_provider, a failover entry) and a header value
+    # `Bearer <token>`; a profile whose api_key_env names an installation secret
+    # (DATABASE_URL, MIGRATION_DATABASE_URL, ENCRYPTION_KEY, JWT_SECRET and the others
+    # in INSTALLATION_SECRET_VARIABLES) is refused by resolveProfile before anything is
+    # read or sent, and readiness says «not a provider credential» (MNE-001-445, #644).
+    # A tightening: such a profile used to send that secret as its bearer token.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
@@ -205,6 +212,11 @@ external:
     # turn that ends with finish_reason "length" and neither text nor a tool call is a
     # TruncatedEmptyTurnError naming the 8192-token cap. The init probe asks for 1024
     # output tokens instead of 64 (MNE-001-442, #644).
+    # CONTRACT: OpenAI-Organization, OpenAI-Project and the headers of
+    # OPENAI_CUSTOM_HEADERS go only to OpenAI's own hosts (api.openai.com and the
+    # SDK's regional ones), judged on the client's resolved base URL; any other host
+    # gets the profile's own key and headers alone (src/ai/providers/openai-client.ts,
+    # MNE-001-445, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

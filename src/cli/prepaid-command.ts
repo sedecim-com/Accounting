@@ -64,6 +64,9 @@ import {
   withForce,
   withNote,
   withOutput,
+  argumentByKey,
+  describeCommand,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -631,10 +634,7 @@ async function reversedEntries(entityId: string, ids: string[]): Promise<string[
 }
 
 export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDeps): void {
-  const prepaid = program
-    .command('prepaid')
-    .alias('pago-anticipado')
-    .description('Prepaid expenses: the schedule that takes them out of 1160, month by month');
+  const prepaid = describeCommand(program.command('prepaid').alias('pago-anticipado'), 'help.prepaid.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -741,37 +741,27 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   };
 
   // ---- prepaid create --------------------------------------------------
-  const crear = prepaid
-    .command('create')
-    .alias('crear')
-    .argument('<description>', 'what the prepayment covers, as it will read in the entries')
-    .description(
-      'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing'
-    );
+  const crear = describeCommand(prepaid.command('create').alias('crear'), 'help.prepaid.create.description');
+  argumentByKey(crear, '<description>', 'help.prepaid.create.argument.description');
   withContext(crear);
   withOutput(crear);
   withNote(crear);
   withForce(crear);
-  crear
-    .option('--amount <amount>', 'amount to accrue, as a decimal')
-    .option('--start <date>', 'first day the coverage runs (YYYY-MM-DD)')
-    .option('--end <date>', 'last day the coverage runs, inclusive (YYYY-MM-DD)')
-    .option(
-      `--origin <${ORIGENES_DE_ANTICIPO.join('|')}>`,
-      'where the charge already in the account came from — no default'
-    )
-    .option('--source-entry <id>', 'the journal entry that charged the account; required with --origin cfdi')
-    .option('--cfdi-uuid <uuid>', 'the CFDI this prepayment came in on, for the trail')
-    .option('--vendor <name>', 'vendor name kept on the schedule')
-    .option('--reference <text>', 'the document this points at: policy number, contract, order')
-    .option(
-      '--convention <convention>',
-      `the convention you believe you are registering (${CONVENCIONES_AMORTIZACION.join('|')}); checked against the panel`
-    )
-    .option('--prepaid-account <idOrCode>', 'prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)')
-    .option('--expense-account <idOrCode>', 'account the accrual will charge each month (defaults to the `gasto` role)')
-    .option('--reason <text>', 'why the threshold is being overridden; required with --force')
-    .option('--dry-run', 'show the schedule that would be registered; write nothing');
+  optionByKey(crear, '--amount <amount>', 'help.prepaid.create.option.amount');
+  optionByKey(crear, '--start <date>', 'help.prepaid.create.option.start');
+  optionByKey(crear, '--end <date>', 'help.prepaid.create.option.end');
+  optionByKey(crear, `--origin <${ORIGENES_DE_ANTICIPO.join('|')}>`, 'help.prepaid.create.option.origin');
+  optionByKey(crear, '--source-entry <id>', 'help.prepaid.create.option.source_entry');
+  optionByKey(crear, '--cfdi-uuid <uuid>', 'help.prepaid.create.option.cfdi_uuid');
+  optionByKey(crear, '--vendor <name>', 'help.prepaid.create.option.vendor');
+  optionByKey(crear, '--reference <text>', 'help.prepaid.create.option.reference');
+  optionByKey(crear, '--convention <convention>', 'help.prepaid.create.option.convention', {
+    params: { conventions: CONVENCIONES_AMORTIZACION.join('|') },
+  });
+  optionByKey(crear, '--prepaid-account <idOrCode>', 'help.prepaid.create.option.prepaid_account');
+  optionByKey(crear, '--expense-account <idOrCode>', 'help.prepaid.create.option.expense_account');
+  optionByKey(crear, '--reason <text>', 'help.prepaid.create.option.reason');
+  optionByKey(crear, '--dry-run', 'help.prepaid.create.option.dry_run');
   // ESCRITURA de dato maestro, y el agente NO puede llamarla. `prepaid_expenses`
   // no es una cola de revisión y `declareRisk` sólo admite escritura + agente
   // con `draftOnly`, que aquí sería mentira. Misma resolución que `asset
@@ -953,10 +943,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   );
 
   // ---- prepaid list ----------------------------------------------------
-  const listar = prepaid
-    .command('list')
-    .alias('listar')
-    .description('Live schedules with their remaining balance and how many periods are left');
+  const listar = describeCommand(prepaid.command('list').alias('listar'), 'help.prepaid.list.description');
   withContext(listar);
   withOutput(listar);
   // LAS CUATRO BANDERAS DE ESTA HOJA SE DECLARAN A MANO Y NO CON
@@ -966,11 +953,10 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   // lee — el defecto que este repositorio ya cazó en `ap reconcile`. Por lo
   // mismo `-a/--all` se documenta por lo que de verdad hace aquí: quitar la
   // ventana de `--as-of` y el tope de filas, no resucitar los cancelados.
-  listar
-    .option('-n, --limit <n>', 'maximum rows to return', enteroPositivo('--limit'))
-    .option('--offset <n>', 'skip this many rows', enteroPositivo('--offset'))
-    .option('-a, --all', 'every live schedule, including those not started yet and already ended')
-    .option('--as-of <date>', 'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)');
+  optionByKey(listar, '-n, --limit <n>', 'help.prepaid.list.option.limit', { parser: enteroPositivo('--limit') });
+  optionByKey(listar, '--offset <n>', 'help.prepaid.list.option.offset', { parser: enteroPositivo('--offset') });
+  optionByKey(listar, '-a, --all', 'help.prepaid.list.option.all');
+  optionByKey(listar, '--as-of <date>', 'help.prepaid.list.option.as_of');
   declareRisk(listar, { risk: 'lectura', agent: true });
   listar.addHelpText('after', EJEMPLOS.list);
   listar.action((opts: CommonOpts & { limit?: number; offset?: number; all?: boolean; asOf?: string }) =>
@@ -1019,11 +1005,8 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   );
 
   // ---- prepaid show ----------------------------------------------------
-  const ver = prepaid
-    .command('show')
-    .alias('ver')
-    .argument('<idOrDescription>', 'the schedule: its id, or enough of its description to be unambiguous')
-    .description('One schedule with its period-by-period table');
+  const ver = describeCommand(prepaid.command('show').alias('ver'), 'help.prepaid.show.description');
+  argumentByKey(ver, '<idOrDescription>', 'help.prepaid.show.argument.id_or_description');
   withContext(ver);
   withOutput(ver);
   declareRisk(ver, { risk: 'lectura', agent: true });
@@ -1072,13 +1055,10 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   );
 
   // ---- prepaid run -----------------------------------------------------
-  const ejecutar = prepaid
-    .command('run')
-    .alias('ejecutar')
-    .description('Post the month accrual — one adjusting entry per schedule, irreversible');
+  const ejecutar = describeCommand(prepaid.command('run').alias('ejecutar'), 'help.prepaid.run.description');
   withContext(ejecutar);
   withOutput(ejecutar);
-  ejecutar.option('--period <expr>', 'period to accrue: 2026-08, or any unambiguous part of its name');
+  optionByKey(ejecutar, '--period <expr>', 'help.prepaid.run.option.period');
   // IRREVERSIBLE: postea al mayor de la 041, donde un asiento no se edita ni se
   // borra. El núcleo inyecta --dry-run, --yes y --idempotency-key, y
   // `declareRisk` REHÚSA arrancar si alguien intenta darle acceso al agente.

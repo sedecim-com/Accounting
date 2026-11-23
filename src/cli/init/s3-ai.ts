@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import OpenAI from 'openai';
+import { createOpenAiClient } from '../../ai/providers/openai-client.js';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   BUILTIN_PROFILES, listProfiles, loadConfigFile, resolveProfile, userConfigPath, ventanaDe, writeConfigPatch,
@@ -389,11 +389,9 @@ export async function defaultProbe(profileName: string, model?: string): Promise
       return { chat: true, tools: false, detail: 'profile declared tools:false' };
     }
 
-    const client = new OpenAI({
-      baseURL: profile.base_url,
-      apiKey: profile.apiKey ?? 'not-needed',
-      defaultHeaders: profile.headers,
-    });
+    // The same client the session builds: environment OpenAI headers reach
+    // only OpenAI's own hosts (openai-client.ts, MNE-001-445).
+    const client = createOpenAiClient(profile);
     const limit =
       profile.max_tokens_param === 'max_completion_tokens'
         ? { max_completion_tokens: PROBE_MAX_TOKENS }
