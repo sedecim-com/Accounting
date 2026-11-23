@@ -4472,6 +4472,12 @@ export const EN = {
     'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
   'ap.check.cancelled_cfdi_open.none': 'none',
   'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  /** MNE-001-610: the second probe of `ap check`, the paid bills with the mark. */
+  'ap.check.cancelled_cfdi_paid.found':
+    'paid bills whose received CFDI the SAT reports cancelled: their deduction and creditable VAT rest on a CFDI that no longer stands; ' +
+    'ask the vendor for the CFDI that replaces it; whether to correct what was already declared is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_paid.none': 'none',
+  'ap.check.paid_bill_line': '{bill} · {vendor} · {uuid} · paid {amount} {currency} · noted {noted}',
   'ap.check.summary':
     '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',

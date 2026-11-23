@@ -318,11 +318,12 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
           const icon = r.level === 'clean' ? p.green('✔') : r.level === 'warning' ? p.yellow('▲') : p.red('✘');
           out.write(`  ${icon} ${r.name.padEnd(24)} ${p.dim(t(r.detailKey))}\n`);
           for (const b of r.bills) {
-            const line = t('ap.check.bill_line', {
+            // MNE-001-610: a paid bill prints what was paid, an open one what it owes.
+            const params = {
               bill: b.bill_number, vendor: b.vendor, uuid: b.cfdi_uuid,
-              amount: b.amount_due, currency: b.currency, noted: b.noted_on,
-            });
-            out.write(`      · ${line}\n`);
+              amount: 'amount_paid' in b ? b.amount_paid : b.amount_due, currency: b.currency, noted: b.noted_on,
+            };
+            out.write(`      · ${t('amount_paid' in b ? 'ap.check.paid_bill_line' : 'ap.check.bill_line', params)}\n`);
           }
         }
         out.write(`\n${t('ap.check.summary', { blocking, warnings })}\n`);

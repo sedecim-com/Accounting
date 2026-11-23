@@ -3993,6 +3993,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'qué significa para la deducción y el IVA lo decide el contador, y no se revirtió nada',
   'ap.check.cancelled_cfdi_open.none': 'ninguna',
   'ap.check.bill_line': '{bill} · {vendor} · {uuid} · debe {amount} {currency} · marcada el {noted}',
+  'ap.check.cancelled_cfdi_paid.found':
+    'facturas de proveedor pagadas cuyo CFDI recibido el SAT reporta cancelado: su deducción y su IVA acreditable descansan en un CFDI que ya no vale; ' +
+    'pide al proveedor el CFDI que lo sustituye; si hay que corregir lo ya declarado lo decide el contador, y no se revirtió nada',
+  'ap.check.cancelled_cfdi_paid.none': 'ninguna',
+  'ap.check.paid_bill_line': '{bill} · {vendor} · {uuid} · pagó {amount} {currency} · marcada el {noted}',
   'ap.check.summary':
     '{blocking, plural, one {# bloqueante} other {# bloqueantes}} · {warnings, plural, one {# aviso} other {# avisos}}',
   'help.cashflow.description':
