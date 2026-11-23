@@ -4,6 +4,7 @@ import { estadisticasDelAgente } from '../ai/stats-service.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
+  describeCommand,
   render,
   withContext,
   withOutput,
@@ -48,10 +49,7 @@ interface StatsOpts {
 }
 
 export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
-  const ai = program
-    .command('ai')
-    .alias('ia')
-    .description('Metrics and calibration of the accounting agent');
+  const ai = describeCommand(program.command('ai').alias('ia'), 'help.ai.description');
 
   const note = (message: string) => process.stderr.write(deps.palette.dim(`${message}\n`));
   const warn = (message: string) => process.stderr.write(deps.palette.yellow(`${message}\n`));
@@ -67,10 +65,7 @@ export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
   };
 
   // ---- ai stats -----------------------------------------------------
-  const stats = ai
-    .command('stats')
-    .alias('estadisticas')
-    .description('Approval by confidence bucket, confidence-vs-reality delta, cost and events');
+  const stats = describeCommand(ai.command('stats').alias('estadisticas'), 'help.ai.stats.description');
   withOutput(withContext(stats));
   declareRisk(stats, { risk: 'lectura', agent: true });
   stats.action((opts: StatsOpts) =>

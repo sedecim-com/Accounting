@@ -13,7 +13,7 @@ import {
   type CompactableMessage,
   type CompactionPlan,
 } from '../ai/compaction.js';
-import { exitCodeFor, ExitCode } from './kernel/index.js';
+import { describeCommand, exitCodeFor, ExitCode, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine compact (OFFLINE — zero API calls)
@@ -113,22 +113,20 @@ export function formatCompactReport(report: CompactReport, c: CompactDeps['palet
 }
 
 export function registerCompactCommand(program: Command, deps: CompactDeps): void {
-  program
-    .command('compact')
-    .alias('compactar')
-    .description('Dry-run compaction report for a session transcript (no API calls)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    // SIN `-s`. La letra la tiene `--status` en el diccionario único, y esta
-    // hoja se la había quedado para otra cosa. Se retira al congelar
-    // `--session` en el diccionario (F05b la necesita en tres hojas de cotejo):
-    // dejarla obligaría a que `bank match run --session` también llevara `-s`,
-    // y entonces la misma letra significaría «estado» en un comando y «sesión»
-    // en otro. Es el mismo canje que hizo `close` con `-p` en S0.6, y el
-    // catálogo ya escribía esta bandera sin forma corta (fila de `compact`).
-    .option('--session <id>', 'Session id (default: the most recent session)')
-    .option('--keep <tokens>', 'Recent tail to keep intact, in tokens', String(DEFAULT_KEEP_RECENT_TOKENS))
-    .option('--json', 'JSON output')
+  const compact = describeCommand(program.command('compact').alias('compactar'), 'help.compact.description');
+  optionByKey(compact, '-e, --entity <idOrName>', 'help.compact.option.entity');
+  optionByKey(compact, '-t, --tenant <id>', 'help.compact.option.tenant');
+  // SIN `-s`. La letra la tiene `--status` en el diccionario único, y esta
+  // hoja se la había quedado para otra cosa. Se retira al congelar
+  // `--session` en el diccionario (F05b la necesita en tres hojas de cotejo):
+  // dejarla obligaría a que `bank match run --session` también llevara `-s`,
+  // y entonces la misma letra significaría «estado» en un comando y «sesión»
+  // en otro. Es el mismo canje que hizo `close` con `-p` en S0.6, y el
+  // catálogo ya escribía esta bandera sin forma corta (fila de `compact`).
+  optionByKey(compact, '--session <id>', 'help.compact.option.session');
+  optionByKey(compact, '--keep <tokens>', 'help.compact.option.keep', { defaultValue: String(DEFAULT_KEEP_RECENT_TOKENS) });
+  optionByKey(compact, '--json', 'help.compact.option.json');
+  compact
     .action(
       async (opts: { entity?: string; tenant?: string; session?: string; keep?: string; json?: boolean }) => {
         try {
