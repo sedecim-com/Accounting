@@ -184,14 +184,16 @@ describe('both places that build a client use the rule', () => {
     taxId: 'XAXX010101000',
   };
 
+  // On xAI and not on NVIDIA's hosted catalog: a session there needs its trial
+  // terms accepted first (MNE-001-448), which trial-endpoint.spec.ts covers.
   it('a session turn (createLlmSession)', async () => {
     const session = await createLlmSession(
-      profile({ name: 'nim', base_url: 'https://integrate.api.nvidia.com/v1', apiKey: 'nvapi-inventada-6', stream: false }),
+      profile({ name: 'xai', base_url: 'https://api.x.ai/v1', apiKey: 'xai-inventada-6', stream: false }),
       CTX
     );
     await session.runTurn('hola');
     expect(seen.length).toBeGreaterThan(0);
-    for (const s of seen) expectNoEnvHeaders(s, 'nvapi-inventada-6');
+    for (const s of seen) expectNoEnvHeaders(s, 'xai-inventada-6');
   });
 
   it('the init probe (defaultProbe)', async () => {

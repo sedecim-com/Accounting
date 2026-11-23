@@ -1,6 +1,17 @@
 import type { Command } from 'commander';
 import { getEmployee } from '../services/payroll/common/employee-service.js';
-import { ExitCode, dateOnly, declareRisk, render, withContext, withOutput, type Row } from './kernel/index.js';
+import {
+  ExitCode,
+  argumentByKey,
+  dateOnly,
+  declareRisk,
+  describeCommand,
+  optionByKey,
+  render,
+  withContext,
+  withOutput,
+  type Row,
+} from './kernel/index.js';
 import type { EmployeeCommonOpts, EmployeeLeafKit } from './employee-command.js';
 
 // ============================================================
@@ -72,13 +83,10 @@ Examples:
 `;
 
 export function registerEmployeeShow(family: Command, kit: EmployeeLeafKit): void {
-  const show = family
-    .command('show')
-    .alias('ver')
-    .argument('<employee>', 'employee number or id')
-    .description('Show one employee record with tax identifiers masked');
+  const show = describeCommand(family.command('show').alias('ver'), 'help.employee.show.description');
+  argumentByKey(show, '<employee>', 'help.employee.show.argument.employee');
   withOutput(withContext(show));
-  show.option('--redacted', 'hide identifiers, e-mail and phone entirely, for a shared screen');
+  optionByKey(show, '--redacted', 'help.employee.show.option.redacted');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EXAMPLES);
   show.action((ref: string, opts: EmployeeCommonOpts & { redacted?: boolean }) =>

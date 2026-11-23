@@ -59,9 +59,9 @@ coverage, and provider-specific traps. Ask the human to run it and paste the
 output when a connection problem is unclear.
 
 ## Model providers
-12 built-in profiles: `anthropic` (default), `hermes`, `hermes-agent`,
-`ollama`, `openai`, `grok`, `minimax`, `qwen`, `gemini`, `openrouter`,
-`copilot`, `openclaw`. `mnemosine providers` lists them with notes.
+13 built-in profiles: `anthropic` (default), `hermes`, `hermes-agent`,
+`ollama`, `openai`, `grok`, `minimax`, `qwen`, `gemini`, `nvidia`,
+`openrouter`, `copilot`, `openclaw`. `mnemosine providers` lists them with notes.
 
 - Selection precedence: `--provider` flag > `MNEMOSINE_PROVIDER` env >
   `default_provider` in config > `anthropic`.
@@ -132,6 +132,13 @@ output when a connection problem is unclear.
   `ENCRYPTION_KEY`, `JWT_SECRET`…) is refused before anything is sent, and
   readiness says «not a provider credential»: tell the person to name the
   provider's own key variable instead.
+- `nvidia` is NVIDIA's hosted catalog (`integrate.api.nvidia.com`), a
+  trial that records what it receives: never a client's data. `ingest`,
+  `jobs run-due` and init's import refuse any profile on that host; `chat`
+  and `ask` use it only after its terms and a yes at a terminal, once per
+  session; a failover walk never moves into it, and `doctor` warns while the
+  default or a link of its chain is on it. When a refusal names it, suggest
+  another provider or a self-hosted NIM, never a way around the guard.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.

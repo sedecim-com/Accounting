@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 204,
+    "help-descriptions-without-key": 146,
     "cli-user-strings-without-key": 926
   },
   "perFile": {
@@ -1491,12 +1491,8 @@
       "audit": 14,
       "backup": 21,
       "completion": 2,
-      "employee": 12,
-      "garnishment": 22,
-      "isn": 21,
       "jobs": 28,
       "outbox": 6,
-      "payroll": 3,
       "report": 21,
       "status": 5,
       "subscription": 6,

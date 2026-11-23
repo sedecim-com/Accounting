@@ -3,7 +3,17 @@ import type { Command } from 'commander';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { withTransaction } from '../database/connection.js';
 import { createEmployee, type EmployeeInput } from '../services/payroll/common/employee-service.js';
-import { ExitCode, declareRisk, gateMutation, render, usageError, withContext, withOutput } from './kernel/index.js';
+import {
+  ExitCode,
+  declareRisk,
+  describeCommand,
+  gateMutation,
+  optionByKey,
+  render,
+  usageError,
+  withContext,
+  withOutput,
+} from './kernel/index.js';
 import type { EmployeeCommonOpts, EmployeeLeafKit } from './employee-command.js';
 import { maskIdentifier } from './employee-show-command.js';
 
@@ -109,18 +119,14 @@ Examples:
 `;
 
 export function registerEmployeeCreate(family: Command, kit: EmployeeLeafKit): void {
-  const create = family
-    .command('create')
-    .alias('crear')
-    .description('Register one employee from a JSON file with their tax identifiers');
+  const create = describeCommand(family.command('create').alias('crear'), 'help.employee.create.description');
   withContext(create);
   withOutput(create);
-  create
-    .option('--file <path>', 'JSON object with the employee record (required)')
-    .option('--country <MX|US>', 'the country whose payroll applies; overrides the file')
-    .option('--hire-date <date>', 'hire date (YYYY-MM-DD); overrides the file')
-    .option('--pay-schedule <id>', 'a pay schedule of this entity; overrides the file')
-    .option('--dry-run', 'run the real writer and roll it back: nothing is saved');
+  optionByKey(create, '--file <path>', 'help.employee.create.option.file');
+  optionByKey(create, '--country <MX|US>', 'help.employee.create.option.country');
+  optionByKey(create, '--hire-date <date>', 'help.employee.create.option.hire_date');
+  optionByKey(create, '--pay-schedule <id>', 'help.employee.create.option.pay_schedule');
+  optionByKey(create, '--dry-run', 'help.employee.create.option.dry_run');
   declareRisk(create, {
     risk: 'escritura',
     agent: false,

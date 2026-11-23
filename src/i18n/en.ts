@@ -4472,6 +4472,12 @@ export const EN = {
     'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
   'ap.check.cancelled_cfdi_open.none': 'none',
   'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  /** MNE-001-610: the second probe of `ap check`, the paid bills with the mark. */
+  'ap.check.cancelled_cfdi_paid.found':
+    'paid bills whose received CFDI the SAT reports cancelled: their deduction and creditable VAT rest on a CFDI that no longer stands; ' +
+    'ask the vendor for the CFDI that replaces it; whether to correct what was already declared is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_paid.none': 'none',
+  'ap.check.paid_bill_line': '{bill} · {vendor} · {uuid} · paid {amount} {currency} · noted {noted}',
   'ap.check.summary':
     '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
@@ -4746,6 +4752,87 @@ export const EN = {
   'help.ledger.balance.show.option.period': 'only this period: 2026-07, its id, or part of its name',
   'help.ledger.balance.show.option.dim':
     'per-dimension breakdown (not available: the dimension family does not exist yet)',
+  // ==== MNE-001-241 · help by key, employee, garnishment, isn and payroll (issue #314) ====
+  //
+  // The payroll task: the four families whole, roots included, English as
+  // shown (`tax-deposit` shares payroll-isn-command.ts but is MNE-001-239's).
+  // Every generic flag a leaf declares keeps a key of its own: the three
+  // --dry-run say what each rehearsal shows, `isn rate set` declares its -y
+  // before declareRisk, and `isn rate list` declares -n, --offset and -a by
+  // hand, with its own parser, instead of withSelection.
+  'help.employee.description': 'The payroll roll: register an employee, see one record, list the roll',
+  'help.employee.create.description': 'Register one employee from a JSON file with their tax identifiers',
+  'help.employee.create.option.file': 'JSON object with the employee record (required)',
+  'help.employee.create.option.country': 'the country whose payroll applies; overrides the file',
+  'help.employee.create.option.hire_date': 'hire date (YYYY-MM-DD); overrides the file',
+  'help.employee.create.option.pay_schedule': 'a pay schedule of this entity; overrides the file',
+  'help.employee.create.option.dry_run': 'run the real writer and roll it back: nothing is saved',
+  'help.employee.show.description': 'Show one employee record with tax identifiers masked',
+  'help.employee.show.argument.employee': 'employee number or id',
+  'help.employee.show.option.redacted': 'hide identifiers, e-mail and phone entirely, for a shared screen',
+  'help.employee.list.description': 'List the employees of the entity, active by default, with no tax identifiers',
+  'help.employee.list.option.country': 'only employees of this country',
+  'help.garnishment.description': 'Court-ordered wage withholding: file an order, see the cascade, stop it',
+  'help.garnishment.record.description':
+    'File a court order already dictated, with its basis, its authority and its caps',
+  'help.garnishment.record.argument.employee': 'employee number or id the order is against',
+  'help.garnishment.record.option.type': 'the order type, in the vocabulary the column stores',
+  'help.garnishment.record.option.amount': 'a fixed amount per period',
+  'help.garnishment.record.option.percent_disposable':
+    'a percentage of DISPOSABLE earnings (gross minus employee taxes)',
+  'help.garnishment.record.option.percent_gross':
+    'a percentage of GROSS wages — different money from --percent-disposable',
+  'help.garnishment.record.option.priority': 'tie-breaker WITHIN a statutory rank; it does not decide the rank',
+  'help.garnishment.record.option.case': 'the court file number, unique per worker while the order is live',
+  'help.garnishment.record.option.court': 'the authority that issued the order (required)',
+  'help.garnishment.record.option.payee': 'who the withholding is remitted to',
+  'help.garnishment.record.option.start':
+    'the date the order bears (YYYY-MM-DD); withholding starts when it is ACTIVE',
+  'help.garnishment.record.option.exempt_amount':
+    'IRS Pub 1494 exempt amount; required on a tax levy, read by nothing else',
+  'help.garnishment.record.option.supports_second_family':
+    'does this worker support another family? decides a 50 % or 60 % CCPA cap — no default',
+  'help.garnishment.record.option.arrears_12wk':
+    'are arrears more than twelve weeks old? adds five points to the cap — no default',
+  'help.garnishment.record.option.dry_run':
+    'run the real path and undo it: shows the order and the cascade it would join',
+  'help.garnishment.list.description':
+    'List orders in the sequence money is taken: statutory rank, then priority, then date',
+  'help.garnishment.list.argument.employee': 'narrow to one worker, by employee number or id',
+  'help.garnishment.list.option.type': 'only orders of this type',
+  'help.garnishment.archive.description':
+    'Stop the withholding by clearing is_active, keeping the order and its history',
+  'help.garnishment.archive.argument.id': 'the order id, as `garnishment list` prints it',
+  'help.garnishment.archive.option.as_of':
+    'the date the order ceased (YYYY-MM-DD), recorded in end_date alongside the halt',
+  'help.isn.description':
+    'Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes',
+  'help.isn.rate.description': 'State ISN rates, by state and by vigencia',
+  'help.isn.rate.set.description': 'Capture one state rate with its vigencia and the law behind it',
+  'help.isn.rate.set.argument.state': 'SAT c_Estado key, as it is written on your workers (JAL, NLE)',
+  'help.isn.rate.set.argument.rate': 'the rate, as a fraction (0.03) or a percentage (3%)',
+  'help.isn.rate.set.option.effective_from': 'first day this rate applies (YYYY-MM-DD)',
+  'help.isn.rate.set.option.superseded_on':
+    'day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one',
+  'help.isn.rate.set.option.legal_basis': 'the law and article the rate comes from (required)',
+  'help.isn.rate.set.option.regime': 'how the state charges it; the engine only computes tasa_plana',
+  'help.isn.rate.set.option.exemption': 'monthly amount exempted; only with --regime con_exencion',
+  'help.isn.rate.set.option.dry_run': 'show exactly what would be written, and who it reaches; write nothing',
+  'help.isn.rate.set.option.yes': 'skip the confirmation prompt',
+  'help.isn.rate.list.description': 'The captured state rates, with the one in force on a given date marked',
+  'help.isn.rate.list.option.limit': 'maximum rows to return',
+  'help.isn.rate.list.option.offset': 'skip this many rows',
+  'help.isn.rate.list.option.all': 'every vigencia ever captured, not only the one in force',
+  'help.isn.rate.list.option.state': 'only this state (SAT c_Estado key)',
+  'help.isn.rate.list.option.as_of': 'which rate was in force on this date (YYYY-MM-DD; default today)',
+  'help.isn.calculate.description':
+    "One pay run's ISN, one row per state, naming every rate that is missing instead of computing zero",
+  'help.isn.calculate.option.run': 'the pay run to compute (required)',
+  'help.isn.calculate.option.state': 'narrow the rows to one state; findings are never hidden',
+  'help.payroll.description': 'Payroll accounting: the benefit liability that is born on the day worked',
+  'help.payroll.accrue.description':
+    'Post the month benefit accrual -- aguinaldo, vacation and vacation premium, one adjusting entry, irreversible',
+  'help.payroll.accrue.option.period': 'period to accrue: 2026-03, or any unambiguous part of its name',
   // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
   //
   // Same format as `period`. The bank family is keyed by subcommand group in
@@ -6044,6 +6131,25 @@ export const EN = {
   /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
   'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
   // ==== end of I11 · doctor by key ====
+  // ==== NVIDIA's hosted trial (MNE-001-448, #644 P8) ====
+  // The terms init, chat and ask print before a session on the hosted catalog,
+  // and the refusals of src/ai/providers/trial-endpoint.ts.
+  'providers.trial.terms.what':
+    "{profile} uses NVIDIA's hosted API catalog ({host}), a trial for development and evaluation.",
+  'providers.trial.terms.records':
+    "NVIDIA's API Trial Terms of Service let it record what you send and what comes back, and ask you not to send personal data: never send it a client's books or documents.",
+  'providers.trial.terms.limits':
+    'Its endpoints can be retired without notice. For client work choose another provider, or NVIDIA NIM on your own host.',
+  'providers.trial.accept_default': 'Save {profile} as your default provider under these terms?',
+  'providers.trial.not_saved': 'Terms not accepted: {profile} was not saved as the default.',
+  'providers.trial.accept_session': 'Use {profile} for this session under these terms?',
+  'providers.trial.refused.unattended':
+    "{profile} is on NVIDIA's hosted trial ({host}), which records what it receives: ingest, jobs run-due and init's import never open a session there. Choose another provider for them.",
+  'providers.trial.refused.no_terminal':
+    "{profile} is on NVIDIA's hosted trial ({host}), whose terms need a yes at a terminal, and there is none here. Run it at a terminal, or choose another provider.",
+  'providers.trial.refused.declined': 'Terms not accepted: no session was opened on {profile}.',
+  'providers.trial.refused.not_accepted':
+    "{profile} is on NVIDIA's hosted trial ({host}), and its terms were not accepted in this session. Start mnemosine chat --provider {profile} at a terminal to read and accept them.",
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':

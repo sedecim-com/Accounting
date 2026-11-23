@@ -250,6 +250,13 @@ external:
     # SDK's regional ones), judged on the client's resolved base URL; any other host
     # gets the profile's own key and headers alone (src/ai/providers/openai-client.ts,
     # MNE-001-445, #644).
+    # CONTRACT: the built-in `nvidia` profile sends the person's NVIDIA_API_KEY to
+    # NVIDIA's hosted catalog at integrate.api.nvidia.com/v1, a trial that records what it
+    # receives. A session on that host, however its profile was chosen, opens only for chat
+    # and ask after the terms and a yes at a terminal (once per session), or for the eval
+    # over its synthetic golden set; ingest, jobs run-due and init's import refuse it, and
+    # a failover walk never moves into it (src/ai/providers/trial-endpoint.ts,
+    # MNE-001-448, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

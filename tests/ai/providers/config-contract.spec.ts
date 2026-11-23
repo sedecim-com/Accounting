@@ -87,7 +87,7 @@ describe('the loader reports every rejected key verbatim', () => {
       'a models name that is no profile',
       { models: { nadie: 'x' } },
       'models.nadie: "nadie" is not a profile. Known: anthropic, hermes, hermes-agent, ollama, openai, grok, ' +
-        'minimax, qwen, gemini, openrouter, copilot, openclaw',
+        'minimax, qwen, gemini, nvidia, openrouter, copilot, openclaw',
     ],
     // The config format has no '<root>' label: a root issue starts with ': '.
     ['an unknown key at the strict root', { extra: 1 }, ": Unrecognized key(s) in object: 'extra'"],

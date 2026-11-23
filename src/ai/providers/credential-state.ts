@@ -37,6 +37,7 @@ export const KEY_URLS: Record<string, string> = {
   NOUS_API_KEY: 'https://portal.nousresearch.com',
   GEMINI_API_KEY: 'https://aistudio.google.com/apikey',
   XAI_API_KEY: 'https://console.x.ai',
+  NVIDIA_API_KEY: 'https://build.nvidia.com (profile menu, Settings, API Keys)',
   MINIMAX_API_KEY: 'https://www.minimax.io/platform',
   DASHSCOPE_API_KEY: 'https://dashscope.console.aliyun.com',
   OPENROUTER_API_KEY: 'https://openrouter.ai/keys',
