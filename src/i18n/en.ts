@@ -1853,6 +1853,21 @@ export const EN = {
   'policy.plain_receipt_unapply_iva.option.repark_same_month':
     'Re-park it when the unapply is in the month the IVA was released',
 
+  'policy.note_reversal_after_cashing_iva.question':
+    'A credit note issued while a customer cheque was held is reversed after the bank cashed the cheque: in which month does the IVA paper count the IVA the note no longer restitutes?',
+  'policy.note_reversal_after_cashing_iva.impact':
+    'Governs the IVA workpaper after `entry reverse` or `entry void` of such a note. Under either answer the ledger posts DR 2150 / CR 2120 for that IVA, dated with the reversal, or with the cashing when the reversal is dated before it. With "reversal_month" the paper counts it in the month of that entry, so every month ties out with the ledger and no month already declared moves. With "cashing_month" the paper reads the note as never issued and counts it in the month of the cashing; the tie-out names the amended return that month needs and the correction in the month of the reversal.',
+  'policy.note_reversal_after_cashing_iva.rationale':
+    'LIVA art. 1-B and decision (A) on cash kept on account: the cash the note covered was owed back to the customer, not consideration, and the cancellation is the act that makes it consideration held on account again. The ledger dates that correction with the reversal (NIF B-1), and counting it there changes no month already declared and lowers none, the conservative option of ADR-0006. Reading the cancelled CFDI as never issued (CFF art. 29-A) is also accepted, and takes an amended return of the cashing\'s month (CFF art. 32).',
+  'policy.note_reversal_after_cashing_iva.why':
+    'Some firms treat a cancelled credit note as if it had never existed and amend the month it affected; others recognise the cancellation in the month it happens. The ledger is the same either way.',
+  'policy.note_reversal_after_cashing_iva.what':
+    'With "reversal_month" I count that IVA in the month of the reversal\'s correction. With "cashing_month" I count it in the month of the cashing and name, in the tie-out, the amended return and the correction.',
+  'policy.note_reversal_after_cashing_iva.if_skipped': 'I count it in the month of the reversal.',
+  'policy.note_reversal_after_cashing_iva.option.reversal_month': 'Count it in the month of the reversal, as the ledger does',
+  'policy.note_reversal_after_cashing_iva.option.cashing_month':
+    'Count it in the month of the cashing, as if the note had never been issued',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':

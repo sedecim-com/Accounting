@@ -605,6 +605,8 @@ const RECEIPT_SOURCES = [
   'customer_payment', 'receipt_application', 'receipt_unapplication', CUSTOMER_CHECK_CASHING_SOURCE,
   // MNE-001-581: a reversal's correction, the IVA a credit note already restituted that stays out of 2125.
   'receipt_reversal_iva',
+  // MNE-001-612: the pair a held note's reversal posts after the cashing that netted it.
+  'held_restitution_reversal',
 ] as const;
 
 /** Every box of a split times `factor`: an undo gives back what its event put in. */
@@ -890,6 +892,10 @@ interface AllocationEventRow {
  * took its IVA from 2125 alone, so its month counts none of it, and the
  * cashing causes the marker less it: the event counts on the cashing, after
  * the unapplies it follows, and takes its cash out of the month too.
+ *
+ * MNE-001-612 · When that note is reversed after the cashing, the pair its
+ * reversal posted gives the cut back on the pair's day, into the pool and
+ * that month, by default (`keptRestitutionsUpTo`).
  */
 async function cashOnAccountOfMonth(
   client: pg.PoolClient,
@@ -965,18 +971,32 @@ async function cashOnAccountOfMonth(
       if (unreleased) month.neverReleased = month.neverReleased.plus(ivaDelDesglose(split));
     };
     const order = (x: string, y: string): number => (x === y ? 0 : x < y ? -1 : 1);
-    // On one day an unapply goes first (0), then a note's restitution from what it put back (1), then an application (2).
-    const rank = (e: { undo: boolean; cut: Decimal | null }): number => (e.undo ? 0 : e.cut ? 1 : 2);
+    // On one day an unapply goes first (0), then a note's restitution from what it put back (1), then the pair
+    // that gives a held one back (2, MNE-001-612), then an application (3).
+    const rank = (e: { undo: boolean; cut: Decimal | null; restores: boolean }): number =>
+      (e.undo ? 0 : e.cut ? (e.restores ? 2 : 1) : 3);
+    const none = { cut: null, held: false, note: '', restores: false };
     const events = [
       ...allocations.flatMap((a) => [
-        { day: a.applied_day, dated: a.dated_applied, undo: false, a, cut: null, held: false },
-        ...(a.undone_day ? [{ day: a.undone_day, dated: a.dated_undone ?? a.undone_day, undo: true, a, cut: null, held: false }] : []),
+        { day: a.applied_day, dated: a.dated_applied, undo: false, a, ...none },
+        ...(a.undone_day ? [{ day: a.undone_day, dated: a.dated_undone ?? a.undone_day, undo: true, a, ...none }] : []),
       ]),
-      ...(cuts.get(paymentId) ?? []).map((c) => ({ day: c.day, dated: c.day, undo: false, a: allocations[0], cut: c.cash, held: c.held })),
+      ...(cuts.get(paymentId) ?? []).map((c) => ({
+        day: c.day, dated: c.day, undo: false, a: allocations[0], cut: c.cash, held: c.held, note: c.note, restores: c.restores,
+      })),
     ]
       .filter((e) => e.day <= range.hasta)
       .sort((x, y) => order(x.day, y.day) || order(x.dated, y.dated) || rank(x) - rank(y));
-    for (const { day, undo, a, cut, held } of events) {
+    // MNE-001-612: what each held note's cut took, which the pair of its reversal gives back.
+    const heldCuts = new Map<string, { cash: Decimal; breakdown: Desglose; notSubject: Decimal }>();
+    for (const { day, undo, a, cut, held, note, restores } of events) {
+      if (cut && restores) {
+        const took = heldCuts.get(note);
+        if (!took) continue;
+        heldCuts.delete(note);
+        putBack(day >= range.desde, took.cash, took.breakdown, took.notSubject, false);
+        continue;
+      }
       if (cut) {
         // MNE-001-593: the cash a note's restitution covers leaves the pool, untaxed and owed back.
         const off = Decimal.min(cut, pool.cash);
@@ -989,6 +1009,7 @@ async function cashOnAccountOfMonth(
           breakdown: sumarDesgloses(pool.breakdown, scaled(out, -1)),
           notSubject: pool.notSubject.minus(outNotSubject),
         };
+        if (held) heldCuts.set(note, { cash: off, breakdown: out, notSubject: outNotSubject });
         // MNE-001-607: a held cheque's was never caused, so the cashing's month does not count it either.
         if (held && day >= range.desde) {
           touched = true;
@@ -1086,6 +1107,19 @@ async function cashOnAccountOfMonth(
   return out;
 }
 
+/** MNE-001-612 · The panel key `keptRestitutionsUpTo` and `reversedAfterCashing` read (pending-catalog.ts). */
+const NOTE_REVERSAL_KEY = 'note_reversal_after_cashing_iva';
+
+interface KeptCut {
+  day: string;
+  cash: Decimal;
+  held: boolean;
+  /** The note's entry: a held cut and the pair that gives it back share it. */
+  note: string;
+  /** MNE-001-612 · The pair's event, which gives back what the note's cut took. */
+  restores: boolean;
+}
+
 /**
  * MNE-001-593 · The restitutions credit notes dated up to `until` made from
  * these receipts' cash kept on account, by receipt: the note's day and the
@@ -1094,40 +1128,89 @@ async function cashOnAccountOfMonth(
  * MNE-001-607 · and those made while the cheque was held (`held_restitution`,
  * read as their 2125 debit), counted on the cashing (`countedOn`), never
  * before it is recorded.
+ *
+ * MNE-001-612 · A held one whose note was reversed after the cashing left a
+ * pair (`held_restitution_reversal`, `followNoteReversal` in
+ * ar-ap-posting.ts). Under `note_reversal_after_cashing_iva = reversal_month`
+ * (the default) its cut still stands on the cashing, and the pair is an event
+ * of its own day (`restores`) that gives the cut back, so no month before it
+ * moves. Under `cashing_month` the note counts in no month, as every
+ * cancelled note (MNE-001-565). The key is read only when such a pair exists.
  */
 async function keptRestitutionsUpTo(
   client: pg.PoolClient,
   entityId: string,
   paymentIds: readonly string[],
   until: string
-): Promise<Map<string, { day: string; cash: Decimal; held: boolean }[]>> {
-  const { rows } = await client.query<{ payment_id: string; day: string; iva: string; total: string; tax: string; held: boolean }>(
+): Promise<Map<string, KeptCut[]>> {
+  // The pairs' own lines; their source and tag are ar-ap-posting.ts's HELD_RESTITUTION_REVERSAL_SOURCE and _UNDONE_TAG.
+  const pairs = await client.query<{ payment_id: string; note: string; day: string; iva: string; total: string; tax: string }>(
+    `SELECT l.tags -> 'held_restitution_undone' ->> 'payment_id' AS payment_id,
+            l.tags -> 'held_restitution_undone' ->> 'note_entry_id' AS note, je.entry_date::text AS day,
+            (COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
+            i.total_amount::text AS total, i.tax_amount::text AS tax
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $1 AND je.source_type = 'held_restitution_reversal'
+                              AND je.status = 'posted' AND je.is_reversal = false
+       JOIN invoices i ON i.id::text = l.tags -> 'held_restitution_undone' ->> 'invoice_id' AND i.entity_id = $1
+      WHERE l.tags -> 'held_restitution_undone' ->> 'payment_id' = ANY($2::text[])
+      ORDER BY je.entry_date, je.entry_number`,
+    [entityId, [...paymentIds]]
+  );
+  const tenant = pairs.rows.length === 0
+    ? null
+    : (await client.query<{ tenant_id: string }>('SELECT tenant_id FROM legal_entities WHERE id = $1', [entityId])).rows[0]?.tenant_id;
+  const restore = typeof tenant === 'string' &&
+    (await getPolicy({ tenantId: tenant, entityId }, NOTE_REVERSAL_KEY, client)).value !== 'cashing_month';
+  const { rows } = await client.query<{ payment_id: string; day: string; iva: string; total: string; tax: string; held: boolean; note: string }>(
     `SELECT * FROM (
-       SELECT t.tag ->> 'payment_id' AS payment_id, t.held,
+       SELECT t.tag ->> 'payment_id' AS payment_id, t.held, je.id::text AS note,
               (CASE WHEN t.held THEN ${countedOn('cp', 'je.entry_date')} ELSE je.entry_date END)::text AS day,
               (CASE WHEN t.held THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)
                     ELSE COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0) END)::text AS iva,
               i.total_amount::text AS total, i.tax_amount::text AS tax, je.entry_number
          FROM journal_entry_lines l
          JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $1 AND je.source_type = 'credit_note'
-                                AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false
+                                AND je.status = 'posted' AND je.is_reversal = false
         CROSS JOIN LATERAL (SELECT l.tags ? '${HELD_RESTITUTION_TAG}' AS held,
                                    COALESCE(l.tags -> '${KEPT_RESTITUTION_TAG}', l.tags -> '${HELD_RESTITUTION_TAG}') AS tag) t
          JOIN invoices i ON i.id::text = t.tag ->> 'invoice_id' AND i.entity_id = $1
          JOIN customer_payments cp ON cp.id::text = t.tag ->> 'payment_id' AND cp.entity_id = $1
         WHERE t.tag ->> 'payment_id' = ANY($2::text[])
+          AND (je.reversed_by_entry_id IS NULL OR (t.held AND je.id::text = ANY($4::text[])))
      ) x
      WHERE x.day IS NOT NULL AND x.day::date <= $3::date
      ORDER BY x.day, x.entry_number`,
-    [entityId, [...paymentIds], until]
+    [entityId, [...paymentIds], until, restore ? pairs.rows.map((p) => p.note) : []]
   );
-  const out = new Map<string, { day: string; cash: Decimal; held: boolean }[]>();
+  const out = new Map<string, KeptCut[]>();
+  const add = (paymentId: string, cut: KeptCut): void => {
+    out.set(paymentId, [...(out.get(paymentId) ?? []), cut]);
+  };
   for (const r of rows) {
-    out.set(r.payment_id, [
-      ...(out.get(r.payment_id) ?? []), { day: r.day, cash: new Decimal(restitutedCash(r.iva, r.total, r.tax)), held: r.held },
-    ]);
+    add(r.payment_id, { day: r.day, cash: new Decimal(restitutedCash(r.iva, r.total, r.tax)), held: r.held, note: r.note, restores: false });
+  }
+  for (const p of restore ? pairs.rows.filter((x) => x.day <= until) : []) {
+    add(p.payment_id, { day: p.day, cash: new Decimal(restitutedCash(p.iva, p.total, p.tax)), held: true, note: p.note, restores: true });
   }
   return out;
+}
+
+/**
+ * MNE-001-612 · Under `note_reversal_after_cashing_iva = cashing_month`, the
+ * receipts with a pair of a held note reversed after their cashing, which the
+ * tie-out names with the amended return. Empty under the default, which
+ * counts that IVA where the ledger does. The key is read only when a pair
+ * exists. Entity-scoped.
+ */
+async function reversedAfterCashing(client: pg.PoolClient, ctx: { tenantId: string; entityId: string }): Promise<Set<string>> {
+  const { rows } = await client.query<{ id: string }>(
+    `SELECT DISTINCT source_id::text AS id FROM journal_entries
+      WHERE entity_id = $1 AND source_type = 'held_restitution_reversal' AND status = 'posted' AND is_reversal = false`,
+    [ctx.entityId]
+  );
+  if (rows.length === 0 || (await getPolicy(ctx, NOTE_REVERSAL_KEY, client)).value !== 'cashing_month') return new Set();
+  return new Set(rows.map((r) => r.id));
 }
 
 /**
@@ -1205,6 +1288,7 @@ const ENTRY_KIND: Record<string, string> = {
   receipt_unapplication: 'desaplicación',
   [CUSTOMER_CHECK_CASHING_SOURCE]: 'cobro del cheque',
   receipt_reversal_iva: 'IVA restituido que se queda',
+  held_restitution_reversal: 'corrección por la nota reversada después del cobro',
 };
 
 /** One receipt's (or a cancelled credit note's) share of the charged side's gap with the ledger, and why. */
@@ -1218,7 +1302,9 @@ interface GapCause {
  * what its own entries moved in 2120 that month, named with those entries and
  * the rule that tells them apart. Silent where the two agree.
  */
-function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[]): GapCause[] {
+function gapCauses(
+  charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[], undone: ReadonlySet<string> = new Set()
+): GapCause[] {
   const byReceipt = new Map<string, ReceiptLedgerRow[]>();
   for (const r of ledger) byReceipt.set(r.payment_id, [...(byReceipt.get(r.payment_id) ?? []), r]);
   const causes: GapCause[] = [];
@@ -1269,6 +1355,14 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
     }
     if (cash && cash.taken.greaterThan(0)) {
       why.push(`la aplicación toma efectivo a cuenta cuyo IVA de ${q4(cash.taken)} ya se causó, y el mayor lo vuelve a causar`);
+    }
+    if (undone.has(paymentId)) {
+      why.push(
+        `una nota de crédito emitida mientras el cheque esperaba se reversó después del cobro, y ${NOTE_REVERSAL_KEY} = ` +
+          'cashing_month la lee como nunca emitida (CFF art. 29-A): el papel causa ese IVA el día del cobro y la ' +
+          'corrección del mayor, el día de la reversa; si la declaración del mes del cobro ya se presentó, se corrige ' +
+          'con una complementaria (CFF art. 32)'
+      );
     }
     causes.push({
       amount,
@@ -2286,7 +2380,8 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     findings.push(...(await checkFindings(client, entityId, range)));
     tieOut(
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',
-      ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(), [...gapCauses(charged, receiptLedger), ...charged.noteCauses]
+      ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(),
+      [...gapCauses(charged, receiptLedger, await reversedAfterCashing(client, ctx)), ...charged.noteCauses]
     );
     tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), fees.causes);
     // Debits only: the month's settlement or offset entry credits the account,
