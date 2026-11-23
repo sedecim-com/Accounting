@@ -4,6 +4,7 @@ import { AccountingError, NotFoundError, ValidationError } from '../../utils/err
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { assertBankCurrency, bankAccountOf } from '../accounting/ar-ap-posting.js';
 import { assertPayerTrace, assertRastroDePago } from './payment-service.js';
+import { BALANCE_TRANSFER_METHOD } from './cash-on-account.js';
 
 // ============================================================
 // COMPLETING THE TRACE OF A PAYMENT ALREADY REGISTERED (MNE-001-568, #612)
@@ -44,6 +45,12 @@ import { assertPayerTrace, assertRastroDePago } from './payment-service.js';
 // them, its cheque number and our bank account, on the same rules and the
 // same guarded UPDATE, under the receipts' table, with #611's payer checks
 // run on the merged trace.
+//
+// A TRANSFER HAS NO TRACE (MNE-001-594). A transfer of customer credit
+// (MNE-001-498) is a receipts row that received no money: its entry moves
+// 2150 to 2150, and migration 339 keeps its bank account empty. There is no
+// cheque, payer bank or bank account of ours to complete, so it is refused
+// on the locked read, before any other check, naming it and its source.
 // ============================================================
 
 /** The states whose entry stays posted: a reversal leaves the original entry in its month. */
@@ -198,6 +205,18 @@ export async function completePaymentTrace(
     );
     if (found.rows.length === 0) throw new NotFoundError(spec.resource, paymentId);
     const row = found.rows[0];
+    if (side === 'customer' && row.payment_method === BALANCE_TRANSFER_METHOD) {
+      const source = (await client.query<{ payment_number: string }>(
+        `SELECT s.payment_number FROM customer_payments t
+           JOIN customer_payments s ON s.id = t.transferred_from_payment_id AND s.entity_id = t.entity_id
+          WHERE t.id = $1 AND t.entity_id = $2`,
+        [paymentId, entityId]
+      )).rows[0];
+      throw new ValidationError({
+        key: 'receipt.trace.balance_transfer',
+        params: { number: row.payment_number, source: source?.payment_number ?? '?' },
+      });
+    }
     if (!(COMPLETABLE as readonly string[]).includes(row.status)) {
       throw new ValidationError({
         key: 'payment.trace.not_completable', params: { number: row.payment_number, status: row.status },

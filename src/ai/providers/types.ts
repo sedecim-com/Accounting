@@ -1,5 +1,6 @@
 import type { AskUserFn, DraftCreatedInfo, ToolObserver } from '../tools/observer.js';
 import type { CompactionResult } from '../compaction.js';
+import type { RenewingHelperKey } from './credential-helper.js';
 
 // ============================================================
 // PROVIDER ABSTRACTION
@@ -140,10 +141,13 @@ export interface ProviderProfile {
   api_key_env?: string;
   /**
    * Credential helper (git/kubectl/aws pattern): shell command that prints
-   * the credential. Runs only if the environment variable is not set.
-   * Ideal for OAuth tokens of already-logged-in subscriptions (Codex CLI,
-   * vaults like `op read`, keychains). Lives in YOUR config — same trust
-   * level as your shell.
+   * the credential. Runs only if the environment variable is not set. For
+   * vaults (`op read`), keychains and a short-lived token from the person's
+   * own login (`gcloud auth print-access-token`). A ChatGPT or Codex login
+   * is not an API credential: OpenAI's public API does not accept it.
+   * Belongs in YOUR `~/.mnemosine/config.json`, where an OpenAI-compatible
+   * profile renews it during the session; one in a project file runs once
+   * per session (MNE-001-446).
    */
   api_key_cmd?: string;
   /** false = the endpoint does not support streaming; use full response. */
@@ -182,4 +186,11 @@ export interface ResolvedProfile extends ProviderProfile {
   name: string;
   /** API key already resolved from the environment (undefined if N/A or missing). */
   apiKey?: string;
+  /**
+   * SECURITY: present only for an openai-compatible profile whose credential
+   * came from an `api_key_cmd` in the person's own ~/.mnemosine/config.json.
+   * The client hands it to the SDK as its async `apiKey`, so the helper is run
+   * again every five minutes and after a 401 (MNE-001-446).
+   */
+  keyRenewal?: RenewingHelperKey;
 }

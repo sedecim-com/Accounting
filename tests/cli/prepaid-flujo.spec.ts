@@ -144,6 +144,8 @@ vi.mock('../../src/services/accruals/amortization-run.js', async (original) => (
 
 import { registerPrepaidCommand } from '../../src/cli/prepaid-command.js';
 import { ExitCode } from '../../src/cli/kernel/exit.js';
+import type { CliError } from '../../src/cli/kernel/cli-error.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { registrarPagoAnticipado } from '../../src/services/accruals/prepaid-service.js';
 import { runMonthlyAmortization } from '../../src/services/accruals/amortization-run.js';
 const plano = {
@@ -191,12 +193,19 @@ async function correr(argv: string[], confirm?: (q: string) => Promise<boolean>)
   return { code, out, err, error };
 }
 
+// The flows read in es-MX, the accountant's default (MNE-001-227): the test
+// locale is en-US, so it is pinned here, and the English of each key is
+// asserted in ap-family-by-key.spec.ts. An error's `message` is English for
+// machines; `localizedMessage` reads it the way the terminal prints it.
 beforeEach(() => {
   vi.clearAllMocks();
+  setLanguage('es');
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  resetLanguage();
 });
+const localizedMessage = (r: Corrida): string => (r.error as CliError).localized();
 
 // ══════════════════════════════════════════════════════════════
 describe('prepaid run', () => {
@@ -222,7 +231,7 @@ describe('prepaid run', () => {
   it('sin --period se detiene antes de tocar nada, con el código de uso', async () => {
     const r = await correr(['prepaid', 'run', '--dry-run']);
     expect(r.code).toBe(ExitCode.USAGE);
-    expect((r.error as Error).message).toMatch(/Falta --period/);
+    expect(localizedMessage(r)).toMatch(/Falta --period/);
   });
 
   it('pregunta antes de postear, y un «no» aborta sin tocar el mayor', async () => {
@@ -231,7 +240,7 @@ describe('prepaid run', () => {
       preguntas.push(q);
       return false;
     });
-    expect(preguntas[0]).toMatch(/¿Devengar 1019\.18 MXN en 1 asiento\(s\) de Enero 2026\?/);
+    expect(preguntas[0]).toMatch(/¿Devengar 1019\.18 MXN en 1 asiento de Enero 2026\?/);
     expect(preguntas[0]).toMatch(/El mayor no admite deshacer/);
     expect(r.code).toBe(ExitCode.ABORTED);
     expect(runMonthlyAmortization).not.toHaveBeenCalled();
@@ -241,18 +250,18 @@ describe('prepaid run', () => {
     const r = await correr(['prepaid', 'run', '--period', '2026-01', '-y']);
     expect(r.code).toBe(ExitCode.OK);
     expect(runMonthlyAmortization).toHaveBeenCalledWith('e1', 'fp-2026-01', 'u1');
-    expect(r.err).toMatch(/✔ 1 asiento\(s\) de devengo contabilizados en Enero 2026 por 1019\.1781/);
+    expect(r.err).toMatch(/✔ 1 asiento de devengo contabilizado en Enero 2026 por 1019\.1781/);
   });
 
   it('cuenta los calendarios que ya tienen renglón de este mes en vez de esconderlos', async () => {
     const r = await correr(['prepaid', 'run', '--period', '2026-01', '--dry-run']);
-    expect(r.err).toMatch(/1 calendario\(s\) entran, 0 se omiten, 0 ya tienen renglón de este mes/);
+    expect(r.err).toMatch(/1 calendario entra, 0 se omiten, 0 ya tienen renglón de este mes/);
   });
 
   it('avisa de que son N asientos y N reversas, no uno', async () => {
     const r = await correr(['prepaid', 'run', '--period', '2026-01', '--dry-run']);
-    expect(r.err).toMatch(/1 asiento\(s\) de ajuste de dos líneas, uno por calendario/);
-    expect(r.err).toMatch(/son 1 reversas/);
+    expect(r.err).toMatch(/1 asiento de ajuste de dos líneas, uno por calendario/);
+    expect(r.err).toMatch(/es 1 reversa\./);
   });
 });
 
@@ -286,13 +295,13 @@ describe('prepaid create', () => {
   it('nombra las cuatro banderas que faltan de una vez, no de una en una', async () => {
     const r = await correr(['prepaid', 'create', 'Algo']);
     expect(r.code).toBe(ExitCode.USAGE);
-    expect((r.error as Error).message).toMatch(/Faltan --amount, --start, --end, --origin/);
+    expect(localizedMessage(r)).toMatch(/Faltan --amount, --start, --end, --origin/);
   });
 
   it('`--origin cfdi` sin --source-entry se rechaza: el vínculo se pierde para siempre', async () => {
     const r = await correr([...BASE, '--origin', 'cfdi']);
     expect(r.code).toBe(ExitCode.USAGE);
-    expect((r.error as Error).message).toMatch(/exige `--source-entry/);
+    expect(localizedMessage(r)).toMatch(/exige `--source-entry/);
     expect(registrarPagoAnticipado).not.toHaveBeenCalled();
   });
 
@@ -326,7 +335,7 @@ describe('prepaid create', () => {
   it('una convención que contradice al panel se rechaza en vez de obedecerse', async () => {
     const r = await correr([...BASE, '--origin', 'manual', '--convention', 'meses_completos']);
     expect(r.code).toBe(ExitCode.VALIDATION);
-    expect((r.error as Error).message).toMatch(/contradice al panel/);
+    expect(localizedMessage(r)).toMatch(/contradice al panel/);
     expect(registrarPagoAnticipado).not.toHaveBeenCalled();
   });
 });
@@ -373,7 +382,7 @@ describe('prepaid list', () => {
   it('rechaza una fecha imposible antes de abrir conexión', async () => {
     const r = await correr(['prepaid', 'list', '--as-of', '2026-02-31']);
     expect(r.code).toBe(ExitCode.USAGE);
-    expect((r.error as Error).message).toMatch(/fecha real/);
+    expect(localizedMessage(r)).toMatch(/fecha real/);
   });
 });
 

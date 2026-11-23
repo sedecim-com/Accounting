@@ -371,6 +371,29 @@ class NoPudeMedir extends Error {
   }
 }
 
+/**
+ * SIN CREDENCIAL NO SE MIDE, Y ESO ES UN 8, NO UN 1 (MNE-001-446).
+ *
+ * `resolveProfile` lanza MissingProviderCredentialError cuando falta la llave
+ * y CredentialHelperError cuando el helper falla. Las dos son «no pude medir»:
+ * al repositorio no le pasa nada, a la corrida le falta la credencial de quien
+ * la lanza. El mensaje de la primera ya nombra la variable que falta; el de la
+ * segunda nombra el perfil y el código de salida, nunca el comando. Se
+ * reconocen por nombre para no importar src antes del setup, y el catch de la
+ * entrada saca NoPudeMedir por EXTERNAL_FAILED.
+ */
+export function profileForMeasuring<T>(resolve: () => T): T {
+  try {
+    return resolve();
+  } catch (err) {
+    const name = (err as Error)?.name;
+    if (name === 'MissingProviderCredentialError' || name === 'CredentialHelperError') {
+      throw new NoPudeMedir(`sin credencial no hay medición: ${(err as Error).message}`);
+    }
+    throw err;
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -475,7 +498,7 @@ async function main(): Promise<void> {
       const nombreDeVariable = (p as { api_key_env?: string }).api_key_env;
       if (nombreDeVariable) recordarSecreto(process.env[nombreDeVariable]);
     }
-    const profile = resolveProfile(args.provider, modeloPedido);
+    const profile = profileForMeasuring(() => resolveProfile(args.provider, modeloPedido));
     // Y la de ESTA corrida, que puede venir de `api_key_cmd` y no de una
     // variable: el bucle de arriba no la habría visto.
     recordarSecreto(profile.apiKey);
@@ -496,6 +519,9 @@ async function main(): Promise<void> {
           // aquí sería el defecto de vuelta con otra forma — divergiría en el
           // primer diff que toque una de las dos.
           herramientas: SUPERFICIE_INGESTA,
+          // Cada token que un helper renueve a media corrida se registra en el
+          // redactor ANTES de viajar: la huella de arriba sólo vio el primero.
+          onCredential: recordarSecreto,
         }
       );
     } catch (err) {
