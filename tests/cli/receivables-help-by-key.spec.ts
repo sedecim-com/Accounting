@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { program } from '../../src/cli/mnemosine.js';
 import { TAX_ID_TYPES } from '../../src/cli/customer-command.js';
+import { CREDIT_NOTE_TYPES } from '../../src/database/enums.js';
 import { helpKeyOf } from '../../src/cli/kernel/help.js';
 import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import type { TranslationKey } from '../../src/i18n/index.js';
@@ -20,7 +21,9 @@ import {
 // Same acceptance as the bank spec, filtered by family because receivables is
 // keyed in two tasks: MNE-001-236 takes `invoice` and `customer` whole, their
 // roots included; MNE-001-237 adds `receipt`, `credit-note` and `rep` to
-// FAMILIES, and with them the lane finds nothing left in receivables.
+// FAMILIES, and with them the lane finds nothing left in receivables. The
+// receipt leaves that 421, 422, 509, 511, 498, 567 and 570 keyed on their way
+// are checked further down by those tasks' own tests.
 // ============================================================
 
 afterEach(() => resetLanguage());
@@ -29,6 +32,9 @@ afterEach(() => resetLanguage());
 const FAMILIES: Record<string, string> = {
   invoice: 'invoice',
   customer: 'customer',
+  receipt: 'receipt',
+  'credit-note': 'credit_note',
+  rep: 'rep',
 };
 
 /** The key of this leaf's option, or null when the leaf has no such flag. */
@@ -104,6 +110,118 @@ describe('the receivables families, help by key, family by family (#314, MNE-001
     const help = flat(program.helpInformation());
     expect(help).toContain(t('help.invoice.description', {}, 'es'));
     expect(help).toContain(t('help.customer.description', {}, 'es'));
+    expect(help).toContain(t('help.receipt.description', {}, 'es'));
+    expect(help).toContain(t('help.credit_note.description', {}, 'es'));
+    expect(help).toContain(t('help.rep.description', {}, 'es'));
+  });
+
+  // MNE-001-237: receipt, credit-note and rep, every leaf sampled.
+  it.each<[string, TranslationKey]>([
+    ['receipt', 'help.receipt.show.description'],
+    ['receipt', 'help.receipt.list.description'],
+    ['receipt', 'help.receipt.unapply.description'],
+    ['receipt record', 'help.receipt.record.option.amount'],
+    ['receipt record', 'help.receipt.record.option.method'],
+    ['receipt record', 'help.receipt.record.option.bank'],
+    ['receipt record', 'help.receipt.record.option.reference'],
+    ['receipt show', 'help.receipt.show.argument.ref'],
+    ['receipt list', 'help.receipt.list.option.unapplied'],
+    ['receipt list', 'help.receipt.list.option.needs_rep'],
+    ['receipt apply', 'help.receipt.apply.argument.ref'],
+    ['receipt apply', 'help.receipt.apply.option.invoice'],
+    ['receipt unapply', 'help.receipt.unapply.option.invoice'],
+    ['receipt unapply', 'help.receipt.unapply.option.reason'],
+    ['receipt reverse', 'help.receipt.reverse.argument.ref'],
+    ['receipt reverse', 'help.receipt.reverse.option.fee'],
+    ['credit-note', 'help.credit_note.create.description'],
+    ['credit-note', 'help.credit_note.issue.description'],
+    ['credit-note create', 'help.credit_note.create.option.tax'],
+    ['credit-note create', 'help.credit_note.create.option.invoice'],
+    ['credit-note create', 'help.credit_note.create.option.relates_to'],
+    ['credit-note create', 'help.credit_note.create.option.date'],
+    ['credit-note show', 'help.credit_note.show.description'],
+    ['credit-note show', 'help.credit_note.show.argument.ref'],
+    ['credit-note list', 'help.credit_note.list.description'],
+    ['credit-note list', 'help.credit_note.list.option.open'],
+    ['credit-note issue', 'help.credit_note.issue.argument.ref'],
+    ['credit-note apply', 'help.credit_note.apply.description'],
+    ['credit-note apply', 'help.credit_note.apply.option.invoice'],
+    ['credit-note apply', 'help.credit_note.apply.option.dry_run'],
+    ['rep', 'help.rep.missing.description'],
+    ['rep', 'help.rep.reconcile.description'],
+    ['rep missing', 'help.rep.missing.list.description'],
+    ['rep missing list', 'help.rep.missing.list.option.direction'],
+    ['rep missing list', 'help.rep.missing.list.option.min_amount'],
+    ['rep reconcile', 'help.rep.reconcile.option.limit'],
+    ['rep reconcile', 'help.rep.reconcile.option.dry_run'],
+  ])('`%s --help` in es-MX shows %s in Spanish (237)', (path, key) => {
+    expectSpanishHelp(path, key);
+  });
+
+  it('every generic flag a 237 leaf declares is worded for it and keeps a key of its own', () => {
+    const own: Record<string, string[]> = {
+      // «JSON output», not cli.flag.json («shorthand for --format json»): these leaves have no --format.
+      'receipt record': ['--json', '--date'],
+      'receipt apply': ['--json'],
+      // It also lands in the ledger description, which cli.flag.reason does not say.
+      'receipt unapply': ['--json', '--reason'],
+      'receipt reverse': ['--json'],
+      'credit-note create': ['--json', '--date'],
+      'credit-note issue': ['--json'],
+      // «run the real path and roll back», not cli.flag.dry_run's «compute and show the full effect».
+      'credit-note apply': ['--json', '--dry-run'],
+      // 50 parked REPs, not cli.flag.limit's «maximum rows to return».
+      'rep reconcile': ['--limit', '--dry-run'],
+    };
+    for (const [path, flags] of Object.entries(own)) {
+      const prefix = `help.${path.replace(/ /g, '.').replace(/-/g, '_')}.option`;
+      for (const flag of flags) expect(keyOf(path, flag), path).toBe(`${prefix}.${flag.slice(2).replace(/-/g, '_')}`);
+    }
+    // What the kernel adds stays on cli.flag.*.
+    const injected = [
+      keyOf('receipt list', '--json'),
+      keyOf('receipt show', '--json'),
+      keyOf('credit-note list', '--json'),
+      keyOf('rep missing list', '--json'),
+      keyOf('rep missing list', '--limit'),
+      keyOf('receipt record', '--yes'),
+      keyOf('receipt record', '--dry-run'),
+    ];
+    expect(injected).toEqual([
+      'cli.flag.json',
+      'cli.flag.json',
+      'cli.flag.json',
+      'cli.flag.json',
+      'cli.flag.limit',
+      'cli.flag.yes',
+      'cli.flag.dry_run',
+    ]);
+  });
+
+  it('the credit note types travel as a parameter, so the Spanish shows them too', () => {
+    const types = CREDIT_NOTE_TYPES.join(', ');
+    expectSpanishHelp('credit-note create', 'help.credit_note.create.option.type', { types });
+    expectSpanishHelp('credit-note list', 'help.credit_note.list.option.type', { types });
+  });
+
+  it('the 237 leaves keep their machine contract: mandatory options, defaults and variadic flags', () => {
+    const option = (path: string, long: string) => node(path).options.find((o) => o.long === long);
+    for (const [path, long] of [
+      ['receipt record', '--amount'],
+      ['receipt unapply', '--invoice'],
+      ['receipt unapply', '--reason'],
+      ['credit-note create', '--type'],
+      ['credit-note create', '--amount'],
+    ] as const) {
+      expect(option(path, long)?.mandatory, `${path} ${long}`).toBe(true);
+    }
+    expect(option('receipt record', '--method')?.defaultValue).toBe('spei');
+    expect(option('credit-note create', '--tax')?.defaultValue).toBe('0');
+    expect(option('rep missing list', '--direction')?.defaultValue).toBe('received');
+    expect(option('rep reconcile', '--limit')?.defaultValue).toBe('50');
+    expect(option('rep reconcile', '--limit')?.short).toBe('-n');
+    expect(option('receipt apply', '--invoice')?.variadic).toBe(true);
+    expect(option('credit-note apply', '--invoice')?.variadic).toBe(true);
   });
 
   it('every generic flag a 236 leaf declares is worded for it and keeps a key of its own', () => {

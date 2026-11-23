@@ -1097,3 +1097,45 @@ describe('S3 · the wizard asks no key of someone signed in with Anthropic (MNE-
     expect(ctx.lines.join('\n')).toContain('Get the credential at: https://platform.claude.com/settings/keys');
   });
 });
+
+// MNE-001-448 (#644 P8): NVIDIA's hosted catalog is a trial that records what
+// it receives. Init prints its terms and asks before it saves it as the
+// default; the default is No, and --yes keeps No.
+describe('S3 · the nvidia built-in asks for its trial terms before it is saved', () => {
+  const userConfig = () => path.join(tmp, '.mnemosine', 'config.json');
+  let cwd: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+    delete process.env.MNEMOSINE_PROVIDER;
+    process.env.NVIDIA_API_KEY = 'clave-falsa-de-prueba';
+  });
+  const okProbe = () => vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
+  const configure = async (answers: Parameters<typeof makeCtx>[0]) => {
+    const probe = okProbe();
+    const ctx = makeCtx(answers);
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
+    return { probe, out: ctx.lines.join('\n') };
+  };
+
+  it('prints the terms and asks; No (the default) saves nothing and calls nothing', async () => {
+    const { probe, out } = await configure({ flags: { provider: 'nvidia' } });
+    expect(out).toContain('integrate.api.nvidia.com');
+    expect(out).toMatch(/record what you send/);
+    expect(out).toMatch(/personal data/);
+    expect(out).toMatch(/nvidia was not saved/);
+    expect(probe).not.toHaveBeenCalled();
+    expect(fs.existsSync(userConfig())).toBe(false);
+  });
+
+  it('--yes does not accept them', async () => {
+    const { probe } = await configure({ flags: { provider: 'nvidia', yes: true } });
+    expect(probe).not.toHaveBeenCalled();
+    expect(fs.existsSync(userConfig())).toBe(false);
+  });
+
+  it('a yes probes it and saves it in the user file', async () => {
+    const { probe } = await configure({ flags: { provider: 'nvidia' }, confirms: [true] });
+    expect(probe).toHaveBeenCalledWith('nvidia', undefined);
+    expect(JSON.parse(fs.readFileSync(userConfig(), 'utf-8'))).toEqual({ default_provider: 'nvidia' });
+  });
+});

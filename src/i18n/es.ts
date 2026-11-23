@@ -4781,6 +4781,83 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.customer.tax.list.description':
     'El control previo a facturar: clientes cuyo perfil fiscal está incompleto o mal formado',
   'help.customer.tax.list.option.missing': 'sólo los clientes a los que hoy NO se les podría timbrar un CFDI',
+  // ==== MNE-001-237 · help by key, receipt, credit-note and rep (issue #314) ====
+  'help.receipt.description':
+    'Cobros a clientes: registrar el dinero, aplicar el saldo a cuenta, desaplicar y reversar cheques devueltos',
+  'help.receipt.record.option.amount': 'importe, en la moneda del documento',
+  'help.receipt.record.option.date': 'fecha valor (AAAA-MM-DD); por omisión, hoy',
+  'help.receipt.record.option.method': 'forma de pago, una de: cash, check, ach, wire, spei, credit_card, other',
+  'help.receipt.record.option.bank':
+    'nombre o id de la cuenta bancaria; sin ella se usa la cuenta del rol `banco` de la entidad',
+  'help.receipt.record.option.reference': 'referencia bancaria o número de transferencia',
+  'help.receipt.record.option.json': 'salida en JSON',
+  'help.receipt.show.description':
+    'Muestra un cobro: sus aplicaciones (vigentes e historial), el estado de su REP y su póliza',
+  'help.receipt.show.argument.ref': 'número del cobro (PMT-2026-00042) o id',
+  'help.receipt.list.description': 'Lista cobros por cliente, fecha, estado de aplicación o REP faltante',
+  'help.receipt.list.option.customer': 'sólo este cliente (número, nombre o id)',
+  'help.receipt.list.option.unapplied': 'sólo los cobros con un remanente a cuenta',
+  'help.receipt.list.option.needs_rep': 'sólo los cobros completados sin un REP ligado',
+  'help.receipt.apply.argument.ref': 'número o id del cobro',
+  'help.receipt.apply.option.invoice':
+    'factura con importe: "INV-2026-00042:2500" (repetible), o sólo el folio junto con --amount',
+  'help.receipt.apply.option.amount': 'importe para una sola --invoice que no trae importe',
+  'help.receipt.apply.option.json': 'salida en JSON',
+  'help.receipt.unapply.description':
+    'Desaplica un cobro de una factura como un evento NUEVO: la reabre y devuelve el dinero al saldo a cuenta',
+  'help.receipt.unapply.argument.ref': 'número o id del cobro',
+  'help.receipt.unapply.option.invoice': 'la factura de la que se desaplica',
+  'help.receipt.unapply.option.reason': 'por qué: queda en el rastro de auditoría y en la descripción de la póliza',
+  'help.receipt.unapply.option.json': 'salida en JSON',
+  'help.receipt.reverse.argument.ref': 'número o id del cobro',
+  'help.receipt.reverse.option.fee':
+    'comisión bancaria cobrada por la devolución (aún no se admite: necesita una cuenta con el rol de comisiones)',
+  'help.receipt.reverse.option.json': 'salida en JSON',
+  'help.credit_note.description':
+    'Notas de crédito: devoluciones, descuentos y correcciones contra la cuenta por cobrar (aquí nunca se timbran)',
+  'help.credit_note.create.description':
+    'Crea una nota de crédito en BORRADOR, ligada a su factura (vínculo fiscal) o suelta con un cliente explícito',
+  'help.credit_note.create.option.type': 'uno de: {types}',
+  'help.credit_note.create.option.amount': 'subtotal del crédito, antes de impuestos',
+  'help.credit_note.create.option.tax': 'parte de impuesto (IVA) del crédito',
+  'help.credit_note.create.option.invoice':
+    'la factura que acredita esta nota (recomendado: de ella depende el lado del IVA)',
+  'help.credit_note.create.option.customer': 'el cliente, cuando no hay factura ligada',
+  'help.credit_note.create.option.relates_to': 'UUID del CFDI original, cuando la factura no está en el sistema',
+  'help.credit_note.create.option.date':
+    'fecha del crédito (AAAA-MM-DD); por omisión, hoy en la zona de la política zona_horaria',
+  'help.credit_note.create.option.memo': 'observaciones',
+  'help.credit_note.create.option.json': 'salida en JSON',
+  'help.credit_note.show.description':
+    'Muestra una nota de crédito con sus aplicaciones, su saldo disponible y su póliza',
+  'help.credit_note.show.argument.ref': 'número de la nota de crédito (CN-2026-00042) o id',
+  'help.credit_note.list.description': 'Lista notas de crédito por cliente, tipo, estado o saldo sin aplicar',
+  'help.credit_note.list.option.customer': 'sólo este cliente (número, nombre o id)',
+  'help.credit_note.list.option.type': 'sólo este tipo: {types}',
+  'help.credit_note.list.option.open':
+    'sólo las notas emitidas con saldo por aplicar (el crédito vigente del cliente)',
+  'help.credit_note.issue.description':
+    'Emite la nota: postea cargo a devoluciones + cargo al IVA / abono a clientes. No timbra',
+  'help.credit_note.issue.argument.ref': 'número o id de la nota de crédito',
+  'help.credit_note.issue.option.json': 'salida en JSON',
+  'help.credit_note.apply.description':
+    'Aplica una nota emitida a facturas; lo que no se aplica queda como crédito del cliente',
+  'help.credit_note.apply.argument.ref': 'número o id de la nota de crédito',
+  'help.credit_note.apply.option.invoice':
+    'factura con importe: "INV-2026-00042:2500" (repetible), o sólo el folio junto con --amount',
+  'help.credit_note.apply.option.amount': 'importe para una sola --invoice que no trae importe',
+  'help.credit_note.apply.option.dry_run': 'recorre el camino real y lo revierte al final',
+  'help.credit_note.apply.option.json': 'salida en JSON',
+  'help.rep.description': 'Complementos de pago (REP): a qué le falta uno, y los aparcados por reintentar',
+  'help.rep.missing.description': 'Pagos y cobros cuyo REP no ha llegado o no se ha emitido',
+  'help.rep.missing.list.description':
+    'received: facturas PPD de proveedor pagadas sin el REP del proveedor (el REP sostiene el acreditamiento del IVA); issued: nuestros cobros sin REP',
+  'help.rep.missing.list.option.direction': 'received (por omisión) o issued',
+  'help.rep.missing.list.option.min_amount': 'sólo los pagos de este importe o más',
+  'help.rep.reconcile.description':
+    'Reintenta los REP aparcados (needs_review): se puede repetir sin riesgo, y los nodos ya resueltos se saltan',
+  'help.rep.reconcile.option.limit': 'máximo de REP aparcados que se reintentan',
+  'help.rep.reconcile.option.dry_run': 'lista lo que se reintentaría, sin reintentar nada',
   // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
   'help.bill.description': 'Facturas de proveedor: capturar, codificar, revisar y aprobar lo que debemos',
   'help.bill.list.description':
@@ -4988,6 +5065,79 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tax_deposit.list.option.period': 'sólo los pasivos cuyo periodo toca este mes',
   'help.tax_deposit.list.option.until': 'sólo lo que vence en esta fecha o antes (AAAA-MM-DD)',
   'help.tax_deposit.list.option.all_entities': 'todas las entidades del inquilino, no sólo la activa',
+  // ==== MNE-001-240 · help by key, cfdi, e-accounting and sat (issue #314) ====
+  'help.cfdi.description':
+    'El espejo de CFDI: listar, inspeccionar, estatus en el SAT, el rastro del clasificador y contabilizar un CFDI emitido',
+  'help.cfdi.list.description': 'El espejo, filtrado por dirección, tipo, estatus y fecha',
+  'help.cfdi.list.option.direction': 'emitido, recibido o ajeno (se deriva contra el RFC de la entidad)',
+  'help.cfdi.list.option.type': 'filtra por document_type, por ejemplo cfdi_ingreso, cfdi_egreso o cfdi_pago',
+  'help.cfdi.show.description':
+    'Un CFDI: encabezado, conceptos, impuestos y estatus en el SAT; --format xml imprime los bytes exactos',
+  'help.cfdi.show.argument.uuid': 'UUID del CFDI (timbre fiscal)',
+  'help.cfdi.status.description':
+    'Estatus del espejo en el SAT (ConsultaCFDIService público; no interviene la e.firma)',
+  'help.cfdi.status.show.description': 'Estado, EsCancelable y EstatusCancelacion según la última respuesta del SAT',
+  'help.cfdi.status.show.argument.uuid': 'UUID del CFDI',
+  'help.cfdi.status.show.option.refresh': 'pregunta al SAT ahora y actualiza la caché sat_* del documento',
+  'help.cfdi.status.sync.description':
+    'Vuelve a revisar todo el espejo contra el SAT: primero lo desactualizado o nunca consultado',
+  'help.cfdi.status.sync.option.limit': 'máximo de CFDI a consultar en esta corrida',
+  'help.cfdi.status.sync.option.stale_hours': 'horas tras las que una consulta queda desactualizada',
+  'help.cfdi.explain.description':
+    'POR QUÉ se registró como se registró: caso, hechos y decisiones que dejó el clasificador',
+  'help.cfdi.explain.argument.uuid': 'UUID del CFDI',
+  'help.e_accounting.description': 'Contabilidad electrónica (Anexo 24): arma el XML que espera el SAT y lo verifica',
+  'help.e_accounting.catalog.description': 'El catálogo de cuentas como lo pide el SAT: CtaCatalogo 1.3',
+  'help.e_accounting.catalog.generate.description':
+    'Genera y archiva el XML CtaCatalogo 1.3 (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) con su hash',
+  'help.e_accounting.catalog.generate.option.output':
+    'escribe el XML de CtaCatalogo en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.catalog.generate.option.period': 'mes que declara el catálogo (Mes y Anio de su encabezado)',
+  'help.e_accounting.catalog.generate.option.dry_run':
+    'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.catalog.generate.option.yes':
+    'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'help.e_accounting.balance.description':
+    'La balanza de comprobación que espera el SAT: BCE 1.3, normal, complementaria o de cierre',
+  'help.e_accounting.balance.generate.description':
+    'Genera y archiva el XML de la balanza de comprobación del periodo (SaldoIni, Debe, Haber, SaldoFin) con su hash',
+  'help.e_accounting.balance.generate.option.output':
+    'escribe el XML de la Balanza en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.balance.generate.option.period':
+    'periodo a declarar: 2026-02, su nombre o el id del periodo fiscal',
+  'help.e_accounting.balance.generate.option.type': 'tipo de envío: N normal, C complementaria (pide --modified)',
+  'help.e_accounting.balance.generate.option.closing':
+    'la balanza de cierre, presentada como mes 13, no como otro diciembre',
+  'help.e_accounting.balance.generate.option.modified':
+    'fecha en que se modificó la balanza que se complementa (FechaModBal); obligatoria con --type C',
+  'help.e_accounting.balance.generate.option.dry_run':
+    'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.balance.generate.option.yes':
+    'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'help.e_accounting.balance.check.description':
+    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, y cada cuenta en el catálogo',
+  'help.e_accounting.balance.check.option.period': 'periodo a verificar: 2026-02, su nombre o el id del periodo fiscal',
+  'help.e_accounting.balance.check.option.closing': 'verifica la balanza de cierre (mes 13) en lugar de la de un mes',
+  'help.e_accounting.balance.check.option.check':
+    'nombres de verificaciones separados por comas; sin valor, imprime los disponibles',
+  'help.sat.description': 'Servicios del SAT (credenciales de e.firma y la descarga masiva de CFDI)',
+  'help.sat.cred.description': 'Credenciales fiscales (e.firma)',
+  'help.sat.cred.add.description':
+    'Registra la e.firma de una entidad (valida en local; guardarla en la bóveda pide --live)',
+  'help.sat.cred.add.option.cer': 'Certificado .cer del SAT (DER)',
+  'help.sat.cred.add.option.key': 'Llave privada .key del SAT (DER)',
+  'help.sat.cred.add.option.entity': 'Entidad legal',
+  'help.sat.cred.add.option.user': 'Quién otorga el consentimiento',
+  'help.sat.cred.add.option.no_unattended': 'Prohíbe el uso sin un operador presente',
+  'help.sat.cred.add.option.max_diario': 'Límite de accesos por 24 h',
+  'help.sat.cred.status.description': 'Muestra las credenciales de la entidad y su vigencia',
+  'help.sat.cred.status.option.entity': 'Entidad legal',
+  'help.sat.cred.audit.description': 'Historial de accesos a la credencial (quién la usó, cuándo y para qué)',
+  'help.sat.cred.audit.option.entity': 'Entidad legal',
+  'help.sat.cred.audit.option.limit': 'Cuántos eventos mostrar',
+  'help.sat.cred.revoke.description': 'Revoca la credencial y borra el material de la bóveda (irreversible)',
+  'help.sat.cred.revoke.option.entity': 'Entidad legal',
+  'help.sat.cred.revoke.option.user': 'Quién revoca',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   'help.approvals.description':
     'Políticas de aprobación graduadas para las escrituras en espera (once / session / always)',
@@ -5344,6 +5494,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'además {count, plural, one {# sin inquilino, que debe ser sólo referencia global} other {# sin inquilino, que deben ser sólo referencia global}} ({tables})',
   'doctor.auditor_role.ok': 'sólo lectura sobre {count} tablas aisladas, NOLOGIN y sujeto a la RLS{note}',
   // ==== end of I11 · doctor by key ====
+  // ==== el periodo de prueba alojado de NVIDIA (MNE-001-448, #644 P8) ====
+  'providers.trial.terms.what':
+    '{profile} usa el catálogo de API alojado de NVIDIA ({host}), una prueba para desarrollo y evaluación.',
+  'providers.trial.terms.records':
+    'Los términos de servicio de la prueba de la API de NVIDIA le permiten registrar lo que envías y lo que vuelve, y piden no enviar datos personales: nunca le envíes la contabilidad ni los documentos de un cliente.',
+  'providers.trial.terms.limits':
+    'Sus endpoints pueden retirarse sin aviso. Para trabajo de clientes elige otro proveedor, o NVIDIA NIM en tu propio servidor.',
+  'providers.trial.accept_default': '¿Guardar {profile} como tu proveedor por omisión con estos términos?',
+  'providers.trial.not_saved': 'Términos no aceptados: {profile} no se guardó como proveedor por omisión.',
+  'providers.trial.accept_session': '¿Usar {profile} en esta sesión con estos términos?',
+  'providers.trial.refused.unattended':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), que registra lo que recibe: ingest, jobs run-due y la importación de init nunca abren una sesión ahí. Elige otro proveedor para ellos.',
+  'providers.trial.refused.no_terminal':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), cuyos términos piden un sí en una terminal, y aquí no hay ninguna. Córrelo en una terminal o elige otro proveedor.',
+  'providers.trial.refused.declined': 'Términos no aceptados: no se abrió ninguna sesión con {profile}.',
+  'providers.trial.refused.not_accepted':
+    '{profile} está en la prueba alojada de NVIDIA ({host}), y sus términos no se aceptaron en esta sesión. Inicia mnemosine chat --provider {profile} en una terminal para leerlos y aceptarlos.',
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
   'payrun.file_duplicate_employee':

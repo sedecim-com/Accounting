@@ -30,6 +30,7 @@ CLI) is the same and the "brain" is swapped per profile. Built-in profiles
 | `minimax` | OpenAI-compatible | api.minimax.io/v1 (`MiniMax-M2`) | `MINIMAX_API_KEY` |
 | `qwen` | OpenAI-compatible | dashscope-intl…/compatible-mode/v1 (`qwen3-max`) | `DASHSCOPE_API_KEY` |
 | `gemini` | OpenAI-compatible | generativelanguage.googleapis.com/v1beta/openai (`gemini-3.8-flash`, not verified live) | `GEMINI_API_KEY` |
+| `nvidia` | OpenAI-compatible | integrate.api.nvidia.com/v1 (`nvidia/nemotron-3-super-120b-a12b`, not verified live) ⚠ trial | `NVIDIA_API_KEY` |
 | `openrouter` | OpenAI-compatible | openrouter.ai/api/v1 (`openrouter/auto`) | `OPENROUTER_API_KEY` |
 | `copilot` | OpenAI-compatible | api.githubcopilot.com | `COPILOT_API_TOKEN` ⚠ OAuth token |
 | `openclaw` | OpenAI-compatible | 127.0.0.1:18789/v1 (`openclaw:main`) | `OPENCLAW_GATEWAY_TOKEN` |
@@ -62,6 +63,19 @@ and `models.<p>` in the config file that wins, creating
 `~/.mnemosine/config.json` when there is none; before writing a project file
 it asks (default No, which `--yes` keeps). A key typed at its prompt goes to
 `~/.mnemosine/.env` (mode 600), never to `./.env`.
+
+**`nvidia` is NVIDIA's hosted catalog, a trial** for development and
+evaluation that records what it receives and asks you not to send personal
+data, so never a client's books. `init` prints its terms and asks before it
+saves it as the default (default No, which `--yes` keeps); `chat` and `ask`
+print them and ask once per session, and refuse without a terminal;
+`ingest`, `jobs run-due` and init's import refuse it however it was chosen;
+`doctor` warns while it is the default or a link of its chain, and a failover
+walk never moves into it. Self-hosted NIM is not that host: give it a profile
+of your own (`"base_url": "http://<your-host>:8000/v1"`, no key unless you set
+one), take its window from the `--max-model-len` it was started with, and
+start it with `--enable-auto-tool-choice` and a tool-call parser so the
+accounting tools work.
 
 **Inference providers vs. agents**: `openai`, `grok`, `minimax`, `qwen`,
 `openrouter` and `hermes` (Nous Portal) do standard function calling — the

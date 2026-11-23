@@ -123,6 +123,38 @@ describe('the defaults of grok, gemini and openai, with their sources', () => {
   });
 });
 
+// MNE-001-448 (#644 P8): the owner's answer 1 of 16 Nov, «Salen sin verificar».
+// NVIDIA's documentation hosts did not resolve where this was built, so the
+// page is cited with the date of the search extract it was read through.
+describe('the nvidia built-in', () => {
+  const READ = '2026-11-23';
+  const PAGE = 'docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b';
+
+  it('is the hosted catalog with Nemotron 3 Super at low effort, marked not verified live', () => {
+    const p = BUILTIN_PROFILES.nvidia;
+    expect(p).toMatchObject({
+      type: 'openai-compatible',
+      model: 'nvidia/nemotron-3-super-120b-a12b',
+      base_url: 'https://integrate.api.nvidia.com/v1',
+      api_key_env: 'NVIDIA_API_KEY',
+      reasoning_effort: 'low',
+    });
+    expect(p.note).toMatch(/not verified live/);
+    expect(p.note).toContain(PAGE);
+    expect(p.note).toContain(READ);
+    expect(p.note).toMatch(/trial/);
+  });
+
+  it('declares 262 144 tokens and a sampling fixed at 0 whose reason says 0 is unconfirmed there', () => {
+    const p = BUILTIN_PROFILES.nvidia;
+    expect(p.ventana).toMatchObject({ postura: 'declarada', tokens: 262_144 });
+    expect(p.ventana.razon).toContain(PAGE);
+    expect(p.reproducibilidad).toMatchObject({ muestreo: 'fijado', temperature: 0, instantanea: null });
+    expect(p.reproducibilidad.razon).toMatch(/no está confirmado/);
+    expect(p.reproducibilidad.razon).toMatch(/alojado/);
+  });
+});
+
 describe('api_key_cmd (credential helper)', () => {
   const writeProfile = (extra: Record<string, unknown>) =>
     fs.writeFileSync(

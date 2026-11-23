@@ -163,6 +163,13 @@ provides:
     # of it from 2120. Rollback: the previous build does not cause the marker at the cashing
     # and reads it as IVA already caused, so before reverting record on this build the
     # cashing of each such cheque, and clear the marker of one the bank has still not cashed.
+    # CONTRACT: a credit note issued while such a cheque waits still takes its IVA from 2125
+    # alone, and now tags that line `held_restitution` with the cheque (MNE-001-607, #792
+    # decision (A), risk 2 of #891); `bank check reconcile --receipt` then causes the marker
+    # less it (DR 2150 / CR 2120 128.00 for a 160.00 marker and a 200 + 32 note), the pool
+    # loses the 232.00 it covers, and `receipt reverse` posts no 2150 / 2120 pair for it. A
+    # reversed note stops counting. Rollback: the previous build causes the whole marker, so
+    # before reverting record the cashing of each such cheque on this build.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed
@@ -243,6 +250,13 @@ external:
     # SDK's regional ones), judged on the client's resolved base URL; any other host
     # gets the profile's own key and headers alone (src/ai/providers/openai-client.ts,
     # MNE-001-445, #644).
+    # CONTRACT: the built-in `nvidia` profile sends the person's NVIDIA_API_KEY to
+    # NVIDIA's hosted catalog at integrate.api.nvidia.com/v1, a trial that records what it
+    # receives. A session on that host, however its profile was chosen, opens only for chat
+    # and ask after the terms and a yes at a terminal (once per session), or for the eval
+    # over its synthetic golden set; ingest, jobs run-due and init's import refuse it, and
+    # a failover walk never moves into it (src/ai/providers/trial-endpoint.ts,
+    # MNE-001-448, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

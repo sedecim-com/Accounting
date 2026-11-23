@@ -5237,6 +5237,85 @@ export const EN = {
   'help.customer.tax.list.description':
     'The pre-billing control: customers whose fiscal profile is incomplete or malformed',
   'help.customer.tax.list.option.missing': 'only customers that could NOT be stamped today',
+  // ==== MNE-001-237 · help by key, receipt, credit-note and rep (issue #314) ====
+  //
+  // The second receivables task: the descriptions of these three families that
+  // earlier tasks had not keyed, roots included, with the English they already
+  // showed. Every generic flag a leaf declares is worded for it and keeps its
+  // own key; what the kernel injects stays on cli.flag.*. The credit note types
+  // travel as {types}.
+  'help.receipt.description':
+    'Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks',
+  'help.receipt.record.option.amount': 'amount, in the document currency',
+  'help.receipt.record.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.receipt.record.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.receipt.record.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.receipt.record.option.reference': 'bank reference or transfer number',
+  'help.receipt.record.option.json': 'JSON output',
+  'help.receipt.show.description':
+    'Show one collection: its applications (live and history), REP status and ledger entry',
+  'help.receipt.show.argument.ref': 'payment number (PMT-2026-00042) or id',
+  'help.receipt.list.description': 'List collections by customer, date, application state or missing REP',
+  'help.receipt.list.option.customer': 'only this customer (number, name or id)',
+  'help.receipt.list.option.unapplied': 'only collections with an on-account remainder',
+  'help.receipt.list.option.needs_rep': 'only completed collections with no REP linked',
+  'help.receipt.apply.argument.ref': 'payment number or id',
+  'help.receipt.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.receipt.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.receipt.apply.option.json': 'JSON output',
+  'help.receipt.unapply.description':
+    'Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account',
+  'help.receipt.unapply.argument.ref': 'payment number or id',
+  'help.receipt.unapply.option.invoice': 'the invoice to unapply from',
+  'help.receipt.unapply.option.reason': 'why: it lands in the audit trail and the ledger description',
+  'help.receipt.unapply.option.json': 'JSON output',
+  'help.receipt.reverse.argument.ref': 'payment number or id',
+  'help.receipt.reverse.option.fee':
+    'bank fee charged for the return (not yet supported: needs a fee role account)',
+  'help.receipt.reverse.option.json': 'JSON output',
+  'help.credit_note.description':
+    'Credit notes: returns, discounts and corrections against the receivable (never stamped here)',
+  'help.credit_note.create.description':
+    'Create a DRAFT credit note, linked to its invoice (fiscal tie) or standalone with an explicit customer',
+  'help.credit_note.create.option.type': 'one of: {types}',
+  'help.credit_note.create.option.amount': 'subtotal of the credit, before tax',
+  'help.credit_note.create.option.tax': 'tax (IVA) portion of the credit',
+  'help.credit_note.create.option.invoice': 'the invoice this note credits (recommended: it drives the IVA side)',
+  'help.credit_note.create.option.customer': 'customer, when there is no linked invoice',
+  'help.credit_note.create.option.relates_to': 'UUID of the original CFDI, when the invoice is not in the system',
+  'help.credit_note.create.option.date':
+    'credit date (YYYY-MM-DD); defaults to today in the zona_horaria policy zone',
+  'help.credit_note.create.option.memo': 'memo',
+  'help.credit_note.create.option.json': 'JSON output',
+  'help.credit_note.show.description':
+    'Show one credit note with its applications, available balance and ledger entry',
+  'help.credit_note.show.argument.ref': 'credit note number (CN-2026-00042) or id',
+  'help.credit_note.list.description': 'List credit notes by customer, type, state or unapplied balance',
+  'help.credit_note.list.option.customer': 'only this customer (number, name or id)',
+  'help.credit_note.list.option.type': 'only this type: {types}',
+  'help.credit_note.list.option.open': 'only issued notes with balance left to apply (the live customer credit)',
+  'help.credit_note.issue.description': 'Issue the note: post DR returns + DR VAT / CR receivable. Does not stamp',
+  'help.credit_note.issue.argument.ref': 'credit note number or id',
+  'help.credit_note.issue.option.json': 'JSON output',
+  'help.credit_note.apply.description':
+    'Apply an issued note to invoices; what is not applied stays as customer credit',
+  'help.credit_note.apply.argument.ref': 'credit note number or id',
+  'help.credit_note.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.credit_note.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.credit_note.apply.option.dry_run': 'run the real path and roll back',
+  'help.credit_note.apply.option.json': 'JSON output',
+  'help.rep.description': 'Payment receipts (REP): what is missing one, and the parked ones to retry',
+  'help.rep.missing.description': 'Payments and collections whose REP has not arrived or been issued',
+  'help.rep.missing.list.description':
+    'received: paid PPD bills without the supplier REP (the REP supports the VAT credit); issued: our collections without a REP',
+  'help.rep.missing.list.option.direction': 'received (default) or issued',
+  'help.rep.missing.list.option.min_amount': 'only payments at or above this amount',
+  'help.rep.reconcile.description':
+    'Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped',
+  'help.rep.reconcile.option.limit': 'maximum parked REPs to retry',
+  'help.rep.reconcile.option.dry_run': 'list what would be retried, retry nothing',
   // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
   //
   // The first payables task: both families whole, roots included, English as
@@ -5432,6 +5511,80 @@ export const EN = {
   'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
   'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
   'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
+  // ==== MNE-001-240 · help by key, cfdi, e-accounting and sat (issue #314) ====
+  //
+  // Fiscal 1/2: the three families whole, roots included, English as shown
+  // (the leaves keyed before, such as `cfdi post`, the seal leaves and `sat
+  // download`, keep their keys). The author prose in Castilian of `cfdi list
+  // --direction` and `cfdi status show --refresh` already got its English with
+  // MNE-001-226 (#871). Every generic flag keeps a key of its own: `-o` of the
+  // two generate leaves names the XML (withOutput's flag, reworded through
+  // describeOption), their `--dry-run` and `-y` are the leaf's own, and the
+  // `-e`, `-u` and `-n` of `sat cred` and `cfdi status sync` say other things
+  // than cli.flag.*.
+  'help.cfdi.description':
+    'The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI',
+  'help.cfdi.list.description': 'The mirror, filtered by direction, type, status and date',
+  'help.cfdi.list.option.direction': 'emitido, recibido or ajeno (derived against the RFC of the entity)',
+  'help.cfdi.list.option.type': 'filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago',
+  'help.cfdi.show.description': 'One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes',
+  'help.cfdi.show.argument.uuid': 'CFDI UUID (timbre fiscal)',
+  'help.cfdi.status.description': 'SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)',
+  'help.cfdi.status.show.description': 'Estado, EsCancelable and EstatusCancelacion as the SAT last answered',
+  'help.cfdi.status.show.argument.uuid': 'CFDI UUID',
+  'help.cfdi.status.show.option.refresh': 'ask the SAT now and update the sat_* cache of the document',
+  'help.cfdi.status.sync.description': 'Re-check the whole mirror against the SAT: stale or never-consulted first',
+  'help.cfdi.status.sync.option.limit': 'maximum CFDIs to consult in this run',
+  'help.cfdi.status.sync.option.stale_hours': 'a consultation older than this is stale',
+  'help.cfdi.explain.description': 'WHY it was recorded the way it was: case, facts and decisions the classifier left',
+  'help.cfdi.explain.argument.uuid': 'CFDI UUID',
+  'help.e_accounting.description': 'Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it',
+  'help.e_accounting.catalog.description': 'The chart of accounts as the SAT wants it: CtaCatalogo 1.3',
+  'help.e_accounting.catalog.generate.description':
+    'Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its hash',
+  'help.e_accounting.catalog.generate.option.output':
+    'write the CtaCatalogo XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.catalog.generate.option.period': 'month the catalog declares (Mes and Anio of its header)',
+  'help.e_accounting.catalog.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.catalog.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.description': 'The trial balance the SAT expects: BCE 1.3, normal, amended or year-end',
+  'help.e_accounting.balance.generate.description':
+    "Build and archive the period's trial balance XML (SaldoIni, Debe, Haber, SaldoFin) with its hash",
+  'help.e_accounting.balance.generate.option.output':
+    'write the Balanza XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.balance.generate.option.period': 'period to declare: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.generate.option.type': 'envelope type: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.generate.option.closing': 'the year-end balance, filed as month 13 — not December again',
+  'help.e_accounting.balance.generate.option.modified':
+    'date the balance being amended was modified (FechaModBal); required with --type C',
+  'help.e_accounting.balance.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.balance.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.check.description':
+    'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, and every account in the catalog',
+  'help.e_accounting.balance.check.option.period': 'period to check: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.check.option.closing': 'check the year-end balance (month 13) instead of a month',
+  'help.e_accounting.balance.check.option.check':
+    'comma-separated check names; with no value, prints the available ones',
+  'help.sat.description': 'SAT services (e.firma credentials and the CFDI bulk download)',
+  'help.sat.cred.description': 'Fiscal credentials (e.firma)',
+  'help.sat.cred.add.description':
+    'Registers the e.firma of an entity (validates locally; storing in the vault requires --live)',
+  'help.sat.cred.add.option.cer': 'SAT .cer certificate (DER)',
+  'help.sat.cred.add.option.key': 'SAT .key private key (DER)',
+  'help.sat.cred.add.option.entity': 'Legal entity',
+  'help.sat.cred.add.option.user': 'Who grants the consent',
+  'help.sat.cred.add.option.no_unattended': 'Forbid use without an operator present',
+  'help.sat.cred.add.option.max_diario': 'Access limit per 24 h',
+  'help.sat.cred.status.description': 'Shows the entity credentials and their validity',
+  'help.sat.cred.status.option.entity': 'Legal entity',
+  'help.sat.cred.audit.description': 'Credential access history (who used it, when and what for)',
+  'help.sat.cred.audit.option.entity': 'Legal entity',
+  'help.sat.cred.audit.option.limit': 'How many events to show',
+  'help.sat.cred.revoke.description': 'Revokes the credential and deletes the material from the vault (irreversible)',
+  'help.sat.cred.revoke.option.entity': 'Legal entity',
+  'help.sat.cred.revoke.option.user': 'Who revokes',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   //
   // The first agent task: the six families whole, English as shown (the roots
@@ -5804,6 +5957,25 @@ export const EN = {
   /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
   'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
   // ==== end of I11 · doctor by key ====
+  // ==== NVIDIA's hosted trial (MNE-001-448, #644 P8) ====
+  // The terms init, chat and ask print before a session on the hosted catalog,
+  // and the refusals of src/ai/providers/trial-endpoint.ts.
+  'providers.trial.terms.what':
+    "{profile} uses NVIDIA's hosted API catalog ({host}), a trial for development and evaluation.",
+  'providers.trial.terms.records':
+    "NVIDIA's API Trial Terms of Service let it record what you send and what comes back, and ask you not to send personal data: never send it a client's books or documents.",
+  'providers.trial.terms.limits':
+    'Its endpoints can be retired without notice. For client work choose another provider, or NVIDIA NIM on your own host.',
+  'providers.trial.accept_default': 'Save {profile} as your default provider under these terms?',
+  'providers.trial.not_saved': 'Terms not accepted: {profile} was not saved as the default.',
+  'providers.trial.accept_session': 'Use {profile} for this session under these terms?',
+  'providers.trial.refused.unattended':
+    "{profile} is on NVIDIA's hosted trial ({host}), which records what it receives: ingest, jobs run-due and init's import never open a session there. Choose another provider for them.",
+  'providers.trial.refused.no_terminal':
+    "{profile} is on NVIDIA's hosted trial ({host}), whose terms need a yes at a terminal, and there is none here. Run it at a terminal, or choose another provider.",
+  'providers.trial.refused.declined': 'Terms not accepted: no session was opened on {profile}.',
+  'providers.trial.refused.not_accepted':
+    "{profile} is on NVIDIA's hosted trial ({host}), and its terms were not accepted in this session. Start mnemosine chat --provider {profile} at a terminal to read and accept them.",
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
