@@ -3,13 +3,13 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10464,
+    "spanish-identifiers-src": 10461,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 162,
+    "spanish-user-strings-cli": 146,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -22,7 +22,7 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 396,
-    "cli-user-strings-without-key": 926
+    "cli-user-strings-without-key": 880
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -79,7 +79,7 @@
       "src/auth/roles.ts": 2,
       "src/auth/sujeto-activo.ts": 19,
       "src/cli/account-command.ts": 36,
-      "src/cli/ap-command.ts": 19,
+      "src/cli/ap-command.ts": 16,
       "src/cli/ar-command.ts": 4,
       "src/cli/asset-command.ts": 34,
       "src/cli/audit-command.ts": 21,
@@ -847,15 +847,12 @@
     },
     "spanish-user-strings-cli": {
       "src/cli/account-command.ts": 29,
-      "src/cli/ap-command.ts": 2,
       "src/cli/batch-command.ts": 35,
       "src/cli/bill-command.ts": 40,
       "src/cli/entry-command.ts": 9,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
-      "src/cli/payment-command.ts": 13,
-      "src/cli/period-command.ts": 5,
-      "src/cli/vendor-command.ts": 1
+      "src/cli/period-command.ts": 5
     },
     "plan-criteria-grepping-spanish-identifiers": {
       "scripts/corpus-manifiesto.ts": 1,
@@ -1130,7 +1127,7 @@
       "src/cli/ai-command.ts": 11,
       "src/cli/anexo24-migration-command.ts": 1,
       "src/cli/annual-figure-command.ts": 1,
-      "src/cli/ap-command.ts": 71,
+      "src/cli/ap-command.ts": 68,
       "src/cli/ar-command.ts": 15,
       "src/cli/asset-command.ts": 75,
       "src/cli/audit-command.ts": 119,
@@ -1158,6 +1155,7 @@
       "src/cli/employee-list-command.ts": 1,
       "src/cli/employee-show-command.ts": 1,
       "src/cli/entry-command.ts": 36,
+      "src/cli/filing-record-command.ts": 7,
       "src/cli/filing-workpaper-command.ts": 3,
       "src/cli/fx-command.ts": 77,
       "src/cli/garnishment-command.ts": 12,
@@ -1524,7 +1522,6 @@
     "cli-user-strings-without-key": {
       "src/cli/account-command.ts": 9,
       "src/cli/anexo24-migration-command.ts": 1,
-      "src/cli/ap-command.ts": 9,
       "src/cli/approvals-command.ts": 6,
       "src/cli/ar-command.ts": 5,
       "src/cli/asset-command.ts": 3,
@@ -1566,7 +1563,7 @@
       "src/cli/memory-command.ts": 17,
       "src/cli/mnemosine.ts": 139,
       "src/cli/pay-run-command.ts": 1,
-      "src/cli/payment-command.ts": 24,
+      "src/cli/payment-command.ts": 1,
       "src/cli/payroll-isn-command.ts": 45,
       "src/cli/period-command.ts": 24,
       "src/cli/prepaid-command.ts": 1,
@@ -1582,7 +1579,6 @@
       "src/cli/trace-completion-output.ts": 1,
       "src/cli/usage-command.ts": 8,
       "src/cli/user-command.ts": 7,
-      "src/cli/vendor-command.ts": 14,
       "src/cli/web-command.ts": 2,
       "src/cli/webhook-sweep-command.ts": 8,
       "src/cli/webhooks-command.ts": 7

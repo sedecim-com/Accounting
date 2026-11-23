@@ -3333,9 +3333,9 @@ Options:
   -h, --help                               display help for command
 
 Examples:
-  # Identity, terms, currency and flags.
+  # Show the identity, the terms, the currency and the flags of a vendor.
   mnemosine vendor show "Papeleria del Centro"
-  # Add the activity section.
+  # Add the activity section to what it shows.
   mnemosine vendor show "Papeleria del Centro" --include activity
 ```
 
