@@ -89,44 +89,78 @@ through those channels mnemosine is a generic chat/agent without access to
 your accounting data. `copilot` is special: its token comes from GitHub's
 OAuth flow (it is short-lived and renews), not from a permanent API key.
 
-### Subscriptions via OAuth (ChatGPT/Codex, xAI Grok…)
+### What each provider allows: keys, sign-ins and short-lived tokens
 
-Subscriptions do not give API keys — they give **OAuth tokens**. Two ways to
-leverage them from mnemosine:
+Every credential is **your own**: your shell, your `~/.mnemosine/.env`, your
+helper, your login. None is a repository or CI secret, and one person's key
+never serves another. What each vendor officially allows, as read on
+15 Nov 2026 (only Anthropic's pages were read directly; the others come from
+search extracts of the official pages named, and nothing was verified live):
 
-1. **Credential helper (`api_key_cmd`)** — the `git credential`/`aws
-   credential_process` pattern: the profile runs a command that prints the
-   token (only if the environment variable is not defined). Useful for
-   reusing already-logged-in OAuth sessions or vaults:
+| Provider | API key | Sign-in or short-lived token | What mnemosine uses |
+|---|---|---|---|
+| Anthropic | `ANTHROPIC_API_KEY`, from platform.claude.com/settings/keys | `ant auth login` (local development on your own machine, billed to the Console organization), `ANTHROPIC_AUTH_TOKEN`, and workload identity federation for CI and servers. Consumer plans (Free, Pro, Max, Team, Enterprise) are not for third-party apps | The key, or the SDK's own sources (your `ant auth login`), which renew themselves. Federation is a workload's credential, not a person's: not used here |
+| OpenAI | `OPENAI_API_KEY`, a project key | Workload identity federation, for workloads. «Sign in with ChatGPT» works only on the Responses API, is billed to your ChatGPT plan and needs OpenAI's approval for third-party apps. A Codex login is **not** valid for the public API | The key. **«Sign in with ChatGPT» is out**: it gets its own issue once OpenAI confirms this project is eligible |
+| xAI (Grok) | `XAI_API_KEY` | None for third-party apps on `api.x.ai`. Grok partner models on Google Cloud take a `gcloud` access token | The key, or the Google Cloud recipe below with your own `gcloud` login |
+| Google (Gemini) | `GEMINI_API_KEY`, from AI Studio | Gemini Enterprise Agent Platform (formerly Vertex AI): its OpenAI-compatible endpoint takes a one-hour `gcloud` token and `google/<id>` model ids | The key, or the Agent Platform recipe below with your own `gcloud` login |
+| NVIDIA | `NVIDIA_API_KEY` (`nvapi-…`), from build.nvidia.com | None documented for `integrate.api.nvidia.com`. The hosted catalog is a trial that records inputs: never send real client books | The key, in a profile of your own until the built-in `nvidia` arrives (MNE-001-448). Self-hosted NIM needs no client key |
 
-   ```json
-   {
-     "providers": {
-       "openai-sub": {
-         "type": "openai-compatible", "model": "gpt-5.1",
-         "base_url": "http://localhost:4000/v1",
-         "api_key_cmd": "jq -r '.tokens.access_token' ~/.codex/auth.json"
-       },
-       "con-1password": {
-         "type": "openai-compatible", "model": "grok-4.3",
-         "base_url": "https://api.x.ai/v1",
-         "api_key_env": "XAI_API_KEY",
-         "api_key_cmd": "op read op://vault/xai/credential"
-       }
-     }
-   }
-   ```
+Sources: platform.claude.com/docs/en/manage-claude/authentication;
+platform.claude.com/docs/en/manage-claude/workload-identity-federation;
+developers.openai.com/api/docs/guides/workload-identity-federation;
+developers.openai.com/siwc/token-sharing-open-source;
+developers.openai.com/codex/auth; docs.x.ai/developers/quickstart;
+docs.x.ai/developers/community/google-cloud-vertex-ai;
+ai.google.dev/gemini-api/docs/openai;
+docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/openai;
+docs.api.nvidia.com/nim/docs/api-quickstart.
 
-   HEADS UP: the backend of OpenAI's subscription (Codex) speaks the
-   Responses API and Grok's is proprietary — the token only works directly if
-   you point it at a chat-completions **bridge** (LiteLLM, codex→openai
-   proxies), hence the local `base_url` in the example.
+**Credential helpers (`api_key_cmd`).** The `git credential` / `aws
+credential_process` pattern: the profile runs a command that prints the
+credential, only when its variable is unset. For a vault, a keychain, or a
+short-lived token from **your own** login:
 
-2. **Hermes Agent as OAuth broker (recommended)** — Hermes already implements
-   the device-flow for ChatGPT/Codex, xAI, etc. (the "Connected" ones in its
-   panel) and exposes everything through its API server. mnemosine's
-   `hermes-agent` profile already talks to it: connect the subscription in
-   Hermes and use it from here without touching anything.
+```json
+{
+  "providers": {
+    "gemini-agent-platform": {
+      "type": "openai-compatible", "model": "google/<model id>",
+      "base_url": "https://aiplatform.googleapis.com/v1/projects/<your project>/locations/global/endpoints/openapi",
+      "api_key_cmd": "gcloud auth print-access-token"
+    },
+    "con-1password": {
+      "type": "openai-compatible", "model": "grok-4.3",
+      "base_url": "https://api.x.ai/v1",
+      "api_key_env": "XAI_API_KEY",
+      "api_key_cmd": "op read op://vault/xai/credential"
+    }
+  }
+}
+```
+
+- **Put helper profiles in your `~/.mnemosine/config.json`, never in a shared
+  project file.** There, an OpenAI-compatible profile hands the helper to the
+  `openai` SDK as its async `apiKey`: the token is reused for five minutes,
+  then the helper runs again, and after a 401 the next request carries a
+  fresh token (the failing turn still shows the 401). A helper in a project
+  file runs once per session, because everyone who runs mnemosine in that
+  folder would run it. An `anthropic` profile with a helper sends its output
+  once, as an API key.
+- The `gcloud` recipes use **your own** `gcloud auth login`, not a machine's
+  service account. The Agent Platform URL carries your project and region:
+  copy it from Google's page above, and the same pattern serves Grok's
+  partner models on Google Cloud.
+- A helper that fails or prints nothing stops with a fixed message: the
+  profile and its exit code or its 10-second limit. It never prints the
+  command or what the helper wrote to stderr; run the helper yourself to
+  see why. Its output is never logged.
+- **Read a project's `mnemosine.config.json` before you run mnemosine in that
+  folder**: it decides which profiles exist there, and a helper in it runs
+  on your machine with your rights.
+
+`hermes-agent` is a local agent gateway with **no accounting tools** (see
+above): connecting a subscription in Hermes gives you a generic chat, not an
+accountant's assistant.
 
 ## Usage
 

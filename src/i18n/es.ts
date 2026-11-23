@@ -2537,6 +2537,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-570 (#612): el rastro de un cobro registrado.
   'receipt.trace.nothing_given':
     'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
+  // MNE-001-594 (#695): un traspaso de crédito de un cliente no movió dinero, así que no tiene rastro.
+  'receipt.trace.balance_transfer':
+    '{number} es un traspaso de crédito de un cliente desde {source}: no se movió dinero, así que no tiene cheque, banco del cliente ni cuenta bancaria que completar, y ninguna póliza los declara. El rastro va en {source}, el cobro que recibió el dinero. No se escribió nada.',
   // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
   'payment.trace.bank_no_entry':
     'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
@@ -3497,6 +3500,73 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  'ap.prepaid.flag.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
+  'ap.prepaid.flag.amount_invalid':
+    '{flag} debe ser un importe decimal sin signo; llegó "{value}". El punto separa los decimales y la coma se ignora: 1,250,000.50 y 1250000.50 son lo mismo.',
+  'ap.prepaid.run.period_missing':
+    'Falta --period. La amortización es de un mes concreto y no se adivina del reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de empezar.',
+  'ap.prepaid.create.origin_missing':
+    'Falta --origin. Los tres orígenes son: {origins} — el CFDI que se clasificó como anticipado (exige --source-entry), el saldo que ya estaba en la 1160 sin calendario, y el pago que se contabilizó a mano. No tiene valor por omisión: suponerlo deja el rastro apuntando a un asiento que no es.',
+  'ap.prepaid.create.origin_unknown': '--origin "{value}" no existe. Los tres son: {origins}.',
+  'ap.prepaid.create.convention_unknown':
+    '--convention "{value}" no existe: las dos convenciones son {days} y {months} (los días que cada mes cubre, o el mes entero).',
+  'ap.prepaid.create.convention_contradicts_panel':
+    '--convention {requested} contradice al panel: `amortizacion_anticipados_convencion` vale "{panel}"{source, select, answered {} other { (defecto declarado, nadie ha contestado)}}, y es lo que se congela en el calendario. Esta bandera declara con qué convención crees estar dando de alta, no la elige: se cambia con {hint}.',
+  'ap.prepaid.create.flags_missing':
+    '{count, plural, one {Falta {flags}} other {Faltan {flags}}}. Un calendario sin importe, sin ventana de cobertura o sin decir de dónde salió el cargo no es una ficha incompleta: es una ficha que no se puede devengar ni cuadrar contra la cuenta.',
+  'ap.prepaid.create.cfdi_needs_source_entry':
+    '`--origin cfdi` exige `--source-entry <id>`: si el calendario nace de una factura ya contabilizada, el asiento que cargó la cuenta se conoce, y no anotarlo es perderlo para siempre.',
+  'ap.prepaid.skip.unknown_convention': 'convención guardada desconocida ("{convention}")',
+  'ap.prepaid.skip.not_started': 'la cobertura todavía no empieza',
+  'ap.prepaid.skip.ended': 'la cobertura ya terminó',
+  'ap.prepaid.skip.zero_row': 'el renglón del mes es cero',
+  'ap.prepaid.skip.nothing_left': 'no queda saldo por devengar',
+  'ap.prepaid.gap.warning':
+    '{amount} {currency} posteados en la cuenta de pagos anticipados que ningún calendario va a devengar, en {count, plural, one {# asiento} other {# asientos}}. Ese gasto no llegará nunca al resultado. Cada asiento se adopta con `mnemosine prepaid create --origin saldo_preexistente --source-entry <id> --start <fecha> --end <fecha>`, con la ventana de cobertura que diga el documento — no se adivina: vive en la póliza, no en el CFDI.',
+  'ap.prepaid.criteria.header':
+    'convención {convention}{convention_source, select, answered {} other { (defecto)}} · umbral {threshold} {currency}{threshold_source, select, answered {} other { (defecto)}}',
+  'ap.prepaid.criteria.default_rules':
+    'Rige al menos un defecto declarado y no una elección del despacho. Se contesta con `mnemosine pending define amortizacion_anticipados_convencion` / `umbral_anticipado_mxn`.',
+  'ap.prepaid.create.below_threshold':
+    '{amount} queda por debajo del umbral de {threshold} {currency} (`umbral_anticipado_mxn`): el alta real se detendría por materialidad (NIF A-4). Con --force y --reason se da de alta igual y el motivo queda escrito en la fila.',
+  'ap.prepaid.create.dry_run_done':
+    'Ensayo: no se escribió ninguna fila. {count, plural, one {# renglón} other {# renglones}} por {amount} {currency}, convención {convention}.',
+  'ap.prepaid.create.dry_run_no_backing':
+    'El ensayo NO comprueba el respaldo en la cuenta —cuánto saldo posteado queda sin calendario—: esa guarda vive dentro del alta y necesita el mayor. El alta real puede rechazar por ese motivo.',
+  'ap.prepaid.create.done':
+    'Calendario de {count, plural, one {# renglón} other {# renglones}} dado de alta. El mayor no se tocó: el cargo ya estaba. Se devenga con `mnemosine prepaid run --period <mes>`.',
+  'ap.prepaid.list.none_alive': 'No hay ningún calendario vivo en esta entidad.',
+  'ap.prepaid.list.none_on_date': 'Ningún calendario cubre el {date}. Con -a se listan todos.',
+  'ap.prepaid.show.unknown_convention':
+    'El calendario "{description}" guarda la convención "{convention}", que no es ninguna de las declaradas ({conventions}). Ningún importe se puede calcular con ella.',
+  'ap.prepaid.show.summary':
+    '{description} · {total} {currency} · {convention} · origen {origin} · devengado {accrued}, queda {remaining}',
+  'ap.prepaid.show.rows_are_schedule':
+    'Los renglones son el calendario que la corrida seguirá, no lo ya posteado: lo posteado es el devengado de la línea anterior.',
+  'ap.prepaid.show.not_found':
+    'No hay ningún calendario vivo que case con "{ref}" en esta entidad. `mnemosine prepaid list -a` los enumera todos.',
+  'ap.prepaid.show.ambiguous':
+    '"{ref}" casa con {count} calendarios vivos: {candidates}. Nombra el id, o un trozo de descripción que sólo case con uno.',
+  'ap.prepaid.run.header':
+    '{period} ({from}..{to}) · asientos con fecha {date} · {entering, plural, one {# calendario entra} other {# calendarios entran}}, {skipped} se omiten, {already} ya tienen renglón de este mes · total {total}',
+  'ap.prepaid.run.nothing': 'Nada que devengar en {period}: el mayor no se tocó.',
+  'ap.prepaid.run.skipped_line': 'omitido {description}: {reason}',
+  'ap.prepaid.run.capped':
+    '{description}: el renglón teórico es {theoretical} y se topa en {amount} contra lo que queda por devengar.',
+  'ap.prepaid.run.entries_note':
+    '{count, plural, one {# asiento de ajuste de dos líneas} other {# asientos de ajuste de dos líneas}}, uno por calendario — no uno de la corrida. Reversar esta corrida {count, plural, one {es # reversa} other {son # reversas}}.',
+  'ap.prepaid.run.dry_run_done': 'Ensayo: el mayor no se tocó y no se escribió ningún renglón.',
+  'ap.prepaid.run.confirm':
+    '¿Devengar {total} {currency} en {count, plural, one {# asiento} other {# asientos}} de {period}? El mayor no admite deshacer.',
+  'ap.prepaid.run.aborted': 'Sin cambios: el mayor no se tocó.',
+  'ap.prepaid.run.aborted_no_tty':
+    'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin preguntar, o --dry-run para ver los asientos completos sin escribir nada.',
+  'ap.prepaid.run.count_mismatch':
+    'La vista previa enseñaba {previewed, plural, one {# asiento} other {# asientos}} y la corrida hizo {processed}. La previa y el motor no coincidieron: revisa los errores antes de dar el mes por cerrado.',
+  'ap.prepaid.run.total_mismatch': 'La vista previa sumaba {previewed} y la corrida devengó {accrued}.',
+  'ap.prepaid.run.done':
+    '{count, plural, one {# asiento de devengo contabilizado} other {# asientos de devengo contabilizados}} en {period} por {total}.',
+
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
@@ -3950,7 +4020,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
-  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan',
+  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan, y el registro de las presentadas',
   'help.filing.workpaper.description': 'El papel de trabajo auditable del mes, renglón por renglón',
   'help.filing.workpaper.generate.description':
     'Genera el papel de trabajo del mes: IVA e ISR provisional, centavos y pesos, con las pólizas de cada renglón',
@@ -3974,6 +4044,42 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
+  'help.filing.record.description':
+    'Registra una declaración mensual de IVA ya presentada en el portal del SAT: su acuse, lo que quedó a cargo o a favor, su pago y los saldos que acreditó',
+  'help.filing.record.option.form': 'qué declaración es: {forms} (el IVA mensual)',
+  'help.filing.record.option.period': 'mes que cubre la declaración',
+  'help.filing.record.option.filed_on': 'día en que se presentó (AAAA-MM-DD), después de que termina su mes',
+  'help.filing.record.option.acuse': 'número de operación del acuse: así nombra el registro a esta declaración',
+  'help.filing.record.option.capture_line': 'línea de captura del pago, cuando la declaración tiene algo que pagar',
+  'help.filing.record.option.payable': 'importe a cargo que dejó la declaración, hasta dos decimales (0 para una declaración en ceros)',
+  'help.filing.record.option.in_favor': 'saldo a favor que dejó la declaración, hasta dos decimales; nunca junto con --payable',
+  'help.filing.record.option.paid': 'lo que se pagó con la línea de captura; va con --paid-on',
+  'help.filing.record.option.paid_on': 'día en que se pagó (AAAA-MM-DD), el de la presentación o después; va con --paid',
+  'help.filing.record.option.credit':
+    'un saldo a favor anterior que esta declaración acreditó (LIVA art. 6), como el acuse de la declaración que lo dejó y el importe; repítela por cada uno',
+  'help.filing.record.footer':
+    'Esto registra una declaración que una persona ya presentó. No envía nada al SAT, y una declaración registrada nunca se edita: cada declaración presentada es un renglón nuevo.\n' +
+    'Una complementaria no se registra aquí.\n' +
+    '\nEjemplos:\n' +
+    '  Ver el renglón que dejaría la declaración de julio, con su saldo a favor, sin escribir nada:\n' +
+    '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
+    '  Agosto: 8,000.00 de IVA menos 3,000.00 acreditados de julio, 5,000.00 a cargo pagados al día siguiente:\n' +
+    '    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json',
+  'filing.record.form_invalid': '--form "{value}" no es una declaración que este comando registre: usa {forms}. El ISR provisional todavía no se registra. No se escribió nada.',
+  'filing.record.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-08). No se escribió nada.',
+  'filing.record.date_invalid': '{flag} "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-09-15). No se escribió nada.',
+  'filing.record.acuse_required': 'Falta --acuse: el número de operación del acuse es como el registro nombra a una declaración. No se escribió nada.',
+  'filing.record.capture_line_blank': '--capture-line está en blanco: dala, o déjala fuera cuando la declaración no tiene nada que pagar. No se escribió nada.',
+  'filing.record.result_required': 'Di qué dejó la declaración: --payable <importe> o --in-favor <importe> (--payable 0 para una declaración en ceros). No se escribió nada.',
+  'filing.record.result_both': 'Una declaración deja un importe a cargo o un saldo a favor, nunca los dos: da --payable o --in-favor, no ambos. No se escribió nada.',
+  'filing.record.amount_invalid': '{flag} "{value}" no es un importe: usa cero o más, con a lo más dos decimales y sin separador de miles (por ejemplo 5000.00). No se escribió nada.',
+  'filing.record.payment_incomplete': 'Falta {missing}: un pago dice lo que se pagó (--paid) y el día (--paid-on). No se escribió nada.',
+  'filing.record.credit_invalid': '--credit "{value}" no es válido: usa <acuse>:<importe>, el acuse de la declaración anterior y el importe acreditado (por ejemplo OP-0701:3000.00). No se escribió nada.',
+  'filing.record.filed_on_in_future': '--filed-on {value} es posterior a hoy ({today}): sólo se registra una declaración ya presentada. No se escribió nada.',
+  'filing.record.paid_on_in_future': '--paid-on {value} es posterior a hoy ({today}): sólo se registra un pago ya hecho. No se escribió nada.',
+  'filing.record.dry_run': 'Simulación: la declaración es válida y se deshizo; no se escribió nada.',
+  'filing.record.recorded': 'Registrada: {acuse} es la declaración vigente de {period}. No se envió nada al SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
   'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',

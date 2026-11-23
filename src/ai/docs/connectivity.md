@@ -68,7 +68,15 @@ output when a connection problem is unclear.
 - Config files: `./mnemosine.config.json` (project) or
   `~/.mnemosine/config.json` (user). API keys NEVER go in the config — it
   only names the env var (`api_key_env`), or a command that prints the
-  credential (`api_key_cmd`, tried when the env var is empty). An invalid
+  credential (`api_key_cmd`, tried when the env var is empty). A helper in
+  the person's own `~/.mnemosine/config.json` on an OpenAI-compatible profile
+  is run again every five minutes and after a 401, so a one-hour `gcloud`
+  token lasts the session; one in a project file runs once per session. A
+  helper that fails says the profile and its exit code or its 10 s limit,
+  never its command or stderr: tell the person to run it themselves. Help
+  them put helper profiles in their own user file, never in a shared project
+  file, and say that «Sign in with ChatGPT» and a Codex login are not API
+  credentials for mnemosine. An invalid
   config fails loudly and is quarantined, never silently replaced by
   defaults; the one writer that goes further is `mnemosine lang`, which on a
   USER file whose CONTENT is invalid (it does not parse, or the schema rejects

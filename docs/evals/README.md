@@ -142,9 +142,16 @@ corridas irreproducibles afirma una mejora que nadie midió.
 ## En CI
 
 El job `Eval del clasificador` de `.github/workflows/ci.yml` levanta su Postgres
-y corre el golden set. Necesita el secreto `ANTHROPIC_API_KEY`.
+y corre el golden set **sólo si el repositorio tiene una llave de proveedor**, y
+no la tiene a propósito: las llaves de los proveedores son **de cada persona**,
+no secretos del repositorio ni de la CI (decisión del dueño del 15 nov 2026,
+#644). Una llave puesta como secreto la recibiría cada corrida de cada PR del
+mismo repositorio, y la de una persona le serviría a todas. Así que en CI el
+eval se salta. El texto del aviso que imprime al saltarse todavía pide el
+secreto (`ci.yml:583`, `:591`); cambiar esas dos líneas es ruta crítica y
+espera la revisión del dueño.
 
-**Sin ese secreto el job se salta y lo anuncia** —un `::warning` en la corrida y
+**Sin llave el job se salta y lo anuncia** —un `::warning` en la corrida y
 una nota en el resumen del PR— en vez de pasar en verde fingiendo que midió. Un
 job que pasa por no haber mirado es exactamente el «green pipeline lies» que
 `kernel/exit.ts` denuncia en su cabecera.
@@ -163,6 +170,35 @@ producir un solo rojo: la línea del `run` seguía en el archivo y `id: credenci
 seguía en los otros pasos. Invertir el `[ -n … ]` de la puerta a `[ -z … ]`
 pasaba igual. Comprobar que un paso **existe** no es comprobar que sea
 **alcanzable**.
+
+## Correrlo en local, con tu propia credencial
+
+El arnés toma cualquier perfil y la credencial de quien lo corre: tu variable,
+tu helper o, para `anthropic`, tu `ant auth login`. Necesita un Postgres local
+(`TEST_ADMIN_DATABASE_URL`, `MIGRATION_DATABASE_URL` o `DATABASE_URL` en tu
+`.env`), porque crea y destruye su base efímera como la suite de integración.
+
+```bash
+# Con el perfil por omisión (anthropic) y tu ANTHROPIC_API_KEY o tu ant auth login
+npm run eval
+
+# Con otro perfil (openai, grok, gemini… o uno tuyo) y SU variable en tu shell
+# o en ~/.mnemosine/.env (OPENAI_API_KEY, XAI_API_KEY, GEMINI_API_KEY…)
+npm run eval -- --provider gemini
+npm run eval -- --provider openai --model <id> --casos <caso1>,<caso2>
+```
+
+- **Sin credencial sale con `8`** («no pude medir») y el mensaje nombra la
+  variable que falta. Antes salía con `1`, que decía «el repositorio está roto».
+- Con un perfil cuyo `api_key_cmd` está en tu `~/.mnemosine/config.json`, el
+  token se renueva durante la corrida (cada cinco minutos y tras un 401), y
+  **cada token que el helper imprime, el primero y los renovados, entra al
+  redactor antes de usarse**: ningún mensaje de error lo imprime entero. Un
+  helper que falla sale también con `8`, con el perfil y su código de salida,
+  nunca con su comando.
+- La corrida añade una línea a la bitácora del arnés (`clasificador.jsonl`,
+  junto a este archivo; nace con la primera corrida). Si la quieres registrar,
+  va en un PR propio; tu llave nunca va en él.
 
 ## Lo que este arnés todavía NO ha hecho
 

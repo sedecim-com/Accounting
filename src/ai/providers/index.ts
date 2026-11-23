@@ -68,6 +68,12 @@ export interface CreateLlmSessionOptions {
    * host is refused, and an attended one needs the terms accepted.
    */
   trialEndpoint?: TrialEndpointAllowance;
+  /**
+   * SECURITY: called with the session's credential and with every token a
+   * renewing helper prints, each before it is used, so the eval's redactor
+   * knows it (MNE-001-446). The failover wrapper forwards it by exclusion.
+   */
+  onCredential?: (token: string) => void;
 }
 
 export async function createLlmSession(
@@ -113,6 +119,7 @@ export async function createLlmSession(
   // un mnemosine.config.json y el umbral de compactación de otro.
   const compaction = opts.compaction ?? resolveCompactionConfig(opts.cwd);
 
+  if (profile.apiKey) opts.onCredential?.(profile.apiKey);
   let session: LlmSession;
   if (profile.type === 'anthropic') {
     const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
@@ -127,7 +134,7 @@ export async function createLlmSession(
     // environment's OpenAI headers (organization, project, custom lines)
     // for OpenAI's own hosts; anywhere else only the profile's key and
     // headers go (MNE-001-445).
-    const client = createOpenAiClient(profile);
+    const client = createOpenAiClient(profile, { onCredential: opts.onCredential });
     const systemText = systemBlocks.map((b) => b.text).join('\n\n');
     session = new OpenAiCompatSession(client, profile, ctx, systemText, budgeted, {
       compaction,

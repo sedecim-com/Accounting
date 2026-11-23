@@ -28,7 +28,8 @@ import { wouldMatchApproval } from './approval-policy.js';
 import { registrarVeredictoSombra } from './shadow-verdicts.js';
 import type { AgentContext } from './context.js';
 import type { LlmSession } from './providers/types.js';
-import type { IngestThresholds } from './providers/config.js';
+import { MissingProviderCredentialError, type IngestThresholds } from './providers/config.js';
+import { CredentialHelperError } from './providers/credential-helper.js';
 import type { DraftCreatedInfo } from './tools/observer.js';
 import { classifyProviderError } from './providers/failover.js';
 
@@ -146,9 +147,31 @@ export interface IngestDeps {
  * again for each remaining CFDI only repeats the failure file by file.
  */
 export function isProviderUnavailable(err: unknown): boolean {
+  // A helper renewal that failed mid-batch arrives as the openai SDK's
+  // OpenAIError with the CredentialHelperError as its `cause` (MNE-001-446):
+  // the next file would run the same helper and fail the same way.
+  if (err instanceof CredentialHelperError || (err as { cause?: unknown })?.cause instanceof CredentialHelperError) {
+    return true;
+  }
   const category = classifyProviderError(err);
   if (category === 'auth' || category === 'billing') return true;
   return /could not resolve authentication method/i.test(String((err as Error)?.message ?? err));
+}
+
+/**
+ * ING-2 (#319): the profile `ingest` runs with, or null for «no model
+ * provider». Only a missing credential degrades to the deterministic layer;
+ * anything else, a failing helper (CredentialHelperError) included, is thrown
+ * so the run fails loudly at start instead of leaving every file to code
+ * (MNE-001-446).
+ */
+export function resolveIngestProfile<T>(resolve: () => T): { profile: T | null; warning?: string } {
+  try {
+    return { profile: resolve() };
+  } catch (err) {
+    if (!(err instanceof MissingProviderCredentialError)) throw err;
+    return { profile: null, warning: err.message };
+  }
 }
 
 const defaultService = new PreRegistrationService();
