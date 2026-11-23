@@ -160,3 +160,153 @@ describe('read_docs pagina los temas que no caben en un resultado', () => {
     expect(readDoc('mnemosine')).not.toMatch(/^\[read_docs/);
   });
 });
+
+// ============================================================
+// THE STANDARDS SUMMARIES HAVE AN ENGLISH SOURCE (MNE-001-474, #153)
+//
+// docs/language.md §3.8: the source is English, and a standards term is
+// cited in its official language in parentheses. These summaries sit in
+// the cached block of the system prompt, where the agent chooses which
+// manual to read. They are the agent's own fixed text, so they had to
+// leave Spanish (#141, answer 3 of 16 Nov 2026).
+//
+// The Spanish names are not typed from memory. An IFRS name must equal the
+// `title_es` that src/ai/docs/ifrs-registry.json records from the IFRS
+// Foundation, and the NIF names are the CINIF titles, pinned by hand.
+// ============================================================
+
+const STANDARDS_TOPICS = [
+  'nif-marco',
+  'nif-registro',
+  'nif-validaciones',
+  'niif-indice',
+  'niif-marco-presentacion',
+  'niif-activos',
+  'niif-instrumentos-financieros',
+  'niif-ingresos-arrendamientos',
+  'niif-pasivos-empleados-impuestos',
+  'niif-grupos',
+  'niif-moneda-seguros-adopcion',
+  'niif-interpretaciones',
+  'niif-pymes-convergencia',
+] as const;
+
+interface RegistryEntry {
+  code: string;
+  title_es: string;
+  topic: string;
+}
+
+const IFRS_REGISTRY = (
+  JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'ai', 'docs', 'ifrs-registry.json'), 'utf8')
+  ) as { standards: RegistryEntry[] }
+).standards;
+
+/** Each numbered standard of the registry by its Spanish code («NIC 2», «NIIF 15»). */
+const BY_SPANISH_CODE = new Map<string, RegistryEntry>(
+  IFRS_REGISTRY.flatMap((entry) => {
+    const code = /^(NIC|NIIF) (\d+) \//.exec(entry.code);
+    return code ? [[`${code[1]} ${code[2]}`, entry] as const] : [];
+  })
+);
+
+const PARENTHESISED = /\([^()]*\)/g;
+
+function outsideParentheses(summary: string): string {
+  return summary.replace(PARENTHESISED, ' ');
+}
+
+function insideParentheses(summary: string): string {
+  return (summary.match(PARENTHESISED) ?? []).join(' ');
+}
+
+/** «IAS 7/8/10/34» → IAS 7, IAS 8, IAS 10, IAS 34. */
+function standardCodes(text: string, families: string): string[] {
+  return [...text.matchAll(new RegExp(`\\b(${families}) (\\d+(?:/\\d+)*)`, 'g'))].flatMap((m) =>
+    m[2].split('/').map((n) => `${m[1]} ${n}`)
+  );
+}
+
+const SPANISH_LETTERS = /[áéíóúñ¿¡]/i;
+const SPANISH_WORDS = /\b(los|las|del|el|la|de|y|con|para|que|qué|cómo|cada|toda|sin|su|sus|una)\b/i;
+const SPANISH_STANDARD_CODES = /\b(NIF|NIC|NIIF|CINIIF|ONIF)\b/;
+const ENGLISH_TO_SPANISH: Record<string, string> = { IAS: 'NIC', IFRS: 'NIIF' };
+
+/** CINIF titles (and the two unnumbered IFRS titles), as each summary must carry them. */
+const PINNED_SPANISH_NAMES: Partial<Record<(typeof STANDARDS_TOPICS)[number], string[]>> = {
+  'nif-marco': [
+    'NIF A-1 Marco Conceptual de las Normas de Información Financiera',
+    'postulados básicos',
+    'NIF A-2 Incertidumbres sobre negocio en marcha',
+  ],
+  'nif-registro': [
+    'Orientaciones a las NIF',
+    'NIF D-1 Ingresos por contratos con clientes',
+    'NIF C-4 Inventarios',
+    'NIF C-6 Propiedades, planta y equipo',
+    'NIF C-9 Provisiones, contingencias y compromisos',
+    'NIF D-3 Beneficios a los empleados',
+    'NIF B-15 Conversión de monedas extranjeras',
+  ],
+  'nif-validaciones': ['Normas de Información Financiera'],
+  'niif-marco-presentacion': ['Marco Conceptual para la Información Financiera'],
+  'niif-pymes-convergencia': ['Norma de Contabilidad NIIF para las PyMEs, Tercera Edición'],
+};
+
+describe('the standards summaries of read_docs have an English source (MNE-001-474)', () => {
+  it('keeps the thirteen topic names', () => {
+    for (const topic of STANDARDS_TOPICS) expect(TOPICS, topic).toContain(topic);
+  });
+
+  it('writes each summary in English outside its parentheses', () => {
+    for (const topic of STANDARDS_TOPICS) {
+      const english = outsideParentheses(DOC_TOPICS[topic]);
+      expect(english, `${topic}: Spanish letters outside the parentheses`).not.toMatch(SPANISH_LETTERS);
+      expect(english, `${topic}: a Spanish word outside the parentheses`).not.toMatch(SPANISH_WORDS);
+      expect(english, `${topic}: a Spanish code outside the parentheses`).not.toMatch(SPANISH_STANDARD_CODES);
+    }
+  });
+
+  it('gives each summary the official Spanish name in parentheses, and every IAS/IFRS its NIC/NIIF', () => {
+    for (const topic of STANDARDS_TOPICS) {
+      const summary = DOC_TOPICS[topic];
+      const spanish = insideParentheses(summary);
+      expect(spanish, `${topic}: no Spanish name in parentheses`).toMatch(SPANISH_STANDARD_CODES);
+      const spanishCodes = standardCodes(spanish, 'NIC|NIIF');
+      for (const english of standardCodes(outsideParentheses(summary), 'IAS|IFRS')) {
+        const [family, n] = english.split(' ');
+        expect(spanishCodes, `${topic}: ${english} without its Spanish code`).toContain(
+          `${ENGLISH_TO_SPANISH[family]} ${n}`
+        );
+      }
+      for (const name of PINNED_SPANISH_NAMES[topic] ?? []) {
+        expect(spanish, `${topic}: ${name}`).toContain(name);
+      }
+    }
+  });
+
+  it('takes every NIC/NIIF code and title from the IFRS registry, under its own topic', () => {
+    for (const topic of STANDARDS_TOPICS.filter((t) => t.startsWith('niif-'))) {
+      const summary = DOC_TOPICS[topic];
+      for (const code of standardCodes(insideParentheses(summary), 'NIC|NIIF')) {
+        expect(BY_SPANISH_CODE.get(code)?.topic, `${topic}: ${code} is not a registry standard of this topic`).toBe(
+          topic
+        );
+      }
+      for (const [code, entry] of BY_SPANISH_CODE) {
+        // A code followed by a capitalised word carries a title: it must be the official one, whole.
+        if (new RegExp(`\\b${code} (?=\\p{Lu})`, 'u').test(summary)) {
+          expect(summary, `${topic}: ${code}`).toContain(`${code} ${entry.title_es}`);
+        }
+      }
+    }
+    // The two unnumbered IFRS titles above are the registry's own.
+    for (const name of [
+      ...PINNED_SPANISH_NAMES['niif-marco-presentacion']!,
+      ...PINNED_SPANISH_NAMES['niif-pymes-convergencia']!,
+    ]) {
+      expect(IFRS_REGISTRY.some((e) => e.title_es.startsWith(name)), name).toBe(true);
+    }
+  });
+});
