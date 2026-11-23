@@ -4971,6 +4971,70 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.entry.void.description':
     'Anula una póliza: un borrador queda anulado y una contabilizada recibe su espejo ligado',
   'help.entry.void.argument.number': 'número o id de la póliza',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // Same keys and order as en.ts. The categories of `batch check --check`
+  // arrive in {categories} as the user types them, untranslated (I23).
+  'help.batch.description':
+    'Lotes de pólizas en preparación: listar, inspeccionar, verificar, contabilizar en una transacción y ' +
+    'reversar como una unidad',
+  'help.batch.list.description':
+    'Lista los lotes con su estado, conteo de filas, pólizas contabilizadas y hash del contenido',
+  'help.batch.list.option.kind': 'clase de lote (disponibles: {kinds})',
+  'help.batch.show.description':
+    'Un lote completo: las filas con sus pólizas generadas, los errores de lectura guardados por categoría y el ' +
+    'hash del archivo',
+  'help.batch.show.argument.id': 'id del lote',
+  'help.batch.show.option.errors_only': 'sólo las filas que el analizador rechazó',
+  'help.batch.check.description':
+    'Corre las validaciones de contabilización sobre cada fila e informa cada hallazgo; sale con 4 si alguno ' +
+    'bloquea',
+  'help.batch.check.argument.id': 'id del lote',
+  'help.batch.check.option.check':
+    'categorías de hallazgo a mostrar, separadas por comas (disponibles: {categories}); la batería completa ' +
+    'corre siempre',
+  'help.batch.post.description':
+    'Contabiliza el lote entero en una transacción; --partial aplica las filas válidas y deja las demás en ' +
+    'preparación',
+  'help.batch.post.argument.id': 'id del lote',
+  'help.batch.post.option.partial':
+    'aplica las filas válidas y deja las inválidas en preparación (acepta un lote sin verificar)',
+  'help.batch.post.option.json': 'salida en JSON',
+  'help.batch.reverse.description':
+    'Refleja cada póliza que contabilizó el lote, como una unidad y en una transacción: un error de importación ' +
+    'es del lote, no de una póliza',
+  'help.batch.reverse.argument.id': 'id del lote',
+  'help.batch.reverse.option.as_of': 'fecha de cada póliza espejo (AAAA-MM-DD); por omisión, hoy',
+  'help.batch.reverse.option.json': 'salida en JSON',
+  'help.fx.description': 'Tipos de cambio: el origen del que se convierte todo importe en moneda extranjera',
+  'help.fx.rate.description': 'Tipos de cambio publicados, por par, fecha, clase y fuente',
+  'help.fx.rate.list.description': 'Lista los tipos de cambio guardados, por par, fecha, clase y fuente',
+  'help.fx.rate.list.option.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.list.option.since': 'límite inferior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.list.option.until': 'límite superior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'sólo los tipos de cambio de esta clase',
+  'help.fx.rate.list.option.source': 'sólo los tipos de cambio de esta fuente',
+  'help.fx.rate.show.description':
+    'Resuelve el tipo de cambio aplicable: directo, luego inverso, luego cruzado a través del USD',
+  'help.fx.rate.show.argument.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.show.argument.date': 'fecha a la que aplica el tipo de cambio (AAAA-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'clase de tipo de cambio a resolver',
+  'help.fx.rate.show.option.source': 'resuelve sólo con lo que publicó esta fuente',
+  'help.fx.rate.set.description': 'Registra un tipo de cambio, con la fuente que lo publicó',
+  'help.fx.rate.set.argument.pair': 'par de monedas, p. ej. USD/MXN',
+  'help.fx.rate.set.argument.date': 'fecha desde la que rige (AAAA-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'el tipo de cambio, hasta 10 decimales',
+  'help.fx.rate.set.option.source': 'quién publicó el tipo de cambio (obligatoria)',
+  'help.fx.rate.set.option.rate_type': 'clase de tipo de cambio',
+  'help.fx.rate.set.option.until': 'último día en que el tipo de cambio sigue vigente (AAAA-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'muestra lo que se registraría, sin escribir',
+  'help.fx.rate.download.description':
+    'Descarga el tipo de cambio del DOF o el FIX de Banxico, guardado por fuente (el mismo día difieren)',
+  'help.fx.rate.download.option.source': 'de qué fuente descargar (obligatoria)',
+  'help.fx.rate.download.option.as_of': 'una sola fecha a descargar (AAAA-MM-DD)',
+  'help.fx.rate.download.option.since': 'límite inferior inclusivo (AAAA-MM-DD)',
+  'help.fx.rate.download.option.until': 'límite superior inclusivo (AAAA-MM-DD)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

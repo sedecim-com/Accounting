@@ -9,6 +9,7 @@ import { rolesValidos } from '../../src/services/accounting/account-roles-servic
 import { LEDGER_CHECK_NAMES } from '../../src/services/accounting/ledger-checks.js';
 import { MANUAL_ENTRY_TYPES } from '../../src/services/accounting/journal-entry-service.js';
 import { IMPORT_LAYOUTS } from '../../src/services/accounting/entry-import-service.js';
+import { CATEGORIAS_DE_HALLAZGO, CLASES_DE_LOTE } from '../../src/services/accounting/batch-service.js';
 import { censar } from '../../scripts/ux-status.js';
 import {
   describedIn,
@@ -34,6 +35,8 @@ const FAMILIES: Record<string, string> = {
   account: 'account',
   ledger: 'ledger',
   entry: 'entry',
+  batch: 'batch',
+  fx: 'fx',
 };
 
 /** The key of this leaf's option, or null when the leaf has no such flag. */
@@ -256,5 +259,140 @@ describe('the entry family, help by key (#314, MNE-001-235)', () => {
     ]);
     expect(option('entry show', '--no-lines').negate).toBe(true);
     expect(option('entry import', '--layout').defaultValue).toBe('csv');
+  });
+});
+
+describe('the batch and fx families, help by key (#314, MNE-001-426)', () => {
+  // Every group screen and every leaf at least once.
+  it.each<[string, TranslationKey]>([
+    ['batch', 'help.batch.description'],
+    ['batch', 'help.batch.check.description'],
+    ['batch list', 'help.batch.list.description'],
+    ['batch show', 'help.batch.show.option.errors_only'],
+    ['batch show', 'help.batch.show.argument.id'],
+    ['batch check', 'help.batch.check.argument.id'],
+    ['batch post', 'help.batch.post.option.partial'],
+    ['batch post', 'help.batch.post.option.json'],
+    ['batch reverse', 'help.batch.reverse.option.as_of'],
+    ['batch reverse', 'help.batch.reverse.description'],
+    ['fx', 'help.fx.description'],
+    ['fx', 'help.fx.rate.description'],
+    ['fx rate', 'help.fx.rate.download.description'],
+    ['fx rate list', 'help.fx.rate.list.option.pair'],
+    ['fx rate list', 'help.fx.rate.list.option.since'],
+    ['fx rate show', 'help.fx.rate.show.argument.date'],
+    ['fx rate show', 'help.fx.rate.show.option.source'],
+    ['fx rate set', 'help.fx.rate.set.argument.rate'],
+    ['fx rate set', 'help.fx.rate.set.option.dry_run'],
+    ['fx rate set', 'help.fx.rate.set.option.until'],
+    ['fx rate download', 'help.fx.rate.download.option.as_of'],
+    ['fx rate download', 'help.fx.rate.download.option.source'],
+  ])('`%s --help` in es-MX shows %s in Spanish', (path, key) => {
+    expectSpanishHelp(path, key);
+  });
+
+  it('every generic flag a batch or fx leaf declares is worded for it and keeps a key of its own', () => {
+    const own: Record<string, string[]> = {
+      'batch post': ['--json'],
+      'batch reverse': ['--as-of', '--json'],
+      'fx rate list': ['--since', '--until'],
+      'fx rate set': ['--until', '--dry-run'],
+      'fx rate download': ['--as-of', '--since', '--until'],
+    };
+    for (const [path, flags] of Object.entries(own)) {
+      const prefix = `help.${path.replace(/ /g, '.').replace(/-/g, '_')}.option`;
+      for (const flag of flags) expect(keyOf(path, flag), path).toBe(`${prefix}.${flag.slice(2).replace(/-/g, '_')}`);
+    }
+    // `fx rate list --since` says the kernel's words, but the kernel's flag
+    // validates the date at parse time (kernel/flags.ts) and this one does not:
+    // not exactly what the kernel text promises, so per leaf, English intact.
+    expect(t('help.fx.rate.list.option.since', {}, 'en')).toBe(t('cli.flag.since', {}, 'en'));
+    // What the kernel adds is the kernel's and stays on cli.flag.*.
+    expect(['--yes', '--dry-run', '--idempotency-key', '--reason'].map((flag) => keyOf('batch reverse', flag))).toEqual([
+      'cli.flag.yes',
+      'cli.flag.dry_run',
+      'cli.flag.idempotency_key',
+      'cli.flag.reason',
+    ]);
+    expect([keyOf('batch list', '--json'), keyOf('fx rate list', '--json'), keyOf('fx rate set', '--yes')]).toEqual([
+      'cli.flag.json',
+      'cli.flag.json',
+      'cli.flag.yes',
+    ]);
+  });
+
+  it('the interpolated lists travel as parameters, so the Spanish help lists them too', () => {
+    expectSpanishHelp('batch list', 'help.batch.list.option.kind', { kinds: CLASES_DE_LOTE.join(', ') });
+    expectSpanishHelp('batch check', 'help.batch.check.option.check', {
+      categories: CATEGORIAS_DE_HALLAZGO.join(', '),
+    });
+  });
+
+  it('the finding categories of `batch check --check` move as they are: values the user types, left for I23', () => {
+    // The acceptance of MNE-001-426: `cuenta` is a value, not author prose, so
+    // it is not translated in either language and ux-status keeps the node.
+    const categories = 'parse, forma, cuenta, periodo, validacion';
+    expect(CATEGORIAS_DE_HALLAZGO.join(', ')).toBe(categories);
+    const check = node('batch check').options.find((o) => o.long === '--check');
+    expect(check?.description).toBe(
+      `finding categories to display, comma-separated (available: ${categories}); the full battery always runs`
+    );
+    setLanguage('es');
+    expect(flat(node('batch check').helpInformation())).toContain(`(disponibles: ${categories})`);
+    const flagged = censar(program).casos['nodos-fuera-del-idioma-canonico'].map((c) => c.sujeto);
+    expect(flagged).toContain('batch check');
+  });
+
+  it('the machine contract does not move: flags in order, defaults, no parser, nothing mandatory', () => {
+    const types = '<spot|average|budget|historical>';
+    const sources = '<manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>';
+    expect(node('fx rate list').options.slice(-5).map((o) => o.flags)).toEqual([
+      '--pair <pair>',
+      '--since <date>',
+      '--until <date>',
+      `--rate-type ${types}`,
+      `--source ${sources}`,
+    ]);
+    expect(node('fx rate show').options.slice(-2).map((o) => [o.flags, (o.defaultValue as unknown) ?? null, o.mandatory])).toEqual([
+      [`--rate-type ${types}`, 'spot', false],
+      [`--source ${sources}`, null, false],
+    ]);
+    expect(node('fx rate set').options.slice(3, 7).map((o) => [o.flags, (o.defaultValue as unknown) ?? null, o.mandatory])).toEqual([
+      [`--source ${sources}`, null, false],
+      [`--rate-type ${types}`, 'spot', false],
+      ['--until <date>', null, false],
+      ['--dry-run', null, false],
+    ]);
+    expect(node('fx rate download').options.slice(3, 7).map((o) => o.flags)).toEqual([
+      '--source <dof|banxico-fix|fed|ecb>',
+      '--as-of <date>',
+      '--since <date>',
+      '--until <date>',
+    ]);
+    // The leaves' date flags parse nothing at declaration; their actions check them.
+    for (const [path, flags] of Object.entries({
+      'fx rate list': ['--since', '--until'],
+      'fx rate download': ['--as-of', '--since', '--until'],
+      'batch reverse': ['--as-of'],
+    })) {
+      for (const flag of flags) {
+        const o = node(path).options.find((x) => x.long === flag);
+        expect(o && (o as { parseArg?: unknown }).parseArg, `${path} ${flag}`).toBeUndefined();
+      }
+    }
+    expect(node('batch post').options.slice(3, 5).map((o) => o.flags)).toEqual(['--partial', '--json']);
+    expect(node('batch reverse').options.slice(3, 5).map((o) => o.flags)).toEqual(['--as-of <date>', '--json']);
+    expect(node('batch list').options.at(-1)?.flags).toBe('--kind <kind>');
+    expect(node('batch show').options.at(-1)?.flags).toBe('--errors-only');
+    for (const leaf of ['show', 'check', 'post', 'reverse']) {
+      expect(node(`batch ${leaf}`).registeredArguments.map((a) => [a.name(), a.required]), leaf).toEqual([['id', true]]);
+    }
+    expect(node('fx rate set').registeredArguments.map((a) => a.name())).toEqual(['pair', 'date', 'rate']);
+    expect(node('fx rate show').registeredArguments.map((a) => a.name())).toEqual(['pair', 'date']);
+    expect([node('batch').aliases(), node('fx').aliases(), node('fx rate').aliases()]).toEqual([
+      ['lote'],
+      ['cambio'],
+      ['tipo'],
+    ]);
   });
 });
