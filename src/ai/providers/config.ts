@@ -1272,8 +1272,12 @@ function helperBinding(file: string, command: string): Binding {
     return { unbindable: `${base} runs code mnemosine cannot bind` };
   } else {
     // shape c: the shell finds it through PATH, which must not lead into the project.
+    // `found` is a real path, so it is also judged against the folder's real path:
+    // a project reached through a symlink would otherwise put every hit outside.
     const found = head.includes('/') ? null : resolveThroughPath(head, dir, process.env.PATH);
-    if (found !== null && inside(found) !== null) {
+    const realRel = found === null ? null : path.relative(fs.realpathSync(dir), found);
+    const inRealDir = realRel !== null && !realRel.startsWith('..') && !path.isAbsolute(realRel);
+    if (found !== null && (inside(found) !== null || inRealDir)) {
       return { unbindable: `${head} is found through PATH inside the project` };
     }
     rest = tokens.slice(i + 1);

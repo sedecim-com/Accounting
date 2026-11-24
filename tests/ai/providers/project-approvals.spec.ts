@@ -698,6 +698,18 @@ describe('fourth review: env, versioned interpreters, runners and PATH', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it('a PATH command inside the project is refused when the folder is reached through a symlink', () => {
+    script('gkey', `#!/bin/sh\ntouch '${marker}'; printf 'tok-falso'\n`);
+    writeProject({ api_key_cmd: 'gkey' });
+    const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'm452-link-')), 'project');
+    fs.symlinkSync(project, link);
+    for (const pathVar of ['.:/usr/bin:/bin', '/usr/bin:/bin:']) {
+      vi.stubEnv('PATH', pathVar);
+      expect((refusal(() => approveProjectProfile('vault', link)) as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    }
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
   it("a project helper runs without the loader variables of the folder's environment", () => {
     script('tools/env.sh', `printf 'tok-[%s][%s][%s]' "$NODE_OPTIONS" "$BASH_ENV" "$PYTHONPATH"\n`);
     vi.stubEnv('NODE_OPTIONS', '--require=./tools/k.js');
