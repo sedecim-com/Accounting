@@ -43,8 +43,10 @@ provides:
     # response that does not fall back to DEFAULT_LOCALE. Under es its frame and every
     # issue a key covers are Spanish. Either way the response now declares
     # Content-Language, Vary: Accept-Language and meta.language. code, field, paths and
-    # issue order do not change. Messages a schema sets itself (refine messages, the
-    # array caps) are not keyed and read the same in every language. The only changes
+    # issue order do not change. The messages the REST schemas set themselves (refine
+    # messages, array minimums, the date format) are keys too since MNE-001-588, with
+    # their English unchanged; a message still written as prose reads the same in every
+    # language. The only changes
     # of the zod 4 migration are two tightenings: JSON 1e999 (Infinity) is rejected
     # wherever zod 3 accepted it as a number (T1), and so is an integer beyond
     # 2^53 - 1 on integer fields (T2). Where zod 3 already rejected 1e999 (a field

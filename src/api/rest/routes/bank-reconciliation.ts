@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
@@ -45,6 +46,10 @@ const importTransactionsSchema = z.object({
   batch_id: z.string().optional(),
 });
 
+// The messages of `matched_amount`, rendered once here and not per issue (MNE-001-588).
+const REQUIRED = schemaMessage('error.VALIDATION_ERROR.issue.required');
+const MATCHED_AMOUNT_POSITIVE = schemaMessage('error.VALIDATION_ERROR.schema.matched_amount_positive');
+
 const matchTransactionSchema = z.object({
   // Pedía 'journal_entry' y 'payment', que no existen, y no dejaba escribir
   // 'journal_entry_line' —el caso más común— ni los dos tipos de pago.
@@ -58,10 +63,10 @@ const matchTransactionSchema = z.object({
   // most 15 integer and 4 fractional digits gets through (no NaN, exponent,
   // empty string, zero or negative), so the database never answers 500 to it.
   matched_amount: z.union([z.string(), z.number()], {
-    error: (issue) => (issue.input === undefined ? 'Required' : 'matched_amount must be a positive decimal'),
+    error: (issue) => (issue.input === undefined ? REQUIRED : MATCHED_AMOUNT_POSITIVE),
   }).refine(
     (v) => /^\d{1,15}(\.\d{1,4})?$/.test(String(v)) && new Decimal(String(v)).gt(0),
-    'matched_amount must be a positive decimal with at most 4 fractional digits'
+    schemaMessage('error.VALIDATION_ERROR.schema.matched_amount_scale')
   ),
 });
 

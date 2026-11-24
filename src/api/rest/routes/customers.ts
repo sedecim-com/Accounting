@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -49,7 +50,7 @@ const createCustomerSchema = z.object({
   currency_code: boundedString({ length: 3 }).optional(),
   default_revenue_account_id: uuidString().optional(),
   default_ar_account_id: uuidString().optional(),
-}).refine((o) => !!(o.company_name || o.first_name), { message: 'company_name or first_name is required' });
+}).refine((o) => !!(o.company_name || o.first_name), { message: schemaMessage('error.VALIDATION_ERROR.schema.customer_name_required') });
 
 const updateCustomerSchema = z.object({
   company_name: boundedString({ min: 1, max: 255 }).optional(),
@@ -62,7 +63,7 @@ const updateCustomerSchema = z.object({
   credit_status: boundedString({ max: 20 }).optional(),
   is_active: z.boolean().optional(),
   notes: z.string().optional(),
-}).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
+}).refine((o) => Object.keys(o).length > 0, { message: schemaMessage('error.VALIDATION_ERROR.schema.at_least_one_field') });
 
 const meta = (req: Request) => ({
   request_id: req.headers['x-request-id'],

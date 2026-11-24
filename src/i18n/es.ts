@@ -94,6 +94,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.issue.not_multiple_of': 'El número debe ser múltiplo de {divisor}',
   'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Claves que el objeto no admite: {keys}',
   'error.VALIDATION_ERROR.issue.invalid_input': 'Entrada inválida',
+  // ---- MNE-001-588 · the messages the REST schemas set themselves, by key; see en.ts ----
+  'error.VALIDATION_ERROR.schema.at_least_one_field': 'Debe enviarse al menos un campo',
+  'error.VALIDATION_ERROR.schema.at_least_one_field_required': 'Hace falta al menos un campo',
+  'error.VALIDATION_ERROR.schema.xml_content_required': 'Hace falta xml_content o el arreglo xml_contents',
+  'error.VALIDATION_ERROR.schema.customer_name_required': 'Hace falta company_name o first_name',
+  'error.VALIDATION_ERROR.schema.line_debit_or_credit': 'Cada renglón lleva debit_amount O credit_amount, no los dos',
+  'error.VALIDATION_ERROR.schema.unknown_pac': 'Proveedor de PAC desconocido',
+  'error.VALIDATION_ERROR.schema.matched_amount_positive': 'matched_amount debe ser un decimal positivo',
+  'error.VALIDATION_ERROR.schema.matched_amount_scale':
+    'matched_amount debe ser un decimal positivo con 4 decimales como máximo',
+  'error.VALIDATION_ERROR.schema.invoice_min_lines': 'Hace falta al menos 1 renglón',
+  'error.VALIDATION_ERROR.schema.entry_min_lines': 'Hacen falta al menos 2 renglones',
+  'error.VALIDATION_ERROR.schema.void_reason_required': 'Para anular hace falta un motivo',
+  'error.VALIDATION_ERROR.schema.date_format': 'AAAA-MM-DD',
   // ---- MNE-001-150 · a path no route serves; see en.ts ----
   'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================

@@ -35,8 +35,10 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 //                   reconciliations, the prepaid backing, the
 //                   external-ledger diff, the close's fixed-asset box,
 //                   the FX revaluation line, the IVA paper's withholding
-//                   per sale and receipt movement, and the DIOT's exempt
-//                   revenue; T14, #101). This is the part
+//                   per sale and receipt movement, the DIOT's exempt
+//                   revenue, and the cash-flow statement's movement by
+//                   account and its non-cash entries; T14, #101). This is
+//                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
@@ -1627,6 +1629,130 @@ export async function getIncomeStatement(
     net_income: new Decimal(revenue.total).minus(new Decimal(expenses.total)).toFixed(scale),
     ...(closing ? { closing } : {}),
   };
+}
+
+// ------------------------------------------------------------
+// CASH-FLOW STATEMENT READS (MNE-001-052, #101)
+//
+// The indirect method deduces cash from double entry: Δcash is minus the net
+// movement of every account that is not cash. These two reads are the ledger
+// side of that statement; cash-flow-service.ts classifies and assembles.
+// Both follow the INCOME STATEMENT's closing switch, not the trial balance's,
+// because the method's first line is net income and both figures must come
+// from the same entries. For the tie-out against cash it makes no difference:
+// a closing entry moves results against equity and never touches cash.
+// ------------------------------------------------------------
+
+export interface PeriodAccountMovementRow {
+  account_id: string;
+  code: string;
+  name: string;
+  account_type: string;
+  account_subtype: string | null;
+  fs_category: string | null;
+  debit_total: string;
+  credit_total: string;
+}
+
+/**
+ * Posted debits and credits of each account in the range, leaving out
+ * `excludeAccountIds`, and only the accounts that moved. The inner
+ * (jel JOIN je) pair is load-bearing: two chained JOINs let lines of draft
+ * entries through. The entity is bound on both sides, the entry's and the
+ * account's, as in queryEntryMovementsOnAccount.
+ */
+export async function queryPeriodMovementByAccount(
+  entityId: string,
+  opts: { startDate: string; endDate: string; excludeAccountIds: readonly string[] }
+): Promise<PeriodAccountMovementRow[]> {
+  const closingPolicy = await criterioDeCierreEnInformes(entityId);
+  const closingFilter = closingPolicy.enEstadoDeResultados ? '' : predicadoSinCierre();
+
+  const r = await query<PeriodAccountMovementRow>(
+    `SELECT a.id AS account_id, a.code, a.name,
+            a.account_type, a.account_subtype, a.fs_category,
+            COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0)::text AS debit_total,
+            COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0)::text AS credit_total
+       FROM accounts a
+       JOIN (journal_entry_lines jel
+             JOIN journal_entries je
+               ON je.id = jel.journal_entry_id
+              AND je.entity_id = $1
+              AND je.status = 'posted'
+              AND je.entry_date BETWEEN $2 AND $3
+              ${closingFilter})
+         ON jel.account_id = a.id
+      WHERE a.entity_id = $1
+        AND NOT (a.id = ANY($4::uuid[]))
+      GROUP BY a.id, a.code, a.name, a.account_type, a.account_subtype, a.fs_category
+     HAVING COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0) <> 0
+         OR COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0) <> 0
+      ORDER BY a.code`,
+    [entityId, opts.startDate, opts.endDate, [...opts.excludeAccountIds]]
+  );
+  return r.rows;
+}
+
+export interface EntryAccountMovementRow {
+  entry_id: string;
+  entry_number: string;
+  entry_date: string;
+  description: string | null;
+  account_id: string;
+  code: string;
+  name: string;
+  debit_total: string;
+  credit_total: string;
+}
+
+/**
+ * Debits and credits per posted entry and account, for the entries in the
+ * range that have a line on `withLineOn` and none on `withoutLineOn`: the
+ * investing and financing entries that moved no cash, which the statement
+ * leaves out and discloses apart (NIF B-2, ASC 230). One statement for the
+ * whole set; the caller passes the ids its classifier chose, so the
+ * classification rule is not rewritten in SQL.
+ */
+export async function queryEntryMovementsTouching(
+  entityId: string,
+  opts: {
+    startDate: string;
+    endDate: string;
+    withLineOn: readonly string[];
+    withoutLineOn: readonly string[];
+  }
+): Promise<EntryAccountMovementRow[]> {
+  const closingPolicy = await criterioDeCierreEnInformes(entityId);
+  const closingFilter = closingPolicy.enEstadoDeResultados ? '' : predicadoSinCierre();
+
+  const r = await query<EntryAccountMovementRow>(
+    `SELECT jel.journal_entry_id AS entry_id, je.entry_number,
+            je.entry_date::text AS entry_date, je.description,
+            a.id AS account_id, a.code, a.name,
+            COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0)::text AS debit_total,
+            COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0)::text AS credit_total
+       FROM accounts a
+       JOIN (journal_entry_lines jel
+             JOIN journal_entries je
+               ON je.id = jel.journal_entry_id
+              AND je.entity_id = $1
+              AND je.status = 'posted'
+              AND je.entry_date BETWEEN $2 AND $3
+              ${closingFilter})
+         ON jel.account_id = a.id
+      WHERE a.entity_id = $1
+        AND EXISTS (SELECT 1 FROM journal_entry_lines t
+                     WHERE t.journal_entry_id = jel.journal_entry_id
+                       AND t.account_id = ANY($4::uuid[]))
+        AND NOT EXISTS (SELECT 1 FROM journal_entry_lines c
+                         WHERE c.journal_entry_id = jel.journal_entry_id
+                           AND c.account_id = ANY($5::uuid[]))
+      GROUP BY jel.journal_entry_id, je.entry_number, je.entry_date, je.description,
+               a.id, a.code, a.name
+      ORDER BY je.entry_date, je.entry_number, a.code`,
+    [entityId, opts.startDate, opts.endDate, [...opts.withLineOn], [...opts.withoutLineOn]]
+  );
+  return r.rows;
 }
 
 // ------------------------------------------------------------

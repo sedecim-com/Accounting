@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
@@ -49,12 +50,12 @@ const journalLineSchema = z
   })
   .refine(
     (l) => Boolean(l.debit_amount) !== Boolean(l.credit_amount),
-    { message: 'Each line must have either debit_amount OR credit_amount, not both' }
+    { message: schemaMessage('error.VALIDATION_ERROR.schema.line_debit_or_credit') }
   );
 
 const createJournalEntrySchema = z.object({
   entity_id: uuidString(),
-  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, schemaMessage('error.VALIDATION_ERROR.schema.date_format')),
   entry_type: z
     .enum([
       'standard', 'adjusting', 'closing', 'reversing', 'correction',
@@ -69,14 +70,14 @@ const createJournalEntrySchema = z.object({
     plural: 'renglones',
     salida: 'Una póliza más larga que eso es una importación: pártela, o usa `mnemosine entry import`.',
     minimo: 2,
-    mensajeMinimo: 'At least 2 lines required',
+    mensajeMinimo: schemaMessage('error.VALIDATION_ERROR.schema.entry_min_lines'),
   }),
   auto_post: z.boolean().optional(),
   reference: z.string().optional(),
 });
 
 const voidJeSchema = z.object({
-  reason: boundedString({ min: 1 }, { min: 'Reason is required for voiding' }),
+  reason: boundedString({ min: 1 }, { min: schemaMessage('error.VALIDATION_ERROR.schema.void_reason_required') }),
 });
 
 const reverseJeSchema = z.object({

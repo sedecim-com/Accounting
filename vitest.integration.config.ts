@@ -190,7 +190,8 @@ export default defineConfig({
         'src/services/reporting/criterio-cierre.ts': {
           statements: 91, branches: 80, functions: 85, lines: 91,
         },
-        // Medidos: 94.91 / 89.65 / 96.42 / 95.28.
+        // Measured after MNE-001-052 moved its two ledger reads into
+        // report-service: 95.9 / 93.61 / 97.05 / 96.26.
         'src/services/reporting/cash-flow-service.ts': {
           statements: 95, branches: 90, functions: 96, lines: 95,
         },
