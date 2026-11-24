@@ -47,6 +47,10 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', cause: 'taken_back',
     statedAt: new Date('2026-06-09T15:00:00Z'), reversedAt: new Date('2026-06-02T10:00:00Z'), warnings: [],
   })),
+  closeOrphanAllocation: vi.fn(async () => ({
+    paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', invoiceId: 'id-INV-2026-00051', invoiceNumber: 'INV-2026-00051',
+    closed: 1, allocationIds: ['al-1'], amount: '116.00', closedAt: new Date('2026-06-02T10:00:00Z'),
+  })),
   applyCustomerPayment: vi.fn(async () => ({
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
     documentos: [{
@@ -65,7 +69,7 @@ import { idempotencyHitNote, parseWithholding, registerReceiptCommand } from '..
 import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
 import type { CliError } from '../../src/cli/kernel/cli-error.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
-import { resetDeclarations } from '../../src/cli/kernel/risk.js';
+import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
 import { t } from '../../src/i18n/index.js';
@@ -530,6 +534,70 @@ describe('receipt cause record (MNE-001-511)', () => {
     expect(rows[0]).toEqual({
       payment_number: 'PMT-2026-00042', cause: 'taken_back', stated_at: '2026-06-09T15:00:00.000Z', warnings: '',
     });
+  });
+});
+
+// ============================================================
+// MNE-001-605 (#809) · `receipt allocation close`: the live allocation a
+// reversed receipt still has, closed by a person. The terminal asks the
+// service twice (a dry run, then the write) and repeats its answer by key.
+// ============================================================
+
+describe('receipt allocation close (MNE-001-605)', () => {
+  const close = vi.mocked(payments.closeOrphanAllocation);
+  const leaf = ['allocation', 'close', 'PMT-2026-00042', '--invoice', 'INV-2026-00051'];
+  const run = async (args: string[]) => {
+    close.mockClear();
+    return { ...(await receipt([...leaf, ...args])), calls: close.mock.calls };
+  };
+  const said = {
+    count: 1, number: 'PMT-2026-00042', invoice: 'INV-2026-00051', amount: '116.00', closed_at: '2026-06-02T10:00:00.000Z',
+  };
+
+  it('A1 · is a person\'s command: irreversible, never the agent\'s, and the kernel audit passes', () => {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    registerReceiptCommand(program, deps);
+    const leafCmd = program.commands[0].commands.find((c) => c.name() === 'allocation')!
+      .commands.find((c) => c.name() === 'close')!;
+    expect(riskOf(leafCmd)).toMatchObject({ risk: 'irreversible', agentAllowed: false });
+    expect(leafCmd.options.map((o) => o.long)).toEqual(expect.arrayContaining(['--invoice', '--reason', '--dry-run', '--yes', '--json']));
+    const v = auditProgram(program);
+    expect(v.filter((x) => !esDeudaDeLlave(x))).toEqual([]);
+  });
+
+  it('A2 · with no --reason it stops before any service is called, a dry run included', async () => {
+    const r = await run(['--dry-run']).catch((e: unknown) => ({ errs: [e as Error], calls: close.mock.calls, out: '' }));
+    expect(r.errs).toHaveLength(1);
+    expect(r.errs[0].message).toContain('--reason');
+    expect(r.calls).toEqual([]);
+  });
+
+  it('A3 · the dry run asks the service with dryRun and prints what it would close', async () => {
+    const { out, errs, calls } = await run(['--reason', 'left live by its reversal', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => [c[1], c[2], c[4]])).toEqual([
+      ['pay-1', { invoiceId: 'id-INV-2026-00051', reason: 'left live by its reversal' }, { dryRun: true }],
+    ]);
+    expect(out).toContain(t('receipt.allocation.close.would_close', said, 'en'));
+    expect(out).toContain(t('receipt.allocation.close.dry_run', {}, 'en'));
+  });
+
+  it('A4 · --yes --json writes once after the dry run and carries the closed row', async () => {
+    const { out, errs, calls } = await run(['--reason', 'left live by its reversal', '--yes', '--json']);
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => c[4])).toEqual([{ dryRun: true }, undefined]);
+    const { rows } = JSON.parse(out) as { rows: Record<string, unknown>[] };
+    expect(rows[0]).toEqual({
+      payment_number: 'PMT-2026-00042', invoice: 'INV-2026-00051', closed: 1, amount: '116.00',
+      unapplied_at: '2026-06-02T10:00:00.000Z',
+    });
+  });
+
+  it('A5 · without --json it says, by key, that it closed the row and posted nothing', async () => {
+    const { out, errs } = await run(['--reason', 'left live by its reversal', '--yes']);
+    expect(errs).toEqual([]);
+    expect(out).toContain(t('receipt.allocation.close.closed', said, 'en'));
   });
 });
 

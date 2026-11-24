@@ -3021,6 +3021,125 @@ export async function stateReversalCause(
   return ejecutarEvento(run, opts);
 }
 
+export interface ClosedOrphanAllocation {
+  paymentId: string;
+  paymentNumber: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  /** The rows closed: every live one of the receipt on that invoice. */
+  closed: number;
+  allocationIds: string[];
+  /** Cash and withholdings of those rows, 2 dp: what the reversal reopened the invoice by. */
+  amount: string;
+  /** The `unapplied_at` written: the receipt's `reversed_at`. */
+  closedAt: Date;
+}
+
+/**
+ * MNE-001-605 (#809): closes the live allocations a reversed receipt still has
+ * on one invoice, the rows `ar check` names in `orphan-application`. Before
+ * MNE-001-584 a reversal could miss one: it had mirrored the entries and
+ * reopened the invoice by that row too, and left the row live. So this posts
+ * nothing and leaves the invoice alone (NIF B-1: the posted entries are
+ * already corrected; only the subledger row is wrong).
+ *
+ * It writes `unapplied_at = reversed_at`, what the reversal would have
+ * written: the IVA workpaper reads that equality as the reversal's close
+ * (`CLOSED_BY_REVERSAL`), while any other date reads as an unapply and would
+ * take the row's IVA share out a second time. A receipt that is not reversed,
+ * or a live row created after the reversal (which its sum never reopened),
+ * is refused. The person's reason goes to the audit row.
+ */
+export async function closeOrphanAllocation(
+  entityId: string,
+  paymentId: string,
+  args: { invoiceId: string; reason: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<ClosedOrphanAllocation> {
+  const run = async (client: pg.PoolClient): Promise<ClosedOrphanAllocation> => {
+    // Its own locked read: `cobroParaEscribir` refuses every receipt that is not 'completed'.
+    const found = await client.query<{ payment_number: string; status: string; reversed_at: Date | null }>(
+      `SELECT payment_number, status, reversed_at FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [paymentId, entityId]
+    );
+    if (found.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
+    const receipt = found.rows[0];
+    if (receipt.status !== 'reversed' || receipt.reversed_at === null) {
+      throw new ValidationError({
+        key: 'receipt.allocation.close.not_reversed', params: { number: receipt.payment_number, status: receipt.status },
+      });
+    }
+    const inv = await client.query<{ invoice_number: string }>(
+      `SELECT invoice_number FROM invoices WHERE id = $1 AND entity_id = $2`,
+      [args.invoiceId, entityId]
+    );
+    if (inv.rows.length === 0) throw new NotFoundError('Invoice', args.invoiceId);
+    const params = { number: receipt.payment_number, invoice: inv.rows[0].invoice_number };
+
+    const live = await client.query<{ id: string; total: string; after: boolean }>(
+      `SELECT pa.id, (pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::text AS total,
+              pa.created_at > cp.reversed_at AS after
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+        WHERE pa.payment_id = $1 AND pa.invoice_id = $3 AND pa.unapplied_at IS NULL
+        ORDER BY pa.id
+          FOR UPDATE OF pa`,
+      [paymentId, entityId, args.invoiceId]
+    );
+    if (live.rows.length === 0) throw new ValidationError({ key: 'receipt.allocation.close.nothing_live', params });
+    if (live.rows.some((r) => r.after)) {
+      throw new ValidationError({ key: 'receipt.allocation.close.after_reversal', params });
+    }
+    const ids = live.rows.map((r) => r.id);
+    const amount = live.rows.reduce((s, r) => s.plus(r.total), new Decimal(0)).toFixed(2);
+
+    // Invariant 3: the rows read, still live and older than the reversal, of a
+    // reversed receipt of this entity, and every one of them.
+    const closed = await client.query(
+      `UPDATE payment_allocations pa
+          SET unapplied_at = cp.reversed_at, unapplied_by = $1, unapply_reason = $2
+         FROM customer_payments cp
+        WHERE pa.id = ANY($3::uuid[]) AND pa.unapplied_at IS NULL AND pa.created_at <= cp.reversed_at
+          AND cp.id = pa.payment_id AND cp.id = $4 AND cp.entity_id = $5 AND cp.status = 'reversed'`,
+      [userId, `Closed after reversal: ${args.reason}`, ids, paymentId, entityId]
+    );
+    if (closed.rowCount !== ids.length) {
+      throw new AccountingError(
+        'ORPHAN_CLOSE_RACE',
+        `${receipt.payment_number} changed while its allocations on ${params.invoice} were being closed; nothing was written.`
+      );
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      oldValues: { unapplied_at: null },
+      newValues: {
+        evento: 'close_orphan_allocation',
+        invoice: params.invoice,
+        allocations: ids,
+        amount,
+        unapplied_at: receipt.reversed_at,
+      },
+      reason: args.reason,
+    });
+
+    const result: ClosedOrphanAllocation = {
+      paymentId, paymentNumber: receipt.payment_number, invoiceId: args.invoiceId, invoiceNumber: params.invoice,
+      closed: ids.length, allocationIds: ids, amount, closedAt: receipt.reversed_at,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
+}
+
 // ============================================================
 // MNE-001-498 · A CUSTOMER'S CASH ON ACCOUNT, TRANSFERRED TO ANOTHER
 //
