@@ -91,29 +91,52 @@ Which due jobs it runs on your credential is jobs.run_due in ~/.mnemosine/config
 const pad = (s: string, w: number): string => (s.length >= w ? s : s + ' '.repeat(w - s.length));
 const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : '—');
 
+/** One line to stdout: this leaf prints through here, never console (#268's console clause, MNE-001-587). */
+const say = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
+/** A header cell and its column's width, never narrower than the label in the active language. */
+const column = (key: TranslationKey, width: number): { label: string; width: number } => {
+  const label = t(key);
+  return { label, width: Math.max(width, label.length) };
+};
+
 function formatJobsTable(jobs: JobRow[], c: JobsDeps['palette'], zone: string): string[] {
-  if (jobs.length === 0) return ['No jobs configured. Create one with `mnemosine jobs create`.'];
+  if (jobs.length === 0) return [t('platform.jobs.list.none')];
+  const name = column('platform.jobs.list.column.name', 24);
+  const kind = column('platform.jobs.list.column.kind', 20);
+  const schedule = column('platform.jobs.list.column.schedule', 14);
+  const enabled = column('platform.jobs.list.column.enabled', 8);
+  const fails = column('platform.jobs.list.column.fails', 6);
+  const next = column('platform.jobs.list.column.next_run', 16);
   const out = [
     c.bold(
-      `  ${pad('ID', 36)}  ${pad('NAME', 24)}  ${pad('KIND', 20)}  ${pad('SCHEDULE', 14)}  ` +
-        `${pad('ENABLED', 8)}  ${pad('FAILS', 6)}  ${pad('NEXT RUN', 16)}`
+      `  ${pad('ID', 36)}  ${pad(name.label, name.width)}  ${pad(kind.label, kind.width)}  ${pad(schedule.label, schedule.width)}  ` +
+        `${pad(enabled.label, enabled.width)}  ${pad(fails.label, fails.width)}  ${pad(next.label, next.width)}`
     ),
   ];
   for (const j of jobs) {
+    const yesNo = t('platform.jobs.list.enabled', { enabled: j.enabled ? 'yes' : 'no' });
     out.push(
-      `  ${pad(j.id, 36)}  ${pad(j.name.slice(0, 24), 24)}  ${pad(j.kind, 20)}  ` +
-        `${pad(j.schedule, 14)}  ${pad(j.enabled ? 'yes' : 'no', 8)}  ` +
-        `${pad(`${j.consecutive_failures}/${j.max_failures}`, 6)}  ${pad(fmtDate(j.next_run_at, zone), 16)}`
+      `  ${pad(j.id, 36)}  ${pad(j.name.slice(0, 24), name.width)}  ${pad(j.kind, kind.width)}  ` +
+        `${pad(j.schedule, schedule.width)}  ${pad(yesNo, enabled.width)}  ` +
+        `${pad(`${j.consecutive_failures}/${j.max_failures}`, fails.width)}  ${pad(fmtDate(j.next_run_at, zone), next.width)}`
     );
   }
   return out;
 }
 
 function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette'], zone: string): string[] {
-  if (runs.length === 0) return ['No runs recorded yet.'];
+  if (runs.length === 0) return [t('platform.jobs.history.none')];
+  const started = column('platform.jobs.history.column.started', 16);
+  const jobCol = column('platform.jobs.history.column.job', 24);
+  const status = column('platform.jobs.history.column.status', 16);
+  const drafts = column('platform.jobs.history.column.drafts', 6);
   const out = [
     c.bold(
-      `  ${pad('STARTED', 16)}  ${pad('JOB', 24)}  ${pad('STATUS', 16)}  ${pad('DRAFTS', 6)}  DETAIL`
+      `  ${pad(started.label, started.width)}  ${pad(jobCol.label, jobCol.width)}  ${pad(status.label, status.width)}  ` +
+        `${pad(drafts.label, drafts.width)}  ${t('platform.jobs.history.column.detail')}`
     ),
   ];
   for (const r of runs) {
@@ -123,8 +146,8 @@ function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette'], zone: string
             (r.detail as { error?: unknown }).error ?? '')
         : '';
     out.push(
-      `  ${pad(fmtDate(r.started_at, zone), 16)}  ${pad((r.job_name ?? r.job_id).slice(0, 24), 24)}  ` +
-        `${pad(r.status, 16)}  ${pad(String(r.drafts_created), 6)}  ${c.dim(detail.slice(0, 80))}`
+      `  ${pad(fmtDate(r.started_at, zone), started.width)}  ${pad((r.job_name ?? r.job_id).slice(0, 24), jobCol.width)}  ` +
+        `${pad(r.status, status.width)}  ${pad(String(r.drafts_created), drafts.width)}  ${c.dim(detail.slice(0, 80))}`
     );
   }
   return out;
@@ -166,7 +189,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   const list = describeCommand(jobs.command('list'), 'help.jobs.list.description');
   withCommon(list, { entity: 'help.jobs.list.option.entity', tenant: 'help.jobs.list.option.tenant' });
   list.action(run(async (ctx) => {
-      for (const line of formatJobsTable(await listJobs(ctx), c, await zoneFor(ctx))) console.log(line);
+      for (const line of formatJobsTable(await listJobs(ctx), c, await zoneFor(ctx))) say(line);
     }));
 
   const create = describeCommand(jobs.command('create'), 'help.jobs.create.description');
@@ -190,17 +213,18 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
           maxFailures: opts.maxFailures ? parseInt(opts.maxFailures, 10) : undefined,
           createdBy: opts.user,
         });
-        console.log(c.bold(`Job created: ${job.id}`));
-        console.log(`  ${job.name} (${job.kind}) · schedule ${c.cyan(job.schedule)} · next run ${fmtDate(job.next_run_at, await zoneFor(ctx))}`);
+        say(c.bold(t('platform.jobs.create.done', { id: job.id })));
+        const next = fmtDate(job.next_run_at, await zoneFor(ctx));
+        say(`  ${t('platform.jobs.create.summary', { name: job.name, kind: job.kind, schedule: c.cyan(job.schedule), next })}`);
         // Adopted for its creator (MNE-001-453): an operator who chose
         // `jobs.run_due = adopted` keeps their own new jobs running.
         try {
           adoptJob({ id: job.id, entityId: ctx.entityId });
-          console.log(c.dim(t('platform.jobs.create.adopted')));
+          say(c.dim(t('platform.jobs.create.adopted')));
         } catch (err) {
           process.stderr.write(`${t('platform.jobs.create.adopt_failed', { error: (err as Error).message, id: job.id })}\n`);
         }
-        console.log(c.dim('  Wire the tick: schedule `mnemosine jobs run-due` in cron/launchd.'));
+        say(c.dim(`  ${t('platform.jobs.create.wire_tick')}`));
       })
     );
 
@@ -218,20 +242,20 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         const scope = readRunDueScope();
         const mine = readAdoptions().filter((a) => a.entityId === ctx.entityId);
         if (mine.length === 0) {
-          console.log(t('platform.jobs.adopt.list.none'));
+          say(t('platform.jobs.adopt.list.none'));
         } else {
           const names = new Map((await listJobs(ctx)).map((j) => [j.id, j.name]));
-          console.log(c.bold(t('platform.jobs.adopt.list.header', { file: adoptionPath() })));
+          say(c.bold(t('platform.jobs.adopt.list.header', { file: adoptionPath() })));
           for (const a of mine) {
-            console.log(`  ${pad(a.jobId, 36)}  ${names.get(a.jobId) ?? c.dim(t('platform.jobs.adopt.list.gone'))}`);
+            say(`  ${pad(a.jobId, 36)}  ${names.get(a.jobId) ?? c.dim(t('platform.jobs.adopt.list.gone'))}`);
           }
         }
-        console.log(c.dim(t('platform.jobs.adopt.list.scope', { file: scope.file, scope: scope.scope })));
+        say(c.dim(t('platform.jobs.adopt.list.scope', { file: scope.file, scope: scope.scope })));
       } else {
         const job = await getJob(ctx, jobId!);
         if (!job) throw notFound({ key: 'platform.jobs.adopt.not_found', params: { id: jobId! } });
         const { file, already } = adoptJob({ id: job.id, entityId: ctx.entityId });
-        console.log(t(already ? 'platform.jobs.adopt.already' : 'platform.jobs.adopt.done', { name: job.name, file }));
+        say(t(already ? 'platform.jobs.adopt.already' : 'platform.jobs.adopt.done', { name: job.name, file }));
       }
       await deps.shutdown(0);
     } catch (err) {
@@ -248,7 +272,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
     try {
       await resolve(opts);
       const { file, removed } = unadoptJob(jobId);
-      console.log(t(removed ? 'platform.jobs.unadopt.done' : 'platform.jobs.unadopt.not_adopted', { id: jobId, file }));
+      say(t(removed ? 'platform.jobs.unadopt.done' : 'platform.jobs.unadopt.not_adopted', { id: jobId, file }));
       await deps.shutdown(0);
     } catch (err) {
       deps.reportError(err);
@@ -265,7 +289,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       try {
         const ctx = await resolve(opts);
         const job = await setEnabled(ctx, jobId, true);
-        console.log(`Job "${job.name}" enabled · next run ${fmtDate(job.next_run_at, await zoneFor(ctx))}`);
+        say(t('platform.jobs.enable.done', { name: job.name, next: fmtDate(job.next_run_at, await zoneFor(ctx)) }));
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
@@ -282,7 +306,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       try {
         const ctx = await resolve(opts);
         const job = await setEnabled(ctx, jobId, false);
-        console.log(`Job "${job.name}" disabled.`);
+        say(t('platform.jobs.disable.done', { name: job.name }));
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
@@ -323,37 +347,32 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         process.stderr.write(`${t('platform.jobs.run_due.adoptions_unreadable', { error: (err as Error).message })}\n`);
       }
       const only = setting.scope === 'adopted' ? adopted : undefined;
-      if (setting.scope === 'all') console.log(t('platform.jobs.run_due.all_first_line'));
+      if (setting.scope === 'all') say(t('platform.jobs.run_due.all_first_line'));
       const ahora = new Date();
       const due = async (): Promise<JobRow[]> =>
         (await listJobs(ctx)).filter((j) => j.enabled && j.next_run_at && new Date(j.next_run_at) <= ahora);
       const skipped = only ? (await due()).filter((j) => !only.has(j.id)) : [];
-      for (const j of skipped) console.log(t('platform.jobs.run_due.skipped', { name: j.name.slice(0, 24), id: j.id }));
+      for (const j of skipped) say(t('platform.jobs.run_due.skipped', { name: j.name.slice(0, 24), id: j.id }));
       if (opts.idempotencyKey) {
-        process.stderr.write(
-          '  --idempotency-key does not apply to the tick: each due job is claimed atomically, and ' +
-            'deduplicating ticks would silently skip legitimate runs.\n'
-        );
+        process.stderr.write(`  ${t('platform.jobs.run_due.key_not_applied')}\n`);
       }
       if (dryRun) {
         // Puro censo: qué correría, sin reclamar ni despertar al modelo.
         const zone = await zoneFor(ctx);
         const vencidos = (await due()).filter((j) => !only || only.has(j.id));
         if (vencidos.length === 0) {
-          console.log(skipped.length > 0 ? t('platform.jobs.run_due.no_adopted_due') : 'No jobs due.');
+          say(t(skipped.length > 0 ? 'platform.jobs.run_due.no_adopted_due' : 'platform.jobs.run_due.none'));
           return;
         }
         for (const j of vencidos) {
-          console.log(`  would run: ${pad(j.name.slice(0, 24), 24)}  ${j.kind}  ${c.dim(`next_run ${fmtDate(j.next_run_at, zone)}`)}`);
+          const next = c.dim(t('platform.jobs.run_due.next_run', { date: fmtDate(j.next_run_at, zone) }));
+          say(`  ${t('platform.jobs.run_due.would_run', { name: pad(j.name.slice(0, 24), 24), kind: j.kind, next })}`);
         }
-        console.log(c.dim(`\n(dry-run: ${vencidos.length} job(s) due; nothing was claimed or run)`));
+        say(c.dim(`\n${t('platform.jobs.run_due.dry_run_summary', { count: vencidos.length })}`));
         return;
       }
       if (!live) {
-        console.log(c.dim(
-          'sandbox: jobs run without the external reads (external_pull / external_diff_trial_balance). ' +
-            'A reconciliation cron needs the full surface: schedule `mnemosine jobs run-due --live`.'
-        ));
+        say(c.dim(t('platform.jobs.run_due.sandbox')));
       }
       // NVIDIA's hosted trial records what it receives: an unattended tick
       // refuses it before it claims any job (MNE-001-448).
@@ -361,29 +380,29 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       // Before the first job: the profile the tick opens sessions on and where
       // its credential comes from. It is the credential of whoever runs the
       // tick, spent on the due jobs `jobs.run_due` lets through (#644, #646).
-      console.log(c.dim(tickCredentialLine()));
+      say(c.dim(tickCredentialLine()));
       const outcomes = await runDueJobs(ctx, {
         runAgentTurn: deps.makeRunAgentTurn(ctx, { externo: live }),
-        onProgress: (m) => console.log(c.dim(m)),
+        onProgress: (m) => say(c.dim(m)),
         only,
       });
       if (outcomes.length === 0) {
-        console.log(skipped.length > 0 ? t('platform.jobs.run_due.no_adopted_due') : 'No jobs due.');
+        say(t(skipped.length > 0 ? 'platform.jobs.run_due.no_adopted_due' : 'platform.jobs.run_due.none'));
         return;
       }
       for (const o of outcomes) {
-        const line = `  ${pad(o.name.slice(0, 24), 24)}  ${pad(o.status, 16)}  drafts: ${o.draftsCreated}  ${c.dim(o.detail.slice(0, 80))}`;
-        console.log(line);
+        const draftsCell = t('platform.jobs.run_due.outcome_drafts', { count: o.draftsCreated });
+        say(`  ${pad(o.name.slice(0, 24), 24)}  ${pad(o.status, 16)}  ${draftsCell}  ${c.dim(o.detail.slice(0, 80))}`);
         if (o.autoDisabled) {
-          console.log(c.bold(`  ⚠ Job "${o.name}" reached its failure limit and was auto-disabled. Re-enable with: mnemosine jobs enable ${o.jobId}`));
+          say(c.bold(`  ⚠ ${t('platform.jobs.run_due.auto_disabled', { name: o.name, id: o.jobId })}`));
         }
         if (o.recordError) {
-          console.log(c.bold(`  ⚠ Run of "${o.name}" could not be recorded in the history: ${o.recordError}`));
+          say(c.bold(`  ⚠ ${t('platform.jobs.run_due.record_failed', { name: o.name, error: o.recordError })}`));
         }
       }
       const drafts = outcomes.reduce((sum, o) => sum + o.draftsCreated, 0);
       if (drafts > 0) {
-        console.log(c.bold(`\n${drafts} draft(s) created — review them with \`mnemosine review\`.`));
+        say(c.bold(`\n${t('platform.jobs.run_due.drafts_created', { count: drafts })}`));
       }
       if (setting.scope === 'unset') {
         // The notice before any default changes: the jobs this tick ran that
@@ -409,6 +428,6 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         jobId: opts.job,
         limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
       });
-      for (const line of formatRunsTable(runs, c, await zoneFor(ctx))) console.log(line);
+      for (const line of formatRunsTable(runs, c, await zoneFor(ctx))) say(line);
     }));
 }

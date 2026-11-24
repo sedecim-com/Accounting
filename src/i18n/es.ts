@@ -3469,6 +3469,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'platform.jobs.create.adopted': '  Adoptado para ti: con jobs.run_due en "adopted", tu tic lo corre.',
   'platform.jobs.create.adopt_failed':
     'El trabajo se creó, pero no se pudo adoptar para ti ({error}). Adóptalo con: mnemosine jobs adopt {id}',
+  'platform.jobs.list.none': 'No hay trabajos configurados. Crea uno con `mnemosine jobs create`.',
+  'platform.jobs.list.column.name': 'NOMBRE',
+  'platform.jobs.list.column.kind': 'TIPO',
+  'platform.jobs.list.column.schedule': 'CALENDARIO',
+  'platform.jobs.list.column.enabled': 'ACTIVO',
+  'platform.jobs.list.column.fails': 'FALLOS',
+  'platform.jobs.list.column.next_run': 'PRÓXIMA CORRIDA',
+  'platform.jobs.list.enabled': '{enabled, select, yes {sí} other {no}}',
+  'platform.jobs.history.none': 'Todavía no hay corridas registradas.',
+  'platform.jobs.history.column.started': 'INICIO',
+  'platform.jobs.history.column.job': 'TRABAJO',
+  'platform.jobs.history.column.status': 'ESTADO',
+  'platform.jobs.history.column.drafts': 'BORRADORES',
+  'platform.jobs.history.column.detail': 'DETALLE',
+  'platform.jobs.create.done': 'Trabajo creado: {id}',
+  'platform.jobs.create.summary': '{name} ({kind}) · calendario {schedule} · próxima corrida {next}',
+  'platform.jobs.create.wire_tick': 'Conecta el tic: programa `mnemosine jobs run-due` en cron/launchd.',
+  'platform.jobs.enable.done': 'Trabajo "{name}" habilitado · próxima corrida {next}',
+  'platform.jobs.disable.done': 'Trabajo "{name}" deshabilitado.',
+  'platform.jobs.run_due.key_not_applied':
+    '--idempotency-key no aplica al tic: cada trabajo vencido se reclama de forma atómica, y deduplicar tics saltaría en silencio corridas legítimas.',
+  'platform.jobs.run_due.none': 'Ningún trabajo está vencido.',
+  'platform.jobs.run_due.would_run': 'correría: {name}  {kind}  {next}',
+  'platform.jobs.run_due.next_run': 'próxima corrida {date}',
+  'platform.jobs.run_due.dry_run_summary':
+    '(--dry-run: {count, plural, one {# trabajo vencido} other {# trabajos vencidos}}; no se reclamó ni corrió nada)',
+  'platform.jobs.run_due.sandbox':
+    'sandbox: los trabajos corren sin las lecturas externas (external_pull / external_diff_trial_balance). Un cron de conciliación necesita la superficie completa: programa `mnemosine jobs run-due --live`.',
+  'platform.jobs.run_due.outcome_drafts': 'borradores: {count}',
+  'platform.jobs.run_due.auto_disabled':
+    'El trabajo "{name}" llegó a su límite de fallos y se deshabilitó solo. Vuelve a habilitarlo con: mnemosine jobs enable {id}',
+  'platform.jobs.run_due.record_failed': 'La corrida de "{name}" no se pudo registrar en el historial: {error}',
+  'platform.jobs.run_due.drafts_created':
+    '{count, plural, one {# borrador creado: se revisa} other {# borradores creados: se revisan}} con `mnemosine review`.',
   'help.jobs.adopt.description':
     'Adopta un trabajo: con jobs.run_due en "adopted" en ~/.mnemosine/config.json, jobs run-due corre sólo los trabajos que adoptaste',
   'help.jobs.adopt.argument.job_id': 'Id del trabajo (se omite con --list)',
@@ -3616,6 +3650,70 @@ export const ES: Record<keyof typeof EN, string> = {
     '{count, plural, one {# REP aparcado se reintentaría} other {# REP aparcados se reintentarían}} (dry-run: nada se tocó).',
   'fiscal_mx.rep.reconcile.done':
     '{retried, plural, one {# reintentado} other {# reintentados}}: {linked, plural, one {# ligado} other {# ligados}}, {parked, plural, one {# sigue aparcado} other {# siguen aparcados}}, {errors, plural, one {# error} other {# errores}}',
+
+  'fiscal_mx.sat.cred.file_missing': 'El archivo {label} no existe: {file}',
+  'fiscal_mx.sat.cred.file_exposed':
+    'AVISO: otros usuarios del sistema pueden leer {file} (modo {mode}). Considera: chmod 600 {file}',
+  'fiscal_mx.sat.cred.key_unneeded_note': '--idempotency-key no aplica aquí: {reason}.',
+  'fiscal_mx.sat.cred.add.key_unneeded':
+    'la custodia la guardan el consentimiento tecleado y el estado de la credencial',
+  'fiscal_mx.sat.cred.add.certificate_read': 'Certificado leído',
+  'fiscal_mx.sat.cred.add.certificate':
+    '  tipo: {type}\n  RFC: {rfc}\n  serie: {serial}\n  vigencia: {from} → {to}\n  entidad destino: {entity} ({taxId})',
+  'fiscal_mx.sat.cred.add.csd': 'Es un CSD (sello digital), no una e.firma. La descarga masiva del SAT lo rechaza.',
+  'fiscal_mx.sat.cred.add.rfc_mismatch':
+    'El RFC del certificado ({rfc}) no coincide con la entidad "{entity}" ({taxId}).',
+  'fiscal_mx.sat.cred.add.pick_entity': 'Usa --entity para elegir la entidad correcta.',
+  'fiscal_mx.sat.cred.add.expired': 'El certificado venció el {date}. Renuévalo en el SAT.',
+  'fiscal_mx.sat.cred.add.dry_run':
+    '(dry-run: certificado válido para esta entidad. La corrida real pide la contraseña de la llave, verifica el par y guarda el material en la bóveda. No se guardó nada.)',
+  'fiscal_mx.sat.cred.add.validation_passed': 'Validación aprobada.',
+  'fiscal_mx.sat.cred.add.live_needed':
+    'Guardar la e.firma en la bóveda es el efecto externo real y hay que pedirlo: vuelve a correr con --live para que se te pida la contraseña y se complete el depósito.',
+  'fiscal_mx.sat.cred.add.password_prompt': 'Contraseña de la llave privada (no se muestra)',
+  'fiscal_mx.sat.cred.add.bad_pair': 'La llave no corresponde al certificado, o la contraseña es incorrecta.',
+  'fiscal_mx.sat.cred.add.pair_verified': 'Par de llaves verificado localmente.',
+  'fiscal_mx.sat.cred.add.consent_prompt':
+    '¿Autorizas guardar esta e.firma? escribe "accept" para continuar (--yes no se salta esto)',
+  'fiscal_mx.sat.cred.add.cancelled': 'Cancelado. No se guardó nada.',
+  'fiscal_mx.sat.cred.add.registered': 'e.firma registrada para {entity}',
+  'fiscal_mx.sat.cred.add.custody': 'custodia: {backend}',
+  'fiscal_mx.sat.cred.add.unattended':
+    'uso desatendido: {unattended, select, yes {permitido} other {prohibido}} · límite: {limit}/24h',
+  'fiscal_mx.sat.cred.add.audit_hint': 'auditoría: {command}',
+  'fiscal_mx.sat.cred.status.none': 'No hay credenciales registradas. Agrega una con: {command}',
+  'fiscal_mx.sat.cred.status.expired': '(vencida)',
+  'fiscal_mx.sat.cred.status.expires_soon':
+    '(vence en {days, plural, one {# día} other {# días}} — renuévala en el SAT)',
+  'fiscal_mx.sat.cred.status.expires_in': '(vence en {days, plural, one {# día} other {# días}})',
+  'fiscal_mx.sat.cred.status.custody': 'serie {serial} · custodia {backend}',
+  'fiscal_mx.sat.cred.status.usage':
+    'desatendido: {unattended, select, yes {sí} other {no}} · límite {limit}/24h · último uso: {last}',
+  'fiscal_mx.sat.cred.status.never_used': 'nunca',
+  'fiscal_mx.sat.cred.status.vault': 'Bóveda: {health, select, ok {OK} other {ERROR}} — {detail}',
+  'fiscal_mx.sat.cred.audit.none': 'No hay accesos registrados.',
+  'fiscal_mx.sat.cred.audit.title': 'Accesos a la credencial de {entity}',
+  'fiscal_mx.sat.cred.audit.mode': '{mode, select, unattended {desatendido} other {con operador}}',
+  'fiscal_mx.sat.cred.revoke.key_unneeded': 'una segunda revocación se rechaza porque ya no queda credencial activa',
+  'fiscal_mx.sat.cred.revoke.nothing_active':
+    'No hay credencial activa que revocar; la corrida real también se negaría.',
+  'fiscal_mx.sat.cred.revoke.would_revoke': 'Revocaría',
+  'fiscal_mx.sat.cred.revoke.would':
+    '{verb} la {type} de {entity} (serie {serial}) y destruiría criptográficamente su material en la bóveda {custody}',
+  'fiscal_mx.sat.cred.revoke.custody': '(custodia: {backend})',
+  'fiscal_mx.sat.cred.revoke.dry_run': '(dry-run: no se revocó ni se destruyó nada)',
+  'fiscal_mx.sat.cred.revoke.about_to': 'Estás por borrar de la custodia la e.firma de {entity}.',
+  'fiscal_mx.sat.cred.revoke.irreversible': 'El borrado es criptográfico e irreversible; habrá que volver a cargarla.',
+  'fiscal_mx.sat.cred.revoke.confirm_prompt': 'Escribe el RFC de la entidad para confirmar',
+  'fiscal_mx.sat.cred.revoke.cancelled': 'Cancelado.',
+  'fiscal_mx.sat.cred.revoke.done': 'Credencial revocada y material borrado de la bóveda.',
+  'fiscal_mx.sat.download.check.key_unneeded':
+    'preguntar otra vez el estado no hace daño y registra el estado más reciente',
+  'fiscal_mx.sat.download.package.key_unneeded':
+    'un paquete ya archivado no se vuelve a descargar, y cada CFDI se deduplica por su UUID',
+  'fiscal_mx.cfdi.sync.retry_reconsults': 'un reintento vuelve a consultar al SAT y reescribe el caché',
+  'fiscal_mx.cfdi.post.key_unneeded':
+    'un CFDI da una sola factura: una repetición encuentra su prerregistro cerrado, o una factura con su UUID, y se rechaza',
 
   // ==== end of I8.7 ====
 

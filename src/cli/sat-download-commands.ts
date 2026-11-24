@@ -339,7 +339,7 @@ function writeOutput(dir: string, packageId: string, bytes: Buffer): string {
  */
 export async function importPackage(
   ctx: AgentContext, reviewer: Reviewer, scope: EntityScope, request: MirrorRequest, file: string,
-  log: (line: string) => void = console.log
+  log: (line: string) => void = (line) => stdout.write(`${line}\n`)
 ): Promise<{ invalid: number; failed: number }> {
   const run = await runCensus({
     kind: request.requestType === 'Metadata' ? 'metadata' : 'zip', files: [file], scope, entityRfc: ctx.taxId,
@@ -438,7 +438,7 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
     return shutdown(exitForSat(err));
   };
   const io = (): RunIo => ({
-    log: (line) => console.log(line),
+    log: (line) => stdout.write(`${line}\n`),
     reportError,
     dim: (s) => c.dim(s),
     confirm: async (prompt) => {
@@ -505,7 +505,7 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
   check.addHelpText('after', EXAMPLES.check);
   declareRisk(check, {
     risk: 'externo',
-    llave: { innecesaria: 'asking the state again is harmless and records the latest state' },
+    llave: { innecesaria: t('fiscal_mx.sat.download.check.key_unneeded') },
     agent: false,
     writes: 'sat_download_requests (state and package ids); one signed request to the SAT per ask',
   });
@@ -532,7 +532,7 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
     try {
       const ctx = await resolveEntity(opts.entity);
       const row = await requestOrNotFound(entityScope(ctx.tenantId, ctx.entityId), id);
-      console.log(wantsJson(opts) ? JSON.stringify(forAgent(row)) : describe(row));
+      stdout.write(`${wantsJson(opts) ? JSON.stringify(forAgent(row)) : describe(row)}\n`);
       await shutdown(0);
     } catch (err) {
       await fail(err);
@@ -554,9 +554,9 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
       const rows = await listRequests(entityScope(ctx.tenantId, ctx.entityId), {
         status: opts.status, since: opts.since ? `${dayOrUsage('--since', opts.since)}T00:00:00` : undefined, limit: opts.limit,
       });
-      if (wantsJson(opts)) console.log(JSON.stringify(rows.map(forAgent)));
-      else if (rows.length === 0) console.log(t('sat.dl.list.empty'));
-      else for (const r of rows) console.log(describe(r));
+      if (wantsJson(opts)) stdout.write(`${JSON.stringify(rows.map(forAgent))}\n`);
+      else if (rows.length === 0) stdout.write(`${t('sat.dl.list.empty')}\n`);
+      else for (const r of rows) stdout.write(`${describe(r)}\n`);
       await shutdown(0);
     } catch (err) {
       await fail(err);
@@ -575,7 +575,7 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
   pkgDownload.addHelpText('after', EXAMPLES.packageDownload);
   declareRisk(pkgDownload, {
     risk: 'externo',
-    llave: { innecesaria: 'a package already archived is never downloaded again, and each CFDI deduplicates by UUID' },
+    llave: { innecesaria: t('fiscal_mx.sat.download.package.key_unneeded') },
     agent: false,
     writes: 'sat_download_packages; with --import also sat_cfdi_census, sat_census_loads, xml_documents and the inbox',
   });
@@ -607,15 +607,15 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
         since: opts.since ? `${dayOrUsage('--since', opts.since)}T00:00:00` : undefined,
         until: opts.until ? `${dayOrUsage('--until', opts.until)}T23:59:59` : undefined,
       });
-      if (wantsJson(opts)) console.log(JSON.stringify(rows));
-      else if (rows.length === 0) console.log(t('sat.dl.quota.empty'));
+      if (wantsJson(opts)) stdout.write(`${JSON.stringify(rows)}\n`);
+      else if (rows.length === 0) stdout.write(`${t('sat.dl.quota.empty')}\n`);
       else {
         for (const q of rows) {
-          console.log(t('sat.dl.quota.line', {
+          stdout.write(t('sat.dl.quota.line', {
             state: q.remaining === 0 ? t('sat.dl.quota.spent') : t('sat.dl.quota.left', { n: q.remaining }),
             direction: q.direction, from: q.periodStart.slice(0, 10), to: q.periodEnd.slice(0, 10),
             made: q.requestsMade, limit: LIFETIME_XML_LIMIT,
-          }));
+          }) + '\n');
         }
       }
       await shutdown(0);
