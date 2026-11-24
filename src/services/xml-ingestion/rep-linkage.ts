@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
+import { AppError } from '../../utils/errors.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { TERMINAL_INVOICE_STATUSES } from '../ar/invoice-service.js';
 import {
@@ -432,7 +433,10 @@ export async function ligarPagoREP(opts: {
     return {
       accion: 'revision',
       motivo:
-        'El comprobante no se pudo registrar como pago: ' + (e as Error).message,
+        // A refusal written by key renders in the active language, the one of
+        // the sentence around it (MNE-001-480): its `message` is English.
+        'El comprobante no se pudo registrar como pago: ' +
+        (e instanceof AppError ? e.localized() : (e as Error).message),
       avisos,
     };
   }

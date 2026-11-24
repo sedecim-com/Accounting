@@ -103,6 +103,7 @@ import { getAccountBalanceByPeriod } from '../../src/services/accounting/account
 import { listEntriesWithLines, previewEntryPosting } from '../../src/services/accounting/journal-entry-service.js';
 import { parseImportFile, stageEntryImport } from '../../src/services/accounting/entry-import-service.js';
 import {
+  createFiscalYear,
   getFiscalYear,
   getPeriodDetail,
   listFiscalYears,
@@ -187,6 +188,17 @@ const detail = (over: Record<string, unknown> = {}) => () => {
 };
 const existingYear = (periods: number) => () => {
   vi.mocked(listFiscalYears).mockResolvedValue([{ year_number: 2027, period_count: periods }] as never);
+};
+
+/** `year create` on a year whose predecessor was sealed before it existed (#594). */
+const bornOnSealedBooks = (accounts: number) => () => {
+  vi.mocked(createFiscalYear).mockResolvedValueOnce({
+    created: true, yearNumber: 2027, fiscalYearId: 'Y1', periods: 13,
+    opening: {
+      previous: { period_name: 'Year-end adjustments 2026', status: 'hard_close' },
+      carry: { carried: accounts, periods: ['January 2027'], stopped_at_locked: null },
+    },
+  } as never);
 };
 
 type Where = 'error' | 'out' | 'err';
@@ -487,6 +499,11 @@ const CASES: Case[] = [
     en: '✔ Fiscal year 2027 created with', es: '✔ Ejercicio 2027 creado con' },
   { key: 'ledger.period.year.created_detail', argv: ['year', 'create', '2027'], where: 'out',
     en: ' with 12 monthly periods and the year-end adjustment period (13)\n', es: ' con 12 periodos mensuales y el periodo de ajuste de fin de ejercicio (13)\n' },
+  { key: 'ledger.period.year.carried', argv: ['year', 'create', '2027'], where: 'out', setup: bornOnSealedBooks(3),
+    en: '(13)\n  Opening balances carried from Year-end adjustments 2026: 3 accounts\n  Open a future month',
+    es: '(13)\n  Saldos iniciales arrastrados desde Year-end adjustments 2026: 3 cuentas\n  Abre un mes futuro' },
+  { key: 'ledger.period.year.carried', argv: ['year', 'create', '2027'], where: 'out', setup: bornOnSealedBooks(1),
+    en: 'Year-end adjustments 2026: 1 account\n', es: 'Year-end adjustments 2026: 1 cuenta\n' },
   { key: 'ledger.period.year.open_hint', argv: ['year', 'create', '2027'], where: 'out',
     en: '  Open a future month with: mnemosine period open <name>\n', es: '  Abre un mes futuro con: mnemosine period open <nombre>\n' },
 ];

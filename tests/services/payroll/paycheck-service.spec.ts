@@ -63,7 +63,7 @@ vi.mock('../../../src/services/payroll/mx/employment-subsidy.js', async (origina
 }));
 
 import { calculatePaycheck } from '../../../src/services/payroll/common/paycheck-service.js';
-import { query } from '../../../src/database/connection.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 
 const mockQuery = query as unknown as Mock;
@@ -629,5 +629,29 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
     const subsidy = renglonesEscritos().filter((x) => x.tax_type.startsWith('subsidio'));
     expect(subsidy.map((x) => [x.tax_type, x.tax_amount])).toEqual([['subsidio_empleo', '0.0000']]);
     expect(subsidy[0].notas).toMatch(/recibo aparte \[none_on_separate_paycheck\]/);
+  });
+});
+
+describe("a run's paycheck is written on the run's transaction (MNE-001-657)", () => {
+  const ownTransaction = withTransaction as unknown as Mock;
+
+  it('writes on the client handed in and opens no transaction of its own', async () => {
+    ownTransaction.mockClear();
+    const runTransaction = { query: vi.fn().mockResolvedValue({ rows: [], rowCount: 1 }) };
+    await calculatePaycheck(ENTRADA, runTransaction as unknown as Parameters<typeof calculatePaycheck>[1]);
+    expect(ownTransaction).not.toHaveBeenCalled();
+    expect(clienteEspia.query).not.toHaveBeenCalled();
+    const written = runTransaction.query.mock.calls.map((c) => /INSERT INTO (\w+)/.exec(String(c[0]))?.[1]);
+    // The paycheck, its earning and its tax rows: all on the run's client.
+    expect(written.filter((t) => t === 'paychecks')).toHaveLength(1);
+    expect(written.filter((t) => t === 'paycheck_earnings')).toHaveLength(1);
+    expect(written.filter((t) => t === 'paycheck_taxes').length).toBeGreaterThan(0);
+  });
+
+  it('without one it commits on its own, as a single paycheck always did', async () => {
+    ownTransaction.mockClear();
+    await calculatePaycheck(ENTRADA);
+    expect(ownTransaction).toHaveBeenCalledTimes(1);
+    expect(insercionDelRecibo().sql).toMatch(/INSERT INTO paychecks/);
   });
 });

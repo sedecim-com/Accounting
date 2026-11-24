@@ -206,7 +206,7 @@ describe('payment create --bank', () => {
     const docNumber = await approvedBill();
     const r = await run(['payment', 'create', docNumber, '--amount', '1000', '--bank', 'Santander']);
     expect(r.exitCode).not.toBe(0);
-    expect(r.err).toContain('inactiva');
+    expect(r.err).toContain('inactive');
     expect(await billPayments(docNumber)).toEqual([]);
   });
 

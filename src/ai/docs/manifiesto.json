@@ -109,7 +109,7 @@
   "hashes": {
     "src/services/accounting/posting.ts": "934ea5433715897e7ac79c9d5f25a4eb030ad4f9",
     "src/services/accounting/validation.ts": "e4208d85f2037fdca382e25db68be452c03fac18",
-    "src/services/accounting/fiscal-calendar-service.ts": "41d614756f6c39fc3369df48fe65337a7e012c26",
+    "src/services/accounting/fiscal-calendar-service.ts": "0772025016cf4d7c1cf2ba143a1d947d6bd1031a",
     "src/cli/entry-command.ts": "76201faac5d758687cb842354f0291849d110a35",
     "src/services/accounting/iva-cash-basis.ts": "86146352fdb9ac7aeafef69581f3b0605a5459fc",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "4b36a121400a9ffc304aa240125214a52dc2648b",
@@ -124,7 +124,7 @@
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "9beff09988da940ee108c7461914c8e68dd43643",
     "src/services/ap/vendor-service.ts": "5f960403a1a67b3373543f99dfeaa0a0704d70f5",
-    "src/services/payments/payment-service.ts": "1c60def37887b16ec547d28c44db143c1f786004",
+    "src/services/payments/payment-service.ts": "68284dd7b35090dff856c301b1b790595393b71e",
     "src/services/banking/bank-statement-service.ts": "43314db445a56c645c01a677c3b2db4202c55cbb",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "0c7c66c735e58c9b5e3ade2ae8d2065834f58b14",

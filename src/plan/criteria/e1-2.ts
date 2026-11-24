@@ -1066,8 +1066,16 @@ export const E1_2: Criterio[] = [
 
       // 2. REHÚSA, NO CONVIERTE. Una conversión silenciosa aquí sería elegirle
       //    al despacho la fuente del tipo de cambio.
+      //    MNE-001-480: the refusal is a catalogue key, so the site must throw
+      //    that key and its text, in en and in es, must name the panel key.
       const mensaje = customerSide.slice(compara, inserta);
-      if (!/fuente_tipo_cambio/.test(mensaje)) {
+      const refusalKey = 'error.VALIDATION_ERROR.payment.advance_other_currency';
+      const catalogText = (file: string): string =>
+        new RegExp(`'${refusalKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}':\\s*'([^']*)'`).exec(codigoDe(file))?.[1] ?? '';
+      if (
+        !mensaje.includes(`key: '${refusalKey}'`) ||
+        !['src/i18n/en.ts', 'src/i18n/es.ts'].every((f) => /fuente_tipo_cambio/.test(catalogText(f)))
+      ) {
         return falla('el rechazo dejó de decir que la tasa y su fuente las decide el panel: sin eso parece una limitación y no una negativa razonada');
       }
 

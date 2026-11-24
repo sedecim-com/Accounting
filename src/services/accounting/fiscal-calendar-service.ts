@@ -7,7 +7,13 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 // corrija. (El ciclo con period-close → ledger-checks → este módulo se
 // resuelve en tiempo de llamada, no de carga: nadie usa el otro módulo
 // mientras se evalúa el suyo.)
-import { carryForwardBalances, closeFiscalYearIfSealed, reopenFiscalYearOf } from './period-close.js';
+import {
+  carryForwardBalances,
+  closeFiscalYearIfSealed,
+  openFiscalYearOnSealedBooks,
+  reopenFiscalYearOf,
+  type FiscalYearOpening,
+} from './period-close.js';
 import {
   NotFoundError,
   ValidationError,
@@ -506,6 +512,8 @@ export interface EnsureFiscalYearResult {
   fiscalYearId: string;
   yearNumber: number;
   periods: number;
+  /** Only when the year was created: the period before it and what it carried in. */
+  opening?: FiscalYearOpening;
 }
 
 /**
@@ -528,6 +536,10 @@ export interface EnsureFiscalYearResult {
  * entry dated December 31 still lands in December while December is open
  * (every date lookup orders by period_number), and its status follows
  * December's.
+ *
+ * And its beginning balances, when the period before it is already sealed
+ * (#594): that seal found no next period to carry into, so the year is born
+ * with the carry it missed. `opening` says from where and how much.
  */
 export async function ensureFiscalYear(
   entityId: string,
@@ -551,7 +563,7 @@ export async function ensureFiscalYear(
     };
   }
 
-  const fiscalYearId = await withTransaction(async (client) => {
+  const born = await withTransaction(async (client) => {
     const fy = await client.query<{ id: string }>(
       `INSERT INTO fiscal_years (entity_id, year_number, start_date, end_date, is_calendar_year, status)
        VALUES ($1, $2, $3, $4, true, 'open') RETURNING id`,
@@ -592,10 +604,13 @@ export async function ensureFiscalYear(
         `${yearNumber}-12-31`, `${yearNumber}-12-31`, status,
       ]
     );
-    return fy.rows[0].id;
+    // Same transaction as the calendar: a year whose predecessor is already
+    // sealed exists with its beginning balances, or does not exist (#594).
+    const opening = await openFiscalYearOnSealedBooks(client, entityId, fy.rows[0].id);
+    return { fiscalYearId: fy.rows[0].id, opening };
   });
 
-  return { created: true, fiscalYearId, yearNumber, periods: YEAR_END_PERIOD_NUMBER };
+  return { created: true, yearNumber, periods: YEAR_END_PERIOD_NUMBER, ...born };
 }
 
 /**

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
+import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../../database/connection.js';
 import { calculatePaycheck, checkOvertimeLines, checkUsTaxTables, type EarningLine, type DeductionLine } from './paycheck-service.js';
 import {
@@ -62,11 +63,45 @@ export async function createPayRun(input: PayRunInput, scope: Scope): Promise<st
   return id;
 }
 
+/**
+ * Calculates a run WHOLE OR NOT AT ALL, and again while it is not approved
+ * (MNE-001-657, #601).
+ *
+ * Everything the calculation writes goes through ONE transaction: the gate,
+ * the removal of the paychecks the run had, each paycheck with its rows, and
+ * the totals. It used to commit `calculating` and then paycheck by paycheck:
+ * a failure for the third employee left two paychecks and a run that could
+ * not be calculated again, since nothing removed them and the paycheck insert
+ * refuses a duplicate on purpose. Now a failure anywhere rolls the run back
+ * to the status, the totals and the paychecks it had.
+ *
+ * A second calculation REPLACES: the run holds the employees of the last
+ * inputs and nobody else, which is what makes its totals the sum of its
+ * paychecks. Whoever sent a run in several calls sends it in one.
+ */
 export async function calculatePayRun(
   payRunId: string,
   input: PayRunInput,
   scope: Scope
 ): Promise<void> {
+  const totals = await withTransaction((client) => calculateRunOn(client, payRunId, input, scope));
+  // After the commit: a webhook never announces a calculation that rolled back.
+  await dispatchEvent(input.tenant_id, 'payroll.run.calculated', {
+    pay_run_id: payRunId,
+    total_gross: totals.gross,
+    total_net: totals.net,
+    employee_count: input.employee_inputs.length,
+  });
+  payRunStateTransitions.inc({ from: 'draft', to: 'calculated', country: 'unknown' });
+}
+
+/** The writes of one calculation, on the transaction that makes them one. */
+async function calculateRunOn(
+  client: PoolClient,
+  payRunId: string,
+  input: PayRunInput,
+  scope: Scope
+): Promise<{ gross: string; net: string }> {
   // LA PRIMERA ESCRITURA ES LA PUERTA, y no tenía cerradura: `WHERE id = $1`
   // a secas. Medido contra Postgres, `POST /pay-runs/<corrida de B>/calculate`
   // con una sesión de A contestaba 200 y dejaba la corrida de B con
@@ -77,18 +112,20 @@ export async function calculatePayRun(
   //
   // And the gate carries its STATE (MNE-001-068). Without it an approved or
   // paid run went back to `calculating`: its employer liability was already
-  // written, its paychecks already existed, and the first duplicate paycheck
-  // left the run stranded mid-calculation. Draft, calculated (the REST route
-  // adds employees to a calculated run) and a run stuck in `calculating` may
-  // be calculated; a sealed one may not.
+  // written, and its paychecks would now be replaced. Draft, calculated and a
+  // run an earlier failure left in `calculating` may be calculated; a sealed
+  // one may not.
+  //
+  // The row stays locked until the commit, so an approval or another
+  // calculation of this run waits for this one instead of interleaving.
   const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
-  const puerta = await query(
+  const puerta = await client.query(
     `UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}
         AND status IN ('draft', 'calculating', 'calculated')`,
     [payRunId, ...alcance.valores]
   );
   if (puerta.rowCount === 0) {
-    const current = await query<{ status: string }>(
+    const current = await client.query<{ status: string }>(
       `SELECT status FROM pay_runs WHERE id = $1 AND ${alcance.sql}`,
       [payRunId, ...alcance.valores]
     );
@@ -106,8 +143,7 @@ export async function calculatePayRun(
   let totalNet = new Decimal(0);
 
   // Overtime is checked for EVERY employee before the first paycheck is
-  // written (MNE-001-110): each paycheck commits on its own, so a line refused
-  // halfway would leave the run half-written.
+  // calculated (MNE-001-110): a refused line costs no paycheck's work.
   for (const emp of input.employee_inputs) {
     await checkOvertimeLines({
       tenant_id: input.tenant_id,
@@ -135,15 +171,52 @@ export async function calculatePayRun(
     );
   }
 
-  for (const emp of input.employee_inputs) {
-    const result = await calculatePaycheck({
-      tenant_id: input.tenant_id,
-      pay_run_id: payRunId,
-      employee_id: emp.employee_id,
-      earnings: emp.earnings,
-      deductions: emp.deductions,
-      hours_worked: emp.hours_worked,
+  // THE PAYCHECKS THE RUN HAD GO, with their earnings, deductions and taxes
+  // (ON DELETE CASCADE): those of an earlier calculation, or those a failure
+  // halfway left before this was one transaction. The run is named with the
+  // gate's own predicate and must still be `calculating`, so the statement
+  // carries the scope itself instead of leaning on the one before it.
+  //
+  // Except one that ALREADY LEFT THE SYSTEM. Neither the payroll CFDI nor the
+  // deposit file asks the run's status, so an unapproved run can hold a
+  // stamped paycheck or one a bank file names; a stamp is cancelled before the
+  // SAT, not erased here. The statement counts them as it deletes, and the
+  // refusal rolls the deletion back.
+  const replaced = await client.query<{ left_the_system: number }>(
+    `WITH gone AS (
+       DELETE FROM paychecks
+        WHERE paychecks.pay_run_id = $1 AND paychecks.tenant_id = $2
+          AND EXISTS (SELECT 1 FROM pay_runs
+                       WHERE pay_runs.id = paychecks.pay_run_id AND ${alcance.sql}
+                         AND pay_runs.status = 'calculating')
+       RETURNING cfdi_status, direct_deposit_batch_id
+     )
+     SELECT COUNT(*) FILTER (
+              WHERE (cfdi_status IS NOT NULL AND cfdi_status <> 'failed')
+                 OR direct_deposit_batch_id IS NOT NULL
+            )::int AS left_the_system
+       FROM gone`,
+    [payRunId, ...alcance.valores]
+  );
+  if (replaced.rows[0].left_the_system > 0) {
+    throw new ConflictError({
+      key: 'payrun.calculate.paycheck_left_the_system',
+      params: { id: payRunId, count: replaced.rows[0].left_the_system },
     });
+  }
+
+  for (const emp of input.employee_inputs) {
+    const result = await calculatePaycheck(
+      {
+        tenant_id: input.tenant_id,
+        pay_run_id: payRunId,
+        employee_id: emp.employee_id,
+        earnings: emp.earnings,
+        deductions: emp.deductions,
+        hours_worked: emp.hours_worked,
+      },
+      client
+    );
     totalGross = totalGross.plus(result.gross_earnings);
     totalPreTax = totalPreTax.plus(result.pre_tax_deductions);
     totalPostTax = totalPostTax.plus(result.post_tax_deductions);
@@ -155,8 +228,10 @@ export async function calculatePayRun(
   // El cierre lleva el alcance OTRA VEZ, con su propio índice. No es
   // redundante por gusto: la puerta de arriba y este cierre son dos viajes
   // separados, y entre ellos corre el cálculo entero de todos los recibos.
+  // And its state: it closes the run this transaction opened, and a close
+  // that touches no row is an error, not a silence.
   const alcanceFinal = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 10);
-  await query(
+  const closing = await client.query(
     `UPDATE pay_runs SET
        status = 'calculated',
        total_gross = $1,
@@ -168,7 +243,7 @@ export async function calculatePayRun(
        total_employer_cost = $7,
        employee_count = $8,
        calculated_at = NOW()
-     WHERE id = $9 AND ${alcanceFinal.sql}`,
+     WHERE id = $9 AND ${alcanceFinal.sql} AND status = 'calculating'`,
     [
       totalGross.toFixed(2),
       totalPreTax.toFixed(2),
@@ -182,13 +257,10 @@ export async function calculatePayRun(
       ...alcanceFinal.valores,
     ]
   );
-  await dispatchEvent(input.tenant_id, 'payroll.run.calculated', {
-    pay_run_id: payRunId,
-    total_gross: totalGross.toFixed(2),
-    total_net: totalNet.toFixed(2),
-    employee_count: input.employee_inputs.length,
-  });
-  payRunStateTransitions.inc({ from: 'draft', to: 'calculated', country: 'unknown' });
+  if (closing.rowCount !== 1) {
+    throw new ConflictError({ key: 'payrun.calculate.changed_meanwhile', params: { id: payRunId } });
+  }
+  return { gross: totalGross.toFixed(2), net: totalNet.toFixed(2) };
 }
 
 export interface PayRunSummary {

@@ -701,8 +701,18 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       }
 
       const result = await createFiscalYear(ctx.entityId, yearNumber);
+      // The previous year was sealed before this one existed: it opens with
+      // that year's balances (#594), and the accountant is told from where.
+      const opening = result.opening;
+      const carried =
+        opening?.previous && opening.carry
+          ? { from: opening.previous.period_name, accounts: opening.carry.carried }
+          : null;
       if (opts.json) {
-        render([{ year_number: result.yearNumber, id: result.fiscalYearId, periods: result.periods }], {
+        render([{
+          year_number: result.yearNumber, id: result.fiscalYearId, periods: result.periods,
+          ...(carried ? { opening_carried_from: carried.from, opening_accounts: carried.accounts } : {}),
+        }], {
           json: true,
         });
         return;
@@ -710,6 +720,9 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       process.stdout.write(
         `${deps.palette.green('✔')} ${t('ledger.period.year.created', { year: deps.palette.bold(String(result.yearNumber)) })} ` +
           `${deps.palette.dim(t('ledger.period.year.created_detail'))}\n` +
+          (carried
+            ? deps.palette.dim(`${t('ledger.period.year.carried', { period: carried.from, count: carried.accounts })}\n`)
+            : '') +
           deps.palette.dim(`${t('ledger.period.year.open_hint')}\n`)
       );
     })
