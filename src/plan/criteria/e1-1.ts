@@ -217,31 +217,44 @@ export const E1_1: Criterio[] = [
       // codemod de identificadores no hace, y la que rompe diez imports.
       const oldFolder = spanishJurisdictionPaths(RAIZ);
 
-      // 3 · SIN ENTRADA EN UN CARRIL EXIGIDO.
+      // 3 · NO ENTRY IN A REQUIRED LANE.
       //
-      // «Sin entrada» a secas sería falso y pondría el criterio rojo por algo
-      // que el epic bendice: el módulo SÍ tiene 176 líneas de comentario en
-      // español, y ese carril está declarado `informational` —los comentarios
-      // no se tocan hasta I20—. Lo que I5 promete es que no pese donde se
-      // EXIGE: identificadores, nombres de archivo, anclas del plan.
+      // «No entry» alone would be false, and would turn this criterion red over
+      // something the epic blesses: the module DOES have Spanish comment lines
+      // (176 in jurisdiction.ts when I5 merged). Comments are I20's tranche
+      // (#162), not I5's. What I5 promises is that the module weighs nothing
+      // where names are judged: identifiers, file names, plan anchors.
       //
-      // Qué carril es informativo no se escribe aquí: se lee de donde se
-      // declara, para que añadir o quitar uno no deje este criterio mintiendo.
-      const informationalLanes = new Set<string>();
+      // So two kinds of lane are exempt. An informational lane is read from
+      // where it is declared, so that adding or removing one cannot leave this
+      // criterion lying. The comment lane stopped being informational with
+      // MNE-001-187, which made it a per-file ratchet; it stays exempt BY NAME,
+      // with its reason, and only while a lane file still declares it, so a
+      // renamed lane cannot leave an exemption that exempts nothing.
+      const NOT_I5: Record<string, string> = {
+        'src-spanish-comment-lines':
+          'comments are I20 (#162): the per-file ratchet keeps them from rising, and translating them is not I5',
+      };
+      const declared = new Set<string>();
+      const exempt = new Set<string>();
       for (const file of ['scripts/language/lanes/docs.ts', 'scripts/language/lanes/code.ts', 'scripts/language/lanes/plan.ts']) {
         if (!existe(file)) continue;
         const text = crudoDe(file);
+        for (const m of text.matchAll(/\bid:\s*'([^']+)'/g)) declared.add(m[1]);
         for (const m of text.matchAll(/informational:\s*true/g)) {
           const before = text.slice(0, m.index ?? 0);
           const id = [...before.matchAll(/\bid:\s*'([^']+)'/g)].pop();
-          if (id) informationalLanes.add(id[1]);
+          if (id) exempt.add(id[1]);
         }
       }
-      if (informationalLanes.size === 0) {
-        return noEvaluable(
-          'ningún carril se declara `informational`: sin esa distinción este criterio exigiría ' +
-            'cero comentarios españoles en la jurisdicción, que es I20 y no I5'
-        );
+      for (const lane of Object.keys(NOT_I5)) {
+        if (!declared.has(lane)) {
+          return noEvaluable(
+            `the exemption names «${lane}», which no lane file declares: without it this criterion ` +
+              'would require zero Spanish comments in the jurisdiction module, which is I20 and not I5'
+          );
+        }
+        exempt.add(lane);
       }
 
       const rel = 'docs/language-baseline.json';
@@ -267,7 +280,7 @@ export const E1_1: Criterio[] = [
       }
       const weighs: string[] = [];
       for (const [lane, perFile] of Object.entries(breakdown)) {
-        if (informationalLanes.has(lane)) continue;
+        if (exempt.has(lane)) continue;
         for (const [file, n] of Object.entries(perFile)) {
           // LAS DOS GRAFÍAS. `jurisdicci?on` casa «jurisdiccion» y NO casa
           // «jurisdiction»: le falta la `t`. Lo cazó el arnés de mutación en
@@ -300,7 +313,7 @@ export const E1_1: Criterio[] = [
 
       return ok(
         `los ${OLD_NAMES.length} nombres viejos y la carpeta siguen en cero, y el módulo no pesa en ` +
-          `ninguno de los carriles exigidos (${informationalLanes.size} informativo(s) exento(s) por contrato)`
+          `ninguno de los carriles exigidos (exempt: ${[...exempt].map((l) => `${l}, ${NOT_I5[l] ?? 'informational'}`).join('; ')})`
       );
     },
     mutantes: [
