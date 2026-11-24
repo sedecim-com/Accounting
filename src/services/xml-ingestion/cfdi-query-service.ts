@@ -105,6 +105,10 @@ export interface DetalleCfdi extends FilaCfdi {
  * beyond `entity_id`: this reads the entity's rows, not the table's, once per
  * command. An index on (entity_id, lower(cfdi_uuid)), as migration 340 gave
  * `bills`, would make it a probe again.
+ *
+ * The spellings are ordered by byte (`COLLATE "C"`), upper case first, so the
+ * refusal names them in the same order on every database: under a linguistic
+ * collation (en_US) the lower-case spelling sorts first, under C the upper.
  */
 export async function getCfdiByUuid(entityId: string, uuid: string): Promise<DetalleCfdi> {
   const doc = await query<DetalleCfdi & { id: string }>(
@@ -118,7 +122,7 @@ export async function getCfdiByUuid(entityId: string, uuid: string): Promise<Det
             xd.xml_content
        FROM xml_documents xd JOIN legal_entities le ON le.id = xd.entity_id
       WHERE xd.entity_id = $1 AND lower(xd.cfdi_uuid) = lower($2)
-      ORDER BY xd.cfdi_uuid`,
+      ORDER BY xd.cfdi_uuid COLLATE "C"`,
     [entityId, uuid]
   );
   if (doc.rows.length === 0) throw new NotFoundError('CFDI', uuid);
