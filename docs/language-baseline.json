@@ -24,7 +24,7 @@
     "help-descriptions-without-key": 99,
     "cli-user-strings-without-key": 847,
     "help-examples-without-key": 253,
-    "spanish-user-strings-services": 2007
+    "spanish-user-strings-services": 2012
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1773,8 +1773,8 @@
       "src/services/sat/anexo24/catalog-reader.ts": 15,
       "src/services/sat/anexo24/catalogo-cuentas.ts": 14,
       "src/services/sat/anexo24/polizas-auxiliar-xml.ts": 7,
-      "src/services/sat/anexo24/polizas-invariantes.ts": 18,
-      "src/services/sat/anexo24/polizas-service.ts": 38,
+      "src/services/sat/anexo24/polizas-invariantes.ts": 20,
+      "src/services/sat/anexo24/polizas-service.ts": 41,
       "src/services/sat/anexo24/polizas-xml.ts": 28,
       "src/services/sat/anexo24/seal.ts": 1,
       "src/services/sat/anexo24/validador.ts": 17,
