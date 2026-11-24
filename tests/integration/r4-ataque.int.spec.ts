@@ -317,7 +317,7 @@ describe('el bill en USD posteado conserva su origen', () => {
       [uuidv4(), billId, f.cuentas['6100']]
     );
     await expect(approveBill(billId, f.userId, { entityId: f.entityId })).rejects.toThrow(
-      /default de captura|perdería su origen/
+      /capture default|lose its origin/
     );
   });
 });
@@ -364,7 +364,7 @@ describe('MNE-001-081 · a USD invoice posts, converted at the rate of the fuent
   it('with no DOF rate for the invoice date, issuing fails closed and leaves no half entry', async () => {
     const { invId } = await usdInvoice('1.0000000000', '2026-08-21');
     await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(
-      /No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-08-21/
+      /There is no USD→MXN rate from the source 'dof' for 2026-08-21/
     );
     const inv = await query<{ journal_entry_id: string | null; status: string }>(
       'SELECT journal_entry_id, status FROM invoices WHERE id = $1', [invId]
@@ -401,7 +401,7 @@ describe('MNE-001-081 · a USD invoice posts, converted at the rate of the fuent
 
   it('a captured rate that disagrees with the DOF is refused instead of being silently replaced', async () => {
     const { invId } = await usdInvoice('17.2000000000');
-    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(/No elijo uno en silencio/);
+    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(/Neither is chosen silently/);
     const inv = await query<{ journal_entry_id: string | null }>(
       'SELECT journal_entry_id FROM invoices WHERE id = $1', [invId]
     );

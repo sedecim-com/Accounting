@@ -144,9 +144,7 @@ export async function exigirSegregacion(args: {
   if (politica.value === 'exigir') {
     throw new AccountingError(
       'SOD_QUIEN_CREA_NO_POSTEA',
-      `${args.referencia}: la política de segregación de funciones exige que quien aplica ` +
-        'no sea quien lo preparó. Que otro usuario lo aplique, o ajusta la política ' +
-        'segregacion_de_funciones en mnemosine pending.'
+      { key: 'error.SOD_QUIEN_CREA_NO_POSTEA.apply', params: { reference: args.referencia } }
     );
   }
   if (politica.value === 'alertar') {
@@ -182,9 +180,7 @@ async function autorizarPosteo(
   if (politica.value === 'exigir') {
     throw new AccountingError(
       'SOD_QUIEN_CREA_NO_POSTEA',
-      `${entry.entry_number}: la política de segregación de funciones exige que quien postea ` +
-        'no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la ' +
-        'política segregacion_de_funciones en mnemosine pending.'
+      { key: 'error.SOD_QUIEN_CREA_NO_POSTEA.post', params: { entry: entry.entry_number } }
     );
   }
   if (politica.value === 'alertar') {
@@ -277,7 +273,7 @@ export async function createJournalEntry(
         [entityId]
       );
       if (monedaR.rows.length === 0) {
-        throw new AccountingError('ENTITY_NOT_FOUND', `La entidad ${entityId} no existe o no es visible.`);
+        throw new AccountingError('ENTITY_NOT_FOUND', { key: 'error.ENTITY_NOT_FOUND.posting', params: { entity: entityId } });
       }
       const monedaFuncional = monedaR.rows[0].functional_currency;
       lines.forEach((line, i) => verificarOrigenFx(line, monedaFuncional, i + 1));
@@ -617,7 +613,7 @@ async function tenantParaAuditoria(client: pg.PoolClient, entityId: string): Pro
   if (!tenantId) {
     throw new AccountingError(
       'TENANT_NO_RESUELTO',
-      `No se pudo determinar el inquilino de la entidad ${entityId}: el asiento no se escribe sin rastro de auditoría.`
+      { key: 'error.TENANT_NO_RESUELTO.entry', params: { entity: entityId } }
     );
   }
   return tenantId;

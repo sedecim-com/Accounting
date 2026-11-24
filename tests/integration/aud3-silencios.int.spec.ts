@@ -51,7 +51,7 @@ describe('un tope de cero no puede significar dos cosas', () => {
 
     await expect(
       withTransaction((client) => ivaStillParked(client, 'received', desnuda, uuidv4()))
-    ).rejects.toThrow(/no tiene sembrada la capa semántica/);
+    ).rejects.toThrow(/has no semantic layer seeded/);
   });
 
   it('una entidad sembrada devuelve cero sin quejarse: ahí sí no hay nada aparcado', async () => {

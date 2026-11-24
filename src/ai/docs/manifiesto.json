@@ -107,11 +107,11 @@
     "niif-pymes-convergencia.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él"
   },
   "hashes": {
-    "src/services/accounting/posting.ts": "06c5ae5b0f03ee6864010b3551c3ebd677be92f5",
+    "src/services/accounting/posting.ts": "934ea5433715897e7ac79c9d5f25a4eb030ad4f9",
     "src/services/accounting/validation.ts": "e4208d85f2037fdca382e25db68be452c03fac18",
-    "src/services/accounting/fiscal-calendar-service.ts": "8ea389c1773146c96a3e8eff83673de39529761e",
+    "src/services/accounting/fiscal-calendar-service.ts": "41d614756f6c39fc3369df48fe65337a7e012c26",
     "src/cli/entry-command.ts": "5f07b54e66ce47adeb81c1dff510224bf4a593c3",
-    "src/services/accounting/iva-cash-basis.ts": "9fa0efcfae8acb279fd2b63bf72df381fcc9f998",
+    "src/services/accounting/iva-cash-basis.ts": "86146352fdb9ac7aeafef69581f3b0605a5459fc",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "4b36a121400a9ffc304aa240125214a52dc2648b",
     "src/services/integrations/mexico/pac/pac-router.ts": "e51f69e09c6cd2906d8174e81291114019f2d27e",
     "src/api/rest/routes/invoices.ts": "0ad338785835cf68b51d536b153bc2151e63f27e",
@@ -142,7 +142,7 @@
     "src/services/ar/customer-service.ts": "c2810ad9fcbb287f546ecad469c3e8490225e783",
     "src/services/ar/credit-note-service.ts": "ae8c8ce3357372772fae6fd5dd3c52046c8424e2",
     "src/services/ar/ar-controls.ts": "4729436ffcefabee13cffb7288cbc2a4bfaf27fb",
-    "src/services/accounting/ar-ap-posting.ts": "636be606d8d494beac0cfc365cd42c47cbe1e5aa",
+    "src/services/accounting/ar-ap-posting.ts": "3dc5c610747c4b3a4fbcdd53bd6b94cf85b54c73",
     "src/ai/providers/index.ts": "1f1fc8dc8dcc1cddd17a232a71fde3115f18fec1",
     "src/ai/providers/config.ts": "ba11e0bec7719bfdfb00e40305c9f285ee5a6ea0",
     "src/ai/draft-service.ts": "057a0d0571b0833ab0c82925c088959f8dc2cc1e",

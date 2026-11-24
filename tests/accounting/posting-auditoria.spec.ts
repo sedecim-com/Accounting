@@ -190,7 +190,7 @@ describe('alta de asiento', () => {
     // rastro no debe llegar a existir.
     await expect(
       createJournalEntry(ID.entidad, new Date('2026-08-15'), JournalEntryType.STANDARD, 'Póliza', LINEAS, ID.usuario)
-    ).rejects.toThrow(/inquilino/i);
+    ).rejects.toThrow(/tenant/i);
   });
 });
 
