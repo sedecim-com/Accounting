@@ -13,7 +13,7 @@
  * LOS CUATRO
  *
  *   `docs-dead-path-citations`      citas en docs/ de rutas del repo que no existen
- *   `src-spanish-comment-lines`     líneas de comentario en español en src/ (informativo)
+ *   `src-spanish-comment-lines`     líneas de comentario en español en src/ (per-file ratchet, MNE-001-187)
  *   `docs-english-pages-untwinned`  páginas publicadas en inglés sin su gemela .es.md
  *   `docs-spanish-twins-stale`      gemelas cuyo `source_sha` ya no casa con el original
  *
@@ -366,11 +366,14 @@ function deadPathsLane(root: string): Lane {
 // ============================================================
 // CARRIL 2 · LÍNEAS DE COMENTARIO EN ESPAÑOL EN src/
 //
-// INFORMATIVO, y no por timidez: el epic no exige traducir comentarios hasta
-// I20. Un carril que hoy nadie puede bajar, metido en el mismo trinquete que
-// los que sí, es exactamente cómo se llega a una puerta que nunca está en verde
-// y que alguien acaba desactivando entera. Se mide desde el primer día para que
-// en I20 haya serie, no para exigirlo desde el primer día.
+// A PER-FILE RATCHET SINCE MNE-001-187 (#162). It was born informational
+// (2026-09-07): the epic does not ask for the existing comments to be
+// translated until I20, and a lane nobody could lower, judged in the same gate
+// as the others, would have kept CI red until someone switched the gate off.
+// The ratchet asks less than that: it does not ask anyone to lower the count,
+// only that no file gains a Spanish comment line. That can be met on any PR,
+// so the gate can judge it; the informational lane had risen from 27,780 to
+// 28,993 lines in the meantime. Translating what exists is still I20's work.
 //
 // POR QUÉ NO SE MIRAN LOS ACENTOS. Media base de código escribe sin ellos
 // («comision», «periodo», «analisis»), así que buscar `[áéíóúñ]` mediría quién
@@ -477,6 +480,17 @@ function spanishCommentLines(root: string): Array<{ file: string; line: number; 
   return out;
 }
 
+/**
+ * What a finding of the comment lane tells its author (MNE-001-187, #162).
+ * The lane was informational until the owner answered «Correcto» to turning
+ * the gate on (#603, 2026-11-18); since then a file may not gain a Spanish
+ * comment line, and a file with no entry may not bring one.
+ */
+export const SPANISH_COMMENT_PER_ENTRY_RULE =
+  'new comments are written in English (docs/language.md, rule 1); translate the line, or, ' +
+  'when it must quote Spanish (a statute, the owner\'s words), raise the file\'s floor by hand ' +
+  'in docs/language-baseline.json and say so in the commit';
+
 function spanishCommentsLane(root: string): Lane {
   const lines = spanishCommentLines(root);
   const perFile: Record<string, number> = {};
@@ -489,8 +503,8 @@ function spanishCommentsLane(root: string): Lane {
     target: 0,
     command: 'npx tsx scripts/language/lanes/docs.ts src-spanish-comment-lines | wc -l',
     examples: lines.slice(0, EXAMPLE_COUNT).map((l) => `${l.file}:${l.line}  ${l.text.slice(0, 72)}`),
-    informational: true,
     perFile,
+    perEntryRule: SPANISH_COMMENT_PER_ENTRY_RULE,
   };
 }
 
