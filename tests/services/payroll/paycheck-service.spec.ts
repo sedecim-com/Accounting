@@ -632,6 +632,80 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
   });
 });
 
+describe('the days of a period contribute to IMSS and INFONAVIT once (MNE-001-658)', () => {
+  // The doubles give the quotas OF THE PERIOD: worker 75.50, employer 300.00,
+  // INFONAVIT 150.00 and a credit discount of 60.00, on a base of 7 500.00.
+  const othersCharged = (row: Record<string, string>): void => {
+    const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
+    mockQuery.mockImplementation(async (sql: string, args: unknown[]) =>
+      /FROM paychecks/.test(sql) ? { rows: [{ paychecks: 1, taxable: '0', subsidy: '0', ...row }] } : base(sql, args)
+    );
+  };
+  const stored = (column: string): unknown => {
+    const { sql, params } = insercionDelRecibo();
+    const columns = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map((x) => x.trim());
+    return params[columns.indexOf(column)];
+  };
+  const details = () => JSON.parse(String(stored('calculation_details'))) as Record<string, unknown>;
+  const contributionRows = () =>
+    Object.fromEntries(
+      renglonesEscritos()
+        .filter((r) => /^(imss|infonavit)/.test(r.tax_type))
+        .map((r) => [`${r.tax_type} ${r.lado}`, r])
+    );
+
+  it('charges none when another paycheck of the period already charged them, and says so', async () => {
+    othersCharged({
+      imss_employee: '75.50', imss_employer: '300.00', infonavit_employer: '150.00', infonavit_credit: '60.00',
+      contribution_base: '7500.00',
+    });
+    const r = await calculatePaycheck(ENTRADA);
+    const rows = contributionRows();
+    expect(Object.keys(rows).sort()).toEqual(['imss EE', 'imss ER', 'infonavit ER', 'infonavit_credit EE']);
+    for (const row of Object.values(rows)) {
+      expect([row.tax_amount, row.taxable_wages]).toEqual(['0.0000', '0.0000']);
+    }
+    expect(rows['imss EE'].notas).toMatch(/quota of the period 75\.50; its other paychecks already charged 75\.50/);
+    expect(rows['imss ER'].notas).toMatch(/already charged 300\.00/);
+    expect(rows['infonavit ER'].notas).toMatch(/already charged 150\.00/);
+    expect(rows['infonavit_credit EE'].notas).toMatch(/already charged 60\.00/);
+    expect([stored('imss_employee'), stored('imss_employer'), stored('infonavit_employer'), stored('infonavit_withheld')])
+      .toEqual([0, 0, 0, 0]);
+    expect(stored('taxable_wages_imss')).toBe(0);
+    // By hand: 3 000.00 gross; the ISR of 158.57 is absorbed by the subsidy;
+    // no quota and no credit discount are taken a second time.
+    expect([r.net_pay, r.employee_taxes, r.employer_taxes]).toEqual([3000, 0, 0]);
+    expect(details()).toHaveProperty('contributions_charged_by_other_paychecks_of_period', {
+      paychecks: 1, imss_employee: '75.50', imss_employer: '300.00', infonavit_employer: '150.00', infonavit_credit: '60.00',
+    });
+  });
+
+  it('charges only what the others have not, each contribution on its own and never below zero', async () => {
+    // The worker's quota was charged in part (50.00 of 75.50 → 25.50), the
+    // employer's in excess (400.00 of 300.00 → 0.00), INFONAVIT not at all.
+    othersCharged({
+      imss_employee: '50.00', imss_employer: '400.00', infonavit_employer: '0', infonavit_credit: '0',
+      contribution_base: '5000.00',
+    });
+    await calculatePaycheck(ENTRADA);
+    const rows = contributionRows();
+    expect([rows['imss EE'].tax_amount, rows['imss EE'].taxable_wages]).toEqual(['25.5000', '2500.0000']);
+    expect(rows['imss ER'].tax_amount).toBe('0.0000');
+    expect([rows['infonavit ER'].tax_amount, rows['infonavit ER'].taxable_wages]).toEqual(['150.0000', '7500.0000']);
+    expect(rows['infonavit ER'].notas ?? '').not.toMatch(/already charged/);
+    expect(rows['infonavit_credit EE'].tax_amount).toBe('60.0000');
+    expect(stored('taxable_wages_imss')).toBe(2500);
+  });
+
+  it('charges the whole quota of the period when no other paycheck charged any, and records nothing', async () => {
+    await calculatePaycheck(ENTRADA);
+    const rows = contributionRows();
+    expect([rows['imss EE'].tax_amount, rows['imss ER'].tax_amount, rows['infonavit ER'].tax_amount, rows['infonavit_credit EE'].tax_amount])
+      .toEqual(['75.5000', '300.0000', '150.0000', '60.0000']);
+    expect(details()).not.toHaveProperty('contributions_charged_by_other_paychecks_of_period');
+  });
+});
+
 describe("a run's paycheck is written on the run's transaction (MNE-001-657)", () => {
   const ownTransaction = withTransaction as unknown as Mock;
 

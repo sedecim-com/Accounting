@@ -201,6 +201,10 @@ export async function generateSuaFile(
 
   const records: string[] = [];
   const byEmployee = new Map<string, SuaEmployee>();
+  // The days of a period are counted once per worker, whatever the number of
+  // payslips the period has (MNE-001-658): the fortnight and a year-end bonus
+  // paid in its own run are the same fifteen contribution days.
+  const countedPeriods = new Set<string>();
   for (const r of result.rows) {
     let e = byEmployee.get(r.employee_id);
     if (!e) {
@@ -230,7 +234,11 @@ export async function generateSuaFile(
     // Added through Decimal: float sums of cents drift, and the cross-check
     // below compares these totals with `equals`.
     const add = (acc: number, amount: string | null) => share(amount).amount.plus(acc).toNumber();
-    e.days_worked += share(r.imss_employer).days;
+    const period = `${r.employee_id}|${r.period_start}|${r.period_end}`;
+    if (!countedPeriods.has(period)) {
+      countedPeriods.add(period);
+      e.days_worked += share(r.imss_employer).days;
+    }
     e.imss_employer_amount = add(e.imss_employer_amount, r.imss_employer);
     e.imss_employee_amount = add(e.imss_employee_amount, r.imss_employee);
     e.infonavit_employer_amount = add(e.infonavit_employer_amount, r.infonavit_employer);
