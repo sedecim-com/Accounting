@@ -107,7 +107,7 @@
     "niif-pymes-convergencia.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él"
   },
   "hashes": {
-    "src/services/accounting/posting.ts": "000b5560e5a79e753af637151020196c7ea2b284",
+    "src/services/accounting/posting.ts": "06c5ae5b0f03ee6864010b3551c3ebd677be92f5",
     "src/services/accounting/validation.ts": "e4208d85f2037fdca382e25db68be452c03fac18",
     "src/services/accounting/fiscal-calendar-service.ts": "8ea389c1773146c96a3e8eff83673de39529761e",
     "src/cli/entry-command.ts": "5f07b54e66ce47adeb81c1dff510224bf4a593c3",
@@ -124,7 +124,7 @@
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "9beff09988da940ee108c7461914c8e68dd43643",
     "src/services/ap/vendor-service.ts": "5f960403a1a67b3373543f99dfeaa0a0704d70f5",
-    "src/services/payments/payment-service.ts": "4e2566930e95ca343d7e90303668636f33fc602b",
+    "src/services/payments/payment-service.ts": "77bae13a005ecc5f415610c671a5193264760fbc",
     "src/services/banking/bank-statement-service.ts": "43314db445a56c645c01a677c3b2db4202c55cbb",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "0c7c66c735e58c9b5e3ade2ae8d2065834f58b14",
@@ -142,7 +142,7 @@
     "src/services/ar/customer-service.ts": "c2810ad9fcbb287f546ecad469c3e8490225e783",
     "src/services/ar/credit-note-service.ts": "ae8c8ce3357372772fae6fd5dd3c52046c8424e2",
     "src/services/ar/ar-controls.ts": "995c32e18485749ad2b35c7f40f3493498d2a21c",
-    "src/services/accounting/ar-ap-posting.ts": "d134478943c0d8f898449615fe810e66854f1804",
+    "src/services/accounting/ar-ap-posting.ts": "0b19c27c5945b78bfe8b2540546102dd799ee4a0",
     "src/ai/providers/index.ts": "1f1fc8dc8dcc1cddd17a232a71fde3115f18fec1",
     "src/ai/providers/config.ts": "c670ba683dc4807fe2dbbd947918fb08dba8b190",
     "src/ai/draft-service.ts": "057a0d0571b0833ab0c82925c088959f8dc2cc1e",
