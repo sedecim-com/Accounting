@@ -5141,7 +5141,8 @@ export const EN = {
   'help.pay_run.create.option.period': 'pay period of the active entity (its id)',
   'help.pay_run.create.option.type': 'run type: {types}',
   'help.pay_run.calculate.description':
-    'Calculate gross to net for each employee in the inputs file and total the run',
+    'Calculate gross to net for each employee in the inputs file and total the run; ' +
+    'a run that is not approved can be calculated again, which rebuilds its paychecks',
   'help.pay_run.calculate.argument.id': 'pay run to calculate',
   'help.pay_run.calculate.option.file': 'JSON with the employee inputs: an array, or {shape}',
   'help.pay_run.approve.description':
@@ -7122,6 +7123,11 @@ export const EN = {
   'payrun.calculate.file_required':
     'Missing --file: the employee inputs of the period (earnings and deductions) come from a JSON file.',
   'payrun.calculate.next': 'Next: `mnemosine pay-run approve {id} --dry-run` to see what approving writes.',
+  'payrun.calculate.paycheck_left_the_system':
+    'Run {id} cannot be calculated again: {count, plural, one {# of its paychecks already has} ' +
+    'other {# of its paychecks already have}} a payroll CFDI or a deposit batch, and calculating again ' +
+    'replaces every paycheck of the run. Nothing was changed.',
+  'payrun.calculate.changed_meanwhile': 'Run {id} changed while it was being calculated. Nothing was written.',
   'payrun.approve.confirm':
     'You are about to APPROVE run {id} ({employees, plural, one {# employee} other {# employees}}, ' +
     'net pay {net}) and write its employer liability. Approval is not undone. Continue?',

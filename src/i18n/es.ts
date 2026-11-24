@@ -4488,7 +4488,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.create.option.period': 'periodo de pago de la entidad activa (su id)',
   'help.pay_run.create.option.type': 'tipo de corrida: {types}',
   'help.pay_run.calculate.description':
-    'Calcula de bruto a neto a cada empleado del archivo de insumos y totaliza la corrida',
+    'Calcula de bruto a neto a cada empleado del archivo de insumos y totaliza la corrida; ' +
+    'una corrida sin aprobar se puede volver a calcular, y sus recibos se rehacen',
   'help.pay_run.calculate.argument.id': 'corrida de nómina por calcular',
   'help.pay_run.calculate.option.file': 'JSON con los insumos de los empleados: un arreglo, o {shape}',
   'help.pay_run.approve.description':
@@ -6471,6 +6472,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.calculate.file_required':
     'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
   'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',
+  'payrun.calculate.paycheck_left_the_system':
+    'La corrida {id} no se puede volver a calcular: {count, plural, one {# de sus recibos ya tiene} ' +
+    'other {# de sus recibos ya tienen}} un CFDI de nómina o un lote de depósito, y volver a calcular ' +
+    'reemplaza todos los recibos de la corrida. No se cambió nada.',
+  'payrun.calculate.changed_meanwhile': 'La corrida {id} cambió mientras se calculaba. No se escribió nada.',
   'payrun.approve.confirm':
     'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
     'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',

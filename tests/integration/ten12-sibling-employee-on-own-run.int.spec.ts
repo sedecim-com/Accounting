@@ -139,18 +139,22 @@ describe('the sibling company employee on the own pay run', () => {
     const withSiblingPeriod = randomUUID();
     await addEmployee(own, ownSetup.schedule, withOwnPeriod, 'OWN-P1');
     await addEmployee(own, ownSetup.schedule, withSiblingPeriod, 'OWN-P2');
+    // Each quota is read right after its own call: calculating the run again
+    // replaces its paychecks (MNE-001-657), so the first one is gone by then.
+    const quota = async (id: string): Promise<string | undefined> =>
+      (await query<{ imss_employee: string }>(
+        'SELECT imss_employee::text FROM paychecks WHERE employee_id = $1',
+        [id]
+      )).rows[0]?.imss_employee;
     const a = await pedir(server, 'POST', `/v1/payroll/pay-runs/${ownSetup.run}/calculate`,
       calculateBody(withOwnPeriod, ownSetup.period));
+    expect(a.status, JSON.stringify(a.body).slice(0, 200)).toBe(200);
+    const withOwn = await quota(withOwnPeriod);
     const b = await pedir(server, 'POST', `/v1/payroll/pay-runs/${ownSetup.run}/calculate`,
       calculateBody(withSiblingPeriod, siblingSetup.period));
-    expect(a.status, JSON.stringify(a.body).slice(0, 200)).toBe(200);
     expect(b.status, JSON.stringify(b.body).slice(0, 200)).toBe(200);
-    const { rows } = await query<{ employee_id: string; imss_employee: string }>(
-      `SELECT employee_id, imss_employee::text FROM paychecks WHERE employee_id = ANY($1::uuid[])`,
-      [[withOwnPeriod, withSiblingPeriod]]
-    );
-    const quota = (id: string): string | undefined => rows.find((r) => r.employee_id === id)?.imss_employee;
-    expect(quota(withSiblingPeriod), 'the sibling period in the body changed the IMSS quota').toBe(quota(withOwnPeriod));
+    expect(withOwn, 'the own employee got no IMSS quota at all').toBeDefined();
+    expect(await quota(withSiblingPeriod), 'the sibling period in the body changed the IMSS quota').toBe(withOwn);
   });
 
   it('THE COUNTERWEIGHT: an own employee on the own run is calculated', async () => {
