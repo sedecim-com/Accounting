@@ -4820,7 +4820,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'un saldo a favor anterior que esta declaración acreditó (LIVA art. 6), como el acuse de la declaración que lo dejó y el importe; repítela por cada uno',
   'help.filing.record.footer':
     'Esto registra una declaración que una persona ya presentó. No envía nada al SAT, y una declaración registrada nunca se edita: cada declaración presentada es un renglón nuevo.\n' +
-    'Una complementaria no se registra aquí.\n' +
+    'Una complementaria se registra con `mnemosine filing correct`.\n' +
     '\nEjemplos:\n' +
     '  Ver el renglón que dejaría la declaración de julio, con su saldo a favor, sin escribir nada:\n' +
     '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
@@ -4840,6 +4840,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.record.paid_on_in_future': '--paid-on {value} es posterior a hoy ({today}): sólo se registra un pago ya hecho. No se escribió nada.',
   'filing.record.dry_run': 'Simulación: la declaración es válida y se deshizo; no se escribió nada.',
   'filing.record.recorded': 'Registrada: {acuse} es la declaración vigente de {period}. No se envió nada al SAT.',
+  // ==== MNE-001-629 · filing correct (issue #308) ====
+  'help.filing.correct.description':
+    'Registra una declaración complementaria mensual de IVA ya presentada en el portal del SAT, ligada a la declaración que sustituye; las dos se conservan',
+  'help.filing.correct.option.replaces': 'acuse de la declaración vigente que ésta sustituye: la última presentada de ese mes',
+  'help.filing.correct.footer':
+    'Esto registra una complementaria que una persona ya presentó (CFF art. 32). No envía nada al SAT.\n' +
+    'La declaración que sustituye se queda en el registro. Desde ahora el mes se lee de la complementaria, y los papeles de trabajo posteriores toman de ella su saldo a favor.\n' +
+    'Una complementaria vuelve a decir todas las cifras: repite cada --credit de la declaración que sustituye, o ésta no acredita nada. --paid es lo que se pagó con la línea de captura de esta declaración.\n' +
+    'Se niega cuando deja menos saldo a favor del que meses posteriores ya acreditaron: corrige primero esas declaraciones.\n' +
+    '\nEjemplos:\n' +
+    '  Ver el renglón que dejaría la complementaria de julio, con 4,200.00 a favor donde se declararon 5,000.00, sin escribir nada:\n' +
+    '    mnemosine filing correct --form iva --period 2026-07 --replaces OP-0701 --filed-on 2026-09-10 --acuse OP-0702 --in-favor 4200.00 --dry-run\n' +
+    '  Corregir agosto: 8,500.00 de IVA menos los mismos 3,000.00 acreditados de julio, 5,500.00 a cargo, y los 500.00 de diferencia pagados ese día:\n' +
+    '    mnemosine filing correct --form iva --period 2026-08 --replaces OP-0801 --filed-on 2026-10-02 --acuse OP-0802 --capture-line LC-0802 --payable 5500.00 --paid 500.00 --paid-on 2026-10-02 --credit OP-0701:3000.00 --json',
+  'filing.correct.replaces_required': 'Falta --replaces: da el acuse de la declaración vigente que esta complementaria sustituye. La primera declaración de un mes se registra con `mnemosine filing record`. No se escribió nada.',
+  'filing.correct.recorded': 'Registrada: {acuse} sustituye a {replaced} y es la declaración vigente de {period}. Las dos se conservan. No se envió nada al SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
   'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',

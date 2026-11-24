@@ -30,6 +30,7 @@ import {
 
 // ============================================================
 // mnemosine filing record · declaracion registrar — MNE-001-577 (#308, 3/3)
+// mnemosine filing correct, for an amended return — MNE-001-629 (#308)
 //
 // The accountant records a monthly IVA return ALREADY FILED in the SAT
 // portal: its acknowledgement («acuse»), what it left payable or in favour,
@@ -48,9 +49,15 @@ import {
 // decides what "today" is: a return or a payment dated after today has not
 // happened yet.
 //
-// AN AMENDED RETURN IS NOT RECORDED HERE. The approved plan gives this leaf
-// no `--replaces`; the service already names the replaced return by its
-// acuse, and `filing correct` will use that path.
+// AN AMENDED RETURN IS RECORDED WITH `filing correct` (MNE-001-629).
+// It is the same leaf with one more flag, required: `--replaces`, the acuse of
+// the return in force it replaces. An amendment is a whole return that takes
+// the place of the one before it (CFF art. 32; RMF 2.8.3.3 fr. I), so every
+// figure and every `--credit` is stated again; the service writes a new row
+// linked to the old one, keeps both, and its readers take the month from the
+// new one. `filing record` has no `--replaces`: a second return for a month is
+// refused there. A return that leaves the obligation without effect (RMF
+// 2.8.3.3 fr. II) is not recorded yet: migration 337 has no row for it.
 //
 // `--dry-run` RUNS THE WHOLE WRITE AND ROLLS IT BACK, so a rehearsal also
 // hears the rules between rows (an unknown credit source, a month already
@@ -75,6 +82,7 @@ interface Opts {
   // quoted key mirrors that contract; it is not a name this code chose.
   'acuse'?: string;
   payable?: string; inFavor?: string; paid?: string; paidOn?: string; credit?: string[];
+  replaces?: string;
   dryRun?: boolean;
 }
 
@@ -146,6 +154,14 @@ export function parseFilingRecord(opts: Opts): FilingCapture {
   };
 }
 
+/** `filing correct`: the same filing, naming the return in force it replaces. No query. */
+export function parseFilingCorrect(opts: Opts): FilingCapture {
+  const filing = parseFilingRecord(opts);
+  const replacesAcknowledgement = opts.replaces?.trim() ?? '';
+  if (replacesAcknowledgement === '') throw usageError({ key: 'filing.correct.replaces_required' });
+  return { ...filing, replacesAcknowledgement };
+}
+
 /** Carries a rehearsed row out of the transaction it rolls back. Never reaches the user. */
 class Rehearsal extends Error {
   constructor(readonly saved: FiledReturn) {
@@ -161,39 +177,56 @@ async function rehearse(write: (c: pg.PoolClient) => Promise<FiledReturn>): Prom
   });
 }
 
-/** The usage text: what the leaf does and its examples, keyed, resolved when the help is shown. */
-const helpFooter = (): string => `\n${t('help.filing.record.footer')}\n`;
+/** What tells the two leaves apart: the first return of a month, or the amended one that replaces it. */
+const LEAVES = {
+  record: {
+    alias: 'registrar', parse: parseFilingRecord, description: 'help.filing.record.description',
+    footer: 'help.filing.record.footer', recorded: 'filing.record.recorded',
+  },
+  correct: {
+    alias: 'corregir', parse: parseFilingCorrect, description: 'help.filing.correct.description',
+    footer: 'help.filing.correct.footer', recorded: 'filing.correct.recorded',
+  },
+} as const;
 
 export function registerFilingRecordCommand(program: Command, deps: FilingRecordDeps): void {
   const family =
     program.commands.find((c) => c.name() === 'filing') ??
     describeCommand(program.command('filing').alias('declaracion'), 'help.filing.description');
-  const record = describeCommand(family.command('record').alias('registrar'), 'help.filing.record.description');
-  withContext(record);
-  withOutput(record);
-  optionByKey(record, '--form <form>', 'help.filing.record.option.form', { params: { forms: FORMS.join(' | ') } });
-  optionByKey(record, '--period <YYYY-MM>', 'help.filing.record.option.period');
-  optionByKey(record, '--filed-on <date>', 'help.filing.record.option.filed_on');
-  optionByKey(record, '--acuse <number>', 'help.filing.record.option.acuse');
-  optionByKey(record, '--capture-line <line>', 'help.filing.record.option.capture_line');
-  optionByKey(record, '--payable <amount>', 'help.filing.record.option.payable');
-  optionByKey(record, '--in-favor <amount>', 'help.filing.record.option.in_favor');
-  optionByKey(record, '--paid <amount>', 'help.filing.record.option.paid');
-  optionByKey(record, '--paid-on <date>', 'help.filing.record.option.paid_on');
-  optionByKey(record, '--credit <acuse:amount>', 'help.filing.record.option.credit', {
+  registerLeaf(family, deps, 'record');
+  registerLeaf(family, deps, 'correct');
+}
+
+function registerLeaf(family: Command, deps: FilingRecordDeps, name: keyof typeof LEAVES): void {
+  const { alias, parse, description, footer, recorded } = LEAVES[name];
+  const leaf = describeCommand(family.command(name).alias(alias), description);
+  withContext(leaf);
+  withOutput(leaf);
+  optionByKey(leaf, '--form <form>', 'help.filing.record.option.form', { params: { forms: FORMS.join(' | ') } });
+  optionByKey(leaf, '--period <YYYY-MM>', 'help.filing.record.option.period');
+  if (name === 'correct') optionByKey(leaf, '--replaces <acuse>', 'help.filing.correct.option.replaces');
+  optionByKey(leaf, '--filed-on <date>', 'help.filing.record.option.filed_on');
+  optionByKey(leaf, '--acuse <number>', 'help.filing.record.option.acuse');
+  optionByKey(leaf, '--capture-line <line>', 'help.filing.record.option.capture_line');
+  optionByKey(leaf, '--payable <amount>', 'help.filing.record.option.payable');
+  optionByKey(leaf, '--in-favor <amount>', 'help.filing.record.option.in_favor');
+  optionByKey(leaf, '--paid <amount>', 'help.filing.record.option.paid');
+  optionByKey(leaf, '--paid-on <date>', 'help.filing.record.option.paid_on');
+  optionByKey(leaf, '--credit <acuse:amount>', 'help.filing.record.option.credit', {
     parser: (value: string, previous: unknown) => [...((previous as string[] | undefined) ?? []), value],
   });
-  optionByKey(record, '--dry-run', 'cli.flag.dry_run');
+  optionByKey(leaf, '--dry-run', 'cli.flag.dry_run');
   // Not open to the agent: a filed return is a person's attestation, not a draft for review.
-  declareRisk(record, {
+  declareRisk(leaf, {
     risk: 'escritura', agent: false,
     writes: 'filed_tax_returns + filed_tax_return_credits (one row per filed return, append-only)',
   });
-  record.addHelpText('after', helpFooter);
-  record.action(async (opts: Opts, cmd: Command) => {
+  // The usage text: what the leaf does and its examples, keyed, resolved when the help is shown.
+  leaf.addHelpText('after', () => `\n${t(footer)}\n`);
+  leaf.action(async (opts: Opts, cmd: Command) => {
     try {
       const { dryRun } = gateMutation(cmd, opts as unknown as Record<string, unknown>);
-      const filing = parseFilingRecord(opts);
+      const filing = parse(opts);
       // Tenant FIRST: entity resolution is bounded by it. A write never guesses the entity.
       bootstrapTenant(opts.tenant);
       const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
@@ -213,6 +246,7 @@ export function registerFilingRecordCommand(program: Command, deps: FilingRecord
       render(
         [{
           id: dryRun ? '' : saved.id, form: 'iva', period: saved.period, return_type: saved.returnType,
+          ...(name === 'correct' ? { replaces: saved.replacesAcknowledgement } : {}),
           filed_on: saved.filedOn, acuse: saved.acknowledgementNumber, capture_line: saved.captureLine,
           payable: saved.amountPayable, in_favor: saved.balanceInFavor, paid: saved.amountPaid, paid_on: saved.paidOn,
           credits: saved.credits.map((x) => `${x.sourceAcknowledgement}:${x.amount}`).join(' '),
@@ -223,7 +257,9 @@ export function registerFilingRecordCommand(program: Command, deps: FilingRecord
       if (legible(opts)) {
         const note = dryRun
           ? t('filing.record.dry_run')
-          : t('filing.record.recorded', { acuse: saved.acknowledgementNumber, period: saved.period });
+          : t(recorded, {
+              acuse: saved.acknowledgementNumber, period: saved.period, replaced: saved.replacesAcknowledgement ?? '',
+            });
         process.stderr.write(deps.palette.dim(`  ${note}\n`));
       }
       await deps.shutdown(0);

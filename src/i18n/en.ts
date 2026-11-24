@@ -5477,7 +5477,7 @@ export const EN = {
     'an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each',
   'help.filing.record.footer':
     'This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.\n' +
-    'An amended return («complementaria») is not recorded here.\n' +
+    'An amended return («complementaria») is recorded with `mnemosine filing correct`.\n' +
     '\nExamples:\n' +
     '  See the row the July return would leave, with its balance in favour, writing nothing:\n' +
     '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
@@ -5497,6 +5497,22 @@ export const EN = {
   'filing.record.paid_on_in_future': '--paid-on {value} is after today ({today}): only a payment already made is recorded. Nothing was written.',
   'filing.record.dry_run': 'Dry run: the return is valid and was rolled back; nothing was written.',
   'filing.record.recorded': 'Recorded: {acuse} is the {period} return in force. Nothing was sent to the SAT.',
+  // ==== MNE-001-629 · filing correct (issue #308) ====
+  'help.filing.correct.description':
+    'Record an amended monthly IVA return («complementaria») already filed in the SAT portal, linked to the return it replaces; both are kept',
+  'help.filing.correct.option.replaces': 'acuse of the return in force this one replaces: the last one filed for that month',
+  'help.filing.correct.footer':
+    'This records an amended return a person already filed (CFF art. 32). It sends nothing to the SAT.\n' +
+    'The return it replaces stays in the record. From now on the month is read from the amended one, and later working papers take its balance in favour from it.\n' +
+    'An amended return states every figure again: repeat each --credit of the return it replaces, or this one credits nothing. --paid is what was paid with this return\'s own capture line.\n' +
+    'It is refused when it leaves less in favour than later months already credited: amend those returns first.\n' +
+    '\nExamples:\n' +
+    '  See the row an amended July return would leave, with 4,200.00 in favour where 5,000.00 were declared, writing nothing:\n' +
+    '    mnemosine filing correct --form iva --period 2026-07 --replaces OP-0701 --filed-on 2026-09-10 --acuse OP-0702 --in-favor 4200.00 --dry-run\n' +
+    '  Amend August: 8,500.00 of IVA less the same 3,000.00 credited from July, 5,500.00 payable, and the 500.00 of difference paid that day:\n' +
+    '    mnemosine filing correct --form iva --period 2026-08 --replaces OP-0801 --filed-on 2026-10-02 --acuse OP-0802 --capture-line LC-0802 --payable 5500.00 --paid 500.00 --paid-on 2026-10-02 --credit OP-0701:3000.00 --json',
+  'filing.correct.replaces_required': 'Missing --replaces: give the acuse of the return in force this amended return replaces. The first return of a month is recorded with `mnemosine filing record`. Nothing was written.',
+  'filing.correct.recorded': 'Recorded: {acuse} replaces {replaced} and is the {period} return in force. Both are kept. Nothing was sent to the SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
   'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
