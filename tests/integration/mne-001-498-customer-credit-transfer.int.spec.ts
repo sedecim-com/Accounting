@@ -218,7 +218,7 @@ describe('T1-T2 · PMT-1 with 1,160.00 on account moves whole to B on 06-15', ()
     });
   }, 120_000);
 
-  it('T7 · A has nothing left to apply, cannot be reversed while the transfer lives, and the TRF row waits for part 2', async () => {
+  it('T7 · A has nothing left to apply and cannot be reversed while the transfer lives (its events: MNE-001-499\'s spec)', async () => {
     const invoiceA = await invoice(f, customerA, '2026-06-16');
     const apply = await refusal(
       applyCustomerPayment(f.entityId, source.id, [{ documentId: invoiceA, amountApplied: '1160.00' }], f.userId, { date: '2026-06-16' })
@@ -229,18 +229,6 @@ describe('T1-T2 · PMT-1 with 1,160.00 on account moves whole to B on 06-15', ()
     expect(reverse.messageKey?.key).toBe('receipt.reverse.has_transfer');
     expect(reverse.message).toContain('TRF-2026-00001');
 
-    const invoiceB = await invoice(f, customerB, '2026-06-16');
-    // One at a time: each event locks the same row.
-    const events = [
-      () => applyCustomerPayment(f.entityId, trf.transferId, [{ documentId: invoiceB, amountApplied: '1160.00' }], f.userId, { date: '2026-06-16' }),
-      () => unapplyCustomerPayment(f.entityId, trf.transferId, { invoiceId: invoiceB, reason: 'x', date: '2026-06-16' }, f.userId),
-      () => reverseCustomerPayment(f.entityId, trf.transferId, { reason: 'x', cause: 'taken_back' }, f.userId),
-    ];
-    for (const event of events) {
-      const e = await refusal(event());
-      expect(e.messageKey?.key).toBe('receipt.transfer.events_in_499');
-      expect(e.message).toContain('MNE-001-499');
-    }
     expect(await onAccountOf(f, source.id)).toBe('0.00');
     expect(await onAccountOf(f, trf.transferId)).toBe('1160.00');
   }, 120_000);
@@ -391,7 +379,7 @@ describe('T6 · refused before any write, each by its key', () => {
     expect(e.message).toContain('reversed');
   }, 180_000);
 
-  it('cash an unapply put back keeping its IVA caused (MNE-001-574) is an advance too, refused until part 2', async () => {
+  it('cash an unapply put back keeping its IVA caused (MNE-001-574) cannot follow the credit, and is refused', async () => {
     const ppd = await invoice(f, customerA, '2026-05-20', 'PPD');
     const r = await recordCustomerPayment(
       {
@@ -409,22 +397,11 @@ describe('T6 · refused before any write, each by its key', () => {
     );
     expect(kept.rows.map((x) => x.kept)).toEqual(['160.0000']);
     const e = await refusedWithNothingWritten(() => transfer(f, r.paymentId, { amount: '100.00' }));
-    expect(e.messageKey?.key).toBe('receipt.transfer.advance_in_499');
-    expect(e.message).toContain('MNE-001-499');
+    expect(e.messageKey?.key).toBe('receipt.transfer.kept_caused');
+    expect(e.message).toContain(r.paymentNumber);
   }, 180_000);
 
-  it('a treated advance, a cheque the bank has not cashed, and a TRF row are refused until part 2', async () => {
-    const advance = await recordCustomerPayment(
-      {
-        entityId: f.entityId, counterpartyId: customerA, paymentAmount: '1160.00', paymentDate: '2026-05-20',
-        paymentMethod: 'spei', applications: [], onAccount: true, advanceTreatment: '16',
-      },
-      f.userId
-    );
-    const treated = await refusedWithNothingWritten(() => transfer(f, advance.paymentId));
-    expect(treated.messageKey?.key).toBe('receipt.transfer.advance_in_499');
-    expect(treated.message).toContain('MNE-001-499');
-
+  it('a cheque the bank has not cashed and a TRF row are refused (a treated advance moves: MNE-001-499\'s spec)', async () => {
     const check = await recordCustomerPayment(
       {
         entityId: f.entityId, counterpartyId: customerA, paymentAmount: '1160.00', paymentDate: '2026-05-20',

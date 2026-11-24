@@ -1344,7 +1344,12 @@ async function receiptEventDate(
         AND ((source_id = $2
               AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing'))
           OR (source_type = '${CUSTOMER_CREDIT_TRANSFER_SOURCE}' AND source_id IN (
-                SELECT t.id FROM customer_payments t WHERE t.entity_id = $1 AND t.transferred_from_payment_id = $2)))`,
+                SELECT t.id FROM customer_payments t WHERE t.entity_id = $1 AND t.transferred_from_payment_id = $2))
+          -- MNE-001-499: so is its mirror, which gave the credit back on its own day.
+          OR reverses_entry_id IN (
+                SELECT o.id FROM journal_entries o
+                  JOIN customer_payments t ON t.id = o.source_id AND t.entity_id = $1 AND t.transferred_from_payment_id = $2
+                 WHERE o.entity_id = $1 AND o.source_type = '${CUSTOMER_CREDIT_TRANSFER_SOURCE}'))`,
     [entityId, receipt.id]
   );
   const recorded = toCalendarDate(receipt.payment_date);
@@ -1420,11 +1425,17 @@ async function advanceLeft(
     covered = covered.plus(restitutedCash(r.iva, r.total, r.tax));
     own.add(r.invoice_id);
   }
+  // MNE-001-499 · a live transfer out took its share of the advance as an allocation does.
   const live = (await client.query<{ taken: string; cancelled: string }>(
     `SELECT (pa.advance_base_amount + pa.advance_iva_amount)::text AS taken, pa.advance_iva_amount::text AS cancelled
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
-      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL`,
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL
+     UNION ALL
+     SELECT (t.advance_base_amount + t.advance_iva_amount)::text, t.advance_iva_amount::text
+       FROM customer_payments t
+      WHERE t.transferred_from_payment_id = $1 AND t.entity_id = $2 AND t.status = '${ESTADO}'
+        AND t.advance_base_amount IS NOT NULL`,
     [receipt.id, entityId]
   )).rows;
   const total = Decimal.max(new Decimal(stored.cash).plus(back.cash).minus(covered), 0);
@@ -1450,14 +1461,23 @@ async function remanenteDe(client: pg.PoolClient, entityId: string, paymentId: s
 }
 
 /**
- * MNE-001-498 · A transfer row's own events (applying it to B's invoices,
- * unapplying, reversing it) wait for part 2, which teaches them the IVA
- * paper's date and the mirror of its entry.
+ * MNE-001-499 · When a receipt's money was received, for the advance it carries: a treated transfer row
+ * takes the day of its source (the cashing day, for a check). One indexed read, and only for such a row.
  */
-function refuseTransferRow(receipt: PagoVivo): void {
-  if (receipt.payment_method === BALANCE_TRANSFER_METHOD) {
-    throw new ValidationError({ key: 'receipt.transfer.events_in_499', params: { receipt: receipt.payment_number } });
-  }
+async function receivedAs(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: PagoVivo
+): Promise<Pick<PagoVivo, 'payment_method' | 'payment_date' | 'check_cashed_date'>> {
+  // An untreated TRF carries only its own kept pool, caused on its own applications: its own day.
+  if (receipt.payment_method !== BALANCE_TRANSFER_METHOD || receipt.advance_base_amount === null) return receipt;
+  const r = await client.query<Pick<PagoVivo, 'payment_method' | 'payment_date' | 'check_cashed_date'>>(
+    `SELECT s.payment_method, s.payment_date, s.check_cashed_date::text AS check_cashed_date
+       FROM customer_payments t JOIN customer_payments s ON s.id = t.transferred_from_payment_id AND s.entity_id = t.entity_id
+      WHERE t.id = $1 AND t.entity_id = $2`,
+    [receipt.id, entityId]
+  );
+  return r.rows[0] ?? receipt;
 }
 
 export interface ResultadoAplicacion {
@@ -1595,7 +1615,6 @@ export async function applyCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<CustomerApplicationResult> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
-    refuseTransferRow(pago);
     const date = await receiptEventDate(client, entityId, pago, opts.date, 'apply');
     const remanente = await remanenteDe(client, entityId, paymentId);
     const advance = await advanceLeft(client, entityId, pago, remanente);
@@ -1611,6 +1630,8 @@ export async function applyCustomerPayment(
     const documentos: DocumentoAplicado[] = [];
     const posteriores: AplicacionPosterior[] = [];
     const filas: { allocId: string; invoiceId: string }[] = [];
+    // MNE-001-499: a transfer row's advance was received when its source's was.
+    const origin = await receivedAs(client, entityId, pago);
 
     for (const app of aplicaciones) {
       const r = await client.query<{
@@ -1748,8 +1769,8 @@ export async function applyCustomerPayment(
         // MNE-001-573: a cheque's advance caused its IVA on the cashing day, so that is when it was received;
         // while it is held it caused none yet. A PUE invoice of a month before the cashing caused in its own
         // month the IVA that LIVA art. 1-B, second paragraph, puts on the cashing day: the application says so.
-        const cashing = pago.payment_method === 'check' && pago.check_cashed_date ? toCalendarDate(pago.check_cashed_date) : null;
-        const received = cashing ?? toCalendarDate(pago.payment_date);
+        const cashing = origin.payment_method === 'check' && origin.check_cashed_date ? toCalendarDate(origin.check_cashed_date) : null;
+        const received = cashing ?? toCalendarDate(origin.payment_date);
         const twice = inv.invoice_date <= received && date.slice(0, 7) > received.slice(0, 7);
         const beforeCashing = cashing !== null && inv.invoice_date.slice(0, 7) < cashing.slice(0, 7);
         if (!held && new Decimal(take.iva).greaterThan(0) && (twice || beforeCashing)) {
@@ -2080,7 +2101,6 @@ export async function unapplyCustomerPayment(
 ): Promise<ResultadoDesaplicacion> {
   const correr = async (client: pg.PoolClient): Promise<ResultadoDesaplicacion> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
-    refuseTransferRow(pago);
     // MNE-001-082: a foreign-currency collection now exists, and its unapply
     // entry would move the applied dollars between cxc and anticipo_clientes
     // as if they were pesos. Refused, like the vendor side, until it converts.
@@ -2568,8 +2588,10 @@ export async function listCustomerPayments(
     // MNE-001-421: a receipt that is all advance owes the advance CFDI the client issues, never a REP.
     where.push(`(cp.advance_base_amount IS NULL OR cp.advance_base_amount + cp.advance_iva_amount <> cp.payment_amount)`);
     // MNE-001-594: a transfer of customer credit received no payment, so no REP documents it.
+    // MNE-001-499: once it settles an invoice, that extinction is the payment a REP documents (LIVA art. 1o.-B).
     params.push(BALANCE_TRANSFER_METHOD);
-    where.push(`cp.payment_method <> $${params.length}`);
+    where.push(`(cp.payment_method <> $${params.length} OR EXISTS (
+      SELECT 1 FROM payment_allocations nr_pa WHERE nr_pa.payment_id = cp.id AND nr_pa.unapplied_at IS NULL))`);
   }
   if (filtro.unapplied) {
     where.push(`cp.status = 'completed' AND ${cashOnAccountSql('cp')} > 0`);
@@ -2703,8 +2725,12 @@ export async function reverseCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoReversa> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
-    refuseTransferRow(pago);
-    // MNE-001-498 · its credit given to another customer stays given until that transfer is undone (part 2).
+    if (pago.payment_method === BALANCE_TRANSFER_METHOD) {
+      const result = await reverseCreditTransfer(client, entityId, pago, args, userId);
+      if (opts.dryRun) throw new EnsayoEvento(result);
+      return result;
+    }
+    // MNE-001-498 · its credit given to another customer stays given until that transfer is reversed.
     const out = await client.query<{ payment_number: string }>(
       `SELECT payment_number FROM customer_payments
         WHERE entity_id = $1 AND transferred_from_payment_id = $2 AND status = '${ESTADO}' ORDER BY payment_number`,
@@ -2876,6 +2902,74 @@ export async function reverseCustomerPayment(
   return ejecutarEvento(correr, opts);
 }
 
+/**
+ * MNE-001-499 · `receipt reverse <TRF>`: the NIF B-1 mirror of the transfer's own entry, the row
+ * `reversed`, and the source's cash on account back, since only live transfers count against it. A
+ * transfer moved no money, so no cause is stated. Refused while any of it is applied, and while its
+ * unapplies left its cash carrying IVA or IEPS they kept caused (574/590): the source would get the cash
+ * back without that tax. Its applications and unapplications stay, each a fact, each pair netting.
+ */
+async function reverseCreditTransfer(
+  client: pg.PoolClient,
+  entityId: string,
+  row: PagoVivo,
+  args: { reason: string; cause?: string },
+  userId: string
+): Promise<ResultadoReversa> {
+  const receipt = row.payment_number;
+  if (args.cause !== undefined) throw new ValidationError({ key: 'receipt.reverse.transfer_cause', params: { receipt } });
+  const applied = await client.query<{ invoice_number: string }>(
+    `SELECT DISTINCT i.invoice_number FROM payment_allocations pa
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $2
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL ORDER BY i.invoice_number`,
+    [row.id, entityId]
+  );
+  if (applied.rows.length > 0) {
+    const invoices = applied.rows.map((r) => r.invoice_number).join(', ');
+    throw new ValidationError({ key: 'receipt.reverse.transfer_applied', params: { receipt, invoices } });
+  }
+  const advance = await advanceLeft(client, entityId, row, await remanenteDe(client, entityId, row.id));
+  const carries = row.advance_base_amount === null
+    ? advance !== null || new Decimal(await iepsKeptOnAccount(client, entityId, row.id)).greaterThan(0)
+    : !new Decimal(advance?.total ?? 0).equals(new Decimal(row.advance_base_amount).plus(row.advance_iva_amount ?? 0)) ||
+      !new Decimal(advance?.iva ?? 0).equals(row.advance_iva_amount ?? 0);
+  if (carries) throw new ValidationError({ key: 'receipt.reverse.transfer_carries_caused', params: { receipt } });
+
+  // Dated today in the entity's zone, the floor `receiptEventDate` reads for the source's next event.
+  const original = (await client.query<JournalEntry>(
+    'SELECT * FROM journal_entries WHERE id = $1 AND entity_id = $2 FOR UPDATE', [row.journal_entry_id, entityId]
+  )).rows[0];
+  const today = await todayFor({ tenantId: await tenantDe(client, entityId), entityId }, { client });
+  const reversal = await reverseWithinTransaction(
+    client, original, userId, `Reversal of ${original.entry_number}: ${args.reason}`, today
+  );
+  const written = await client.query(
+    `UPDATE customer_payments SET reversed_at = NOW(), status = 'reversed'
+      WHERE id = $1 AND entity_id = $2 AND status = '${ESTADO}' AND payment_method = '${BALANCE_TRANSFER_METHOD}'`,
+    [row.id, entityId]
+  );
+  if (written.rowCount !== 1) {
+    throw new AccountingError('REVERSE_RACE', `${receipt} changed while it was being reversed; nothing was written.`);
+  }
+  await registrarAuditoria(client, {
+    tenantId: await tenantDe(client, entityId),
+    legalEntityId: entityId,
+    userId,
+    action: 'update',
+    entityType: 'customer_payments',
+    entityId: row.id,
+    oldValues: { status: ESTADO },
+    newValues: { evento: 'reverse', status: 'reversed', journal_entry_id: reversal.id },
+    reason: args.reason,
+  });
+  return {
+    paymentId: row.id, paymentNumber: receipt,
+    reversals: [{ entryNumber: reversal.entry_number, of: original.entry_number }],
+    attestations: [{ entityId, entryId: reversal.id }],
+    documentosReabiertos: [], cause: null, causeDefaulted: false, warnings: [],
+  };
+}
+
 export interface StatedReversalCause {
   paymentId: string;
   paymentNumber: string;
@@ -2919,6 +3013,10 @@ export async function stateReversalCause(
     );
     if (found.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
     const row = found.rows[0];
+    // MNE-001-499: a transfer of customer credit moved no money, so its reversal has no cause to state.
+    if (row.payment_method === BALANCE_TRANSFER_METHOD) {
+      throw new ValidationError({ key: 'receipt.cause.balance_transfer', params: { number: row.payment_number } });
+    }
     if (row.status !== 'reversed') {
       throw new ValidationError({
         key: 'receipt.cause.not_reversed', params: { number: row.payment_number, status: row.status },
@@ -3105,8 +3203,8 @@ export async function closeOrphanAllocation(
 // (art. 2038). B gets a credit row of its own, linked to A's receipt, and the
 // transfer posts its own entry on the agreed day (RCFF art. 33 B fr. I).
 // Nothing is collected, returned or caused: B's IVA is caused when the credit
-// settles B's invoice, which is part 2 (MNE-001-499), so part 1 moves only
-// cash on account that carries no advance treatment.
+// settles B's invoice (MNE-001-499, through `receipt apply`), and a treated
+// advance moves with the share of the IVA it already caused.
 // ============================================================
 
 export interface CustomerCreditTransferArgs {
@@ -3137,6 +3235,8 @@ export interface CustomerCreditTransfer {
   sourceOnAccount: { before: string; after: string };
   /** B's cash on account across its receipts, before and after. */
   customerOnAccount: { before: string; after: string };
+  /** MNE-001-499 · Of a treated advance, the base and the IVA caused on it that B's row now carries; null otherwise. */
+  advance: { base: string; iva: string } | null;
 }
 
 /**
@@ -3182,9 +3282,6 @@ export async function transferCustomerCredit(
     if (source.payment_method === BALANCE_TRANSFER_METHOD) {
       throw new ValidationError({ key: 'receipt.transfer.source_is_transfer', params: { receipt } });
     }
-    if (source.advance_base_amount !== null || source.advance_factor_type !== null) {
-      throw new ValidationError({ key: 'receipt.transfer.advance_in_499', params: { receipt } });
-    }
     if (source.payment_method === 'check' && source.check_cashed_tx_id === null) {
       throw new ValidationError({ key: 'receipt.transfer.cheque_not_cashed', params: { receipt } });
     }
@@ -3202,13 +3299,18 @@ export async function transferCustomerCredit(
       const params = { receipt, amount: new Decimal(amount).toFixed(2), onAccount: left.toFixed(2) };
       throw new ValidationError({ key: 'receipt.transfer.exceeds_on_account', params }, 'amount');
     }
-    // MNE-001-574 · cash an unapply put back on account keeping its IVA caused
-    // is an advance with its IVA caused as well (`keptOnAccount`): moving it
-    // splits base and IVA, which is part 2's (MNE-001-499).
-    const kept = await advanceLeft(client, entityId, source, left);
-    if (kept !== null && new Decimal(kept.total).minus(kept.consumed).greaterThan(0)) {
-      throw new ValidationError({ key: 'receipt.transfer.advance_in_499', params: { receipt } });
+    // MNE-001-499 · a treated advance moves as an application would take it: plain cash first, then the
+    // advance with its share of the IVA it caused (`takeFromAdvance`), which B's row keeps as its own
+    // treatment. The base and the plain cash move in 2150; the IVA is already in 2120, with no party.
+    // MNE-001-574/590 · cash an unapply put back keeping IVA or IEPS caused is read back from the source's
+    // own rows and ledger tags, which cannot follow the credit: it stays refused.
+    const advance = await advanceLeft(client, entityId, source, left);
+    const treated = source.advance_base_amount !== null;
+    if (advance !== null && !treated && new Decimal(advance.total).minus(advance.consumed).greaterThan(0)) {
+      throw new ValidationError({ key: 'receipt.transfer.kept_caused', params: { receipt } });
     }
+    const take = advance && treated ? takeFromAdvance({ ...advance, applied: amount }) : null;
+    const moved = take ? new Decimal(take.base).plus(take.plain).toFixed(4) : amount;
     const date = await receiptEventDate(client, entityId, source, args.date, 'transfer');
     const held = await client.query<{ left: string }>(
       `SELECT COALESCE(SUM(${cashOnAccountSql('cp')}), 0)::text AS left
@@ -3223,17 +3325,20 @@ export async function transferCustomerCredit(
       `INSERT INTO customer_payments (
          id, entity_id, payment_number, customer_id, payment_amount, currency_code, exchange_rate,
          payment_method, bank_account_id, payment_date, status, created_by, memo,
-         transferred_from_payment_id, transfer_reason
-       ) VALUES ($1, $2, $3, $4, $5, $6, '1.0', $7, NULL, $8, $9, $10, $11, $12, $13)`,
+         transferred_from_payment_id, transfer_reason,
+         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount
+       ) VALUES ($1, $2, $3, $4, $5, $6, '1.0', $7, NULL, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [transferId, entityId, transferNumber, args.customerId, amount, source.currency_code.trim(),
        BALANCE_TRANSFER_METHOD, date, ESTADO, userId,
-       `Credit of ${fromCustomer} on ${receipt}, transferred to ${toCustomer}`, sourceId, reason]
+       `Credit of ${fromCustomer} on ${receipt}, transferred to ${toCustomer}`, sourceId, reason,
+       take ? source.advance_factor_type : null, take ? source.advance_tax_rate : null,
+       take ? take.base : null, take ? take.iva : null]
     );
     const entry = await postCustomerCreditTransferEntry(
       client,
       {
         id: transferId, entity_id: entityId, transfer_number: transferNumber, source_number: receipt,
-        from_customer: fromCustomer, to_customer: toCustomer, amount, date,
+        from_customer: fromCustomer, to_customer: toCustomer, amount: moved, date,
       },
       userId
     );
@@ -3247,6 +3352,7 @@ export async function transferCustomerCredit(
       [entry.id, entityId]
     );
     const shown = new Decimal(amount).toFixed(2);
+    const split = take ? { base: new Decimal(take.base).toFixed(2), iva: new Decimal(take.iva).toFixed(2) } : null;
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
@@ -3265,6 +3371,7 @@ export async function transferCustomerCredit(
         amount: shown,
         date,
         journal_entry_id: entry.id,
+        ...(split ? { advance_base: split.base, advance_iva: split.iva } : {}),
       },
       reason,
     });
@@ -3278,6 +3385,7 @@ export async function transferCustomerCredit(
       })),
       sourceOnAccount: { before: left.toFixed(2), after: left.minus(amount).toFixed(2) },
       customerOnAccount: { before: before.toFixed(2), after: before.plus(amount).toFixed(2) },
+      advance: split,
     };
     if (opts.dryRun) throw new EnsayoEvento(result);
     return result;

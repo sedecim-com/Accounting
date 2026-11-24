@@ -1,6 +1,6 @@
 # NIIF — Interpretaciones CINIIF/SIC vigentes y decisiones de agenda
 
-Este documento cubre las interpretaciones CINIIF (IFRIC) y SIC vigentes a agosto 2026 y tres decisiones de agenda del Comité de Interpretaciones relevantes en la práctica (criptomonedas, SaaS, depósitos restringidos). Para una empresa mexicana aplican directamente si reporta IFRS full (emisoras) o supletoriamente vía NIF A-1 cap. 90 cuando la NIF correspondiente calla; varias no tienen contraparte NIF, por lo que son la guía operativa de facto.
+Este documento cubre las interpretaciones CINIIF (IFRIC) y SIC vigentes a agosto 2026 y las decisiones de agenda del Comité de Interpretaciones: tres de práctica frecuente (criptomonedas, SaaS, depósitos restringidos), las catorce de la Compilación Vol. 14 (ocho nuevas y seis actualizadas para la NIIF 18) y las ocho tentativas de junio de 2026, cada una con su estado según su fuente oficial, leída el 2026-11-24. Para una empresa mexicana aplican directamente si reporta IFRS full (emisoras) o supletoriamente vía NIF A-1 cap. 90 cuando la NIF correspondiente calla; varias no tienen contraparte NIF, por lo que son la guía operativa de facto.
 
 ## CINIIF 1 / IFRIC 1 — Cambios en pasivos por desmantelamiento, restauración y similares
 
@@ -310,19 +310,245 @@ En un contrato SaaS el cliente normalmente no controla el software (no hay intan
 
 ## AD — Decisión de agenda: depósitos a la vista con restricciones de uso (NIC 7)
 
-**Vigencia:** finalizada en marzo de 2022 (el IASB no objetó en abril de 2022).
+*Demand Deposits with Restrictions on Use arising from a Contract with a Third Party (IAS 7)* · publicada en abril de 2022 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Vigencia:** finalizada en marzo de 2022 (el IASB no objetó en abril de 2022); actualizada en enero de 2026 para citar la NIIF 18 en lugar de la NIC 1.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
 
 Un depósito a la vista sujeto a restricciones contractuales sobre su uso (p.ej. fondos que deben destinarse a cierto fin por acuerdo con un tercero) sigue siendo efectivo y equivalentes mientras la entidad pueda retirarlo a la vista; la restricción de destino no cambia la naturaleza del depósito, pero sí obliga a revelar.
 
-- Presentar el depósito como efectivo y equivalentes en el estado de flujos y en el estado de situación financiera, salvo que la restricción impida legalmente disponer de él a la vista (en cuyo caso es otro activo financiero).
-- Clasificarlo como circulante, salvo que la restricción de uso se extienda por al menos doce meses después del cierre (no circulante).
-- Revelar los saldos significativos de efectivo no disponibles para uso del grupo (NIC 7 párr. 48) y, si el juicio fue significativo, revelarlo conforme a NIC 1/IFRS 18.
+- Presentar el depósito como efectivo y equivalentes en el estado de flujos y en el estado de situación financiera (NIIF 18, párr. 103(k); antes NIC 1, párr. 54(i)), salvo que la restricción cambie la naturaleza del depósito y deje de cumplir la definición de efectivo de la NIC 7; si hace falta para un resumen estructurado útil (NIIF 18, párr. 23–24), presentarlo en una partida separada dentro del efectivo.
+- Clasificarlo como circulante (NIIF 18, párr. 99(d); antes NIC 1, párr. 66(d)), salvo que la restricción de uso se extienda por al menos doce meses después del cierre (no circulante).
+- Revelar el depósito como componente del efectivo (NIC 7, párr. 45), los saldos significativos no disponibles para uso del grupo (párr. 48), el riesgo de liquidez de la NIIF 7 y, si eso no basta para entender el efecto de las restricciones, información adicional (NIIF 18, párr. 20; antes NIC 1, párr. 31).
 
 **vs NIF mexicanas:** NIF C-1 es más prescriptiva — exige presentar el "efectivo y equivalentes restringidos" como rubro separado dentro del efectivo (y como no circulante si la restricción excede 12 meses); bajo IFRS el saldo puede permanecer dentro de efectivo con revelación, sin rubro separado obligatorio.
 **Trampas comunes:** excluir automáticamente del efectivo todo saldo etiquetado como "restringido" sin analizar la disponibilidad a la vista; omitir la revelación de saldos no disponibles (fideicomisos de garantía, cuentas de reserva de deuda).
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2022/demand-deposits-with-restrictions-on-use-arising-from-a-contract-with-a-third-party-apr-2022.pdf · https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 36) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## Decisiones de agenda de 2026 — cómo leer las que siguen
+
+Las secciones `AD —` que siguen son las catorce decisiones de la *Compilation of Agenda Decisions—Volume 14* (publicada el 29 de mayo de 2026; noviembre de 2025 a abril de 2026): ocho nuevas y seis actualizadas para la NIIF 18 (la de depósitos a la vista restringidos, arriba, es una de las seis). Las secciones `AD tentativa —` son las ocho decisiones tentativas de la IFRIC Update de junio de 2026 (reunión del 16–17 de junio): siete sobre la NIIF 18 y una sobre la NIIF 10. Todas se leyeron en ifrs.org el 2026-11-24, y cada una cita su estado con las palabras de su fuente oficial.
+
+- **Concluida:** el Comité la finalizó y el IASB no objetó (Due Process Handbook, párr. 8.7). Una decisión de agenda no tiene fecha de vigencia ni cambia la norma: explica cómo se aplica, y se espera que la entidad la implemente con tiempo suficiente.
+- **Tentativa, no definitiva:** el Comité «tentatively decided not to add standard-setting projects to the work plan» y la reconsiderará con los comentarios recibidos; su conclusión puede cambiar o no publicarse. Al 2026-11-24 ninguna de las ocho tiene una IFRIC Update posterior que la concluya: la de septiembre de 2026 no las trata, y el orden del día oficial de la reunión del Comité del 24–25 de noviembre de 2026 las lista con «Comment letters on tentative agenda decision» (la de MPM con partidas hipotéticas, con «Summary of comments on tentative agenda decision»).
+- Las seis actualizadas reemplazan sus referencias a la NIC 1 por las de los requerimientos nuevos o modificados de la NIIF 18; el Vol. 14 subraya el texto añadido y tacha el suprimido.
+
+Fuentes: https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/ · https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf · https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-september-2026/ · https://www.ifrs.org/content/dam/ifrs/meetings/2026/november/ifric/agenda.pdf
+
+## AD — Decisión de agenda: costos de transacción incurridos antes de firmar el contrato (NIIF 9)
+
+*Determining and Accounting for Transaction Costs (IFRS 9)* · nueva en el Vol. 14 · publicada en enero de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its November 2025 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its January 2026 meeting, did not object to this agenda decision.»
+
+Sin diversidad con efecto material: la práctica entiende que los costos directamente atribuibles a originar o emitir un instrumento financiero, incurridos antes de firmar el contrato, no quedan excluidos de ser «incrementales» y pueden ser costos de transacción de la NIIF 9, y que mientras tanto se reconocen en el estado de situación financiera, a menudo como pago anticipado u otro activo. Sin proyecto normativo, por falta de efecto generalizado.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/determining-and-accounting-for-transaction-costs-jan-2026.pdf · https://www.ifrs.org/projects/completed-projects/2026/determining-and-accounting-for-transaction-costs-ifrs-9/
+
+## AD — Decisión de agenda: opción de prepago implícita en un préstamo (NIIF 9)
+
+*Embedded Prepayment Option (IFRS 9)* · nueva en el Vol. 14 · publicada en enero de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its November 2025 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its January 2026 meeting, did not object to this agenda decision.»
+
+Al aplicar el párr. B4.3.5(e)(ii) de la NIIF 9 a la opción de prepago de un pasivo financiero, la práctica lee «la entidad» como el prestamista: el interés perdido se mide desde su perspectiva, no desde la del deudor que informa. De esa lectura depende si el derivado implícito se separa del contrato anfitrión. Sin diversidad con efecto material, sin proyecto normativo.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/embedded-prepayment-option-jan-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/embedded-prepayment-option-ifrs-9/
+
+## AD — Decisión de agenda: beneficios económicos del uso de una batería en un acuerdo de offtake (NIIF 16)
+
+*Economic Benefits from Use of a Battery under an Offtake Arrangement (IFRS 16)* · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision.»
+
+En un mercado eléctrico de pool bruto, el dueño de una batería no sustituible la opera según las instrucciones del minorista eléctrico, que cubren el 100 % de su capacidad, y le paga o cobra todos los flujos a precio spot. Los beneficios económicos del uso de la batería vienen de su capacidad de almacenamiento, y el minorista tiene el derecho exclusivo a usarla entera y a decidir cuándo y cuánto se carga y descarga: obtiene sustancialmente todos esos beneficios (NIIF 16, párr. B9(a) y B21). El caso suponía que el minorista dirige el uso (B9(b)), y el Comité no lo analizó.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/economic-benefits-from-use-of-a-battery-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/economic-benefits-use-of-battery-under-offtake-arrangement/
+
+## AD — Decisión de agenda: actividad principal especificada en los estados separados de una controladora (NIIF 18)
+
+*Assessment of a Specified Main Business Activity for the Purposes of the Separate Financial Statements of a Parent (IFRS 18)* · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision»
+
+Una controladora última cuya única actividad sustantiva es tener, administrar y vender inversiones en subsidiarias tiene, en sus estados separados, la actividad principal especificada de invertir en subsidiarias no consolidadas. Como las mide al costo (NIC 27, párr. 10(a)), clasifica sus ingresos y gastos en la categoría de operación (NIIF 18, párr. 55(b)). Que no use subtotales ni análisis por segmento no lo impide, y la evaluación, que se hace por entidad que informa, puede dar distinto en los estados separados y en los consolidados.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/assessment-of-smba-for-separate-fs-of-parent-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/assessment-specified-main-business-activity-separate-financial-statements-parent-ifrs-18/
+
+## AD — Decisión de agenda: diferencia cambiaria de una partida monetaria intragrupo (NIIF 18)
+
+*Classification of a Foreign Exchange Difference from an Intragroup Monetary Liability (or Asset) (IFRS 18)* · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision.»
+
+La diferencia cambiaria de un préstamo intragrupo que no se elimina en la consolidación (NIC 21, párr. 45) admite dos lecturas razonables del párr. B65 de la NIIF 18: (1) la categoría de operación por omisión, porque los ingresos y gastos del préstamo ya no están en resultados; o (2) la categoría en que se habrían clasificado esos ingresos y gastos antes de eliminarlos, o la de operación si eso implica costo o esfuerzo desproporcionado (párr. B68), juzgado desde el grupo. La entidad elige una como política contable (NIC 8). Clasificarla en financiamiento o en inversión no es una lectura razonable.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/classification-of-fx-diff-from-intragroup-monetary-liability-or-asset-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/classification-foreign-exchange-difference-intragroup-monetary-liability/
+
+## AD — Decisión de agenda: ganancias y pérdidas de un derivado que gestiona una exposición cambiaria (NIIF 18)
+
+*Classification of Gains and Losses on a Derivative Managing a Foreign Currency Exposure (IFRS 18)* · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision.»
+
+Un forward contratado con un tercero, no designado como cobertura según la NIIF 9, que conforme a la política de riesgos gestiona sólo la exposición neta pasiva en moneda extranjera del grupo, se clasifica en la categoría de las partidas afectadas por ese riesgo: en el caso, financiamiento (NIIF 18, párr. B72). Como el riesgo afecta una sola categoría, no hay que inflar (*grossing up*) ganancias ni pérdidas; si el forward gestionara en bruto el riesgo del activo de inversión y el del pasivo de financiamiento, clasificarlo en ambas categorías exigiría inflarlas, y el párr. B72 lo prohíbe.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/classification-of-gains-losses-on-derivative-managing-fc-exposure-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/classification-gains-losses-derivative-foreign-exchange-exposure-ifrs-18/
+
+## AD — Decisión de agenda: alcance de la revelación de gastos por naturaleza (NIIF 18)
+
+*Scope of the Requirement to Disclose Expenses by Nature (IFRS 18)* · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision.»
+
+El párr. 83 de la NIIF 18 no tiene excepciones: se aplica a toda partida de gastos clasificados por función en la categoría de operación, incluidos los importes de la NIIF 9 y la NIIF 17 del párr. 75(b)–(c), y da igual por qué se clasificaron por función. Lo revelado puede incluir importes que forman parte del valor en libros de un activo (párr. B84); entonces se explica cualitativamente, identificando esos activos.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/scope-of-the-requirement-to-disclose-expenses-by-nature-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/scope-requirement-disclose-expenses-nature-ifrs-18/
+
+## AD — Decisión de agenda: presentación razonable y cumplimiento de las NIIF (NIC 1 → NIC 8)
+
+*Fair Presentation and Compliance with IFRS Accounting Standards (IAS 1)* [IAS 8] · nueva en el Vol. 14 · publicada en abril de 2026.
+
+**Estado (leído el 2026-11-24):** concluida. Su página: «At its March 2026 meeting, the IFRS Interpretations Committee (Committee) decided to finalise the agenda decision. In accordance with paragraph 8.7 of the IFRS Foundation’s Due Process Handbook the International Accounting Standards Board, at its April 2026 meeting, did not object to this agenda decision.»
+
+Se preguntó si la entidad que se aparta de un requerimiento de una norma (NIC 1, párr. 19; NIC 8, párr. 6E desde la NIIF 18) sigue obligada a la presentación razonable del párr. 15 de la NIC 1 (NIC 8, párr. 6A). El caso se da poco: sin efecto generalizado, el Comité no agregó proyecto normativo ni contestó la pregunta.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2026/fair-presentation-and-compliance-with-ifrs-accounting-stds-apr-26.pdf · https://www.ifrs.org/projects/completed-projects/2026/fair-presentation-and-compliance-with-ifrs-accounting-standards-/
+
+## AD — Decisión de agenda: ingresos y gastos que se revelan por segmento sobre el que se informa (NIIF 8)
+
+*Disclosure of Revenues and Expenses for Reportable Segments (IFRS 8)* · publicada en julio de 2024 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
+
+El párr. 23 de la NIIF 8 exige revelar por segmento los importes especificados que estén incluidos en la medida de utilidad o pérdida del segmento que revisa la máxima autoridad en la toma de decisiones de operación, aunque no se le presenten por separado, o que se le proporcionen con regularidad aunque no estén en esa medida. Las «partidas materiales» del párr. 23(f) se juzgan con la definición de material y las reglas de agregación de la NIIF 18 (apéndice A, párr. B2 y 41–43; antes NIC 1, párr. 7 y 30–31), cualitativa o cuantitativamente, en el contexto de los estados financieros en su conjunto; no hay que revelar por segmento cada partida de resultados.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 30) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## AD — Decisión de agenda: liquidación física de contratos de compra o venta de una partida no financiera (NIIF 9)
+
+*Physical Settlement of Contracts to Buy or Sell a Non-financial Item (IFRS 9)* · publicada en marzo de 2019 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
+
+Un contrato a precio fijo que no califica como de uso propio y se contabiliza como derivado a valor razonable con cambios en resultados no se reevalúa porque al final se liquide físicamente: la NIIF 9 no permite ni exige el asiento adicional que revertiría su ganancia o pérdida acumulada. Su presentación sigue la NIIF 18 (párr. B70–B76 para derivados; antes NIC 1) y su revelación la NIIF 7 (párr. 20(a)(i)).
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 33) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## AD — Decisión de agenda: ciclo normal de operación (NIC 1 → NIIF 18)
+
+*Normal operating cycle (IAS 1)* · publicada en junio de 2005 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
+
+El criterio del ciclo normal de operación para clasificar activos en circulantes (NIIF 18, párr. 99(a); antes NIC 1, párr. 57(a)) se lee en singular y en plural: decide la naturaleza de los inventarios frente a su ciclo, no que la entidad tenga un ciclo predominante. Si tiene inventarios de ciclos distintos, la NIIF 18 (párr. 15–24, 106 y 41–42) decide qué información adicional presentar o revelar.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 35) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## AD — Decisión de agenda: revelación de cambios en pasivos por actividades de financiamiento (NIC 7)
+
+*Disclosure of Changes in Liabilities Arising from Financing Activities (IAS 7)* · publicada en septiembre de 2019 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
+
+Los párr. 44B–44E de la NIC 7, junto con la NIIF 18 (antes NIC 1), bastan para dar revelaciones que cumplan el objetivo del párr. 44A. La entidad decide la estructura y el desglose de su conciliación y explica cada clase de pasivo y cada partida conciliatoria de modo que el inversionista vea sus fuentes de financiamiento, pueda comprobar los flujos de efectivo y ligue cada partida al estado de situación financiera y al de flujos.
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 38) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## AD — Decisión de agenda: desembolsos posteriores en activos biológicos (NIC 41)
+
+*Subsequent Expenditure on Biological Assets (IAS 41)* · publicada en septiembre de 2019 · actualizada para la NIIF 18 en el Vol. 14.
+
+**Estado (leído el 2026-11-24):** concluida. Página del proyecto de actualización: «At its January 2026 meeting, the International Accounting Standards Board (IASB): […] did not object to six updated agenda decisions.»; el Vol. 14 la encabeza «Updated in January 2026 to replace references to IAS 1 Presentation of Financial Statements with references to IFRS 18 Presentation and Disclosure in Financial Statements».
+
+La NIC 41 no dice cómo tratar los desembolsos posteriores en activos biológicos medidos a valor razonable menos costos de venta: la entidad los capitaliza o los reconoce como gasto al incurrirlos, con una política aplicada de modo uniforme a cada grupo de activos (NIC 8, párr. 13) y revelada si ayuda al usuario. No cambia el valor razonable ni el resultado, sólo la presentación en resultados, que sigue la NIIF 18 (párr. 23–24 y 78; antes NIC 1, párr. 85 y 99).
+
+Fuentes: https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/agenda-decision-compilations/compilation-agenda-decisions-vol-14-nov2025-april2026.pdf (p. 41) · https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/
+
+## AD tentativa — MPM con ingresos y gastos hipotéticos (NIIF 18)
+
+*Management-defined Performance Measures—Hypothetical Income and Expenses (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 2.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: una medida del desempeño definida por la administración (MPM) que incluye ingresos y gastos que la entidad nunca reconocerá puede ser un subtotal de ingresos y gastos (párr. 117 de la NIIF 18, que no restringe su cálculo) y puede representar fielmente lo que pretende: la visión de la administración sobre un aspecto del desempeño de la entidad en su conjunto.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/management-defined-performance-measures-hypothetical-income-and-expenses-ifrs-18/
+
+## AD tentativa — MPM: qué es una comunicación pública (NIIF 18)
+
+*Management-defined Performance Measures—Public Communications (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 3.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: presentaciones a inversionistas compartidas bajo acuerdos de confidencialidad que impiden redistribuirlas, y no publicadas en línea, en comunicados ni a analistas, no son comunicaciones públicas para identificar una MPM. La mención de «investor presentations» en el párr. B119 no vuelve pública toda presentación a inversionistas, y la entidad aplica su juicio.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/management-defined-performance-measures-public-communications-ifrs-18/
+
+## AD tentativa — Clasificación de ingresos y gastos de efectivo y equivalentes (NIIF 18)
+
+*Classification of Income and Expenses from Cash and Cash Equivalents (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 4A.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: si la entidad tiene, entre otras, las actividades principales de invertir en activos financieros del párr. 53(c) y de financiar a clientes, el párr. 56(a) le exige clasificar en operación los ingresos y gastos de todo su efectivo y equivalentes. No tiene la opción del párr. 56(b)(ii) ni aplica el párr. 57, pero conserva la del párr. 65(a)(ii) para los pasivos que sólo obtienen financiamiento.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/classification-of-income-and-expenses-cash-and-cash-equivalents-ifrs-18/
+
+## AD tentativa — Clasificación cuando la actividad principal es financiar a clientes (NIIF 18)
+
+*Classification of Income and Expenses when an Entity Has a Main Business Activity of Providing Financing to Customers (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 4B.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: cuando el grupo consolidado financia a clientes como actividad principal, la opción de política del párr. 65(a)(ii) se aplica a todos los pasivos especificados del grupo que no se relacionan con esa actividad, no sólo a los de las subsidiarias que la realizan. Si no puede distinguir qué pasivos se relacionan con ella, o si por el párr. 57 ya clasificó en operación todo su efectivo, clasifica en operación los ingresos y gastos de todos los pasivos especificados.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/classification-of-income-and-expenses-entity-main-business-activity-providing-financing-customers-ifrs-18/
+
+## AD tentativa — Control de un fondo con un solo inversionista (NIIF 10)
+
+*Control Assessment for a Single-investor Fund (IFRS 10)* · IFRIC Update de junio de 2026, Agenda Paper 5.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: ser el único inversionista de un fondo (99.99 %) aparte del administrador, que es agente y no lo controla, no basta para considerar automáticamente que el inversionista le delegó su poder de decisión. Evaluar el control exige juicio y todos los párr. 5–18 de la NIIF 10 con su guía del apéndice B; en el caso, el inversionista no diseñó el fondo y sólo tiene derechos protectores.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/control-assessment-for-a-single-investor-fund-ifrs-10/
+
+## AD tentativa — Actividad principal especificada de un fabricante-arrendador (NIIF 18)
+
+*Assessment of Specified Main Business Activities for a Manufacturer-Lessor (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 6.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: un fabricante de vehículos que los vende o los arrienda, refinancia cada arrendamiento con un banco y mide su actividad de arrendamiento con un subtotal parecido a la utilidad bruta, probablemente tiene la actividad principal de financiar a clientes (párr. B34). Que algunos arrendamientos sean operativos no lo impide, y que el párr. B32 no traiga este ejemplo no es determinante. De esa evaluación depende dónde se clasifican los intereses de los refinanciamientos.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/assessment-of-specified-main-business-activities-for-manufacturer-lessor-ifrs-18/
+
+## AD tentativa — Etiquetas de subtotales (NIIF 18)
+
+*Labels of Subtotals (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 7A.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: la etiqueta de un subtotal que es una MPM no tiene que enumerar todo lo que excluye o incluye, siempre que la etiqueta y sus descripciones en notas cumplan la NIIF 18 (párr. 123: clara, comprensible y que no induzca a error; párr. B135, p. ej. «utilidad de operación antes de gastos no recurrentes» explicando qué es «no recurrente»). Etiquetar y describir la medida exige juicio.
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/labels-of-subtotals-ifrs-18/
+
+## AD tentativa — Presentación de gastos de operación por naturaleza y por función (NIIF 18)
+
+*Presentation of Operating Expenses (IFRS 18)* · IFRIC Update de junio de 2026, Agenda Paper 7B.
+
+**Estado (leído el 2026-11-24):** tentativa, no definitiva. La IFRIC Update: «Open for comment until 9 September 2026»; su página: «The IFRS Interpretations Committee published a tentative agenda decision at its meeting in June 2026.», y su próximo hito, «Tentative Agenda Decision Feedback», en la reunión del Comité de noviembre de 2026, cuyo orden del día (24–25 de noviembre) trae sus comentarios.
+
+Conclusión tentativa: la entidad debe usar una presentación mixta (unos gastos de operación por naturaleza y otros por función) cuando eso da el resumen estructurado más útil (párr. 78). Puede repartir gastos de una misma naturaleza entre partidas por naturaleza y partidas por función (ejemplo del párr. B82), con el nivel de agregación más útil (párr. B85).
+
+Fuentes: https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/ · https://www.ifrs.org/projects/work-plan/presentation-of-operating-expenses-ifrs-18/
 
 Nota transversal sobre presentación: el CINIF promulgó en diciembre de 2025 las nuevas NIF B-1 "Bases para la preparación de los estados financieros" y NIF B-3 "Estado de resultado integral", espejo de la NIIF 18 (categorías operación/inversión/financiamiento/impuestos/discontinuadas), vigentes el 1-ene-2028 con adopción anticipada desde el 1-ene-2027; hasta entonces rigen la NIF B-1 (correcciones) y B-3 actuales.
 
 ## Cuándo consultar este documento
 
-Consultar cuando la entidad reporta IFRS (o aplica supletoriedad NIF A-1 cap. 90) y enfrenta: provisiones de desmantelamiento o fondos ambientales (IFRIC 1/5), concesiones públicas (IFRIC 12/SIC-29), dividendos en especie o canjes deuda-capital (IFRIC 17/19), gravámenes no ISR (IFRIC 6/21), anticipos en moneda extranjera (IFRIC 22), posiciones fiscales inciertas frente al SAT (IFRIC 23/SIC-25), superávit de planes de beneficios definidos (IFRIC 14), coberturas de inversión neta (IFRIC 16), deterioro de goodwill en intermedios (IFRIC 10), hiperinflación (IFRIC 7), cooperativas (IFRIC 2), sitios web o proyectos SaaS (SIC-32 y decisión de nube), criptomonedas o efectivo restringido (decisiones de agenda). También cuando una NIF calla sobre estos temas y hay que fundamentar el criterio supletorio.
+Consultar cuando la entidad reporta IFRS (o aplica supletoriedad NIF A-1 cap. 90) y enfrenta: provisiones de desmantelamiento o fondos ambientales (IFRIC 1/5), concesiones públicas (IFRIC 12/SIC-29), dividendos en especie o canjes deuda-capital (IFRIC 17/19), gravámenes no ISR (IFRIC 6/21), anticipos en moneda extranjera (IFRIC 22), posiciones fiscales inciertas frente al SAT (IFRIC 23/SIC-25), superávit de planes de beneficios definidos (IFRIC 14), coberturas de inversión neta (IFRIC 16), deterioro de goodwill en intermedios (IFRIC 10), hiperinflación (IFRIC 7), cooperativas (IFRIC 2), sitios web o proyectos SaaS (SIC-32 y decisión de nube), criptomonedas o efectivo restringido (decisiones de agenda), y las preguntas de las decisiones de 2026: costos de transacción y prepagos (NIIF 9), baterías en acuerdos de offtake (NIIF 16), categorías, MPM, subtotales y gastos de operación (NIIF 18), segmentos (NIIF 8), presentación razonable (NIC 1/NIC 8), conciliación de pasivos de financiamiento (NIC 7), activos biológicos (NIC 41) y fondos con un solo inversionista (NIIF 10). También cuando una NIF calla sobre estos temas y hay que fundamentar el criterio supletorio.
