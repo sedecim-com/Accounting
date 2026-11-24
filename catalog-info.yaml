@@ -123,6 +123,11 @@ provides:
     # `folderRouting`: ANTHROPIC_BASE_URL / ANTHROPIC_CONFIG_DIR (anthropic) or
     # OPENAI_BASE_URL (openai-compatible with no base_url) set in the folder's ./.env,
     # which doctor warns about. Criterion shared-project-file-runs-and-sends-nothing-unapproved.
+    # Both approvals bind the destination as origins (scheme and host) resolved as the
+    # SDKs do: base_url, else OPENAI_BASE_URL, for openai-compatible; ANTHROPIC_BASE_URL
+    # (the session) and base_url (the probe) for anthropic. A helper's approval also binds
+    # the SHA-256 of each project file its command names; it runs in the resolving folder.
+    # The credential check runs before the schema, so no `.rejected-` copy is ever kept.
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
     # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs

@@ -82,7 +82,7 @@ describe('credentialState — the five answers', () => {
 
   it('an approved api_key_cmd in a project file is flagged as shared', () => {
     const project = path.join(cwd, 'mnemosine.config.json');
-    recordApprovals([{ key: approvalKey('helper', project, 'echo x', 'llm.example.test'), kind: 'helper', file: project }], home);
+    recordApprovals([{ key: approvalKey('helper', project, 'echo x', 'https://llm.example.test'), kind: 'helper', file: project }], home);
     const s = credentialState(remote({ api_key_cmd: 'echo x' }), { cwd, home, env: {}, source: project });
     expect(s.source).toEqual({ kind: 'helper', file: project, shared: true });
     expect(s.label).toMatch(/^api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone who runs mnemosine in that folder$/);

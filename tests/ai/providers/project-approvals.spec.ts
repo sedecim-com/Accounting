@@ -261,7 +261,7 @@ describe("a project profile sends a key only where it belongs, unless its person
     const env = { OPENAI_API_KEY: 'valor-inventado-de-openai' };
     const state = credentialState(profiles.vault, { cwd: project, home, source: origins.vault, env });
     expect(state.ready).toBe(false);
-    expect(state.source).toEqual({ kind: 'unapproved', file: projectFile(), never: false, variable: 'OPENAI_API_KEY', host: 'otro.example.test' });
+    expect(state.source).toEqual({ kind: 'unapproved', file: projectFile(), never: false, variable: 'OPENAI_API_KEY', host: 'https://otro.example.test' });
     expect(state.label).not.toContain('valor-inventado');
   });
 });
@@ -285,5 +285,137 @@ describe("readiness names the routing variables the folder's ./.env sets for eve
     expect(credentialState({ type: 'anthropic', model: 'm' }, { cwd: project, home, env: {} }).folderRouting).toEqual([]);
     fs.rmSync(path.join(project, '.env'));
     expect(credentialState({ type: 'anthropic', model: 'm' }, { cwd: project, home, env: {} }).folderRouting).toEqual([]);
+  });
+});
+
+// The independent review of 24 Nov: the host the SDK really uses, the scheme,
+// the helper's own file, the header and key shapes, and the label.
+describe('review: the gate checks where the key really goes', () => {
+  it("an openai-compatible project profile with no base_url is checked against OPENAI_BASE_URL from the folder's ./.env", () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    vi.stubEnv('OPENAI_BASE_URL', 'https://desvio.example.test/v1');
+    fs.writeFileSync(projectFile(), JSON.stringify({
+      providers: { vault: { type: 'openai-compatible', model: 'm', api_key_env: 'OPENAI_API_KEY' } },
+    }));
+    const err = refusal(() => resolveProfile('vault', undefined, project));
+    expect(err).toBeInstanceOf(ProjectFileRefusalError);
+    expect(err.message).toContain('https://desvio.example.test');
+    vi.stubEnv('OPENAI_BASE_URL', '');
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('valor-inventado-de-openai');
+  });
+
+  it('an anthropic project profile is checked against ANTHROPIC_BASE_URL, which the session uses', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'valor-inventado-de-anthropic');
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://desvio.example.test');
+    fs.writeFileSync(projectFile(), JSON.stringify({
+      providers: { claude: { type: 'anthropic', model: 'm', api_key_env: 'ANTHROPIC_API_KEY' } },
+    }));
+    expect(() => resolveProfile('claude', undefined, project)).toThrow(/https:\/\/desvio\.example\.test/);
+    vi.stubEnv('ANTHROPIC_BASE_URL', '');
+    expect(resolveProfile('claude', undefined, project).apiKey).toBe('valor-inventado-de-anthropic');
+  });
+
+  it('a helper approved for one OPENAI_BASE_URL asks again when ./.env moves it', () => {
+    fs.writeFileSync(projectFile(), JSON.stringify({
+      providers: { vault: { type: 'openai-compatible', model: 'm', api_key_cmd: helper() } },
+    }));
+    approveProjectProfile('vault', project);
+    vi.stubEnv('OPENAI_BASE_URL', 'https://desvio.example.test/v1');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('the scheme is bound: http to a documented host is not documented, and an https approval does not cover http', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'http://api.openai.com/v1' });
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(/http:\/\/api\.openai\.com/);
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://otro.example.test/v1' });
+    approveProjectProfile('vault', project);
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'http://otro.example.test/v1' });
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+  });
+});
+
+describe('review: an approved helper binds the project file it runs', () => {
+  it('editing a script inside the project that the command runs asks again', () => {
+    fs.mkdirSync(path.join(project, 'tools'));
+    const script = path.join(project, 'tools', 'key.sh');
+    fs.writeFileSync(script, `touch '${marker}'; printf 'tok-del-script'\n`);
+    writeProject({ api_key_cmd: 'sh ./tools/key.sh' });
+    approveProjectProfile('vault', project);
+    fs.writeFileSync(script, `touch '${marker}'; printf 'tok-cambiado'\n`);
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+    approveProjectProfile('vault', project);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-cambiado');
+  });
+
+  it('a file outside the project is not fingerprinted, and the approve output says what is bound by name only', () => {
+    writeProject({ api_key_cmd: `sh ${path.join(home, 'fuera.sh')}` });
+    fs.writeFileSync(path.join(home, 'fuera.sh'), "printf 'tok-fuera'\n");
+    approveProjectProfile('vault', project);
+    fs.writeFileSync(path.join(home, 'fuera.sh'), "printf 'tok-fuera-2'\n");
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-fuera-2');
+  });
+});
+
+describe('review: the credential check', () => {
+  const okHeaders = { 'x-portkey-provider': 'openai', 'X-Title': 'mnemosine', 'HTTP-Referer': 'https://example.test' };
+  it('a header whose name only contains «key» inside a word is not refused', () => {
+    writeProject({ api_key_env: 'VAULT_API_KEY', headers: okHeaders });
+    expect(() => loadConfigFile(project)).not.toThrow();
+  });
+
+  it.each([
+    ['a GitHub OAuth token', 'gho_Inventado0123456789abcdefABCD'],
+    ['a GitHub user token', 'ghu_Inventado0123456789abcdefABCD'],
+    ['a fine-grained GitHub token', 'github_pat_Inventado0123456789abcdef'],
+    ['a Groq key', 'gsk_Inventado0123456789abcdefABCD'],
+    ['a Hugging Face token', 'hf_Inventado0123456789abcdefABCD'],
+    ['a Perplexity key', 'pplx-Inventado0123456789abcdefABCD'],
+  ])('%s inside a helper command is refused', (_label, key) => {
+    writeProject({ api_key_cmd: `echo ${key}` });
+    const err = refusal(() => loadConfigFile(project));
+    expect(err.message).toContain('providers.vault.api_key_cmd');
+    expect(err.message).not.toContain('Inventado');
+  });
+
+  it('a base_url whose query names a credential is refused, whatever its value', () => {
+    writeProject({ base_url: 'https://v.example.test/v1?api_key=INVENTADO' });
+    expect(refusal(() => loadConfigFile(project)).message).toContain('providers.vault.base_url');
+    writeProject({ base_url: 'https://v.example.test/v1?region=us' });
+    expect(() => loadConfigFile(project)).not.toThrow();
+  });
+
+  it('a file that fails the schema AND carries a credential leaves no .rejected- copy', () => {
+    writeProject({ headers: { Authorization: 'Bearer inventado-token-123' }, campo_desconocido: true });
+    const err = refusal(() => loadConfigFile(project));
+    expect(err.message).toContain('credential written by hand');
+    expect(fs.readdirSync(project).filter((f) => f.includes('.rejected-'))).toEqual([]);
+  });
+});
+
+describe('review: the label when the pair cannot be checked', () => {
+  it('a store that does not parse reads as a fixed phrase, never an empty host', () => {
+    fs.mkdirSync(path.dirname(projectApprovalsPath(home)), { recursive: true });
+    fs.writeFileSync(projectApprovalsPath(home), '{ roto');
+    writeProject({ api_key_env: 'OPENAI_API_KEY' });
+    const { profiles, origins } = listProfiles(project);
+    const state = credentialState(profiles.vault, { cwd: project, home, source: origins.vault, env: { OPENAI_API_KEY: 'x' } });
+    expect(state.label).not.toMatch(/to ,|to $/);
+    expect(state.label).toContain('a host it could not check');
+  });
+});
+
+describe('review: one resolution reads the user file once', () => {
+  it('resolveProfile of an approved project helper parses ~/.mnemosine/config.json a single time', () => {
+    writeUser({ project_helpers: 'approved' });
+    writeProject({ api_key_cmd: helper() });
+    approveProjectProfile('vault', project);
+    const read = vi.spyOn(fs, 'readFileSync');
+    resolveProfile('vault', undefined, project);
+    const reads = read.mock.calls.filter(([f]) => String(f) === userFile()).length;
+    read.mockRestore();
+    expect(reads).toBe(1);
   });
 });

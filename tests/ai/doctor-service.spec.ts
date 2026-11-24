@@ -310,7 +310,7 @@ describe('runDoctor — model provider', () => {
     });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('fail');
-    expect(c.fix).toBe('If you trust x.example.test with SOME_KEY: mnemosine providers approve remoto');
+    expect(c.fix).toBe('If you trust https://x.example.test with SOME_KEY: mnemosine providers approve remoto');
     expect(JSON.stringify(c)).not.toContain('clave-falsa');
   });
 

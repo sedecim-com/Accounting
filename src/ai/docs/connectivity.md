@@ -77,7 +77,13 @@ output when a connection problem is unclear.
   then the profile stops with that command, and doctor and `mnemosine
   providers` say «not approved». Once approved it renews like their own. Tell
   them to read `providers.<profile>.api_key_cmd` in that file before
-  approving, and never approve it for them. A project file that carries a
+  approving, and never approve it for them. Say that it runs in the project
+  folder with that folder's `./.env` in its environment, that a script of
+  the project it names is approved by its content (an edit asks again), and
+  that a command found through PATH or npx is approved by its name only.
+  The approval also binds where the key goes, scheme included, as the SDK
+  resolves it: an `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in `./.env`
+  that moves it asks again. A project file that carries a
   credential written by hand (an auth header, a key in a command, a model or
   a base_url) is refused at load, naming the field: the fix is to move the
   secret to the person's own files. The person's own profiles stay available

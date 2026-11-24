@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { isInstallationSecretVariable, listProfiles, projectHelperGate, projectPairGate, userConfigPath } from './config.js';
+import type { MnemosineConfig } from './config.js';
 import type { ProviderProfile } from './types.js';
 import { t } from '../../i18n/index.js';
 
@@ -110,6 +111,8 @@ export interface CredentialStateOptions {
   source?: string | null;
   /** The operating system, which picks the Anthropic SDK's config root; default process.platform. */
   platform?: NodeJS.Platform;
+  /** ~/.mnemosine/config.json as listProfiles parsed it (listProfiles().own); omitted, it is read. */
+  own?: MnemosineConfig | null;
 }
 
 /** True for localhost, 127.0.0.0/8 and ::1; false for anything else or no URL. */
@@ -293,9 +296,10 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     let pair: { variable: string; host: string } | null = null;
     if (profile.api_key_env && file !== null && file !== userConfigPath(home)) {
       try {
-        pair = projectPairGate(file, profile, home);
+        pair = projectPairGate(file, profile, { home, env });
       } catch {
-        pair = { variable, host: '' };
+        // A store that does not parse approves nothing: resolveProfile says which.
+        pair = { variable, host: t('provider.credential.unchecked_host') };
       }
     }
     source = pair && file ? { kind: 'unapproved', file, never: false, ...pair } : { kind: 'env', variable };
@@ -305,7 +309,7 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     let gate: { never: boolean } | null = null;
     if (shared) {
       try {
-        gate = projectHelperGate(file, profile, home);
+        gate = projectHelperGate(file, profile, { home, env, own: options.own });
       } catch {
         // A store or user file that does not parse approves nothing: resolveProfile says which.
         gate = { never: false };
@@ -397,10 +401,10 @@ export interface ProviderReadiness {
 
 /** The answer for every profile of the config that wins in `cwd`. */
 export function providerReadiness(options: Omit<CredentialStateOptions, 'source'> = {}): ProviderReadiness {
-  const { profiles, defaultName, source, origins } = listProfiles(options.cwd);
+  const { profiles, defaultName, source, origins, own } = listProfiles(options.cwd);
   const states: Record<string, CredentialState> = {};
   for (const [name, profile] of Object.entries(profiles)) {
-    states[name] = credentialState(profile, { ...options, source: origins[name] });
+    states[name] = credentialState(profile, { ...options, source: origins[name], own });
   }
   return { defaultName, source, profiles, states };
 }

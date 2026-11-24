@@ -1675,19 +1675,19 @@ export const E5_1: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/ai/providers/config.ts',
-        de: 'const handWritten = isProject ? projectFileCredentialFields(parsed.data) : [];',
+        de: 'const handWritten = isProject ? projectFileCredentialFields(raw) : [];',
         a: 'const handWritten: string[] = [];',
         porque: 'credential-carried: a project file with a key in a header or a command loads again, and the key goes out as written',
       },
       {
         archivo: 'src/ai/providers/config.ts',
-        de: '    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile);\n',
+        de: '    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);\n',
         a: '',
         porque: "helper-runs-unasked: anyone who runs mnemosine in the folder runs the project's command in a shell again",
       },
       {
         archivo: 'src/ai/providers/config.ts',
-        de: "  if (readProjectHelperPolicy(home) === 'never') return { never: true };\n",
+        de: "  if (readProjectHelperPolicy(home, opts.own) === 'never') return { never: true };\n",
         a: '',
         porque: 'setting-ignored: "project_helpers": "never" stops nothing, and an approved helper runs for the person who chose never',
       },
@@ -1699,8 +1699,8 @@ export const E5_1: Criterio[] = [
       },
       {
         archivo: 'src/ai/providers/config.ts',
-        de: '? [[readConfigAt(ownFile, false), ownFile]] : []',
-        a: '? [] : []',
+        de: 'const beneath = source !== ownFile && fs.existsSync(ownFile) ? readConfigAt(ownFile, false) : null;',
+        a: 'const beneath: MnemosineConfig | null = null;',
         porque: "own-profiles-hidden: a project file hides every profile of the reader's own file, their helpers included",
       },
       {
@@ -1717,16 +1717,16 @@ export const E5_1: Criterio[] = [
       const has = (src: string, snippet: string) => src.includes(flat(snippet));
       const checks: Array<[boolean, string]> = [
         [
-          has(config, 'const handWritten = isProject ? projectFileCredentialFields(parsed.data) : [];') &&
+          has(config, 'const handWritten = isProject ? projectFileCredentialFields(raw) : [];') &&
             has(config, 'readConfigAt(projectFile, true)'),
           'the loader no longer refuses a hand-written credential in the project file',
         ],
         [
-          has(config, 'if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile); apiKey = runCredentialHelperSync('),
+          has(config, 'if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own); apiKey = runCredentialHelperSync('),
           "resolveProfile runs a project file's api_key_cmd without asking for its approval first",
         ],
         [
-          has(config, "if (readProjectHelperPolicy(home) === 'never') return { never: true };"),
+          has(config, "if (readProjectHelperPolicy(home, opts.own) === 'never') return { never: true };"),
           'the gate no longer reads "project_helpers": "never" from the reader\'s own file',
         ],
         [
@@ -1734,7 +1734,8 @@ export const E5_1: Criterio[] = [
           'resolveProfile sends a project profile\'s variable to its host without checking the pair',
         ],
         [
-          has(config, '? [[readConfigAt(ownFile, false), ownFile]] : []'),
+          has(config, 'const beneath = source !== ownFile && fs.existsSync(ownFile) ? readConfigAt(ownFile, false) : null;') &&
+            has(config, 'const layers: Array<[MnemosineConfig, string | null]> = beneath ? [[beneath, ownFile]] : [];'),
           "listProfiles no longer layers the reader's own profiles beneath the project file",
         ],
         [

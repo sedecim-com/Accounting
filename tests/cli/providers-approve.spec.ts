@@ -44,7 +44,8 @@ describe('providers approve', () => {
     const file = writeProject({ api_key_cmd: `touch '${marker}'; printf 'tok-inventado'` });
     const lines = approveProfileLines('vault', plain, project);
     expect(lines).toEqual([
-      `Approved for you: the api_key_cmd of providers.vault in ${file}, for v.example.test. A changed command or host asks again.`,
+      `Approved for you: the api_key_cmd of providers.vault in ${file}, for https://v.example.test. A changed command or host asks again.`,
+      "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
     ]);
     expect(lines.join('\n')).not.toMatch(/touch|tok-inventado/);
     expect(fs.existsSync(marker)).toBe(false);
@@ -55,7 +56,7 @@ describe('providers approve', () => {
     writeProject({ api_key_cmd: 'printf x' });
     fs.mkdirSync(path.join(home, '.mnemosine'), { recursive: true });
     fs.writeFileSync(path.join(home, '.mnemosine', 'config.json'), JSON.stringify({ project_helpers: 'never' }));
-    expect(approveProfileLines('vault', plain, project)[1]).toBe(
+    expect(approveProfileLines('vault', plain, project)[2]).toBe(
       '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.'
     );
   });
@@ -73,7 +74,7 @@ describe('providers approve', () => {
   it('approves sending a variable to a host its provider does not document (MNE-001-452, part B)', () => {
     const file = writeProject({ api_key_env: 'OPENAI_API_KEY' });
     expect(approveProfileLines('vault', plain, project)).toEqual([
-      `Approved for you: providers.vault in ${file} may send OPENAI_API_KEY to v.example.test. Another host asks again.`,
+      `Approved for you: providers.vault in ${file} may send OPENAI_API_KEY to https://v.example.test. Another host asks again.`,
     ]);
   });
 

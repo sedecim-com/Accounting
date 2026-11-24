@@ -149,7 +149,11 @@ short-lived token from **your own** login:
   `providers.<profile>.api_key_cmd` in that `mnemosine.config.json`, then run
   `mnemosine providers approve <profile>`. The approval is yours alone,
   recorded as a hash under `~/.mnemosine/project-approvals.json`; a changed
-  command, file or host asks again, and until then the profile stops with
+  command, file, project script it names, or destination (scheme and host,
+  as the SDK resolves it, `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`
+  included) asks again. It runs in the project folder with that folder's
+  `./.env` in its environment; a command found through PATH or npx is
+  approved by its name only, and until then the profile stops with
   the command to type, never the helper's text. Once approved it renews like
   your own. `"project_helpers": "never"` in your `~/.mnemosine/config.json`
   never runs a project file's helper; `"approved"` is the default. To revoke

@@ -6731,6 +6731,7 @@ export const EN = {
     'api_key_cmd in {file}, a shared project file: "project_helpers" is "never" in ~/.mnemosine/config.json, so it does not run',
   'provider.credential.unapproved_pair':
     '{variable} set, but {file}, a shared project file, sends it to {host}, where its provider does not take it: not approved here',
+  'provider.credential.unchecked_host': 'a host it could not check',
   'provider.credential.folder_routing':
     '{label}; {file} sets {variables}, which serve everyone who runs mnemosine in that folder',
   'provider.credential.hint.unapproved_pair':
@@ -6753,6 +6754,8 @@ export const EN = {
   'provider.approve.pair': 'Approved for you: providers.{name} in {file} may send {variable} to {host}. Another host asks again.',
   'provider.approve.helper':
     'Approved for you: the api_key_cmd of providers.{name} in {file}, for {host}. A changed command or host asks again.',
+  'provider.approve.helper_scope':
+    "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
   'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
   // ==== end of MNE-001-452 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====

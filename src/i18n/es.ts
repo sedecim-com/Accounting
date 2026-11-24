@@ -6209,6 +6209,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'api_key_cmd en {file}, un archivo de proyecto compartido: "project_helpers" es "never" en ~/.mnemosine/config.json, así que no corre',
   'provider.credential.unapproved_pair':
     '{variable} definida, pero {file}, un archivo de proyecto compartido, la manda a {host}, donde su proveedor no la recibe: sin aprobar aquí',
+  'provider.credential.unchecked_host': 'un host que no pudo comprobar',
   'provider.credential.folder_routing':
     '{label}; {file} define {variables}, que le sirven a todo el que corre mnemosine en esa carpeta',
   'provider.credential.hint.unapproved_pair':
@@ -6231,6 +6232,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.approve.pair': 'Aprobado para ti: providers.{name} en {file} puede mandar {variable} a {host}. Otro host pide otra aprobación.',
   'provider.approve.helper':
     'Aprobado para ti: el api_key_cmd de providers.{name} en {file}, para {host}. Un comando o un host distinto pide otra aprobación.',
+  'provider.approve.helper_scope':
+    'Corre en esta carpeta, con el ./.env de la carpeta en su entorno. Un script de este proyecto que nombre queda aprobado por su contenido; un comando que se encuentra por PATH o npx, sólo por su nombre.',
   'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',
   // ==== end of MNE-001-452 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====

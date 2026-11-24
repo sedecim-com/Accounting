@@ -64,6 +64,7 @@ export function approveProfileLines(name: string, c: Pick<ReadinessPalette, 'dim
   const out: string[] = [];
   if (r.approved.includes('helper')) {
     out.push(t('provider.approve.helper', { name, file: r.file, host: r.host }));
+    out.push(c.dim(t('provider.approve.helper_scope')));
     if (r.never) out.push(c.dim(t('provider.approve.never')));
   }
   if (r.approved.includes('pair')) {
