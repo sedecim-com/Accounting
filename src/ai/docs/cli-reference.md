@@ -1740,6 +1740,10 @@ Options:
                              short) (default: "partial")
   --short-pay-reason <text>  why the unpaid balance is being written off;
                              required by --mode residual
+  --date <date>              day of the application (YYYY-MM-DD), which dates
+                             its entry, the application and the bill's last
+                             payment; defaults to today in the entity's time
+                             zone
   --json                     JSON output
   -e, --entity <idOrName>    legal entity to operate on (defaults to the active
                              one)
@@ -1759,6 +1763,8 @@ Examples:
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 9000.00 --mode partial
   # Close a bill short: what is unpaid stops being owed, so it needs a written reason.
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 15900.00 --mode residual --short-pay-reason "Nota de credito que el proveedor nunca emitio"
+  # Dated: the entry, the application and the bill's last payment carry May 10, and so does the IVA it credits.
+  mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 12000.00 --date 2026-05-10
 ```
 
 ### `mnemosine payment unapply` (alias: desaplicar)
@@ -1776,7 +1782,8 @@ Options:
   --bill <ref>             the bill to unapply from
   --reason <text>          why: it lands in the audit trail
   --date <date>            date of the unapply, for the closed row and its entry
-                           (YYYY-MM-DD); defaults to today
+                           (YYYY-MM-DD); defaults to today in the entity's time
+                           zone
   --json                   JSON output
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)

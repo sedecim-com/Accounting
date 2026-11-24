@@ -636,8 +636,12 @@ async function billsAppliedBy(
  * Reading the ledger rather than a flag also makes the two mechanisms agree:
  * a document moved into the pending account by the backfill has a debit there
  * and can be released, and a document that never was simply has a zero cap.
- * Prior releases net themselves out, so a partial payment can be followed by
- * another without double-releasing.
+ * A payment's release is NOT netted here: its entry carries the payment as
+ * source, not the document, so this reads a half-paid document as fully
+ * parked. A partial payment does not release twice because each release is the
+ * difference of two cumulative targets (`ivaToReclassify`); a caller that
+ * needs what is left after them nets the stored releases
+ * (`receivedVatStillParked`, `issuedVatStillParked`).
  *
  * `beforeCreditNotes` leaves a received credit note's entry out: what the bill
  * parked, whatever a note took back since. It answers whether the bill ever
