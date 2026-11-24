@@ -42,7 +42,8 @@ import {
 // missing or malformed, `--payable` and `--in-favor` together or neither,
 // half a payment, a `--credit` that is not `<acuse>:<amount>`. The rules of
 // the return and between returns are the service's, said by its keys
-// (exit 4; exit 6 for an acknowledgement or a month already recorded). Only
+// (exit 4; exit 6 for an acknowledgement or a month already recorded),
+// among them a credit above what its source still holds (MNE-001-613). Only
 // the future-date rule is the leaf's own and waits for the entity, whose day
 // decides what "today" is: a return or a payment dated after today has not
 // happened yet.

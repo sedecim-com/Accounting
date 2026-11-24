@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 146,
+    "help-descriptions-without-key": 99,
     "cli-user-strings-without-key": 926
   },
   "perFile": {
@@ -1346,6 +1346,7 @@
       "src/services/fiscal/inpc/periodo.ts": 32,
       "src/services/fiscal/issued-credit-notes.ts": 7,
       "src/services/fiscal/iva-workpaper.ts": 36,
+      "src/services/fiscal/prior-balance.ts": 7,
       "src/services/fiscal/provisional-income-tax-inputs.ts": 1,
       "src/services/fiscal/provisional-income-tax.ts": 9,
       "src/services/fiscal/sale-sources.ts": 7,
@@ -1487,13 +1488,11 @@
       "src/services/accounting/validation.ts": 1
     },
     "help-descriptions-without-key": {
-      "asset": 26,
       "audit": 14,
       "backup": 21,
       "completion": 2,
       "jobs": 28,
       "outbox": 6,
-      "report": 21,
       "status": 5,
       "subscription": 6,
       "webhooks": 17
