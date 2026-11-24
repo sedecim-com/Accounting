@@ -36,6 +36,14 @@ export const OFFICIAL_ENUMERATIONS_XSD =
  */
 export const FOREIGN_BANK_CODE = '999';
 
+/**
+ * MNE-001-502 · THE LONGEST FOREIGN BANK NAME A `*Ext` ATTRIBUTE TAKES.
+ * PolizasPeriodo 1.3 restricts BanEmisExt, BancoOriExt and BancoDestExt to
+ * `xs:maxLength 150`, and an XSD length counts characters, which are code
+ * points, not UTF-16 units. The spec ties it to the vendored schema.
+ */
+export const EXT_MAX_CHARACTERS = 150;
+
 /** The `xs:simpleType` names the generators check against. */
 export type OfficialEnumeration = 'c_CodAgrup' | 'c_Banco' | 'c_Moneda' | 'c_MetPagos';
 

@@ -91,7 +91,7 @@ The ratchet's ceilings, written by the meter itself from `docs/language-baseline
 
 ### How much Spanish may be left, and where
 
-20 lanes under the ratchet and 1 measured but not yet required.
+21 lanes under the ratchet and 1 measured but not yet required.
 This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
 in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
 trace is the diff. The live figures are read with `npm run language:status`.
@@ -118,6 +118,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 99 | 0 |
 | `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 847 | 0 |
 | `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 253 | 0 |
+| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 2012 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->

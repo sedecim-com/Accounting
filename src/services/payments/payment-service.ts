@@ -1783,11 +1783,13 @@ export async function applyCustomerPayment(
         : '0.0000';
       let twiceIn: string | null = null;
       let cashedOn: string | null = null;
+      // MNE-001-603: the plain cash this application took is spent for the next one of the same command too,
+      // even when it took nothing from the pool, so one command ends where two do (ADR-0006 Decision 2).
+      if (advance) advance.plain = new Decimal(advance.plain).minus(take.plain).toFixed(4);
       if (advance && fromAdvance.greaterThan(0)) {
         advance.ieps = new Decimal(advance.ieps).minus(iepsTake).toFixed(4);
         advance.consumed = new Decimal(advance.consumed).plus(fromAdvance).toFixed(4);
         advance.cancelled = new Decimal(advance.cancelled).plus(take.iva).toFixed(4);
-        advance.plain = new Decimal(advance.plain).minus(take.plain).toFixed(4);
         // A PUE invoice caused its IVA when it was issued (LIVA art. 1-B; CFF 29-A fr. VII b). Issued on or
         // before the advance, the advance's month carried both, and an application in a later month cancels
         // one of them there, not in the month that declared it twice. A PPD invoice parked its IVA instead:

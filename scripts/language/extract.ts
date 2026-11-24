@@ -46,11 +46,14 @@
 //     tiene otros MILES de cadenas españolas —el recorrido sobre `src/` entero
 //     pasa de cuatro mil; la cifra exacta se pregunta con `--list src` y no se
 //     copia de aquí, porque se mueve con cada archivo que se traduce— y NO se
-//     cuentan aquí porque hasta que I9 le dé `key` a `AppError` no hay por
-//     dónde pagarlas: un carril que nadie puede
-//     bajar, mezclado con los que sí, es como se acaba apagando el trinquete
-//     entero (`lane.ts` lo dice en su contrato). Cuando I9 llegue, ese carril
-//     nace al lado, con su propio número, y entonces se puede ver cuál de los
+//     cuentan aquí: no las lee el contador en su terminal, y hasta que I9 le
+//     diera `key` a `AppError` no había por dónde pagarlas —un carril que
+//     nadie puede bajar, mezclado con los que sí, es como se acaba apagando el
+//     trinquete entero (`lane.ts` lo dice en su contrato)—. I9·1 (#248) se la
+//     dio, y ese carril nació al lado con su propio número:
+//     `spanish-user-strings-services` (`lanes/service-strings.ts`,
+//     MNE-001-153), este mismo reconocedor sobre `src/services`, `src/api`,
+//     `src/ai`, `src/auth` y `src/database`, así que se puede ver cuál de los
 //     dos se movió. `tests/` y `scripts/` no entran nunca: al contador no le
 //     sale por pantalla ni la prosa de una prueba ni la de una herramienta de
 //     la casa.

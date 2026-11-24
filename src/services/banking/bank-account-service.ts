@@ -248,6 +248,9 @@ interface FilaCuenta extends Record<string, unknown> {
   clabe_last4: string | null;
   account_number_last4: string | null;
   routing_en_archivo: boolean;
+  /** Whether a CLABE is on file; the CLABE itself never leaves the table. */
+  clabe_en_archivo: boolean;
+  bank_is_foreign: boolean;
   is_active: boolean;
   saldo_banco: string | null;
   last_synced_at: Date | null;
@@ -276,6 +279,7 @@ const SELECCION = `
          b.account_type, b.currency_code, b.sat_bank_code, b.swift_code, b.iban,
          b.clabe_last4, b.account_number_last4,
          (b.routing_number_encrypted IS NOT NULL) AS routing_en_archivo,
+         (b.clabe_encrypted IS NOT NULL) AS clabe_en_archivo, b.bank_is_foreign,
          b.is_active, b.current_balance::text AS saldo_banco,
          b.last_synced_at, b.created_at, b.updated_at,
          a.id AS gl_id, a.code AS gl_code, a.name AS gl_name,
@@ -351,6 +355,11 @@ export interface FichaCuentaBancaria extends RenglonCuentaBancaria {
    * cuatro dígitos exige un camino auditado que todavía no existe.
    */
   routingEnArchivo: boolean;
+  /**
+   * MNE-001-502 · a person recorded, with a reason, that the bank is not
+   * resident in Mexico. Never inferred; the vouchers file declares it as 999.
+   */
+  foreignBank: boolean;
   /** `saldoLibro − saldoBanco`. Nulo mientras el banco no haya dicho nada. */
   diferencia: string | null;
   lastSyncedAt: Date | null;
@@ -430,6 +439,7 @@ function aFicha(fila: FilaCuenta): FichaCuentaBancaria {
     clabe: enmascarar(fila.clabe_last4),
     accountNumber: enmascarar(fila.account_number_last4),
     routingEnArchivo: fila.routing_en_archivo,
+    foreignBank: fila.bank_is_foreign === true,
     diferencia:
       fila.saldo_banco === null ? null : pesos(saldoLibro.minus(dec(fila.saldo_banco))),
     lastSyncedAt: fila.last_synced_at,
@@ -1011,6 +1021,12 @@ export interface ParcheCuenta {
   routingAch?: string | null;
   /** Sensible: exige `reason`. */
   routingWire?: string | null;
+  /**
+   * MNE-001-502 · the bank is not resident in Mexico (true) or is (false).
+   * Always with `reason`, in both directions: it is what the vouchers file
+   * declares about the bank, and nothing infers it.
+   */
+  foreignBank?: boolean;
 }
 
 export interface CambioDeCampo {
@@ -1033,6 +1049,28 @@ export interface ResultadoEdicion {
  * enumerarlos —dos listas separadas se desincronizan en la primera prisa—.
  */
 export const CAMPOS_SENSIBLES = ['clabe', 'account_number', 'routing_number'] as const;
+
+/**
+ * MNE-001-502 · A FOREIGN ACCOUNT HAS NO NATIONAL IDENTIFIER, judged on the row
+ * as this edit leaves it, like migration 343's CHECK and like the CLABE test
+ * of `updateBankAccount`: one edit that clears the code and sets the mark is
+ * accepted, and marking an account that keeps a code (999 included) or a
+ * CLABE, or adding either to a marked one, is refused before any write. A
+ * c_Banco code and a CLABE both name a bank resident in Mexico.
+ */
+export function refuseNationalIdentifierOnForeignBank(
+  current: { bank_is_foreign?: boolean; sat_bank_code: string | null; clabe_en_archivo?: boolean },
+  patch: Pick<ParcheCuenta, 'foreignBank' | 'satBankCode' | 'clabe'>
+): void {
+  const marked = patch.foreignBank ?? current.bank_is_foreign === true;
+  if (!marked) return;
+  const code = patch.satBankCode !== undefined ? (patch.satBankCode ?? '').trim() : (current.sat_bank_code ?? '');
+  if (code !== '') {
+    throw new ValidationError({ key: 'bank.account.foreign_bank.keeps_sat_bank_code', params: { code } }, 'sat_bank_code');
+  }
+  const clabe = patch.clabe !== undefined ? Boolean(patch.clabe) : current.clabe_en_archivo === true;
+  if (clabe) throw new ValidationError({ key: 'bank.account.foreign_bank.keeps_clabe' }, 'clabe');
+}
 
 export async function updateBankAccount(
   scope: Scope,
@@ -1185,9 +1223,20 @@ export async function updateBankAccount(
         anota('routing_number', previa.routing_en_archivo ? 'en-archivo' : null, v ? 'en-archivo' : null);
       }
 
+      // ── MNE-001-502 · the foreign-bank mark ───────────────────────
+      if (patch.foreignBank !== undefined) {
+        if (!ctx.reason || ctx.reason.trim().length === 0) {
+          throw new ValidationError({ key: 'bank.account.foreign_bank.reason_required' }, 'reason');
+        }
+        sets.push(`bank_is_foreign = $${i++}`);
+        params.push(patch.foreignBank);
+        anota('bank_is_foreign', previa.bank_is_foreign === true, patch.foreignBank);
+      }
+      refuseNationalIdentifierOnForeignBank(previa, patch);
+
       if (sets.length === 0) {
         throw new ValidationError(
-          'No se pidió ningún cambio. Campos editables: nombre, banco, sucursal, SWIFT, IBAN, clave SAT, tipo, moneda, CLABE, número de cuenta y routing.'
+          'No se pidió ningún cambio. Campos editables: nombre, banco, sucursal, SWIFT, IBAN, clave SAT, tipo, moneda, CLABE, número de cuenta, routing y la marca de banco extranjero.'
         );
       }
 
