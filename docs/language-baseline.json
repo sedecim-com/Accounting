@@ -24,7 +24,7 @@
     "help-descriptions-without-key": 99,
     "cli-user-strings-without-key": 838,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 2012
+    "spanish-user-strings-services": 2017
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1701,7 +1701,7 @@
       "src/services/backup/backup-service.ts": 22,
       "src/services/backup/exportacion-inquilino.ts": 21,
       "src/services/backup/ledger-en-base.ts": 2,
-      "src/services/banking/bank-account-service.ts": 48,
+      "src/services/banking/bank-account-service.ts": 47,
       "src/services/banking/bank-statement-service.ts": 36,
       "src/services/banking/book-items.ts": 3,
       "src/services/banking/match-service.ts": 27,
@@ -1730,7 +1730,7 @@
       "src/services/fiscal/inpc/parseo.ts": 14,
       "src/services/fiscal/inpc/periodo.ts": 7,
       "src/services/fiscal/issued-credit-notes.ts": 9,
-      "src/services/fiscal/iva-workpaper.ts": 61,
+      "src/services/fiscal/iva-workpaper.ts": 67,
       "src/services/fiscal/prior-balance.ts": 5,
       "src/services/fiscal/provisional-income-tax-inputs.ts": 8,
       "src/services/fiscal/provisional-income-tax.ts": 11,

@@ -86,6 +86,10 @@ import {
 //      method (`REVERSAL_CAUSE`). MNE-001-583: what a credit note restituted
 //      from it was never caused either (art. 7), so the note's month leaves
 //      it out and names its amended return too (`uncausedRestitutions`).
+//      MNE-001-606: an undo after a note posted under the rule before 581,
+//      which re-parked what the note had restituted, and a note reversed by
+//      hand after an unapply it capped, are named in their month, figures
+//      unchanged (`undoesAfterNotes`).
 //   3. A reversal whose money arrived and was taken back (`taken_back`) takes
 //      no IVA out: it leaves only by an art. 7 restitution with its document,
 //      an issued credit note, which the paper counts in its own month
@@ -1485,6 +1489,181 @@ const CAUSE_LABEL: Record<ReversalReading, string> = {
   not_stated: 'sin causa declarada',
 };
 
+/** When a row was written, at a fixed width, so the text orders as the instants do. */
+const written = (col: string): string => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+
+const NOTE_UNDO_TAIL = 'Las pólizas posteadas se quedan (NIF B-1); si hace falta una corrección, la decide una persona.';
+
+/**
+ * MNE-001-606 (#814, part 2/2 of MNE-001-583; 581 risks 5 and 6) · The undoes
+ * of the month that a credit note's restitution should have capped and did
+ * not, and the notes reversed by hand in the month after an unapply they
+ * capped. Read from the entries, since no row stores what 581 kept: a note
+ * restituted from 2120 what its entry debited there (575), and each later
+ * unapply or reversal on its invoice should have left in 2120 the part of its
+ * release that restitution still covers (LIVA art. 7), which uses it up:
+ * `due = min(release, what is left)`, the notes taken in the order they were
+ * written, only those standing at the undo and still standing. What it kept
+ * is its release less what its entry credited to 2125 (an unapply's, matched
+ * by the description `postReceiptUnapplicationEntry` writes), or what its
+ * `receipt_reversal_iva` debited to 2125 (a reversal's). Kept less than due:
+ * it was posted under the rule before 581. Kept more, and a note it counted
+ * was reversed by hand since: that IVA is owed again and nothing re-parked it.
+ * It only names: nothing posted changes (NIF B-1). Scoped by `entity_id`.
+ */
+async function undoesAfterNotes(client: pg.PoolClient, entityId: string, month: string): Promise<Hallazgo[]> {
+  const notes = await client.query<{
+    id: string; credit_note_number: string; invoice_id: string; invoice_number: string; entry_id: string; entry_number: string;
+    entry_date: string; written: string; mirror_number: string | null; mirror_date: string | null; mirror_written: string | null;
+  }>(
+    `SELECT cn.id::text, cn.credit_note_number, cn.invoice_id::text, i.invoice_number, je.id::text AS entry_id, je.entry_number,
+            je.entry_date::text AS entry_date, ${written('je.created_at')} AS written, m.entry_number AS mirror_number,
+            m.entry_date::text AS mirror_date, ${written('m.created_at')} AS mirror_written
+       FROM credit_notes cn
+       JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = $1
+       JOIN journal_entries je ON je.id = cn.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
+                              AND je.source_type = 'credit_note'
+       LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1
+      WHERE cn.entity_id = $1 AND cn.status NOT IN ('draft', 'void')
+        AND EXISTS (SELECT 1 FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                     WHERE pa.invoice_id = cn.invoice_id AND pa.unapplied_at IS NOT NULL)
+      ORDER BY written, cn.credit_note_number`,
+    [entityId]
+  );
+  if (notes.rows.length === 0) return [];
+  const debit = await netOnRole(client, entityId, 'iva_trasladado', notes.rows.map((n) => n.entry_id));
+  const restituting = notes.rows
+    .map((n) => ({ ...n, debit: debit.get(n.entry_id) ?? new Decimal(0) }))
+    .filter((n) => n.debit.greaterThan('0.005'));
+  if (restituting.length === 0) return [];
+  const undoes = await client.query<{
+    invoice_id: string; payment_id: string; payment_number: string; by_reversal: boolean; day: string;
+    cause: ReversalReading; reversed_written: string | null; released: string;
+  }>(
+    `SELECT e.invoice_id, e.payment_id, e.payment_number, e.by_reversal, e.day, e.cause, e.reversed_written,
+            SUM(e.released)::text AS released
+       FROM (SELECT pa.invoice_id::text AS invoice_id, cp.id::text AS payment_id, cp.payment_number,
+                    ${CLOSED_BY_REVERSAL} AS by_reversal,
+                    (CASE WHEN ${CLOSED_BY_REVERSAL} THEN ${REVERSED_ON} ELSE pa.unapplied_at::date END)::text AS day,
+                    ${REVERSAL_CAUSE} AS cause, ${written('cp.reversed_at')} AS reversed_written,
+                    COALESCE(pa.iva_reclass_amount, 0) AS released
+               FROM payment_allocations pa
+               JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 ${MIRROR_OF_RECEIPT}
+              WHERE pa.invoice_id = ANY($2::uuid[]) AND pa.unapplied_at IS NOT NULL) e
+      GROUP BY 1, 2, 3, 4, 5, 6, 7`,
+    [entityId, [...new Set(restituting.map((n) => n.invoice_id))]]
+  );
+  const entries = await client.query<{
+    id: string; payment_id: string; source_type: string; entry_number: string; entry_date: string; description: string; written: string;
+  }>(
+    `SELECT je.id::text, je.source_id::text AS payment_id, je.source_type, je.entry_number, je.entry_date::text AS entry_date,
+            je.description, ${written('je.created_at')} AS written
+       FROM journal_entries je
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_id = ANY($2::uuid[])
+        AND (je.source_type = 'receipt_unapplication'
+             OR (je.source_type = 'receipt_reversal_iva' AND je.reversed_by_entry_id IS NULL))
+      ORDER BY written`,
+    [entityId, [...new Set(undoes.rows.map((u) => u.payment_id))]]
+  );
+  // Debit positive: an unapply credits 2125 what it re-parked, a reversal's correction debits it.
+  const on2125 = await netOnRole(client, entityId, reclassRoles('issued').from, entries.rows.map((e) => e.id));
+  const moved = (ids: readonly string[]) => ids.reduce((s, id) => s.plus(on2125.get(id) ?? 0), new Decimal(0));
+  const unapplications = new Map<string, typeof entries.rows>();
+  const corrections = new Map<string, string[]>();
+  for (const e of entries.rows) {
+    if (e.source_type === 'receipt_reversal_iva') corrections.set(e.payment_id, [...(corrections.get(e.payment_id) ?? []), e.id]);
+    else {
+      const key = `${e.payment_id}|${e.entry_date}|${e.description}`;
+      unapplications.set(key, [...(unapplications.get(key) ?? []), e]);
+    }
+  }
+  const notesText = (taken: ReadonlyArray<{ n: (typeof restituting)[number] }>) =>
+    taken.map(({ n }) => `${n.credit_note_number} (póliza ${n.entry_number}, ${n.entry_date})`).join(', ');
+
+  const findings: Hallazgo[] = [];
+  const reversals = new Map<string, {
+    paymentNumber: string; day: string; cause: ReversalReading; invoices: string[]; due: Decimal;
+    taken: Array<{ n: (typeof restituting)[number]; amount: Decimal }>;
+  }>();
+  for (const invoiceId of new Set(restituting.map((n) => n.invoice_id))) {
+    const mine = restituting.filter((n) => n.invoice_id === invoiceId).map((n) => ({ n, left: n.debit }));
+    const invoiceNumber = mine[0].n.invoice_number;
+    const events = undoes.rows.filter((u) => u.invoice_id === invoiceId).flatMap((u) => {
+      if (u.by_reversal) return u.reversed_written ? [{ u, at: u.reversed_written, own: [] as typeof entries.rows }] : [];
+      const own = unapplications.get(`${u.payment_id}|${u.day}|Unapplication of ${u.payment_number} from ${invoiceNumber}`) ?? [];
+      return own.length ? [{ u, at: own[0].written, own }] : [];
+    }).sort((a, b) => a.at.localeCompare(b.at));
+    for (const { u, at, own } of events) {
+      const released = new Decimal(u.released);
+      let due = new Decimal(0);
+      const taken: Array<{ n: (typeof restituting)[number]; amount: Decimal }> = [];
+      for (const x of mine.filter((m) => m.n.written < at && m.n.mirror_written === null)) {
+        const take = Decimal.min(x.left, released.minus(due));
+        if (!take.greaterThan(0)) continue;
+        x.left = x.left.minus(take);
+        due = due.plus(take);
+        taken.push({ n: x.n, amount: take });
+      }
+      if (u.by_reversal) {
+        const r = reversals.get(u.payment_id) ??
+          { paymentNumber: u.payment_number, day: u.day, cause: u.cause, invoices: [], due: new Decimal(0), taken: [] };
+        if (due.greaterThan(0)) r.invoices.push(invoiceNumber);
+        reversals.set(u.payment_id, { ...r, due: r.due.plus(due), taken: [...r.taken, ...taken] });
+        continue;
+      }
+      const reparked = moved(own.map((e) => e.id)).negated();
+      const kept = Decimal.max(released.minus(reparked), 0);
+      const entry = own.map((e) => e.entry_number).join(', ');
+      if (due.minus(kept).greaterThan('0.01') && u.day.startsWith(month)) {
+        findings.push({
+          codigo: 'IVA-WP-UNDO-AFTER-NOTE-OLD-RULE', severidad: 'aviso', documentId: u.payment_id, documentNumber: u.payment_number,
+          mensaje: `La desaplicación ${entry} del ${u.day} del cobro ${u.payment_number} sobre la factura ${invoiceNumber} se ` +
+            `posteó con la regla anterior a MNE-001-581: re-aparcó en iva_trasladado_no_cobrado ${q4(reparked)} de IVA, y ` +
+            `${q4(due.minus(kept))} debieron quedarse en iva_trasladado, porque la nota de crédito ${notesText(taken)} ya los ` +
+            `restituyó (LIVA art. 7): iva_trasladado_no_cobrado guarda ese IVA y ningún cobro lo va a liberar. ${NOTE_UNDO_TAIL}`,
+        });
+      }
+      // 581 risk 6: what it kept beyond what is due now was kept for a note reversed by hand since.
+      let excess = kept.minus(due);
+      for (const x of mine.filter((m) => m.n.written < at && m.n.mirror_written !== null && m.n.mirror_written > at)) {
+        const amount = Decimal.min(excess, x.n.debit);
+        if (!amount.greaterThan('0.01')) break;
+        excess = excess.minus(amount);
+        if (!(x.n.mirror_date ?? '').startsWith(month)) continue;
+        findings.push({
+          codigo: 'IVA-WP-NOTE-REVERSED-AFTER-CAP', severidad: 'aviso', documentId: x.n.id, documentNumber: x.n.credit_note_number,
+          mensaje: `La póliza ${x.n.entry_number} de la nota de crédito ${x.n.credit_note_number} se reversó a mano con la póliza ` +
+            `${x.n.mirror_number} del ${x.n.mirror_date}, después de la desaplicación ${entry} del cobro ${u.payment_number} del ` +
+            `${u.day}, que dejó ${q4(amount)} en iva_trasladado porque esa nota los había restituido (MNE-001-581). Sin la nota, ` +
+            `la factura ${invoiceNumber} vuelve a deber ese IVA y nada lo re-aparcó en iva_trasladado_no_cobrado (LIVA art. 1-B). ` +
+            NOTE_UNDO_TAIL,
+        });
+      }
+    }
+  }
+  for (const [paymentId, r] of reversals) {
+    const corrected = moved(corrections.get(paymentId) ?? []);
+    const gap = r.due.minus(corrected);
+    const noteMonths = r.cause === 'not_collected' ? r.taken.map((t) => t.n.entry_date.slice(0, 7)) : [];
+    if (!gap.greaterThan('0.01') || !(r.day.startsWith(month) || noteMonths.includes(month))) continue;
+    findings.push({
+      codigo: 'IVA-WP-UNDO-AFTER-NOTE-OLD-RULE', severidad: 'aviso', documentId: paymentId, documentNumber: r.paymentNumber,
+      mensaje: `La reversa del cobro ${r.paymentNumber} del ${r.day} (${CAUSE_LABEL[r.cause]}) se posteó con la regla anterior a ` +
+        `MNE-001-581: sus espejos re-aparcaron en iva_trasladado_no_cobrado todo lo que el cobro liberó de la factura ` +
+        `${r.invoices.join(', ')} sin la corrección receipt_reversal_iva, y ${q4(gap)} debieron quedarse en iva_trasladado, ` +
+        `porque la nota de crédito ${notesText(r.taken)} ya los restituyó (LIVA art. 7).` +
+        (noteMonths.length
+          ? ` Como el dinero nunca llegó, ese IVA nunca se causó (LIVA art. 1-B): ` +
+            r.taken.map((t) => `el mes de la nota ${t.n.credit_note_number}, ${t.n.entry_date.slice(0, 7)}, restó ${q4(t.amount)} ` +
+              'de IVA que nunca se causó').join('; ') +
+            ', y si esa declaración ya se presentó se corrige con una complementaria (CFF art. 32).'
+          : '') +
+        ` ${NOTE_UNDO_TAIL}`,
+    });
+  }
+  return findings;
+}
+
 /**
  * MNE-001-518 (#666, rules 2 to 4) and MNE-001-510 (#701) · A reversed
  * receipt, named in each month it counted in (or would have), in the month
@@ -2403,6 +2582,8 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
     const receiptLedger = await receiptLedgerOfMonth(client, entityId, range);
     findings.push(...(await reversalFindings(client, entityId, range, receiptLedger, charged.uncaused)));
+    // MNE-001-606: undoes after a note posted under the rule before 581, and notes reversed by hand after a capped unapply.
+    findings.push(...(await undoesAfterNotes(client, entityId, range.desde.slice(0, 7))));
     findings.push(...(await checkFindings(client, entityId, range)));
     tieOut(
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',
