@@ -7290,6 +7290,13 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'Paycheck {id} was not stamped: its run {run} is {status}, and a payroll CFDI is issued only for a run ' +
+    'that is approved or paid. Nothing was sent to the PAC and nothing was written.',
+  'payrun.deposit_file.run_not_approved':
+    'No deposit file was built for run {id}: it is {status}, and a deposit file is built only for a run ' +
+    'that is approved or paid. Nothing was written.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +

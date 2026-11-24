@@ -34,7 +34,7 @@ async function xmlFor(over: Record<string, string | null>): Promise<string> {
           emp_nss: null, emp_number: 'E1', tipo_regimen_sat: '02', tipo_contrato_sat: '01',
           tipo_jornada_sat: '01', riesgo_puesto: '01', puesto: null, hire_date: '2026-01-05',
           entity_tax_id: 'AAA010101AAA', entity_name: 'Empresa',
-          run_type: 'regular', pay_frequency: 'weekly', ...over,
+          run_id: 'run-1', run_status: 'approved', run_type: 'regular', pay_frequency: 'weekly', ...over,
         }],
       };
     }
@@ -111,5 +111,29 @@ describe('the SELECT that feeds the header', () => {
     expect(sql).toMatch(/pr\.run_type/);
     expect(sql).toMatch(/ps\.frequency AS pay_frequency/);
     expect(sql).toMatch(/JOIN pay_schedules ps ON ps\.id = pp\.pay_schedule_id/);
+  });
+});
+
+// MNE-001-720 (#601): the run's status rides in the statement that already
+// reads the run, and the refusal costs that one statement.
+describe('the run has to be approved before its paycheck is stamped', () => {
+  it('a calculated run is refused by key after one statement, before the PAC', async () => {
+    await expect(xmlFor({ run_status: 'calculated' })).rejects.toMatchObject({
+      statusCode: 409,
+      messageKey: {
+        key: 'payrun.cfdi.run_not_approved',
+        params: { id: 'pc-1', run: 'run-1', status: 'calculated' },
+      },
+    });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockStamp).not.toHaveBeenCalled();
+  });
+
+  it('an approved run costs the four statements and the one stamp it cost before', async () => {
+    await xmlFor({});
+    expect(mockQuery).toHaveBeenCalledTimes(4);
+    expect(mockStamp).toHaveBeenCalledTimes(1);
+    const first = String(mockQuery.mock.calls[0][0]);
+    expect(first).toMatch(/pr\.status AS run_status/);
   });
 });

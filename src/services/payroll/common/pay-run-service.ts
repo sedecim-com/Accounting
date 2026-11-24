@@ -177,11 +177,11 @@ async function calculateRunOn(
   // gate's own predicate and must still be `calculating`, so the statement
   // carries the scope itself instead of leaning on the one before it.
   //
-  // Except one that ALREADY LEFT THE SYSTEM. Neither the payroll CFDI nor the
-  // deposit file asks the run's status, so an unapproved run can hold a
-  // stamped paycheck or one a bank file names; a stamp is cancelled before the
-  // SAT, not erased here. The statement counts them as it deletes, and the
-  // refusal rolls the deletion back.
+  // Except one that ALREADY LEFT THE SYSTEM. The payroll CFDI and the deposit
+  // file refuse an unapproved run since MNE-001-720 (`runIsReleased`), but a
+  // run whose paycheck was stamped or batched before that still holds it; a
+  // stamp is cancelled before the SAT, not erased here. The statement counts
+  // them as it deletes, and the refusal rolls the deletion back.
   const replaced = await client.query<{ left_the_system: number }>(
     `WITH gone AS (
        DELETE FROM paychecks

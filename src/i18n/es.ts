@@ -6624,6 +6624,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'El recibo {id} no se timbró: su corrida {run} está en estado {status}, y el CFDI de nómina sólo se emite ' +
+    'para una corrida aprobada o pagada. No se envió nada al PAC ni se escribió nada.',
+  'payrun.deposit_file.run_not_approved':
+    'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
+    'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
