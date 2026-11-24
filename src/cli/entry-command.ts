@@ -903,7 +903,9 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
           (await stageEntryImport(
             ctx,
             { layout: opts.layout, fileName: file, fileHash: hashDeCarga(contenido), lote },
-            reviewer.email
+            // The user id, not the e-mail: `batch post` compares the importer
+            // with whoever posts, and it knows people by id (#592).
+            reviewer.userId
           )) as unknown as Record<string, unknown>
       );
       process.stdout.write(

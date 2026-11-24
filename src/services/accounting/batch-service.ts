@@ -102,6 +102,9 @@ interface EncabezadoLote {
   status: EstadoLote;
   created_by: string;
   created_at: Date;
+  /** The importer as a user of the batch's tenant; null when `created_by` names nobody in it. */
+  importer_id: string | null;
+  importer_email: string | null;
 }
 
 interface FilaAlmacenada {
@@ -261,6 +264,25 @@ async function juzgarFila(
 
 // ── Lecturas acotadas ──
 
+// WHO IMPORTED BATCH `b`, AS A USER OF ITS TENANT (#592).
+//
+// `created_by` is VARCHAR(255) (migration 045). `entry import` writes the
+// importer's user id there; a batch staged from the terminal before
+// MNE-001-642 holds their e-mail instead, and the four-eyes lock compared
+// that e-mail with the poster's user id, so it never bit. Both forms resolve
+// here to the same user row, inside the batch's own tenant and in the
+// statement that already reads the header. The id match wins, so an e-mail
+// that spells somebody's id cannot stand in for them. `is_active` is not
+// asked: whoever imported is still that person after they are deactivated.
+const IMPORTER_OF_B = `LEFT JOIN LATERAL (
+         SELECT u.id, u.email
+           FROM users u
+          WHERE u.tenant_id = b.tenant_id
+            AND (u.id::text = b.created_by OR u.email = b.created_by)
+          ORDER BY (u.id::text = b.created_by) DESC
+          LIMIT 1
+       ) importer ON true`;
+
 async function loteAcotado(
   ctx: ContextoLote,
   batchId: string,
@@ -269,8 +291,10 @@ async function loteAcotado(
 ): Promise<EncabezadoLote> {
   // tenant_id Y entity_id en el mismo WHERE que el id: cero filas significa a
   // la vez «no existe» y «no es tuyo», y el programa no puede distinguirlos.
-  const sql = `SELECT * FROM journal_entry_import_batches
-                WHERE id = $1 AND tenant_id = $2 AND entity_id = $3${forUpdate ? ' FOR UPDATE' : ''}`;
+  const sql = `SELECT b.*, importer.id AS importer_id, importer.email AS importer_email
+                 FROM journal_entry_import_batches b
+                 ${IMPORTER_OF_B}
+                WHERE b.id = $1 AND b.tenant_id = $2 AND b.entity_id = $3${forUpdate ? ' FOR UPDATE OF b' : ''}`;
   const params = [batchId, ctx.tenantId, ctx.entityId];
   const r = client
     ? await client.query<EncabezadoLote>(sql, params)
@@ -344,6 +368,7 @@ export interface ResumenDeLote {
   rows_invalid: number;
   /** Pólizas ya en el mayor nacidas de este lote. */
   entries_posted: number;
+  /** The importer's e-mail; the stored value when it names no user of the tenant. */
   created_by: string;
   created_at: Date;
 }
@@ -384,7 +409,7 @@ export async function listBatches(
   // espejos de una reversa no cuentan porque nacen sin source_type.
   const r = await query<ResumenDeLote>(
     `SELECT b.id, 'import' AS kind, b.layout, b.file_name, b.file_hash, b.status,
-            b.rows_total, b.rows_invalid, b.created_by, b.created_at,
+            b.rows_total, b.rows_invalid, COALESCE(importer.email, b.created_by) AS created_by, b.created_at,
             (SELECT COUNT(*)::int
                FROM journal_entries je
                JOIN journal_entry_import_rows r
@@ -392,6 +417,7 @@ export async function listBatches(
               WHERE je.entity_id = b.entity_id AND je.source_type = $3
             ) AS entries_posted
        FROM journal_entry_import_batches b
+       ${IMPORTER_OF_B}
       WHERE ${where.join(' AND ')}
       ORDER BY b.created_at DESC
       LIMIT $${i}`,
@@ -481,7 +507,7 @@ export async function showBatch(ctx: ContextoLote, batchId: string): Promise<Det
     rows_total: encabezado.rows_total,
     rows_invalid: encabezado.rows_invalid,
     entries_posted: contadas.rows[0]?.entries_posted ?? 0,
-    created_by: encabezado.created_by,
+    created_by: encabezado.importer_email ?? encabezado.created_by,
     created_at: encabezado.created_at,
   };
 
@@ -663,12 +689,16 @@ export async function postBatch(
   // hacerse aquí, donde consta quién preparó el lote. El candado es el mismo:
   // se le pasa el creador que a esta puerta le consta, en vez de copiarlo.
   //
+  // The lock compares text, and `userId` is a user id, so the importer goes in
+  // as a user id too (`importer_id`, resolved by `loteAcotado`): a batch staged
+  // before MNE-001-642 holds an e-mail, which never equals an id (#592).
+  //
   // Va antes de proponer para que un lote que no se puede aplicar no gaste
   // una validación de mil filas en decirlo.
   const notaSoD = await exigirSegregacion({
     tenantId: ctx.tenantId,
     entityId: ctx.entityId,
-    creador: lote.created_by,
+    creador: lote.importer_id ?? lote.created_by,
     ejecutor: userId,
     referencia: `El lote ${batchId}`,
   });
