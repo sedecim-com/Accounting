@@ -796,6 +796,17 @@ function checkProviderCredential(cwd?: string): CheckResult {
         (ready ? `, or use --provider ${ready[0]}` : ''),
     };
   }
+  // A shared project file's helper that resolveProfile will not run (MNE-001-452).
+  if (state.source.kind === 'unapproved') {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'fail',
+      detail: `${defaultName} · ${active.model} (${state.label})`,
+      fix: state.source.never
+        ? `Define ${defaultName} in ~/.mnemosine/config.json, where "project_helpers" is "never"`
+        : `Read providers.${defaultName}.api_key_cmd in ${state.source.file}; if you trust it: mnemosine providers approve ${defaultName}`,
+    };
+  }
   if (state.source.kind === 'missing') {
     const variable = state.source.variable;
     const where = state.source.where ? ` (get it at ${state.source.where})` : '';

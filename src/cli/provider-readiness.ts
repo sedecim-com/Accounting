@@ -1,5 +1,5 @@
 import { providerReadiness, type CredentialState, type CredentialStateOptions } from '../ai/providers/credential-state.js';
-import { MissingProviderCredentialError, resolveProfile } from '../ai/providers/config.js';
+import { MissingProviderCredentialError, approveProjectProfile, resolveProfile } from '../ai/providers/config.js';
 import type { ProviderProfile, ResolvedProfile } from '../ai/providers/types.js';
 import { t } from '../i18n/index.js';
 
@@ -53,6 +53,20 @@ export function providerLines(c: ReadinessPalette, options: ReadinessOptions = {
 }
 
 /**
+ * What `mnemosine providers approve <name>` prints (MNE-001-452, #645): what
+ * was approved, for which file and host, and never the command itself.
+ */
+export function approveProfileLines(name: string, c: Pick<ReadinessPalette, 'dim'>, cwd?: string): string[] {
+  const r = approveProjectProfile(name, cwd);
+  if (r.file === null) return [t('provider.approve.builtin', { name })];
+  if (!r.shared) return [t('provider.approve.own_file', { name, file: r.file })];
+  if (r.approved.length === 0) return [t('provider.approve.nothing', { name, file: r.file })];
+  const out = [t('provider.approve.helper', { name, file: r.file, host: r.host })];
+  if (r.never) out.push(c.dim(t('provider.approve.never')));
+  return out;
+}
+
+/**
  * The tick's first line: which profile it opens sessions on and where that
  * credential comes from. The tick spends the credential of whoever runs it on
  * every due job of the entity, including jobs someone else created (#644,
@@ -91,6 +105,12 @@ export function missingCredentialHint(
   const { source } = state;
   if (source.kind === 'refused') {
     return t('provider.credential.hint.refused', { name, variable: source.variable });
+  }
+  if (source.kind === 'unapproved') {
+    return t(source.never ? 'provider.credential.hint.unapproved_never' : 'provider.credential.hint.unapproved', {
+      name,
+      file: source.file,
+    });
   }
   if (source.kind === 'missing') {
     const problem = source.where

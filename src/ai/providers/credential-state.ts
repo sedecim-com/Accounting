@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { isInstallationSecretVariable, listProfiles, userConfigPath } from './config.js';
+import { isInstallationSecretVariable, listProfiles, projectHelperGate, userConfigPath } from './config.js';
 import type { ProviderProfile } from './types.js';
 import { t } from '../../i18n/index.js';
 
@@ -65,6 +65,8 @@ export type CredentialSource =
   | { kind: 'anthropic'; sdk: AnthropicSdkSource }
   /** An api_key_cmd, in the config file it was read from; a project file is shared. */
   | { kind: 'helper'; file: string | null; shared: boolean }
+  /** A shared project file's api_key_cmd its person has not approved, or `project_helpers: never` (MNE-001-452). */
+  | { kind: 'unapproved'; file: string; never: boolean }
   /** Neither a variable nor a helper: «local» only for a loopback base_url. */
   | { kind: 'none'; local: boolean }
   | { kind: 'missing'; variable: string; where: string | null }
@@ -73,7 +75,7 @@ export type CredentialSource =
 
 export interface CredentialState {
   source: CredentialSource;
-  /** True unless the credential is missing or refused. Advisory only. */
+  /** True unless the credential is missing, refused or unapproved. Advisory only. */
   ready: boolean;
   /**
    * What the folder's ./.env says about the profile's variable: 'key' when it
@@ -278,7 +280,17 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     source = { kind: 'env', variable };
   } else if (profile.api_key_cmd) {
     const file = options.source ?? null;
-    source = { kind: 'helper', file, shared: file !== null && file !== userConfigPath(home) };
+    const shared = file !== null && file !== userConfigPath(home);
+    let gate: { never: boolean } | null = null;
+    if (shared) {
+      try {
+        gate = projectHelperGate(file, profile, home);
+      } catch {
+        // A store or user file that does not parse approves nothing: resolveProfile says which.
+        gate = { never: false };
+      }
+    }
+    source = gate && file ? { kind: 'unapproved', file, never: gate.never } : { kind: 'helper', file, shared };
   } else if (isAnthropic && (sdk = anthropicSdkSource(env, options.platform))) {
     source = { kind: 'anthropic', sdk };
   } else if (variable) {
@@ -308,6 +320,11 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
             file: collapseHome(source.file, home),
           });
       break;
+    case 'unapproved':
+      label = t(source.never ? 'provider.credential.unapproved_never' : 'provider.credential.unapproved', {
+        file: collapseHome(source.file, home),
+      });
+      break;
     case 'anthropic':
       label = anthropicLabel(source.sdk, home);
       break;
@@ -330,7 +347,8 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     label = t('provider.credential.folder_empty', { label, variable: variable ?? '', file: folderFile });
   }
 
-  return { source, ready: source.kind !== 'missing' && source.kind !== 'refused', folderEnv, label };
+  const ready = source.kind !== 'missing' && source.kind !== 'refused' && source.kind !== 'unapproved';
+  return { source, ready, folderEnv, label };
 }
 
 export interface ProviderReadiness {

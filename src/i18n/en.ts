@@ -6724,6 +6724,29 @@ export const EN = {
   'provider.switch.kept': 'The session stays on {current}.',
   'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-452 (#645): what a shared project file may run ====
+  'provider.credential.unapproved':
+    'api_key_cmd in {file}, a shared project file, not approved here: it does not run until you approve it',
+  'provider.credential.unapproved_never':
+    'api_key_cmd in {file}, a shared project file: "project_helpers" is "never" in ~/.mnemosine/config.json, so it does not run',
+  'provider.credential.hint.unapproved':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, that you have not approved: read providers.{name}.api_key_cmd there and, if you trust it, run `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved_never':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, and "project_helpers" is "never" in ~/.mnemosine/config.json: define the profile in your own file.',
+  'help.providers.approve.description':
+    'Approves, for you alone, what a profile of this folder\'s mnemosine.config.json runs (as direnv allow)',
+  'help.providers.approve.argument.profile': 'the profile, as the project file names it',
+  'help.providers.approve.footer':
+    'Examples:\n' +
+    '  Read providers.vault.api_key_cmd in ./mnemosine.config.json first; then approve it for you:\n' +
+    '    mnemosine providers approve vault',
+  'provider.approve.builtin': '{name} is a built-in profile: there is nothing to approve.',
+  'provider.approve.own_file': '{name} comes from your own {file}: there is nothing to approve.',
+  'provider.approve.nothing': '{name} in {file} runs no api_key_cmd: there is nothing to approve.',
+  'provider.approve.helper':
+    'Approved for you: the api_key_cmd of providers.{name} in {file}, for {host}. A changed command or host asks again.',
+  'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
+  // ==== end of MNE-001-452 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'the language to set: {choices}; omit it to see the language in effect and what decided it',

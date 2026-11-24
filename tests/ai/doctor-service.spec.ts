@@ -28,6 +28,7 @@ import { runDoctor,
   type CheckIdentity,
   type DoctorReport,
 } from '../../src/ai/doctor-service.js';
+import { approveProjectProfile } from '../../src/ai/providers/config.js';
 import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 import { sharedCliConsistency, sharedOrphanedCapability } from '../helpers/shared-board.js';
@@ -212,24 +213,49 @@ describe('runDoctor — model provider', () => {
     expect(c.fix).toMatch(/api_key_env or api_key_cmd/);
   });
 
-  it('ok with a helper-only default: names its file, never runs it, never prints its command', async () => {
-    mockDb();
-    delete process.env.SOME_KEY;
-    const marker = path.join(tmpDir, 'helper-ran');
-    config({
-      default_provider: 'vault',
-      providers: {
-        vault: {
-          type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
-          api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+  describe('a helper-only default in the project file (MNE-001-452)', () => {
+    let home: string;
+    let marker: string;
+    beforeEach(() => {
+      mockDb();
+      delete process.env.SOME_KEY;
+      home = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-home-'));
+      vi.spyOn(os, 'homedir').mockReturnValue(home);
+      marker = path.join(tmpDir, 'helper-ran');
+      config({
+        default_provider: 'vault',
+        providers: {
+          vault: {
+            type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
+            api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+          },
         },
-      },
+      });
     });
-    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
-    expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
-    expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
-    expect(fs.existsSync(marker)).toBe(false);
+    afterEach(() => {
+      vi.mocked(os.homedir).mockRestore();
+      fs.rmSync(home, { recursive: true, force: true });
+    });
+
+    it('FAILS while unapproved, with the approve command, never running it or printing it', async () => {
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('fail');
+      expect(c.detail).toMatch(/not approved here/);
+      expect(c.fix).toBe(
+        `Read providers.vault.api_key_cmd in ${path.join(tmpDir, 'mnemosine.config.json')}; if you trust it: mnemosine providers approve vault`
+      );
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
+
+    it('ok once approved: names its file, never runs it, never prints its command', async () => {
+      approveProjectProfile('vault', tmpDir);
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('ok');
+      expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
   });
 
   it('FAILS when the default names an installation secret: it is not a provider credential (MNE-001-445)', async () => {

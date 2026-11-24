@@ -24,6 +24,7 @@ import {
   statusExitCode,
   type StatusReport,
 } from '../../src/cli/status-command.js';
+import { approveProjectProfile } from '../../src/ai/providers/config.js';
 import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
@@ -351,6 +352,7 @@ describe('formatStatus — the readiness answer every surface gives (MNE-001-443
         },
       },
     });
+    approveProjectProfile('vaulted', tmpDir);
     mockDbUp();
     const resolveProfileFn = vi.fn().mockReturnValue({
       name: 'vaulted', type: 'openai-compatible', model: 'vault-model',

@@ -14,6 +14,7 @@ import {
   resolveProfile, listProfiles, resolveIngestThresholds, writeConfigPatch, loadConfigFile, setLanguage,
   resolveFailoverChain, resolveCompactionConfig, DEFAULT_COMPACTION_THRESHOLD_TOKENS,
   BUILTIN_PROFILES, INSTALLATION_SECRET_VARIABLES, MissingProviderCredentialError, NotAProviderCredentialError,
+  approveProjectProfile,
 } from '../../../src/ai/providers/config.js';
 import { createLlmSessionWithFailover, CooldownRegistry } from '../../../src/ai/providers/index.js';
 import type { LlmSession, ResolvedProfile } from '../../../src/ai/providers/types.js';
@@ -156,7 +157,10 @@ describe('the nvidia built-in', () => {
 });
 
 describe('api_key_cmd (credential helper)', () => {
-  const writeProfile = (extra: Record<string, unknown>) =>
+  // A project file's helper runs once its person approved it (MNE-001-452):
+  // each case approves it in a temporary home.
+  let home: string;
+  const writeProfile = (extra: Record<string, unknown>) => {
     fs.writeFileSync(
       path.join(tmpDir, 'mnemosine.config.json'),
       JSON.stringify({
@@ -168,9 +172,17 @@ describe('api_key_cmd (credential helper)', () => {
         },
       })
     );
+    approveProjectProfile('sub', tmpDir);
+  };
 
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemosine-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+  });
   afterEach(() => {
     delete process.env.SUB_TOKEN;
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
   });
 
   it('runs the command when the env var is absent', () => {

@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 254 of 404 subcommands
+  spelling is `-T` at the root and `-t` on the 254 of 405 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -141,16 +141,41 @@ Examples:
 ## `mnemosine providers` (alias: proveedores)
 
 ```
-Usage: mnemosine providers|proveedores [options]
+Usage: mnemosine providers|proveedores [options] [command]
 
 Lists the configured model providers (built-in + mnemosine.config.json)
 
 Options:
-  -h, --help  display help for command
+  -h, --help                           display help for command
+
+Commands:
+  approve|aprobar [options] <profile>  Approves, for you alone, what a profile
+                                       of this folder's mnemosine.config.json
+                                       runs (as direnv allow)
 
 Examples:
   # Which model providers are configured, and whether their API key is present.
   mnemosine providers
+```
+
+### `mnemosine providers approve` (alias: aprobar)
+
+```
+Usage: mnemosine providers approve|aprobar [options] <profile>
+
+Approves, for you alone, what a profile of this folder's mnemosine.config.json
+runs (as direnv allow)
+
+Arguments:
+  profile     the profile, as the project file names it
+
+Options:
+  -y, --yes   skip the confirmation prompt
+  -h, --help  display help for command
+
+Examples:
+  Read providers.vault.api_key_cmd in ./mnemosine.config.json first; then approve it for you:
+    mnemosine providers approve vault
 ```
 
 ## `mnemosine ask` (alias: pregunta)

@@ -97,6 +97,21 @@ provides:
     # an openai-compatible profile from ~/.mnemosine/config.json the helper is the openai
     # SDK's async apiKey, re-run after five minutes and after a 401; from a project file
     # it runs once per session (src/ai/providers/credential-helper.ts, MNE-001-446, #644).
+    # CONTRACT (MNE-001-452, #645, breaking for a shared project file; experimental
+    # surface, the owner's «D3 con salida»): an api_key_cmd read from ./mnemosine.config.json
+    # runs only after the person running mnemosine approves that exact command, for that
+    # file and host, with `mnemosine providers approve <profile>`, recorded as a hash in
+    # ~/.mnemosine/project-approvals.json (0600); a changed command or host asks again, and
+    # an unapproved one raises ProjectFileRefusalError naming the field and the command to
+    # type, never the helper's text. An approved one renews like the person's own.
+    # `"project_helpers": "approved" | "never"`, read from ~/.mnemosine/config.json only,
+    # picks that approval (the default) or never running a project file's helper. A
+    # project file with a credential written by hand (an auth-named header or a key-shaped
+    # header value, a key-shaped api_key_cmd, model, models.<p> or api_key_env, a base_url
+    # with a password or a key) is refused at load, naming the field and never its value,
+    # with no `.rejected-` copy and no key that changes it. Readiness says «not approved»
+    # and doctor fails with the approve command. Rollback: revert; delete
+    # ~/.mnemosine/project-approvals.json; the previous build refuses `project_helpers`.
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
     # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs

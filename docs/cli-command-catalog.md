@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **292 comandos** repartidos en **79 familias** de primer nivel. De las **1647** filas del catálogo, **275** (16.7 %) ya se pueden invocar.
+El binario ejecuta hoy **292 comandos** repartidos en **79 familias** de primer nivel. De las **1648** filas del catálogo, **275** (16.7 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **310** filas lo declaran completo, **383** a medias y **954** inexistente.
+Del motor que cada comando necesita, **311** filas lo declaran completo, **383** a medias y **954** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **397** filas, de las que **225** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **398** filas, de las que **225** ya se teclean.
 
-**El objetivo comprometible son 1404 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1405 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1647 filas son **1625 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1648 filas son **1626 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1647 filas son **1625 rutas únicas**: **17 rutas** es
 | `close` | 9 | 6 |
 | `vendor` | 23 | 5 |
 
-**1 de 607** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**1 de 609** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -2809,6 +2809,7 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | `mnemosine ai-provider list` · (sin alias) | (hoy `providers`) Lista los perfiles de modelo (12 integrados + `mnemosine.config.json`) con su variable de API key presente o ausente. **Sustantivo renombrado desde `provider` por §5 regla 2**: `proveedor` es de AP (`vendor`) y este es un término técnico sin alias, como `chat`, `sat` y `doctor` | `--json`, `-q`, `--ready` — hoy no acepta ninguno | ✅ src/cli/mnemosine.ts:499 · src/ai/providers/config.ts:259 (`listProfiles`) | lectura [0] | ✓ | 1 |
 | `mnemosine ai-provider show <name>` · (sin alias) | Detalle de un perfil resuelto: tipo, modelo, base_url, soporte de tools, cadena de failover | `--json`, `--fields` | 🟡 src/ai/providers/config.ts:277 (`resolveProfile`) + :358 (`resolveFailoverChain`) — sin renderizador | lectura [0] | ✓ | 1 |
 | `mnemosine ai-provider test [name]` · (sin alias) | Sonda real de chat y de tool-calling contra el proveedor; el código de salida es el de `REGISTRY.md` §4 | `-a/--all`, `--json`, `--timeout` | 🟡 src/ai/providers/probe.ts:70 (`probeProvider`) y :161 (`probeAll`), usadas por `init --section ai` y `status --all`, sin comando propio | lectura [0] | ✓ | 1 |
+| `mnemosine ai-provider approve <name>` · (sin alias) | (hoy `providers approve` · `proveedores aprobar`) Aprueba, sólo para quien la teclea, el `api_key_cmd` que corre un perfil del `mnemosine.config.json` de la carpeta, para ese archivo y ese host, como `direnv allow` (MNE-001-452, #645). Lo guarda como hash en `~/.mnemosine/project-approvals.json` (0600), **nunca el comando ni en el proyecto**; un comando o host distinto pide otra. Nunca imprime el comando. `"project_helpers": "never"` en el `~/.mnemosine/config.json` de esa persona no corre ninguno | — | ✅ src/cli/mnemosine.ts:1315 · src/ai/providers/config.ts:1096 (`approveProjectProfile`) y :1118 (la compuerta en `resolveProfile`) | escritura [1] | ✗ | 1 |
 | `mnemosine ai-provider use <name>` · (sin alias) | Fija el proveedor por defecto persistente (no solo el de la sesión de chat) | `-m/--model`, `--global`, `--project` | 🟡 src/ai/providers/config.ts:593 (init s3-ai lo escribe; `/provider` en el REPL solo cambia la sesión viva) | escritura [1] | ✗ | 1 |
 | `mnemosine lang [es\|en\|es-MX\|en-US]` · `idioma` | Muestra o fija el IDIOMA DEL USUARIO, que desde I11 (#153) es el de la interfaz y no sólo el de las respuestas del agente. **Escribe `locale` en el archivo del USUARIO**, que es el escalón que gana al del proyecto: el inquilino y el proveedor son propiedades del repositorio y se versionan, el idioma es de la persona que mira (regla 5 del epic #141). Antes escribía `language` donde `loadConfigFile` mandara, y por eso imprimía éxito sin cambiar nada para quien ya tuviera `locale`. NO es el atajo de `config set language`: escriben claves distintas en archivos distintos, y es deliberado — `config set` configura el REPOSITORIO. La clave vieja `language` se sigue leyendo hasta I24 | `--json`; es el único comando en `NO_DB_COMMANDS` (mnemosine.ts:450) | ✅ src/cli/mnemosine.ts:2317 · src/ai/providers/config.ts (`setUserLocale`) | escritura [1] | ✗ | 1 |
 | `mnemosine policy list` · `politica listar` | (hoy la mitad "agenda de políticas" de `pending`) Decisiones de política contable pendientes, resueltas y descartadas, con su prioridad y categoría | `-a/--all`, `--json`, `--category`, `-s/--status`, `-v` | ✅ src/services/policy/policy-service.ts:66 (`listPolicies`) y :85 (`listPending`) · render en src/cli/pending-command.ts:99 | lectura [0] | ✓ | 1 |

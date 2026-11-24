@@ -71,8 +71,16 @@ output when a connection problem is unclear.
   credential (`api_key_cmd`, tried when the env var is empty). A helper in
   the person's own `~/.mnemosine/config.json` on an OpenAI-compatible profile
   is run again every five minutes and after a 401, so a one-hour `gcloud`
-  token lasts the session; one in a project file runs once per session. A
-  helper that fails says the profile and its exit code or its 10 s limit,
+  token lasts the session. A helper in a shared project file runs only
+  after the person running mnemosine approves that exact command, for that
+  file and host, with `mnemosine providers approve <profile>` (#645); until
+  then the profile stops with that command, and doctor and `mnemosine
+  providers` say «not approved». Once approved it renews like their own. Tell
+  them to read `providers.<profile>.api_key_cmd` in that file before
+  approving, and never approve it for them. A project file that carries a
+  credential written by hand (an auth header, a key in a command, a model or
+  a base_url) is refused at load, naming the field: the fix is to move the
+  secret to the person's own files. A helper that fails says the profile and its exit code or its 10 s limit,
   never its command or stderr: tell the person to run it themselves. Help
   them put helper profiles in their own user file, never in a shared project
   file, and say that «Sign in with ChatGPT» and a Codex login are not API
@@ -105,6 +113,8 @@ output when a connection problem is unclear.
   never in the database) and lists the rest; `all` runs every due job; unset
   behaves as `all` and names on stderr the jobs it ran that were not adopted.
   In a project file the key is not read, and the tick says so.
+- A third: `project_helpers`, `"approved"` (the default: a project file's
+  helper runs once approved) or `"never"` (none runs).
 - `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
   copying it, so a built-in keeps its declared window: `--model` >
   `models.<profile>` > the profile's `model`. A name that is no profile is

@@ -9,6 +9,7 @@ import {
   providerReadiness,
 } from '../../../src/ai/providers/credential-state.js';
 import type { ProviderProfile } from '../../../src/ai/providers/types.js';
+import { approvalKey, recordApprovals } from '../../../src/ai/providers/project-approvals.js';
 
 // MNE-001-443: one answer to «is this provider ready?». Every value here is
 // invented; no helper is ever run, so a helper that would leave a marker file
@@ -72,8 +73,16 @@ describe('credentialState — the five answers', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
-  it('an api_key_cmd in a project file is flagged as shared', () => {
+  it('an api_key_cmd in a project file is unapproved until its person approves it (MNE-001-452)', () => {
     const project = path.join(cwd, 'mnemosine.config.json');
+    const s = credentialState(remote({ api_key_cmd: 'echo x' }), { cwd, home, env: {}, source: project });
+    expect(s.source).toEqual({ kind: 'unapproved', file: project, never: false });
+    expect(s.ready).toBe(false);
+  });
+
+  it('an approved api_key_cmd in a project file is flagged as shared', () => {
+    const project = path.join(cwd, 'mnemosine.config.json');
+    recordApprovals([{ key: approvalKey('helper', project, 'echo x', 'llm.example.test'), kind: 'helper', file: project }], home);
     const s = credentialState(remote({ api_key_cmd: 'echo x' }), { cwd, home, env: {}, source: project });
     expect(s.source).toEqual({ kind: 'helper', file: project, shared: true });
     expect(s.label).toMatch(/^api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone who runs mnemosine in that folder$/);
@@ -173,7 +182,7 @@ describe('providerReadiness — every profile of the config that wins', () => {
     const r = providerReadiness({ cwd, home, env: {} });
     expect(r.defaultName).toBe('vault');
     expect(r.source).toBe(project);
-    expect(r.states.vault.source).toEqual({ kind: 'helper', file: project, shared: true });
+    expect(r.states.vault.source).toEqual({ kind: 'unapproved', file: project, never: false });
     // The built-ins are there too, with their own answer.
     expect(r.states.ollama.source).toEqual({ kind: 'none', local: true });
     expect(r.states.openai.source.kind).toBe('missing');

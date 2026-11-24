@@ -6202,6 +6202,29 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.switch.kept': 'La sesión sigue en {current}.',
   'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-452 (#645): lo que puede correr un archivo de proyecto compartido ====
+  'provider.credential.unapproved':
+    'api_key_cmd en {file}, un archivo de proyecto compartido, sin aprobar aquí: no corre hasta que lo apruebes',
+  'provider.credential.unapproved_never':
+    'api_key_cmd en {file}, un archivo de proyecto compartido: "project_helpers" es "never" en ~/.mnemosine/config.json, así que no corre',
+  'provider.credential.hint.unapproved':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, que no has aprobado: lee providers.{name}.api_key_cmd ahí y, si confías en él, corre `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved_never':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, y "project_helpers" es "never" en ~/.mnemosine/config.json: define el perfil en tu propio archivo.',
+  'help.providers.approve.description':
+    'Aprueba, sólo para ti, lo que corre un perfil del mnemosine.config.json de esta carpeta (como direnv allow)',
+  'help.providers.approve.argument.profile': 'el perfil, como lo nombra el archivo de proyecto',
+  'help.providers.approve.footer':
+    'Ejemplos:\n' +
+    '  Lee primero providers.vault.api_key_cmd en ./mnemosine.config.json; luego apruébalo para ti:\n' +
+    '    mnemosine providers approve vault',
+  'provider.approve.builtin': '{name} es un perfil de fábrica: no hay nada que aprobar.',
+  'provider.approve.own_file': '{name} viene de tu propio {file}: no hay nada que aprobar.',
+  'provider.approve.nothing': '{name} en {file} no corre ningún api_key_cmd: no hay nada que aprobar.',
+  'provider.approve.helper':
+    'Aprobado para ti: el api_key_cmd de providers.{name} en {file}, para {host}. Un comando o un host distinto pide otra aprobación.',
+  'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',
+  // ==== end of MNE-001-452 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'el idioma que se fija: {choices}; sin él, muestra el idioma en efecto y qué lo decidió',
