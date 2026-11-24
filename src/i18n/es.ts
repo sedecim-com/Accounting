@@ -1782,6 +1782,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.plain_receipt_unapply_iva.option.repark_same_month':
     'Re-aparcarlo cuando el desaplicar es del mes en que se liberó el IVA',
 
+  'policy.note_reversal_after_cashing_iva.question':
+    'Una nota de crédito emitida mientras esperaba el cheque de un cliente se reversa después de que el banco lo cobró: ¿en qué mes cuenta el papel del IVA el IVA que la nota ya no restituye?',
+  'policy.note_reversal_after_cashing_iva.impact':
+    'Gobierna el papel de trabajo del IVA después de `entry reverse` o `entry void` de esa nota. Con cualquiera de las dos respuestas el mayor postea DR 2150 / CR 2120 por ese IVA, con la fecha de la reversa, o con la del cobro cuando la reversa lleva una fecha anterior. Con "reversal_month" el papel lo cuenta en el mes de esa póliza, así que cada mes cuadra con el mayor y ningún mes ya declarado se mueve. Con "cashing_month" el papel lee la nota como nunca emitida y lo cuenta en el mes del cobro; el cotejo nombra la complementaria que ese mes necesita y la corrección en el mes de la reversa.',
+  'policy.note_reversal_after_cashing_iva.rationale':
+    'LIVA art. 1-B y la decisión (A) sobre el efectivo a cuenta: el efectivo que cubría la nota se le debía al cliente, no era contraprestación, y la cancelación es el acto que lo vuelve contraprestación guardada a cuenta. El mayor fecha esa corrección con la reversa (NIF B-1), y contarla ahí no cambia ningún mes ya declarado ni baja ninguno, la opción conservadora de ADR-0006. Leer el CFDI cancelado como nunca emitido (CFF art. 29-A) también se acepta, y pide una complementaria del mes del cobro (CFF art. 32).',
+  'policy.note_reversal_after_cashing_iva.why':
+    'Algunos despachos tratan una nota de crédito cancelada como si nunca hubiera existido y corrigen el mes que afectó; otros reconocen la cancelación en el mes en que ocurre. El mayor queda igual de cualquier modo.',
+  'policy.note_reversal_after_cashing_iva.what':
+    'Con "reversal_month" cuento ese IVA en el mes de la corrección de la reversa. Con "cashing_month" lo cuento en el mes del cobro y nombro, en el cotejo, la complementaria y la corrección.',
+  'policy.note_reversal_after_cashing_iva.if_skipped': 'Lo cuento en el mes de la reversa.',
+  'policy.note_reversal_after_cashing_iva.option.reversal_month': 'Contarlo en el mes de la reversa, como el mayor',
+  'policy.note_reversal_after_cashing_iva.option.cashing_month':
+    'Contarlo en el mes del cobro, como si la nota nunca se hubiera emitido',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':

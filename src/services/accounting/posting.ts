@@ -769,7 +769,7 @@ export async function reverseJournalEntry(
   userId: string,
   options?: { reason?: string; reversalDate?: Date | string }
 ): Promise<JournalEntry> {
-  const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = {
+  const attest: { info: { tenantId: string; entityId: string; entryIds: string[] } | null } = {
     info: null,
   };
 
@@ -793,16 +793,36 @@ export async function reverseJournalEntry(
       description,
       options?.reversalDate ?? new Date()
     );
+    const followUps = await reversalFollowUps(client, entry, created, userId);
 
     const tenantId = await resolveTenantId(client, entry.entity_id);
-    if (tenantId) attest.info = { tenantId, entityId: entry.entity_id, entryId: created.id };
+    if (tenantId) attest.info = { tenantId, entityId: entry.entity_id, entryIds: [created.id, ...followUps.map((f) => f.id)] };
     return created;
   });
 
-  if (attest.info) {
-    attestEntryAsync(attest.info.tenantId, attest.info.entityId, attest.info.entryId);
+  const info = attest.info;
+  if (info) {
+    for (const id of info.entryIds) attestEntryAsync(info.tenantId, info.entityId, id);
   }
   return reversal;
+}
+
+/**
+ * MNE-001-612 · What the reversal of one entry posts besides its mirror, in
+ * the same transaction: today only a credit note's, whose held restitution
+ * the cheque's cashing already netted (`followNoteReversal`). Loaded on
+ * demand, since ar-ap-posting.ts imports this module. The caller attests
+ * what it returns after commit.
+ */
+async function reversalFollowUps(
+  client: pg.PoolClient,
+  entry: JournalEntry,
+  mirror: JournalEntry,
+  userId: string
+): Promise<JournalEntry[]> {
+  if (entry.source_type !== 'credit_note') return [];
+  const { followNoteReversal } = await import('./ar-ap-posting.js');
+  return followNoteReversal(client, entry, mirror, userId);
 }
 
 /**
@@ -821,7 +841,7 @@ export async function voidJournalEntryInTx(
   entryId: string,
   userId: string,
   reason: string
-): Promise<{ entry: JournalEntry; reversal: JournalEntry | null }> {
+): Promise<{ entry: JournalEntry; reversal: JournalEntry | null; followUps: JournalEntry[] }> {
   const entryResult = await client.query<JournalEntry>(
     'SELECT * FROM journal_entries WHERE id = $1 FOR UPDATE',
     [entryId]
@@ -838,6 +858,7 @@ export async function voidJournalEntryInTx(
   }
 
   let reversal: JournalEntry | null = null;
+  let followUps: JournalEntry[] = [];
   if (entry.status === JournalEntryStatus.POSTED) {
     // reverseWithinTransaction rejects a second void via ALREADY_REVERSED.
     reversal = await reverseWithinTransaction(
@@ -847,6 +868,7 @@ export async function voidJournalEntryInTx(
       `Reversal of ${entry.entry_number}: ${reason}`,
       new Date()
     );
+    followUps = await reversalFollowUps(client, entry, reversal, userId);
     await client.query(
       `UPDATE journal_entries SET notes = COALESCE(notes, '') || $1 WHERE id = $2`,
       [`\nVoided: ${reason}`, entryId]
@@ -879,7 +901,7 @@ export async function voidJournalEntryInTx(
     reason,
   });
 
-  return { entry: updatedEntry.rows[0], reversal };
+  return { entry: updatedEntry.rows[0], reversal, followUps };
 }
 
 export async function voidJournalEntry(
@@ -887,23 +909,25 @@ export async function voidJournalEntry(
   userId: string,
   reason: string
 ): Promise<JournalEntry> {
-  const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = {
+  const attest: { info: { tenantId: string; entityId: string; entryIds: string[] } | null } = {
     info: null,
   };
 
   const result = await withTransaction(async (client) => {
-    const { entry, reversal } = await voidJournalEntryInTx(client, entryId, userId, reason);
+    const { entry, reversal, followUps } = await voidJournalEntryInTx(client, entryId, userId, reason);
     if (reversal) {
       const tenantId = await resolveTenantId(client, entry.entity_id);
       if (tenantId) {
-        attest.info = { tenantId, entityId: entry.entity_id, entryId: reversal.id };
+        // MNE-001-612: and what the reversal posted besides its mirror.
+        attest.info = { tenantId, entityId: entry.entity_id, entryIds: [reversal.id, ...followUps.map((f) => f.id)] };
       }
     }
     return entry;
   });
 
-  if (attest.info) {
-    attestEntryAsync(attest.info.tenantId, attest.info.entityId, attest.info.entryId);
+  const info = attest.info;
+  if (info) {
+    for (const id of info.entryIds) attestEntryAsync(info.tenantId, info.entityId, id);
   }
   return result;
 }

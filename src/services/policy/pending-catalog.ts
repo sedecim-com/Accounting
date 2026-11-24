@@ -3004,6 +3004,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 59,
   },
   {
+    // MNE-001-612 (#792, risk 1 of #905) · A credit note issued while a
+    // customer cheque was held, reversed after the cashing that netted it.
+    // The ledger posts the same pair under either answer
+    // (`followNoteReversal`, ar-ap-posting.ts); the answer decides the IVA
+    // paper's month. Reader: `keptRestitutionsUpTo` and
+    // `reversedAfterCashing` in iva-workpaper.ts.
+    key: 'note_reversal_after_cashing_iva',
+    textKey: 'note_reversal_after_cashing_iva',
+    category: 'fiscal',
+    question:
+      'A credit note issued while a customer cheque was held is reversed after the bank cashed the cheque: in which month does the IVA paper count the IVA the note no longer restitutes?',
+    impact:
+      'Governs the IVA workpaper after `entry reverse` or `entry void` of such a note. Under either answer the ledger posts DR 2150 / CR 2120 for that IVA, dated with the reversal, or with the cashing when the reversal is dated before it. ' +
+      'With "reversal_month" the paper counts it in the month of that entry, so every month ties out with the ledger and no month already declared moves. ' +
+      'With "cashing_month" the paper reads the note as never issued and counts it in the month of the cashing; the tie-out names the amended return that month needs and the correction in the month of the reversal.',
+    options: [
+      { value: 'reversal_month', label: 'Count it in the month of the reversal, as the ledger does' },
+      { value: 'cashing_month', label: 'Count it in the month of the cashing, as if the note had never been issued' },
+    ],
+    defaultValue: 'reversal_month',
+    defaultRationale:
+      'LIVA art. 1-B and decision (A) on cash kept on account: the cash the note covered was owed back to the customer, not consideration, and the cancellation is the act that makes it consideration held on account again. ' +
+      'The ledger dates that correction with the reversal (NIF B-1), and counting it there changes no month already declared and lowers none, the conservative option of ADR-0006. ' +
+      'Reading the cancelled CFDI as never issued (CFF art. 29-A) is also accepted, and takes an amended return of the cashing\'s month (CFF art. 32).',
+    whyAsking:
+      'Some firms treat a cancelled credit note as if it had never existed and amend the month it affected; others recognise the cancellation in the month it happens. The ledger is the same either way.',
+    whatIDo:
+      'With "reversal_month" I count that IVA in the month of the reversal\'s correction. With "cashing_month" I count it in the month of the cashing and name, in the tie-out, the amended return and the correction.',
+    ifSkipped: 'I count it in the month of the reversal.',
+    priority: 60,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live

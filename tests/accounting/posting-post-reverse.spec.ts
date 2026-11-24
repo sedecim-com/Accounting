@@ -6,10 +6,11 @@ import type { JournalEntry } from '../../src/types/index.js';
 // vi.hoisted eleva estas referencias junto con los vi.mock que las capturan:
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
-const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
+const { arnes, validateJournalEntry, attest, followNoteReversal } = vi.hoisted(() => ({
   arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
+  followNoteReversal: vi.fn<(...a: unknown[]) => Promise<JournalEntry[]>>(),
 }));
 
 vi.mock('../../src/database/connection.js', () => ({
@@ -33,6 +34,11 @@ vi.mock('../../src/services/accounting/validation.js', () => ({
 
 vi.mock('../../src/services/blockchain/orchestrator.js', () => ({
   blockchainOrchestrator: { attestJournalEntry: (...a: unknown[]) => attest(...a) },
+}));
+
+// MNE-001-612: what a credit note's reversal posts besides its mirror, loaded on demand by posting.ts.
+vi.mock('../../src/services/accounting/ar-ap-posting.js', () => ({
+  followNoteReversal: (...a: unknown[]) => followNoteReversal(...a),
 }));
 
 import { postJournalEntry, reverseJournalEntry, voidJournalEntry, voidJournalEntryInTx, drainAttestations } from '../../src/services/accounting/posting.js';
@@ -67,6 +73,8 @@ beforeEach(() => {
   validateJournalEntry.mockResolvedValue({ isValid: true, errors: [], warnings: [] });
   attest.mockReset();
   attest.mockResolvedValue(undefined);
+  followNoteReversal.mockReset();
+  followNoteReversal.mockResolvedValue([]);
 });
 
 describe('postJournalEntry · candados', () => {
@@ -259,6 +267,27 @@ describe('reverseJournalEntry · NIF B-1', () => {
     await reverseJournalEntry(ID.asiento, ID.usuario);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(2);
   });
+
+  // MNE-001-612 · A credit note's reversal also posts what `followNoteReversal` returns, and both are attested after commit.
+  it('MNE-001-612 · a credit note\'s reversal posts its follow-up on the same client and attests the mirror and the pair', async () => {
+    followNoteReversal.mockResolvedValue([asientoFalso({ id: 'pair-1', status: 'posted' } as Partial<JournalEntry>)]);
+    const note = asientoFalso({ status: 'posted', source_type: 'credit_note' } as Partial<JournalEntry>);
+    const cf = (arnes.actual = reglasReversa(note));
+    const mirror = await reverseJournalEntry(ID.asiento, ID.usuario, { reversalDate: '2026-07-10' });
+    expect(followNoteReversal).toHaveBeenCalledTimes(1);
+    const [client, entry, passedMirror, user] = followNoteReversal.mock.calls[0] as [unknown, JournalEntry, JournalEntry, string];
+    expect([client, entry.id, passedMirror.id, user]).toEqual([cf.client, ID.asiento, mirror.id, ID.usuario]);
+    await drainAttestations(200);
+    expect(attest.mock.calls.map((c) => (c[0] as { journalEntryId: string }).journalEntryId)).toEqual([mirror.id, 'pair-1']);
+  });
+
+  it('MNE-001-612 · an entry of any other source posts no follow-up and attests the mirror alone', async () => {
+    arnes.actual = reglasReversa(asientoFalso({ status: 'posted', source_type: 'customer_payment' } as Partial<JournalEntry>));
+    await reverseJournalEntry(ID.asiento, ID.usuario);
+    expect(followNoteReversal).not.toHaveBeenCalled();
+    await drainAttestations(200);
+    expect(attest).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('voidJournalEntry · el estado void es solo para borradores', () => {
@@ -301,6 +330,39 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
     expect(cf.coincidencias(/SET status = 'void'/)).toHaveLength(0);
     expect(cf.coincidencias(/UPDATE journal_entries SET reversed_by_entry_id/)).toHaveLength(1);
     expect(r.status).toBe('posted');
+  });
+
+  // MNE-001-612 · `entry void` of a posted credit note reaches the same follow-up: voidJournalEntryInTx returns it and
+  // voidJournalEntry attests it with the mirror.
+  it('MNE-001-612 · voiding a posted credit note returns its follow-up and attests it with the mirror', async () => {
+    followNoteReversal.mockResolvedValue([asientoFalso({ id: 'pair-2', status: 'posted' } as Partial<JournalEntry>)]);
+    const note = asientoFalso({ status: 'posted', source_type: 'credit_note' } as Partial<JournalEntry>);
+    const rules = (): ClienteFalso => clienteFalso([
+      AUDITORIA,
+      { cuando: /FOR UPDATE/, responde: { rows: [note] } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      { cuando: /FROM fiscal_periods/, responde: { rows: [{ id: ID.periodo }] } },
+      { cuando: /INSERT INTO entity_sequences/, responde: { rows: [{ value: '11' }] } },
+      { cuando: /INSERT INTO journal_entries/, responde: {} },
+      { cuando: /INSERT INTO journal_entry_lines/, responde: {} },
+      { cuando: /UPDATE journal_entries SET status = 'posted'/, responde: {} },
+      { cuando: /INSERT INTO account_balances/, responde: {} },
+      { cuando: /UPDATE journal_entries SET reversed_by_entry_id/, responde: {} },
+      { cuando: /UPDATE journal_entries SET notes/, responde: {} },
+      { cuando: /SELECT tenant_id FROM legal_entities/, responde: { rows: [{ tenant_id: 'tenant-1' }] } },
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1$/, responde: { rows: [note] } },
+    ]);
+
+    const inTx = rules();
+    const { reversal, followUps } = await voidJournalEntryInTx(inTx.client, ID.asiento, ID.usuario, 'CFDI cancelado');
+    expect(followUps.map((f) => f.id)).toEqual(['pair-2']);
+    expect((followNoteReversal.mock.calls[0] as unknown[])[2]).toBe(reversal);
+
+    // The fake answers the mirror's re-read with the note's row, so the mirror attested carries the note's id here.
+    arnes.actual = rules();
+    await voidJournalEntry(ID.asiento, ID.usuario, 'CFDI cancelado');
+    await drainAttestations(200);
+    expect(attest.mock.calls.map((c) => (c[0] as { journalEntryId: string }).journalEntryId)).toEqual([ID.asiento, 'pair-2']);
   });
 
   it('rechaza anular dos veces', async () => {

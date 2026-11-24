@@ -6156,6 +6156,30 @@
     },
     {
       "class": "policy-key",
+      "where": "note_reversal_after_cashing_iva",
+      "es": "note_reversal_after_cashing_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-612): a credit note on a held cheque, reversed after the cashing that netted it."
+    },
+    {
+      "class": "policy-value",
+      "where": "note_reversal_after_cashing_iva/reversal_month",
+      "es": "reversal_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA paper counts it in the month of the reversal, as the ledger does."
+    },
+    {
+      "class": "policy-value",
+      "where": "note_reversal_after_cashing_iva/cashing_month",
+      "es": "cashing_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA paper counts it in the month of the cashing, as if the note had never been issued."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
