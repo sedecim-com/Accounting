@@ -43,7 +43,6 @@ import type { TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
 import { FOREIGN_BANK_CODE, officialEnumeration } from '../sat/anexo24/official-enumerations.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
@@ -215,42 +214,34 @@ export function assertRastroDePago(
   const cuenta = (entrada.cuentaDestino ?? '').trim();
 
   if (nacional !== '' && extranjero !== '') {
-    throw new ValidationError(
-      `El pago declara banco destino nacional («${nacional}») y extranjero («${extranjero}») a la vez. ` +
-        'El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: ' +
-        'declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo ' +
-        'las lleva tal cual a la autoridad.' +
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.destination_bank_both',
+      params: {
+        national: nacional,
+        foreign: extranjero,
         // #532: 999 is the code the file itself puts on a foreign bank, next to its name.
-        (nacional === FOREIGN_BANK_CODE
-          ? ` Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
-          : '')
-    );
+        foreignCode: nacional === FOREIGN_BANK_CODE ? 'yes' : 'no',
+        code: FOREIGN_BANK_CODE,
+      },
+    });
   }
   if (nacional !== '' && nacional.length !== LARGO_CLAVE_BANCO) {
-    throw new ValidationError(
-      `La clave de banco destino «${nacional}» tiene ${nacional.length} caracteres y el c_Banco ` +
-        `del SAT son ${LARGO_CLAVE_BANCO}. Un banco no se identifica por su nombre en este campo: ` +
-        'si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.destination_bank_length',
+      params: { national: nacional, length: nacional.length, expected: LARGO_CLAVE_BANCO },
+    });
   }
   // MNE-001-569 · the list the vouchers file is judged by, as #611 checks the
   // payer's bank: a code off it would be stored and then block the month.
   if (nacional !== '' && !officialEnumeration('c_Banco').has(nacional)) {
-    throw new ValidationError(
-      `La clave de banco destino «${nacional}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
-        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.destination_bank_off_list', params: { national: nacional } });
   }
   // El banco sin la cuenta es media pista. En el nodo de transferencia del
   // Anexo 24 la cuenta destino es lo obligatorio y el banco lo opcional, así
   // que guardar el banco solo produce exactamente el dato que el archivo NO
   // puede usar, y lo produce con aire de estar completo.
   if (cuenta === '' && (nacional !== '' || extranjero !== '')) {
-    throw new ValidationError(
-      'Se indicó el banco destino y no la cuenta destino. En la póliza del Anexo 24 la cuenta ' +
-        'destino es el dato obligatorio del nodo de transferencia y el banco el opcional: el banco ' +
-        'solo no permite emitir el rastro y sí aparenta que el pago ya lo tiene.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.destination_account_missing' });
   }
 
   // El número de cheque pertenece al cheque. Escribirlo sobre una
@@ -259,12 +250,10 @@ export function assertRastroDePago(
   // hecho que `payment_method = 'check'` (:1275).
   const cheque = (entrada.checkNumber ?? '').trim();
   if (cheque !== '' && entrada.paymentMethod !== 'check') {
-    throw new ValidationError(
-      `Se dio número de cheque («${cheque}») a un pago ${lado === 'cliente' ? 'cobrado' : 'hecho'} ` +
-        `por «${entrada.paymentMethod}». El número de cheque identifica un cheque: sobre otro método ` +
-        'la póliza del Anexo 24 declararía un cheque que no existe. Usa la referencia bancaria para ' +
-        'el folio de una transferencia.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.cheque_on_other_method',
+      params: { cheque, side: lado, method: entrada.paymentMethod },
+    });
   }
 }
 
@@ -289,47 +278,32 @@ export function assertPayerTrace(
   // Cheque/@Num allows 20 characters: a longer one would make the whole
   // vouchers file fail the XSD, so the receipt that brings it is refused.
   if (side === 'cliente' && (input.checkNumber ?? '').trim().length > 20) {
-    throw new ValidationError(
-      `El número de cheque «${(input.checkNumber ?? '').trim()}» pasa de los 20 caracteres que admite el ` +
-        'nodo Cheque de la póliza del Anexo 24.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.cheque_too_long',
+      params: { cheque: (input.checkNumber ?? '').trim() },
+    });
   }
   if (bank === '' && foreign === '' && account === '') return;
   if (side === 'proveedor') {
-    throw new ValidationError(
-      'El banco y la cuenta del pagador sólo se capturan en un cobro. En un pago a proveedor el ' +
-        'origen es nuestra cuenta bancaria (`--bank`), y su clave c_Banco vive en esa cuenta.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.payer_bank_on_vendor_payment' });
   }
   if (!METHODS_WITH_AN_ORIGIN_BANK.includes(input.paymentMethod)) {
-    throw new ValidationError(
-      `Se dio banco o cuenta del cliente a un cobro por «${input.paymentMethod}». Sólo un cheque o ` +
-        'una transferencia declaran de qué banco salió el dinero en la póliza del Anexo 24.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.payer_bank_method', params: { method: input.paymentMethod } });
   }
   if (bank !== '' && foreign !== '') {
-    throw new ValidationError(
-      `El cobro declara banco del cliente nacional («${bank}») y extranjero («${foreign}») a la vez. ` +
-        `Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.payer_bank_both',
+      params: { bank, foreign, code: FOREIGN_BANK_CODE },
+    });
   }
   if (bank !== '' && !officialEnumeration('c_Banco').has(bank)) {
-    throw new ValidationError(
-      `La clave de banco del cliente «${bank}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
-        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.payer_bank_off_list', params: { bank } });
   }
   if (account !== '' && bank === '' && foreign === '') {
-    throw new ValidationError(
-      'Se indicó la cuenta del cliente y no su banco. El nodo de pago de la póliza exige el banco de ' +
-        'origen: la cuenta sola no permite emitirlo y sí aparenta que el cobro ya tiene su rastro.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.payer_account_without_bank' });
   }
   if (account.length > 50 || foreign.length > 150) {
-    throw new ValidationError(
-      'La cuenta del cliente admite hasta 50 caracteres y el nombre de su banco extranjero hasta 150, ' +
-        'los mismos límites del nodo de pago de la póliza.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.payer_trace_too_long' });
   }
 }
 
@@ -397,12 +371,10 @@ export interface OpcionesPago {
 
 function assertEstado(status: string | undefined): void {
   if (status !== undefined && status !== ESTADO) {
-    throw new AccountingError(
-      'PAYMENT_STATE_UNSUPPORTED',
-      `Un pago sólo puede registrarse como '${ESTADO}': mnemosine registra pagos que YA ocurrieron. ` +
-        `El estado '${status}' pertenece a un programador de pagos que no existe, y un pago que no ` +
-        `ha salido del banco no puede tocar el mayor.`
-    );
+    throw new AccountingError('PAYMENT_STATE_UNSUPPORTED', {
+      key: 'error.PAYMENT_STATE_UNSUPPORTED',
+      params: { state: ESTADO, status },
+    });
   }
 }
 
@@ -414,14 +386,10 @@ function assertEstado(status: string | undefined): void {
 function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
   const aCuenta = entrada.onAccount === true;
   if (entrada.applications.length === 0 && !aCuenta) {
-    throw new ValidationError(
-      'Un pago sin aplicar a ningún documento no libera saldo ni acredita IVA: indica a qué se aplica.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.no_application' });
   }
   if (entrada.applications.length === 0 && aCuenta && !entrada.counterpartyId) {
-    throw new ValidationError(
-      `Un anticipo sin documento necesita el ${lado} explícito: sin documento no hay de dónde deducirlo.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.advance_without_party', params: { side: lado } });
   }
 
   // Un documento repetido pasaba las dos validaciones y se restaba DOS veces.
@@ -433,10 +401,7 @@ function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
   const vistos = new Set<string>();
   for (const a of entrada.applications) {
     if (vistos.has(a.documentId)) {
-      throw new ValidationError(
-        `El documento ${a.documentId} aparece dos veces en el mismo pago. ` +
-          'Súmalas en una sola aplicación: repetirlo restaría su saldo dos veces.'
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.document_repeated', params: { document: a.documentId } });
     }
     vistos.add(a.documentId);
   }
@@ -459,11 +424,7 @@ function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
     (a) => a.discountAmount !== undefined && new Decimal(a.discountAmount).greaterThan(0)
   );
   if (conDescuento && lado === 'cliente') {
-    throw new ValidationError(
-      'Un descuento concedido a un cliente no es una línea del cobro: es una NOTA DE CRÉDITO, ' +
-        'con su documento y su CFDI de egreso. Emítela con `mnemosine credit-note create --type descuento` ' +
-        'y aplícala a la factura.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.customer_discount_is_credit_note' });
   }
 
   // Sólo EFECTIVO: el descuento extingue pasivo pero no salió del banco, así
@@ -479,20 +440,16 @@ function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
   // Aplicar de menos SIN pedirlo sigue rechazándose: el que suma mal debe
   // enterarse, no ganar un anticipo por accidente.
   if (total.greaterThan(entrada.paymentAmount)) {
-    throw new ValidationError(
-      `Las aplicaciones suman ${total.toFixed(2)} y el pago es de ` +
-        `${new Decimal(entrada.paymentAmount).toFixed(2)}: no se puede aplicar más de lo que se pagó.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.applications_exceed_amount',
+      params: { total: total.toFixed(2), amount: new Decimal(entrada.paymentAmount).toFixed(2) },
+    });
   }
   if (!total.equals(entrada.paymentAmount) && !aCuenta) {
-    throw new ValidationError(
-      `Las aplicaciones suman ${total.toFixed(2)} y el pago es de ` +
-        `${new Decimal(entrada.paymentAmount).toFixed(2)}. Tienen que coincidir: lo que sobra ` +
-        'quedaría cargado a la cuenta de control sin bajar de ningún auxiliar. Si el remanente ' +
-        `es deliberado, dilo con onAccount (--on-account): quedará como anticipo ${
-          lado === 'cliente' ? 'del cliente' : 'a proveedores'
-        }.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.applications_mismatch',
+      params: { total: total.toFixed(2), amount: new Decimal(entrada.paymentAmount).toFixed(2), side: lado },
+    });
   }
 }
 
@@ -500,10 +457,10 @@ function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
 function assertMoneda(numero: string, delDocumento: string, delPago: string | undefined): void {
   const pago = delPago ?? delDocumento;
   if (delDocumento !== pago) {
-    throw new ValidationError(
-      `${numero} está en ${delDocumento} y el pago en ${pago}. Un importe en otra moneda ` +
-        'se restaría crudo del saldo y se asentaría crudo, sin tipo de cambio.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.currency_mismatch',
+      params: { document: numero, documentCurrency: delDocumento, paymentCurrency: pago },
+    });
   }
 }
 
@@ -539,19 +496,15 @@ async function foreignCurrencyContext(
   for (const a of apps) {
     const th = new Decimal(a.tasaHistorica || '0');
     if (!th.greaterThan(0) || th.equals(1)) {
-      throw new ValidationError(
-        `${a.numero} está en ${moneda} pero su exchange_rate es ` +
-          `${a.tasaHistorica} (el default de captura): se asentó sin ` +
-          `convertir. Corrige el documento antes de ${settle} — la diferencia ` +
-          `cambiaria se mide contra la tasa a la que el documento nació (NIF B-15).`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.document_rate_missing',
+        params: { document: a.numero, currency: moneda, rate: String(a.tasaHistorica), settle },
+      });
     }
   }
   if (entrada.exchangeRate !== undefined) {
     if (!new Decimal(entrada.exchangeRate).greaterThan(0)) {
-      throw new ValidationError(
-        `El tipo de cambio del pago (${entrada.exchangeRate}) tiene que ser mayor que cero.`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.rate_not_positive', params: { rate: entrada.exchangeRate } });
     }
     return { moneda, monedaFuncional: funcional, tasaPago: entrada.exchangeRate, fuenteTasa: 'parametro', aplicaciones: apps };
   }
@@ -582,10 +535,7 @@ async function assertPayableBankAccount(
   );
   if (r.rows.length === 0) throw new NotFoundError('Bank Account', bankAccountId);
   if (!r.rows[0].is_active) {
-    throw new ValidationError(
-      `La cuenta bancaria "${r.rows[0].account_name}" está inactiva: no registra movimientos nuevos. ` +
-        'Elige una cuenta activa de `bank account list`.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.bank_account_inactive', params: { account: r.rows[0].account_name } });
   }
 }
 
@@ -635,17 +585,17 @@ export async function recordVendorPayment(
       // un borrador: se restaba su saldo y se posteaba el asiento de pago
       // contra un pasivo que nadie había reconocido.
       if (!PAGABLES.includes(bill.status as (typeof PAGABLES)[number])) {
-        throw new ValidationError(
-          `${bill.bill_number} está en "${bill.status}" y sólo se puede pagar un gasto ` +
-            `${PAGABLES.join(', ')}: su pasivo tiene que estar en el mayor primero.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.bill_not_payable',
+          params: { bill: bill.bill_number, status: bill.status, payable: PAGABLES.join(', ') },
+        });
       }
       assertMoneda(bill.bill_number, bill.currency_code, entrada.currencyCode);
       if (entrada.counterpartyId && entrada.counterpartyId !== bill.vendor_id) {
-        throw new ValidationError(
-          `${bill.bill_number} es del proveedor ${bill.vendor_id} y el pago se atribuye a ` +
-            `${entrada.counterpartyId}: el pago quedaría en el auxiliar equivocado.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.bill_other_vendor',
+          params: { bill: bill.bill_number, vendor: bill.vendor_id, counterparty: entrada.counterpartyId },
+        });
       }
       const aplicado = new Decimal(app.amountApplied);
       const descuento = new Decimal(app.discountAmount ?? '0');
@@ -654,10 +604,13 @@ export async function recordVendorPayment(
       // proveedor deja de tener derecho a cobrar es la suma de los dos.
       const extingue = aplicado.plus(descuento);
       if (extingue.greaterThan(saldo)) {
-        throw new ValidationError(
-          `${bill.bill_number} debe ${saldo.toFixed(2)} y se intentan extinguir ${extingue.toFixed(2)} ` +
-            `(${aplicado.toFixed(2)} de efectivo + ${descuento.toFixed(2)} de descuento).`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.bill_exceeds_due',
+          params: {
+            bill: bill.bill_number, due: saldo.toFixed(2), settled: extingue.toFixed(2),
+            cash: aplicado.toFixed(2), discount: descuento.toFixed(2),
+          },
+        });
       }
       const nuevo = saldo.minus(extingue);
       const estado = nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid';
@@ -681,7 +634,7 @@ export async function recordVendorPayment(
       ?? (await client.query<{ vendor_id: string }>(
         `SELECT vendor_id FROM bills WHERE id = $1`, [entrada.applications[0].documentId]
       )).rows[0]?.vendor_id;
-    if (!vendorId) throw new ValidationError('No se pudo determinar el proveedor del pago.');
+    if (!vendorId) throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.vendor_unresolved' });
 
     // T23b · EL ANTICIPO A PROVEEDOR TAMBIÉN TIENE MONEDA, Y ERA UN LITERAL.
     //
@@ -703,13 +656,10 @@ export async function recordVendorPayment(
       vendorAdvanceCurrency = entrada.currencyCode ?? v.rows[0].currency_code;
       const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
       if (vendorAdvanceCurrency !== functionalCurrency) {
-        throw new ValidationError(
-          `El anticipo viene en ${vendorAdvanceCurrency} y esta entidad lleva sus libros en ` +
-            `${functionalCurrency}. No lo registro convertido porque la tasa y su fuente las decide ` +
-            'el despacho en la política `fuente_tipo_cambio`, no yo; y no lo registro sin convertir ' +
-            'porque asentaría una cifra de otra moneda como si fuera de ésta. Aplica el pago a un ' +
-            `documento en su moneda, o registra el anticipo en ${functionalCurrency}.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.advance_other_currency',
+          params: { currency: vendorAdvanceCurrency, functional: functionalCurrency, side: 'proveedor' },
+        });
       }
     }
 
@@ -912,24 +862,25 @@ export async function recordCustomerPayment(
 
       const inv = r.rows[0];
       if (!COBRABLES.includes(inv.status as (typeof COBRABLES)[number])) {
-        throw new ValidationError(
-          `${inv.invoice_number} está en "${inv.status}" y sólo se puede cobrar una factura ` +
-            `${COBRABLES.join(', ')}: su ingreso tiene que estar en el mayor primero.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.invoice_not_collectible',
+          params: { invoice: inv.invoice_number, status: inv.status, collectible: COBRABLES.join(', ') },
+        });
       }
       assertMoneda(inv.invoice_number, inv.currency_code, entrada.currencyCode);
       if (entrada.counterpartyId && entrada.counterpartyId !== inv.customer_id) {
-        throw new ValidationError(
-          `${inv.invoice_number} es del cliente ${inv.customer_id} y el cobro se atribuye a ` +
-            `${entrada.counterpartyId}: quedaría en el auxiliar equivocado.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.invoice_other_customer',
+          params: { invoice: inv.invoice_number, customer: inv.customer_id, counterparty: entrada.counterpartyId },
+        });
       }
       const aplicado = new Decimal(app.amountApplied);
       const saldo = new Decimal(inv.amount_due);
       if (aplicado.greaterThan(saldo)) {
-        throw new ValidationError(
-          `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${aplicado.toFixed(2)}.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.invoice_exceeds_due',
+          params: { invoice: inv.invoice_number, due: saldo.toFixed(2), applied: aplicado.toFixed(2) },
+        });
       }
       const nuevo = saldo.minus(aplicado);
       documentos.push({
@@ -963,12 +914,10 @@ export async function recordCustomerPayment(
       const applied = fxApps.reduce((s, a) => s.plus(a.aplicado), new Decimal(0));
       const onAccount = new Decimal(entrada.paymentAmount).minus(applied);
       if (onAccount.greaterThan(0)) {
-        throw new AccountingError(
-          'FX_AR_ON_ACCOUNT_NOT_WIRED',
-          `El cobro en ${fx.moneda} deja ${onAccount.toFixed(2)} a cuenta del cliente. Un saldo a ` +
-            'cuenta en otra moneda todavía no se puede aplicar ni desaplicar convertido, así que ' +
-            `no lo registro: aplica el cobro completo a facturas en ${fx.moneda}.`
-        );
+        throw new AccountingError('FX_AR_ON_ACCOUNT_NOT_WIRED', {
+          key: 'error.FX_AR_ON_ACCOUNT_NOT_WIRED.receipt',
+          params: { currency: fx.moneda, amount: onAccount.toFixed(2) },
+        });
       }
     }
 
@@ -976,7 +925,7 @@ export async function recordCustomerPayment(
       ?? (await client.query<{ customer_id: string }>(
         `SELECT customer_id FROM invoices WHERE id = $1`, [entrada.applications[0].documentId]
       )).rows[0]?.customer_id;
-    if (!customerId) throw new ValidationError('No se pudo determinar el cliente del cobro.');
+    if (!customerId) throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.customer_unresolved' });
 
     // Anticipo puro (049): sin documento no hay moneda de referencia — se
     // toma la del cliente, verificando de paso que existe EN ESTA entidad.
@@ -1006,14 +955,10 @@ export async function recordCustomerPayment(
       // and the advance was the door through which that promise was not kept.
       const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
       if (advanceCurrency !== functionalCurrency) {
-        throw new ValidationError(
-          `El anticipo viene en ${advanceCurrency} y esta entidad lleva sus libros en ` +
-            `${functionalCurrency}. No lo registro convertido porque la tasa y su fuente ` +
-            'las decide el despacho en la política `fuente_tipo_cambio`, no yo; y no lo ' +
-            'registro sin convertir porque asentaría una cifra de otra moneda como si fuera ' +
-            'de ésta. Aplica el cobro a un documento en su moneda, o registra el anticipo en ' +
-            `${functionalCurrency}.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.advance_other_currency',
+          params: { currency: advanceCurrency, functional: functionalCurrency, side: 'cliente' },
+        });
       }
     }
 
@@ -1362,9 +1307,10 @@ async function cobroParaEscribir(
   if (r.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
   const pago = r.rows[0];
   if (pago.status !== ESTADO) {
-    throw new ValidationError(
-      `El cobro ${pago.payment_number} está en '${pago.status}': sólo un cobro 'completed' admite este evento.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.not_completed',
+      params: { side: 'cliente', payment: pago.payment_number, status: pago.status },
+    });
   }
   return pago;
 }
@@ -1629,14 +1575,15 @@ export async function applyCustomerPayment(
   opts: OpcionesPago & { date?: string } = {}
 ): Promise<CustomerApplicationResult> {
   if (aplicaciones.length === 0) {
-    throw new ValidationError('Indica a qué factura(s) se aplica el saldo a cuenta.');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.apply_which_invoices' });
   }
   const vistos = new Set<string>();
   for (const a of aplicaciones) {
     if (vistos.has(a.documentId)) {
-      throw new ValidationError(
-        `El documento ${a.documentId} aparece dos veces en la misma aplicación: súmalas en una.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.application_document_repeated',
+        params: { document: a.documentId },
+      });
     }
     vistos.add(a.documentId);
     for (const w of [a.withholdingIsr, a.withholdingIva]) {
@@ -1655,10 +1602,10 @@ export async function applyCustomerPayment(
     const held = await holdsIvaUntilCashed(client, entityId, pago);
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
     if (total.greaterThan(remanente)) {
-      throw new ValidationError(
-        `El cobro ${pago.payment_number} tiene ${remanente.toFixed(2)} sin aplicar y se intentan ` +
-          `aplicar ${total.toFixed(2)}: el saldo a cuenta no alcanza.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.on_account_short',
+        params: { side: 'cliente', payment: pago.payment_number, left: remanente.toFixed(2), total: total.toFixed(2) },
+      });
     }
 
     const documentos: DocumentoAplicado[] = [];
@@ -1692,10 +1639,10 @@ export async function applyCustomerPayment(
         });
       }
       if (!COBRABLES.includes(inv.status as (typeof COBRABLES)[number])) {
-        throw new ValidationError(
-          `${inv.invoice_number} está en "${inv.status}" y sólo se puede aplicar a una factura ` +
-            `${COBRABLES.join(', ')}.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.invoice_not_applicable',
+          params: { invoice: inv.invoice_number, status: inv.status, collectible: COBRABLES.join(', ') },
+        });
       }
       assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
       // MNE-001-460: cash cannot settle a sale before the sale exists.
@@ -1723,7 +1670,10 @@ export async function applyCustomerPayment(
       if (settled.greaterThan(saldo)) {
         throw new ValidationError(
           settled.equals(aplicado)
-            ? `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${settled.toFixed(2)}.`
+            ? {
+                key: 'error.VALIDATION_ERROR.payment.invoice_exceeds_due',
+                params: { invoice: inv.invoice_number, due: saldo.toFixed(2), applied: settled.toFixed(2) },
+              }
             : { key: 'receipt.withholding.exceeds_due', params: {
                 invoice: inv.invoice_number, due: saldo.toFixed(2), settled: settled.toFixed(2),
                 cash: aplicado.toFixed(2), withheld: isr.plus(iva).toFixed(2),
@@ -2169,10 +2119,10 @@ export async function unapplyCustomerPayment(
       [paymentId, args.invoiceId]
     );
     if (vivas.rows.length === 0) {
-      throw new ValidationError(
-        `El cobro ${pago.payment_number} no tiene ninguna aplicación viva sobre ${factura.invoice_number}: ` +
-          'no hay qué desaplicar.'
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.nothing_to_unapply',
+        params: { receipt: pago.payment_number, invoice: factura.invoice_number },
+      });
     }
 
     const total = vivas.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
@@ -2748,11 +2698,7 @@ export async function reverseCustomerPayment(
     // El mismo trato que el descuento por pronto pago: reconocer la comisión
     // exige una cuenta con rol que la capa semántica aún no tiene, y sin
     // ella el cargo iría a una cuenta adivinada. Se rechaza en voz alta.
-    throw new ValidationError(
-      'La comisión por devolución todavía no se puede registrar: necesita una cuenta con rol de ' +
-        'comisiones bancarias en la capa semántica. Reversa el cobro sin --fee y registra la ' +
-        'comisión como asiento manual mientras tanto.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.reversal_fee_not_wired' });
   }
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoReversa> => {
@@ -3388,9 +3334,10 @@ async function pagoProveedorParaEscribir(
   if (r.rows.length === 0) throw new NotFoundError('Vendor payment', paymentId);
   const pago = r.rows[0];
   if (pago.status !== ESTADO) {
-    throw new ValidationError(
-      `El pago ${pago.payment_number} está en '${pago.status}': sólo un pago 'completed' admite este evento.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payment.not_completed',
+      params: { side: 'proveedor', payment: pago.payment_number, status: pago.status },
+    });
   }
   return pago;
 }
@@ -3451,25 +3398,22 @@ export async function applyVendorPayment(
   opts: OpcionesAplicacionProveedor = {}
 ): Promise<ResultadoAplicacionProveedor> {
   if (aplicaciones.length === 0) {
-    throw new ValidationError('Indica a qué gasto(s) se aplica el saldo a cuenta.');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.apply_which_bills' });
   }
   const vistos = new Set<string>();
   for (const a of aplicaciones) {
     if (vistos.has(a.documentId)) {
-      throw new ValidationError(
-        `El documento ${a.documentId} aparece dos veces en la misma aplicación: súmalas en una.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.application_document_repeated',
+        params: { document: a.documentId },
+      });
     }
     vistos.add(a.documentId);
   }
 
   const residual = opts.modo === 'residual';
   if (residual && !opts.shortPayReason?.trim()) {
-    throw new ValidationError(
-      'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué ' +
-        'con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que ' +
-        'desapareció.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.short_pay_reason_required' });
   }
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacionProveedor> => {
@@ -3485,11 +3429,7 @@ export async function applyVendorPayment(
       ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')
       : null;
     if (politica?.value === 'prohibir') {
-      throw new ValidationError(
-        'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto ' +
-          'se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o ' +
-          `cambia la política con ${changePolicyHint('pago_corto_residual')}.`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.payment.short_pay_forbidden' });
     }
     const cuentaCondonacion =
       politica === null
@@ -3502,10 +3442,10 @@ export async function applyVendorPayment(
     // con 20 de descuento: lo que no puede es repartir 1000 de efectivo.
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
     if (total.greaterThan(remanente)) {
-      throw new ValidationError(
-        `El pago ${pago.payment_number} tiene ${remanente.toFixed(2)} sin aplicar y se intentan ` +
-          `aplicar ${total.toFixed(2)}: el saldo a cuenta no alcanza.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.payment.on_account_short',
+        params: { side: 'proveedor', payment: pago.payment_number, left: remanente.toFixed(2), total: total.toFixed(2) },
+      });
     }
 
     const documentos: DocumentoAplicado[] = [];
@@ -3541,10 +3481,10 @@ export async function applyVendorPayment(
         });
       }
       if (!PAGABLES.includes(bill.status as (typeof PAGABLES)[number])) {
-        throw new ValidationError(
-          `${bill.bill_number} está en "${bill.status}" y sólo se puede aplicar a un gasto ` +
-            `${PAGABLES.join(', ')}.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.bill_not_applicable',
+          params: { bill: bill.bill_number, status: bill.status, payable: PAGABLES.join(', ') },
+        });
       }
       assertMoneda(bill.bill_number, bill.currency_code, pago.currency_code);
 
@@ -3553,10 +3493,13 @@ export async function applyVendorPayment(
       const extingue = aplicado.plus(descuento);
       const saldo = new Decimal(bill.amount_due);
       if (extingue.greaterThan(saldo)) {
-        throw new ValidationError(
-          `${bill.bill_number} debe ${saldo.toFixed(2)} y se intentan extinguir ${extingue.toFixed(2)} ` +
-            `(${aplicado.toFixed(2)} de efectivo + ${descuento.toFixed(2)} de descuento).`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.payment.bill_exceeds_due',
+          params: {
+            bill: bill.bill_number, due: saldo.toFixed(2), settled: extingue.toFixed(2),
+            cash: aplicado.toFixed(2), discount: descuento.toFixed(2),
+          },
+        });
       }
       // ── EL DESCUENTO, CONTRA LO QUE LAS CONDICIONES OTORGAN ──────────
       //
@@ -3576,12 +3519,13 @@ export async function applyVendorPayment(
           toCalendarDate(pago.payment_date)
         );
         if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {
-          throw new ValidationError(
-            `${bill.bill_number} concede ${new Decimal(derecho.discountAmount).toFixed(2)} de ` +
-              `descuento por pronto pago ("${bill.terms}") y se están tomando ` +
-              `${descuento.toFixed(2)}. La diferencia no es descuento: es pagar de menos. ` +
-              'Si es deliberado, dilo con --mode residual --short-pay-reason.'
-          );
+          throw new ValidationError({
+            key: 'error.VALIDATION_ERROR.payment.discount_over_terms',
+            params: {
+              bill: bill.bill_number, granted: new Decimal(derecho.discountAmount).toFixed(2),
+              terms: String(bill.terms), taken: descuento.toFixed(2),
+            },
+          });
         }
         // Sin condiciones de pronto pago, o fuera de la ventana, el descuento
         // es una deducción NEGOCIADA. Se admite y se reporta como tal.

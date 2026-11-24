@@ -264,10 +264,10 @@ describe('P8 · two completions at once', () => {
 
 describe('P9 · refusals write nothing', () => {
   it.each<[string, VendorTraceFields, string, RegExp]>([
-    ['a cheque number on a SPEI', { checkNumber: '000123' }, 'x', /número de cheque/],
-    ['a national and a foreign bank at once', { toAccount: TO_ACCOUNT, toBank: '002', toForeignBank: 'Bank of Nowhere' }, 'x', /nacional .* y extranjero/],
-    ['a bank with no account stored or given', { toBank: '002' }, 'x', /no la cuenta destino/],
-    ['a bank code of two digits', { toAccount: TO_ACCOUNT, toBank: '12' }, 'x', /tiene 2 caracteres/],
+    ['a cheque number on a SPEI', { checkNumber: '000123' }, 'x', /cheque number/],
+    ['a national and a foreign bank at once', { toAccount: TO_ACCOUNT, toBank: '002', toForeignBank: 'Bank of Nowhere' }, 'x', /national destination bank .* and a foreign one/],
+    ['a bank with no account stored or given', { toBank: '002' }, 'x', /the destination account was not/],
+    ['a bank code of two digits', { toAccount: TO_ACCOUNT, toBank: '12' }, 'x', /has 2 characters/],
     ['no trace field', {}, 'x', /--to-account/],
     ['no reason', { toAccount: TO_ACCOUNT }, ' ', /--reason/],
   ])('%s', async (_case, fields, reason, message) => {
