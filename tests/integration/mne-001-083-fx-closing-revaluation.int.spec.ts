@@ -268,7 +268,7 @@ describe('MNE-001-083 · closing fx revalue', () => {
   it('with no rate of the source for the last calendar day it fails and posts nothing', async () => {
     const before = await entriesOf();
     await expect(revalueForeignBalances(ctx(), f.periodos[9], f.userId)).rejects.toThrow(
-      /No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-09-30/
+      /There is no USD→MXN rate from the source 'dof' for 2026-09-30/
     );
     expect(await entriesOf()).toBe(before);
   });

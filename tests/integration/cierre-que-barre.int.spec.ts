@@ -185,7 +185,7 @@ describe('recierre de un periodo reabierto', () => {
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await expect(
       hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'segundo cierre')
-    ).rejects.toThrow(/ya emitió su cierre/i);
+    ).rejects.toThrow(/already issued its closing/i);
 
     // La transacción se revirtió entera: el periodo sigue en soft_close.
     const { rows } = await query<{ status: string }>(

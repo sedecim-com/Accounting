@@ -83,6 +83,7 @@ vi.mock('node:fs', async (original) => {
 import { legacyTaxKeyWarning, registerBillCommand } from '../../src/cli/bill-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
+import { AccountingError } from '../../src/utils/errors.js';
 import { approveBill, createBill, getBillById, resolveBill, setBillLine } from '../../src/services/ap/bill-service.js';
 import { uncodedLines } from '../../src/services/xml-ingestion/expense-line-account.js';
 import { codePreRegistration } from '../../src/services/xml-ingestion/pre-registration-coding.js';
@@ -256,6 +257,11 @@ const CASES: Case[] = [
   { key: 'ap.bill.approve.missing_role', argv: ['bill', 'approve', 'BILL-9', '--dry-run'], where: 'error',
     setup: approving(Object.assign(new Error('no ap_control role'), { code: 'MISSING_ROLE_ACCOUNT' })),
     en: 'BILL-2026-00007 cannot be posted: no ap_control role', es: 'BILL-2026-00007 no se puede contabilizar: no ap_control role' },
+  // MNE-001-154: a refusal the ledger wrote by key renders in the sentence's language, not in its English message.
+  { key: 'ap.bill.approve.missing_role', argv: ['bill', 'approve', 'BILL-9', '--dry-run'], where: 'error',
+    setup: approving(new AccountingError('MISSING_ROLE_ACCOUNT', { key: 'error.MISSING_ROLE_ACCOUNT.unmapped', params: { role: 'cxp' } })),
+    en: 'BILL-2026-00007 cannot be posted: No account is mapped to the role "cxp" on this entity. Seed the books with: mnemosine init --section identity (or check what is missing with: mnemosine doctor)',
+    es: 'BILL-2026-00007 no se puede contabilizar: No hay cuenta mapeada al rol "cxp" en esta entidad. Siembra la contabilidad con: mnemosine init --section identity (o revisa qué falta con: mnemosine doctor)' },
   ...(['ap.bill.approve.entry_title', 'ap.bill.dry_run'] as const).map((key, i): Case => ({
     key, argv: ['bill', 'approve', 'BILL-9', '--dry-run'], where: 'err', setup: approving(ENTRY),
     en: ['\nEntry JE-2026-00042 · 2026-07-08\n', '\nDry run: nothing was written.\n'][i],

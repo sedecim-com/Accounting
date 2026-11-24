@@ -47,6 +47,55 @@ export const ES: Record<keyof typeof EN, string> = {
     '{policy} no puede cambiar ahora: {entity} revaluó {period}, que aún no tiene cierre definitivo, y los meses de su ejercicio que faltan por revaluar se medirían con el valor nuevo. Cambia cuando los meses revaluados estén sellados, o al inicio de un ejercicio: cuando el ejercicio siguiente esté abierto, sin revaluación todavía, y cada mes anterior esté revaluado o con cierre definitivo.',
   'error.FX_RATE_MISSING':
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
+  // ---- MNE-001-154 · the AccountingError of src/services/accounting; see en.ts ----
+  'error.MISSING_ROLE_ACCOUNT.unmapped':
+    'No hay cuenta mapeada al rol "{role}" en esta entidad. Siembra la contabilidad con: mnemosine init --section identity (o revisa qué falta con: mnemosine doctor)',
+  'error.FX_RATE_CONFLICT':
+    "{invoice} trae tipo de cambio {rate} y la fuente '{source}' de la política fuente_tipo_cambio publicó {published} para {date}. No elijo uno en silencio: corrige el tipo de la factura o la política antes de emitirla.",
+  'error.INVOICE_ALREADY_POSTED': '{invoice} ya tiene póliza o no es de esta entidad: no se enlaza otra.',
+  'error.FX_RATE_MISSING.document':
+    '{bill} está en {currency} y los libros en {functional}, pero su exchange_rate es {rate, select, none {nulo} other {{rate}}} (el default de captura). Registra el tipo de cambio del documento antes de aprobarlo: sin él el pasivo se asentaría sin convertir y perdería su origen (NIF B-15).',
+  'error.FX_AR_ON_ACCOUNT_NOT_WIRED':
+    '{payment} deja {amount} {currency} a cuenta del cliente: un saldo a cuenta en otra moneda todavía no se aplica ni se desaplica convertido.',
+  'error.WRITE_OFF_ACCOUNT_UNRESOLVED':
+    'Hay un pago corto que condona saldo y nadie dijo a qué cuenta va. La decide la política `pago_corto_residual`; postear sin ella dejaría el asiento descuadrado.',
+  'error.REASON_REQUIRED': 'Reabrir un periodo cerrado exige un motivo: queda en el rastro de auditoría.',
+  'error.PERIOD_LOCKED':
+    "{period} está 'locked': su información ya salió del sistema y no se reabre. La corrección va en el periodo abierto más próximo.",
+  'error.PERIOD_NOT_CLOSED': "{period} está '{status}': esta operación es sólo para periodos cerrados.",
+  'error.INVALID_STATUS': "Sólo se restaura a 'soft_close' o 'hard_close'; se pidió '{status}'.",
+  'error.PERIOD_NOT_OPEN.restore': 'No se pudo restaurar el periodo {period}: ya no estaba abierto.',
+  'error.TENANT_NO_RESUELTO.period': 'No se pudo determinar el inquilino de {entity}.',
+  'error.IVA_ROLE_UNRESOLVED.no_line':
+    'La taxonomía CFDI no define una línea de IVA para ({side}, {method}). Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.',
+  'error.MISSING_ROLE_ACCOUNT.no_semantic_layer':
+    'La entidad {entity} no tiene sembrada la capa semántica, así que no se puede saber cuánto IVA tiene aparcado: el pago liberaría cero y el impuesto se quedaría ahí. Siémbrala con: npm run backfill:account-roles -- --tenant <uuid> --aplicar',
+  'error.ALREADY_POSTED.preview': '{entry} ya está aplicada: no hay delta que previsualizar.',
+  'error.ENTRY_VOID.preview': '{entry} está anulada y jamás se aplicará.',
+  'error.ALREADY_POSTED.edit': '{entry} ya está aplicada: una póliza en el mayor es inmutable.',
+  'error.ENTRY_VOID.edit': '{entry} está anulada.',
+  'error.ENTRY_NOT_EDITABLE': '{entry} está en {status}: solo un borrador se edita.',
+  'error.OPENING_DRAFT_LOCKED':
+    '{entry} es la apertura cargada de la balanza: sus renglones y su fecha no se editan. Aplícala con `entry post`, o anúlala con `entry void` y vuelve a cargar la balanza.',
+  'error.ENTITY_NOT_FOUND.functional_currency':
+    'No existe la entidad {entity}: sin su moneda funcional no se puede convertir nada.',
+  'error.FX_POLITICA_DESCONOCIDA.rate_source':
+    'La política fuente_tipo_cambio vale "{value}" y este lector solo entiende {known}. Corrige la política en mnemosine pending.',
+  'error.FX_RATE_MISSING.policy_source':
+    "No hay tipo de cambio {from}→{to} de la fuente '{source}' para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} <tasa> --source {source} — o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la política fuente_tipo_cambio ({policy}) es un criterio fiscal del despacho, no una preferencia de esta función.",
+  'error.TENANT_NO_RESUELTO.close':
+    'No se pudo determinar el inquilino de la entidad {entity}: el cierre no se registra sin rastro.',
+  'error.CIERRE_YA_EMITIDO':
+    'El periodo ya emitió su cierre ({entries}) y la política cierre_recierre_de_periodo_reabierto lo prohíbe volver a cerrar: corrígelo por reclasificación explícita, o cambia la política en mnemosine pending.',
+  'error.RESULTADO_SIN_BARRER':
+    'El cierre no dejó el ejercicio en cero: {count} cuenta(s) de resultados conservan saldo ({detail}). El cierre se revirtió entero y el periodo sigue abierto: un saldo que sobrevive al cierre siembra mal el ejercicio siguiente. Si el despacho prefiere que esto sólo avise, la política es severidad_resultado_sin_barrer.',
+  'error.SOD_QUIEN_CREA_NO_POSTEA.apply':
+    '{reference}: la política de segregación de funciones exige que quien aplica no sea quien lo preparó. Que otro usuario lo aplique, o ajusta la política segregacion_de_funciones en mnemosine pending.',
+  'error.SOD_QUIEN_CREA_NO_POSTEA.post':
+    '{entry}: la política de segregación de funciones exige que quien postea no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la política segregacion_de_funciones en mnemosine pending.',
+  'error.ENTITY_NOT_FOUND.posting': 'La entidad {entity} no existe o no es visible.',
+  'error.TENANT_NO_RESUELTO.entry':
+    'No se pudo determinar el inquilino de la entidad {entity}: el asiento no se escribe sin rastro de auditoría.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

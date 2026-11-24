@@ -639,10 +639,10 @@ export interface EntryPreview {
 export async function previewEntryPosting(entityId: string, ref: string): Promise<EntryPreview> {
   const entry = await resolveJournalEntry(entityId, ref);
   if (entry.status === JournalEntryStatus.POSTED) {
-    throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: no hay delta que previsualizar.`);
+    throw new AccountingError('ALREADY_POSTED', { key: 'error.ALREADY_POSTED.preview', params: { entry: entry.entry_number } });
   }
   if (entry.status === JournalEntryStatus.VOID) {
-    throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada y jamás se aplicará.`);
+    throw new AccountingError('ENTRY_VOID', { key: 'error.ENTRY_VOID.preview', params: { entry: entry.entry_number } });
   }
   const lines = await listEntryLines(entry.id);
 
@@ -757,15 +757,15 @@ export async function updateDraftEntry(
     }
     const entry = bloqueada.rows[0];
     if (entry.status === JournalEntryStatus.POSTED) {
-      throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: una póliza en el mayor es inmutable.`);
+      throw new AccountingError('ALREADY_POSTED', { key: 'error.ALREADY_POSTED.edit', params: { entry: entry.entry_number } });
     }
     if (entry.status === JournalEntryStatus.VOID) {
-      throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada.`);
+      throw new AccountingError('ENTRY_VOID', { key: 'error.ENTRY_VOID.edit', params: { entry: entry.entry_number } });
     }
     if (entry.status !== JournalEntryStatus.DRAFT) {
       throw new AccountingError(
         'ENTRY_NOT_EDITABLE',
-        `${entry.entry_number} está en ${entry.status}: solo un borrador se edita.`
+        { key: 'error.ENTRY_NOT_EDITABLE', params: { entry: entry.entry_number, status: entry.status } }
       );
     }
     // MNE-001-099 · #220: an opening left as a draft (`apertura_modo_de_carga
@@ -777,8 +777,7 @@ export async function updateDraftEntry(
     if (entry.source_type === 'opening_balance' && (patch.lines !== undefined || patch.date !== undefined)) {
       throw new AccountingError(
         'OPENING_DRAFT_LOCKED',
-        `${entry.entry_number} es la apertura cargada de la balanza: sus renglones y su fecha no se ` +
-          `editan. Aplícala con \`entry post\`, o anúlala con \`entry void\` y vuelve a cargar la balanza.`
+        { key: 'error.OPENING_DRAFT_LOCKED', params: { entry: entry.entry_number } }
       );
     }
 

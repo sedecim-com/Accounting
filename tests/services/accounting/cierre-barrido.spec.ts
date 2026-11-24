@@ -322,7 +322,7 @@ describe('verificarQueElEjercicioBarrio — el centinela que faltaba', () => {
       mensaje = (e as Error).message;
     }
     expect(mensaje).toContain('5200 Devoluciones y Descuentos sobre Compras: -2000.0000');
-    expect(mensaje).toMatch(/2 cuenta\(s\)/);
+    expect(mensaje).toMatch(/2 income-statement account\(s\)/);
   });
 
   it("con 'avisar' no lanza: deja el aviso para el rastro", async () => {

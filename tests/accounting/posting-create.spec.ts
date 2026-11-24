@@ -301,7 +301,7 @@ describe('createJournalEntry · R4: el origen en moneda extranjera', () => {
     arnes.actual = reglasAlta({ moneda: null });
     await expect(
       createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS_FX, ID.usuario)
-    ).rejects.toThrow(/no existe o no es visible/);
+    ).rejects.toThrow(/does not exist or is not visible/);
   });
 
   it('el asiento 100 % en moneda funcional NO paga la consulta de moneda', async () => {
@@ -331,7 +331,7 @@ describe('createJournalEntry · el candado de segregación en la rama autoPost',
         ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario,
         { autoPost: true }
       )
-    ).rejects.toThrow(/segregación de funciones/);
+    ).rejects.toThrow(/segregation-of-duties/);
     // La excepción aborta la transacción, pero además: ni UPDATE ni saldos.
     expect(cf.coincidencias(/UPDATE journal_entries SET status = 'posted'/)).toHaveLength(0);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);

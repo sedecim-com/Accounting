@@ -103,9 +103,7 @@ function requireRole(map: Map<string, string>, role: string): string {
   if (!id) {
     throw new AccountingError(
       'MISSING_ROLE_ACCOUNT',
-      `No hay cuenta mapeada al rol "${role}" en esta entidad. ` +
-        `Siembra la contabilidad con: mnemosine init --section identity ` +
-        `(o revisa qué falta con: mnemosine doctor)`
+      { key: 'error.MISSING_ROLE_ACCOUNT.unmapped', params: { role } }
     );
   }
   return id;
@@ -164,9 +162,16 @@ export async function postInvoiceEntry(
     if (stored.greaterThan(0) && !stored.equals(1) && !stored.equals(rate.tasa)) {
       throw new AccountingError(
         'FX_RATE_CONFLICT',
-        `${invoice.invoice_number} trae tipo de cambio ${invoice.exchange_rate} y la fuente ` +
-          `'${rate.fuente}' de la política fuente_tipo_cambio publicó ${rate.tasa} para ${rate.fecha}. ` +
-          `No elijo uno en silencio: corrige el tipo de la factura o la política antes de emitirla.`
+        {
+          key: 'error.FX_RATE_CONFLICT',
+          params: {
+            invoice: invoice.invoice_number,
+            rate: String(invoice.exchange_rate),
+            source: rate.fuente,
+            published: String(rate.tasa),
+            date: String(rate.fecha),
+          },
+        }
       );
     }
   }
@@ -245,7 +250,7 @@ export async function postInvoiceEntry(
     if (linked.rowCount !== 1) {
       throw new AccountingError(
         'INVOICE_ALREADY_POSTED',
-        `${invoice.invoice_number} ya tiene póliza o no es de esta entidad: no se enlaza otra.`
+        { key: 'error.INVOICE_ALREADY_POSTED', params: { invoice: invoice.invoice_number } }
       );
     }
   } else {
@@ -291,10 +296,15 @@ export async function postBillEntry(
     if (!tasa.greaterThan(0) || tasa.equals(1)) {
       throw new AccountingError(
         'FX_RATE_MISSING',
-        `${bill.bill_number} está en ${bill.currency_code} y los libros en ${funcional}, ` +
-          `pero su exchange_rate es ${bill.exchange_rate ?? 'nulo'} (el default de captura). ` +
-          `Registra el tipo de cambio del documento antes de aprobarlo: sin él el pasivo se ` +
-          `asentaría sin convertir y perdería su origen (NIF B-15).`
+        {
+          key: 'error.FX_RATE_MISSING.document',
+          params: {
+            bill: bill.bill_number,
+            currency: String(bill.currency_code),
+            functional: funcional,
+            rate: String(bill.exchange_rate ?? 'none'),
+          },
+        }
       );
     }
   }
@@ -1042,8 +1052,10 @@ async function foreignReceiptLines(
   if (onAccount.greaterThan(0)) {
     throw new AccountingError(
       'FX_AR_ON_ACCOUNT_NOT_WIRED',
-      `${payment.payment_number} deja ${onAccount.toFixed(4)} ${fx.moneda} a cuenta del cliente: ` +
-        'un saldo a cuenta en otra moneda todavía no se aplica ni se desaplica convertido.'
+      {
+        key: 'error.FX_AR_ON_ACCOUNT_NOT_WIRED',
+        params: { payment: payment.payment_number, amount: onAccount.toFixed(4), currency: fx.moneda },
+      }
     );
   }
   assertBankCurrency(bank, fx.moneda, payment.payment_number);
@@ -1445,8 +1457,7 @@ export async function postVendorApplicationEntry(
   if (condonado.greaterThan(0) && !writeOffRole) {
     throw new AccountingError(
       'WRITE_OFF_ACCOUNT_UNRESOLVED',
-      'Hay un pago corto que condona saldo y nadie dijo a qué cuenta va. La decide la ' +
-        'política `pago_corto_residual`; postear sin ella dejaría el asiento descuadrado.'
+      { key: 'error.WRITE_OFF_ACCOUNT_UNRESOLVED' }
     );
   }
   const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
