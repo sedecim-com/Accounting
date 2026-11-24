@@ -5936,7 +5936,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.init.description':
     'Configuración guiada: infraestructura, entidad, usuarios, proveedor de IA y tu contabilidad',
   'help.init.option.status': 'Sólo muestra el estado; no configura nada',
-  'help.init.option.section': 'Configura una sola sección (infra|identity|users|ai|policies|import)',
+  'help.init.option.section': 'Configura una sola sección (language|infra|identity|users|ai|policies|import)',
   'help.init.option.yes': 'No interactivo: usa los valores por omisión y las banderas, sin preguntar nada',
   'help.init.option.tenant': 'Inquilino (despacho)',
   'help.init.option.entity': 'Nombre de la entidad legal que se crea',
@@ -6416,6 +6416,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'Corre en esta carpeta, con el ./.env de la carpeta en su entorno. Un script de este proyecto que nombre queda aprobado por su contenido; un comando que se encuentra por PATH o npx, sólo por su nombre.',
   'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',
   // ==== end of MNE-001-452 ====
+  // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
+  'cli.lang.offer': 'Para usar Mnemosine en español: mnemosine idioma es',
+  'cli.lang.step.title': 'Idioma',
+  'cli.lang.step.prompt': '¿Qué idioma?',
+  // ==== end of MNE-001-470 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'el idioma que se fija: {choices}; sin él, muestra el idioma en efecto y qué lo decidió',

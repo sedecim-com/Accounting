@@ -54,7 +54,7 @@ import { zoneFor } from '../services/policy/today.js';
 // through `setUserLocale`. Renaming this one at the import keeps any call site
 // from reading as the other.
 import { LANGUAGES, setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
-import { languageInEffectLine, languageName, rungPhrase, shownPath } from './lang-line.js';
+import { languageInEffectLine, languageName, otherLanguageOffer, rungPhrase, shownPath } from './lang-line.js';
 import { formatMoney } from '../i18n/format.js';
 import { AppError } from '../utils/errors.js';
 import {
@@ -705,16 +705,28 @@ export function autoPostIgnoredWarning(p: { yellow: (s: string) => string; dim: 
 }
 
 /**
- * First-run rescue (fresh state, TTY only): a one-line intro, the detected
- * gaps, and an inline offer to run the wizard without leaving the command
- * the user already typed.
+ * The rescue's intro: a one-line welcome, the detected gaps, and the other
+ * language offered in that language (MNE-001-470), so a person who cannot read
+ * this one finds the way out before the first question. Exported so it is
+ * tested without a terminal.
+ */
+export function freshRescueIntro(reasons: readonly string[], p: { dim: (s: string) => string } = c): string[] {
+  return [
+    'Welcome. Mnemosine is an AI accountant that keeps your books auditable: it drafts, you approve.',
+    ...reasons.map((reason) => p.dim(`  · ${reason}`)),
+    otherLanguageOffer(),
+  ];
+}
+
+/**
+ * First-run rescue (fresh state, TTY only): the intro above, and an inline
+ * offer to run the wizard without leaving the command the user already typed.
  */
 async function runFreshRescue(state: SetupState): Promise<InitWizardResult | 'declined'> {
   for (const line of renderBanner({ version: CLI_VERSION }, stdout.columns || 80, c)) {
     console.log(line);
   }
-  console.log('Welcome. Mnemosine is an AI accountant that keeps your books auditable: it drafts, you approve.');
-  for (const reason of state.reasons) console.log(c.dim(`  · ${reason}`));
+  for (const line of freshRescueIntro(state.reasons)) console.log(line);
   console.log('');
   const rl = readline.createInterface({ input: stdin, output: stdout });
   const answer = await ask(rl, c.cyan(setupPrompt()));

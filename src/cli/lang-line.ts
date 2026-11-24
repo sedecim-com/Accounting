@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { t, type Language, type TranslationKey } from '../i18n/index.js';
+import { getLanguage, LANGUAGES, t, type Language, type TranslationKey } from '../i18n/index.js';
 import { languageOfLocale, type LocaleDecision, type LocaleSourceKind } from '../i18n/locale.js';
 
 // ============================================================
@@ -72,4 +72,19 @@ export function languageInEffectLine(
     { language: emphasis(languageName(decision, language)), locale: decision.locale, rung },
     language
   );
+}
+
+/** The first language that is not `language`: the one the first run and init offer. */
+export function otherLanguage(language: Language): Language {
+  return LANGUAGES.find((other) => other !== language) ?? language;
+}
+
+/**
+ * «To use Mnemosine in English: mnemosine lang en», said IN the language it
+ * offers (MNE-001-470): each catalog's `cli.lang.offer` offers its own
+ * language, so the line is read by the person who needs it and `en.ts` stays
+ * English. It follows the run's language, so it flips with #657 by itself.
+ */
+export function otherLanguageOffer(current: Language = getLanguage()): string {
+  return t('cli.lang.offer', {}, otherLanguage(current));
 }

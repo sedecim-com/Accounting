@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { heldIepsLeft, iepsTakeOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
+import { heldIepsLeft, iepsBackOf, iepsTakeOf, takeFromAdvance } from '../../../src/services/payments/customer-advance.js';
 
 // MNE-001-422 (#623) · what one allocation takes from a receipt's advance, by hand.
 const advance = { total: '1160.00', iva: '160.00', consumed: '0', cancelled: '0', plain: '0' };
@@ -73,5 +73,35 @@ describe('heldIepsLeft', () => {
 
   it('an odd third: 10.00 less 10 × 1 / 3 = 3.3333 leaves 6.6667', () => {
     expect(heldIepsLeft(['10.0000'], { cash: '3.0000', consumed: '1.0000' })).toEqual(['6.6667']);
+  });
+});
+
+// MNE-001-604 (#792) · what an unapply gives back to the cash on account beyond the invoice's own share, by hand.
+describe('iepsBackOf', () => {
+  it('a row all from the pool gives its take back, net of its own release: 74.0741 − 0 (U1) and 77.0370 − 40 (U2)', () => {
+    expect(iepsBackOf([{ amount: '1160.00', plain: '0.0000', read: { released: '0.0000', taken: '74.0741' } }])).toBe('74.0741');
+    expect(iepsBackOf([{ amount: '1206.40', plain: '0.0000', read: { released: '40.0000', taken: '77.0370' } }])).toBe('37.0370');
+    expect(iepsBackOf([{ amount: '1252.80', plain: '0.0000', read: { released: '80.0000', taken: '80.0000' } }])).toBe('0.0000');
+  });
+
+  it('a mixed row keeps its plain share as before: 1,000.00 with 400.00 plain, r 60 keeps 24, so e 50 gives back 50 − 36 = 14', () => {
+    expect(iepsBackOf([{ amount: '1000.00', plain: '400.00', read: { released: '60.0000', taken: '50.0000' } }])).toBe('14.0000');
+    expect(iepsBackOf([{ amount: '1000.00', plain: '400.00', read: { released: '60.0000', taken: '36.0000' } }])).toBe('0.0000');
+  });
+
+  it('negative when the pool carried less than was released on it, and the plain share rounds half up', () => {
+    expect(iepsBackOf([{ amount: '1000.00', plain: '0.0000', read: { released: '80.0000', taken: '0.0000' } }])).toBe('-80.0000');
+    // kept = 10 × 1 / 3 = 3.3333, so the pool's part is 6.6667 and e 7 gives back 0.3333.
+    expect(iepsBackOf([{ amount: '3.00', plain: '1.00', read: { released: '10.0000', taken: '7.0000' } }])).toBe('0.3333');
+  });
+
+  it('a plain row, or a row written before this task (no reading), gives back nothing; rows add up', () => {
+    expect(iepsBackOf([{ amount: '500.00', plain: '500.00', read: { released: '40.0000', taken: '0.0000' } }])).toBe('0.0000');
+    expect(iepsBackOf([{ amount: '1160.00', plain: '0.0000' }])).toBe('0.0000');
+    expect(iepsBackOf([
+      { amount: '1160.00', plain: '0.0000', read: { released: '0.0000', taken: '74.0741' } },
+      { amount: '92.80', plain: '0.0000' },
+      { amount: '1206.40', plain: '0.0000', read: { released: '40.0000', taken: '77.0370' } },
+    ])).toBe('111.1111');
   });
 });

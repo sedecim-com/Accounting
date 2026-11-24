@@ -11355,7 +11355,7 @@ Guided setup: infrastructure, entity, users, AI provider, and your books
 Options:
   --status               Only show the status, configure nothing
   --section <id>         Configure a single section
-                         (infra|identity|users|ai|policies|import)
+                         (language|infra|identity|users|ai|policies|import)
   -y, --yes              Non-interactive: use defaults and flags, ask nothing
   -t, --tenant <id>      Tenant
   --entity <name>        Name of the legal entity to create

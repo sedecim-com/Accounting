@@ -6455,7 +6455,7 @@ export const EN = {
   'help.entity.unset.description': 'Clear the pinned entity; commands go back to requiring --entity',
   'help.init.description': 'Guided setup: infrastructure, entity, users, AI provider, and your books',
   'help.init.option.status': 'Only show the status, configure nothing',
-  'help.init.option.section': 'Configure a single section (infra|identity|users|ai|policies|import)',
+  'help.init.option.section': 'Configure a single section (language|infra|identity|users|ai|policies|import)',
   'help.init.option.yes': 'Non-interactive: use defaults and flags, ask nothing',
   'help.init.option.tenant': 'Tenant',
   'help.init.option.entity': 'Name of the legal entity to create',
@@ -6962,6 +6962,13 @@ export const EN = {
     "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
   'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
   // ==== end of MNE-001-452 ====
+  // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
+  /** Printed in the language it offers, with `t(key, {}, other)`: each catalog offers its own. */
+  'cli.lang.offer': 'To use Mnemosine in English: mnemosine lang en',
+  /** Init's first step; the title and the question are rendered in every catalog, the run's first. */
+  'cli.lang.step.title': 'Language',
+  'cli.lang.step.prompt': 'Which language?',
+  // ==== end of MNE-001-470 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'the language to set: {choices}; omit it to see the language in effect and what decided it',
