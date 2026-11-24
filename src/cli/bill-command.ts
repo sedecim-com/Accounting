@@ -33,7 +33,7 @@ import { eligibleSuggestions, uncodedLines, type CodableLine } from '../services
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolvePeriodRange } from '../services/reporting/report-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
-import { ErrorCodes } from '../utils/errors.js';
+import { AppError, ErrorCodes } from '../utils/errors.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -1297,11 +1297,13 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
  */
 function asLedgerRefusal(err: unknown, billNumber: string): unknown {
   const code = (err as { code?: string } | null)?.code;
+  // A keyed refusal travels as its key, so it renders in the sentence's language (MNE-001-154).
+  const message = err instanceof AppError && err.messageKey ? err.messageKey : (err as Error).message;
   if (code === ErrorCodes.PERIOD_CLOSED) {
-    return blockedByState({ key: 'ap.bill.approve.period_closed', params: { bill: billNumber, message: (err as Error).message } });
+    return blockedByState({ key: 'ap.bill.approve.period_closed', params: { bill: billNumber, message } });
   }
   if (code === 'MISSING_ROLE_ACCOUNT') {
-    return blockedByState({ key: 'ap.bill.approve.missing_role', params: { bill: billNumber, message: (err as Error).message } });
+    return blockedByState({ key: 'ap.bill.approve.missing_role', params: { bill: billNumber, message } });
   }
   return err;
 }
@@ -1581,7 +1583,7 @@ async function ejecutarBandeja(orden: {
         ref,
         status: espera ? 'needs-human' : 'error',
         // The person's language: a keyed refusal renders now; its `.message` is the English one.
-        detail: err instanceof CliError ? err.localized() : (err as Error).message,
+        detail: err instanceof CliError || err instanceof AppError ? err.localized() : (err as Error).message,
         id: fila.id,
       });
     }

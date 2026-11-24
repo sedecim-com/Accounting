@@ -1266,7 +1266,7 @@ async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<str
   if (!tenantId) {
     throw new AccountingError(
       'TENANT_NO_RESUELTO',
-      `No se pudo determinar el inquilino de la entidad ${entityId}: el cierre no se registra sin rastro.`
+      { key: 'error.TENANT_NO_RESUELTO.close', params: { entity: entityId } }
     );
   }
   return tenantId;
@@ -1849,9 +1849,7 @@ async function generateClosingEntries(
     if (accion === 'prohibir') {
       throw new AccountingError(
         'CIERRE_YA_EMITIDO',
-        `El periodo ya emitió su cierre (${numeros}) y la política ` +
-          'cierre_recierre_de_periodo_reabierto lo prohíbe volver a cerrar: corrígelo por ' +
-          'reclasificación explícita, o cambia la política en mnemosine pending.'
+        { key: 'error.CIERRE_YA_EMITIDO', params: { entries: numeros } }
       );
     }
 
@@ -2019,10 +2017,7 @@ export async function verificarQueElEjercicioBarrio(
   if (severidadDeResultadoSinBarrer(valorDelPanel) === 'bloquear') {
     throw new AccountingError(
       'RESULTADO_SIN_BARRER',
-      `El cierre no dejó el ejercicio en cero: ${residuos.rows.length} cuenta(s) de resultados ` +
-        `conservan saldo (${detalle}). El cierre se revirtió entero y el periodo sigue abierto: ` +
-        'un saldo que sobrevive al cierre siembra mal el ejercicio siguiente. Si el despacho ' +
-        'prefiere que esto sólo avise, la política es severidad_resultado_sin_barrer.'
+      { key: 'error.RESULTADO_SIN_BARRER', params: { count: residuos.rows.length, detail: detalle } }
     );
   }
 

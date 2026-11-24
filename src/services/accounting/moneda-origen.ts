@@ -210,7 +210,7 @@ export async function functionalCurrencyOf(
   if (!r.rows[0]) {
     throw new AccountingError(
       'ENTITY_NOT_FOUND',
-      `No existe la entidad ${entityId}: sin su moneda funcional no se puede convertir nada.`
+      { key: 'error.ENTITY_NOT_FOUND.functional_currency', params: { entity: entityId } }
     );
   }
   return r.rows[0].functional_currency;
@@ -270,8 +270,10 @@ export async function resolverTipoCambio(
     // no se adivina — se acusa, igual que una fuente sin tipo.
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `La política fuente_tipo_cambio vale "${politica?.value}" y este lector solo entiende ` +
-        `${Object.keys(FUENTE_POR_POLITICA).join(', ')}. Corrige la política en mnemosine pending.`
+      {
+        key: 'error.FX_POLITICA_DESCONOCIDA.rate_source',
+        params: { value: String(politica?.value), known: Object.keys(FUENTE_POR_POLITICA).join(', ') },
+      }
     );
   }
   // La fecha se formatea con las partes LOCALES, jamás con toISOString():
@@ -317,12 +319,8 @@ export async function resolverTipoCambio(
       params: { from: args.de, to: args.a, source: fuente, date: fecha },
     });
   }
-  throw new AccountingError(
-    'FX_RATE_MISSING',
-    `No hay tipo de cambio ${args.de}→${args.a} de la fuente '${fuente}' para ${fecha}. ` +
-      `Captúralo con: mnemosine fx rate set ${args.de}/${args.a} ${fecha} <tasa> --source ${fuente} ` +
-      `— o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en ` +
-      `silencio: la política fuente_tipo_cambio (${politica?.value}) es un criterio fiscal del ` +
-      `despacho, no una preferencia de esta función.`
-  );
+  throw new AccountingError('FX_RATE_MISSING', {
+    key: 'error.FX_RATE_MISSING.policy_source',
+    params: { from: args.de, to: args.a, source: fuente, date: fecha, policy: String(politica?.value) },
+  });
 }

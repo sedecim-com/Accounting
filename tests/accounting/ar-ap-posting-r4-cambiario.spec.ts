@@ -453,7 +453,7 @@ describe('postCustomerPaymentEntry · MNE-001-082: the realised difference of a 
   it('refuses a foreign-currency receipt with cash left on account instead of posting an unbalanced entry', async () => {
     await expect(
       postCustomerPaymentEntry(fakeClient(), pago({ payment_amount: '1200.0000' }), USER, receipt('18.0000000000'))
-    ).rejects.toThrow(/a cuenta del cliente/);
+    ).rejects.toThrow(/on the customer's account/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
@@ -526,7 +526,7 @@ describe('postBillEntry · R4: el pasivo nace al tipo del documento', () => {
   it('la tasa 1.0 exacta es el default de captura, no una tasa: el bill USD se acusa en vez de asentarse sin convertir', async () => {
     await expect(
       postBillEntry(fakeClient(), billUsd({ exchange_rate: '1.0000000000' }), [lineaBill()], USER)
-    ).rejects.toThrow(/default de captura|perdería su origen/);
+    ).rejects.toThrow(/capture default|lose its origin/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
@@ -577,7 +577,7 @@ describe('postInvoiceEntry · MNE-001-081: a foreign-currency invoice converts a
   it('with no rate published for the invoice date it fails closed instead of posting dollars as pesos', async () => {
     await expect(
       postInvoiceEntry(fakeClient({ publishedRate: null }), usdInvoice(), usdLines(), USER)
-    ).rejects.toThrow(/No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-08-15/);
+    ).rejects.toThrow(/There is no USD→MXN rate from the source 'dof' for 2026-08-15/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
@@ -613,7 +613,7 @@ describe('postInvoiceEntry · MNE-001-081: a foreign-currency invoice converts a
   it('refuses to link a second entry when the guarded update touches no row', async () => {
     await expect(
       postInvoiceEntry(fakeClient({ invoiceUpdateRows: 0 }), usdInvoice(), usdLines(), USER)
-    ).rejects.toThrow(/ya tiene póliza/);
+    ).rejects.toMatchObject({ messageKey: { key: 'error.INVOICE_ALREADY_POSTED' } });
   });
 
   it('an invoice in the functional currency posts exactly as before: no rate lookup, no FX columns', async () => {

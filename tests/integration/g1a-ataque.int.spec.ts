@@ -249,7 +249,7 @@ describe('el cierre sin cuentas de sistema', () => {
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await expect(
       hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'cierre sin resumen')
-    ).rejects.toThrow(/RESULTADO_SIN_BARRER|no dejó el ejercicio en cero/i);
+    ).rejects.toThrow(/RESULTADO_SIN_BARRER|did not leave the fiscal year at zero/i);
 
     const { rows } = await query<{ status: string }>(
       'SELECT status FROM fiscal_periods WHERE id = $1',

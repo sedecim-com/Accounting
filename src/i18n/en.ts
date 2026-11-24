@@ -73,6 +73,65 @@ export const EN = {
   'error.FX_RATE_MISSING':
     'There is no {from}→{to} rate from the source {source} for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} RATE --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the source was chosen on the policy panel, and it is a criterion of the firm.',
 
+  // ---- MNE-001-154 · the AccountingError of src/services/accounting that were Spanish prose (issue #151) ----
+  // `error.<CODE>` when the code has one text in the folder, `error.<CODE>.<case>`
+  // when it carries several. The Spanish twin is the text each site printed.
+  // ar-ap-posting.ts
+  'error.MISSING_ROLE_ACCOUNT.unmapped':
+    'No account is mapped to the role "{role}" on this entity. Seed the books with: mnemosine init --section identity (or check what is missing with: mnemosine doctor)',
+  'error.FX_RATE_CONFLICT':
+    "{invoice} carries the exchange rate {rate}, and the source '{source}' of the policy fuente_tipo_cambio published {published} for {date}. Neither is chosen silently: correct the invoice's rate or the policy before issuing it.",
+  'error.INVOICE_ALREADY_POSTED': "{invoice} already has an entry or is not this entity's: no second one is linked.",
+  'error.FX_RATE_MISSING.document':
+    "{bill} is in {currency} and the books in {functional}, but its exchange_rate is {rate, select, none {null} other {{rate}}} (the capture default). Record the document's exchange rate before approving it: without it the liability would be posted unconverted and lose its origin (NIF B-15).",
+  'error.FX_AR_ON_ACCOUNT_NOT_WIRED':
+    "{payment} leaves {amount} {currency} on the customer's account: a balance on account in another currency is not yet applied or unapplied with conversion.",
+  'error.WRITE_OFF_ACCOUNT_UNRESOLVED':
+    'A short payment writes off a balance and nobody said which account it goes to. The policy `pago_corto_residual` decides it; posting without it would leave the entry unbalanced.',
+  // fiscal-calendar-service.ts
+  'error.REASON_REQUIRED': 'Reopening a closed period requires a reason: it stays in the audit trail.',
+  'error.PERIOD_LOCKED':
+    "{period} is 'locked': its information has already left the system and it is not reopened. The correction goes in the nearest open period.",
+  'error.PERIOD_NOT_CLOSED': "{period} is '{status}': this operation is only for closed periods.",
+  'error.INVALID_STATUS': "A period is restored only to 'soft_close' or 'hard_close'; '{status}' was asked for.",
+  'error.PERIOD_NOT_OPEN.restore': 'Period {period} could not be restored: it was no longer open.',
+  'error.TENANT_NO_RESUELTO.period': 'The tenant of {entity} could not be determined.',
+  // iva-cash-basis.ts
+  'error.IVA_ROLE_UNRESOLVED.no_line':
+    'The CFDI taxonomy defines no VAT line for ({side}, {method}). Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.',
+  'error.MISSING_ROLE_ACCOUNT.no_semantic_layer':
+    'Entity {entity} has no semantic layer seeded, so how much VAT it has parked cannot be known: the payment would release zero and the tax would stay there. Seed it with: npm run backfill:account-roles -- --tenant <uuid> --aplicar',
+  // journal-entry-service.ts
+  'error.ALREADY_POSTED.preview': '{entry} is already posted: there is no delta to preview.',
+  'error.ENTRY_VOID.preview': '{entry} is void and will never be posted.',
+  'error.ALREADY_POSTED.edit': '{entry} is already posted: an entry in the ledger is immutable.',
+  'error.ENTRY_VOID.edit': '{entry} is void.',
+  'error.ENTRY_NOT_EDITABLE': '{entry} is {status}: only a draft is edited.',
+  'error.OPENING_DRAFT_LOCKED':
+    '{entry} is the opening loaded from the trial balance: its lines and its date are not edited. Post it with `entry post`, or void it with `entry void` and load the trial balance again.',
+  // the exchange-rate resolver of a document in its own currency
+  'error.ENTITY_NOT_FOUND.functional_currency':
+    'Entity {entity} does not exist: without its functional currency nothing can be converted.',
+  'error.FX_POLITICA_DESCONOCIDA.rate_source':
+    'fuente_tipo_cambio is "{value}" and this reader only understands {known}. Fix it with mnemosine pending.',
+  'error.FX_RATE_MISSING.policy_source':
+    "There is no {from}→{to} rate from the source '{source}' for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} <rate> --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the policy fuente_tipo_cambio ({policy}) is a tax criterion of the firm, not a preference of this function.",
+  // period-close.ts
+  'error.TENANT_NO_RESUELTO.close':
+    'The tenant of entity {entity} could not be determined: the close is not recorded without a trail.',
+  'error.CIERRE_YA_EMITIDO':
+    'The period already issued its closing ({entries}) and the policy cierre_recierre_de_periodo_reabierto forbids closing it again: correct it by an explicit reclassification, or change the policy with mnemosine pending.',
+  'error.RESULTADO_SIN_BARRER':
+    'The close did not leave the fiscal year at zero: {count} income-statement account(s) keep a balance ({detail}). The whole close was rolled back and the period is still open: a balance that survives the close seeds the next fiscal year wrongly. If the firm prefers this only to warn, the policy is severidad_resultado_sin_barrer.',
+  // posting.ts
+  'error.SOD_QUIEN_CREA_NO_POSTEA.apply':
+    '{reference}: the segregation-of-duties policy requires that whoever applies it is not whoever prepared it. Have another user apply it, or adjust the policy segregacion_de_funciones with mnemosine pending.',
+  'error.SOD_QUIEN_CREA_NO_POSTEA.post':
+    '{entry}: the segregation-of-duties policy requires that whoever posts is not whoever created the draft. Have another user run entry post, or adjust the policy segregacion_de_funciones with mnemosine pending.',
+  'error.ENTITY_NOT_FOUND.posting': 'Entity {entity} does not exist or is not visible.',
+  'error.TENANT_NO_RESUELTO.entry':
+    'The tenant of entity {entity} could not be determined: the entry is not written without an audit trail.',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

@@ -77,7 +77,7 @@ describe('segregación de funciones en el posteo', () => {
   it("con 'exigir', el mismo usuario NO postea su borrador manual — y nada se escribe", async () => {
     politicaValor.actual = 'exigir';
     const cf = (arnes.actual = reglas(asientoFalso({ created_by: ID.usuario } as Partial<JournalEntry>)));
-    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/segregación de funciones/);
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/segregation-of-duties/);
     expect(cf.coincidencias(/UPDATE journal_entries/)).toHaveLength(0);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
   });
