@@ -21,7 +21,8 @@ import {
   readEmploymentSubsidyRounding,
   isSeparatePaycheck,
   readEmploymentSubsidySeparateRun,
-  subsidyOfOtherRunsInPeriod,
+  otherPaychecksInPeriod,
+  CONTRIBUTIONS_ELSEWHERE_DETAIL,
   subsidyOfPaycheckInPeriod,
   EMPLOYMENT_SUBSIDY_EXCESS_LAW,
   applyEmploymentSubsidy,
@@ -137,6 +138,39 @@ interface AjustesDelRenglon {
 
 function sum(arr: number[]): number {
   return arr.reduce((a, b) => new Decimal(a).plus(b).toNumber(), 0);
+}
+
+/**
+ * What a paycheck still owes of one contribution of its period, once the
+ * period's other paychecks are counted (MNE-001-658, #601).
+ *
+ * THE DAYS OF A PERIOD CONTRIBUTE ONCE. IMSS quotas are owed for the
+ * contribution days of the period on the worker's SBC (LSS arts. 27 to 29 and
+ * 39), and INFONAVIT on the same base and days (INFONAVIT law, art. 29 frs.
+ * II and III): the law charges the days, never the payment, and the year-end
+ * bonus is already inside the SBC through its integration (LSS art. 27). Each
+ * paycheck used to charge its period's whole quota, so the fortnight plus a
+ * year-end bonus in its own run charged the same fifteen days twice. The
+ * engine's figure is the quota OF THE PERIOD; a paycheck charges what the
+ * others have not, and never less than zero. It follows the employment
+ * subsidy, which already reads those paychecks (#430), and reuses its one read.
+ *
+ * No panel key: the law settles that the days contribute once (ADR-0006). The
+ * paycheck calculated first carries them, whatever its run type.
+ */
+function leftInPeriod(ofPeriod: TaxOutput, charged: Decimal, base: Decimal): TaxOutput {
+  if (!charged.greaterThan(0)) return ofPeriod;
+  const quota = new Decimal(ofPeriod.tax_amount);
+  return {
+    ...ofPeriod,
+    tax_amount: Decimal.max(0, quota.minus(charged)).toNumber(),
+    taxable_wages_used: Decimal.max(0, new Decimal(ofPeriod.taxable_wages_used).minus(base)).toNumber(),
+    // The parts of the period's quota no longer add up to what is charged.
+    breakdown: undefined,
+    notes:
+      `${ofPeriod.notes ? `${ofPeriod.notes} · ` : ''}quota of the period ${quota.toFixed(2)}; its other ` +
+      `paychecks already charged ${charged.toFixed(2)} (the days of a period contribute once)`,
+  };
 }
 
 /** The run, the employee and the period of one paycheck, each checked against the one before. */
@@ -406,6 +440,9 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
   // `legal_parameters` that said so: the paycheck records which law it applied.
   let subsidyExcessNotPaid = new Decimal(0);
   let subsidyExcessRule: EmploymentSubsidyExcessRule | null = null;
+  // What the period's other paychecks already charged of IMSS and INFONAVIT
+  // (MNE-001-658): the audit trail says why a quota here is smaller or zero.
+  let contributionsElsewhere: Record<string, string | number> | null = null;
 
   if (emp.country_code === 'US') {
     // FIT
@@ -524,7 +561,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // Another paycheck of the period, or a paycheck that is itself the
     // separate one (whatever was calculated first), hands the amount to the
     // policy.
-    const otherRuns = await subsidyOfOtherRunsInPeriod({
+    const otherRuns = await otherPaychecksInPeriod({
       tenantId: input.tenant_id,
       employeeId: input.employee_id,
       payRunId: scope.run.id,
@@ -628,7 +665,11 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // IMSS employee
     const imssEeCalc = taxRegistry.getRequired('MX', 'imss_employee');
     // The IMSS engines derive their base from `sbc_daily`, not `taxable_wages`.
-    const imssEe = await imssEeCalc.calculate({ ...baseTaxInput, taxable_wages: 0 });
+    const imssEe = leftInPeriod(
+      await imssEeCalc.calculate({ ...baseTaxInput, taxable_wages: 0 }),
+      otherRuns.imssEmployee,
+      otherRuns.contributionBase
+    );
     breakdown.imss_employee = imssEe.tax_amount;
     employeeTaxes = employeeTaxes.plus(imssEe.tax_amount);
     apuntar(imssEe, 'EE', { tax_type: 'imss' });
@@ -640,12 +681,16 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     const oldAgeBandEdge = await readOldAgeBandEdge({ tenantId: input.tenant_id, entityId: period.entity_id });
     // And which minimum measures its «1.00 SM» band: the registration's area (#196, MNE-001-578).
     const minimumWageArea = await readOldAgeMinimumWageArea({ tenantId: input.tenant_id, entityId: period.entity_id });
-    const imssEr = await imssErCalc.calculate({
+    const imssErOfPeriod = await imssErCalc.calculate({
       ...baseTaxInput,
       taxable_wages: 0,
       imss_old_age_band_edge: oldAgeBandEdge,
       imss_minimum_wage_area: minimumWageArea,
     });
+    // The base the engines are handed is the period's; the one this paycheck
+    // stores is the part of it no other paycheck of the period contributed on.
+    const periodContributionBase = imssErOfPeriod.taxable_wages_used;
+    const imssEr = leftInPeriod(imssErOfPeriod, otherRuns.imssEmployer, otherRuns.contributionBase);
     taxableImss = imssEr.taxable_wages_used;
     breakdown.imss_employer = imssEr.tax_amount;
     employerTaxes = employerTaxes.plus(imssEr.tax_amount);
@@ -653,7 +698,11 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
 
     // INFONAVIT employer (always)
     const infErCalc = taxRegistry.getRequired('MX', 'infonavit_employer');
-    const infEr = await infErCalc.calculate({ ...baseTaxInput, taxable_wages: taxableImss });
+    const infEr = leftInPeriod(
+      await infErCalc.calculate({ ...baseTaxInput, taxable_wages: periodContributionBase }),
+      otherRuns.infonavitEmployer,
+      otherRuns.contributionBase
+    );
     breakdown.infonavit_employer = infEr.tax_amount;
     employerTaxes = employerTaxes.plus(infEr.tax_amount);
     apuntar(infEr, 'ER', { tax_type: 'infonavit' });
@@ -661,13 +710,17 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // INFONAVIT credit discount (only if employee has active credit)
     if (emp.infonavit_credit_type && emp.infonavit_credit_value) {
       const infCrCalc = taxRegistry.getRequired('MX', 'infonavit_credit');
-      const infCr = await infCrCalc.calculate({
-        ...baseTaxInput,
-        taxable_wages: taxableImss,
-        // @ts-expect-error — extended input for infonavit
-        credit_type: emp.infonavit_credit_type,
-        credit_value: parseFloat(emp.infonavit_credit_value),
-      });
+      const infCr = leftInPeriod(
+        await infCrCalc.calculate({
+          ...baseTaxInput,
+          taxable_wages: periodContributionBase,
+          // @ts-expect-error — extended input for infonavit
+          credit_type: emp.infonavit_credit_type,
+          credit_value: parseFloat(emp.infonavit_credit_value),
+        }),
+        otherRuns.infonavitCredit,
+        otherRuns.contributionBase
+      );
       breakdown.infonavit_credit = infCr.tax_amount;
       // EL DESCUENTO DE CRÉDITO INFONAVIT NO ES UN IMPUESTO RETENIDO.
       //
@@ -684,6 +737,17 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
           `${infCr.notes ?? 'Crédito INFONAVIT'} · es una DEDUCCIÓN de vivienda, no un impuesto ` +
           'retenido: no entra en la base de las disposable earnings',
       });
+    }
+
+    const { imssEmployee, imssEmployer, infonavitEmployer, infonavitCredit } = otherRuns;
+    if (imssEmployee.plus(imssEmployer).plus(infonavitEmployer).plus(infonavitCredit).greaterThan(0)) {
+      contributionsElsewhere = {
+        paychecks: otherRuns.paychecks,
+        imss_employee: imssEmployee.toFixed(2),
+        imss_employer: imssEmployer.toFixed(2),
+        infonavit_employer: infonavitEmployer.toFixed(2),
+        infonavit_credit: infonavitCredit.toFixed(2),
+      };
     }
   }
 
@@ -754,6 +818,9 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
           source_url: subsidyExcessRule.sourceUrl,
         }
       : null,
+    // Present only when another paycheck of the period charged them: the
+    // employer liability reads it to tell this zero from a missing SBC.
+    ...(contributionsElsewhere ? { [CONTRIBUTIONS_ELSEWHERE_DETAIL]: contributionsElsewhere } : {}),
   };
 
   // --- Persist ---
