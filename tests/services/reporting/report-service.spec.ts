@@ -82,6 +82,8 @@ import {
   getBalanceSheet,
   queryUnclosedEarnings,
   queryIncomeStatementRows,
+  queryPeriodMovementByAccount,
+  queryEntryMovementsTouching,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1108,6 +1110,92 @@ describe('income statement', () => {
     const is = await getIncomeStatement(ENTITY, { startDate: '2026-01-01', endDate: '2026-12-31' });
     expect(is.net_income).toBe('600.0000');
     expect(typeof is.net_income).toBe('string');
+  });
+});
+
+describe('the cash-flow statement reads (MNE-001-052)', () => {
+  // The indirect method starts from net income, so both reads follow the
+  // income statement's closing switch, not the trial balance's.
+  const closingCounted = () =>
+    vi.mocked(criterioDeCierreEnInformes).mockResolvedValueOnce({
+      valor: 'incluir_siempre_y_advertir',
+      enEstadoDeResultados: true,
+      enBalanza: true,
+    });
+
+  it('queryPeriodMovementByAccount: posted lines in the range, cash left out, only accounts that moved', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryPeriodMovementByAccount(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      excludeAccountIds: ['id-1111'],
+    });
+    const s = sql(0);
+    // The inner (jel JOIN je) pair, with the entity bound on the entry's side
+    // as well as on the account's.
+    expect(s).toMatch(
+      /FROM accounts a JOIN \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.entity_id = \$1 AND je\.status = 'posted' AND je\.entry_date BETWEEN \$2 AND \$3 AND NOT \(je\.entry_type = 'closing'/
+    );
+    expect(s).toMatch(/WHERE a\.entity_id = \$1 AND NOT \(a\.id = ANY\(\$4::uuid\[\]\)\) GROUP BY a\.id/);
+    expect(s).toMatch(/a\.account_type, a\.account_subtype, a\.fs_category/);
+    expect(s).toMatch(
+      /HAVING COALESCE\(SUM\(COALESCE\(jel\.debit_amount, 0\)\), 0\) <> 0 OR COALESCE\(SUM\(COALESCE\(jel\.credit_amount, 0\)\), 0\) <> 0 ORDER BY a\.code/
+    );
+    expect(s).not.toMatch(/LEFT JOIN/);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-01-31', ['id-1111']]);
+  });
+
+  it('queryPeriodMovementByAccount counts the closing entries when the income statement does', async () => {
+    closingCounted();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryPeriodMovementByAccount(ENTITY, { startDate: '2026-01-01', endDate: '2026-12-31', excludeAccountIds: [] });
+    expect(sql(0)).not.toContain("je.entry_type = 'closing'");
+    expect(sql(0)).toMatch(/je\.entry_date BETWEEN \$2 AND \$3 \) ON jel\.account_id = a\.id/);
+  });
+
+  it('queryEntryMovementsTouching: per entry and account, entries with a line on one set and none on the other', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsTouching(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      withLineOn: ['id-1210'],
+      withoutLineOn: ['id-1111'],
+    });
+    const s = sql(0);
+    expect(s).toMatch(
+      /JOIN \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.entity_id = \$1 AND je\.status = 'posted' AND je\.entry_date BETWEEN \$2 AND \$3 AND NOT \(je\.entry_type = 'closing'/
+    );
+    expect(s).toMatch(
+      /WHERE a\.entity_id = \$1 AND EXISTS \(SELECT 1 FROM journal_entry_lines t WHERE t\.journal_entry_id = jel\.journal_entry_id AND t\.account_id = ANY\(\$4::uuid\[\]\)\) AND NOT EXISTS \(SELECT 1 FROM journal_entry_lines c WHERE c\.journal_entry_id = jel\.journal_entry_id AND c\.account_id = ANY\(\$5::uuid\[\]\)\)/
+    );
+    expect(s).toMatch(/GROUP BY jel\.journal_entry_id, je\.entry_number, je\.entry_date, je\.description, a\.id, a\.code, a\.name ORDER BY je\.entry_date, je\.entry_number, a\.code/);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-01-31', ['id-1210'], ['id-1111']]);
+  });
+
+  it('queryEntryMovementsTouching counts the closing entries when the income statement does', async () => {
+    closingCounted();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsTouching(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-12-31',
+      withLineOn: ['id-3100'],
+      withoutLineOn: ['id-1111'],
+    });
+    expect(sql(0)).not.toContain("je.entry_type = 'closing'");
+  });
+
+  it('neither read repeats the sum E1.2 counts five times in this file', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    await queryPeriodMovementByAccount(ENTITY, { startDate: '2026-01-01', endDate: '2026-01-31', excludeAccountIds: [] });
+    await queryEntryMovementsTouching(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      withLineOn: ['id-1210'],
+      withoutLineOn: [],
+    });
+    for (const call of [0, 1]) {
+      expect(sql(call)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
+    }
   });
 });
 
