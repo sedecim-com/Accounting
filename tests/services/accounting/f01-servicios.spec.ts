@@ -39,9 +39,10 @@ describe('parseGovernancePairs — vocabulario cerrado, valores estrictos', () =
       allow_manual_entries: false,
       is_header: true,
     });
-    expect(() => parseGovernancePairs(['header=yes'])).toThrow(/true o false/);
-    expect(() => parseGovernancePairs(['desconocida=true'])).toThrow(/Clave desconocida/);
-    expect(() => parseGovernancePairs(['sin-igual'])).toThrow(/clave=valor/);
+    // MNE-001-229: the messages come from the catalogue; `.message` is the English one.
+    expect(() => parseGovernancePairs(['header=yes'])).toThrow(/use true or false/);
+    expect(() => parseGovernancePairs(['desconocida=true'])).toThrow(/Unknown key "desconocida"/);
+    expect(() => parseGovernancePairs(['sin-igual'])).toThrow(/key=value is expected/);
   });
 
   it('currency= vacío limpia; el código se normaliza a mayúsculas', () => {

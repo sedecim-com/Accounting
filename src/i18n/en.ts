@@ -4311,6 +4311,132 @@ export const EN = {
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // MNE-001-229: batch. The two aborts are the kernel's no_changes_* keys.
+  /** The heading of every batch screen, and the bold of its receipts. */
+  'ledger.batch.title': 'BATCH {id}',
+  'ledger.batch.receipt_title': 'batch {id}',
+  /** A row of the file, in check's report and in post's preview. */
+  'ledger.batch.row': 'row {row}',
+  /** The idempotency hit of post and reverse. `what` is post's or reverse's `recorded`. */
+  'ledger.batch.idempotency_hit':
+    '↩ Idempotency hit: key "{key}" already completed this act — {what}. Nothing was executed again; this is the recorded result.',
+  /** `--status` with more than one value, or one the flow of the 045 does not have. */
+  'ledger.batch.status.one_at_a_time':
+    'One status at a time: the batch flow is short (staged → checked → posted) and a multiple filter answers no question that two runs do not answer better.',
+  'ledger.batch.status.unknown':
+    '--status "{value}" does not exist in the batch flow. The real statuses (045): {statuses}. The pending|running|completed|failed|cancelled vocabulary does not belong to this table.',
+  /** `--check` with a category outside the service's closed list. */
+  'ledger.batch.check.categories_unknown':
+    '--check does not recognize: {unknown}. The closed categories are {categories}. The whole battery always runs; the filter only narrows the report.',
+  /** `batch list`: the flags of the list contract it cannot honour, and its cap. */
+  'ledger.batch.list.flag_unsupported':
+    '{flag} does not apply to batches: a batch is filtered by when it was prepared, with --since (created_at >= date). There is no upper bound and no date basis to choose.',
+  'ledger.batch.list.offset_unsupported':
+    '--offset is not implemented in this family: the query orders by created_at and caps with --limit, with no stable cursor. Narrow with --since or raise --limit.',
+  'ledger.batch.list.capped':
+    '{count, plural, one {# batch was listed} other {# batches were listed}}, which is the --limit cap: there may be more. Raise --limit or narrow with --since.',
+  /** `batch show`: the card, its labels and the rows. */
+  'ledger.batch.show.file_label': 'file',
+  'ledger.batch.show.rows_label': 'rows',
+  'ledger.batch.show.prepared_label': 'prepared',
+  'ledger.batch.show.unnamed': '(no name)',
+  'ledger.batch.show.rows':
+    '{total} total · {invalid} invalid · {posted, plural, one {# entry} other {# entries}} in the ledger',
+  'ledger.batch.show.prepared': '{date} by {user}',
+  'ledger.batch.show.rows_title': 'ROWS',
+  'ledger.batch.show.empty': 'the batch is empty',
+  'ledger.batch.show.no_parse_errors': 'no row with a parse error',
+  'ledger.batch.show.errors_by_category': 'parse errors by category:',
+  /** `batch check`: the heading, the report and its verdict. */
+  'ledger.batch.check.rows_checked': '· {count, plural, one {# row checked} other {# rows checked}}',
+  'ledger.batch.check.strict': ' · strict',
+  'ledger.batch.check.narrowed': ' · report narrowed to {categories}',
+  'ledger.batch.check.nothing_to_show': 'no finding to show',
+  'ledger.batch.check.all_valid':
+    "{count, plural, one {# valid row} other {# valid rows}}: the batch stays '{status}'.",
+  'ledger.batch.check.some_invalid':
+    "{invalid} invalid and {valid} valid: the batch stays '{status}'. Fix the file and import it again, or apply what is valid with `batch post --partial`.",
+  'ledger.batch.check.hidden_blocking':
+    '{count, plural, one {# blocking finding was} other {# blocking findings were}} left out of the report by --check; the exit code counts them all the same.',
+  /** `batch post`: the preview, the question, the receipt and the dry-run note. */
+  'ledger.batch.post.preview': '· {count, plural, one {# entry} other {# entries}} · Debit {total}{already}',
+  'ledger.batch.post.already': ' · {count, plural, one {# was already there} other {# were already there}}',
+  'ledger.batch.post.left_staged':
+    '{count, plural, one {# row stays in staging:} other {# rows stay in staging:}}',
+  'ledger.batch.post.confirm':
+    'You are about to POST {count, plural, one {# entry} other {# entries}} of batch {id} for {total} (Debit){left}. The ledger is immutable: this is only corrected by a reversal. Continue?',
+  'ledger.batch.post.confirm_left': ', leaving {count, plural, one {# row} other {# rows}} in staging',
+  'ledger.batch.post.recorded': '{count, plural, one {# entry} other {# entries}} of batch {id}',
+  'ledger.batch.post.receipt':
+    "→ '{status}' · {posted} posted · {already} already there · {staged} in staging · Debit {total}",
+  'ledger.batch.post.dry_run':
+    'Dry run: it was posted for real and rolled back; the folios shown were not reserved.',
+  /** `batch reverse`. */
+  'ledger.batch.reverse.preview': '· {count, plural, one {# mirror} other {# mirrors}}{dated}',
+  'ledger.batch.reverse.dated': ' dated {date}',
+  'ledger.batch.reverse.confirm':
+    'You are about to REVERSE batch {id}: {count, plural, one {# posted mirror} other {# posted mirrors}}, one per entry, in a single transaction. Each entry admits ONE reversal (041). Continue?',
+  'ledger.batch.reverse.recorded': '{count, plural, one {# mirror} other {# mirrors}} of batch {id}',
+  'ledger.batch.reverse.receipt':
+    "· {count, plural, one {# mirror} other {# mirrors}} · the batch stays '{status}': the truth of the reversal lives in reversed_by_entry_id of each entry",
+  'ledger.batch.reverse.dry_run': 'Dry run: the mirrors were created for real and rolled back; nothing was written.',
+  // MNE-001-229: account. The English that was printed is the same, byte for byte.
+  /** The tail of every dry run that writes nothing. */
+  'ledger.account.dry_run_note': ' (dry-run: nothing was written)',
+  /** `account list` and `account create`. */
+  'ledger.account.type_unknown': 'Unknown --type "{value}". Use one of: {types}.',
+  'ledger.account.normal_balance_unknown': 'Unknown --normal-balance "{value}". Use debit or credit.',
+  'ledger.account.show.disappeared': 'Account {code} disappeared while reading it.',
+  /** `account edit`. */
+  'ledger.account.edit.nothing_to_change': 'Nothing to change. Pass --name, --description, --subtype or --fs-category.',
+  'ledger.account.edit.done': '{code} updated.',
+  /** `account archive`. `code` arrives in bold. */
+  'ledger.account.archive.would_archive': '{code} would be archived. Lifetime balance: {balance}.',
+  'ledger.account.archive.would_keep_history': ' It has posted history, which would stay intact.',
+  'ledger.account.archive.done': '{code} archived. Reason: {reason}',
+  'ledger.account.archive.forced': ' (with a live balance of {balance}, forced)',
+  'ledger.account.archive.history_intact': ' Posted history stays intact.',
+  /** `account set`: the dry run, and the pairs it reads. */
+  'ledger.account.set.would_set': '{code} would set: {flags}',
+  'ledger.account.set.pair_unreadable': 'Unreadable pair "{pair}": key=value is expected.',
+  'ledger.account.set.key_unknown': 'Unknown key "{key}". Valid: {keys}.',
+  'ledger.account.set.value_unreadable': 'Unreadable value "{value}" for {key}: use true or false.',
+  /** `account balance show`, when a period is open. */
+  'ledger.account.balance.open_period_note':
+    'Note: beginning_balance is only seeded at the hard close; in open periods it reads the activity, not the cumulative balance.',
+  /** `account role set` / `seed` / `sync`. */
+  'ledger.account.role.set.would_point': 'The role {role}{qualifier} would point to {code} {name}',
+  'ledger.account.role.seed.done':
+    '{roles, plural, one {# role mapped} other {# roles mapped}}, {accounts, plural, one {# base account created} other {# base accounts created}}',
+  'ledger.account.role.seed.unmapped': ' — unmapped: {roles}',
+  'ledger.account.role.sync.not_mexican': 'This entity does not keep Mexican books: it has no withholding roles.',
+  'ledger.account.role.sync.nothing': 'Nothing to change.',
+  'ledger.account.role.sync.done': 'applied and audited; no entry was posted.',
+  /** `account map set`. `clear` is `yes` for an empty --value; `name` is the official name, with its leading space. */
+  'ledger.account.map.year_invalid': '--year must be a four-digit fiscal year; got "{value}".',
+  'ledger.account.map.set.dry_run':
+    '{code}: {scheme} {clear, select, yes {would be cleared} other {would be {value}{name}}} (dry-run)',
+  /** `account map import`. `mode` is `dry_run` or `done`. */
+  'ledger.account.map.import.no_pairs': 'The file {file} has no readable code,value pairs.',
+  'ledger.account.map.import.done':
+    '{applied}/{total} mappings {mode, select, dry_run {applicable} other {applied}} ({scheme})',
+  'ledger.account.map.import.repeated': ' [repeated: the result of the first run]',
+  'ledger.account.map.import.no_account': '  · {code}: does not exist in the chart',
+  'ledger.account.map.import.empty_value': '  · {code}: empty value, skipped',
+  /** `account map check`. `chosen` is `panel` when someone answered the scope key. */
+  'ledger.account.map.check.available': 'Available checks: {checks}',
+  'ledger.account.map.check.unknown': 'Unknown check: {unknown}. Available: {checks}.',
+  'ledger.account.map.check.level_retired':
+    '--level no longer applies: the gate measured by account level and that was the defect (43 gaps on a real entity, 42 of them accounts without a single movement, and the moved account without an agrupador left off the list for being at level 3). Today the population is set by the agrupador_alcance_de_la_compuerta policy; it is changed with {hint}.',
+  'ledger.account.map.check.scope':
+    'scope "{scope}", {chosen, select, panel {chosen in the panel} other {by default}}',
+  'ledger.account.map.check.empty': '0 accounts in the {scope}: nothing was checked',
+  'ledger.account.map.check.complete':
+    '✔ full coverage: {count, plural, one {# account} other {# accounts}} with {scheme} ({scope})',
+  'ledger.account.map.check.gaps':
+    '{gaps} of {count, plural, one {# account} other {# accounts}} without {scheme} ({scope}): the catalog XML would come out incomplete',
+  /** `account restore`. */
+  'ledger.account.restore.done': '{code} is active again.',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
@@ -4950,6 +5076,13 @@ export const EN = {
   'help.account.create.option.description': 'description',
   'help.account.create.option.header': 'a grouping node: it accepts no manual entries',
   'help.account.create.option.json': 'JSON output',
+  /** The Examples of `account create` (MNE-001-229). The command lines are parameters: they are typed, not translated. `comment` is the `#` a message cannot carry. */
+  'help.account.create.examples':
+    '\nExamples:\n' +
+    '  {comment} A new expense account hanging off Gastos de Administracion (6100).\n' +
+    '  {expense}\n' +
+    '  {comment} A grouping node: --header means it accepts no manual entries.\n' +
+    '  {header}\n',
   'help.account.edit.description': 'Change an account name, description, subtype or statement caption',
   'help.account.edit.argument.code': 'account code or id',
   'help.account.edit.option.name': 'new name',

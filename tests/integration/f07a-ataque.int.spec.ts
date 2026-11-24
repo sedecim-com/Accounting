@@ -1036,8 +1036,9 @@ describe('C · `account map` contra Postgres', () => {
     const sobre = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
     // De las cuatro movidas sólo 1195 sigue sin agrupador.
     expect(sobre.rows.map((h) => h.code)).toEqual(['1195']);
-    expect(r.err).toContain('1 de 4 cuenta(s) sin sat-agrupador');
-    expect(r.err).toContain('alcance "cuentas_con_movimientos", por omisión');
+    // MNE-001-229: from the catalogue; this suite runs in en-US.
+    expect(r.err).toContain('1 of 4 accounts without sat-agrupador');
+    expect(r.err).toContain('scope "cuentas_con_movimientos", by default');
   });
 
   it('--level se RECHAZA en vez de aceptarse y no aplicarse', async () => {
@@ -1048,6 +1049,6 @@ describe('C · `account map` contra Postgres', () => {
       '--entity', f.entityId, '--tenant', f.tenantId
     );
     expect(r.code).not.toBe(0);
-    expect(r.err).toMatch(/--level ya no aplica/);
+    expect(r.err).toMatch(/--level no longer applies/);
   });
 });

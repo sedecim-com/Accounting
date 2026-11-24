@@ -6,6 +6,7 @@ import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
 import { hashDeCarga } from '../../src/services/idempotency/idempotency-store.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 // ============================================================
 // La familia `batch`·`lote` contra el rulebook y contra sus promesas caras:
@@ -266,11 +267,14 @@ async function run(argv: string[], extra: Partial<BatchCommandDeps> = {}) {
   const stderr = process.stderr.write.bind(process.stderr);
   process.stdout.write = ((c: string | Uint8Array) => { out.push(String(c)); return true; }) as typeof process.stdout.write;
   process.stderr.write = ((c: string | Uint8Array) => { err.push(String(c)); return true; }) as typeof process.stderr.write;
+  // MNE-001-229: the leaf speaks by key; these assertions read its Spanish.
+  setLanguage('es');
   try {
     const p = new Command('mnemosine').exitOverride();
     registerBatchCommand(p, { ...behaviorDeps, ...extra });
     await p.parseAsync(['node', 'mnemosine', ...argv]);
   } finally {
+    resetLanguage();
     process.stdout.write = stdout;
     process.stderr.write = stderr;
   }
@@ -435,7 +439,7 @@ describe('batch show · la ficha del lote', () => {
     expect(r.exitCode).toBe(0);
     expect(r.out).toMatch(/\[fecha\] fecha inválida/);
     expect(r.out).toMatch(/fecha=1/);
-    expect(r.out).toMatch(/1 inválida\(s\)/);
+    expect(r.out).toMatch(/1 inválida ·/);
   });
 });
 
@@ -487,7 +491,7 @@ describe('batch check · sale 4 cuando ENCUENTRA algo, con la fila y su porqué'
     expect(r.exitCode).toBe(4);
     expect(r.out).toMatch(/fila 3/);
     expect(r.out).not.toMatch(/fila 2/);
-    expect(r.err).toMatch(/quedaron fuera del informe/);
+    expect(r.err).toMatch(/1 hallazgo bloqueante quedó fuera del informe/);
   });
 
   it('--check con una categoría inventada es error de USO y no corre nada', async () => {
@@ -522,7 +526,7 @@ describe('batch post · ensayo, pregunta con el total enfrente, y atestación tr
       2, { tenantId: 'T1', entityId: 'E1' }, B1, 'U1', { partial: false }
     );
     expect(confirmado).toHaveLength(1);
-    expect(confirmado[0]).toMatch(/2 póliza\(s\)/);
+    expect(confirmado[0]).toMatch(/2 pólizas/);
     expect(confirmado[0]).toMatch(/2500\.0000/);
     // La atestación, UNA por póliza y después del commit.
     expect(arnes.atestadas).toEqual([
@@ -609,7 +613,7 @@ describe('batch reverse · la unidad entera, con motivo y espejos enfrente', () 
     expect(r.exitCode).toBe(0);
     expect(servicio.reverseBatch).toHaveBeenCalledWith(
       { tenantId: 'T1', entityId: 'E1' }, B1, 'U1',
-      { reason: '(ensayo sin --reason)', asOf: undefined, dryRun: true }
+      { reason: 'dry-run:no-reason', asOf: undefined, dryRun: true }
     );
     expect(arnes.atestadas).toEqual([]);
   });
@@ -622,7 +626,7 @@ describe('batch reverse · la unidad entera, con motivo y espejos enfrente', () 
     expect(r.exitCode).toBe(0);
     expect(r.out).toMatch(/P-001 → R-001/);
     expect(r.out).toMatch(/P-002 → R-002/);
-    expect(confirmado[0]).toMatch(/2 espejo\(s\)/);
+    expect(confirmado[0]).toMatch(/2 espejos posteados/);
     expect(servicio.reverseBatch).toHaveBeenNthCalledWith(
       2, { tenantId: 'T1', entityId: 'E1' }, B1, 'U1',
       { reason: 'lote duplicado', asOf: undefined }

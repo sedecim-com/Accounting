@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { t } from '../i18n/index.js';
 import { dayOrToday } from '../services/policy/today.js';
 import { bootstrapTenant } from '../ai/context.js';
 import * as fs from 'node:fs';
@@ -142,13 +143,13 @@ Examples:
   # Skip the balance lookup, which is the slow part.
   mnemosine account show 1130 --no-balance
 `,
-  create: `
-Examples:
-  # A new expense account hanging off Gastos de Administracion (6100).
-  mnemosine account create 6150 "Mantenimiento de oficina" --type expense --parent 6100
-  # A grouping node: --header means it accepts no manual entries.
-  mnemosine account create 1250 "Activo Intangible" --type asset --parent 1200 --header
-`,
+  // MNE-001-229: by key, with the command lines as parameters (`help.account.create.examples`).
+  create: () =>
+    t('help.account.create.examples', {
+      comment: '#',
+      expense: 'mnemosine account create 6150 "Mantenimiento de oficina" --type expense --parent 6100',
+      header: 'mnemosine account create 1250 "Activo Intangible" --type asset --parent 1200 --header',
+    }),
   edit: `
 Examples:
   # Rename an account. Its code, its type and its normal balance do not change here.
@@ -287,7 +288,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     run(async () => {
       const ctx = await entityOf(opts);
       if (opts.type && !(ACCOUNT_TYPES as readonly string[]).includes(opts.type)) {
-        throw usageError(`Unknown --type "${opts.type}". Use one of: ${ACCOUNT_TYPES.join(', ')}.`);
+        throw usageError({ key: 'ledger.account.type_unknown', params: { value: opts.type, types: ACCOUNT_TYPES.join(', ') } });
       }
 
       let parentId: string | undefined;
@@ -327,7 +328,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         includeBalance: opts.balance !== false,
         includeHierarchy: true,
       });
-      if (!full) throw notFound(`Account ${code} disappeared while reading it.`);
+      if (!full) throw notFound({ key: 'ledger.account.show.disappeared', params: { code } });
       render([full], { ...opts, idField: 'code' });
     })
   );
@@ -368,11 +369,11 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
 
         if (!(ACCOUNT_TYPES as readonly string[]).includes(opts.type)) {
-          throw usageError(`Unknown --type "${opts.type}". Use one of: ${ACCOUNT_TYPES.join(', ')}.`);
+          throw usageError({ key: 'ledger.account.type_unknown', params: { value: opts.type, types: ACCOUNT_TYPES.join(', ') } });
         }
         const normal = (opts.normalBalance ?? defaultNormalBalance(opts.type as AccountType)) as NormalBalance;
         if (!(NORMAL_BALANCES as readonly string[]).includes(normal)) {
-          throw usageError(`Unknown --normal-balance "${normal}". Use debit or credit.`);
+          throw usageError({ key: 'ledger.account.normal_balance_unknown', params: { value: normal } });
         }
 
         const parentId = opts.parent ? (await resolveAccount(ctx.entityId, opts.parent)).id : null;
@@ -426,10 +427,10 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
           ...(opts.fsCategory !== undefined ? { fs_category: opts.fsCategory } : {}),
         };
         if (Object.keys(patch).length === 0) {
-          throw usageError('Nothing to change. Pass --name, --description, --subtype or --fs-category.');
+          throw usageError({ key: 'ledger.account.edit.nothing_to_change' });
         }
         const updated = await updateAccount(ctx.entityId, target.id, patch, reviewer.userId);
-        process.stdout.write(`${deps.palette.green('✔')} ${updated.code} updated.\n`);
+        process.stdout.write(`${deps.palette.green('✔')} ${t('ledger.account.edit.done', { code: updated.code })}\n`);
       })
   );
 
@@ -468,16 +469,16 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       });
       if (opts.dryRun) {
         process.stdout.write(
-          `${deps.palette.bold(target.code)} se archivaría. Saldo de por vida: ${balance}.` +
-            (hadHistory ? deps.palette.dim(' Tiene historia posteada, que quedaría intacta.') : '') +
-            ' (dry-run: nada se escribió)\n'
+          t('ledger.account.archive.would_archive', { code: deps.palette.bold(target.code), balance }) +
+            (hadHistory ? deps.palette.dim(t('ledger.account.archive.would_keep_history')) : '') +
+            `${t('ledger.account.dry_run_note')}\n`
         );
         return;
       }
       process.stdout.write(
-        `${deps.palette.green('✔')} ${target.code} archived. Reason: ${reason}` +
-          (Number(balance) !== 0 ? deps.palette.yellow(` (con saldo vivo ${balance}, forzado)`) : '') +
-          (hadHistory ? deps.palette.dim(' Posted history stays intact.') : '') +
+        `${deps.palette.green('✔')} ${t('ledger.account.archive.done', { code: target.code, reason: reason ?? '' })}` +
+          (Number(balance) !== 0 ? deps.palette.yellow(t('ledger.account.archive.forced', { balance })) : '') +
+          (hadHistory ? deps.palette.dim(t('ledger.account.archive.history_intact')) : '') +
           '\n'
       );
     })
@@ -493,7 +494,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   // no estaba declarada: cambiar quién puede postear a una cuenta es
   // exactamente el acto que alguien pregunta después.
   optionByKey(set, '--reason <text>', 'help.account.set.option.reason');
-  declareRisk(set, { risk: 'escritura', agent: false, writes: 'accounts (banderas de gobierno)' });
+  declareRisk(set, { risk: 'escritura', agent: false, writes: 'accounts (governance flags)' });
   set.addHelpText('after', EJEMPLOS.set);
   set.action((code: string, pairs: string[], opts: CommonOpts & { dryRun?: boolean; reason?: string }) =>
     run(async () => {
@@ -503,7 +504,8 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const flags = parseGovernancePairs(pairs);
       if (opts.dryRun) {
         process.stdout.write(
-          `${deps.palette.bold(target.code)} fijaría: ${JSON.stringify(flags)} (dry-run: nada se escribió)\n`
+          `${t('ledger.account.set.would_set', { code: deps.palette.bold(target.code), flags: JSON.stringify(flags) })}` +
+            `${t('ledger.account.dry_run_note')}\n`
         );
         return;
       }
@@ -538,9 +540,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       // beginning de 0 es ausencia de arrastre, no un saldo. Decirlo evita
       // que alguien lea un acumulado donde solo hay actividad del periodo.
       if (rows.some((r) => r.period_status === 'open' || r.period_status === 'soft_close')) {
-        process.stderr.write(deps.palette.dim(
-          'Nota: beginning_balance solo se siembra en el cierre duro; en periodos abiertos lee la actividad, no el acumulado.\n'
-        ));
+        process.stderr.write(deps.palette.dim(`${t('ledger.account.balance.open_period_note')}\n`));
       }
       render(rows as unknown as Record<string, unknown>[], { ...opts, idField: 'period_name' });
     })
@@ -585,8 +585,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const cuenta = await resolveAccount(ctx.entityId, code);
       if (opts.dryRun) {
         process.stdout.write(
-          `El rol ${deps.palette.bold(roleName)}${opts.qualifier ? `[${opts.qualifier}]` : ''} ` +
-            `apuntaría a ${cuenta.code} ${cuenta.name} (dry-run: nada se escribió)\n`
+          t('ledger.account.role.set.would_point', {
+            role: deps.palette.bold(roleName),
+            qualifier: opts.qualifier ? `[${opts.qualifier}]` : '',
+            code: cuenta.code,
+            name: cuenta.name,
+          }) + `${t('ledger.account.dry_run_note')}\n`
         );
         return;
       }
@@ -608,7 +612,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
 
   const roleSeed = describeCommand(role.command('seed').alias('sembrar'), 'help.account.role.seed.description');
   withContext(roleSeed);
-  declareRisk(roleSeed, { risk: 'escritura', agent: false, writes: 'accounts, account_roles (solo faltantes)' });
+  declareRisk(roleSeed, { risk: 'escritura', agent: false, writes: 'accounts, account_roles (only the missing ones)' });
   roleSeed.addHelpText('after', EJEMPLOS.roleSeed);
   roleSeed.action((opts: CommonOpts) =>
     run(async () => {
@@ -616,10 +620,10 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const res = await seedAccountRoles(ctx.entityId, ctx.tenantId, reviewer.userId);
       process.stdout.write(
-        `${deps.palette.green('✔')} ${res.rolesMapped} rol(es) mapeados, ` +
-          `${res.accountsCreated.length} cuenta(s) base creadas` +
+        `${deps.palette.green('✔')} ` +
+          t('ledger.account.role.seed.done', { roles: res.rolesMapped, accounts: res.accountsCreated.length }) +
           (res.unmapped.length > 0
-            ? deps.palette.yellow(` — sin mapear: ${res.unmapped.map((u) => u.role).join(', ')}`)
+            ? deps.palette.yellow(t('ledger.account.role.seed.unmapped', { roles: res.unmapped.map((u) => u.role).join(', ') }))
             : '') +
           '\n'
       );
@@ -640,17 +644,17 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     run(async () => {
       const ctx = await entityOf(opts);
       const [plan] = await censusWithholdingLayout({ tenantId: ctx.tenantId, entityId: ctx.entityId });
-      if (!plan) throw usageError('This entity does not keep Mexican books: it has no withholding roles.');
+      if (!plan) throw usageError({ key: 'ledger.account.role.sync.not_mexican' });
       const lines = describeWithholdingPlan(plan);
       process.stdout.write(
         `${deps.palette.bold(plan.entityName)} · withholding_accounts_layout = ${plan.layout}\n` +
-          (lines.length > 0 ? lines.map((l) => `  ${l}\n`).join('') : '  Nothing to change.\n')
+          (lines.length > 0 ? lines.map((l) => `  ${l}\n`).join('') : `  ${t('ledger.account.role.sync.nothing')}\n`)
       );
       if (plan.blocked) return ExitCode.BLOCKED;
       if (opts.dryRun || !hasWork(plan)) return;
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       await applyWithholdingLayout(plan, reviewer.userId);
-      process.stdout.write(`${deps.palette.green('✔')} applied and audited; no entry was posted.\n`);
+      process.stdout.write(`${deps.palette.green('✔')} ${t('ledger.account.role.sync.done')}\n`);
     })
   );
 
@@ -672,7 +676,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   // que el catálogo de comandos siempre dijo: contra QUÉ ejercicio se valida.
   optionByKey(mapSet, '--year <y>', 'help.account.map.set.option.year');
   optionByKey(mapSet, '--dry-run', 'help.account.map.set.option.dry_run');
-  declareRisk(mapSet, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias)' });
+  declareRisk(mapSet, { risk: 'escritura', agent: false, writes: 'accounts (statutory columns)' });
   mapSet.addHelpText('after', EJEMPLOS.mapSet);
   mapSet.action((code: string, opts: CommonOpts & { scheme: string; value?: string; year?: string; dryRun?: boolean }) =>
     run(async () => {
@@ -709,7 +713,13 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
           if (veredicto.nombre) confirmacion = ` «${veredicto.nombre}»`;
         }
         process.stdout.write(
-          `${deps.palette.bold(target.code)}: ${opts.scheme} ${valor === null ? 'se limpiaría' : `sería ${valor}${confirmacion}`} (dry-run)\n`
+          `${t('ledger.account.map.set.dry_run', {
+            code: deps.palette.bold(target.code),
+            scheme: opts.scheme,
+            clear: valor === null ? 'yes' : 'no',
+            value: valor ?? '',
+            name: confirmacion,
+          })}\n`
         );
         return;
       }
@@ -757,7 +767,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     risk: 'escritura',
     agent: false,
     llave: { scope: 'account map import' },
-    writes: 'accounts (columnas estatutarias, en lote)',
+    writes: 'accounts (statutory columns, in bulk)',
   });
   mapImport.addHelpText('after', EJEMPLOS.mapImport);
   mapImport.action((file: string, opts: CommonOpts & { scheme: string; dryRun?: boolean; idempotencyKey?: string }) =>
@@ -768,7 +778,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const contenido = fs.readFileSync(file, 'utf-8');
       const pares = parseMappingCsv(contenido);
       if (pares.length === 0) {
-        throw usageError(`El archivo ${file} no trae pares código,valor legibles.`);
+        throw usageError({ key: 'ledger.account.map.import.no_pairs', params: { file } });
       }
 
       const correr = () =>
@@ -789,13 +799,19 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const sinCuenta = resultados.filter((r) => r.resultado === 'sin_cuenta');
       const vacios = resultados.filter((r) => r.resultado === 'valor_vacio');
       process.stdout.write(
-        `${deps.palette.green('✔')} ${aplicados}/${resultados.length} mapeos ${opts.dryRun ? 'aplicables' : 'aplicados'} (${opts.scheme})` +
-          (repetido ? deps.palette.dim(' [repetido: resultado de la primera corrida]') : '') +
-          (opts.dryRun ? deps.palette.dim(' (dry-run: nada se escribió)') : '') +
+        `${deps.palette.green('✔')} ` +
+          t('ledger.account.map.import.done', {
+            applied: aplicados,
+            total: resultados.length,
+            mode: opts.dryRun ? 'dry_run' : 'done',
+            scheme: opts.scheme,
+          }) +
+          (repetido ? deps.palette.dim(t('ledger.account.map.import.repeated')) : '') +
+          (opts.dryRun ? deps.palette.dim(t('ledger.account.dry_run_note')) : '') +
           '\n'
       );
-      for (const r of sinCuenta) process.stderr.write(deps.palette.yellow(`  · ${r.code}: no existe en el catálogo\n`));
-      for (const r of vacios) process.stderr.write(deps.palette.dim(`  · ${r.code}: valor vacío, omitido\n`));
+      for (const r of sinCuenta) process.stderr.write(deps.palette.yellow(`${t('ledger.account.map.import.no_account', { code: r.code })}\n`));
+      for (const r of vacios) process.stderr.write(deps.palette.dim(`${t('ledger.account.map.import.empty_value', { code: r.code })}\n`));
     })
   );
 
@@ -814,12 +830,15 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const disponibles = ['coverage'];
       const pedidos = (opts.check ?? 'coverage').split(',').map((c) => c.trim()).filter(Boolean);
       if (pedidos.length === 0) {
-        process.stdout.write(`Verificaciones disponibles: ${disponibles.join(', ')}\n`);
+        process.stdout.write(`${t('ledger.account.map.check.available', { checks: disponibles.join(', ') })}\n`);
         return;
       }
       const desconocidos = pedidos.filter((c) => !disponibles.includes(c));
       if (desconocidos.length > 0) {
-        throw usageError(`Verificación desconocida: ${desconocidos.join(', ')}. Disponibles: ${disponibles.join(', ')}.`);
+        throw usageError({
+          key: 'ledger.account.map.check.unknown',
+          params: { unknown: desconocidos.join(', '), checks: disponibles.join(', ') },
+        });
       }
       // F07a · --level SE RECHAZA en vez de ignorarse. El recorte por nivel de
       // cuenta ERA el defecto: sobre una entidad real acusaba 43 huecos, 42 de
@@ -829,13 +848,10 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       // algo—, así que se hace lo mismo que hacía --year: decir qué pasó y
       // dónde se decide ahora.
       if (opts.level !== undefined) {
-        throw usageError(
-          '--level ya no aplica: la compuerta medía por nivel de cuenta y ése era el defecto ' +
-            '(43 huecos sobre una entidad real, 42 de ellos cuentas sin un solo movimiento, ' +
-            'y la cuenta movida sin agrupador fuera de la lista por estar en nivel 3). ' +
-            'Hoy la población la fija la política agrupador_alcance_de_la_compuerta; se cambia con ' +
-            `${changePolicyHint('agrupador_alcance_de_la_compuerta')}.`
-        );
+        throw usageError({
+          key: 'ledger.account.map.check.level_retired',
+          params: { hint: changePolicyHint('agrupador_alcance_de_la_compuerta') },
+        });
       }
       const ctx = await entityOf(opts);
       const cobertura = await checkMappingCoverageDetallada(ctx.entityId, opts.scheme, {
@@ -845,21 +861,27 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       // El alcance y de dónde salió viajan SIEMPRE en el resumen: «3 huecos» no
       // significa lo mismo medido sobre las cuentas movidas que sobre el
       // catálogo entero, y quien lee la compuerta tiene que saber cuál miró.
-      const comoSeEligio = cobertura.alcanceElegido ? 'elegido en el panel' : 'por omisión';
-      const contexto = `alcance "${cobertura.alcance}", ${comoSeEligio}`;
+      const contexto = t('ledger.account.map.check.scope', {
+        scope: cobertura.alcance,
+        chosen: cobertura.alcanceElegido ? 'panel' : 'default',
+      });
       process.stderr.write(
         cobertura.poblacion === 0
           ? // Cero cuentas en el alcance no es cobertura completa: es que no
             // había nada que mirar. El verde por vacuidad es el defecto que
             // este tramo persigue en el checklist del cierre; aquí tampoco.
-            deps.palette.yellow(`0 cuentas en el ${contexto}: no se comprobó nada\n`)
+            deps.palette.yellow(`${t('ledger.account.map.check.empty', { scope: contexto })}\n`)
           : cobertura.huecos.length === 0
             ? deps.palette.green(
-                `✔ cobertura completa: ${cobertura.poblacion} cuenta(s) con ${opts.scheme} (${contexto})\n`
+                `${t('ledger.account.map.check.complete', { count: cobertura.poblacion, scheme: opts.scheme, scope: contexto })}\n`
               )
             : deps.palette.yellow(
-                `${cobertura.huecos.length} de ${cobertura.poblacion} cuenta(s) sin ${opts.scheme} (${contexto}): ` +
-                  `el XML de catálogo saldría incompleto\n`
+                `${t('ledger.account.map.check.gaps', {
+                  gaps: cobertura.huecos.length,
+                  count: cobertura.poblacion,
+                  scheme: opts.scheme,
+                  scope: contexto,
+                })}\n`
               )
       );
       return checkExitCode(
@@ -884,7 +906,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const target = await resolveAccount(ctx.entityId, code);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const updated = await reactivateAccount(ctx.entityId, target.id, reviewer.userId, opts.reason ?? null);
-      process.stdout.write(`${deps.palette.green('✔')} ${updated.code} is active again.\n`);
+      process.stdout.write(`${deps.palette.green('✔')} ${t('ledger.account.restore.done', { code: updated.code })}\n`);
     })
   );
 }
@@ -905,7 +927,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
 export function fechaDeCatalogo(year?: string): string | undefined {
   if (year === undefined) return undefined;
   if (!/^\d{4}$/.test(year.trim())) {
-    throw usageError(`--year tiene que ser un ejercicio de cuatro dígitos; llegó "${year}".`);
+    throw usageError({ key: 'ledger.account.map.year_invalid', params: { value: year } });
   }
   return `${year.trim()}-12-31`;
 }
@@ -926,19 +948,19 @@ export function parseGovernancePairs(pairs: string[]): GovernanceFlags {
   const flags: GovernanceFlags = {};
   for (const par of pairs) {
     const eq = par.indexOf('=');
-    if (eq < 0) throw usageError(`Par ilegible "${par}": se espera clave=valor.`);
+    if (eq < 0) throw usageError({ key: 'ledger.account.set.pair_unreadable', params: { pair: par } });
     const clave = par.slice(0, eq).trim();
     const valor = par.slice(eq + 1).trim();
     const campo = CLAVES[clave];
     if (!campo) {
-      throw usageError(`Clave desconocida "${clave}". Válidas: ${Object.keys(CLAVES).join(', ')}.`);
+      throw usageError({ key: 'ledger.account.set.key_unknown', params: { key: clave, keys: Object.keys(CLAVES).join(', ') } });
     }
     if (campo === 'currency_code') {
       flags.currency_code = valor === '' ? null : valor.toUpperCase();
     } else if (valor === 'true' || valor === 'false') {
       flags[campo] = valor === 'true';
     } else {
-      throw usageError(`Valor ilegible "${valor}" para ${clave}: usa true o false.`);
+      throw usageError({ key: 'ledger.account.set.value_unreadable', params: { value: valor, key: clave } });
     }
   }
   return flags;
