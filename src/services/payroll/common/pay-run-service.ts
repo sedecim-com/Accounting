@@ -43,13 +43,13 @@ export interface PayRunInput {
  * hang a run of this tenant on a sibling company's period. With the predicate
  * here, every caller gets the same 404 for a foreign period and a missing one.
  *
- * A PERIOD HOLDS ONE REGULAR RUN (MNE-001-659, #601). The regular run is the
- * period's ordinary payroll (`TipoNomina` O); what is paid apart from it goes
- * in a run of its own type (bonus, final, off_cycle), and those are created
- * as before. A second regular run was accepted, and it is two ordinary
- * paychecks for one worker and one period. It is refused whatever the status
- * of the one that stands, except `voided`: an unapproved run is calculated
- * again, not doubled, and an approved one is sealed.
+ * CONTRACT: A PERIOD HOLDS ONE REGULAR RUN (MNE-001-659, #601). The regular
+ * run is the period's ordinary payroll (`TipoNomina` O); what is paid apart
+ * from it goes in a run of its own type (bonus, final, off_cycle), and those
+ * are created as before. A second regular run was accepted, and it is two
+ * ordinary paychecks for one worker and one period. It is refused (409)
+ * whatever the status of the one that stands, except `voided`: an unapproved
+ * run is calculated again, not doubled, and an approved one is sealed.
  *
  * The read of the period LOCKS its row, so two creations over one period go
  * one after the other; `pay_runs` has no unique index for this. The insert
