@@ -6718,6 +6718,26 @@
       "output": {"formats":[],"file":false}
     },
     {
+      "path": "year carry-forward run",
+      "aliases": ["ejecutar"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [
+        {"name":"year","type":"string","required":true}
+      ],
+      "options": [
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["json"],"file":false}
+    },
+    {
       "path": "year create",
       "aliases": ["crear"],
       "risk": "escritura",

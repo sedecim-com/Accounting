@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 255 of 407 subcommands
+  spelling is `-T` at the root and `-t` on the 256 of 409 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -3188,6 +3188,8 @@ Commands:
                                  their states
   create|crear [options] <year>  Create a fiscal year: its twelve monthly
                                  periods and the year-end adjustment period (13)
+  carry-forward|arrastre         The carry-forward of balances into a fiscal
+                                 year
   help [command]                 display help for command
 ```
 
@@ -3275,6 +3277,54 @@ Examples:
   mnemosine year create 2027
   # See the calendar it would create, writing nothing.
   mnemosine year create 2027 --dry-run
+```
+
+### `mnemosine year carry-forward` (alias: arrastre)
+
+```
+Usage: mnemosine year carry-forward|arrastre [options] [command]
+
+The carry-forward of balances into a fiscal year
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  run|ejecutar [options] <year>  Carry the closing balances of the sealed year
+                                 before it into the first period of a fiscal
+                                 year that was created without them; a second
+                                 run changes nothing
+  help [command]                 display help for command
+```
+
+#### `mnemosine year carry-forward run` (alias: ejecutar)
+
+```
+Usage: mnemosine year carry-forward run|ejecutar [options] <year>
+
+Carry the closing balances of the sealed year before it into the first period of
+a fiscal year that was created without them; a second run changes nothing
+
+Arguments:
+  year                     the fiscal year that receives the opening balances,
+                           e.g. 2028
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                run the carry and roll it back: show each opening
+                           balance it would correct; write nothing
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  2027 was sealed before 2028 existed, and January 2028 opens at zero; see what would be corrected:
+    mnemosine year carry-forward run 2028 --dry-run
+  Correct it. No entry is created or edited, and running it again changes nothing:
+    mnemosine year carry-forward run 2028
 ```
 
 ## `mnemosine vendor` (alias: proveedor)
