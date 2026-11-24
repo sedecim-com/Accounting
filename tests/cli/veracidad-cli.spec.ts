@@ -4,8 +4,9 @@ import {
   registerBillCommand,
   parseLineSpec,
   resolveLineTaxAmount,
-  LEGACY_TAX_KEY_WARNING,
+  legacyTaxKeyWarning,
 } from '../../src/cli/bill-command.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { registerInvoiceCommand } from '../../src/cli/invoice-command.js';
 import { registerSatCommands } from '../../src/cli/sat-commands.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
@@ -78,9 +79,17 @@ describe('bill --line: tax es MONTO y tax-amount lo dice sin ambigüedad', () =>
   });
 
   it('el aviso dice que tax= es el MONTO y hacia dónde migrar', () => {
-    expect(LEGACY_TAX_KEY_WARNING).toMatch(/MONTO del IVA/);
-    expect(LEGACY_TAX_KEY_WARNING).toMatch(/no la tasa/);
-    expect(LEGACY_TAX_KEY_WARNING).toMatch(/tax-amount=/);
+    // MNE-001-614: from the catalogue, in the active language.
+    expect(legacyTaxKeyWarning()).toMatch(/AMOUNT of the IVA/);
+    expect(legacyTaxKeyWarning()).toMatch(/not the rate/);
+    expect(legacyTaxKeyWarning()).toMatch(/tax-amount=/);
+    setLanguage('es');
+    try {
+      expect(legacyTaxKeyWarning()).toMatch(/MONTO del IVA/);
+      expect(legacyTaxKeyWarning()).toMatch(/no la tasa/);
+    } finally {
+      resetLanguage();
+    }
   });
 
   it('la ayuda de bill create documenta cada clave de --line, tax-amount incluida', () => {
