@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import type { EntityScope } from '../../database/scope.js';
@@ -28,12 +29,23 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 // balance in favour, more than two decimals. Two rules between rows that the
 // schema cannot hold are this module's: an amendment is filed on or after
 // the day of the return it replaces, and a credit (LIVA art. 6) comes from a
-// return of an EARLIER month that left a balance in favour. How much of that
-// balance is still available, and the cap at the tax payable, are rules of
-// its reader (MNE-001-386, prior-balance.ts), not of this writer. The three UNIQUE violations
-// (the acknowledgement, the period's original, the replaced return) are a
-// race the pre-checks cannot close, so they are put into words when
-// Postgres raises them.
+// return of an EARLIER month that left a balance in favour. The three UNIQUE
+// violations (the acknowledgement, the period's original, the replaced
+// return) are a race the pre-checks cannot close, so they are put into words
+// when Postgres raises them.
+//
+// A CREDIT TAKES NO MORE THAN IS LEFT (MNE-001-613, LIVA art. 6). Inside the
+// transaction that writes, the writer reads balancesInFavorBefore, the
+// workpaper's reader, and refuses a credit above what its source period still
+// holds after the returns in force of other periods, the compensations and a
+// refund request. An amendment that lowers a balance below what others
+// already used is refused too, naming them: the later returns are amended
+// first (CFF art. 32). Every write of an entity's record of one tax takes the
+// advisory lock `filed_tax_returns:<entity>:<obligation>` first, so two
+// filings that credit one balance run one after the other; the writer of
+// tax_balance_uses, when it comes, takes the same lock. The cap at the
+// month's tax payable stays the workpaper's (prior-balance.ts): this writer
+// records what was filed and does not know that tax.
 //
 // The entity and the user are bound inside each statement to the scope's
 // tenant, so a foreign entity answers 404, never null and never a row.
@@ -199,6 +211,27 @@ export async function balancesInFavorBefore(
   client?: pg.PoolClient
 ): Promise<BalanceInFavorSource[]> {
   assertPeriod(period);
+  return readBalances(scope, obligation, period, false, client);
+}
+
+/** What a balance still holds to credit, never below zero (LIVA art. 6, CFF art. 23). */
+export function availableOf(s: BalanceInFavorSource): Decimal {
+  if (new Decimal(s.refundRequested).greaterThan(0)) return new Decimal(0);
+  return Decimal.max(new Decimal(s.balanceInFavor).minus(s.credited).minus(s.compensated), 0);
+}
+
+/**
+ * The reader's query. `including` also returns `period`'s own row, with what
+ * the returns in force of other periods took from it: the use an amendment
+ * of that period must still cover.
+ */
+async function readBalances(
+  scope: EntityScope,
+  obligation: FiledReturnObligation,
+  period: string,
+  including: boolean,
+  client?: pg.PoolClient
+): Promise<BalanceInFavorSource[]> {
   const r = await run(client)<Partial<BalanceInFavorSource>>(
     `WITH in_force AS (
        SELECT r.* FROM filed_tax_returns r
@@ -221,7 +254,7 @@ export async function balancesInFavorBefore(
          FROM in_force s
          LEFT JOIN credited cr ON cr.source_period = s.period
          LEFT JOIN used us ON us.source_period = s.period
-        WHERE s.period < $4::date
+        WHERE (s.period < $4::date OR ($5::boolean AND s.period = $4::date))
           AND (s.balance_in_favor > 0 OR cr.amount > 0 OR us.compensated > 0 OR us.refund > 0)
      )
      SELECT x."acknowledgementNumber", x.period, x."filedOn", x."balanceInFavor", x.credited, x.compensated,
@@ -229,7 +262,7 @@ export async function balancesInFavorBefore(
        FROM legal_entities le LEFT JOIN sources x ON x.entity_id = le.id
       WHERE le.id = $1 AND le.tenant_id = $2
       ORDER BY x.period`,
-    [scope.entityId, scope.tenantId, obligation, `${period}-01`]
+    [scope.entityId, scope.tenantId, obligation, `${period}-01`, including]
   );
   if (r.rows.length === 0) throw new NotFoundError('Entity', scope.entityId);
   return r.rows.filter((x) => x.acknowledgementNumber) as BalanceInFavorSource[];
@@ -290,6 +323,11 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
     return source;
   });
 
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+    [`filed_tax_returns:${scope.entityId}:${f.obligation}`]);
+  await assertCreditsAvailable(c, scope, f, credits, sources);
+  if (replaced) await assertAmendmentCoversUse(c, scope, f);
+
   let id: string;
   try {
     const ins = await c.query<{ id: string }>(
@@ -326,6 +364,57 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
   }
   const back = await c.query<FiledReturn>(`${RETURN_SELECT} WHERE r.id = $1`, [id]);
   return back.rows[0];
+}
+
+/**
+ * Each credit draws on what its source PERIOD still holds, in the order the
+ * credits come: the reader sums by period, so two credits naming a month's
+ * original and its amendment share one figure. The filing's own period is
+ * left out by the reader, so an amendment is checked against what the
+ * return it replaces did not use, not against it twice.
+ */
+async function assertCreditsAvailable(
+  c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling,
+  credits: ReadonlyArray<{ ack: string; amount: string }>, sources: readonly Referenced[]
+): Promise<void> {
+  if (credits.length === 0) return;
+  const left = new Map((await balancesInFavorBefore(scope, f.obligation, f.period, c)).map((x) => [x.period, availableOf(x)]));
+  credits.forEach((x, i) => {
+    const sourcePeriod = sources[i].period;
+    const available = left.get(sourcePeriod) ?? new Decimal(0);
+    if (available.lessThan(x.amount)) {
+      throw invalid(`credits[${i}].amount`, 'filed_return.credit_above_available', {
+        acknowledgement: x.ack, sourcePeriod, requested: new Decimal(x.amount).toFixed(2), available: available.toFixed(2),
+      });
+    }
+    left.set(sourcePeriod, available.minus(x.amount));
+  });
+}
+
+/**
+ * An amendment keeps at least what the returns in force of other periods
+ * credited from its month and what was compensated from it. Below that the
+ * record would hold a credit LIVA art. 6 does not allow, so it is refused,
+ * naming the returns to amend first: the conservative reading of #308.
+ */
+async function assertAmendmentCoversUse(c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling): Promise<void> {
+  const own = (await readBalances(scope, f.obligation, f.period, true, c)).find((x) => x.period === f.period);
+  if (!own) return;
+  const used = new Decimal(own.credited).plus(own.compensated);
+  const balance = new Decimal(f.balanceInFavor ?? 0);
+  if (balance.greaterThanOrEqualTo(used)) return;
+  const by = await c.query<{ returns: string | null }>(
+    `SELECT string_agg(r.acknowledgement_number, ', ' ORDER BY r.period, r.acknowledgement_number) AS returns
+       FROM filed_tax_returns r
+      WHERE r.entity_id = $1 AND r.obligation = $2
+        AND NOT EXISTS (SELECT 1 FROM filed_tax_returns n WHERE n.replaces_return_id = r.id)
+        AND EXISTS (SELECT 1 FROM filed_tax_return_credits k WHERE k.return_id = r.id AND k.source_period = $3::date)`,
+    [scope.entityId, f.obligation, `${f.period}-01`]
+  );
+  throw invalid('balanceInFavor', 'filed_return.amended_below_used', {
+    period: f.period, balance: balance.toFixed(2), used: used.toFixed(2), credited: own.credited,
+    compensated: own.compensated, returns: by.rows[0]?.returns ?? '—',
+  });
 }
 
 /** A return with the acknowledgement it replaces and its credits, in the shape of FiledReturn. */
