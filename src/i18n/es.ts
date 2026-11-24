@@ -6774,6 +6774,13 @@ export const ES: Record<keyof typeof EN, string> = {
     'cualquier atributo porque separa los campos de la cadena original. Corrige el valor y vuelve a generar.',
   'anexo24.seal.source_invalid':
     'No se sella: el archivo archivado no valida contra el XSD del SAT ({errors}). No se descifró nada.',
+  'anexo24.xsd.rejected':
+    'El XSD del SAT ({schema}) no acepta este archivo, así que no es entregable: {errors}' +
+    '{more, plural, =0 {} one {; y # línea más} other {; y # líneas más}}',
+  'anexo24.xsd.not_validated':
+    'Este archivo no se validó contra el XSD del SAT ({schema}) porque xmllint no corrió ({cause}), así que no ' +
+    'es entregable. Instala libxml2-utils (apt, apk) o libxml2 (Homebrew), compruébalo con `mnemosine doctor` ' +
+    'y vuelve a generar.',
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',
