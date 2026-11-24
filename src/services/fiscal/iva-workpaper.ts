@@ -17,6 +17,7 @@ import { overrideFindings, proposePriorCredit, type PriorBalance } from './prior
 import { backAsAdvance, HELD_RESTITUTION_TAG, keptCashOf, KEPT_RESTITUTION_TAG, restitutedCash, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
+  APPLIED_ON,
   desglosarDocumento,
   desgloseCero,
   hechosDelMes,
@@ -118,7 +119,9 @@ import {
 // credit warns and settles; any other blocks.
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
-//                  for it would be the fourth definition. Plus the bank fees
+//                  for it would be the fourth definition. Cash on account
+//                  counts the day it was applied to its bill (MNE-001-679,
+//                  `APPLICATION_CREDIT_DATE`). Plus the bank fees
 //                  (MNE-001-566, `bank-fee-iva.ts`), which no bill carries: the
 //                  charge is their payment (MNE-001-041), so their IVA counts
 //                  in the month its entry moved 1130.
@@ -2328,10 +2331,12 @@ async function chargedOfMonth(
 
 /**
  * The journal entries of each bill's cash event, for the bills the DIOT's facts
- * picked: the bill's own entry (a `bill` fact) or the vendor payments of the
- * month and the cashing entries of the cheques cashed in it (a `payment` fact). Both the selection of bills and which event each
- * one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits, not the
- * method); this only looks the entries up.
+ * picked: the bill's own entry (a `bill` fact) or, for a `payment` fact, the
+ * entries dated in the month of the payments applied to it in the month: their
+ * own, their applications' (`vendor_application`, MNE-001-679) and the cashing
+ * entries of the cheques cashed in it. Both the selection of bills and which
+ * event each one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits,
+ * not the method); this only looks the entries up.
  */
 async function billEntryIds(
   client: pg.PoolClient,
@@ -2359,6 +2364,7 @@ async function billEntryIds(
         WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
           AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
           AND vp.payment_date >= $3::date AND vp.payment_date <= $4::date
+          AND ${APPLIED_ON} >= $3::date AND ${APPLIED_ON} <= $4::date
         GROUP BY pa.bill_id`,
       [entityId, byPayment, range.desde, range.hasta]
     );
@@ -2366,20 +2372,26 @@ async function billEntryIds(
     // A cheque cashed in the month (MNE-001-559): its cashing entry is the one
     // that credited the IVA, so the bill traces to it. One whose own entry
     // credited the IVA has no cashing entry, and its payment entry is above.
-    const cashed = await client.query<{ id: string; entry: string }>(
+    // Cash on account applied in the month (MNE-001-679): the application's
+    // entry credited the IVA, dated the day its row stores. A row with no
+    // stored day names no entry and keeps its payment's, above.
+    const later = await client.query<{ id: string; entry: string }>(
       `SELECT DISTINCT pa.bill_id AS id, je.id::text AS entry
          FROM payment_applications pa
          JOIN vendor_payments vp ON vp.id = pa.payment_id
          JOIN bills b ON b.id = pa.bill_id
-         JOIN journal_entries je ON je.source_id = vp.id AND je.entity_id = vp.entity_id
-                                AND je.source_type = '${ORIGEN_COBRO_DE_CHEQUE}' AND je.status = 'posted'
+         JOIN journal_entries je ON je.source_id = vp.id AND je.entity_id = vp.entity_id AND je.status = 'posted'
+                                AND je.source_type IN ('${ORIGEN_COBRO_DE_CHEQUE}', 'vendor_application')
         WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
           AND vp.status <> 'void'
-          AND vp.check_cleared_date >= $3::date AND vp.check_cleared_date <= $4::date
+          AND ((je.source_type = '${ORIGEN_COBRO_DE_CHEQUE}'
+                AND vp.check_cleared_date >= $3::date AND vp.check_cleared_date <= $4::date)
+            OR (je.source_type = 'vendor_application' AND je.entry_date = pa.applied_on
+                AND pa.applied_on >= $3::date AND pa.applied_on <= $4::date))
         ORDER BY 1, 2`,
       [entityId, byPayment, range.desde, range.hasta]
     );
-    for (const r of cashed.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
+    for (const r of later.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
   }
   return out;
 }

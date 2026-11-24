@@ -95,23 +95,53 @@ export interface DetalleCfdi extends FilaCfdi {
 }
 
 /**
- * One CFDI of the entity by its UUID, in any letter case (MNE-001-680, #853):
- * the ingestion stores the UUID as the XML carries it, and SAT's portal prints
- * it in the other case. The unique index is case-sensitive, so an entity can
- * hold two rows that differ only by case; they are one and the same CFDI, and
- * the reader names both instead of picking one.
+ * «This UUID, in any letter case, inside the entity» (MNE-001-680, MNE-001-724,
+ * #853): the one WHERE of every reader that takes a UUID a person typed. `$1`
+ * is the entity and `$2` the UUID. The ingestion stores the UUID as the XML
+ * carries it, and SAT's portal prints it in the other case.
  *
- * NOTE: `lower()` on the column cannot use `uq_xml_documents_entity_cfdi`
- * beyond `entity_id`: this reads the entity's rows, not the table's, once per
- * command. An index on (entity_id, lower(cfdi_uuid)), as migration 340 gave
- * `bills`, would make it a probe again.
+ * NOTE: `lower()` on the column cannot use the unique index of either table
+ * beyond `entity_id` (`uq_xml_documents_entity_cfdi`, and the UNIQUE of
+ * `cfdi_classifications`): the lookup reads the entity's rows, not the
+ * table's, once per command. An index on (entity_id, lower(cfdi_uuid)), as
+ * migration 340 gave `bills`, makes it a probe again (MNE-001-723 is the one
+ * of `xml_documents`).
  *
  * The spellings are ordered by byte (`COLLATE "C"`), upper case first, so the
  * refusal names them in the same order on every database: under a linguistic
  * collation (en_US) the lower-case spelling sorts first, under C the upper.
  */
+const whereUuidAnyCase = (alias: string): string =>
+  `WHERE ${alias}.entity_id = $1 AND lower(${alias}.cfdi_uuid) = lower($2)
+      ORDER BY ${alias}.cfdi_uuid COLLATE "C"`;
+
+/**
+ * The row that lookup found, or none. Both unique indexes are case-sensitive,
+ * so an entity can hold two rows that differ only by case; they are one and the
+ * same CFDI, and the reader names both instead of picking one.
+ */
+function theOnlyRow<T extends { cfdi_uuid: string }>(uuid: string, rows: T[]): T | undefined {
+  if (rows.length > 1) {
+    throw new ConflictError({
+      key: 'cfdi.lookup.same_uuid_twice',
+      params: { uuid, count: rows.length, stored: rows.map((row) => row.cfdi_uuid).join(', ') },
+    });
+  }
+  return rows[0];
+}
+
+/** The mirror's row of a CFDI of the entity, by its UUID in any letter case; undefined when the entity holds none. */
+export async function findCfdiId(entityId: string, uuid: string): Promise<string | undefined> {
+  const found = await query<{ id: string; cfdi_uuid: string }>(
+    `SELECT xd.id, xd.cfdi_uuid FROM xml_documents xd ${whereUuidAnyCase('xd')}`,
+    [entityId, uuid]
+  );
+  return theOnlyRow(uuid, found.rows)?.id;
+}
+
+/** One CFDI of the entity, with its lines, by its UUID in any letter case (MNE-001-680, #853). */
 export async function getCfdiByUuid(entityId: string, uuid: string): Promise<DetalleCfdi> {
-  const doc = await query<DetalleCfdi & { id: string }>(
+  const found = await query<DetalleCfdi & { id: string }>(
     `SELECT xd.id, xd.cfdi_uuid, xd.document_type, ${DIRECCION_SQL} AS direction,
             xd.cfdi_fecha::text AS cfdi_fecha, xd.emisor_rfc, xd.emisor_nombre,
             xd.receptor_rfc, xd.subtotal::text AS subtotal, xd.total::text AS total,
@@ -121,24 +151,18 @@ export async function getCfdiByUuid(entityId: string, uuid: string): Promise<Det
             xd.total_impuestos_retenidos::text AS total_impuestos_retenidos,
             xd.xml_content
        FROM xml_documents xd JOIN legal_entities le ON le.id = xd.entity_id
-      WHERE xd.entity_id = $1 AND lower(xd.cfdi_uuid) = lower($2)
-      ORDER BY xd.cfdi_uuid COLLATE "C"`,
+      ${whereUuidAnyCase('xd')}`,
     [entityId, uuid]
   );
-  if (doc.rows.length === 0) throw new NotFoundError('CFDI', uuid);
-  if (doc.rows.length > 1) {
-    throw new ConflictError({
-      key: 'cfdi.lookup.same_uuid_twice',
-      params: { uuid, count: doc.rows.length, stored: doc.rows.map((row) => row.cfdi_uuid).join(', ') },
-    });
-  }
+  const doc = theOnlyRow(uuid, found.rows);
+  if (!doc) throw new NotFoundError('CFDI', uuid);
   const lineas = await query<DetalleCfdi['lineas'][number]>(
     `SELECT line_number, clave_prod_serv, descripcion,
             cantidad::text AS cantidad, importe::text AS importe
        FROM xml_document_lines WHERE xml_document_id = $1 ORDER BY line_number`,
-    [doc.rows[0].id]
+    [doc.id]
   );
-  return { ...doc.rows[0], lineas: lineas.rows };
+  return { ...doc, lineas: lineas.rows };
 }
 
 export interface RastroClasificacion {
@@ -153,7 +177,11 @@ export interface RastroClasificacion {
   updated_at: string;
 }
 
-/** El rastro que la 015 prometió y F02 empezó a escribir. */
+/**
+ * The trail migration 015 promised and F02 began to write, by the UUID in any
+ * letter case. Two trails of the entity that differ only by case are refused,
+ * as the mirror's rows are (MNE-001-724).
+ */
 export async function getClassificationTrail(
   entityId: string,
   uuid: string
@@ -161,15 +189,16 @@ export async function getClassificationTrail(
   const r = await query<RastroClasificacion>(
     `SELECT cfdi_uuid, tipo_comprobante, direction, case_id, status,
             facts, decisions, journal_entry_id, updated_at::text AS updated_at
-       FROM cfdi_classifications
-      WHERE entity_id = $1 AND cfdi_uuid = $2`,
+       FROM cfdi_classifications cc
+      ${whereUuidAnyCase('cc')}`,
     [entityId, uuid]
   );
-  if (r.rows.length === 0) {
+  const trail = theOnlyRow(uuid, r.rows);
+  if (!trail) {
     throw new NotFoundError(
       'Clasificación',
       `${uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró)`
     );
   }
-  return r.rows[0];
+  return trail;
 }

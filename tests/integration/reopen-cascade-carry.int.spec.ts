@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { softClosePeriod, hardClosePeriod } from '../../src/services/accounting/period-close.js';
@@ -130,6 +130,8 @@ describe('the cascade follows the books order through period 13', () => {
   it('re-closing December reaches period 13 and the next January, and the chain is checked in that order', async () => {
     const f = await crearInquilino('048 cascade through period 13');
     enterTenant(f.tenantId);
+    // January to November 2025 are never closed here: the cascade is the subject.
+    await acceptSealOverUnsealedMonths(f);
     await createFiscalYear(f.entityId, 2025, new Date('2026-09-28T12:00:00Z'));
     const r = await query<{ period_number: number; id: string }>(
       `SELECT fp.period_number, fp.id FROM fiscal_periods fp

@@ -14,6 +14,7 @@ import { effectiveInvestmentBase } from '../../../src/services/assets/depreciati
 import { REQUIRED_ACCOUNTS, ROLE_MAP } from '../../../src/services/xml-ingestion/account-roles-seed.js';
 import { CATALOGO_UNIVERSAL } from '../../../src/services/accounting/chart-seed.js';
 import { t } from '../../../src/i18n/index.js';
+import { yearMonthsSealedBox, yearSealNeedsSealedMonths } from '../../../src/services/accounting/period-close.js';
 
 // ============================================================
 // THE PANEL TEXT SAYS WHAT THE CODE DOES (T21b · #301, MNE-001-073)
@@ -184,5 +185,52 @@ describe('received_credit_note_cost — the default rationale leans on the chart
     expect(s.defaultRationale).toMatch(/goes to by default \(6100\) to operating expenses/);
     expect(ROLE_MAP.gasto).toBe('6100');
     expect(CATALOGO_UNIVERSAL.find((a) => a.code === '6100')?.fs).toBe('operating_expenses');
+  });
+});
+
+describe('year_seal_with_unsealed_months — the text says what the seal does, and cites only what the corpus carries', () => {
+  const s = spec('year_seal_with_unsealed_months');
+  const december = [{ period_name: 'December 2025', status: 'soft_close' }];
+  const corpus = (file: string): string => fs.readFileSync(path.join(ROOT, 'src/ai/docs', file), 'utf8');
+
+  it('the close reads the key, and the default is the answer that refuses', () => {
+    expect(readsKey(path.join(ROOT, 'src/services/accounting/period-close.ts'), 'year_seal_with_unsealed_months')).toBe(true);
+    expect(s.defaultValue).toBe('require_hard_close');
+    expect(yearSealNeedsSealedMonths(s.defaultValue)).toBe(true);
+    expect(s.options.map((o) => o.value)).toEqual(['require_hard_close', 'accept_unsealed']);
+  });
+
+  it('says the default refuses the seal and not the soft close of the last period, which is what the box does', () => {
+    expect(s.impact).toMatch(/that seal is refused while another period of the year is in soft close, open or future/);
+    expect(s.impact).toMatch(/the soft close of the last period is not stopped/);
+    expect(yearMonthsSealedBox(december, 'require_hard_close', 'soft_close').severity).toBe('blocking');
+    expect(yearMonthsSealedBox(december, 'require_hard_close', 'open').severity).toBe('warning');
+  });
+
+  it('says accept_unsealed seals and the checklist warns and names them, which is what the box does', () => {
+    expect(s.impact).toMatch(/With "accept_unsealed" the year is sealed over them, and the close checklist warns and names them \(box year-months-sealed\)/);
+    const box = yearMonthsSealedBox(december, 'accept_unsealed', 'soft_close');
+    expect(box.codigo).toBe('year-months-sealed');
+    expect(box.severity).toBe('warning');
+    expect(box.details).toContain('December 2025 (soft_close)');
+  });
+
+  it('cites NIF A-1 chapter 20 and NIF B-1 for what the corpus says of them', () => {
+    expect(s.defaultRationale).toMatch(/costs and expenses belong to the period of the revenue they produce \(NIF A-1, chapter 20\)/);
+    expect(corpus('nif-marco.md')).toMatch(/Los costos se reconocen en\s+el mismo periodo que los ingresos que generan/);
+    expect(s.defaultRationale).toMatch(/NIF B-1 corrects an error of a closed fiscal year with an adjusting entry in the current period against retained earnings, without reopening it/);
+    expect(corpus('nif-registro.md')).toMatch(/Error de un ejercicio YA CERRADO\*\*: no se reabre ni se borra nada/);
+  });
+
+  it('says that no paragraph is cited for the order of the closes, and names no other norm', () => {
+    expect(s.defaultRationale).toMatch(/No paragraph of the standards this system carries rules on the order between the monthly closes and the annual one, so none is cited for it/);
+    expect(s.defaultRationale).toMatch(/ADR-0006, decision 1/);
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(NIF [A-E]-\d+|NIIF|IFRS|CFF|LISR|LIVA|RMF|LGSM)\b/g)].map((m) => m[1]))].sort();
+    expect(norms(s.defaultRationale)).toEqual(['NIF A-1', 'NIF B-1']);
+    const spanish = t('policy.year_seal_with_unsealed_months.rationale', {}, 'es');
+    expect(s.defaultRationale).toBe(t('policy.year_seal_with_unsealed_months.rationale', {}, 'en'));
+    expect(spanish).toMatch(/para eso no se cita ninguno/);
+    expect(norms(spanish)).toEqual(['NIF A-1', 'NIF B-1']);
   });
 });

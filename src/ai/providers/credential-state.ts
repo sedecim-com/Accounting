@@ -144,26 +144,28 @@ function readFolderEnv(cwd: string): Record<string, string> | null {
 // ============================================================
 // THE ANTHROPIC SDK'S OWN SOURCES
 //
-// MIRRORS @anthropic-ai/sdk 1.8.0 (node_modules/@anthropic-ai/sdk). An SDK
+// MIRRORS @anthropic-ai/sdk 1.12.0 (node_modules/@anthropic-ai/sdk). An SDK
 // upgrade can add or reorder a source: re-read the files cited at each step
-// and move this with it. The answer stays advisory, so a source the mirror
-// misses makes it say «missing» while the session still works, never the
-// other way round. Order, as the SDK resolves it:
+// and move this with it. credential-state.spec.ts compares this version with
+// the installed one, so an upgrade is red until that is done. The answer
+// stays advisory, so a source the mirror misses makes it say «missing» while
+// the session still works, never the other way round. Order, as the SDK
+// resolves it:
 //   1. ANTHROPIC_API_KEY, then ANTHROPIC_AUTH_TOKEN (client.js:122-138);
 //   2. an x-api-key or Authorization line of ANTHROPIC_CUSTOM_HEADERS, which
-//      validateHeaders accepts as authentication (client.js:178-188, :385-388);
+//      validateHeaders accepts as authentication (client.js:178-191, :388-391);
 //   3. the config root: ANTHROPIC_CONFIG_DIR; on Windows APPDATA\Anthropic,
 //      else USERPROFILE\AppData\Roaming\Anthropic, else none; elsewhere
 //      $XDG_CONFIG_HOME/anthropic, else $HOME/.config/anthropic, else none
-//      (core/credentials.js:272-308). With no root nothing below is read;
+//      (core/credentials.js:272-306). With no root nothing below is read;
 //   4. when ANTHROPIC_PROFILE is unset, federation from the environment:
 //      ANTHROPIC_FEDERATION_RULE_ID and ANTHROPIC_ORGANIZATION_ID, and
 //      ANTHROPIC_IDENTITY_TOKEN_FILE or ANTHROPIC_IDENTITY_TOKEN, ahead of any
 //      profile file (core/credentials.js:108-137; without a token the chain
-//      throws, lib/credentials/credential-chain.js:80-120, :160-185);
+//      throws, lib/credentials/credential-chain.js:79-120, :166-188);
 //   5. <root>/configs/<profile>.json, the profile being ANTHROPIC_PROFILE, else
-//      the contents of <root>/active_config, else `default` (:138-159, :311-330).
-//      A profile ANTHROPIC_PROFILE names with no file throws (:152-156).
+//      the contents of <root>/active_config, else `default` (:139-159, :311-331).
+//      A profile ANTHROPIC_PROFILE names with no file throws (:154-157).
 // SECURITY: it reads variables only to see whether they are set, checks that
 // the profile file EXISTS without opening it, and never opens
 // credentials/<profile>.json or the identity token file. It reads
@@ -175,7 +177,7 @@ function sdkEnv(value: string | undefined): string | undefined {
   return value?.trim() || undefined;
 }
 
-/** The SDK's validateProfileName (core/credentials.js:43-57), as a predicate. */
+/** The SDK's validateProfileName (core/credentials.js:44-58), as a predicate. */
 function isSdkProfileName(name: string): boolean {
   return name !== '.' && name !== '..' && /^[A-Za-z0-9_.-]+$/.test(name);
 }

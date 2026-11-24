@@ -190,10 +190,11 @@ describe('providerReadiness — every profile of the config that wins', () => {
   });
 });
 
-// MNE-001-444: the sources the installed @anthropic-ai/sdk (1.8.0) reads
-// when the profile's own variable and helper give nothing, in its order. Every
-// case runs over a temporary HOME: the config root is built there, and the
-// SDK's own variables are passed in `env`, never read from this machine.
+// MNE-001-444: the sources the installed @anthropic-ai/sdk reads when the
+// profile's own variable and helper give nothing, in its order (the block's
+// first case holds the mirror to the installed version). Every case runs over
+// a temporary HOME: the config root is built there, and the SDK's own
+// variables are passed in `env`, never read from this machine.
 describe('credentialState — the Anthropic SDK\'s own sources', () => {
   const anthropic = (over: Partial<ProviderProfile> = {}): ProviderProfile => ({
     type: 'anthropic',
@@ -207,6 +208,27 @@ describe('credentialState — the Anthropic SDK\'s own sources', () => {
     fs.writeFileSync(path.join(root, 'configs', `${profile}.json`), '{"authentication":{"type":"user_oauth"}}');
   };
   const federation = { ANTHROPIC_FEDERATION_RULE_ID: 'fdrl_fake', ANTHROPIC_ORGANIZATION_ID: 'org-fake' };
+
+  // MNE-001-734: the mirror is of ONE version of the SDK, the installed one. A
+  // bump turns this case red until someone re-reads the SDK files that
+  // credential-state.ts cites against the new version, moves the mirror if a
+  // source changed, and then moves the version in every place that states it.
+  it('mirrors the installed @anthropic-ai/sdk, and every place that states the mirrored version says that one', () => {
+    const root = path.join(__dirname, '../../..');
+    const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf-8');
+    const installed = (JSON.parse(read('node_modules/@anthropic-ai/sdk/package.json')) as { version: string }).version;
+    const places: Array<[file: string, statement: RegExp]> = [
+      ['src/ai/providers/credential-state.ts', /MIRRORS @anthropic-ai\/sdk (\d+\.\d+\.\d+)/g],
+      ['src/ai/providers/failover.ts', /@anthropic-ai\/sdk\/client\.js:\d+ in (\d+\.\d+\.\d+)/g],
+      ['.env.example', /@anthropic-ai\/sdk (\d+\.\d+\.\d+)/g],
+      ['docs/RUNBOOK.md', /`@anthropic-ai\/sdk` (\d+\.\d+\.\d+)/g],
+      ['docs/wiki/Proveedores-de-modelo.md', /`@anthropic-ai\/sdk` (\d+\.\d+\.\d+)/g],
+    ];
+    const stated = Object.fromEntries(
+      places.map(([file, statement]) => [file, [...read(file).matchAll(statement)].map((m) => m[1])])
+    );
+    expect(stated).toEqual(Object.fromEntries(places.map(([file]) => [file, [installed]])));
+  });
 
   it('nothing at all: missing, with the profile variable and the page Anthropic names', () => {
     const s = credentialState(anthropic(), { cwd, home, env: { HOME: home } });

@@ -89,6 +89,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'El periodo ya emitió su cierre ({entries}) y la política cierre_recierre_de_periodo_reabierto lo prohíbe volver a cerrar: corrígelo por reclasificación explícita, o cambia la política en mnemosine pending.',
   'error.RESULTADO_SIN_BARRER':
     'El cierre no dejó el ejercicio en cero: {count} cuenta(s) de resultados conservan saldo ({detail}). El cierre se revirtió entero y el periodo sigue abierto: un saldo que sobrevive al cierre siembra mal el ejercicio siguiente. Si el despacho prefiere que esto sólo avise, la política es severidad_resultado_sin_barrer.',
+  'error.YEAR_MONTHS_NOT_SEALED':
+    '{period} sella el ejercicio y {count, plural, one {otro de sus periodos no está} other {# de sus otros periodos no están}} en cierre duro: {periods}. Un periodo que no está en cierre duro todavía recibe pólizas, y ninguna que se contabilice después del sello se barrería. {count, plural, one {Ciérralo} other {Ciérralos, el más antiguo primero,}} en duro con mnemosine close --period <periodo> --hard, o declara que el despacho sella sobre ellos: mnemosine pending define year_seal_with_unsealed_months accept_unsealed.',
   'error.SOD_QUIEN_CREA_NO_POSTEA.apply':
     '{reference}: la política de segregación de funciones exige que quien aplica no sea quien lo preparó. Que otro usuario lo aplique, o ajusta la política segregacion_de_funciones en mnemosine pending.',
   'error.SOD_QUIEN_CREA_NO_POSTEA.post':
@@ -1286,6 +1288,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'Avisar: el cierre se completa y el residuo se reporta con su remedio',
   'policy.unswept_pl_accounts_severity.option.tolerancia':
     'Aceptar hasta la tolerancia de cierre de la entidad y fallar por encima de ella',
+
+  'policy.year_seal_with_unsealed_months.question':
+    '¿Se puede sellar un ejercicio mientras otro de sus periodos no está en cierre duro?',
+  'policy.year_seal_with_unsealed_months.impact':
+    'Gobierna el cierre duro del último periodo de un ejercicio (el periodo 13, o diciembre en un ejercicio que conservó doce periodos), el acto que barre los ingresos y los gastos al capital con lo que esté contabilizado en ese momento. Con «require_hard_close» ese sello se niega mientras otro periodo del ejercicio esté en cierre suave, abierto o futuro, y la negativa nombra cada uno; el cierre suave del último periodo no se detiene. Con «accept_unsealed» el ejercicio se sella sobre ellos, y el checklist del cierre avisa y los nombra (casilla year-months-sealed). Un periodo que no está en cierre duro todavía recibe pólizas, y ninguna que se le contabilice después del sello se barre.',
+  'policy.year_seal_with_unsealed_months.rationale':
+    'El sello barre el resultado con lo que esté contabilizado en ese momento, y un periodo que no está en cierre duro todavía recibe pólizas: un ingreso o un gasto que se le contabilice después queda fuera del resultado ya barrido, cuando los costos y los gastos pertenecen al periodo de los ingresos que generan (NIF A-1, capítulo 20). La NIF B-1 corrige un error de un ejercicio ya cerrado con una póliza de ajuste en el periodo actual contra resultados de ejercicios anteriores, sin reabrirlo, lo que supone que un ejercicio cerrado ya no recibe pólizas. Ningún párrafo de las normas que este sistema trae regula el orden entre los cierres mensuales y el anual, así que para eso no se cita ninguno: el valor por omisión es la opción conservadora del ADR-0006, decisión 1, la que no barre un ejercicio que todavía puede cambiar.',
+  'policy.year_seal_with_unsealed_months.why':
+    'Unos despachos dejan sus meses en cierre suave para que todavía quepan ajustes tardíos y sellan todo al final del ejercicio; otros cierran en duro cada mes primero. El cierre anual barre el resultado el día en que se sella, así que necesito saber si espera a los meses.',
+  'policy.year_seal_with_unsealed_months.what':
+    'Por omisión me niego a sellar el último periodo del ejercicio mientras otro periodo de ese ejercicio no esté en cierre duro, y nombro cada uno. Con «accept_unsealed» lo sello, y el checklist avisa cuáles quedaron sin sello.',
+  'policy.year_seal_with_unsealed_months.if_skipped':
+    'Me niego al sello anual hasta que todos los demás periodos del ejercicio estén en cierre duro.',
+  'policy.year_seal_with_unsealed_months.option.require_hard_close':
+    'Negar el sello anual hasta que todos los demás periodos del ejercicio estén en cierre duro',
+  'policy.year_seal_with_unsealed_months.option.accept_unsealed':
+    'Sellar el ejercicio sobre ellos: el checklist avisa y los nombra',
 
   'policy.exchange_rate_source.question':
     'Cuando necesito un tipo de cambio para una fecha, ¿qué fuente publicada uso?',
@@ -6665,6 +6684,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'El recibo {id} no se timbró: su corrida {run} está en estado {status}, y el CFDI de nómina sólo se emite ' +
+    'para una corrida aprobada o pagada. No se envió nada al PAC ni se escribió nada.',
+  'payrun.deposit_file.run_not_approved':
+    'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
+    'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +

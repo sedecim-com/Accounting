@@ -197,12 +197,13 @@ describe('y la cadena PROPIA sigue funcionando', () => {
     expect(r.status, `contestó ${r.status}`).toBe(201);
   });
 
-  it('el recibo propio llega al timbrado: lo para el PAC simulado, no la frontera', async () => {
-    // 422 PAC_SIMULADO y no 404: la frontera dejó pasar el recibo propio y
-    // quien se niega es el guardián del PAC de mentira, que es otra puerta.
-    // Se afirma «no 404» y nada más — un 200 aquí exigiría un PAC de verdad.
+  it('el recibo propio pasa la frontera: lo para el estado de su corrida, no un 404', async () => {
+    // 409 and not 404: the boundary let the own paycheck through, and what
+    // refuses it is another door. That door was the simulated PAC's guard
+    // (422) until MNE-001-720; now the run's status answers first, because
+    // RECIBO_A hangs from a run that is calculated and not approved.
     const r = await pedir(srv, 'POST', `/payroll/paychecks/${RECIBO_A}/cfdi-nomina`, {});
-    expect(r.status, `contestó ${r.status}`).not.toBe(404);
+    expect(r.status, `contestó ${r.status}`).toBe(409);
   });
 
   // After the stamp on purpose (MNE-001-657): calculating again REPLACES the

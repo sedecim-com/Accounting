@@ -2,12 +2,13 @@ import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { daysBetween } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
-import { NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
 import { PAY_RUN_TYPES } from '../../../database/enums.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 import { storedIsrParts } from './isr-exemption.js';
+import { runIsReleased, type PayRunStatus } from '../common/pay-run-release.js';
 
 // ============================================================
 // CFDI 4.0 PAYROLL — voucher type N (Comprobante Tipo N) + Nomina 1.2 complement
@@ -77,6 +78,8 @@ export async function generateAndStampCfdiNomina(
     hire_date: string;
     entity_tax_id: string;
     entity_name: string;
+    run_id: string;
+    run_status: PayRunStatus;
     run_type: PayRunType;
     pay_frequency: Exclude<PayFrequency, 'annual'>;
   }>(
@@ -91,7 +94,7 @@ export async function generateAndStampCfdiNomina(
             e.tipo_regimen_sat, e.tipo_contrato_sat, e.tipo_jornada_sat,
             e.riesgo_puesto, e.puesto, e.hire_date,
             ent.tax_id AS entity_tax_id, ent.name AS entity_name,
-            pr.run_type, ps.frequency AS pay_frequency
+            pr.id AS run_id, pr.status AS run_status, pr.run_type, ps.frequency AS pay_frequency
      FROM paychecks p
      JOIN pay_runs pr ON pr.id = p.pay_run_id
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
@@ -103,6 +106,17 @@ export async function generateAndStampCfdiNomina(
   );
   if (result.rows.length === 0) throw new NotFoundError('Paycheck', paycheckId);
   const r = result.rows[0];
+
+  // THE RUN'S STATUS, BEFORE ANYTHING ELSE IS READ OR SENT (MNE-001-720, #601).
+  // It rides in the statement above, after the scope: a paycheck outside it is
+  // still a 404 in any state. A paycheck of a run nobody approved was stamped
+  // like any other, and a stamp is cancelled before the SAT, not erased here.
+  if (!runIsReleased(r.run_status)) {
+    throw new ConflictError({
+      key: 'payrun.cfdi.run_not_approved',
+      params: { id: paycheckId, run: r.run_id, status: r.run_status },
+    });
+  }
 
   // Load earnings and deductions
   const earnings = await query<{

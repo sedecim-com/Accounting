@@ -25,7 +25,7 @@ import {
   readEmploymentSubsidySeparateRun,
   isSeparatePaycheck,
   subsidyOfPaycheckInPeriod,
-  subsidyOfOtherRunsInPeriod,
+  otherPaychecksInPeriod,
   subsidyDaysInPeriod,
   EMPLOYMENT_SUBSIDY_EXCESS_LAW,
   applyEmploymentSubsidy,
@@ -281,10 +281,21 @@ describe('the subsidy of a later paycheck of the same period', () => {
   });
 
   it('reads the other runs of the period inside the tenant, leaving out the run being calculated', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ paychecks: 1, taxable: '1500.00', subsidy: '264.30' }] });
-    const r = await subsidyOfOtherRunsInPeriod({ tenantId: 't', employeeId: 'emp', payRunId: 'run', payPeriodId: 'per' });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        paychecks: 1, taxable: '1500.00', subsidy: '264.30',
+        imss_employee: '35.63', imss_employer: '400.10', infonavit_employer: '75.00', infonavit_credit: '600.00',
+        contribution_base: '1500.00',
+      }],
+    });
+    const r = await otherPaychecksInPeriod({ tenantId: 't', employeeId: 'emp', payRunId: 'run', payPeriodId: 'per' });
     expect([r.paychecks, r.taxableIsr.toFixed(2), r.subsidy.toFixed(2)]).toEqual([1, '1500.00', '264.30']);
+    // MNE-001-658: the same read brings what those paychecks charged of IMSS and INFONAVIT.
+    expect([r.imssEmployee, r.imssEmployer, r.infonavitEmployer, r.infonavitCredit, r.contributionBase].map((d) => d.toFixed(2)))
+      .toEqual(['35.63', '400.10', '75.00', '600.00', '1500.00']);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
     const [sql, args] = mockQuery.mock.calls.at(-1) as [string, unknown[]];
+    expect(sql).toMatch(/SUM\(p\.imss_employee\)[\s\S]*SUM\(p\.imss_employer\)[\s\S]*SUM\(p\.infonavit_employer\)[\s\S]*SUM\(p\.infonavit_withheld\)/);
     expect(sql).toMatch(/p\.tenant_id = \$1/);
     expect(sql).toMatch(/pr\.id <> \$4/);
     expect(sql).toMatch(/pr\.status IN \('calculated', 'approved', 'paid'\)/);

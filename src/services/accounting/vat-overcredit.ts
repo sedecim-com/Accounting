@@ -12,7 +12,7 @@ import { todayFor } from '../policy/today.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { billHeaderVat } from '../xml-ingestion/pre-registration-service.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
-import { CREDIT_DATE } from '../sat/diot/hechos.js';
+import { APPLICATION_CREDIT_DATE } from '../sat/diot/hechos.js';
 import { writtenOffOf } from '../payments/payment-service.js';
 
 // ============================================================
@@ -125,7 +125,7 @@ export interface OvercreditPayment {
   applicationId: string;
   paymentId: string;
   paymentNumber: string;
-  /** The day the DIOT and the IVA workpaper count it (`CREDIT_DATE`); null for a held cheque. */
+  /** The day the DIOT and the IVA workpaper count it (`APPLICATION_CREDIT_DATE`); null for a held cheque. */
   creditDate: string | null;
   applied: string;
   stored: string | null;
@@ -229,7 +229,7 @@ SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bil
 // table (hechos.ts explains why both), in the order they were written.
 const APPLICATIONS = `
 SELECT pa.id AS application_id, pa.bill_id, vp.id AS payment_id, vp.payment_number,
-       to_char(${CREDIT_DATE}, 'YYYY-MM-DD') AS credit_date,
+       to_char(${APPLICATION_CREDIT_DATE}, 'YYYY-MM-DD') AS credit_date,
        pa.amount_applied::text AS applied, pa.iva_reclass_amount::text AS stored
   FROM payment_applications pa
   JOIN bills b ON b.id = pa.bill_id

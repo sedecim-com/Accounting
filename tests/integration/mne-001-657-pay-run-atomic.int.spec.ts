@@ -204,7 +204,8 @@ describe('a pay run is calculated whole or not at all, and again before it is ap
     async (what) => {
       const runId = await newRun();
       await calculate(runId, [[a, 6000], [b, 9750]]);
-      // Neither door checks the run's status today, so a calculated run can hold one.
+      // Written by hand: both doors refuse an unapproved run since MNE-001-720, but a row
+      // stamped or batched before that can still hold one.
       if (what === 'a payroll CFDI') {
         await query(
           `UPDATE paychecks SET cfdi_uuid = $3, cfdi_status = 'stamped' WHERE pay_run_id = $1 AND employee_id = $2`,
