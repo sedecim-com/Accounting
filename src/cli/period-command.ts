@@ -18,6 +18,7 @@ import {
 } from '../services/accounting/fiscal-calendar-service.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { AccountingError } from '../utils/errors.js';
+import { t } from '../i18n/index.js';
 import { day, translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
@@ -91,8 +92,8 @@ const PERIOD_COLUMNS = [
 export function reopenRemedy(periodName: string, previousStatus: string): string[] {
   const close = `mnemosine close --period "${periodName}"`;
   return previousStatus === 'hard_close'
-    ? [`Close it again with: ${close}`, `  then seal it, which redoes its carry-forward: ${close} --hard`]
-    : [`Close it again with: ${close}`];
+    ? [t('ledger.period.remedy.close_again', { close }), t('ledger.period.remedy.seal', { close })]
+    : [t('ledger.period.remedy.close_again', { close })];
 }
 
 function periodRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -144,7 +145,7 @@ function announceTarget(
 ): void {
   if (opts.entity) return;
   process.stderr.write(
-    deps.palette.dim(`  → ${ctx.entityName} (active entity; name another with --entity)\n`)
+    deps.palette.dim(`  ${t('ledger.period.active_entity', { entity: ctx.entityName })}\n`)
   );
 }
 
@@ -244,12 +245,12 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
       const ctx = await entityOf(opts);
       for (const state of opts.status ?? []) {
         if (!(PERIOD_STATUSES as readonly string[]).includes(state)) {
-          throw usageError(`Unknown --status "${state}". Use one of: ${PERIOD_STATUSES.join(', ')}.`);
+          throw usageError({ key: 'ledger.period.status_unknown', params: { value: state, statuses: PERIOD_STATUSES.join(', ') } });
         }
       }
       const yearNumber = opts.year ? Number(opts.year) : undefined;
       if (yearNumber !== undefined && !Number.isInteger(yearNumber)) {
-        throw usageError(`--year "${opts.year}" is not a four-digit year.`);
+        throw usageError({ key: 'ledger.period.year_invalid', params: { value: opts.year ?? '' } });
       }
 
       // Unlike `close --list`, which shows only what can be closed, this is
@@ -315,29 +316,38 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
       out.write(
         `\n${p.bold(detail.period_name)}  ${p.dim(
           `${day(detail.start_date)} → ${day(detail.end_date)} · ${detail.status}` +
-            `${detail.overdue ? ' · overdue' : ''}`
+            `${detail.overdue ? t('ledger.period.show.overdue') : ''}`
         )}\n`
       );
       out.write(
         p.dim(
-          `  period ${detail.period_number} of fiscal year ${detail.year_number} · ${detail.period_type}\n`
+          `  ${t('ledger.period.show.position', {
+            number: detail.period_number,
+            year: String(detail.year_number),
+            type: detail.period_type,
+          })}\n`
         )
       );
       if (detail.soft_close_date) {
         out.write(
           p.dim(
-            `  soft closed ${new Date(detail.soft_close_date).toISOString()}` +
-              `${detail.closed_by_email ? ` by ${detail.closed_by_email}` : ''}\n`
+            `  ${t('ledger.period.show.soft_closed', { date: new Date(detail.soft_close_date).toISOString() })}` +
+              `${detail.closed_by_email ? t('ledger.period.show.by', { email: detail.closed_by_email }) : ''}\n`
           )
         );
       }
       if (detail.hard_close_date) {
-        out.write(p.dim(`  hard closed ${new Date(detail.hard_close_date).toISOString()}\n`));
+        out.write(
+          p.dim(`  ${t('ledger.period.show.hard_closed', { date: new Date(detail.hard_close_date).toISOString() })}\n`)
+        );
       }
 
-      out.write(`\n  ${p.bold('Entries')} ${p.dim(`(${detail.entry_count} total)`)}\n`);
+      out.write(
+        `\n  ${p.bold(t('ledger.period.show.entries'))} ` +
+          `${p.dim(t('ledger.period.show.entries_total', { count: detail.entry_count }))}\n`
+      );
       if (detail.entry_count === 0) {
-        out.write(p.dim('    none\n'));
+        out.write(p.dim(`    ${t('ledger.period.show.none')}\n`));
       } else {
         for (const [state, count] of Object.entries(detail.entry_counts)) {
           out.write(`    ${state.padEnd(16)} ${String(count).padStart(5)}\n`);
@@ -346,7 +356,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
 
       const checklist = detail.close_checklist as unknown;
       if (Array.isArray(checklist) && checklist.length > 0) {
-        out.write(`\n  ${p.bold('Checklist saved at close')}\n`);
+        out.write(`\n  ${p.bold(t('ledger.period.show.checklist'))}\n`);
         for (const item of checklist as Array<{ item: string; is_complete: boolean; details?: string }>) {
           out.write(
             `    ${item.is_complete ? p.green('✔') : p.red('✘')} ${item.item}` +
@@ -382,7 +392,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
 
       if (opts.dryRun) {
         process.stdout.write(
-          `\n${deps.palette.bold(`Would open ${target.period_name}`)} ` +
+          `\n${deps.palette.bold(t('ledger.period.open.would_open', { period: target.period_name }))} ` +
             `${deps.palette.dim(`(${target.status} → open, ${day(target.start_date)} → ${day(target.end_date)})`)}\n\n`
         );
         return;
@@ -391,7 +401,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const opened = await openPeriod(ctx.entityId, target.id, reviewer.userId, opts.reason);
       process.stdout.write(
-        `${deps.palette.green('✔')} ${deps.palette.bold(opened.period_name)} is open ` +
+        `${deps.palette.green('✔')} ${t('ledger.period.open.done', { period: deps.palette.bold(opened.period_name) })} ` +
           `${deps.palette.dim(`(${day(opened.start_date)} → ${day(opened.end_date)})`)}\n`
       );
     })
@@ -420,7 +430,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   declareRisk(reopen, {
     risk: 'irreversible',
     llave: { scope: 'period-reopen' },
-    writes: "fiscal_periods.status (cerrado → open); audit_log acción 'reopen' con motivo",
+    writes: "fiscal_periods.status (closed → open); audit_log action 'reopen' with its reason",
   });
   reopen.addHelpText('after', EJEMPLOS.periodReopen);
   reopen.action(
@@ -459,17 +469,16 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
           });
         }
         if (estado === 'locked') {
-          throw new AccountingError(
-            'PERIOD_LOCKED',
-            `${target.period_name} está 'locked': su información ya salió del sistema y no se ` +
-              'reabre — ni con --force. La corrección va en el periodo abierto más próximo.'
-          );
+          throw new AccountingError('PERIOD_LOCKED', {
+            key: 'ledger.period.reopen.locked',
+            params: { period: target.period_name },
+          });
         }
         if (estado !== 'soft_close' && estado !== 'hard_close') {
-          throw new AccountingError(
-            'PERIOD_NOT_CLOSED',
-            `${target.period_name} está '${target.status}': reabrir es sólo para periodos cerrados.`
-          );
+          throw new AccountingError('PERIOD_NOT_CLOSED', {
+            key: 'ledger.period.reopen.not_closed',
+            params: { period: target.period_name, status: target.status },
+          });
         }
 
         // El cierre DURO generó asientos de cierre (si fue fin de ejercicio)
@@ -478,20 +487,14 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
         // periodo ya no dice, así que pide la pareja --force + --reason en
         // vez de pasar como si fuera un soft_close.
         if (estado === 'hard_close' && opts.force !== true) {
-          throw blockedByState(
-            `${target.period_name} está en hard_close: sus asientos de cierre y el arrastre de ` +
-              'saldos quedan en pie al reabrir (el mayor no se toca). Si de verdad quieres ' +
-              'reabrirlo, repite con --force --reason "<por qué>".'
-          );
+          throw blockedByState({ key: 'ledger.period.reopen.hard_close', params: { period: target.period_name } });
         }
 
         if (dryRun) {
           process.stdout.write(
-            `\n${deps.palette.bold(`Would reopen ${target.period_name}`)} ` +
+            `\n${deps.palette.bold(t('ledger.period.reopen.would_reopen', { period: target.period_name }))} ` +
               `${deps.palette.dim(`(${target.status} → open, ${day(target.start_date)} → ${day(target.end_date)})`)}\n` +
-              deps.palette.dim(
-                '  (dry-run: nothing was written; the reopen would be recorded in the audit trail)\n\n'
-              )
+              deps.palette.dim(`  ${t('ledger.period.reopen.dry_run')}\n\n`)
           );
           return;
         }
@@ -499,11 +502,12 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
         // Reabrir cambia lo que un cierre ya afirmó: siempre se confirma, y
         // sin terminal el comando se niega en vez de suponer consentimiento.
         if (!opts.yes) {
+          const question = {
+            key: 'ledger.period.reopen.question',
+            params: { period: target.period_name, status: target.status },
+          } as const;
           if (!stdin.isTTY) {
-            throw abortedByUser(
-              `Reopen ${target.period_name} (${target.status} → open)? — there is no terminal to ask on. ` +
-                'Re-run with --yes once you are sure, or with --dry-run to see the effect first.'
-            );
+            throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
           }
           const rl = readline.createInterface({ input: stdin, output: stdout });
           // La comprobación anterior aceptaba como SÍ cualquier respuesta que
@@ -512,14 +516,14 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
           // kernel, que distingue el sí del salir y reintenta ante lo ambiguo.
           const veredicto = await confirmarConReintento(
             (p) => rl.question(p).catch(() => null),
-            deps.palette.cyan(yesNoPrompt(`Reopen ${target.period_name} (${target.status} → open)?`))
+            deps.palette.cyan(yesNoPrompt(t(question.key, question.params)))
           );
           rl.close();
           if (veredicto.incomprendida !== undefined) {
-            process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+            process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
           }
           if (!veredicto.si) {
-            process.stdout.write('Cancelled.\n');
+            process.stdout.write(`${t('ledger.period.reopen.cancelled')}\n`);
             return;
           }
         }
@@ -548,17 +552,22 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
 
         if (acto.repetido) {
           process.stdout.write(
-            `↩ Idempotency hit: key "${opts.idempotencyKey}" already reopened ` +
-              `${acto.resultado.period_name} (was ${acto.resultado.previous_status}). Nothing was executed again.\n`
+            `${t('ledger.period.reopen.idempotency_hit', {
+              key: opts.idempotencyKey ?? '',
+              period: acto.resultado.period_name,
+              previous: acto.resultado.previous_status,
+            })}\n`
           );
           return;
         }
 
         process.stdout.write(
-          `${deps.palette.green('✔')} ${deps.palette.bold(acto.resultado.period_name)} is open again ` +
-            `${deps.palette.dim(`(was ${acto.resultado.previous_status}, by ${reviewer.email}; reason recorded)`)}\n` +
+          `${deps.palette.green('✔')} ${t('ledger.period.reopen.done', { period: deps.palette.bold(acto.resultado.period_name) })} ` +
+            `${deps.palette.dim(
+              t('ledger.period.reopen.done_detail', { previous: acto.resultado.previous_status, email: reviewer.email })
+            )}\n` +
             deps.palette.dim(
-              '  Statements or filings derived from this period are now stale: regenerate them after re-closing.\n' +
+              `  ${t('ledger.period.reopen.stale')}\n` +
               reopenRemedy(acto.resultado.period_name, acto.resultado.previous_status)
                 .map((line) => `  ${line}\n`)
                 .join('')
@@ -585,11 +594,11 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       const ctx = await entityOf(opts);
       for (const state of opts.status ?? []) {
         if (state !== 'open' && state !== 'closed') {
-          throw usageError(`Unknown --status "${state}". A fiscal year is 'open' or 'closed'.`);
+          throw usageError({ key: 'ledger.period.year.status_unknown', params: { value: state } });
         }
       }
       if ((opts.status?.length ?? 0) > 1) {
-        throw usageError("A fiscal year is either 'open' or 'closed': pass one --status, or none.");
+        throw usageError({ key: 'ledger.period.year.one_status' });
       }
       const rows = await listFiscalYears(ctx.entityId, { status: opts.status?.[0] });
       const limited = opts.all ? rows : rows.slice(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 50));
@@ -613,7 +622,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
     run(async () => {
       const ctx = await entityOf(opts);
       const yearNumber = Number(yearArg);
-      if (!Number.isInteger(yearNumber)) throw usageError(`"${yearArg}" is not a four-digit year.`);
+      if (!Number.isInteger(yearNumber)) throw usageError({ key: 'ledger.period.year.not_a_year', params: { value: yearArg } });
       const { year: fiscalYear, periods } = await getFiscalYear(ctx.entityId, yearNumber);
 
       if (!legible(opts)) {
@@ -631,9 +640,9 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
 
       const p = deps.palette;
       process.stdout.write(
-        `\n${p.bold(`Fiscal year ${fiscalYear.year_number}`)}  ${p.dim(
+        `\n${p.bold(t('ledger.period.year.title', { year: fiscalYear.year_number }))}  ${p.dim(
           `${day(fiscalYear.start_date)} → ${day(fiscalYear.end_date)} · ${fiscalYear.status}` +
-            `${fiscalYear.is_calendar_year ? ' · calendar year' : ''}`
+            `${fiscalYear.is_calendar_year ? t('ledger.period.year.calendar') : ''}`
         )}\n\n`
       );
       render(periods.map((row) => periodRow(row as unknown as Record<string, unknown>)), {
@@ -665,7 +674,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
       announceTarget(deps, opts, ctx);
       const yearNumber = Number(yearArg);
-      if (!Number.isInteger(yearNumber)) throw usageError(`"${yearArg}" is not a four-digit year.`);
+      if (!Number.isInteger(yearNumber)) throw usageError({ key: 'ledger.period.year.not_a_year', params: { value: yearArg } });
       // Range-checked BEFORE the dry-run branch, with the service's own rule:
       // otherwise `year create 99999 --dry-run` reported "would create" and
       // exit 0 while the real command refused it with exit 4.
@@ -679,14 +688,14 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
           // Same verdict, and the same exit code, as the real run: a dry run
           // that reports a different failure than the act it previews is worse
           // than no dry run at all.
-          throw conflict(
-            `Fiscal year ${yearNumber} already exists for ${ctx.entityName} with ` +
-              `${existing.period_count} period(s). Nothing would be created.`
-          );
+          throw conflict({
+            key: 'ledger.period.year.exists',
+            params: { year: yearNumber, entity: ctx.entityName, count: Number(existing.period_count) },
+          });
         }
         process.stdout.write(
-          `\n${deps.palette.bold(`Would create fiscal year ${yearNumber}`)} ` +
-            `${deps.palette.dim('with 12 monthly periods (calendar year) and the year-end adjustment period (13); months already past and the current one open, the rest future')}\n\n`
+          `\n${deps.palette.bold(t('ledger.period.year.would_create', { year: yearNumber }))} ` +
+            `${deps.palette.dim(t('ledger.period.year.would_create_detail'))}\n\n`
         );
         return;
       }
@@ -699,9 +708,9 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
         return;
       }
       process.stdout.write(
-        `${deps.palette.green('✔')} Fiscal year ${deps.palette.bold(String(result.yearNumber))} created ` +
-          `${deps.palette.dim(`with 12 monthly periods and the year-end adjustment period (13)`)}\n` +
-          deps.palette.dim('  Open a future month with: mnemosine period open <name>\n')
+        `${deps.palette.green('✔')} ${t('ledger.period.year.created', { year: deps.palette.bold(String(result.yearNumber)) })} ` +
+          `${deps.palette.dim(t('ledger.period.year.created_detail'))}\n` +
+          deps.palette.dim(`${t('ledger.period.year.open_hint')}\n`)
       );
     })
   );

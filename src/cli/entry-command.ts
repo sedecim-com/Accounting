@@ -68,6 +68,7 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, SIDE_ALIASES, type LineGrammar } from './kernel/line-spec.js';
 import { AppError } from '../utils/errors.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine entry · poliza
@@ -760,7 +761,11 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const ctx = await entityOf(opts);
       const p = await previewEntryPosting(ctx.entityId, ref);
       process.stderr.write(deps.palette.dim(
-        `${p.entry_number} (${p.status}) · ${p.period_name ?? 'sin periodo'} · delta por cuenta si se aplicara:\n`
+        `${t('ledger.entry.preview.heading', {
+          number: p.entry_number,
+          status: p.status,
+          period: p.period_name ?? t('ledger.entry.preview.no_period'),
+        })}\n`
       ));
       render(p.deltas as unknown as Record<string, unknown>[], { ...opts, idField: 'account_code' });
       for (const a of p.advertencias) process.stderr.write(deps.palette.yellow(`  ⚠ ${a}\n`));
@@ -818,7 +823,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const updated = await updateDraftEntry(ctx.entityId, ref, patch, reviewer.userId);
       process.stdout.write(
-        `${deps.palette.green('✔')} ${updated.entry_number} editada (sigue en borrador; se aplica con entry post).\n`
+        `${deps.palette.green('✔')} ${t('ledger.entry.edit.done', { number: updated.entry_number })}\n`
       );
     })
   );
@@ -847,7 +852,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         idField: 'entry_number',
       });
       process.stderr.write(deps.palette.dim(
-        `${rows.length} línea(s) exportadas. XLSX aún no: usa --format csv y ábrelo en la hoja de cálculo.\n`
+        `${t('ledger.entry.export.done', { count: rows.length })}\n`
       ));
     })
   );
@@ -869,7 +874,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     agent: true,
     draftOnly: true,
     llave: { scope: 'entry import' },
-    writes: 'journal_entry_import_batches + journal_entry_import_rows (staging; jamás el mayor)',
+    writes: 'journal_entry_import_batches + journal_entry_import_rows (staging; never the ledger)',
   });
   importar.addHelpText('after', EJEMPLOS.import);
   importar.action((file: string, opts: CommonOpts & { layout: string; dryRun?: boolean; idempotencyKey?: string }) =>
@@ -882,10 +887,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
 
       if (opts.dryRun) {
         process.stdout.write(
-          `${lote.validas} póliza(s) legible(s), ${lote.invalidas} con error (dry-run: nada se preparó)\n`
+          `${t('ledger.entry.import.dry_run', { valid: lote.validas, invalid: lote.invalidas })}\n`
         );
         for (const f of lote.filas.filter((x) => x.parse_error).slice(0, 10)) {
-          process.stderr.write(deps.palette.yellow(`  · fila ${f.row_number}: ${f.parse_error}\n`));
+          process.stderr.write(deps.palette.yellow(`  · ${t('ledger.batch.row', { row: f.row_number })}: ${f.parse_error}\n`));
         }
         return lote.invalidas > 0 ? ExitCode.VALIDATION : ExitCode.OK;
       }
@@ -902,14 +907,16 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
           )) as unknown as Record<string, unknown>
       );
       process.stdout.write(
-        `${deps.palette.green('✔')} lote ${deps.palette.bold(String(resultado.batchId))}: ` +
-          `${resultado.validas} póliza(s) preparadas, ${resultado.invalidas} con error` +
-          (repetido ? deps.palette.dim(' [repetido: lote de la primera corrida]') : '') +
+        `${deps.palette.green('✔')} ` +
+          t('ledger.entry.import.done', {
+            id: deps.palette.bold(String(resultado.batchId)),
+            valid: Number(resultado.validas),
+            invalid: Number(resultado.invalidas),
+          }) +
+          (repetido ? deps.palette.dim(t('ledger.entry.import.repeated')) : '') +
           '\n'
       );
-      process.stderr.write(deps.palette.dim(
-        'El lote NO tocó el mayor: se valida y aplica con la familia batch (check/post) cuando llegue; mientras, es inspeccionable por batch_id.\n'
-      ));
+      process.stderr.write(deps.palette.dim(`${t('ledger.entry.import.not_in_ledger')}\n`));
     })
   );
 

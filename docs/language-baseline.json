@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 42,
+    "spanish-user-strings-cli": 0,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -22,7 +22,7 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 48,
-    "cli-user-strings-without-key": 838,
+    "cli-user-strings-without-key": 806,
     "help-examples-without-key": 252,
     "spanish-user-strings-services": 1987
   },
@@ -847,12 +847,6 @@
       "scripts/reclasificar-iva-ppd.ts": 1,
       "scripts/rellenar-roles-de-cuenta.ts": 1
     },
-    "spanish-user-strings-cli": {
-      "src/cli/entry-command.ts": 9,
-      "src/cli/fx-command.ts": 17,
-      "src/cli/ledger-command.ts": 11,
-      "src/cli/period-command.ts": 5
-    },
     "plan-criteria-grepping-spanish-identifiers": {
       "scripts/corpus-manifiesto.ts": 1,
       "scripts/costo-por-fila.ts": 1,
@@ -1513,7 +1507,6 @@
       "src/cli/entity-command.ts": 14,
       "src/cli/entry-command.ts": 38,
       "src/cli/first-run.ts": 6,
-      "src/cli/fx-command.ts": 8,
       "src/cli/garnishment-command.ts": 7,
       "src/cli/init-command.ts": 16,
       "src/cli/init/s0-infra.ts": 14,
@@ -1535,7 +1528,6 @@
       "src/cli/pay-run-command.ts": 1,
       "src/cli/payment-command.ts": 1,
       "src/cli/payroll-isn-command.ts": 45,
-      "src/cli/period-command.ts": 24,
       "src/cli/prepaid-command.ts": 1,
       "src/cli/prompt-size-command.ts": 4,
       "src/cli/provider-readiness.ts": 5,

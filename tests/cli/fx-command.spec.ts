@@ -145,7 +145,7 @@ describe('safety declarations', () => {
     // hecho: sin conector, ejecutar falla cerrado. La clase de riesgo sigue
     // siendo `externo` porque ESA es la clase de efecto de la hoja — bajarla
     // haría que el conector de fase 2 cambiara el permiso del agente.
-    expect(risks.get('fx rate download')?.writes).toMatch(/falla cerrado/);
+    expect(risks.get('fx rate download')?.writes).toMatch(/fails closed/);
   });
 
   it('carries the live gate, and says the truth about the key it accepts', () => {
