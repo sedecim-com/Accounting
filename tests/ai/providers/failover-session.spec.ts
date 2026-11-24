@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -132,5 +132,107 @@ describe('a failover walk never enters NVIDIA\'s hosted trial', () => {
     expect(err).toBeInstanceOf(AllProvidersFailedError);
     expect((err as Error).message).toMatch(/primary \(server\).*not tried: nvidia .*hosted trial.*never a fallback/);
     expect(tried).toEqual(['primary']);
+  });
+});
+
+// MNE-001-447 (#644 P7): a link with no credential here is skipped, not a
+// reason to stop. The chain is the person's own, in a temporary home; only
+// GEMINI_API_KEY is set, with an invented value, and no provider is called:
+// the session factory stands in for each one.
+describe('a failover walk skips a link with no credential', () => {
+  const NO_CREDENTIAL =
+    'Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set. Or for the "Authorization" header to be explicitly omitted';
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function homeWithChain(): string {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-failover-home-'));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-failover-cwd-'));
+    dirs.push(home, cwd);
+    fs.mkdirSync(path.join(home, '.mnemosine'));
+    fs.writeFileSync(
+      path.join(home, '.mnemosine', 'config.json'),
+      JSON.stringify({
+        providers: {
+          anthropic: { type: 'anthropic', model: 'claude-opus-5', failover: ['openai', 'grok', 'gemini'] },
+        },
+      })
+    );
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('MNEMOSINE_PROVIDER', '');
+    for (const variable of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY', 'GEMINI_API_KEY']) vi.stubEnv(variable, '');
+    return cwd;
+  }
+
+  /** anthropic fails with the SDK's exact error on its first request; any other link that gets this far answers. */
+  function factory(tried: string[]) {
+    return async (profile: ResolvedProfile): Promise<LlmSession> => {
+      tried.push(profile.name);
+      return {
+        label: `${profile.name} · ${profile.model}`,
+        runTurn: async () => {
+          if (profile.type === 'anthropic') throw new Error(NO_CREDENTIAL);
+          return `answer from ${profile.name}`;
+        },
+        reset: () => {},
+      };
+    };
+  }
+
+  it('with only GEMINI_API_KEY, the first turn lands on gemini and trips no cooldown', async () => {
+    const cwd = homeWithChain();
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-clave-inventada');
+    const tried: string[] = [];
+    const events: string[] = [];
+    const cooldowns = new CooldownRegistry();
+    const session = await createLlmSessionWithFailover('anthropic', CTX, {}, {
+      cwd,
+      sessionFactory: factory(tried),
+      cooldowns,
+      onFailover: (from, errorType, to) => events.push(`${from}:${errorType}:${to}`),
+    });
+    expect(await session.runTurn('hola')).toBe('answer from gemini');
+    expect(session.label).toBe('gemini · gemini-3.8-flash');
+    // openai and grok fail in resolveProfile, before any session exists.
+    expect(tried).toEqual(['anthropic', 'gemini']);
+    expect(events).toEqual(['anthropic:unconfigured:openai', 'openai:unconfigured:grok', 'grok:unconfigured:gemini']);
+    for (const name of ['anthropic', 'openai', 'grok', 'gemini']) expect(cooldowns.isCooling(name)).toBe(false);
+  });
+
+  it('with no key at all, AllProvidersFailedError names every link as unconfigured', async () => {
+    const cwd = homeWithChain();
+    const session = await createLlmSessionWithFailover('anthropic', CTX, {}, {
+      cwd,
+      sessionFactory: factory([]),
+      cooldowns: new CooldownRegistry(),
+    });
+    const err = await session.runTurn('hola').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AllProvidersFailedError);
+    expect((err as AllProvidersFailedError).failures.map((f) => `${f.provider}:${f.category}`)).toEqual([
+      'anthropic:unconfigured',
+      'openai:unconfigured',
+      'grok:unconfigured',
+      'gemini:unconfigured',
+    ]);
+    expect((err as Error).message).toMatch(/anthropic \(unconfigured\), openai \(unconfigured\), grok \(unconfigured\), gemini \(unconfigured\)/);
+  });
+
+  it.each([404, 410])('a %i on the head still fails loudly, with no walk', async (status) => {
+    const cwd = homeWithChain();
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-clave-inventada');
+    const tried: string[] = [];
+    const gone = Object.assign(new Error(`${status} model not found`), { status });
+    const session = await createLlmSessionWithFailover('anthropic', CTX, {}, {
+      cwd,
+      sessionFactory: async (profile) => {
+        tried.push(profile.name);
+        return { label: profile.name, runTurn: async () => Promise.reject(gone), reset: () => {} };
+      },
+      cooldowns: new CooldownRegistry(),
+    });
+    expect(await session.runTurn('hola').catch((e: unknown) => e)).toBe(gone);
+    expect(tried).toEqual(['anthropic']);
   });
 });

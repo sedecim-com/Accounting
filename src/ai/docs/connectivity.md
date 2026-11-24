@@ -185,10 +185,19 @@ output when a connection problem is unclear.
   channels you have NO accounting tools — say so instead of citing figures.
 - A profile may declare a `failover` chain (ordered list of other profiles),
   walked automatically on the eligible categories — auth, rate_limit, server,
-  timeout, billing — and NEVER on a refusal, a context overflow, a caller
-  abort or an unclassified error. It covers session setup and the FIRST turn
+  timeout, billing, unconfigured — and NEVER on a refusal, a context
+  overflow, a caller abort or an unclassified error (a 404 or 410 included).
+  `unconfigured` is a link with no usable credential here: its variable is
+  missing, its helper printed none, or a project helper or pair is not
+  approved. It is skipped with no cooldown, one dim line and no
+  `ai_agent_events` row; a profile naming an installation secret stops the
+  walk instead. It covers session setup and the FIRST turn
   only: once a session has completed one turn it stays on that provider for
   the rest of its life.
+- `mnemosine status` probes an `anthropic` profile through the same SDK
+  client the session builds: the profile's key or the SDK's own sources
+  (`ANTHROPIC_AUTH_TOKEN` goes as `Authorization: Bearer`), never the
+  profile's `base_url` or `headers`; `ANTHROPIC_BASE_URL` still applies.
 
 ## Encryption at rest
 `ENCRYPTION_KEY` (32-byte hex) encrypts secrets stored in OUR database:

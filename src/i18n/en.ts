@@ -7052,6 +7052,11 @@ export const EN = {
     "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
   'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
   // ==== end of MNE-001-452 ====
+  // ==== MNE-001-447 (#644): a failover walk skips a link with no credential ====
+  // One dim line per skipped link; `mnemosine status` names what is missing.
+  'provider.failover.unconfigured':
+    'provider {from} has no usable credential here, so it was skipped (`mnemosine status` says why); trying {to}',
+  // ==== end of MNE-001-447 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   /** Printed in the language it offers, with `t(key, {}, other)`: each catalog offers its own. */
   'cli.lang.offer': 'To use Mnemosine in English: mnemosine lang en',

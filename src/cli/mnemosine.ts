@@ -114,7 +114,7 @@ import { registerRepCommand } from './rep-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, readSecretFromTty, type InitWizardResult } from './init-command.js';
-import { palette } from './palette.js';
+import { palette, type Palette } from './palette.js';
 import { parseKind, refuseIngestionFlags, runCensus, type IngestKind } from './ingest-census.js';
 import { entityScope } from '../database/scope.js';
 import { beginWarningScope } from '../utils/logger.js';
@@ -432,6 +432,27 @@ function makeCallbacks(askUser?: AskUserFn, onDraftCreated?: SessionCallbacks['o
 }
 
 /**
+ * What a failover prints, and whether it leaves an ai_agent_events row
+ * (MNE-001-447). A link with no credential here (`unconfigured`) is skipped
+ * in one dim line, by key, and records nothing: `mnemosine ai stats` counts
+ * provider failures, not configuration gaps, so no event kind or migration
+ * is needed. Any other category prints in the caller's `tone` and records,
+ * as before. Each caller keeps its own registrarEventoEnSegundoPlano call.
+ */
+export function failoverNotice(
+  from: string,
+  errorType: string,
+  to: string,
+  tone: 'dim' | 'red',
+  colors: Pick<Palette, 'dim' | 'red'> = ce
+): { line: string; record: boolean } {
+  if (errorType === 'unconfigured') {
+    return { line: `${colors.dim(`  · ${t('provider.failover.unconfigured', { from, to })}`)}\n`, record: false };
+  }
+  return { line: colors[tone](`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`), record: true };
+}
+
+/**
  * One-shot agent turn for scheduled jobs: fresh session on the default
  * profile, drafts captured for the run log, usage recorded sessionless.
  */
@@ -455,10 +476,13 @@ const makeRunAgentTurn = (ctx: AgentContext, opciones?: { externo?: boolean }): 
       // credencial); con --live viaja SUPERFICIE_DESATENDIDA completa.
       herramientas: opciones?.externo ? SUPERFICIE_DESATENDIDA : SUPERFICIE_DESATENDIDA_SANDBOX,
       onFailover: (from, errorType, to) => {
-        stderr.write(ce.dim(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
-        registrarEventoEnSegundoPlano(ctx, {
-          kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
-        });
+        const notice = failoverNotice(from, errorType, to, 'dim');
+        stderr.write(notice.line);
+        if (notice.record) {
+          registrarEventoEnSegundoPlano(ctx, {
+            kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+          });
+        }
       },
     });
     await session.runTurn(prompt);
@@ -490,10 +514,13 @@ async function buildSession(
       onNudge: () => registrarEventoEnSegundoPlano(ctx, { kind: 'nudge' }),
     },
     onFailover: (from, errorType, to) => {
-      stderr.write(ce.red(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
-      registrarEventoEnSegundoPlano(ctx, {
-        kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
-      });
+      const notice = failoverNotice(from, errorType, to, 'red');
+      stderr.write(notice.line);
+      if (notice.record) {
+        registrarEventoEnSegundoPlano(ctx, {
+          kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+        });
+      }
       onFailover?.(from, errorType, to);
     },
   });
