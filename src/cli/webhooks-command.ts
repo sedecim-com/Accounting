@@ -10,7 +10,7 @@ import {
   WEBHOOK_SOURCE_KINDS,
   type WebhookSourceKind,
 } from '../ai/webhooks/intake.js';
-import { exitCodeFor, usageError, ExitCode } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey, usageError, ExitCode } from './kernel/index.js';
 
 // ============================================================
 // mnemosine webhooks (alias: ganchos)
@@ -49,19 +49,16 @@ function parseSourceKind(value: string): WebhookSourceKind {
 export function registerWebhooksCommand(program: Command, deps: WebhooksCommandDeps): void {
   const c = deps.palette;
 
-  const webhooks = program
-    .command('webhooks')
-    .alias('ganchos')
-    .description('Inbound webhook tokens: dedicated credentials that wake a restricted reader agent');
+  const webhooks = describeCommand(program.command('webhooks').alias('ganchos'), 'help.webhooks.description');
 
-  webhooks
-    .command('create <name>')
-    .alias('crear')
-    .description('Create a webhook token (the raw token is shown ONCE and never stored)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--source <kind>', `Source kind: ${WEBHOOK_SOURCE_KINDS.join(', ')}`, 'generic')
-    .action(async (name: string, opts: { entity?: string; tenant?: string; source: string }) => {
+  const create = describeCommand(webhooks.command('create <name>').alias('crear'), 'help.webhooks.create.description');
+  optionByKey(create, '-e, --entity <idOrName>', 'help.webhooks.create.option.entity');
+  optionByKey(create, '-t, --tenant <id>', 'help.webhooks.create.option.tenant');
+  optionByKey(create, '--source <kind>', 'help.webhooks.create.option.source', {
+    params: { kinds: WEBHOOK_SOURCE_KINDS.join(', ') },
+    defaultValue: 'generic',
+  });
+  create.action(async (name: string, opts: { entity?: string; tenant?: string; source: string }) => {
       try {
         const sourceKind = parseSourceKind(opts.source);
         bootstrapTenant(opts.tenant);
@@ -89,14 +86,11 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
       }
     });
 
-  webhooks
-    .command('list')
-    .alias('listar')
-    .description('List webhook tokens (names and usage — never token values)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('--json', 'JSON output')
-    .action(async (opts: { entity?: string; tenant?: string; json?: boolean }) => {
+  const list = describeCommand(webhooks.command('list').alias('listar'), 'help.webhooks.list.description');
+  optionByKey(list, '-e, --entity <idOrName>', 'help.webhooks.list.option.entity');
+  optionByKey(list, '-t, --tenant <id>', 'help.webhooks.list.option.tenant');
+  optionByKey(list, '--json', 'help.webhooks.list.option.json');
+  list.action(async (opts: { entity?: string; tenant?: string; json?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
@@ -128,13 +122,10 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
       }
     });
 
-  webhooks
-    .command('disable <name>')
-    .alias('desactivar')
-    .description('Disable a webhook token (deliveries with it start failing with 401)')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .action(async (name: string, opts: { entity?: string; tenant?: string }) => {
+  const disable = describeCommand(webhooks.command('disable <name>').alias('desactivar'), 'help.webhooks.disable.description');
+  optionByKey(disable, '-e, --entity <idOrName>', 'help.webhooks.disable.option.entity');
+  optionByKey(disable, '-t, --tenant <id>', 'help.webhooks.disable.option.tenant');
+  disable.action(async (name: string, opts: { entity?: string; tenant?: string }) => {
       try {
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
@@ -152,15 +143,12 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
       }
     });
 
-  webhooks
-    .command('deliveries')
-    .alias('entregas')
-    .description('Recent inbound deliveries: status, drafts created and suspicion flags')
-    .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('-n, --limit <n>', 'Rows to show (1-200)', '20')
-    .option('--json', 'JSON output')
-    .action(async (opts: { entity?: string; tenant?: string; limit: string; json?: boolean }) => {
+  const deliveries = describeCommand(webhooks.command('deliveries').alias('entregas'), 'help.webhooks.deliveries.description');
+  optionByKey(deliveries, '-e, --entity <idOrName>', 'help.webhooks.deliveries.option.entity');
+  optionByKey(deliveries, '-t, --tenant <id>', 'help.webhooks.deliveries.option.tenant');
+  optionByKey(deliveries, '-n, --limit <n>', 'help.webhooks.deliveries.option.limit', { defaultValue: '20' });
+  optionByKey(deliveries, '--json', 'help.webhooks.deliveries.option.json');
+  deliveries.action(async (opts: { entity?: string; tenant?: string; limit: string; json?: boolean }) => {
       try {
         const limit = Number.parseInt(opts.limit, 10);
         if (!Number.isFinite(limit) || limit < 1) {
