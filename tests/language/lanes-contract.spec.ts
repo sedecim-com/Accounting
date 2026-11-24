@@ -7,6 +7,7 @@ import { commentTagsLanes } from '../../scripts/language/lanes/comment-tags.js';
 import { helpLanes } from '../../scripts/language/lanes/help.js';
 import { cliStringsLanes } from '../../scripts/language/lanes/cli-strings.js';
 import { helpExamplesLanes } from '../../scripts/language/lanes/help-examples.js';
+import { serviceStringsLanes } from '../../scripts/language/lanes/service-strings.js';
 
 // ============================================================
 // EL CONTRATO QUE VALE PARA LOS DIECISÉIS (I2 · issue #144)
@@ -47,6 +48,7 @@ beforeAll(() => {
     ...helpLanes(),
     ...cliStringsLanes(),
     ...helpExamplesLanes(),
+    ...serviceStringsLanes(),
   ];
 }, 120_000);
 
