@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import Decimal from 'decimal.js';
 import {
+  acceptSealOverUnsealedMonths,
   crearInquilino,
   crearEntidadHermana,
   fechaEnPeriodo,
@@ -99,6 +100,7 @@ async function poblarEjercicio(f: Fixture) {
 }
 
 async function cerrarEjercicio(f: Fixture, motivo?: string) {
+  await acceptSealOverUnsealedMonths(f);
   await softClosePeriod(f.periodos[12], f.entityId, f.userId);
   await hardClosePeriod(f.periodos[12], f.entityId, f.userId, motivo);
 }
@@ -246,6 +248,7 @@ describe('el cierre sin cuentas de sistema', () => {
       '3900',
     ]);
 
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await expect(
       hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'cierre sin resumen')
@@ -457,6 +460,7 @@ describe('un cierre de la entidad A no ve ni toca a la B', () => {
     await poblarEjercicio(a);
     await poblarEjercicio(b);
 
+    await acceptSealOverUnsealedMonths(a);
     await softClosePeriod(a.periodos[12], a.entityId, a.userId);
     await hardClosePeriod(a.periodos[12], a.entityId, a.userId, 'sólo A cierra');
 
@@ -493,6 +497,7 @@ describe('un cierre de la entidad A no ve ni toca a la B', () => {
 
     await poblarEjercicio(a);
     await poblarEjercicio(b);
+    await acceptSealOverUnsealedMonths(a);
     await softClosePeriod(a.periodos[12], a.entityId, a.userId);
     await hardClosePeriod(a.periodos[12], a.entityId, a.userId);
 
@@ -540,6 +545,8 @@ describe('un cierre de la entidad A no ve ni toca a la B', () => {
 
     await poblarEjercicio(a);
     await poblarEjercicio(b);
+    await acceptSealOverUnsealedMonths(a);
+    await acceptSealOverUnsealedMonths(b);
     await softClosePeriod(a.periodos[12], a.entityId, a.userId);
     await hardClosePeriod(a.periodos[12], a.entityId, a.userId);
     await softClosePeriod(b.periodos[12], b.entityId, b.userId);
