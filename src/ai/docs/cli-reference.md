@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 254 of 404 subcommands
+  spelling is `-T` at the root and `-t` on the 255 of 406 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -4605,6 +4605,7 @@ Commands:
                                         reopens invoices, re-parks IVA
   cause|causa                           The cause of a reversed collection: what
                                         happened to its money
+  allocation|aplicacion                 A receipt's allocations to its invoices
   trace|rastro                          The payment trace of a registered
                                         receipt: the customer's bank and
                                         account, its cheque, and our bank
@@ -4923,6 +4924,57 @@ Examples:
   mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
   # See what would be written, writing nothing.
   mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
+```
+
+### `mnemosine receipt allocation` (alias: aplicacion)
+
+```
+Usage: mnemosine receipt allocation|aplicacion [options] [command]
+
+A receipt's allocations to its invoices
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  close|cerrar [options] <ref>  Close the live allocation a reversed collection
+                                still has on an invoice (ar check:
+                                orphan-application): dated at the reversal,
+                                audited, posts nothing
+  help [command]                display help for command
+```
+
+#### `mnemosine receipt allocation close` (alias: cerrar)
+
+```
+Usage: mnemosine receipt allocation close|cerrar [options] <ref>
+
+Close the live allocation a reversed collection still has on an invoice (ar
+check: orphan-application): dated at the reversal, audited, posts nothing
+
+Arguments:
+  ref                      payment number or id of the reversed collection
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --invoice <ref>          invoice number or id the live allocation settles
+  --reason <text>          why it is closed: written to the audit trail
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  -h, --help               display help for command
+
+Examples:
+  ar check named PMT-2026-00042 (reversed) → INV-2026-00051 116.00 under orphan-application; see what would be closed:
+    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Left live by its reversal" --dry-run
+  Close it; the reversal already reopened the invoice, so nothing posts:
+    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Left live by its reversal"
 ```
 
 ### `mnemosine receipt trace` (alias: rastro)
