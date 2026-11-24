@@ -19,11 +19,15 @@ import { registerSatDownloadCommands } from './sat-download-commands.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { registerSatCensus } from './sat-census-command.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
 // Capture, status, audit and revocation of the e.firma.
 // The password is asked with echo off and is never printed.
+// What they print comes from the I8.7 block of the catalogue (MNE-001-600)
+// and goes straight to stdout or stderr: only the words change with the
+// language, never what is read, stored or destroyed.
 // ============================================================
 
 export interface SatCommandDeps {
@@ -36,13 +40,10 @@ export interface SatCommandDeps {
 
 /** Reads a file, warning if its permissions expose it to other users. */
 function readSensitiveFile(file: string, label: string, warn: (s: string) => void): Buffer {
-  if (!fs.existsSync(file)) throw notFound(`The ${label} file does not exist: ${file}`);
+  if (!fs.existsSync(file)) throw notFound({ key: 'fiscal_mx.sat.cred.file_missing', params: { label, file } });
   const stat = fs.statSync(file);
   if ((stat.mode & 0o077) !== 0) {
-    warn(
-      `WARNING: ${file} is readable by other users of the system ` +
-        `(mode ${(stat.mode & 0o777).toString(8)}). Consider: chmod 600 ${file}`
-    );
+    warn(t('fiscal_mx.sat.cred.file_exposed', { file, mode: (stat.mode & 0o777).toString(8) }));
   }
   return fs.readFileSync(file);
 }
@@ -96,7 +97,7 @@ Examples:
   );
   declareRisk(add, {
     risk: 'externo',
-    llave: { innecesaria: 'custody is guarded by the typed consent and the credential status' },
+    llave: { innecesaria: t('fiscal_mx.sat.cred.add.key_unneeded') },
     agent: false,
     writes: 'fiscal_credentials + the material in the vault; validates the certificate locally first',
   });
@@ -111,7 +112,7 @@ Examples:
         const { dryRun, live } = gateMutation(add, opts);
         if (opts.idempotencyKey) {
           stderr.write(
-            '  --idempotency-key does not apply here: custody is guarded by the typed consent and the credential status.\n'
+            `  ${t('fiscal_mx.sat.cred.key_unneeded_note', { reason: t('fiscal_mx.sat.cred.add.key_unneeded') })}\n`
           );
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -122,17 +123,21 @@ Examples:
         // 1) Local validation: fail here before the secret leaves the machine.
         const info = parseCertificate(cer);
         const zone = await zoneFor(ctx);
-        console.log(
-          `\n${c.bold('Certificate read')}\n` +
-            `  type: ${info.type === 'efirma' ? c.bold('e.firma') : info.type}\n` +
-            `  RFC: ${info.rfc}\n  serial: ${info.serial}\n` +
-            `  validity: ${calendarDateIn(zone, info.validFrom)} → ${calendarDateIn(zone, info.validTo)}\n` +
-            `  target entity: ${ctx.entityName} (${ctx.taxId})`
+        stdout.write(
+          `\n${c.bold(t('fiscal_mx.sat.cred.add.certificate_read'))}\n` +
+            t('fiscal_mx.sat.cred.add.certificate', {
+              type: info.type === 'efirma' ? c.bold('e.firma') : info.type,
+              rfc: info.rfc,
+              serial: info.serial,
+              from: calendarDateIn(zone, info.validFrom),
+              to: calendarDateIn(zone, info.validTo),
+              entity: ctx.entityName,
+              taxId: ctx.taxId,
+            }) +
+            '\n'
         );
         if (info.type === 'csd') {
-          console.error(
-            ce.red('\nThis is a CSD (digital seal), not an e.firma. The SAT bulk download rejects it.')
-          );
+          stderr.write(ce.red(`\n${t('fiscal_mx.sat.cred.add.csd')}`) + '\n');
           // El certificado se leyó bien y NO pasa la regla: eso es VALIDATION,
           // el mismo 4 que una póliza descuadrada. Con 1 el guion que deposita
           // credenciales en lote no puede distinguir «este .cer no sirve» de
@@ -143,18 +148,17 @@ Examples:
         // type their e.firma passphrase only to find out afterwards that they
         // picked the wrong entity. (storeCredential revalidates it as a safety net.)
         if (info.rfc.toUpperCase() !== ctx.taxId.toUpperCase()) {
-          console.error(
+          stderr.write(
             ce.red(
-              `\nThe certificate's RFC (${info.rfc}) does not match the entity ` +
-                `"${ctx.entityName}" (${ctx.taxId}).`
-            )
+              `\n${t('fiscal_mx.sat.cred.add.rfc_mismatch', { rfc: info.rfc, entity: ctx.entityName, taxId: ctx.taxId })}`
+            ) + '\n'
           );
-          console.error(c.dim('Use --entity to pick the correct entity.'));
+          stderr.write(c.dim(t('fiscal_mx.sat.cred.add.pick_entity')) + '\n');
           await shutdown(ExitCode.VALIDATION);
         }
         if (info.validTo <= new Date()) {
-          console.error(
-            ce.red(`\nThe certificate expired on ${calendarDateIn(zone, info.validTo)}. Renew it at the SAT.`)
+          stderr.write(
+            ce.red(`\n${t('fiscal_mx.sat.cred.add.expired', { date: calendarDateIn(zone, info.validTo) })}`) + '\n'
           );
           // «credential expired» está NOMBRADO en la tabla de exit.ts como el
           // caso de BLOCKED. No es que el material sea inválido: era válido y
@@ -163,38 +167,33 @@ Examples:
         }
 
         if (dryRun) {
-          console.log(c.dim(
-            '\n(dry-run: certificate valid for this entity. The real run asks the key password, ' +
-              'verifies the pair and stores the material in the vault. Nothing was stored.)'
-          ));
+          stdout.write(c.dim(`\n${t('fiscal_mx.sat.cred.add.dry_run')}`) + '\n');
           await shutdown(0);
         }
         if (!live) {
-          console.log(
-            c.bold('\nValidation passed.') +
-              c.dim(
-                ' Storing the e.firma in the vault is the real external effect and is opt-in: ' +
-                  're-run with --live to be asked the password and complete the deposit.'
-              )
+          stdout.write(
+            c.bold(`\n${t('fiscal_mx.sat.cred.add.validation_passed')}`) +
+              c.dim(` ${t('fiscal_mx.sat.cred.add.live_needed')}`) +
+              '\n'
           );
           await shutdown(0);
         }
 
-        const password = await askHidden(c.cyan('\nPrivate key password (not shown): '));
+        const password = await askHidden(c.cyan(`\n${t('fiscal_mx.sat.cred.add.password_prompt')}: `));
         if (!verifyKeyPair(cer, key, password)) {
-          console.error(ce.red('\nThe key does not match the certificate, or the password is incorrect.'));
+          stderr.write(ce.red(`\n${t('fiscal_mx.sat.cred.add.bad_pair')}`) + '\n');
           await shutdown(ExitCode.VALIDATION);
         }
-        console.log(c.dim('Key pair verified locally.'));
+        stdout.write(c.dim(t('fiscal_mx.sat.cred.add.pair_verified')) + '\n');
 
         // 2) Explicit informed consent. --yes does NOT skip it on purpose:
         // custody of an e.firma is authorized by typing the word, always.
-        console.log(`\n${CONSENT_TEXT}\n`);
+        stdout.write(`\n${CONSENT_TEXT}\n\n`);
         rl = readline.createInterface({ input: stdin, output: stdout });
-        const ok = await ask(rl, c.cyan('Do you authorize storing this e.firma? type "accept" to continue (--yes does not skip this): '));
+        const ok = await ask(rl, c.cyan(`${t('fiscal_mx.sat.cred.add.consent_prompt')}: `));
         rl.close();
         if ((ok ?? '').trim().toLowerCase() !== 'accept') {
-          console.log(c.dim('Cancelled. Nothing was saved.'));
+          stdout.write(c.dim(t('fiscal_mx.sat.cred.add.cancelled')) + '\n');
           await shutdown(0);
         }
 
@@ -207,12 +206,15 @@ Examples:
           maxDailyAccess: opts.maxDiario,
         });
         const vault = getVault();
-        console.log(
-          `\n✔ e.firma registered for ${c.bold(ctx.entityName)}\n` +
-            c.dim(`  custody: ${vault.backend}\n`) +
-            c.dim(`  unattended use: ${row.unattended_access ? 'allowed' : 'forbidden'} · ` +
-                  `limit: ${row.max_daily_access}/24h\n`) +
-            c.dim('  audit: mnemosine sat cred audit')
+        stdout.write(
+          `\n✔ ${t('fiscal_mx.sat.cred.add.registered', { entity: c.bold(ctx.entityName) })}\n` +
+            c.dim(`  ${t('fiscal_mx.sat.cred.add.custody', { backend: vault.backend })}\n`) +
+            c.dim(`  ${t('fiscal_mx.sat.cred.add.unattended', {
+              unattended: row.unattended_access ? 'yes' : 'no',
+              limit: String(row.max_daily_access),
+            })}\n`) +
+            c.dim(`  ${t('fiscal_mx.sat.cred.add.audit_hint', { command: 'mnemosine sat cred audit' })}`) +
+            '\n'
         );
         await shutdown(0);
       } catch (err) {
@@ -230,24 +232,34 @@ Examples:
         const ctx = await resolveEntity(opts.entity);
         const rows = await getCredentialStatus(ctx.entityId, ctx.tenantId);
         if (rows.length === 0) {
-          console.log('No credentials registered. Add one with: mnemosine sat cred add');
+          stdout.write(t('fiscal_mx.sat.cred.status.none', { command: 'mnemosine sat cred add' }) + '\n');
         } else {
           for (const r of rows) {
             const icon = r.status === 'active' ? '✔' : r.status === 'revoked' ? '✘' : '⚠';
+            const days = { days: r.days_to_expiry };
             const expiry =
-              r.days_to_expiry < 0 ? c.dim('(expired)')
-              : r.days_to_expiry < 60 ? ce.red(`(expires in ${r.days_to_expiry} days — renew at the SAT)`)
-              : c.dim(`(expires in ${r.days_to_expiry} days)`);
-            console.log(
+              r.days_to_expiry < 0 ? c.dim(t('fiscal_mx.sat.cred.status.expired'))
+              : r.days_to_expiry < 60 ? ce.red(t('fiscal_mx.sat.cred.status.expires_soon', days))
+              : c.dim(t('fiscal_mx.sat.cred.status.expires_in', days));
+            stdout.write(
               `${icon} ${c.bold(r.credential_type)} ${r.rfc} · ${r.status} ${expiry}\n` +
-                c.dim(`  serial ${r.cert_serial} · custody ${r.vault_backend}\n`) +
-                c.dim(`  unattended: ${r.unattended_access ? 'yes' : 'no'} · limit ${r.max_daily_access}/24h · ` +
-                      `last use: ${r.last_used_at ? new Date(r.last_used_at).toISOString() : 'never'}`)
+                c.dim(`  ${t('fiscal_mx.sat.cred.status.custody', { serial: r.cert_serial, backend: r.vault_backend })}\n`) +
+                c.dim(`  ${t('fiscal_mx.sat.cred.status.usage', {
+                  unattended: r.unattended_access ? 'yes' : 'no',
+                  limit: String(r.max_daily_access),
+                  last: r.last_used_at
+                    ? new Date(r.last_used_at).toISOString()
+                    : t('fiscal_mx.sat.cred.status.never_used'),
+                })}`) +
+                '\n'
             );
           }
         }
         const health = await getVault().healthCheck();
-        console.log(c.dim(`\nVault: ${health.healthy ? 'OK' : 'ERROR'} — ${health.detail ?? ''}`));
+        stdout.write(
+          c.dim(`\n${t('fiscal_mx.sat.cred.status.vault', { health: health.healthy ? 'ok' : 'error', detail: health.detail ?? '' })}`) +
+            '\n'
+        );
         await shutdown(0);
       } catch (err) {
         reportError(err);
@@ -267,15 +279,17 @@ Examples:
         const ctx = await resolveEntity(opts.entity);
         const log = (await getAccessLog(ctx.entityId, ctx.tenantId, opts.limit));
         if (log.length === 0) {
-          console.log('No accesses recorded.');
+          stdout.write(t('fiscal_mx.sat.cred.audit.none') + '\n');
         } else {
-          console.log(c.bold(`Accesses to the credential of ${ctx.entityName}`));
+          stdout.write(c.bold(t('fiscal_mx.sat.cred.audit.title', { entity: ctx.entityName })) + '\n');
           for (const l of log) {
             const icon = l.outcome === 'success' ? '·' : l.outcome === 'denied' ? '⊘' : '✘';
             const extra = l.denied_reason ? `/${l.denied_reason}` : l.error ? `: ${l.error}` : '';
-            console.log(
+            const mode = t('fiscal_mx.sat.cred.audit.mode', { mode: l.unattended ? 'unattended' : 'operator' });
+            stdout.write(
               `${icon} ${new Date(l.accessed_at as string).toISOString()} · ${l.purpose} · ${l.actor}` +
-                c.dim(` · ${l.unattended ? 'unattended' : 'with operator'} · ${l.outcome}${extra}`)
+                c.dim(` · ${mode} · ${l.outcome}${extra}`) +
+                '\n'
             );
           }
         }
@@ -305,7 +319,7 @@ Examples:
   );
   declareRisk(revoke, {
     risk: 'irreversible',
-    llave: { innecesaria: 'a second revoke is refused because no active credential remains' },
+    llave: { innecesaria: t('fiscal_mx.sat.cred.revoke.key_unneeded') },
     agent: false,
     writes: 'fiscal_credentials + cryptographic destruction of the material in the vault',
   });
@@ -319,7 +333,7 @@ Examples:
         const { dryRun, reason } = gateMutation(revoke, opts);
         if (opts.idempotencyKey) {
           stderr.write(
-            '  --idempotency-key does not apply here: a second revoke is refused because no active credential remains.\n'
+            `  ${t('fiscal_mx.sat.cred.key_unneeded_note', { reason: t('fiscal_mx.sat.cred.revoke.key_unneeded') })}\n`
           );
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -328,28 +342,33 @@ Examples:
           const rows = await getCredentialStatus(ctx.entityId, ctx.tenantId);
           const activa = rows.find((r) => r.status === 'active');
           if (!activa) {
-            console.log('There is no active credential to revoke; the real run would refuse too.');
+            stdout.write(t('fiscal_mx.sat.cred.revoke.nothing_active') + '\n');
             await shutdown(0);
           }
-          console.log(
-            `${c.bold('Would revoke')} the ${activa!.credential_type} of ${ctx.entityName} ` +
-              `(serial ${activa!.cert_serial}) and cryptographically destroy its vault material ` +
-              c.dim(`(custody: ${activa!.vault_backend})`)
+          stdout.write(
+            t('fiscal_mx.sat.cred.revoke.would', {
+              verb: c.bold(t('fiscal_mx.sat.cred.revoke.would_revoke')),
+              type: activa!.credential_type,
+              entity: ctx.entityName,
+              serial: activa!.cert_serial,
+              custody: c.dim(t('fiscal_mx.sat.cred.revoke.custody', { backend: activa!.vault_backend })),
+            }) + '\n'
           );
-          console.log(c.dim('(dry-run: nothing was revoked or destroyed)'));
+          stdout.write(c.dim(t('fiscal_mx.sat.cred.revoke.dry_run')) + '\n');
           await shutdown(0);
         }
 
-        console.log(
-          ce.red(`\nYou are about to delete the e.firma of ${ctx.entityName} from custody.`) +
-            c.dim('\nThe deletion is cryptographic and irreversible; it will have to be loaded again.\n')
+        stdout.write(
+          ce.red(`\n${t('fiscal_mx.sat.cred.revoke.about_to', { entity: ctx.entityName })}`) +
+            c.dim(`\n${t('fiscal_mx.sat.cred.revoke.irreversible')}\n`) +
+            '\n'
         );
         if (!opts.yes) {
           rl = readline.createInterface({ input: stdin, output: stdout });
-          const ok = await ask(rl, c.cyan('Type the RFC of the entity to confirm: '));
+          const ok = await ask(rl, c.cyan(`${t('fiscal_mx.sat.cred.revoke.confirm_prompt')}: `));
           rl.close();
           if ((ok ?? '').trim().toUpperCase() !== ctx.taxId.toUpperCase()) {
-            console.log(c.dim('Cancelled.'));
+            stdout.write(c.dim(t('fiscal_mx.sat.cred.revoke.cancelled')) + '\n');
             await shutdown(0);
           }
         }
@@ -357,7 +376,7 @@ Examples:
           userId: reviewer.userId,
           reason,
         });
-        console.log('✔ Credential revoked and material deleted from the vault.');
+        stdout.write(`✔ ${t('fiscal_mx.sat.cred.revoke.done')}\n`);
         await shutdown(0);
       } catch (err) {
         rl?.close();
