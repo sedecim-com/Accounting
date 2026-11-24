@@ -28,6 +28,7 @@ import { runDoctor,
   type CheckIdentity,
   type DoctorReport,
 } from '../../src/ai/doctor-service.js';
+import { approveProjectProfile } from '../../src/ai/providers/config.js';
 import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 import { sharedCliConsistency, sharedOrphanedCapability } from '../helpers/shared-board.js';
@@ -185,6 +186,16 @@ describe('runDoctor — model provider', () => {
   function config(cfg: unknown) {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify(cfg));
   }
+  // An empty home: approvals and the user's file are read from it (MNE-001-452).
+  let ownHome: string;
+  beforeEach(() => {
+    ownHome = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-own-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(ownHome);
+  });
+  afterEach(() => {
+    vi.mocked(os.homedir).mockRestore();
+    fs.rmSync(ownHome, { recursive: true, force: true });
+  });
 
   it('ok with a loopback provider without a credential: only that is «local»', async () => {
     mockDb();
@@ -212,24 +223,43 @@ describe('runDoctor — model provider', () => {
     expect(c.fix).toMatch(/api_key_env or api_key_cmd/);
   });
 
-  it('ok with a helper-only default: names its file, never runs it, never prints its command', async () => {
-    mockDb();
-    delete process.env.SOME_KEY;
-    const marker = path.join(tmpDir, 'helper-ran');
-    config({
-      default_provider: 'vault',
-      providers: {
-        vault: {
-          type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
-          api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+  describe('a helper-only default in the project file (MNE-001-452)', () => {
+    let marker: string;
+    beforeEach(() => {
+      mockDb();
+      delete process.env.SOME_KEY;
+      marker = path.join(tmpDir, 'helper-ran');
+      // A project api_key_cmd names its script directly (MNE-001-452 re-review).
+      fs.writeFileSync(path.join(tmpDir, 'helper-script.sh'), `touch ${marker} && echo fake-helper-stderr >&2\n`);
+      config({
+        default_provider: 'vault',
+        providers: {
+          vault: {
+            type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
+            api_key_env: 'SOME_KEY', api_key_cmd: 'sh helper-script.sh',
+          },
         },
-      },
+      });
     });
-    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
-    expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
-    expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
-    expect(fs.existsSync(marker)).toBe(false);
+    it('FAILS while unapproved, with the approve command, never running it or printing it', async () => {
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('fail');
+      expect(c.detail).toMatch(/not approved here/);
+      expect(c.fix).toBe(
+        `Read providers.vault.api_key_cmd in ${path.join(tmpDir, 'mnemosine.config.json')}; if you trust it: mnemosine providers approve vault`
+      );
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr|helper-script/);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
+
+    it('ok once approved: names its file, never runs it, never prints its command', async () => {
+      approveProjectProfile('vault', tmpDir);
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('ok');
+      expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr|helper-script/);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
   });
 
   it('FAILS when the default names an installation secret: it is not a provider credential (MNE-001-445)', async () => {
@@ -265,11 +295,40 @@ describe('runDoctor — model provider', () => {
       default_provider: 'remoto',
       providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
     });
+    approveProjectProfile('remoto', tmpDir);
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/SOME_KEY set; .*\.env defines it, so that key serves everyone who runs mnemosine in that folder/);
     expect(c.fix).toMatch(/~\/\.mnemosine\/\.env/);
     expect(JSON.stringify(c)).not.toContain('fake-folder-key');
+  });
+
+  it('FAILS while a project profile sends a key to a host its provider does not document (MNE-001-452)', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'clave-falsa-de-prueba';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.fix).toBe('If you trust https://x.example.test with SOME_KEY: mnemosine providers approve remoto');
+    expect(JSON.stringify(c)).not.toContain('clave-falsa');
+  });
+
+  it("warns when the folder's ./.env sets ANTHROPIC_BASE_URL: it reroutes everyone's sessions (MNE-001-452)", async () => {
+    mockDb();
+    process.env.ANTHROPIC_API_KEY = 'clave-falsa-de-prueba';
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'ANTHROPIC_BASE_URL=https://proxy.example.test\n');
+    config({ default_provider: 'anthropic' });
+    try {
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('warn');
+      expect(c.detail).toMatch(/sets ANTHROPIC_BASE_URL, which serve everyone who runs mnemosine in that folder/);
+      expect(c.fix).toBe('Set ANTHROPIC_BASE_URL in your shell or ~/.mnemosine/.env if you need them, and remove them from ./.env');
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('FAILS when the default requires a missing key, and suggests a viable alternative', async () => {
@@ -315,6 +374,7 @@ describe('runDoctor — model provider', () => {
       default_provider: 'remoto',
       providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY', failover: ['nvidia'] } },
     });
+    approveProjectProfile('remoto', tmpDir);
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/the failover chain names nvidia, on NVIDIA's hosted trial .*a failover never moves into it/);

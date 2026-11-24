@@ -71,7 +71,6 @@ import { declareRisk, riskOf, type RiskDeclaration } from './risk.js';
 export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
   // ── Sólo leen ──
   entities: { risk: 'lectura', agent: true },
-  providers: { risk: 'lectura', agent: true },
   sessions: { risk: 'lectura', agent: true },
   drafts: { risk: 'lectura', agent: true },
   whoami: { risk: 'lectura', agent: true },

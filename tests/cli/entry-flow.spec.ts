@@ -169,8 +169,8 @@ describe('repairCommandFor — the readiness hint of a missing credential', () =
         setLanguage(language);
         for (const [name, profile] of profiles) {
           const variable = profile.api_key_env!;
-          const missing = { source: { kind: 'missing' as const, variable, where: KEY_URLS[variable] ?? null }, ready: false, folderEnv: null, label: '' };
-          const refused = { source: { kind: 'refused' as const, variable: 'JWT_SECRET' }, ready: false, folderEnv: null, label: '' };
+          const missing = { source: { kind: 'missing' as const, variable, where: KEY_URLS[variable] ?? null }, ready: false, folderEnv: null, folderRouting: [], label: '' };
+          const refused = { source: { kind: 'refused' as const, variable: 'JWT_SECRET' }, ready: false, folderEnv: null, folderRouting: [], label: '' };
           for (const state of [missing, refused]) {
             const reason = missingCredentialHint(name, profile, state)!;
             expect(repairCommandFor(reason), `${language} ${name}: ${reason}`).toBe('mnemosine init --section ai');

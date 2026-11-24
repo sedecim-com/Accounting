@@ -345,7 +345,8 @@ export function claveDeViolacion(v: Violation): string {
  */
 export const LINEA_BASE: readonly string[] = [
   'entities|R1 objectless allowlist|"entities" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
-  'providers|R1 objectless allowlist|"providers" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  // MNE-001-452 (#645) removed `providers`: `providers approve` made it a group,
+  // so it is no longer a top-level command with no object.
   'sessions|R1 objectless allowlist|"sessions" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'drafts|R1 objectless allowlist|"drafts" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'onboard|R6 banned spelling|--from is banned',

@@ -1662,6 +1662,94 @@ export const E5_1: Criterio[] = [
           );
     },
   },
+  {
+    paquete: 'E5.1',
+    id: 'shared-project-file-runs-and-sends-nothing-unapproved',
+    // MNE-001-452 (#645). A project's mnemosine.config.json is shared with
+    // whoever clones it. Six checks keep it from running a command, carrying a
+    // credential or sending someone's key elsewhere without its reader's
+    // consent; each mutant removes one. The behaviour itself is pinned by
+    // tests/ai/providers/project-approvals.spec.ts.
+    enunciado:
+      "A shared project file runs no api_key_cmd its reader has not approved (or under project_helpers: never), carries no hand-written credential, sends no variable to an undocumented host unapproved, does not hide the reader's own profiles, and readiness names the routing variables of the folder's ./.env (#645, MNE-001-452)",
+    mutantes: [
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: 'const handWritten = isProject ? projectFileCredentialFields(raw) : [];',
+        a: 'const handWritten: string[] = [];',
+        porque: 'credential-carried: a project file with a key in a header or a command loads again, and the key goes out as written',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: '    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);\n',
+        a: '',
+        porque: "helper-runs-unasked: anyone who runs mnemosine in the folder runs the project's command in a shell again",
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: "  if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };\n",
+        a: '',
+        porque: 'setting-ignored: "project_helpers": "never" stops nothing, and an approved helper runs for the person who chose never',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: '    if (isProjectOrigin(origin)) assertProjectPairAllowed(name, origin, profile);\n',
+        a: '',
+        porque: "key-redirected: a project profile sends the reader's OPENAI_API_KEY, or any variable, to its own host again",
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: 'const beneath = source !== ownFile && fs.existsSync(ownFile) ? readConfigAt(ownFile, false) : null;',
+        a: 'const beneath: MnemosineConfig | null = null;',
+        porque: "own-profiles-hidden: a project file hides every profile of the reader's own file, their helpers included",
+      },
+      {
+        archivo: 'src/ai/providers/credential-state.ts',
+        de: 'const folderRouting = routing.filter((name) => !!parsed?.[name]);',
+        a: 'const folderRouting: string[] = [];',
+        porque: "folder-reroute-silent: an ANTHROPIC_BASE_URL in the folder's ./.env reroutes everyone's sessions and doctor says nothing",
+      },
+    ],
+    evaluar: () => {
+      const flat = (src: string) => src.replace(/\s+/g, ' ');
+      const config = flat(codigoDe('src/ai/providers/config.ts'));
+      const state = flat(codigoDe('src/ai/providers/credential-state.ts'));
+      const has = (src: string, snippet: string) => src.includes(flat(snippet));
+      const checks: Array<[boolean, string]> = [
+        [
+          has(config, 'const handWritten = isProject ? projectFileCredentialFields(raw) : [];') &&
+            has(config, 'readConfigAt(projectFile, true)'),
+          'the loader no longer refuses a hand-written credential in the project file',
+        ],
+        [
+          has(config, 'if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own); apiKey = runCredentialHelperSync('),
+          "resolveProfile runs a project file's api_key_cmd without asking for its approval first",
+        ],
+        [
+          has(config, "if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };"),
+          'the gate no longer reads "project_helpers": "never" from the reader\'s own file',
+        ],
+        [
+          has(config, 'if (isProjectOrigin(origin)) assertProjectPairAllowed(name, origin, profile); apiKey = process.env['),
+          'resolveProfile sends a project profile\'s variable to its host without checking the pair',
+        ],
+        [
+          has(config, 'const beneath = source !== ownFile && fs.existsSync(ownFile) ? readConfigAt(ownFile, false) : null;') &&
+            has(config, 'const layers: Array<[MnemosineConfig, string | null]> = beneath ? [[beneath, ownFile]] : [];'),
+          "listProfiles no longer layers the reader's own profiles beneath the project file",
+        ],
+        [
+          has(state, 'const folderRouting = routing.filter((name) => !!parsed?.[name]);') &&
+            ['ANTHROPIC_BASE_URL', 'ANTHROPIC_CONFIG_DIR', 'OPENAI_BASE_URL'].every((v) => state.includes(`'${v}'`)),
+          "readiness no longer names the base URLs and config root the folder's ./.env sets",
+        ],
+      ];
+      const missing = checks.filter(([held]) => !held).map(([, what]) => what);
+      return missing.length === 0
+        ? ok('the six checks on a shared project file are in place: approval, never, credential, pair, own profiles, folder routing')
+        : falla(missing.join('; '));
+    },
+  },
 ];
 
 // ============================================================

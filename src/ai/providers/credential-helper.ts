@@ -67,6 +67,10 @@ export class CredentialHelperError extends Error {
 export interface HelperRunOptions {
   /** Deadline in ms (default HELPER_TIMEOUT_MS). A seam for tests: a real helper keeps 10 s. */
   timeoutMs?: number;
+  /** The folder it runs in; default process.cwd(). */
+  cwd?: string;
+  /** Its environment; default process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Runs the helper once, synchronously: the first run, before the session opens. */
@@ -75,6 +79,8 @@ export function runCredentialHelperSync(profile: string, command: string, opts: 
   let out: string;
   try {
     out = execSync(command, {
+      cwd: opts.cwd,
+      env: opts.env,
       encoding: 'utf-8',
       timeout: timeoutMs,
       maxBuffer: HELPER_MAX_OUTPUT_BYTES,
@@ -102,7 +108,7 @@ export function runCredentialHelper(profile: string, command: string, opts: Help
       clearTimeout(timer);
       fn();
     };
-    const child = spawn(command, { shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(command, { cwd: opts.cwd, env: opts.env, shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
     const chunks: Buffer[] = [];
     let size = 0;
     const timer = setTimeout(() => {

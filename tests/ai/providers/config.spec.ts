@@ -14,6 +14,7 @@ import {
   resolveProfile, listProfiles, resolveIngestThresholds, writeConfigPatch, loadConfigFile, setLanguage,
   resolveFailoverChain, resolveCompactionConfig, DEFAULT_COMPACTION_THRESHOLD_TOKENS,
   BUILTIN_PROFILES, INSTALLATION_SECRET_VARIABLES, MissingProviderCredentialError, NotAProviderCredentialError,
+  approveProjectProfile,
 } from '../../../src/ai/providers/config.js';
 import { createLlmSessionWithFailover, CooldownRegistry } from '../../../src/ai/providers/index.js';
 import type { LlmSession, ResolvedProfile } from '../../../src/ai/providers/types.js';
@@ -156,7 +157,10 @@ describe('the nvidia built-in', () => {
 });
 
 describe('api_key_cmd (credential helper)', () => {
-  const writeProfile = (extra: Record<string, unknown>) =>
+  // A project file's helper runs once its person approved it (MNE-001-452):
+  // each case approves it in a temporary home.
+  let home: string;
+  const writeProfile = (extra: Record<string, unknown>) => {
     fs.writeFileSync(
       path.join(tmpDir, 'mnemosine.config.json'),
       JSON.stringify({
@@ -168,27 +172,35 @@ describe('api_key_cmd (credential helper)', () => {
         },
       })
     );
+    approveProjectProfile('sub', tmpDir);
+  };
 
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemosine-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+  });
   afterEach(() => {
     delete process.env.SUB_TOKEN;
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
   });
 
   it('runs the command when the env var is absent', () => {
-    writeProfile({ api_key_cmd: "printf 'oauth-token-123\n'" });
+    writeProfile({ api_key_cmd: 'echo oauth-token-123' });
     const p = resolveProfile('sub', undefined, tmpDir);
     expect(p.apiKey).toBe('oauth-token-123');
   });
 
   it('prefers the env var over the command', () => {
     process.env.SUB_TOKEN = 'from-env';
-    writeProfile({ api_key_cmd: "printf 'from-cmd'" });
+    writeProfile({ api_key_cmd: 'printf from-cmd' });
     expect(resolveProfile('sub', undefined, tmpDir).apiKey).toBe('from-env');
   });
 
   it('fails clearly when the command errors or prints nothing', () => {
     writeProfile({ api_key_cmd: 'exit 3' });
     expect(() => resolveProfile('sub', undefined, tmpDir)).toThrow(/api_key_cmd/);
-    writeProfile({ api_key_cmd: 'printf ""' });
+    writeProfile({ api_key_cmd: 'true' });
     expect(() => resolveProfile('sub', undefined, tmpDir)).toThrow(/did not print/);
   });
 });

@@ -6924,6 +6924,44 @@ export const EN = {
   'provider.switch.kept': 'The session stays on {current}.',
   'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-452 (#645): what a shared project file may run ====
+  'provider.credential.unapproved':
+    'api_key_cmd in {file}, a shared project file, not approved here: it does not run until you approve it',
+  'provider.credential.unbindable':
+    'api_key_cmd in {file}, a shared project file, in a form that cannot be approved: it does not run until it is rewritten',
+  'provider.credential.hint.unbindable':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, in a form that cannot be approved: ask whoever keeps it to point providers.{name}.api_key_cmd at a script inside the project, run directly or by sh/bash/node/python, or at a command outside it.',
+  'provider.credential.unapproved_never':
+    'api_key_cmd in {file}, a shared project file: "project_helpers" is "never" in ~/.mnemosine/config.json, so it does not run',
+  'provider.credential.unapproved_pair':
+    '{variable} set, but {file}, a shared project file, sends it to {host}, where its provider does not take it: not approved here',
+  'provider.credential.unchecked_host': 'a host it could not check',
+  'provider.credential.folder_routing':
+    '{label}; {file} sets {variables}, which serve everyone who runs mnemosine in that folder',
+  'provider.credential.hint.unapproved_pair':
+    'Provider {name} in {file}, a shared project file, would send {variable} to {host}: if you trust that host with it, run `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, that you have not approved: read providers.{name}.api_key_cmd there and, if you trust it, run `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved_never':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, and "project_helpers" is "never" in ~/.mnemosine/config.json: define the profile in your own file.',
+  'help.providers.approve.description':
+    'Approves, for you alone, what a profile of this folder\'s mnemosine.config.json runs or sends (as direnv allow)',
+  'help.providers.approve.argument.profile': 'the profile, as the project file names it',
+  'help.providers.approve.footer':
+    'Examples:\n' +
+    '  Read providers.vault.api_key_cmd in ./mnemosine.config.json first; then approve it for you:\n' +
+    '    mnemosine providers approve vault',
+  'provider.approve.builtin': '{name} is a built-in profile: there is nothing to approve.',
+  'provider.approve.own_file': '{name} comes from your own {file}: there is nothing to approve.',
+  'provider.approve.nothing':
+    '{name} in {file} runs no api_key_cmd and sends no key to another host: there is nothing to approve.',
+  'provider.approve.pair': 'Approved for you: providers.{name} in {file} may send {variable} to {host}. Another host asks again.',
+  'provider.approve.helper':
+    'Approved for you: the api_key_cmd of providers.{name} in {file}, for {host}. A changed command or host asks again.',
+  'provider.approve.helper_scope':
+    "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
+  'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
+  // ==== end of MNE-001-452 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   /** Printed in the language it offers, with `t(key, {}, other)`: each catalog offers its own. */
   'cli.lang.offer': 'To use Mnemosine in English: mnemosine lang en',

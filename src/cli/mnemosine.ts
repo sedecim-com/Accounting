@@ -127,7 +127,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
-import { credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
+import { approveProfileLines, credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -1303,7 +1303,7 @@ describeCommand(program.command('entities').alias('entidades'), 'help.entities.d
     }
   });
 
-describeCommand(program.command('providers').alias('proveedores'), 'help.providers.description')
+const providersCommand = describeCommand(program.command('providers').alias('proveedores'), 'help.providers.description')
   .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
@@ -1315,6 +1315,28 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
       await shutdown(exitCodeFor(err));
     }
   });
+
+// MNE-001-452 (#645): a shared project file's helper runs only once its person
+// approves it here, as `direnv allow`. It never prints the command.
+const providersApprove = describeCommand(
+  providersCommand.command('approve').alias('aprobar'),
+  'help.providers.approve.description'
+);
+argumentByKey(providersApprove, '<profile>', 'help.providers.approve.argument.profile');
+declareRisk(providersApprove, {
+  risk: 'escritura',
+  agent: false,
+  writes: "~/.mnemosine/project-approvals.json, the person's own (never the project file)",
+});
+providersApprove.addHelpText('after', () => `\n${t('help.providers.approve.footer')}\n`).action(async (name: string) => {
+  try {
+    for (const line of approveProfileLines(name, c)) console.log(line);
+    await shutdown(0);
+  } catch (err) {
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+});
 
 const askCommand = describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description');
 argumentByKey(askCommand, '<question...>', 'help.ask.argument.question');

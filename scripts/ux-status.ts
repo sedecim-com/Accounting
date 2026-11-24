@@ -245,7 +245,7 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  */
 export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
   'hojas-sin-ejemplo': 35,
-  'hojas-sin-contrato-de-salida': 21,
+  'hojas-sin-contrato-de-salida': 20,
   'hojas-sin-alias-castellano': 17,
   'nodos-fuera-del-idioma-canonico': 1,
   'hojas-graves-sin-las-tres-banderas': 0,

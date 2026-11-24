@@ -5,7 +5,8 @@ import os from 'node:os';
 import { z } from 'zod';
 import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
 import { REASONING_EFFORT_LEVELS } from './types.js';
-import { RenewingHelperKey, runCredentialHelperSync } from './credential-helper.js';
+import { RenewingHelperKey, runCredentialHelper, runCredentialHelperSync } from './credential-helper.js';
+import { approvalMaterial, isApproved, isApprovedAsync, recordApprovals, type ApprovalKind } from './project-approvals.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -681,6 +682,15 @@ const jobsSchema = z
   })
   .strict();
 
+/**
+ * Whether a shared project file's `api_key_cmd` may run (MNE-001-452, #645):
+ * `approved` (the default) runs the ones its person approved with
+ * `mnemosine providers approve`; `never` runs none. Read by
+ * `readProjectHelperPolicy` from the person's OWN file only.
+ */
+export const PROJECT_HELPER_POLICIES = ['approved', 'never'] as const;
+export type ProjectHelperPolicy = (typeof PROJECT_HELPER_POLICIES)[number];
+
 // CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
 // it, pinned by tests/ai/providers/config-contract.spec.ts (#367). The optional
 // `models` map (MNE-001-441, #644) and a profile's optional `reasoning_effort`
@@ -748,6 +758,7 @@ export const configFileSchema = z
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
     jobs: jobsSchema.optional(),
+    project_helpers: z.enum(PROJECT_HELPER_POLICIES).optional(),
   })
   .strict()
   .superRefine((config, ctx) => {
@@ -856,32 +867,125 @@ function quarantineInvalidConfig(file: string): string | null {
   }
 }
 
-/** Loads the first existing configuration file (project > user). */
+/**
+ * Loads the first existing configuration file (project > user).
+ *
+ * SECURITY / CONTRACT (catalog-info.yaml, provides.cli; MNE-001-452, #645): a
+ * project file that carries a credential written by hand is refused, failing
+ * closed, with no setting that changes it; the message names each field and
+ * never its value, and no `.rejected-` copy is kept, since it would be one
+ * more file holding the secret. Credentials are each person's own.
+ */
 export function loadConfigFile(cwd = process.cwd()): { config: MnemosineConfig; source: string | null } {
-  for (const file of configFilePaths(cwd)) {
-    if (!fs.existsSync(file)) continue;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch (err) {
-      const quarantined = quarantineInvalidConfig(file);
-      throw new Error(
-        `Invalid configuration in ${file}: ${(err as Error).message}` +
-          (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
-      );
-    }
-    const parsed = parseForClient(configFileSchema, raw);
-    if (!parsed.success) {
-      const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
-      const quarantined = quarantineInvalidConfig(file);
-      throw new Error(
-        `Invalid configuration in ${file}: ${issues}` +
-          (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
-      );
-    }
-    return { config: parsed.data, source: file };
-  }
+  const [projectFile, ownFile] = configFilePaths(cwd);
+  if (fs.existsSync(projectFile)) return { config: readConfigAt(projectFile, true), source: projectFile };
+  if (fs.existsSync(ownFile)) return { config: readConfigAt(ownFile, false), source: ownFile };
   return { config: {}, source: null };
+}
+
+/** One config file, validated (and, for a project file, checked for credentials) or thrown. */
+function readConfigAt(file: string, isProject: boolean): MnemosineConfig {
+  let text = '';
+  let raw: unknown;
+  try {
+    text = fs.readFileSync(file, 'utf-8');
+    raw = JSON.parse(text);
+  } catch (err) {
+    // A project file that does not parse may still hold a key: no copy of it.
+    const quarantined = isProject && textMayHoldCredential(text) ? null : quarantineInvalidConfig(file);
+    throw new Error(
+      `Invalid configuration in ${file}: ${(err as Error).message}` +
+        (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
+    );
+  }
+  // Checked BEFORE the schema, so a file that fails both leaves no
+  // `.rejected-` copy of the credential either.
+  const handWritten = isProject ? projectFileCredentialFields(raw) : [];
+  if (handWritten.length > 0) {
+    throw new Error(
+      `Refusing ${file}: ${handWritten.join(', ')} ${handWritten.length === 1 ? 'holds' : 'hold'} a credential ` +
+        'written by hand. A project file is shared with whoever clones it, and a credential is each ' +
+        "person's own: put it in your shell or ~/.mnemosine/.env and name its variable in api_key_env, " +
+        'or move the profile to ~/.mnemosine/config.json.'
+    );
+  }
+  const parsed = parseForClient(configFileSchema, raw);
+  if (!parsed.success) {
+    const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
+    const quarantined = quarantineInvalidConfig(file);
+    throw new Error(
+      `Invalid configuration in ${file}: ${issues}` +
+        (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
+    );
+  }
+  return parsed.data;
+}
+
+// A key's shape ANYWHERE in a value (the writer's prefixes, unanchored): not
+// after a letter or digit, and followed by at least 16 key characters, so a
+// profile or vault item called «xai-key» is not one.
+const KEY_SHAPE_RE =
+  /(?<![A-Za-z0-9])(?:sk-|ghp_|gho_|ghu_|github_pat_|xoxb-|AKIA|eyJ|nvapi-|xai-|AIza|gsk_|hf_|pplx-)[A-Za-z0-9_-]{16,}/;
+// A header (or URL query) NAME that carries authentication, matched by
+// segment so «x-portkey-provider» is not one: its value is sent as written,
+// never read as a variable name, so any value of it is a credential.
+const AUTH_NAME_RE = /(^|[-_])(auth|authorization|key|apikey|api-key|token|secret|cookie|password)([-_]|$)/i;
+
+function urlCarriesCredential(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) return true;
+    for (const name of u.searchParams.keys()) if (AUTH_NAME_RE.test(name)) return true;
+  } catch {
+    // The schema refuses a value that is not a URL.
+  }
+  return KEY_SHAPE_RE.test(url);
+}
+
+// The two key names of the schema that name a variable or a command, not a credential.
+const SCHEMA_KEY_NAMES: ReadonlySet<string> = new Set(['api_key_env', 'api_key_cmd']);
+
+/** Text that does not parse as JSON may still hold a key, or an auth-named field such as "Authorization". */
+function textMayHoldCredential(text: string): boolean {
+  if (KEY_SHAPE_RE.test(text)) return true;
+  // The quote is \x22 so the comment stripper the criteria read through (it knows
+  // strings, not regex literals) does not take it for an open string.
+  for (const m of text.matchAll(/\x22([^\x22\\]{1,128})\x22\s*:/g)) {
+    if (!SCHEMA_KEY_NAMES.has(m[1]) && AUTH_NAME_RE.test(m[1])) return true;
+  }
+  return false;
+}
+
+const asRecord = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+const keyShaped = (v: unknown): boolean => typeof v === 'string' && KEY_SHAPE_RE.test(v);
+
+/**
+ * The fields of a project file that carry a credential written by hand (names
+ * only). Reads the file as parsed JSON, before the schema, so a file that also
+ * breaks the schema is judged the same way.
+ */
+export function projectFileCredentialFields(config: unknown): string[] {
+  const fields: string[] = [];
+  const root = asRecord(config);
+  for (const [name, entry] of Object.entries(asRecord(root.providers))) {
+    const p = asRecord(entry);
+    const at = `providers.${name}`;
+    for (const [header, value] of Object.entries(asRecord(p.headers))) {
+      const text = typeof value === 'string' ? value : '';
+      if (AUTH_NAME_RE.test(header) || BEARER_VALUE_RE.test(text) || KEY_SHAPE_RE.test(text)) {
+        fields.push(`${at}.headers.${header}`);
+      }
+    }
+    for (const field of ['api_key_cmd', 'model', 'api_key_env'] as const) {
+      if (keyShaped(p[field])) fields.push(`${at}.${field}`);
+    }
+    if (typeof p.base_url === 'string' && urlCarriesCredential(p.base_url)) fields.push(`${at}.base_url`);
+  }
+  for (const [name, model] of Object.entries(asRecord(root.models))) {
+    if (keyShaped(model)) fields.push(`models.${name}`);
+  }
+  return fields;
 }
 
 /**
@@ -894,18 +998,36 @@ export function listProfiles(cwd = process.cwd()): {
   profiles: Record<string, ProviderProfile>;
   defaultName: string;
   source: string | null;
+  /** The file each profile was read from; null for a built-in. */
+  origins: Record<string, string | null>;
+  /** The winning file's content (what `source` holds), for its other keys. */
+  config: MnemosineConfig;
+  /** ~/.mnemosine/config.json as parsed here, or null when it does not exist: read once per call. */
+  own: MnemosineConfig | null;
 } {
   const { config, source } = loadConfigFile(cwd);
   const profiles: Record<string, ProviderProfile> = { ...BUILTIN_PROFILES };
-  for (const [name, profile] of Object.entries(config.providers ?? {})) {
-    profiles[name] = profile;
-  }
-  // The schema already refused a name that matches no profile.
-  for (const [name, model] of Object.entries(config.models ?? {})) {
-    profiles[name] = { ...profiles[name], model };
+  const origins: Record<string, string | null> = Object.fromEntries(Object.keys(profiles).map((n) => [n, null]));
+  // MNE-001-452: the person's own profiles stay available beneath a project
+  // file's, so a shared file cannot hide their helpers. Only `providers` and
+  // `models` layer; every other key keeps the first file that exists.
+  const ownFile = userConfigPath();
+  const beneath = source !== ownFile && fs.existsSync(ownFile) ? readConfigAt(ownFile, false) : null;
+  const own = source === ownFile ? config : beneath;
+  const layers: Array<[MnemosineConfig, string | null]> = beneath ? [[beneath, ownFile]] : [];
+  layers.push([config, source]);
+  for (const [layer, file] of layers) {
+    for (const [name, profile] of Object.entries(layer.providers ?? {})) {
+      profiles[name] = profile;
+      origins[name] = file;
+    }
+    // The schema already refused a name that matches no profile.
+    for (const [name, model] of Object.entries(layer.models ?? {})) {
+      profiles[name] = { ...profiles[name], model };
+    }
   }
   const defaultName = process.env.MNEMOSINE_PROVIDER || config.default_provider || 'anthropic';
-  return { profiles, defaultName, source };
+  return { profiles, defaultName, source, origins, config, own };
 }
 
 /**
@@ -960,6 +1082,421 @@ export class NotAProviderCredentialError extends Error {
   }
 }
 
+// ─── What a shared project file may run (MNE-001-452, #645) ───
+
+/**
+ * A shared project file asked for something its person has not approved.
+ * Not a MissingProviderCredentialError: `ingest` fails loudly on it, and
+ * failover does not move past it.
+ */
+export type ProjectRefusalCode = 'helper_unapproved' | 'helper_never' | 'helper_unbindable' | 'pair_unapproved';
+
+export class ProjectFileRefusalError extends Error {
+  /** Which refusal, for a machine: the message is prose. */
+  readonly code: ProjectRefusalCode;
+  constructor(code: ProjectRefusalCode, message: string) {
+    super(message);
+    this.name = 'ProjectFileRefusalError';
+    this.code = code;
+  }
+}
+
+/** True when a profile was read from a project file, not the person's own or a built-in. */
+export function isProjectOrigin(origin: string | null | undefined, home = os.homedir()): origin is string {
+  return !!origin && origin !== userConfigPath(home);
+}
+
+const ANTHROPIC_DEFAULT_URL = 'https://api.anthropic.com';
+const OPENAI_DEFAULT_URL = 'https://api.openai.com/v1';
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin.toLowerCase();
+  } catch {
+    return 'invalid-url';
+  }
+}
+
+/**
+ * Where a profile's credential really goes, as origins (scheme and host), the
+ * way the code that sends it resolves them (MNE-001-452). An openai-compatible
+ * session passes `base_url`, and without one the `openai` SDK reads
+ * OPENAI_BASE_URL (openai-client.ts). An anthropic session never passes
+ * `base_url`, so the SDK reads ANTHROPIC_BASE_URL (index.ts), while the probe
+ * sends the same key to `base_url` (probe.ts): both are destinations. The
+ * folder's ./.env is already in `env` (src/config/index.ts).
+ */
+export function profileDestinations(
+  profile: Pick<ProviderProfile, 'type' | 'base_url'>,
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  const read = (v: string | undefined) => v?.trim() || undefined;
+  const urls =
+    profile.type === 'anthropic'
+      ? [read(env.ANTHROPIC_BASE_URL) ?? ANTHROPIC_DEFAULT_URL, profile.base_url ?? ANTHROPIC_DEFAULT_URL]
+      : [profile.base_url ?? read(env.OPENAI_BASE_URL) ?? OPENAI_DEFAULT_URL];
+  return [...new Set(urls.map(originOf))].sort();
+}
+
+// A project api_key_cmd is accepted only in a shape whose code mnemosine can
+// bind (MNE-001-452, third review): an ALLOWLIST, failing closed, because
+// every denylist of shell forms leaked. Tokens are split on single spaces and
+// may hold only these characters: no quote, backslash, $, backtick, glob,
+// redirection, ;, &, |, tab or newline can reach the shell.
+const HELPER_TOKEN_RE = /^[A-Za-z0-9_./:=@%+,-]+$/;
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@%+,-]*$/;
+/**
+ * Shape b: an interpreter, under any versioned name (python3.12, nodejs),
+ * runs only the project script that is its very next token. Anywhere else it
+ * is refused, so `python3.12 -m` cannot pass as a PATH command.
+ */
+const HELPER_INTERPRETER_RE = /^(python|pypy|node|nodejs|ruby|perl|php|bash|sh|zsh|dash|ksh|lua)[0-9.]*$/;
+/** `env` names that steer a loader or a startup file, refused whatever their value. */
+const HELPER_REFUSED_ENV_RE = /^(PATH|LD_.*|DYLD_.*|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|PYTHON.*|PERL5.*|RUBY.*|GIT_.*|HOME|XDG_.*)$/;
+/** Stripped from the environment a project helper runs with, so the folder's ./.env cannot steer it. */
+// Every loader name the env check refuses, except PATH, HOME and XDG_*, which a helper needs to run.
+const HELPER_STRIPPED_ENV_RE = /^(LD_.*|DYLD_.*|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|PYTHON.*|PERL5.*|RUBY.*|GIT_.*)$/;
+
+/** The environment a project helper runs with: this process's, without the loader variables. */
+export function projectHelperEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !HELPER_STRIPPED_ENV_RE.test(name)));
+}
+/**
+ * Never a PATH command (shape c): each runs code it finds in the project on
+ * its own (a task or package runner, a build tool, a shell, an interpreter
+ * that is not in shape b), or runs another command given as its arguments.
+ */
+const HELPER_REFUSED_COMMANDS: ReadonlySet<string> = new Set([
+  'npm', 'pnpm', 'yarn', 'npx', 'bun', 'bunx', 'deno', 'make', 'gmake', 'just', 'rake', 'task', 'gradle', 'gradlew',
+  'mvn', 'mvnw', 'ant', 'sbt', 'cargo', 'go', 'dotnet', 'bazel', 'cmake', 'ninja', 'meson', 'docker', 'docker-compose',
+  'podman', 'poetry', 'pipenv', 'uv', 'uvx', 'pip', 'tox', 'nox', 'invoke', 'bundle', 'composer', 'php', 'lua',
+  'Rscript', 'java', 'tsx', 'ts-node', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh', 'osascript', 'awk',
+  'env', 'xargs', 'parallel', 'sudo', 'doas', 'su', 'eval', 'exec', 'source', '.', 'cd', 'pushd', 'command',
+  'builtin', 'nohup', 'time', 'nice', 'timeout', 'stdbuf', 'setsid', 'watch', 'chroot',
+  'pytest', 'jest', 'vitest', 'mocha', 'eslint', 'prettier', 'tsc', 'git', 'rails', 'mise', 'direnv', 'asdf',
+]);
+
+/** Where the shell finds a bare command through PATH (an empty entry is the folder itself), or null. */
+function resolveThroughPath(command: string, dir: string, pathVar: string | undefined): string | null {
+  for (const entry of (pathVar ?? '').split(':')) {
+    const candidate = path.resolve(dir, entry, command);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      // The real path, so a PATH entry that is a symlink into the project is seen as inside it.
+      if (fs.statSync(candidate).isFile()) return fs.realpathSync(candidate);
+    } catch {
+      // Not there: the next entry.
+    }
+  }
+  return null;
+}
+const MAX_HASHED_BYTES = 2 * 1024 ** 3;
+
+/** SHA-256 of a regular file, read in chunks; null when it cannot be read whole. */
+function hashRegularFile(target: string): string | null {
+  let fd: number | null = null;
+  try {
+    const stat = fs.statSync(target);
+    if (!stat.isFile() || stat.size > MAX_HASHED_BYTES) return null;
+    fd = fs.openSync(target, 'r');
+    const hash = crypto.createHash('sha256');
+    const chunk = Buffer.alloc(1024 * 1024);
+    for (let n = fs.readSync(fd, chunk); n > 0; n = fs.readSync(fd, chunk)) hash.update(chunk.subarray(0, n));
+    return hash.digest('hex');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+type Binding = { files: string[] } | { unbindable: string };
+
+/**
+ * What a project api_key_cmd runs, resolved from the folder the helper runs
+ * in (the project file's own folder, unresolved: mnemosine's cwd there), or
+ * why it cannot be approved. Accepted, optionally after `env NAME=value…`:
+ *   a) a project script run directly: `./tools/key.sh [args]`;
+ *   b) an interpreter (HELPER_INTERPRETER_RE) and a project script as its very
+ *      next token (no flag before it): `sh tools/key.sh [args]`;
+ *   c) a PATH command not in HELPER_REFUSED_COMMANDS, bound by name.
+ * A script is bound by `<real path>:<sha256>`. No argument may touch a path
+ * of the project; one that does not exist yet is bound as `<path>:absent`,
+ * so a file created there later asks again.
+ */
+function helperBinding(file: string, command: string): Binding {
+  const dir = path.dirname(path.resolve(file));
+  const tokens = command.split(' ');
+  if (!tokens.every((t) => HELPER_TOKEN_RE.test(t))) {
+    return { unbindable: 'it holds a character or a spacing outside the accepted ones (letters, digits and _ . / : = @ % + , -, one space apart)' };
+  }
+  let i = 0;
+  const envValues: string[] = [];
+  if (tokens[0] === 'env') {
+    i = 1;
+    while (i < tokens.length && ENV_ASSIGNMENT_RE.test(tokens[i])) {
+      const [name, ...value] = tokens[i].split('=');
+      if (HELPER_REFUSED_ENV_RE.test(name)) return { unbindable: `env sets ${name}, which steers what a program loads` };
+      envValues.push(value.join('='));
+      i++;
+    }
+  }
+  const head = tokens[i];
+  if (head === undefined) return { unbindable: 'it names no command' };
+  if (head.startsWith('-') || head.includes('=')) return { unbindable: `${head} is not a command` };
+  const files: string[] = [];
+  const inside = (token: string): string | null => {
+    const rel = path.relative(dir, path.resolve(dir, token));
+    return rel.startsWith('..') || path.isAbsolute(rel) ? null : rel;
+  };
+  const bindScript = (token: string): string | null => {
+    const rel = inside(token);
+    const digest = rel === null || token.startsWith('-') ? null : hashRegularFile(path.resolve(dir, token));
+    if (rel === null || digest === null) return `${token} is not a regular file of the project mnemosine can read whole`;
+    files.push(`${fs.realpathSync(path.resolve(dir, token))}:${digest}`);
+    return null;
+  };
+  let rest: string[];
+  const base = path.basename(head);
+  if (head.includes('/') && inside(head) !== null) {
+    const problem = bindScript(head); // shape a
+    if (problem) return { unbindable: problem };
+    rest = tokens.slice(i + 1);
+  } else if (!head.includes('/') && HELPER_INTERPRETER_RE.test(head)) {
+    const scriptToken = tokens[i + 1]; // shape b
+    if (scriptToken === undefined) return { unbindable: `${head} runs no script of the project` };
+    const problem = bindScript(scriptToken);
+    if (problem) return { unbindable: `${head} must run a script of the project as its next token: ${problem}` };
+    rest = tokens.slice(i + 2);
+  } else if (HELPER_REFUSED_COMMANDS.has(base) || HELPER_INTERPRETER_RE.test(base)) {
+    return { unbindable: `${base} runs code mnemosine cannot bind` };
+  } else {
+    // shape c: the shell finds it through PATH, which must not lead into the project.
+    // `found` is a real path, so it is also judged against the folder's real path:
+    // a project reached through a symlink would otherwise put every hit outside.
+    const found = head.includes('/') ? null : resolveThroughPath(head, dir, process.env.PATH);
+    const realRel = found === null ? null : path.relative(fs.realpathSync(dir), found);
+    const inRealDir = realRel !== null && !realRel.startsWith('..') && !path.isAbsolute(realRel);
+    if (found !== null && (inside(found) !== null || inRealDir)) {
+      return { unbindable: `${head} is found through PATH inside the project` };
+    }
+    rest = tokens.slice(i + 1);
+  }
+  for (const arg of [...envValues, ...rest]) {
+    const candidates = new Set([arg, arg.replace(/^-+/, ''), arg.replace(/^-[A-Za-z]/, ''), ...arg.split(/[=:,]/)]);
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const rel = inside(candidate);
+      if (rel === null) continue;
+      if (fs.existsSync(path.resolve(dir, candidate)) || hasExtensionSibling(path.resolve(dir, candidate))) {
+        return { unbindable: `the argument ${arg} reaches ${rel || '.'}, a path of the project` };
+      }
+      files.push(`${rel}:absent`);
+    }
+  }
+  return { files: [...new Set(files)].sort() };
+}
+
+/** True when `target` has no file of its own but `<target>.<ext>` exists (what node or python would load). */
+function hasExtensionSibling(target: string): boolean {
+  try {
+    const prefix = `${path.basename(target)}.`;
+    return fs.readdirSync(path.dirname(target)).some((entry) => entry.startsWith(prefix));
+  } catch {
+    return false;
+  }
+}
+
+/** The approval material of a project helper (the file, the command, the files it runs, where its output goes), or why it has none. */
+function helperMaterial(file: string, profile: ProviderProfile, env: NodeJS.ProcessEnv): { material: string } | { unbindable: string } {
+  const command = profile.api_key_cmd ?? '';
+  const binding = helperBinding(file, command);
+  if ('unbindable' in binding) return binding;
+  const what = [command, ...binding.files].join('\0');
+  return { material: approvalMaterial('helper', file, what, profileDestinations(profile, env).join(' ')) };
+}
+
+function unbindableRefusal(name: string, file: string, reason: string): ProjectFileRefusalError {
+  return new ProjectFileRefusalError(
+    'helper_unbindable',
+    `Provider "${name}" in ${file}: providers.${name}.api_key_cmd cannot be approved, because ${reason}, ` +
+      'so mnemosine could not tell what code it runs and did not run it. Ask whoever keeps that file to ' +
+      'point it at a script inside the project, run directly or by sh/bash/node/python, or at a command ' +
+      'outside it (for example ./tools/key.sh, sh tools/key.sh or gcloud auth print-access-token); or define ' +
+      'the profile in your own ~/.mnemosine/config.json.'
+  );
+}
+
+/**
+ * `project_helpers` from ~/.mnemosine/config.json alone, as `readRunDueScope`
+ * reads `jobs.run_due`: a committed file must not decide what runs on its
+ * reader's machine. Unset is `approved`. `own` is that file already parsed
+ * (listProfiles().own), so one resolution reads it once; null when it does
+ * not exist.
+ */
+export function readProjectHelperPolicy(home = os.homedir(), own?: MnemosineConfig | null): ProjectHelperPolicy {
+  if (own !== undefined) return own?.project_helpers ?? 'approved';
+  const ownFile = userConfigPath(home);
+  if (!fs.existsSync(ownFile)) return 'approved';
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(ownFile, 'utf-8'));
+  } catch (err) {
+    throw new Error(`Invalid configuration in ${ownFile}: ${(err as Error).message}`);
+  }
+  const value = (raw as { project_helpers?: unknown } | null)?.project_helpers;
+  if (value === undefined) return 'approved';
+  if (value === 'approved' || value === 'never') return value;
+  throw new Error(`Invalid configuration in ${ownFile}: project_helpers must be "approved" or "never" (or be left out)`);
+}
+
+export interface ProjectGateOptions {
+  home?: string;
+  env?: NodeJS.ProcessEnv;
+  /** The user's file as listProfiles parsed it; omitted, it is read. */
+  own?: MnemosineConfig | null;
+}
+
+/**
+ * Why a project profile's helper may not run here, or null when it may. Never
+ * runs it. One scrypt derivation per call (project-approvals.ts).
+ */
+export function projectHelperGate(
+  file: string,
+  profile: ProviderProfile,
+  opts: ProjectGateOptions = {}
+): HelperGate {
+  const pre = helperGateBefore(file, profile, opts);
+  return 'gate' in pre ? pre.gate : isApproved(pre.material, pre.home) ? null : { never: false };
+}
+
+type HelperGate = { never: boolean; unbindable?: string } | null;
+
+/** The part of the helper gate that needs no derivation: a decided gate, or the material to look up. */
+function helperGateBefore(
+  file: string,
+  profile: ProviderProfile,
+  opts: ProjectGateOptions
+): { gate: HelperGate } | { material: string; home: string } {
+  const home = opts.home ?? os.homedir();
+  if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };
+  const helper = helperMaterial(file, profile, opts.env ?? process.env);
+  if ('unbindable' in helper) return { gate: { never: false, unbindable: helper.unbindable } };
+  return { material: helper.material, home };
+}
+
+/**
+ * `mnemosine providers approve <name>`: records, under the person's home, what
+ * the folder's project profile `name` runs and sends. `file` is null for a
+ * built-in, the user's own file for one of theirs; then nothing is approved.
+ */
+export function approveProjectProfile(
+  name: string,
+  cwd = process.cwd(),
+  home = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env
+): { file: string | null; shared: boolean; host: string; variable?: string; approved: ApprovalKind[]; never: boolean } {
+  const { profiles, origins, own } = listProfiles(cwd);
+  const profile = profiles[name];
+  if (!profile) {
+    throw new Error(`Provider "${name}" does not exist. Available: ${Object.keys(profiles).join(', ')}`);
+  }
+  const file = origins[name] ?? null;
+  const destinations = profileDestinations(profile, env);
+  const host = destinations.join(', ');
+  if (!isProjectOrigin(file, home)) return { file, shared: false, host, approved: [], never: false };
+  const entries: Array<{ material: string; kind: ApprovalKind; file: string }> = [];
+  if (profile.api_key_cmd) {
+    const helper = helperMaterial(file, profile, env);
+    if ('unbindable' in helper) throw unbindableRefusal(name, file, helper.unbindable);
+    entries.push({ material: helper.material, kind: 'helper', file });
+  }
+  if (profile.api_key_env && !isDocumentedPair(profile.api_key_env, destinations)) {
+    const material = approvalMaterial('pair', file, profile.api_key_env, destinations.join(' '));
+    entries.push({ material, kind: 'pair', file });
+  }
+  const never = readProjectHelperPolicy(home, own) === 'never';
+  if (entries.length > 0) recordApprovals(entries, home);
+  return { file, shared: true, host, variable: profile.api_key_env, approved: entries.map((e) => e.kind), never };
+}
+
+// The pairs the built-ins document: each provider's key variable and its
+// origin, scheme included, resolved with no environment.
+let documentedPairs: ReadonlySet<string> | null = null;
+function isDocumentedPair(variable: string, destinations: readonly string[]): boolean {
+  documentedPairs ??= new Set(
+    Object.values(BUILTIN_PROFILES)
+      .filter((p) => p.api_key_env)
+      .flatMap((p) => profileDestinations(p, {}).map((origin) => `${p.api_key_env}@${origin}`))
+  );
+  const pairs = documentedPairs;
+  return destinations.every((origin) => pairs.has(`${variable}@${origin}`));
+}
+
+/**
+ * Whether a project profile may send its `api_key_env` where it goes, or the
+ * pair it may not send (MNE-001-452). A provider's documented variable to its
+ * own origin passes; any other pair needs its person's approval.
+ */
+export function projectPairGate(
+  file: string,
+  profile: ProviderProfile,
+  opts: ProjectGateOptions = {}
+): { variable: string; host: string } | null {
+  const variable = profile.api_key_env;
+  if (!variable) return null;
+  const destinations = profileDestinations(profile, opts.env ?? process.env);
+  if (isDocumentedPair(variable, destinations)) return null;
+  const material = approvalMaterial('pair', file, variable, destinations.join(' '));
+  return isApproved(material, opts.home ?? os.homedir()) ? null : { variable, host: destinations.join(', ') };
+}
+
+function assertProjectPairAllowed(name: string, file: string, profile: ProviderProfile): void {
+  const gate = projectPairGate(file, profile);
+  if (!gate) return;
+  throw new ProjectFileRefusalError(
+    'pair_unapproved',
+    `Provider "${name}" in ${file} would send ${gate.variable} to ${gate.host}, which is not where that ` +
+      `variable's provider takes it, so nothing was sent. If you trust ${gate.host} with it, run: ` +
+      `mnemosine providers approve ${name}. Another host asks again.`
+  );
+}
+
+function assertProjectHelperAllowed(
+  name: string,
+  file: string,
+  profile: ProviderProfile,
+  own: MnemosineConfig | null
+): void {
+  refuseHelper(name, file, projectHelperGate(file, profile, { own }));
+}
+
+/** The renewal's check: the same gate, with the derivation off the event loop. */
+async function assertProjectHelperAllowedAsync(
+  name: string,
+  file: string,
+  profile: ProviderProfile,
+  own: MnemosineConfig | null
+): Promise<void> {
+  const pre = helperGateBefore(file, profile, { own });
+  refuseHelper(name, file, 'gate' in pre ? pre.gate : (await isApprovedAsync(pre.material, pre.home)) ? null : { never: false });
+}
+
+function refuseHelper(name: string, file: string, gate: HelperGate): void {
+  if (!gate) return;
+  if (gate.unbindable) throw unbindableRefusal(name, file, gate.unbindable);
+  throw new ProjectFileRefusalError(
+    gate.never ? 'helper_never' : 'helper_unapproved',
+    gate.never
+      ? `Provider "${name}" in ${file} runs an api_key_cmd, and "project_helpers" is "never" in ` +
+          '~/.mnemosine/config.json, so it did not run. Define the profile in your own ~/.mnemosine/config.json.'
+      : `Provider "${name}" in ${file} runs an api_key_cmd you have not approved, so it did not run. ` +
+          `Read providers.${name}.api_key_cmd in that file and, if you trust it, run: mnemosine providers approve ${name}. ` +
+          'A changed command, project script or destination asks again; "project_helpers": "never" in ' +
+          '~/.mnemosine/config.json runs none.'
+  );
+}
+
 /**
  * Resolves the profile to use. `flagName` comes from --provider; `modelOverride`
  * from --model. Validates that the named API key exists in the environment.
@@ -969,9 +1506,10 @@ export function resolveProfile(
   modelOverride?: string,
   cwd = process.cwd()
 ): ResolvedProfile {
-  const { profiles, defaultName, source } = listProfiles(cwd);
+  const { profiles, defaultName, origins, own } = listProfiles(cwd);
   const name = flagName || defaultName;
   const profile = profiles[name];
+  const origin = origins[name] ?? null;
   if (!profile) {
     throw new Error(
       `Provider "${name}" does not exist. Available: ${Object.keys(profiles).join(', ')}. ` +
@@ -990,8 +1528,11 @@ export function resolveProfile(
   }
 
   let apiKey: string | undefined;
-  if (profile.api_key_env) {
-    apiKey = process.env[profile.api_key_env] || undefined;
+  if (profile.api_key_env && process.env[profile.api_key_env]) {
+    // SECURITY (MNE-001-452): a shared project file sends a variable only to
+    // the host its provider documents, or to one its person approved.
+    if (isProjectOrigin(origin)) assertProjectPairAllowed(name, origin, profile);
+    apiKey = process.env[profile.api_key_env];
   }
   // Credential helper: only if the env did not resolve. For vaults, keychains
   // and a short-lived token from the person's own login (gcloud). The first
@@ -999,12 +1540,23 @@ export function resolveProfile(
   // with CredentialHelperError's fixed message (never its command or stderr).
   let keyRenewal: RenewingHelperKey | undefined;
   if (!apiKey && profile.api_key_cmd) {
-    apiKey = runCredentialHelperSync(name, profile.api_key_cmd);
-    // SECURITY: only a helper from the person's OWN file is run again during
-    // the session. One from a project file keeps running once per session,
-    // until the follow-up issue decides what a shared file may run (#644).
-    if (profile.type === 'openai-compatible' && source === userConfigPath()) {
-      keyRenewal = new RenewingHelperKey(name, profile.api_key_cmd, apiKey);
+    // SECURITY (MNE-001-452): a shared project file's helper runs only once its
+    // person approved that exact command for that host, unless they chose
+    // `never`. Checked BEFORE it runs; the error never quotes the command.
+    // It runs in the folder mnemosine resolves for, whose ./.env is in its environment.
+    // A project helper runs without the folder's loader variables.
+    const helperEnv = isProjectOrigin(origin) ? projectHelperEnv() : undefined;
+    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);
+    apiKey = runCredentialHelperSync(name, profile.api_key_cmd, { cwd, env: helperEnv });
+    // Every helper that got this far is the person's own or one they approved.
+    if (profile.type === 'openai-compatible') {
+      const command = profile.api_key_cmd;
+      // A project helper is re-checked before each re-run, scripts included.
+      const run = async (p: string, c: string): Promise<string> => {
+        if (isProjectOrigin(origin)) await assertProjectHelperAllowedAsync(name, origin, profile, own);
+        return runCredentialHelper(p, c, { cwd, env: isProjectOrigin(origin) ? projectHelperEnv() : undefined });
+      };
+      keyRenewal = new RenewingHelperKey(name, command, apiKey, { run });
     }
   }
   // Anthropic resolves credentials on its own (ant profile, auth token);
