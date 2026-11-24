@@ -64,6 +64,11 @@
  * MNE-001-476) is the run-time half: English literals the CLI prints without a
  * key. It reads the source, not the tree, and leaves help registration to the
  * lane above.
+ *
+ * `help-examples-without-key` (scripts/language/lanes/help-examples.ts,
+ * MNE-001-477) counts the third kind of CLI text: the `Examples:` blocks at
+ * the end of `--help`, written at the call site instead of drawn from a key.
+ * It reads the source too, per file.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -75,6 +80,7 @@ import { docsLanes } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
 import { cliStringsLanes } from './language/lanes/cli-strings.js';
+import { helpExamplesLanes } from './language/lanes/help-examples.js';
 import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -106,6 +112,7 @@ export function measure(): Lane[] {
     ...commentTagsLanes(),
     ...helpLanes(),
     ...cliStringsLanes(),
+    ...helpExamplesLanes(),
   ];
 }
 
