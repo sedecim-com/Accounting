@@ -264,7 +264,8 @@ const SONDAS: Sonda[] = [
   {
     // MNE-001-589 (#809): it also names the rows a reversal close that missed
     // them left before MNE-001-584, with the amount the reversal reopened by.
-    // It only reads: no command closes such a row, so the detail says what to do.
+    // It only reads; the detail names the person's command that closes a reversed
+    // receipt's row, `receipt allocation close` (MNE-001-605).
     name: 'orphan-application',
     severity: 'blocking',
     descripcion: 'aplicaciones vivas de cobros anulados o reversados',
@@ -286,9 +287,10 @@ const SONDAS: Sonda[] = [
         ? {
             count, sample, detailKey: 'ar.check.orphan_application.found',
             detail:
-              "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
-              "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
-              'report it before collecting that invoice again',
+              "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA. " +
+              "On a reversed receipt the reversal already reopened the invoice and mirrored its entries, so only the row's close is missing: " +
+              'close it with `receipt allocation close <receipt> --invoice <invoice> --reason "<why>"`, which posts nothing, ' +
+              'before collecting that invoice again. On a void or failed receipt, report it',
           }
         : { count, sample, detailKey: 'ar.check.orphan_application.none', detail: 'none' };
     },

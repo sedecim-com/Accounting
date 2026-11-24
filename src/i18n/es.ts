@@ -2497,6 +2497,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-605 (#809): the live allocation a reversed receipt still has, closed by a person.
+  'receipt.allocation.close.not_reversed':
+    'El cobro {number} está en «{status}»: así sólo se cierra la aplicación viva de un cobro reversado, porque sólo la reversa ya reabrió su factura. No se escribió nada.',
+  'receipt.allocation.close.nothing_live':
+    'El cobro {number} no tiene ninguna aplicación viva sobre {invoice}: no hay qué cerrar. No se escribió nada.',
+  'receipt.allocation.close.after_reversal':
+    'La aplicación viva de {number} sobre {invoice} se escribió después de reversar el cobro, así que la reversa nunca reabrió la factura por ella: cerrarla sola dejaría la factura corta. Repórtala. No se escribió nada.',
+  'receipt.allocation.close.would_close':
+    'Cerraría {count} aplicación(es) viva(s) de {number} sobre {invoice}, {amount}, con la fecha de la reversa ({closed_at}); no postea nada ni toca la factura',
+  'receipt.allocation.close.confirm':
+    '¿Cerrar {count} aplicación(es) viva(s) del cobro reversado {number} sobre {invoice} ({amount})? La reversa ya reabrió la factura y reflejó sus pólizas; esto sólo cierra la fila, con la fecha de la reversa, y no postea nada. No se puede deshacer.',
+  'receipt.allocation.close.closed':
+    '{number}: {count} aplicación(es) sobre {invoice} cerrada(s) ({amount}), con la fecha de la reversa ({closed_at}); no se posteó nada',
+  'receipt.allocation.close.dry_run': 'Ensayo: el cierre sí corrió y se deshizo; no se escribió nada.',
+  'receipt.allocation.close.key_unneeded': 'un reintento no encuentra ninguna aplicación viva sobre esa factura y se rechaza',
   // MNE-001-498 (#695): el saldo a cuenta de un cliente, traspasado a otro cliente.
   'receipt.transfer.reason_required':
     'Traspasar el crédito de un cliente exige --reason "<el acuerdo>": queda escrito en el rastro de auditoría y en el traspaso. No se escribió nada.',
@@ -2691,6 +2706,20 @@ export const ES: Record<keyof typeof EN, string> = {
     'Una cuenta de banco extranjero no tiene CLABE, que sólo emite un banco residente en México, y esta ' +
     'edición la deja con una. Bórrala en la misma edición con --clabe "" --reason "<por qué>", o quita la ' +
     'marca con --no-foreign-bank --reason "<por qué>".',
+  'bank.account.create.foreign_bank.sat_bank_code':
+    'Una cuenta de banco extranjero no tiene clave c_Banco del SAT, y ésta se daría de alta con {code}. ' +
+    'Quita --sat-bank-code, o dala de alta sin --foreign-bank si su banco reside en México.',
+  'bank.account.create.foreign_bank.clabe':
+    'Una cuenta de banco extranjero no tiene CLABE, que sólo emite un banco residente en México. ' +
+    'Quita --clabe y da su --account-number, o dala de alta sin --foreign-bank si su banco reside en México.',
+  'bank.account.create.no_sat_bank_code':
+    'La cuenta queda sin clave c_Banco del SAT: el archivo de pólizas la exige para el origen y el destino de un pago. ' +
+    'Captúrala con `bank account edit <cuenta> --sat-bank-code <clave>` o, si su banco no reside en México, ' +
+    'márcala con `bank account edit <cuenta> --foreign-bank --reason "<por qué>"`.',
+  'bank.account.foreign_bank.name_too_long':
+    'El nombre del banco tiene {length} caracteres y el archivo de pólizas declara un banco extranjero en un ' +
+    'atributo que admite {max}: cada uno de sus pagos deja fuera su nodo de la póliza, que se nombra, y el nombre nunca se recorta. ' +
+    'Acórtalo con `bank account edit <cuenta> --bank "<nombre de hasta {max} caracteres>"`.',
   'bank.account.edit.nothing_to_change':
     'Nada que cambiar. Pasa --name, --bank, --branch, --type, --currency, --clabe, ' +
     '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift, --iban, ' +
@@ -3798,6 +3827,111 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.8 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // MNE-001-229: batch.
+  'ledger.batch.title': 'LOTE {id}',
+  'ledger.batch.receipt_title': 'lote {id}',
+  'ledger.batch.row': 'fila {row}',
+  'ledger.batch.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya consumó este acto — {what}. Nada se ejecutó otra vez; esto es el resultado grabado.',
+  'ledger.batch.status.one_at_a_time':
+    'Un estado a la vez: el flujo del lote es corto (staged → checked → posted) y un filtro múltiple no responde ninguna pregunta que dos corridas no respondan mejor.',
+  'ledger.batch.status.unknown':
+    '--status "{value}" no existe en el flujo del lote. Los estados reales (045): {statuses}. El vocabulario pending|running|completed|failed|cancelled no corresponde a esta tabla.',
+  'ledger.batch.check.categories_unknown':
+    '--check no reconoce: {unknown}. Las categorías cerradas son {categories}. La batería completa corre siempre; el filtro sólo acota el informe.',
+  'ledger.batch.list.flag_unsupported':
+    '{flag} no aplica a los lotes: un lote se filtra por cuándo se preparó, con --since (created_at >= fecha). No hay rango superior ni base de fecha que elegir.',
+  'ledger.batch.list.offset_unsupported':
+    '--offset no está implementado en esta familia: la consulta ordena por created_at y acota con --limit, sin cursor estable. Acota con --since o sube --limit.',
+  'ledger.batch.list.capped':
+    '{count, plural, one {Se listó # lote} other {Se listaron # lotes}}, que es el tope de --limit: puede haber más. Sube --limit o acota con --since.',
+  'ledger.batch.show.file_label': 'archivo',
+  'ledger.batch.show.rows_label': 'filas',
+  'ledger.batch.show.prepared_label': 'preparado',
+  'ledger.batch.show.unnamed': '(sin nombre)',
+  'ledger.batch.show.rows':
+    '{total} total · {invalid, plural, one {# inválida} other {# inválidas}} · {posted, plural, one {# póliza} other {# pólizas}} en el mayor',
+  'ledger.batch.show.prepared': '{date} por {user}',
+  'ledger.batch.show.rows_title': 'FILAS',
+  'ledger.batch.show.empty': 'el lote está vacío',
+  'ledger.batch.show.no_parse_errors': 'ninguna fila con error de parseo',
+  'ledger.batch.show.errors_by_category': 'errores de parseo por categoría:',
+  'ledger.batch.check.rows_checked': '· {count, plural, one {# fila verificada} other {# filas verificadas}}',
+  'ledger.batch.check.strict': ' · estricto',
+  'ledger.batch.check.narrowed': ' · informe acotado a {categories}',
+  'ledger.batch.check.nothing_to_show': 'ningún hallazgo que enseñar',
+  'ledger.batch.check.all_valid':
+    "{count, plural, one {# fila válida} other {# filas válidas}}: el lote queda '{status}'.",
+  'ledger.batch.check.some_invalid':
+    "{invalid, plural, one {# inválida} other {# inválidas}} y {valid, plural, one {# válida} other {# válidas}}: el lote se queda '{status}'. Corrige el archivo y reimporta, o aplica lo válido con `batch post --partial`.",
+  'ledger.batch.check.hidden_blocking':
+    '{count, plural, one {# hallazgo bloqueante quedó} other {# hallazgos bloqueantes quedaron}} fuera del informe por --check; el código de salida los cuenta igual.',
+  'ledger.batch.post.preview': '· {count, plural, one {# póliza} other {# pólizas}} · Debe {total}{already}',
+  'ledger.batch.post.already': ' · {count, plural, one {# ya estaba} other {# ya estaban}}',
+  'ledger.batch.post.left_staged':
+    '{count, plural, one {# fila queda en staging:} other {# filas quedan en staging:}}',
+  'ledger.batch.post.confirm':
+    'Vas a CONTABILIZAR {count, plural, one {# póliza} other {# pólizas}} del lote {id} por {total} (Debe){left}. El mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
+  'ledger.batch.post.confirm_left': ', dejando {count, plural, one {# fila} other {# filas}} en staging',
+  'ledger.batch.post.recorded': '{count, plural, one {# póliza} other {# pólizas}} del lote {id}',
+  'ledger.batch.post.receipt':
+    "→ '{status}' · {posted, plural, one {# contabilizada} other {# contabilizadas}} · {already, plural, one {# ya estaba} other {# ya estaban}} · {staged} en staging · Debe {total}",
+  'ledger.batch.post.dry_run':
+    'Ensayo: se contabilizó de verdad y se deshizo; los folios mostrados no quedaron reservados.',
+  'ledger.batch.reverse.preview': '· {count, plural, one {# espejo} other {# espejos}}{dated}',
+  'ledger.batch.reverse.dated': ' con fecha {date}',
+  'ledger.batch.reverse.confirm':
+    'Vas a REVERSAR el lote {id}: {count, plural, one {# espejo posteado} other {# espejos posteados}}, uno por póliza, en una sola transacción. Cada póliza admite UNA reversa (041). ¿Continuar?',
+  'ledger.batch.reverse.recorded': '{count, plural, one {# espejo} other {# espejos}} del lote {id}',
+  'ledger.batch.reverse.receipt':
+    "· {count, plural, one {# espejo} other {# espejos}} · el lote sigue '{status}': la verdad de la reversa vive en reversed_by_entry_id de cada póliza",
+  'ledger.batch.reverse.dry_run': 'Ensayo: los espejos se crearon de verdad y se deshicieron; nada quedó escrito.',
+  // MNE-001-229: account.
+  'ledger.account.dry_run_note': ' (dry-run: nada se escribió)',
+  'ledger.account.type_unknown': '--type "{value}" no existe. Usa uno de: {types}.',
+  'ledger.account.normal_balance_unknown': '--normal-balance "{value}" no existe. Usa debit o credit.',
+  'ledger.account.show.disappeared': 'La cuenta {code} desapareció mientras se leía.',
+  'ledger.account.edit.nothing_to_change': 'Nada que cambiar. Pasa --name, --description, --subtype o --fs-category.',
+  'ledger.account.edit.done': '{code} actualizada.',
+  'ledger.account.archive.would_archive': '{code} se archivaría. Saldo de por vida: {balance}.',
+  'ledger.account.archive.would_keep_history': ' Tiene historia posteada, que quedaría intacta.',
+  'ledger.account.archive.done': '{code} archivada. Motivo: {reason}',
+  'ledger.account.archive.forced': ' (con saldo vivo {balance}, forzado)',
+  'ledger.account.archive.history_intact': ' La historia posteada queda intacta.',
+  'ledger.account.set.would_set': '{code} fijaría: {flags}',
+  'ledger.account.set.pair_unreadable': 'Par ilegible "{pair}": se espera clave=valor.',
+  'ledger.account.set.key_unknown': 'Clave desconocida "{key}". Válidas: {keys}.',
+  'ledger.account.set.value_unreadable': 'Valor ilegible "{value}" para {key}: usa true o false.',
+  'ledger.account.balance.open_period_note':
+    'Nota: beginning_balance solo se siembra en el cierre duro; en periodos abiertos lee la actividad, no el acumulado.',
+  'ledger.account.role.set.would_point': 'El rol {role}{qualifier} apuntaría a {code} {name}',
+  'ledger.account.role.seed.done':
+    '{roles, plural, one {# rol mapeado} other {# roles mapeados}}, {accounts, plural, one {# cuenta base creada} other {# cuentas base creadas}}',
+  'ledger.account.role.seed.unmapped': ' — sin mapear: {roles}',
+  'ledger.account.role.sync.not_mexican': 'Esta entidad no lleva libros mexicanos: no tiene roles de retención.',
+  'ledger.account.role.sync.nothing': 'Nada que cambiar.',
+  'ledger.account.role.sync.done': 'aplicado y auditado; no se contabilizó ninguna póliza.',
+  'ledger.account.map.year_invalid': '--year tiene que ser un ejercicio de cuatro dígitos; llegó "{value}".',
+  'ledger.account.map.set.dry_run':
+    '{code}: {scheme} {clear, select, yes {se limpiaría} other {sería {value}{name}}} (dry-run)',
+  'ledger.account.map.import.no_pairs': 'El archivo {file} no trae pares código,valor legibles.',
+  'ledger.account.map.import.done':
+    '{applied}/{total} mapeos {mode, select, dry_run {aplicables} other {aplicados}} ({scheme})',
+  'ledger.account.map.import.repeated': ' [repetido: resultado de la primera corrida]',
+  'ledger.account.map.import.no_account': '  · {code}: no existe en el catálogo',
+  'ledger.account.map.import.empty_value': '  · {code}: valor vacío, omitido',
+  'ledger.account.map.check.available': 'Verificaciones disponibles: {checks}',
+  'ledger.account.map.check.unknown': 'Verificación desconocida: {unknown}. Disponibles: {checks}.',
+  'ledger.account.map.check.level_retired':
+    '--level ya no aplica: la compuerta medía por nivel de cuenta y ése era el defecto (43 huecos sobre una entidad real, 42 de ellos cuentas sin un solo movimiento, y la cuenta movida sin agrupador fuera de la lista por estar en nivel 3). Hoy la población la fija la política agrupador_alcance_de_la_compuerta; se cambia con {hint}.',
+  'ledger.account.map.check.scope':
+    'alcance "{scope}", {chosen, select, panel {elegido en el panel} other {por omisión}}',
+  'ledger.account.map.check.empty': '0 cuentas en el {scope}: no se comprobó nada',
+  'ledger.account.map.check.complete':
+    '✔ cobertura completa: {count, plural, one {# cuenta} other {# cuentas}} con {scheme} ({scope})',
+  'ledger.account.map.check.gaps':
+    '{gaps} de {count, plural, one {# cuenta} other {# cuentas}} sin {scheme} ({scope}): el XML de catálogo saldría incompleto',
+  'ledger.account.restore.done': '{code} vuelve a estar activa.',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
@@ -3986,6 +4120,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.cause.record.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
   'help.receipt.cause.record.option.json': 'salida JSON',
+  // MNE-001-605 (#809): the live allocation of a reversed receipt, closed by a person.
+  'help.receipt.allocation.description': 'Las aplicaciones de un cobro a sus facturas',
+  'help.receipt.allocation.close.description':
+    'Cierra la aplicación viva que un cobro reversado aún tiene sobre una factura (ar check: orphan-application): con la fecha de la reversa, auditada, sin postear nada',
+  'help.receipt.allocation.close.argument.ref': 'número de cobro o id del cobro reversado',
+  'help.receipt.allocation.close.option.invoice': 'número o id de la factura que salda la aplicación viva',
+  'help.receipt.allocation.close.option.reason': 'por qué se cierra: queda escrito en el rastro de auditoría',
+  'help.receipt.allocation.close.option.json': 'salida JSON',
+  'help.receipt.allocation.close.examples':
+    '\nEjemplos:\n' +
+    '  ar check nombró PMT-2026-00042 (reversed) → INV-2026-00051 116.00 en orphan-application; ver qué se cerraría:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Quedó viva tras su reversa" --dry-run\n' +
+    '  Cerrarla; la reversa ya reabrió la factura, así que no postea nada:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Quedó viva tras su reversa"\n',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado después.
   'help.payment.trace.description': 'El rastro de un pago registrado: su cheque, y la cuenta y el banco a donde fue el dinero',
   'help.payment.trace.record.description':
@@ -4198,9 +4346,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
   'ar.check.cross_party_application.none': 'ninguna',
   'ar.check.orphan_application.found':
-    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA; ' +
-    'la reversa ya reabrió la factura y sólo falta cerrar la fila, que ningún comando escribe: ' +
-    'repórtala antes de volver a cobrar esa factura',
+    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA. ' +
+    'En un cobro reversado la reversa ya reabrió la factura y reflejó sus pólizas, así que sólo falta cerrar la fila: ' +
+    'ciérrala con `receipt allocation close <cobro> --invoice <factura> --reason "<por qué>"`, que no postea nada, ' +
+    'antes de volver a cobrar esa factura. En un cobro anulado o fallido, repórtala',
   'ar.check.orphan_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
@@ -4423,6 +4572,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.create.option.description': 'descripción',
   'help.account.create.option.header': 'una cuenta agrupadora: no acepta pólizas manuales',
   'help.account.create.option.json': 'salida en JSON',
+  'help.account.create.examples':
+    '\nEjemplos:\n' +
+    '  {comment} Una cuenta de gasto nueva que cuelga de Gastos de Administracion (6100).\n' +
+    '  {expense}\n' +
+    '  {comment} Un nodo de agrupación: --header quiere decir que no acepta pólizas manuales.\n' +
+    '  {header}\n',
   'help.account.edit.description':
     'Cambia el nombre, la descripción, el subtipo o la categoría de estado financiero de una cuenta',
   'help.account.edit.argument.code': 'código o id de la cuenta',
@@ -4615,6 +4770,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.account.create.option.branch': 'sucursal',
   'help.bank.account.create.option.swift': 'código SWIFT/BIC',
   'help.bank.account.create.option.iban': 'código IBAN',
+  'help.bank.account.create.option.foreign_bank':
+    'el banco no reside en México: las pólizas declaran la clave c_Banco 999 y el nombre del banco; exige --reason, ' +
+    'y ni --sat-bank-code ni --clabe',
+  'help.bank.account.create.option.reason':
+    'justificación que queda en el rastro de auditoría; obligatoria con --foreign-bank',
   'help.bank.account.create.option.dry_run': 'corre todas las validaciones y la inserción, y luego lo deshace todo',
   'help.bank.account.create.option.json': 'salida en JSON',
   'help.bank.account.list.description':

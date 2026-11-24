@@ -3,10 +3,11 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import type { Scope } from '../../database/scope.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError, ConflictError, type ErrorMessageKey } from '../../utils/errors.js';
 import { encrypt } from '../../utils/encryption.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { BANK_ACCOUNT_TYPES } from '../../database/enums.js';
+import { EXT_MAX_CHARACTERS, extCharacters } from '../sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // LA CUENTA BANCARIA COMO DATO MAESTRO (F05a)
@@ -370,7 +371,26 @@ export interface FichaCuentaBancaria extends RenglonCuentaBancaria {
    * antes de que existiera este servicio pudo entrar sin ninguna de ellas, y
    * la ficha es donde se ve.
    */
-  advertencias: string[];
+  advertencias: BankAccountWarning[];
+}
+
+/**
+ * A warning: prose not yet keyed, or a catalogue key the surface renders in
+ * its reader's language (MNE-001-615 writes its warnings by key).
+ */
+export type BankAccountWarning = string | ErrorMessageKey;
+
+/**
+ * MNE-001-615 · A marked account whose bank name will not fit its `*Ext`
+ * attribute, counted as the vouchers file counts it. The name is never
+ * truncated: the warning says so, and the vouchers file names each payment.
+ */
+export function foreignBankNameTooLong(foreignBank: boolean, bankName: string): ErrorMessageKey | undefined {
+  if (!foreignBank) return undefined;
+  const length = extCharacters(bankName);
+  return length > EXT_MAX_CHARACTERS
+    ? { key: 'bank.account.foreign_bank.name_too_long', params: { length, max: EXT_MAX_CHARACTERS } }
+    : undefined;
 }
 
 function dec(valor: string | null | undefined): Decimal {
@@ -407,7 +427,7 @@ function aRenglon(fila: FilaCuenta): RenglonCuentaBancaria {
 }
 
 function aFicha(fila: FilaCuenta): FichaCuentaBancaria {
-  const advertencias: string[] = [];
+  const advertencias: BankAccountWarning[] = [];
   if (!fila.gl_id) {
     advertencias.push(
       'La cuenta de mayor mapeada no pertenece a esta entidad: el saldo de libros se lee como cero ' +
@@ -428,6 +448,9 @@ function aFicha(fila: FilaCuenta): FichaCuentaBancaria {
       );
     }
   }
+
+  const nameTooLong = foreignBankNameTooLong(fila.bank_is_foreign === true, fila.bank_name);
+  if (nameTooLong) advertencias.push(nameTooLong);
 
   const saldoLibro = dec(fila.saldo_libro);
   return {
@@ -761,6 +784,11 @@ export interface EntradaCuentaBancaria {
   bankBranch?: string | null;
   swiftCode?: string | null;
   iban?: string | null;
+  /**
+   * MNE-001-615 · the bank is not resident in Mexico. Only with `reason`, and
+   * never with a c_Banco code or a CLABE: the same rule as `edit`'s mark.
+   */
+  foreignBank?: boolean;
 }
 
 export interface ContextoEscritura {
@@ -774,7 +802,7 @@ export interface ResultadoAlta {
   cuenta: FichaCuentaBancaria;
   /** Todo lo anterior ocurrió y se revirtió. */
   dryRun: boolean;
-  advertencias: string[];
+  advertencias: BankAccountWarning[];
 }
 
 /** Centinela: la única forma de salir de una transacción con el trabajo hecho y deshecho. */
@@ -897,13 +925,28 @@ export async function createBankAccount(
   const routing = resolverRouting(entrada);
   const numero = entrada.accountNumber?.trim() || null;
 
-  const advertencias: string[] = [];
+  const advertencias: BankAccountWarning[] = [];
   const clabe = entrada.clabe ? exigirClabe(entrada.clabe) : null;
 
   // La clave de banco del SAT y los tres primeros de la CLABE son el MISMO
   // catálogo de Banxico. Si el usuario da las dos y no coinciden, una de las
   // dos está mal y el Anexo 24 exige la correcta dentro de la póliza.
   let claveSat = entrada.satBankCode ? exigirClaveSat(entrada.satBankCode) : null;
+
+  // MNE-001-615 · the mark at creation: the reason gate and the refusal of
+  // `edit`'s, before any write and on what the user typed (a code derived
+  // from the CLABE would hide that it is the CLABE that has to go).
+  const foreign = entrada.foreignBank === true;
+  if (foreign) {
+    if (!ctx.reason || ctx.reason.trim().length === 0) {
+      throw new ValidationError({ key: 'bank.account.foreign_bank.reason_required' }, 'reason');
+    }
+    refuseNationalIdentifierOnForeignBank(
+      { sat_bank_code: null },
+      { foreignBank: true, satBankCode: claveSat, clabe: clabe?.clabe ?? null },
+      'create'
+    );
+  }
   if (clabe && claveSat && claveSat !== clabe.bancoSat) {
     throw new ValidationError(
       `La clave de banco declarada (${claveSat}) no es la que trae la CLABE (${clabe.bancoSat}). ` +
@@ -912,12 +955,8 @@ export async function createBankAccount(
     );
   }
   if (!claveSat && clabe) claveSat = clabe.bancoSat;
-  if (!claveSat) {
-    advertencias.push(
-      'La cuenta queda sin clave de banco del SAT: el Anexo 24 la exige dentro de la póliza ' +
-        'para la cuenta origen y destino de un pago.'
-    );
-  }
+  // A marked account has no code by rule; an unmarked one is told both ways out.
+  if (!claveSat && !foreign) advertencias.push({ key: 'bank.account.create.no_sat_bank_code' });
 
   const id = uuidv4();
   try {
@@ -931,8 +970,8 @@ export async function createBankAccount(
              id, entity_id, account_name, bank_name, bank_branch, account_type,
              swift_code, iban, clabe_encrypted, clabe_last4, sat_bank_code,
              account_number_encrypted, account_number_last4, routing_number_encrypted,
-             gl_account_id, currency_code
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+             gl_account_id, currency_code, bank_is_foreign
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
           [
             id, entityId, accountName, bankName, branch, tipo,
             swift, iban,
@@ -942,7 +981,7 @@ export async function createBankAccount(
             numero ? encrypt(numero) : null,
             numero ? ultimos4(numero) : null,
             routing ? encrypt(routing) : null,
-            mayor.id, moneda,
+            mayor.id, moneda, foreign,
           ]
         );
       } catch (err) {
@@ -970,11 +1009,14 @@ export async function createBankAccount(
           clabe: enmascarar(clabe ? ultimos4(clabe.clabe) : null),
           account_number: enmascarar(numero ? ultimos4(numero) : null),
           routing_number: routing ? 'en-archivo' : null,
+          bank_is_foreign: foreign,
         },
         reason: ctx.reason ?? null,
       });
 
       const cuenta = aFicha(await filaPorRef(scope, id, { client }));
+      const nameTooLong = foreignBankNameTooLong(cuenta.foreignBank, cuenta.bankName);
+      if (nameTooLong) advertencias.push(nameTooLong);
       const out: ResultadoAlta = { cuenta, dryRun: false, advertencias };
       // Todo lo de arriba ocurrió de verdad; lanzar es lo que lo deshace. Una
       // vista previa que no pasa por el índice único no prueba la unicidad.
@@ -1039,7 +1081,7 @@ export interface ResultadoEdicion {
   cuenta: FichaCuentaBancaria;
   cambios: CambioDeCampo[];
   dryRun: boolean;
-  advertencias: string[];
+  advertencias: BankAccountWarning[];
 }
 
 /**
@@ -1060,16 +1102,22 @@ export const CAMPOS_SENSIBLES = ['clabe', 'account_number', 'routing_number'] as
  */
 export function refuseNationalIdentifierOnForeignBank(
   current: { bank_is_foreign?: boolean; sat_bank_code: string | null; clabe_en_archivo?: boolean },
-  patch: Pick<ParcheCuenta, 'foreignBank' | 'satBankCode' | 'clabe'>
+  patch: Pick<ParcheCuenta, 'foreignBank' | 'satBankCode' | 'clabe'>,
+  /** MNE-001-615 · `create` says which flag to drop; `edit`, which datum to clear. */
+  on: 'edit' | 'create' = 'edit'
 ): void {
   const marked = patch.foreignBank ?? current.bank_is_foreign === true;
   if (!marked) return;
   const code = patch.satBankCode !== undefined ? (patch.satBankCode ?? '').trim() : (current.sat_bank_code ?? '');
   if (code !== '') {
-    throw new ValidationError({ key: 'bank.account.foreign_bank.keeps_sat_bank_code', params: { code } }, 'sat_bank_code');
+    const key = on === 'create' ? 'bank.account.create.foreign_bank.sat_bank_code' : 'bank.account.foreign_bank.keeps_sat_bank_code';
+    throw new ValidationError({ key, params: { code } }, 'sat_bank_code');
   }
   const clabe = patch.clabe !== undefined ? Boolean(patch.clabe) : current.clabe_en_archivo === true;
-  if (clabe) throw new ValidationError({ key: 'bank.account.foreign_bank.keeps_clabe' }, 'clabe');
+  if (clabe) {
+    const key = on === 'create' ? 'bank.account.create.foreign_bank.clabe' : 'bank.account.foreign_bank.keeps_clabe';
+    throw new ValidationError({ key }, 'clabe');
+  }
 }
 
 export async function updateBankAccount(
@@ -1087,7 +1135,7 @@ export async function updateBankAccount(
       // corre el cuerpo una sola vez, pero si algún día reintentara, unos
       // `sets` de fuera traerían los del intento anterior y el UPDATE llevaría
       // cada campo dos veces.
-      const advertencias: string[] = [];
+      const advertencias: BankAccountWarning[] = [];
       const sets: string[] = [];
       const params: unknown[] = [];
       const cambios: CambioDeCampo[] = [];
@@ -1268,6 +1316,8 @@ export async function updateBankAccount(
       });
 
       const cuenta = aFicha(await filaPorRef(scope, previa.id, { client }));
+      const nameTooLong = foreignBankNameTooLong(cuenta.foreignBank, cuenta.bankName);
+      if (nameTooLong) advertencias.push(nameTooLong);
       const out: ResultadoEdicion = { cuenta, cambios, dryRun: false, advertencias };
       if (dryRun) throw new DryRunRollback(out);
       return out;

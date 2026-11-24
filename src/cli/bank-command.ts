@@ -15,6 +15,7 @@ import {
   listBankAccounts,
   setBankGlMapping,
   updateBankAccount,
+  type BankAccountWarning,
   type FichaCuentaBancaria,
   type ParcheCuenta,
   type RenglonCuentaBancaria,
@@ -1295,6 +1296,9 @@ function renglonComoFila(r: RenglonCuentaBancaria): Row {
  */
 const OCULTO = '(redacted)';
 
+/** MNE-001-615 · a warning keyed by the service is rendered in the reader's language. */
+const warningText = (a: BankAccountWarning): string => (typeof a === 'string' ? a : t(a.key, a.params ?? {}));
+
 function fichaComoFila(f: FichaCuentaBancaria, redactado: boolean): Row {
   const identificador = (valor: string | null): string =>
     valor === null ? '' : redactado ? OCULTO : valor;
@@ -1319,7 +1323,7 @@ function fichaComoFila(f: FichaCuentaBancaria, redactado: boolean): Row {
     difference: f.diferencia ?? '',
     last_reconciled: f.ultimaConciliacionAprobada ?? '',
     active: f.isActive,
-    warnings: f.advertencias,
+    warnings: f.advertencias.map(warningText),
     id: f.id,
   };
 }
@@ -1621,6 +1625,9 @@ Examples:
   # A company card is a LIABILITY and maps to a liability account. --dry-run
   # runs the real insert, unique 1:1 index included, and rolls it back.
   mnemosine bank account create "Banorte Empresarial" --bank "Banorte" --gl-account 2110 --currency MXN --type credit-card --dry-run
+  # An account at a bank not resident in Mexico: its account number, no CLABE
+  # and no SAT code, and the mark with the reason the audit trail keeps.
+  mnemosine bank account create "First Example Operativa" --bank "First Example Bank, N.A." --gl-account 1115 --currency MXN --account-number 000123456789 --foreign-bank --reason "Account opened in New York" --dry-run
 `,
   accountList: `
 Examples:
@@ -1961,8 +1968,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
    * guion que lo vigila lo leería como limpio.
    */
   /** Las advertencias van SIEMPRE a stderr, también en formato máquina. */
-  const avisar = (mensajes: readonly string[]): void => {
-    for (const m of mensajes) process.stderr.write(deps.palette.yellow(`  ${m}\n`));
+  const avisar = (mensajes: readonly BankAccountWarning[]): void => {
+    for (const m of mensajes) process.stderr.write(deps.palette.yellow(`  ${warningText(m)}\n`));
   };
 
   /**
@@ -2170,6 +2177,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   optionByKey(create, '--branch <text>', 'help.bank.account.create.option.branch');
   optionByKey(create, '--swift <code>', 'help.bank.account.create.option.swift');
   optionByKey(create, '--iban <code>', 'help.bank.account.create.option.iban');
+  // MNE-001-615 · the mark at creation, only with a reason; `--no-foreign-bank`
+  // has nothing to undo on a new account, so it is `edit`'s alone.
+  optionByKey(create, '--foreign-bank', 'help.bank.account.create.option.foreign_bank');
+  optionByKey(create, '--reason <text>', 'help.bank.account.create.option.reason');
   optionByKey(create, '--dry-run', 'help.bank.account.create.option.dry_run');
   optionByKey(create, '--json', 'help.bank.account.create.option.json');
   declareRisk(create, {
@@ -2185,11 +2196,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         bank: string; glAccount: string; currency: string; type?: string;
         clabe?: string; accountNumber?: string; routingAch?: string; routingWire?: string;
         satBankCode?: string; branch?: string; swift?: string; iban?: string; dryRun?: boolean;
+        foreignBank?: boolean; reason?: string;
       }
     ) =>
       run(async () => {
         const ctx = await entityForWrite(opts);
         const { dryRun } = gateMutation(create, opts as unknown as Record<string, unknown>);
+        // The same gate as `edit`'s mark: a missing reason is a usage error (2).
+        if (opts.foreignBank === true && !opts.reason?.trim()) {
+          throw usageError(t('bank.account.foreign_bank.reason_required'));
+        }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
         const r = await createBankAccount(
@@ -2208,8 +2224,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             bankBranch: opts.branch ?? null,
             swiftCode: opts.swift ?? null,
             iban: opts.iban ?? null,
+            foreignBank: opts.foreignBank === true,
           },
-          { userId: reviewer.userId, dryRun }
+          { userId: reviewer.userId, reason: opts.reason ?? null, dryRun }
         );
 
         if (opts.json) {

@@ -8,7 +8,7 @@ import { formatearImporte, naturDe } from './balanza-invariantes.js';
 import { resolverPeriodoDeBalanza, type PeriodoDeBalanza } from './balanza-service.js';
 import { archivarArtefacto, hashDelXml, type ArtefactoArchivado } from './artefactos.js';
 import { importeAnexo24 } from './xml.js';
-import { EXT_MAX_CHARACTERS, FOREIGN_BANK_CODE } from './official-enumerations.js';
+import { EXT_MAX_CHARACTERS, FOREIGN_BANK_CODE, extCharacters } from './official-enumerations.js';
 import {
   construirPolizasXml,
   nombreDelArchivoDePolizas,
@@ -613,14 +613,14 @@ export function rastroDePago(
   };
   // MNE-001-502 · our foreign bank's name, whole or not at all. The XSD caps
   // each `*Ext` at 150 characters, which are code points, counted on the text
-  // as the sanitizer leaves it (`limpiar`, the same step `texto()` takes).
+  // as the sanitizer leaves it (`extCharacters`, the count `bank account` warns by).
   // A longer or blank name leaves the node out and names the account: it is
   // never truncated, because a cut name is a name nobody captured. `sanear`
   // runs only once the name goes out, so it reports only what is emitted.
   const ourForeignBank = (node: string, attribute: string, what: string): { ext?: string; gap?: RastroResuelto } => {
     if (!ourBankIsForeign || banco === undefined) return {};
     const blank = banco.bank_name.trim() === '';
-    const length = [...limpiar(banco.bank_name).texto].length;
+    const length = extCharacters(banco.bank_name);
     if (blank || length > EXT_MAX_CHARACTERS) {
       const account = namedAccount(banco);
       return {
