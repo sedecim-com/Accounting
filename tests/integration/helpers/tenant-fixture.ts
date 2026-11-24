@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction, enterTenant } from '../../../src/database/connection.js';
 import { ensureEntityAccounting } from '../../../src/services/accounting/entity-accounting.js';
+import { getPolicy, resolvePolicy, seedPolicies } from '../../../src/services/policy/policy-service.js';
 
 /**
  * Inquilino desechable por archivo de prueba: tenant, organización, entidad,
@@ -112,6 +113,24 @@ export async function crearInquilino(
   );
 
   return { tenantId, entityId, userId, fiscalYearId, periodos, cuentas, roles };
+}
+
+/**
+ * MNE-001-661 (#602). The firm of this fixture declares that it seals a
+ * fiscal year over periods that are not hard-closed
+ * (`year_seal_with_unsealed_months` = 'accept_unsealed').
+ *
+ * For a spec that seals the year's last period over months it never closed:
+ * it tests the sweep or what follows it, not the order of the closes, and
+ * under the default that seal is refused. The answer is the entity's own row
+ * and the tenant rows stay pending, so an answer the spec gives at either
+ * scope, before or after, is not shadowed. Safe to call twice.
+ */
+export async function acceptSealOverUnsealedMonths(f: Pick<Fixture, 'tenantId' | 'entityId' | 'userId'>): Promise<void> {
+  const ctx = { tenantId: f.tenantId, entityId: f.entityId };
+  if ((await getPolicy(ctx, 'year_seal_with_unsealed_months')).value === 'accept_unsealed') return;
+  await seedPolicies({ tenantId: f.tenantId });
+  await resolvePolicy(ctx, 'year_seal_with_unsealed_months', 'accept_unsealed', f.userId);
 }
 
 /**

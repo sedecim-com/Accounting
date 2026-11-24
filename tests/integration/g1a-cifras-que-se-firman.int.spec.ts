@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Decimal from 'decimal.js';
-import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { softClosePeriod, hardClosePeriod } from '../../src/services/accounting/period-close.js';
@@ -210,6 +210,7 @@ describe('antes del cierre, report-service ya tiene que decir 3 000', () => {
 
 describe('después de cerrar el ejercicio de verdad', () => {
   beforeAll(async () => {
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'cierre del ejercicio 2026');
   });
@@ -303,6 +304,7 @@ describe('informes_asientos_de_cierre, sobre un cierre REAL', () => {
     );
 
     await poblarEjercicio(g);
+    await acceptSealOverUnsealedMonths(g);
     await softClosePeriod(g.periodos[12], g.entityId, g.userId);
     await hardClosePeriod(g.periodos[12], g.entityId, g.userId);
 
@@ -348,6 +350,7 @@ describe('el barrido es por SIGNO, y se sostiene solo', () => {
     );
 
     await poblarEjercicio(h);
+    await acceptSealOverUnsealedMonths(h);
     await softClosePeriod(h.periodos[12], h.entityId, h.userId);
     await hardClosePeriod(h.periodos[12], h.entityId, h.userId);
 

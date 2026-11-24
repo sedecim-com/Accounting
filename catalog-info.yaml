@@ -29,6 +29,14 @@ provides:
     # Vary: Accept-Language, instead of Express's text/html "Cannot GET …" page (MNE-001-150,
     # #151). The status is unchanged; the body becomes the envelope every other error uses.
     # RESOURCE_NOT_FOUND keeps meaning a missing record under a route that exists.
+    # CONTRACT: POST /v1/fiscal-periods/:id/hard-close on the last period of a fiscal year
+    # answers 422 YEAR_MONTHS_NOT_SEALED, with `details.unsealed_periods`
+    # [{period_name, status}], while another period of that year is not hard_close or
+    # locked (MNE-001-661, #602); it used to seal. The panel key
+    # `year_seal_with_unsealed_months` = `accept_unsealed` keeps the previous behaviour.
+    # GET /v1/fiscal-periods/:id/close-status of that period gains the box
+    # `year-months-sealed` and `unsealed_periods`; no box is renamed and no other period's
+    # answer changes. Rollback: revert the commit; the panel row stays and nothing reads it.
     # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
     # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
     # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
