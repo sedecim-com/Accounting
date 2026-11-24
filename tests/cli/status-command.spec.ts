@@ -24,6 +24,7 @@ import {
   statusExitCode,
   type StatusReport,
 } from '../../src/cli/status-command.js';
+import { approveProjectProfile } from '../../src/ai/providers/config.js';
 import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
@@ -351,6 +352,7 @@ describe('formatStatus — the readiness answer every surface gives (MNE-001-443
         },
       },
     });
+    approveProjectProfile('vaulted', tmpDir);
     mockDbUp();
     const resolveProfileFn = vi.fn().mockReturnValue({
       name: 'vaulted', type: 'openai-compatible', model: 'vault-model',
@@ -385,6 +387,7 @@ describe('formatStatus — the readiness answer every surface gives (MNE-001-443
 
   it('a set variable and a missing one keep their names, never their values', async () => {
     writeConfig();
+    approveProjectProfile('primary', tmpDir); // its variable goes to its own host (MNE-001-452)
     mockDbUp();
     const r = await buildStatusReport({ cwd: tmpDir, env, probeOptions: { fetchImpl: okFetch() } });
     expect(r.providers.map((p) => p.credential)).toEqual(['FAKE_STATUS_KEY set', 'BACKUP_KEY missing']);

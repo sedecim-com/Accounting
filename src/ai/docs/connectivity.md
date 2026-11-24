@@ -71,8 +71,45 @@ output when a connection problem is unclear.
   credential (`api_key_cmd`, tried when the env var is empty). A helper in
   the person's own `~/.mnemosine/config.json` on an OpenAI-compatible profile
   is run again every five minutes and after a 401, so a one-hour `gcloud`
-  token lasts the session; one in a project file runs once per session. A
-  helper that fails says the profile and its exit code or its 10 s limit,
+  token lasts the session. A helper in a shared project file runs only
+  after the person running mnemosine approves that exact command, for that
+  file and host, with `mnemosine providers approve <profile>` (#645); until
+  then the profile stops with that command, and doctor and `mnemosine
+  providers` say «not approved». Once approved it renews like their own. Tell
+  them to read `providers.<profile>.api_key_cmd` in that file before
+  approving, and never approve it for them. Say that it runs in the project
+  folder with that folder's `./.env` in its environment, that a script of
+  the project it names is approved by its content (an edit asks again), and
+  that a command found through PATH or npx is approved by its name only.
+  A project `api_key_cmd` is accepted only in three shapes, optionally after
+  `env NAME=value`: a project script run directly (`./tools/key.sh`), one
+  of `sh`, `bash`, `node`, `python`, `python3`, `ruby`, `perl` followed at
+  once by a project script (`sh tools/key.sh`, no flag before it), or a
+  command outside the project that loads nothing from it (`gcloud auth
+  print-access-token`), bound by name. Tokens are one space apart and hold
+  only letters, digits and `_ . / : = @ % + , -`; no argument may reach a
+  path of the project, and task or package runners (`npm`, `npx`, `make`,
+  …) are refused. An interpreter under a versioned name (`python3.12`,
+  `nodejs`) counts as one; `env` may not set `PATH`, `LD_*`, `BASH_ENV`,
+  `NODE_OPTIONS` and other loader names, nor a value that reaches the
+  project; a PATH command found inside the project, by its real path even
+  through a symlink, is refused; and the helper runs without the folder's
+  loader variables. A script that sources
+  other project files is bound only by its own content. Anything else is
+  refused and never approved: tell them to ask whoever keeps the file to
+  rewrite it in one of those shapes. A renewal
+  re-checks the approval, scripts included, before each re-run.
+  The approval also binds where the key goes, scheme included, as the SDK
+  resolves it: an `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in `./.env`
+  that moves it asks again. A project file that carries a
+  credential written by hand (an auth header, a key in a command, a model or
+  a base_url) is refused at load, naming the field: the fix is to move the
+  secret to the person's own files. The person's own profiles stay available
+  beneath a project file's. A project profile that would send a variable to
+  a host its provider does not document stops, naming both, until the
+  person approves that pair the same way. When the folder's `./.env` sets
+  `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` or `ANTHROPIC_CONFIG_DIR`,
+  readiness and doctor say it serves everyone in that folder. A helper that fails says the profile and its exit code or its 10 s limit,
   never its command or stderr: tell the person to run it themselves. Help
   them put helper profiles in their own user file, never in a shared project
   file, and say that «Sign in with ChatGPT» and a Codex login are not API
@@ -105,6 +142,8 @@ output when a connection problem is unclear.
   never in the database) and lists the rest; `all` runs every due job; unset
   behaves as `all` and names on stderr the jobs it ran that were not adopted.
   In a project file the key is not read, and the tick says so.
+- A third: `project_helpers`, `"approved"` (the default: a project file's
+  helper runs once approved) or `"never"` (none runs).
 - `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
   copying it, so a built-in keeps its declared window: `--model` >
   `models.<profile>` > the profile's `model`. A name that is no profile is

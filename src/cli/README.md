@@ -142,10 +142,37 @@ short-lived token from **your own** login:
   project file.** There, an OpenAI-compatible profile hands the helper to the
   `openai` SDK as its async `apiKey`: the token is reused for five minutes,
   then the helper runs again, and after a 401 the next request carries a
-  fresh token (the failing turn still shows the 401). A helper in a project
-  file runs once per session, because everyone who runs mnemosine in that
-  folder would run it. An `anthropic` profile with a helper sends its output
-  once, as an API key.
+  fresh token (the failing turn still shows the 401). An `anthropic`
+  profile with a helper sends its output once, as an API key.
+- **A helper in a shared project file runs only after you approve it**
+  (MNE-001-452), as `direnv allow` does for an `.envrc`: read
+  `providers.<profile>.api_key_cmd` in that `mnemosine.config.json`, then run
+  `mnemosine providers approve <profile>`. The approval is yours alone,
+  recorded as a hash under `~/.mnemosine/project-approvals.json`; a changed
+  command, file, project script it names, or destination (scheme and host,
+  as the SDK resolves it, `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`
+  included) asks again. It runs in the project folder with that folder's
+  `./.env` in its environment; a command found through PATH or npx is
+  approved by its name only, and until then the profile stops with
+  the command to type, never the helper's text. Once approved it renews like
+  your own. `"project_helpers": "never"` in your `~/.mnemosine/config.json`
+  never runs a project file's helper; `"approved"` is the default. To revoke
+  every approval, delete that file.
+- **A project file never carries a credential.** One with an auth-named
+  header, a key in a header value, in `api_key_cmd`, `model` or `api_key_env`,
+  or a `base_url` with a password or a key, is refused at load: the message
+  names the field, never its value. Credentials are each person's own.
+- **Your own profiles stay available in a folder with a project file**:
+  `~/.mnemosine/config.json` profiles sit beneath the project's, so a
+  shared file can override one by name but never hide the rest.
+- **A project profile sends a key only where its provider takes it.**
+  `OPENAI_API_KEY` to `api.openai.com`, `GEMINI_API_KEY` to Google's host,
+  and so on for every built-in; any other variable and host pair stops,
+  naming both, until you run `mnemosine providers approve <profile>`.
+- `mnemosine doctor` and `mnemosine providers` say when the folder's
+  `./.env` sets a provider key, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` or
+  `ANTHROPIC_CONFIG_DIR`: that value serves everyone who runs mnemosine
+  there. Keep yours in your shell or `~/.mnemosine/.env`.
 - The `gcloud` recipes use **your own** `gcloud auth login`, not a machine's
   service account. The Agent Platform URL carries your project and region:
   copy it from Google's page above, and the same pattern serves Grok's
