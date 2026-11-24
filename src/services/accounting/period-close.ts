@@ -12,6 +12,7 @@ import { censusGapPolicy, gapsOf, reconcileCensus, severityOfCensusGap, type Cen
 import { entityScope } from '../../database/scope.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
+import { LIVE_ROW } from '../assets/depreciation.js';
 import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -839,12 +840,15 @@ export async function getPeriodCloseStatus(
   // activos daba «Depreciation calculated and posted» sin que existiera
   // depreciación alguna que calcular. Mismo remedio: el universo viaja en el
   // conteo y con cero activos el item confiesa que no comprobó nada.
+  //
+  // MNE-001-646 · A month is depreciated while the ledger backs its row
+  // (`LIVE_ROW`): a reversed or voided entry leaves the asset owing it.
   const undepreciatedAssets = await q<{ total: string; registered: string; sin_depreciar: string }>(
     `SELECT COUNT(*) FILTER (WHERE fa.status = 'active') as total,
             COUNT(*) as registered,
             COUNT(*) FILTER (WHERE fa.status = 'active' AND NOT EXISTS (
               SELECT 1 FROM depreciation_schedules ds
-              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true
+              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW}
             )) as sin_depreciar
      FROM fixed_assets fa
      WHERE fa.entity_id = $1`,
@@ -1538,6 +1542,53 @@ async function carryInto(
     [entityId, fromId, toId]
   );
   return result.rowCount ?? 0;
+}
+
+/** How a fiscal year opened: the period before it, and what its seal carried in. */
+export interface FiscalYearOpening {
+  /** The period right before the year's first one, in books order; null for the entity's first year. */
+  previous: { period_name: string; status: FiscalPeriodStatus } | null;
+  /** What was carried, or null when `previous` is missing or not sealed: its own hard close will carry. */
+  carry: CarryForwardResult | null;
+}
+
+/**
+ * MNE-001-644 (#594). The other end of the carry. The hard close seeds the
+ * next period, and when the next year did not exist yet it seeded nothing: a
+ * year created after its predecessor was sealed opened with no beginnings and
+ * could not close its January. So opening a year asks the same question from
+ * its side: if the period before its first one is sealed ('hard_close' or
+ * 'locked', the states the chain check holds to a carry), that period's
+ * carry-forward runs now. It is the same carry, not a second one.
+ *
+ * FOR SHARE on that period crosses the FOR UPDATE the hard close holds from
+ * its first statement: whichever of the two commits second sees the other,
+ * so a year created while its predecessor is being sealed is seeded by one
+ * of them. A period that is not sealed is left alone; its close will carry.
+ */
+export async function openFiscalYearOnSealedBooks(
+  client: pg.PoolClient,
+  entityId: string,
+  fiscalYearId: string
+): Promise<FiscalYearOpening> {
+  const before = await client.query<{ id: string; period_name: string; status: FiscalPeriodStatus }>(
+    `SELECT fp.id, fp.period_name, fp.status FROM fiscal_periods fp
+      WHERE fp.entity_id = $1
+        AND (fp.start_date, fp.period_number) < (
+          SELECT first.start_date, first.period_number FROM fiscal_periods first
+           WHERE first.entity_id = $1 AND first.fiscal_year_id = $2
+           ORDER BY first.start_date ASC, first.period_number ASC LIMIT 1)
+      ORDER BY fp.start_date DESC, fp.period_number DESC LIMIT 1
+      FOR SHARE OF fp`,
+    [entityId, fiscalYearId]
+  );
+  if (before.rows.length === 0) return { previous: null, carry: null };
+  const { id, period_name, status } = before.rows[0];
+  const sealed = status === FiscalPeriodStatus.HARD_CLOSE || status === FiscalPeriodStatus.LOCKED;
+  return {
+    previous: { period_name, status },
+    carry: sealed ? await carryForwardBalances(client, entityId, id) : null,
+  };
 }
 
 // ============================================================

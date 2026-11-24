@@ -6,11 +6,12 @@ import type { JournalEntry } from '../../src/types/index.js';
 // vi.hoisted eleva estas referencias junto con los vi.mock que las capturan:
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
-const { arnes, validateJournalEntry, attest, followNoteReversal } = vi.hoisted(() => ({
+const { arnes, validateJournalEntry, attest, followNoteReversal, refreshAssetCard } = vi.hoisted(() => ({
   arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
   followNoteReversal: vi.fn<(...a: unknown[]) => Promise<JournalEntry[]>>(),
+  refreshAssetCard: vi.fn<(...a: unknown[]) => Promise<number>>(),
 }));
 
 vi.mock('../../src/database/connection.js', () => ({
@@ -39,6 +40,11 @@ vi.mock('../../src/services/blockchain/orchestrator.js', () => ({
 // MNE-001-612: what a credit note's reversal posts besides its mirror, loaded on demand by posting.ts.
 vi.mock('../../src/services/accounting/ar-ap-posting.js', () => ({
   followNoteReversal: (...a: unknown[]) => followNoteReversal(...a),
+}));
+
+// MNE-001-646: the asset card a depreciation entry's reversal refreshes, loaded on demand by posting.ts.
+vi.mock('../../src/services/assets/depreciation.js', () => ({
+  refreshAssetCard: (...a: unknown[]) => refreshAssetCard(...a),
 }));
 
 import { postJournalEntry, reverseJournalEntry, voidJournalEntry, voidJournalEntryInTx, drainAttestations } from '../../src/services/accounting/posting.js';
@@ -75,6 +81,8 @@ beforeEach(() => {
   attest.mockResolvedValue(undefined);
   followNoteReversal.mockReset();
   followNoteReversal.mockResolvedValue([]);
+  refreshAssetCard.mockReset();
+  refreshAssetCard.mockResolvedValue(1);
 });
 
 describe('postJournalEntry · candados', () => {
@@ -285,8 +293,32 @@ describe('reverseJournalEntry · NIF B-1', () => {
     arnes.actual = reglasReversa(asientoFalso({ status: 'posted', source_type: 'customer_payment' } as Partial<JournalEntry>));
     await reverseJournalEntry(ID.asiento, ID.usuario);
     expect(followNoteReversal).not.toHaveBeenCalled();
+    expect(refreshAssetCard).not.toHaveBeenCalled();
     await drainAttestations(200);
     expect(attest).toHaveBeenCalledTimes(1);
+  });
+
+  const ASSET = '55555555-5555-4555-8555-555555555555';
+  const depreciation = () =>
+    asientoFalso({ status: 'posted', source_type: 'depreciation', source_id: ASSET } as Partial<JournalEntry>);
+
+  it("MNE-001-646 · a depreciation entry's reversal refreshes its asset card on the same client, scoped by the entry's entity", async () => {
+    const cf = (arnes.actual = reglasReversa(depreciation()));
+    await reverseJournalEntry(ID.asiento, ID.usuario);
+    expect(refreshAssetCard.mock.calls).toEqual([[cf.client, ID.entidad, ASSET]]);
+    expect(followNoteReversal).not.toHaveBeenCalled();
+  });
+
+  it('MNE-001-646 · a card that was not refreshed refuses the reversal', async () => {
+    refreshAssetCard.mockResolvedValue(0);
+    arnes.actual = reglasReversa(depreciation());
+    await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toMatchObject({ code: 'ASSET_CARD_NOT_REFRESHED' });
+  });
+
+  it('MNE-001-646 · a depreciation entry that names no asset is refused without asking for a card', async () => {
+    arnes.actual = reglasReversa(asientoFalso({ status: 'posted', source_type: 'depreciation' } as Partial<JournalEntry>));
+    await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toMatchObject({ code: 'ASSET_CARD_NOT_REFRESHED' });
+    expect(refreshAssetCard).not.toHaveBeenCalled();
   });
 });
 

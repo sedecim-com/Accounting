@@ -138,6 +138,8 @@ mnemosine depreciation post --period 2026-08
 
 `--capitalized yes` dice que el costo **ya** está cargado en la cuenta de activo —porque el CFDI se capitalizó al ingerirlo— y entonces `asset create` no escribe póliza: una segunda duplicaría el activo. Si `asset create` te dice que la entidad no tiene clases de activo, siémbralas una vez con `asset category seed`. La severidad de esta partida la fija la política `depreciacion_faltante_al_cierre`.
 
+Una póliza de depreciación reversada o anulada (`entry reverse`, `entry void`) deja de contar: la ficha del activo baja en ese momento, esta partida vuelve a señalar al activo y `depreciation post` contabiliza otra vez el mes de ese activo, una sola vez. La reversa lleva la fecha que tú le des (`--date`) y la anulación la de hoy: si cae en otro mes, el espejo queda en ese mes y el cargo nuevo en el mes original.
+
 Un aviso que todavía no se entera: cuando la ingesta capitaliza un CFDI como activo fijo, el aviso que viaja con el documento dice que el sistema no registra el activo ni calcula su depreciación. La segunda mitad ya no es cierta —el camino es `asset create` y `depreciation post`, arriba—; la primera sí: la ingesta no da de alta el activo en el registro, eso lo haces tú.
 
 ### 5. `Trial balance balanced` — **BLOQUEA**

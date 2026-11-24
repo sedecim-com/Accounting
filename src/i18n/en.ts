@@ -4955,6 +4955,8 @@ export const EN = {
   /** `year` arrives in bold. */
   'ledger.period.year.created': 'Fiscal year {year} created',
   'ledger.period.year.created_detail': 'with 12 monthly periods and the year-end adjustment period (13)',
+  'ledger.period.year.carried':
+    '  Opening balances carried from {period}: {count, plural, one {# account} other {# accounts}}',
   'ledger.period.year.open_hint': '  Open a future month with: mnemosine period open <name>',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================

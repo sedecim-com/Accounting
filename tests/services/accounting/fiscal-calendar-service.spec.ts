@@ -230,10 +230,11 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
 
     const result = await ensureFiscalYear(ENTITY, 2026, new Date('2026-08-25T12:00:00Z'));
 
-    expect(result).toEqual({ created: true, fiscalYearId: 'fy1', yearNumber: 2026, periods: 13 });
+    expect(result).toMatchObject({ created: true, fiscalYearId: 'fy1', yearNumber: 2026, periods: 13 });
     expect(txSql(0)).toMatch(/INSERT INTO fiscal_years/);
     expect(txParams(0)).toEqual([ENTITY, 2026, '2026-01-01', '2026-12-31']);
-    expect(client.query).toHaveBeenCalledTimes(14);
+    // The year, its thirteen periods, and the look at the period before it (#594).
+    expect(client.query).toHaveBeenCalledTimes(15);
     // Period 3 of 2026: March, named in English, with its real month end.
     expect(txParams(3).slice(2, 7)).toEqual([3, 'March 2026', '2026-03-01', '2026-03-31', 'open']);
   });
@@ -258,7 +259,7 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
 
     await ensureFiscalYear(ENTITY, 2026, new Date('2026-08-25T12:00:00Z'));
 
-    const statuses = client.query.mock.calls.slice(1).map((call) => call[1][6]);
+    const statuses = client.query.mock.calls.slice(1, 14).map((call) => call[1][6]);
     expect(statuses).toEqual([
       'open', 'open', 'open', 'open', 'open', 'open', 'open', // Jan–Jul: past
       'open', // August: the month we are in
@@ -273,7 +274,7 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
 
     await ensureFiscalYear(ENTITY, 2027, new Date('2026-08-25T12:00:00Z'));
 
-    const statuses = client.query.mock.calls.slice(1).map((call) => call[1][6]);
+    const statuses = client.query.mock.calls.slice(1, 14).map((call) => call[1][6]);
     expect(statuses.every((s) => s === 'future')).toBe(true);
   });
 
@@ -283,8 +284,54 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
 
     await ensureFiscalYear(ENTITY, 2025, new Date('2026-08-25T12:00:00Z'));
 
-    const statuses = client.query.mock.calls.slice(1).map((call) => call[1][6]);
+    const statuses = client.query.mock.calls.slice(1, 14).map((call) => call[1][6]);
     expect(statuses.every((s) => s === 'open')).toBe(true);
+  });
+});
+
+describe('ensureFiscalYear — a year born after its predecessor was sealed opens with its balances (#594)', () => {
+  /** The thirteen-period calendar, then whatever the period before the year answers. */
+  function born(previous: Array<{ id: string; period_name: string; status: string }>) {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    client.query.mockImplementation(async (text: string) => {
+      if (/FOR SHARE OF fp/.test(text)) return { rows: previous };
+      if (/INSERT INTO account_balances/.test(text)) return { rows: [], rowCount: 3 };
+      if (/closed\.start_date/.test(text)) return { rows: [{ id: 'jan', period_name: 'January 2028', status: 'open' }] };
+      return { rows: [{ id: 'fy1' }] };
+    });
+    return ensureFiscalYear(ENTITY, 2028, new Date('2029-02-01T12:00:00Z'));
+  }
+  const P13 = { id: 'p13', period_name: 'Year-end adjustments 2027' };
+
+  it.each(['hard_close', 'locked'])('carries from the period before it when that one is %s', async (status) => {
+    const result = await born([{ ...P13, status }]);
+
+    expect(result.opening).toEqual({
+      previous: { period_name: 'Year-end adjustments 2027', status },
+      carry: { carried: 3, periods: ['January 2028'], stopped_at_locked: null },
+    });
+    // The look at the previous period: once, after the calendar, inside the
+    // transaction, bounded by the entity and locked against a hard close in flight.
+    expect(txSql(14)).toMatch(/FROM fiscal_periods fp WHERE fp\.entity_id = \$1 .*FOR SHARE OF fp/);
+    expect(txParams(14)).toEqual([ENTITY, 'fy1']);
+    // One set-based carry out of that period, whatever the size of the chart.
+    expect(client.query).toHaveBeenCalledTimes(17);
+    expect(txSql(16)).toMatch(/INSERT INTO account_balances/);
+    expect(txParams(16)).toEqual([ENTITY, 'p13', 'jan']);
+  });
+
+  it.each(['open', 'soft_close', 'future'])('carries nothing when it is %s: its own hard close will', async (status) => {
+    const result = await born([{ ...P13, status }]);
+
+    expect(result.opening).toEqual({ previous: { period_name: 'Year-end adjustments 2027', status }, carry: null });
+    expect(client.query).toHaveBeenCalledTimes(15);
+  });
+
+  it('carries nothing for the first year of an entity', async () => {
+    const result = await born([]);
+
+    expect(result.opening).toEqual({ previous: null, carry: null });
+    expect(client.query).toHaveBeenCalledTimes(15);
   });
 });
 
