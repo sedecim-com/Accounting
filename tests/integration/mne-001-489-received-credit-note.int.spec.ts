@@ -203,6 +203,28 @@ describe('the note of a PPD bill whose VAT is parked', () => {
     expect(await pay(b.id, '6000.00', '2026-09-30', false, '960.00'))
       .toEqual(['1130 827.5862/0', '1135 0/132.4138', '1135 0/827.5862']);
   }, 90_000);
+
+  // MNE-001-632 (#692): the first half of the plan's T11, deferred on 18 Nov.
+  it('T11a · a second note on the same bill posts its own entry and reads what the first left in 1135', async () => {
+    const b = await bill();
+    const one = await note(b.uuid);
+    await post(one);
+    expect(await parked()).toBe('960.00');
+    // All that is left, 6,960.00, which the vendor states as 5,999.99 + 960.01: a cent more VAT than 1135 holds.
+    // NOTE: a cent is all a second note can exceed it by; a larger gap is refused as out of proportion or above the balance.
+    const two = await note(b.uuid, (x) => x.replaceAll('2320.00', '6960.00').replaceAll('2000.00', '5999.99')
+      .replaceAll('"320.00"', '"960.01"').replaceAll('2026-09-10', '2026-09-24'));
+    await post(two);
+    expect(await entriesOf(one.uuid)).toEqual([expect.objectContaining({
+      source_type: 'vendor_credit_note', source_id: b.id, day: '2026-09-10', lines: ['1135 0/320.0000', '2110 2320.0000/0', '6100 0/2000.0000'],
+    })]);
+    expect(await entriesOf(two.uuid)).toEqual([expect.objectContaining({
+      source_type: 'vendor_credit_note', source_id: b.id, day: '2026-09-24',
+      lines: ['1130 0/0.0100', '1135 0/960.0000', '2110 6960.0000/0', '6100 0/5999.9900'],
+    })]);
+    expect(await balanceOf(b.id)).toEqual({ status: 'paid', due: '0.0000', paid: '0.0000' });
+    expect(await parked()).toBe('0.00');
+  }, 90_000);
 });
 
 // MNE-001-490 (#692, part 3/3). Its rule goes away with the block: left in
@@ -268,6 +290,29 @@ describe('what the note reads besides its bill', () => {
     }
     const { findings } = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 10 });
     expect(findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje).toMatch(/nota de crédito/);
+  }, 120_000);
+
+  // MNE-001-632 (#692): the second half of the plan's T11.
+  it('T11b · on an entity off Mexican books the note has no 1135 line: its whole VAT leaves 1130', async () => {
+    const books = (country: string, standard: string) => query(
+      `UPDATE legal_entities SET incorporation_country = $1, accounting_standard = $2 WHERE id = $3 AND tenant_id = $4`,
+      [country, standard, f.entityId, f.tenantId]
+    );
+    await books('US', 'us_gaap');
+    try {
+      // NOTE: seeded, since these books carry the VAT of a bill in 1130. The second bill has its 1,280.00
+      // in 1135, which they should not hold: with nothing there the split is the same with or without
+      // the gate on the entity, so this is the bill that shows the gate.
+      for (const vatCode of ['1130', '1135'] as const) {
+        const b = await seedBill(f, { vendorId, method: 'PPD', vatCode, date: '2026-08-20', subtotal: '8000.00', vat: '1280.00' });
+        const n = await note(b.uuid);
+        await post(n);
+        expect(await linesOf(n.uuid)).toEqual(['1130 0/320.0000', '2110 2320.0000/0', '6100 0/2000.0000']);
+        expect(await balanceOf(b.id)).toMatchObject({ status: 'posted', due: '6960.0000' });
+      }
+    } finally {
+      await books('MX', 'mx_nif');
+    }
   }, 120_000);
 
   it('T6 · a refusal through the door posts nothing and leaves its reason on the pre-registration', async () => {

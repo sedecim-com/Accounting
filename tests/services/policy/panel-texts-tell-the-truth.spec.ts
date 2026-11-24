@@ -11,6 +11,9 @@ import type { CfdiFacts } from '../../../src/services/xml-ingestion/cfdi-facts.j
 import type { FixedAsset } from '../../../src/types/index.js';
 import { DepreciationMethod } from '../../../src/types/index.js';
 import { effectiveInvestmentBase } from '../../../src/services/assets/depreciation-math.js';
+import { REQUIRED_ACCOUNTS, ROLE_MAP } from '../../../src/services/xml-ingestion/account-roles-seed.js';
+import { CATALOGO_UNIVERSAL } from '../../../src/services/accounting/chart-seed.js';
+import { t } from '../../../src/i18n/index.js';
 
 // ============================================================
 // THE PANEL TEXT SAYS WHAT THE CODE DOES (T21b · #301, MNE-001-073)
@@ -156,5 +159,30 @@ describe('umbral_anticipado_mxn — the text says where the floor applies today'
     } else {
       expect(s.impact).toMatch(/fixed default of 5,000 MXN, not your answer/i);
     }
+  });
+});
+
+// MNE-001-632 (#692). The rationale cited NIF B-3 and nobody had read it; the
+// corpus carries no text of that standard. It now leans on the seeded chart.
+describe('received_credit_note_cost — the default rationale leans on the chart, and the chart says so', () => {
+  const s = spec('received_credit_note_cost');
+  const STANDARD = /\b(NIF|NIIF|IFRS|IAS|NIC)\b/;
+
+  it('cites no accounting standard, in either language', () => {
+    expect(s.defaultRationale).not.toMatch(STANDARD);
+    expect(s.defaultRationale).toBe(t('policy.received_credit_note_cost.rationale', {}, 'en'));
+    expect(t('policy.received_credit_note_cost.rationale', {}, 'es')).not.toMatch(STANDARD);
+  });
+
+  it('says 5200 belongs to cost of sales, which is where the seed puts purchase returns', () => {
+    expect(s.defaultRationale).toMatch(/5200 belongs to cost of sales/);
+    expect(ROLE_MAP.devolucion_compras).toBe('5200');
+    expect(REQUIRED_ACCOUNTS.find((a) => a.code === '5200')?.fs_category).toBe('cogs');
+  });
+
+  it('says an expense goes by default to 6100, operating expenses, which is where the seed puts the expense role', () => {
+    expect(s.defaultRationale).toMatch(/goes to by default \(6100\) to operating expenses/);
+    expect(ROLE_MAP.gasto).toBe('6100');
+    expect(CATALOGO_UNIVERSAL.find((a) => a.code === '6100')?.fs).toBe('operating_expenses');
   });
 });
