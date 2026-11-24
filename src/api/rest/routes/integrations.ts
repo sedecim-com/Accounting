@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
@@ -31,7 +32,7 @@ function esSimulado(adapter: IIntegrationAdapter): boolean | undefined {
 
 const configureProviderSchema = z.record(z.string(), z.unknown());
 
-const pacId = z.string().refine((id) => id in PAC_ADAPTERS, 'Unknown PAC provider');
+const pacId = z.string().refine((id) => id in PAC_ADAPTERS, schemaMessage('error.VALIDATION_ERROR.schema.unknown_pac'));
 
 const pacPreferencesSchema = z.object({
   pac_primary: pacId.optional(),

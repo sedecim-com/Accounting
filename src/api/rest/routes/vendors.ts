@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -56,7 +57,7 @@ const updateVendorSchema = z.object({
   payment_terms: boundedString({ max: 50 }).optional(),
   is_active: z.boolean().optional(),
   notes: z.string().optional(),
-}).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
+}).refine((o) => Object.keys(o).length > 0, { message: schemaMessage('error.VALIDATION_ERROR.schema.at_least_one_field') });
 
 const meta = (req: Request) => ({
   request_id: req.headers['x-request-id'],
