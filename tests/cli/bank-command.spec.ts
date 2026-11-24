@@ -1028,6 +1028,116 @@ describe('bank account edit --foreign-bank (MNE-001-502)', () => {
   });
 });
 
+// MNE-001-615 (#697, part 2) · the mark at creation, and the warnings around it.
+describe('bank account create --foreign-bank (MNE-001-615)', () => {
+  const NAME_151 = 'B'.repeat(150) + '\u{1D505}';
+  const NAME_150 = 'B'.repeat(149) + '\u{1D505}';
+  /** The new row as `filaPorRef` reads it back, over the GL account `exigirCuentaDeMayor` finds. */
+  const creating = (row: Record<string, unknown> = {}) => {
+    const read = lector({ cuenta: row });
+    return (text: string) =>
+      /FROM accounts a\b/.test(text)
+        ? filas([{ id: 'GL1', code: '1115', name: 'Bancos', account_type: 'asset', is_active: true,
+            is_header: false, allow_manual_entries: true, moneda: 'MXN' }])
+        : read(text);
+  };
+  const F = { sat_bank_code: null, clabe_last4: null, clabe_en_archivo: false, bank_is_foreign: true, bank_name: 'First Example Bank, N.A.' };
+  const base = ['bank', 'account', 'create', 'Cuenta en Nueva York', '--bank', 'First Example Bank, N.A.',
+    '--gl-account', '1115', '--currency', 'MXN', '--account-number', '000123456789'];
+  const inserts = (r: { sql: Array<{ text: string; params: unknown[] }> }) =>
+    r.sql.filter((q) => /INSERT INTO bank_accounts/.test(q.text));
+  const audits = (r: { sql: Array<{ text: string; params: unknown[] }> }) =>
+    r.sql.filter((q) => /INSERT INTO audit_log/.test(q.text));
+  const withStderr = async <T>(fn: () => Promise<T>): Promise<{ value: T; err: string }> => {
+    const chunks: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string | Uint8Array) => {
+      chunks.push(String(c));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      return { value: await fn(), err: chunks.join('') };
+    } finally {
+      process.stderr.write = original;
+    }
+  };
+
+  it.each([[[]], [['--reason', '   ']]])('without a reason (%j) it is a USAGE error (2) and reaches no INSERT', async (extra) => {
+    const r = await run([...base, '--foreign-bank', ...extra], creating(F));
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/--foreign-bank/);
+    expect((r.errs[0] as Error).message).toMatch(/--reason/);
+    expect(inserts(r)).toEqual([]);
+  });
+
+  it('creates F marked: the INSERT carries the mark, the create audit row keeps it and its reason, and no missing-code warning', async () => {
+    const { value: r, err } = await withStderr(() =>
+      run([...base, '--foreign-bank', '--reason', 'Cuenta abierta en Nueva York'], creating(F))
+    );
+    expect(r.exitCode).toBe(0);
+    const [ins] = inserts(r);
+    expect(ins!.text).toMatch(/currency_code, bank_is_foreign\s*\)/);
+    expect(ins!.params[10]).toBeNull(); // sat_bank_code
+    expect(ins!.params[16]).toBe(true);
+    const [a] = audits(r);
+    expect(a!.params[4]).toBe('create');
+    expect(JSON.parse(a!.params[8] as string)).toMatchObject({ bank_is_foreign: true, sat_bank_code: null });
+    expect(a!.params[9]).toBe('Cuenta abierta en Nueva York');
+    expect(err).not.toMatch(/c_Banco/);
+  });
+
+  it('an unmarked account is never marked by anything, and its missing-code warning names both ways out', async () => {
+    const { value: r, err } = await withStderr(() =>
+      run([...base, '--swift', 'FEBKUS33', '--reason', 'Alta'], creating({ ...F, bank_is_foreign: false }))
+    );
+    expect(r.exitCode).toBe(0);
+    expect(inserts(r)[0]!.params[16]).toBe(false);
+    expect(err).toContain('`bank account edit <account> --sat-bank-code <code>`');
+    expect(err).toContain('`bank account edit <account> --foreign-bank --reason "<why>"`');
+  });
+
+  it.each([
+    ['a SAT code (999 included)', ['--sat-bank-code', '999'], /Drop --sat-bank-code/, 'with 999'],
+    ['a CLABE', ['--clabe', '012180001234567899'], /Drop --clabe/, 'no CLABE'],
+  ] as const)('with %s it is refused before any write, naming the flag to drop', async (_case, flags, flag, says) => {
+    const r = await run([...base, '--foreign-bank', '--reason', 'x', ...flags], creating(F));
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(flag);
+    expect((r.errs[0] as Error).message).toContain(says);
+    expect(inserts(r)).toEqual([]);
+    expect(audits(r)).toEqual([]);
+  });
+
+  it('create, edit and show warn about a marked name over 150 characters, counted in code points, and never cut it', async () => {
+    const long = { ...F, bank_name: NAME_151 };
+    const created = await withStderr(() => run([...base, '--bank', NAME_151, '--foreign-bank', '--reason', 'x'], creating(long)));
+    expect(created.value.exitCode).toBe(0);
+    expect(inserts(created.value)[0]!.params[3]).toBe(NAME_151);
+    expect(created.err).toMatch(/has 151 characters .* takes 150/);
+    expect(created.err).toContain('--bank "<name of up to 150 characters>"');
+
+    const withRow = (text: string) =>
+      /FOR UPDATE/.test(text) ? filas([{ id: ACC }]) : /^UPDATE bank_accounts/.test(text) ? { rows: [], rowCount: 1 } : lector({ cuenta: long })(text);
+    const edited = await withStderr(() => run(['bank', 'account', 'edit', 'BBVA MXN', '--branch', 'Manhattan'], withRow));
+    expect(edited.value.exitCode).toBe(0);
+    expect(edited.err).toMatch(/has 151 characters/);
+
+    const shown = await withStderr(() => run(['bank', 'account', 'show', 'BBVA MXN', '--json'], lector({ cuenta: long })));
+    const [row] = (JSON.parse(shown.value.out) as { rows: Array<{ bank: string; warnings: string[] }> }).rows;
+    expect(row!.bank).toBe(NAME_151);
+    expect(row!.warnings.join('\n')).toMatch(/has 151 characters/);
+    expect(shown.err).toMatch(/has 151 characters/);
+  });
+
+  it('150 code points (151 UTF-16 units), or a long name on an unmarked account, warn of nothing', async () => {
+    for (const account of [{ ...F, bank_name: NAME_150 }, { ...F, bank_is_foreign: false, bank_name: NAME_151 }]) {
+      const shown = await run(['bank', 'account', 'show', 'BBVA MXN', '--json'], lector({ cuenta: account }));
+      const [row] = (JSON.parse(shown.out) as { rows: Array<{ warnings: string[] }> }).rows;
+      expect(row!.warnings.join('\n')).not.toMatch(/characters/);
+    }
+  });
+});
+
 // ---- import: el cableado completo, con un CSV de verdad -------------
 
 // MNE-001-556 (T11) · a vendor payment or customer receipts; MNE-001-557 · several receipts name their credit.

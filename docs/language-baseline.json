@@ -3,13 +3,13 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10460,
+    "spanish-identifiers-src": 10459,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 106,
+    "spanish-user-strings-cli": 42,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -22,8 +22,8 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 99,
-    "cli-user-strings-without-key": 847,
-    "help-examples-without-key": 253,
+    "cli-user-strings-without-key": 838,
+    "help-examples-without-key": 252,
     "spanish-user-strings-services": 2012
   },
   "perFile": {
@@ -80,7 +80,7 @@
       "src/api/rest/zod-a-json-schema.ts": 44,
       "src/auth/roles.ts": 2,
       "src/auth/sujeto-activo.ts": 19,
-      "src/cli/account-command.ts": 36,
+      "src/cli/account-command.ts": 35,
       "src/cli/ap-command.ts": 16,
       "src/cli/ar-command.ts": 4,
       "src/cli/asset-command.ts": 34,
@@ -848,8 +848,6 @@
       "scripts/rellenar-roles-de-cuenta.ts": 1
     },
     "spanish-user-strings-cli": {
-      "src/cli/account-command.ts": 29,
-      "src/cli/batch-command.ts": 35,
       "src/cli/entry-command.ts": 9,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
@@ -1496,7 +1494,6 @@
       "webhooks": 17
     },
     "cli-user-strings-without-key": {
-      "src/cli/account-command.ts": 9,
       "src/cli/anexo24-migration-command.ts": 1,
       "src/cli/approvals-command.ts": 6,
       "src/cli/ar-command.ts": 5,
@@ -1560,7 +1557,7 @@
       "src/cli/webhooks-command.ts": 7
     },
     "help-examples-without-key": {
-      "src/cli/account-command.ts": 16,
+      "src/cli/account-command.ts": 15,
       "src/cli/anexo24-migration-command.ts": 3,
       "src/cli/ap-command.ts": 2,
       "src/cli/ar-command.ts": 2,

@@ -2045,6 +2045,45 @@ export const E0_0: Criterio[] = [
     ],
   },
 
+  {
+    paquete: 'E0.0',
+    id: 'cli-family-ledger-speaks-by-key',
+    // MNE-001-229 (issue #271, I8.9 part 1). The ledger family starts with
+    // `batch` and `account`: 35 and 29 Spanish strings, and 9 English ones in
+    // account without a key. batch printed only Spanish; its two aborts are
+    // the kernel's no_changes_* keys and its «not understood» is bank's. Every
+    // «(s)» and «(n)» is an ICU plural. The `Examples:` of `account create`,
+    // which the judge read as Spanish for its chart names, is
+    // `help.account.create.examples`, with the command lines as parameters.
+    // The `writes` summaries and batch reverse's dry-run reason are English in
+    // place: no screen reads them. MNE-001-230 adds fx, ledger, entry and
+    // period to these leaves.
+    enunciado:
+      'The ledger family (batch, account) prints no Spanish string from the code: its texts come from the I8.9 block of the catalogue (#271, MNE-001-229)',
+    evaluar: () =>
+      familySpeaksByKey('I8.9', 'ledger', ['src/cli/batch-command.ts', 'src/cli/account-command.ts']),
+    mutantes: [
+      {
+        archivo: 'src/cli/batch-command.ts',
+        de: "'ledger.batch.post.recorded'",
+        a: "'{count} póliza(s) del lote {id}' as never",
+        porque: 'string-back-in-the-code: batch post names what an idempotency hit replays with «póliza(s)» in the code again, which only check 2 sees',
+      },
+      {
+        archivo: 'src/cli/account-command.ts',
+        de: "'ledger.account.map.check.complete'",
+        a: "'✔ cobertura completa: {count} cuenta(s) con {scheme} ({scope})' as never",
+        porque: 'string-back-in-the-code: account map check counts the covered accounts with «cuenta(s)» in the code again, which only check 2 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/batch-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records a Spanish string in batch again',
+      },
+    ],
+  },
+
 
 
   {

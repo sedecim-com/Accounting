@@ -21,6 +21,7 @@ import {
   unapplyCustomerPayment,
   reverseCustomerPayment,
   getCustomerPayment,
+  closeOrphanAllocation,
 } from '../../src/services/payments/payment-service.js';
 import { arReconcile, runArChecks } from '../../src/services/ar/ar-controls.js';
 import {
@@ -29,7 +30,7 @@ import {
   listCustomerTaxProfiles,
 } from '../../src/services/ar/customer-service.js';
 import { entityScope } from '../../src/database/scope.js';
-import { AccountingError, ValidationError } from '../../src/utils/errors.js';
+import { AccountingError, NotFoundError, ValidationError } from '../../src/utils/errors.js';
 import { t } from '../../src/i18n/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
@@ -877,6 +878,164 @@ describe('the invoice UPDATEs of a collection are guarded (invariant 3, MNE-001-
     it('R9 · with the row closed again, the probe is clean', async () => {
       expect(await probe(f.entityId, 'orphan-application')).toMatchObject({
         level: 'clean', count: 0, sample: [], detailKey: 'ar.check.orphan_application.none',
+      });
+    });
+
+    // MNE-001-605: the person closes that row with `receipt allocation close`; nothing posts.
+    describe('receipt allocation close closes it, posting nothing (MNE-001-605)', () => {
+      /** A and B PPD, 116.00 each, R of 232.00 on both, R reversed, and B's row live again (R8's seed). */
+      const orphanOnB = async () => {
+        const ppd = async () => {
+          const draft = await createInvoice({
+            entity_id: f.entityId, customer_id: clienteId, invoice_date: fecha(), due_date: fecha(),
+            currency_code: 'MXN', terms: 'PPD', created_by: f.userId,
+            lines: [{
+              revenue_account_id: await cuentaPorCodigo('4100'), description: 'Servicio',
+              quantity: '1', unit_price: '100.00', tax_rate: '16.0000',
+            }],
+          });
+          return (await issueInvoice(draft.id, f.userId, { entityId: f.entityId })).invoice;
+        };
+        const a = await ppd();
+        const b = await ppd();
+        const r = await recordCustomerPayment(
+          {
+            entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '232.00', paymentDate: fecha(),
+            paymentMethod: 'spei',
+            applications: [{ documentId: a.id, amountApplied: '116.00' }, { documentId: b.id, amountApplied: '116.00' }],
+          },
+          f.userId
+        );
+        await reverseCustomerPayment(f.entityId, r.paymentId, { reason: 'cheque devuelto' }, f.userId);
+        const rowB = (await query<{ id: string }>(
+          `SELECT id FROM payment_allocations WHERE payment_id = $1 AND invoice_id = $2`, [r.paymentId, b.id]
+        )).rows[0].id;
+        await query(
+          `UPDATE payment_allocations SET unapplied_at = NULL, unapplied_by = NULL, unapply_reason = NULL WHERE id = $1`,
+          [rowB]
+        );
+        return { a, b, paymentId: r.paymentId, rowB };
+      };
+      const rowOf = async (id: string) =>
+        (await query<{ unapplied_at: Date | null; unapplied_by: string | null; unapply_reason: string | null; reversed_at: Date }>(
+          `SELECT pa.unapplied_at, pa.unapplied_by, pa.unapply_reason, cp.reversed_at
+             FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id WHERE pa.id = $1`, [id]
+        )).rows[0];
+      const auditsOf = async (paymentId: string) =>
+        (await query<{ reason: string; new_values: Record<string, unknown> }>(
+          `SELECT reason, new_values FROM audit_log
+            WHERE entity_id = $1 AND new_values->>'evento' = 'close_orphan_allocation'`, [paymentId]
+        )).rows;
+      /** A posted entry's lines on 2120 and 2125, each as [debit, credit]. */
+      const vatLinesOf = async (entryId: string) =>
+        Object.fromEntries((await query<{ code: string; debit: string; credit: string }>(
+          `SELECT a.code, COALESCE(SUM(l.debit_amount), 0)::numeric(19,2)::text AS debit,
+                  COALESCE(SUM(l.credit_amount), 0)::numeric(19,2)::text AS credit
+             FROM journal_entry_lines l JOIN accounts a ON a.id = l.account_id
+            WHERE l.journal_entry_id = $1 AND a.code IN ('2120', '2125') GROUP BY a.code`, [entryId]
+        )).rows.map((x) => [x.code, [x.debit, x.credit]]));
+      const close = (paymentId: string, invoiceId: string, opts: { dryRun?: boolean } = {}, entityId = f.entityId) =>
+        closeOrphanAllocation(entityId, paymentId, { invoiceId, reason: 'missed by a reversal before 584' }, f.userId, opts);
+      const refusal = async (call: () => Promise<unknown>) => call().then(() => null, (err: unknown) => err);
+
+      it('R10 · it closes the row at the reversal\'s instant, posts nothing, and B\'s next collection releases its 16.00', async () => {
+        const { a, b, paymentId, rowB } = await orphanOnB();
+        const before = { entries: await entriesOfEntity(), a: await invoiceRow(a.id), b: await invoiceRow(b.id) };
+        expect(before.b).toMatchObject({ amount_due: '116.0000', amount_paid: '0.0000', status: 'sent' });
+
+        const preview = await close(paymentId, b.id, { dryRun: true });
+        expect(preview).toMatchObject({ invoiceNumber: b.invoice_number, closed: 1, amount: '116.00' });
+        expect((await rowOf(rowB)).unapplied_at).toBeNull();
+        expect(await auditsOf(paymentId)).toEqual([]);
+
+        const done = await close(paymentId, b.id);
+        expect(done).toMatchObject({ invoiceNumber: b.invoice_number, closed: 1, amount: '116.00' });
+        const row = await rowOf(rowB);
+        // The value the reversal would have written: the IVA workpaper reads it as the reversal's close, not an unapply.
+        expect(row.unapplied_at).toEqual(row.reversed_at);
+        expect(done.closedAt).toEqual(row.reversed_at);
+        expect(row.unapplied_by).toBe(f.userId);
+        expect(row.unapply_reason).toBe('Closed after reversal: missed by a reversal before 584');
+        expect({ entries: await entriesOfEntity(), a: await invoiceRow(a.id), b: await invoiceRow(b.id) }).toEqual(before);
+        const audits = await auditsOf(paymentId);
+        expect(audits).toHaveLength(1);
+        expect(audits[0].reason).toBe('missed by a reversal before 584');
+        expect(audits[0].new_values).toMatchObject({ invoice: b.invoice_number, allocations: [rowB], amount: '116.00' });
+
+        expect(await probe(f.entityId, 'orphan-application')).toMatchObject({ level: 'clean', count: 0 });
+        const again = await refusal(() => close(paymentId, b.id));
+        expect(again).toBeInstanceOf(ValidationError);
+        expect((again as ValidationError).message).toBe(
+          t('receipt.allocation.close.nothing_live', { number: done.paymentNumber, invoice: b.invoice_number }, 'en')
+        );
+
+        // B is collected again: with the row closed its prior applied is 0, so the 16.00 leaves 2125 for 2120.
+        const r2 = await recordCustomerPayment(
+          {
+            entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '116.00', paymentDate: fecha(),
+            paymentMethod: 'spei', applications: [{ documentId: b.id, amountApplied: '116.00' }],
+          },
+          f.userId
+        );
+        const stored = await query<{ iva_reclass_amount: string }>(
+          `SELECT iva_reclass_amount::text FROM payment_allocations WHERE payment_id = $1`, [r2.paymentId]
+        );
+        expect(stored.rows.map((x) => x.iva_reclass_amount)).toEqual(['16.0000']);
+        expect(await vatLinesOf(r2.journalEntry!.id)).toEqual({ '2125': ['16.00', '0.00'], '2120': ['0.00', '16.00'] });
+      });
+
+      it('R11 · it refuses a receipt that is not reversed, another entity, and a row the reversal never read', async () => {
+        const live = await facturaEmitida('100.00', '16.00');
+        const completed = await recordCustomerPayment(
+          {
+            entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '116.00', paymentDate: fecha(),
+            paymentMethod: 'spei', applications: [{ documentId: live.id, amountApplied: '116.00' }],
+          },
+          f.userId
+        );
+        const notReversed = await refusal(() => close(completed.paymentId, live.id));
+        expect(notReversed).toBeInstanceOf(ValidationError);
+        expect((notReversed as ValidationError).message).toBe(
+          t('receipt.allocation.close.not_reversed', { number: completed.paymentNumber, status: 'completed' }, 'en')
+        );
+
+        const { b, paymentId, rowB } = await orphanOnB();
+        const other = await crearInquilino('F03 Cobrar · MNE-001-605');
+        expect(await refusal(() => close(paymentId, b.id, {}, other.entityId))).toBeInstanceOf(NotFoundError);
+
+        // A live row written after the reversal was never in its sum: the invoice was not reopened for it.
+        await query(
+          `UPDATE payment_allocations pa SET created_at = cp.reversed_at + interval '1 second'
+             FROM customer_payments cp WHERE cp.id = pa.payment_id AND pa.id = $1`, [rowB]
+        );
+        const after = await refusal(() => close(paymentId, b.id));
+        expect(after).toBeInstanceOf(ValidationError);
+        expect((after as ValidationError).message).toContain(b.invoice_number);
+        expect((await rowOf(rowB)).unapplied_at).toBeNull();
+        expect(await auditsOf(paymentId)).toEqual([]);
+        // Left closed at the reversal, so the probe stays clean for the cases after this one.
+        await query(
+          `UPDATE payment_allocations pa SET created_at = cp.reversed_at - interval '1 second', unapplied_at = cp.reversed_at,
+                  unapplied_by = $2, unapply_reason = 'restored by R11'
+             FROM customer_payments cp WHERE cp.id = pa.payment_id AND pa.id = $1`, [rowB, f.userId]
+        );
+      });
+
+      it('R12 · a close that touches no row refuses, and writes nothing', async () => {
+        const { b, paymentId, rowB } = await orphanOnB();
+        const restore = await sabotageClose(rowB);
+        let e: unknown;
+        try {
+          e = await refusal(() => close(paymentId, b.id));
+        } finally {
+          await restore();
+        }
+        expect(e).toBeInstanceOf(AccountingError);
+        expect((e as AccountingError).code).toBe('ORPHAN_CLOSE_RACE');
+        expect((await rowOf(rowB)).unapplied_at).toBeNull();
+        expect(await auditsOf(paymentId)).toEqual([]);
+        await close(paymentId, b.id);
+        expect(await probe(f.entityId, 'orphan-application')).toMatchObject({ level: 'clean', count: 0 });
       });
     });
   });

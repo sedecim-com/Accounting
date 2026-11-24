@@ -1,6 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Command } from 'commander';
+import { t } from '../i18n/index.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
@@ -256,7 +257,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -269,19 +270,15 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
     if (await ask(pregunta)) return;
     throw abortedByUser(
       process.stdin.isTTY
-        ? 'Sin cambios: el mayor no se tocó.'
-        : `Sin cambios: no hay terminal donde confirmar. Añade -y para que \`${comando}\` corra ` +
-            'sin preguntar, o --dry-run para ver el efecto completo sin escribir nada.'
+        ? { key: 'no_changes_ledger_untouched' }
+        : { key: 'no_changes_no_terminal', params: { command: comando } }
     );
   };
 
   /** Aviso de idempotencia: stderr, para que un tubo --json siga siendo JSON. */
   const avisarRepetido = (clave: string | undefined, que: string): void => {
     process.stderr.write(
-      deps.palette.yellow(
-        `↩ Idempotency hit: la llave "${clave ?? ''}" ya consumó este acto — ${que}. ` +
-          'Nada se ejecutó otra vez; esto es el resultado grabado.\n'
-      )
+      deps.palette.yellow(`${t('ledger.batch.idempotency_hit', { key: clave ?? '', what: que })}\n`)
     );
   };
 
@@ -303,18 +300,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   const unSoloEstado = (status?: string[]): string | undefined => {
     if (!status || status.length === 0) return undefined;
     if (status.length > 1) {
-      throw usageError(
-        'Un estado a la vez: el flujo del lote es corto (staged → checked → posted) y un filtro ' +
-          'múltiple no responde ninguna pregunta que dos corridas no respondan mejor.'
-      );
+      throw usageError({ key: 'ledger.batch.status.one_at_a_time' });
     }
     const s = status[0];
     if (!(ESTADOS_LOTE as readonly string[]).includes(s)) {
-      throw usageError(
-        `--status "${s}" no existe en el flujo del lote. Los estados reales (045): ` +
-          `${ESTADOS_LOTE.join(', ')}. El vocabulario pending|running|completed|failed|cancelled ` +
-          'no corresponde a esta tabla.'
-      );
+      throw usageError({ key: 'ledger.batch.status.unknown', params: { value: s, statuses: ESTADOS_LOTE.join(', ') } });
     }
     return s;
   };
@@ -328,11 +318,10 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       (c) => !(CATEGORIAS_DE_HALLAZGO as readonly string[]).includes(c)
     );
     if (desconocidas.length > 0) {
-      throw usageError(
-        `--check no reconoce: ${desconocidas.join(', ')}. Las categorías cerradas son ` +
-          `${CATEGORIAS_DE_HALLAZGO.join(', ')}. La batería completa corre siempre; ` +
-          'el filtro sólo acota el informe.'
-      );
+      throw usageError({
+        key: 'ledger.batch.check.categories_unknown',
+        params: { unknown: desconocidas.join(', '), categories: CATEGORIAS_DE_HALLAZGO.join(', ') },
+      });
     }
     return new Set(pedidas);
   };
@@ -360,17 +349,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         ['--date-basis', 'dateBasis'],
       ] as const) {
         if (cmd.getOptionValueSource(opcion) === 'cli') {
-          throw usageError(
-            `${flag} no aplica a los lotes: un lote se filtra por cuándo se preparó, con --since ` +
-              '(created_at >= fecha). No hay rango superior ni base de fecha que elegir.'
-          );
+          throw usageError({ key: 'ledger.batch.list.flag_unsupported', params: { flag } });
         }
       }
       if (opts.offset !== undefined) {
-        throw usageError(
-          '--offset no está implementado en esta familia: la consulta ordena por created_at y ' +
-            'acota con --limit, sin cursor estable. Acota con --since o sube --limit.'
-        );
+        throw usageError({ key: 'ledger.batch.list.offset_unsupported' });
       }
 
       const limit = opts.all ? 1000 : (opts.limit ?? 50);
@@ -397,12 +380,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         }
       );
       if (lotes.length === limit) {
-        process.stderr.write(
-          deps.palette.yellow(
-            `Se listaron ${lotes.length} lote(s), que es el tope de --limit: puede haber más. ` +
-              'Sube --limit o acota con --since.\n'
-          )
-        );
+        process.stderr.write(deps.palette.yellow(`${t('ledger.batch.list.capped', { count: lotes.length })}\n`));
       }
     })
   );
@@ -443,20 +421,26 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
 
       const l = detalle.lote;
       const out = process.stdout;
-      out.write(`\n${p.bold(`LOTE ${l.id}`)} ${p.dim(`· ${l.status} · ${l.kind}/${l.layout}`)}\n`);
+      out.write(`\n${p.bold(t('ledger.batch.title', { id: l.id }))} ${p.dim(`· ${l.status} · ${l.kind}/${l.layout}`)}\n`);
       const ficha = (etiqueta: string, valor: string) =>
         out.write(`  ${p.dim(etiqueta.padEnd(12))}${valor}\n`);
-      ficha('archivo', `${l.file_name ?? '(sin nombre)'} · sha256 ${l.file_hash.slice(0, 12)}…`);
       ficha(
-        'filas',
-        `${l.rows_total} total · ${l.rows_invalid} inválida(s) · ${l.entries_posted} póliza(s) en el mayor`
+        t('ledger.batch.show.file_label'),
+        `${l.file_name ?? t('ledger.batch.show.unnamed')} · sha256 ${l.file_hash.slice(0, 12)}…`
       );
-      ficha('preparado', `${dia(l.created_at, zone)} por ${l.created_by}`);
+      ficha(
+        t('ledger.batch.show.rows_label'),
+        t('ledger.batch.show.rows', { total: l.rows_total, invalid: l.rows_invalid, posted: l.entries_posted })
+      );
+      ficha(
+        t('ledger.batch.show.prepared_label'),
+        t('ledger.batch.show.prepared', { date: dia(l.created_at, zone), user: l.created_by })
+      );
 
-      out.write(`\n${p.bold('FILAS')} ${p.dim(`(${filas.length})`)}\n`);
+      out.write(`\n${p.bold(t('ledger.batch.show.rows_title'))} ${p.dim(`(${filas.length})`)}\n`);
       if (filas.length === 0) {
         out.write(
-          p.dim(opts.errorsOnly ? '  ninguna fila con error de parseo\n' : '  el lote está vacío\n')
+          p.dim(`  ${t(opts.errorsOnly ? 'ledger.batch.show.no_parse_errors' : 'ledger.batch.show.empty')}\n`)
         );
       } else {
         render(
@@ -476,7 +460,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       const categorias = Object.entries(detalle.errores_por_categoria);
       if (categorias.length > 0) {
         out.write(
-          `\n  ${p.dim('errores de parseo por categoría:')} ` +
+          `\n  ${p.dim(t('ledger.batch.show.errors_by_category'))} ` +
             categorias.map(([c, n]) => `${c}=${n}`).join(' · ') +
             '\n'
         );
@@ -533,40 +517,35 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       } else {
         const out = process.stdout;
         out.write(
-          `\n${p.bold(`LOTE ${r.batchId}`)} ${p.dim(
-            `· ${r.validas + r.invalidas} fila(s) verificadas` +
-              (opts.strict ? ' · estricto' : '') +
-              (pedidas ? ` · informe acotado a ${[...pedidas].join(',')}` : '')
+          `\n${p.bold(t('ledger.batch.title', { id: r.batchId }))} ${p.dim(
+            t('ledger.batch.check.rows_checked', { count: r.validas + r.invalidas }) +
+              (opts.strict ? t('ledger.batch.check.strict') : '') +
+              (pedidas ? t('ledger.batch.check.narrowed', { categories: [...pedidas].join(',') }) : '')
           )}\n\n`
         );
         for (const f of visibles) {
           if (!f.ok) {
             out.write(
-              `  ${p.red('✘')} fila ${f.row_number} ${p.dim(`[${f.categoria ?? 'otro'}]`)} — ` +
+              `  ${p.red('✘')} ${t('ledger.batch.row', { row: f.row_number })} ${p.dim(`[${f.categoria ?? 'otro'}]`)} — ` +
                 `${f.errores.join('; ')}\n`
             );
           } else {
             out.write(
-              `  ${p.yellow('!')} fila ${f.row_number} — ${f.advertencias.join('; ')}\n`
+              `  ${p.yellow('!')} ${t('ledger.batch.row', { row: f.row_number })} — ${f.advertencias.join('; ')}\n`
             );
           }
         }
-        if (visibles.length === 0) out.write(p.dim('  ningún hallazgo que enseñar\n'));
+        if (visibles.length === 0) out.write(p.dim(`  ${t('ledger.batch.check.nothing_to_show')}\n`));
         out.write(
           r.invalidas === 0
-            ? `\n${p.green('✔')} ${r.validas} fila(s) válidas: el lote queda '${r.status}'.\n`
-            : `\n${p.red('✘')} ${r.invalidas} inválida(s) y ${r.validas} válida(s): el lote se ` +
-                `queda '${r.status}'. Corrige el archivo y reimporta, o aplica lo válido con ` +
-                '`batch post --partial`.\n'
+            ? `\n${p.green('✔')} ${t('ledger.batch.check.all_valid', { count: r.validas, status: r.status })}\n`
+            : `\n${p.red('✘')} ${t('ledger.batch.check.some_invalid', { invalid: r.invalidas, valid: r.validas, status: r.status })}\n`
         );
       }
 
       if (bloqueantesOcultas > 0) {
         process.stderr.write(
-          p.yellow(
-            `${bloqueantesOcultas} hallazgo(s) bloqueante(s) quedaron fuera del informe por --check; ` +
-              'el código de salida los cuenta igual.\n'
-          )
+          p.yellow(`${t('ledger.batch.check.hidden_blocking', { count: bloqueantesOcultas })}\n`)
         );
       }
 
@@ -591,8 +570,8 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
     llave: { scope: 'batch post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines POSTEADOS (source_type=import_batch, source_id=fila) ' +
-      'y el encabezado del lote (status, rows_invalid)',
+      'POSTED journal_entries + journal_entry_lines (source_type=import_batch, source_id=row) ' +
+      'and the batch header (status, rows_invalid)',
   });
   post.addHelpText('after', EJEMPLOS.post);
   post.action((id: string, opts: CommonOpts & { partial?: boolean }) =>
@@ -611,19 +590,22 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       const mostrar = (r: ResultadoAplicacion): void => {
         const out = process.stdout;
         out.write(
-          `\n${p.bold(`LOTE ${r.batchId}`)} ${p.dim(
-            `· ${r.posteadas.length} póliza(s) · Debe ${r.total_debe}` +
-              (r.ya_posteadas > 0 ? ` · ${r.ya_posteadas} ya estaba(n)` : '')
+          `\n${p.bold(t('ledger.batch.title', { id: r.batchId }))} ${p.dim(
+            t('ledger.batch.post.preview', {
+              count: r.posteadas.length,
+              total: r.total_debe,
+              already: r.ya_posteadas > 0 ? t('ledger.batch.post.already', { count: r.ya_posteadas }) : '',
+            })
           )}\n`
         );
         for (const fila of r.posteadas) {
-          out.write(`    fila ${fila.row_number} → ${fila.entry_number}\n`);
+          out.write(`    ${t('ledger.batch.row', { row: fila.row_number })} → ${fila.entry_number}\n`);
         }
         if (r.invalidas.length > 0) {
-          out.write(`\n  ${p.yellow(`${r.invalidas.length} fila(s) quedan en staging:`)}\n`);
+          out.write(`\n  ${p.yellow(t('ledger.batch.post.left_staged', { count: r.invalidas.length }))}\n`);
           for (const h of r.invalidas) {
             out.write(
-              `    ${p.red('✘')} fila ${h.row_number} ${p.dim(`[${h.categoria ?? 'otro'}]`)} — ` +
+              `    ${p.red('✘')} ${t('ledger.batch.row', { row: h.row_number })} ${p.dim(`[${h.categoria ?? 'otro'}]`)} — ` +
                 `${h.errores.join('; ')}\n`
             );
           }
@@ -643,12 +625,15 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
           const previo = await ensayar();
           if (legible(opts)) mostrar(previo);
           await exigirConfirmacion(
-            `Vas a CONTABILIZAR ${previo.posteadas.length} póliza(s) del lote ${id} por ` +
-              `${previo.total_debe} (Debe)` +
-              (previo.invalidas.length > 0
-                ? `, dejando ${previo.invalidas.length} fila(s) en staging`
-                : '') +
-              '. El mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
+            t('ledger.batch.post.confirm', {
+              count: previo.posteadas.length,
+              id,
+              total: previo.total_debe,
+              left:
+                previo.invalidas.length > 0
+                  ? t('ledger.batch.post.confirm_left', { count: previo.invalidas.length })
+                  : '',
+            }),
             'batch post'
           );
         }
@@ -669,7 +654,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         repetido = acto.repetido;
         resultado = acto.resultado.v;
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `${resultado.posteadas.length} póliza(s) del lote ${id}`);
+          avisarRepetido(opts.idempotencyKey, t('ledger.batch.post.recorded', { count: resultado.posteadas.length, id }));
         } else {
           // Tras el commit y sólo tras el commit: en ensayo el servicio ya
           // devuelve la lista vacía, y en un hit de idempotencia esta corrida
@@ -698,20 +683,19 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       } else {
         if (opts.yes === true || dryRun) mostrar(resultado);
         process.stdout.write(
-          `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(`lote ${resultado.batchId}`)} ${p.dim(
-            `→ '${resultado.status}' · ${resultado.posteadas.length} contabilizada(s) · ` +
-              `${resultado.ya_posteadas} ya estaba(n) · ${resultado.invalidas.length} en staging · ` +
-              `Debe ${resultado.total_debe}`
+          `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(t('ledger.batch.receipt_title', { id: resultado.batchId }))} ${p.dim(
+            t('ledger.batch.post.receipt', {
+              status: resultado.status,
+              posted: resultado.posteadas.length,
+              already: resultado.ya_posteadas,
+              staged: resultado.invalidas.length,
+              total: resultado.total_debe,
+            })
           )}\n`
         );
       }
       if (dryRun) {
-        process.stderr.write(
-          p.yellow(
-            'Ensayo: se contabilizó de verdad y se deshizo; los folios mostrados no quedaron ' +
-              'reservados.\n'
-          )
-        );
+        process.stderr.write(p.yellow(`${t('ledger.batch.post.dry_run')}\n`));
       }
       // 4 es «hay algo que mirar»: un --partial que dejó filas atrás no es un
       // éxito silencioso — el guion que lo corre tiene que enterarse.
@@ -732,8 +716,8 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
     llave: { scope: 'batch reverse' },
     agent: false,
     writes:
-      'journal_entries espejo POSTEADOS (sin source_type, como toda reversa) + ' +
-      'reversed_by_entry_id de cada póliza del lote',
+      'POSTED mirror journal_entries (no source_type, like every reversal) + ' +
+      'reversed_by_entry_id of each entry of the batch',
   });
   reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action((id: string, opts: CommonOpts & { asOf?: string }) =>
@@ -746,7 +730,8 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       // El servicio exige motivo SIEMPRE (una reversa sin motivo no deja
       // rastro utilizable); el núcleo permite ensayar sin --reason. El
       // marcador sólo puede llegar al camino del ensayo, que se revierte.
-      const motivo = reason ?? '(ensayo sin --reason)';
+      // MNE-001-229: a token, not prose: no screen reads it and no row keeps it.
+      const motivo = reason ?? 'dry-run:no-reason';
 
       const ensayar = (): Promise<ResultadoReversa> =>
         reverseBatch(cx, id, reviewer.userId, {
@@ -759,8 +744,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       const mostrar = (r: ResultadoReversa): void => {
         const out = process.stdout;
         out.write(
-          `\n${p.bold(`LOTE ${r.batchId}`)} ${p.dim(
-            `· ${r.espejos.length} espejo(s)` + (opts.asOf ? ` con fecha ${opts.asOf}` : '')
+          `\n${p.bold(t('ledger.batch.title', { id: r.batchId }))} ${p.dim(
+            t('ledger.batch.reverse.preview', {
+              count: r.espejos.length,
+              dated: opts.asOf ? t('ledger.batch.reverse.dated', { date: opts.asOf }) : '',
+            })
           )}\n`
         );
         for (const e of r.espejos) {
@@ -778,9 +766,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
           const previo = await ensayar();
           if (legible(opts)) mostrar(previo);
           await exigirConfirmacion(
-            `Vas a REVERSAR el lote ${id}: ${previo.espejos.length} espejo(s) posteado(s), uno ` +
-              'por póliza, en una sola transacción. Cada póliza admite UNA reversa (041). ' +
-              '¿Continuar?',
+            t('ledger.batch.reverse.confirm', { id, count: previo.espejos.length }),
             'batch reverse'
           );
         }
@@ -804,7 +790,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         repetido = acto.repetido;
         resultado = acto.resultado.v;
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `${resultado.espejos.length} espejo(s) del lote ${id}`);
+          avisarRepetido(opts.idempotencyKey, t('ledger.batch.reverse.recorded', { count: resultado.espejos.length, id }));
         } else {
           for (const a of resultado.attestations) {
             attestEntryAsync(ctx.tenantId, a.entityId, a.entryId);
@@ -827,15 +813,14 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       } else {
         if (opts.yes === true || dryRun) mostrar(resultado);
         process.stdout.write(
-          `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(`lote ${resultado.batchId}`)} ${p.dim(
-            `· ${resultado.espejos.length} espejo(s) · el lote sigue '${resultado.status}': la ` +
-              'verdad de la reversa vive en reversed_by_entry_id de cada póliza'
+          `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(t('ledger.batch.receipt_title', { id: resultado.batchId }))} ${p.dim(
+            t('ledger.batch.reverse.receipt', { count: resultado.espejos.length, status: resultado.status })
           )}\n`
         );
       }
       if (dryRun) {
         process.stderr.write(
-          p.yellow('Ensayo: los espejos se crearon de verdad y se deshicieron; nada quedó escrito.\n')
+          p.yellow(`${t('ledger.batch.reverse.dry_run')}\n`)
         );
       }
     })
