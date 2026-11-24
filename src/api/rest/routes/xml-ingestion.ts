@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
@@ -62,7 +63,7 @@ export const uploadXmlSchema = z.object({
   }).optional(),
   source: z.string().optional(),
 }).refine((o) => !!(o.xml_content || (o.xml_contents && o.xml_contents.length > 0)), {
-  message: 'xml_content or xml_contents array is required',
+  message: schemaMessage('error.VALIDATION_ERROR.schema.xml_content_required'),
 });
 
 const updatePreRegSchema = z.object({
@@ -72,7 +73,7 @@ const updatePreRegSchema = z.object({
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   lines: z.array(z.record(z.string(), z.unknown())).optional(),
-}).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
+}).refine((o) => Object.keys(o).length > 0, { message: schemaMessage('error.VALIDATION_ERROR.schema.at_least_one_field_required') });
 
 const rejectPreRegSchema = z.object({
   reason: boundedString({ min: 1 }),
@@ -108,7 +109,7 @@ const updateProcessingRuleSchema = z.object({
   is_active: z.boolean().optional(),
   conditions: z.record(z.string(), z.unknown()).optional(),
   actions: z.record(z.string(), z.unknown()).optional(),
-}).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
+}).refine((o) => Object.keys(o).length > 0, { message: schemaMessage('error.VALIDATION_ERROR.schema.at_least_one_field_required') });
 
 const createBatchSchema = z.object({
   entity_id: uuidString().optional(),

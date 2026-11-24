@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { t } from '../i18n/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import type { ErrorMessageKey } from './errors.js';
 
 // ============================================================
@@ -26,8 +26,11 @@ import type { ErrorMessageKey } from './errors.js';
 //                          worded its zod 3 counterpart; `legacyIssueMessage`
 //                          is that key in English. Messages a schema sets
 //                          itself (`.min(1, 'msg')`, a refine message, the
-//                          array cap) outrank it, as they did in zod 3, have
-//                          no key, and read the same in every language.
+//                          array cap) outrank it, as they did in zod 3. They
+//                          are keys too when the schema wrote them through
+//                          `schemaMessage` or `keyedIssueParams`
+//                          (MNE-001-588); any other one has no key and reads
+//                          the same in every language.
 //   infinityAsZod3         zod 4's z.number() refuses ±Infinity (JSON 1e999)
 //                          at its type check and skips its checks. zod 3 took
 //                          it as a number and ran them, so where one of them
@@ -229,7 +232,8 @@ export function legacyIssueMessage(issue: z.core.$ZodRawIssue): string | undefin
  * messages, so each distinct key and parameters is rendered once, and its
  * text remembers the key it came from: after the parse, `keyOf(message)`
  * finds the key of an issue whose message the map wrote. A message a schema
- * set itself, or zod's own text, was never written here and has no key. Both
+ * set itself, or zod's own text, was never written here: `schemaKeyOf` finds
+ * the key of the first, and the second has none. Both
  * maps live for one parse only, so a hostile body cannot grow them for the
  * life of the process.
  */
@@ -251,6 +255,46 @@ function keyedWording(): { message: (issue: z.core.$ZodRawIssue) => string | und
     },
     keyOf: (message) => keys.get(message),
   };
+}
+
+/**
+ * The keys of the messages schemas set themselves, by their English
+ * (MNE-001-588). Filled by `schemaMessage` while the schemas are built, at
+ * module load: one entry per key a schema names, never one per request.
+ */
+const SCHEMA_MESSAGE_KEYS = new Map<string, ErrorMessageKey>();
+
+/**
+ * The English of `key`, for a message a schema sets itself (a refine, `.min(n,
+ * msg)`, a regex, an error map), remembered so the 422 can render it in the
+ * reader's language. Call it where the schema is built, never per parse. The
+ * key takes no parameters: a message with per-request values is a custom
+ * issue with `keyedIssueParams`.
+ */
+export function schemaMessage(key: TranslationKey): string {
+  const english = t(key, {}, 'en');
+  if (!SCHEMA_MESSAGE_KEYS.has(english)) SCHEMA_MESSAGE_KEYS.set(english, { key });
+  return english;
+}
+
+/** Where a custom issue carries the key of its message (MNE-001-588). */
+const ISSUE_KEY_PARAM = 'messageKey';
+
+/**
+ * The message and the `params` of a custom issue whose message is `key` with
+ * per-request values, such as the REST array cap (`arregloAcotado`): the
+ * message is its English, and the key travels in `params` to the 422.
+ */
+export function keyedIssueParams(key: ErrorMessageKey): { message: string; params: { [ISSUE_KEY_PARAM]: ErrorMessageKey } } {
+  return { message: t(key.key, key.params ?? {}, 'en'), params: { [ISSUE_KEY_PARAM]: key } };
+}
+
+/** The key a schema wrote a message with: `schemaMessage`, or a custom issue's `keyedIssueParams`. */
+function schemaKeyOf(issue: z.core.$ZodIssue): ErrorMessageKey | undefined {
+  const known = SCHEMA_MESSAGE_KEYS.get(issue.message);
+  if (known !== undefined || issue.code !== 'custom') return known;
+  const carried: unknown = issue.params?.[ISSUE_KEY_PARAM];
+  return typeof carried === 'object' && carried !== null && 'key' in carried ? (carried as ErrorMessageKey) : undefined;
 }
 
 type Path = readonly PropertyKey[];
@@ -415,8 +459,9 @@ export function parseForClient<T>(schema: z.ZodType<T>, input: unknown): ClientP
 
 /**
  * `parseForClient`, with the catalog key behind each message it worded
- * (MNE-001-152). The REST 422 renders those keys in the reader's language;
- * an issue with no key travels with its message as it is.
+ * (MNE-001-152), and behind each message a schema wrote by key (MNE-001-588).
+ * The REST 422 renders those keys in the reader's language; an issue with no
+ * key travels with its message as it is.
  */
 export function parseForClientKeyed<T>(schema: z.ZodType<T>, input: unknown): KeyedClientParse<T> {
   const wording = keyedWording();
@@ -438,7 +483,7 @@ export function parseForClientKeyed<T>(schema: z.ZodType<T>, input: unknown): Ke
     success: false,
     issues: normalizeLegacyIssues(issues).map((issue): KeyedClientIssue => {
       const path = issue.path.map(String).join('.');
-      const key = wording.keyOf(issue.message);
+      const key = wording.keyOf(issue.message) ?? schemaKeyOf(issue);
       return key === undefined ? { path, message: issue.message } : { path, message: issue.message, key };
     }),
   };

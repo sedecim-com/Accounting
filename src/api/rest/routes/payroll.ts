@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
@@ -63,11 +64,14 @@ const meta = (req: Request) => ({
  * pagaba cien veces de más. Quien lo siga mandando recibe un 422 que lo
  * NOMBRA, y va a buscar el panel, que es donde esa decisión vive.
  */
+/** The message of every calendar date field below, by key (MNE-001-588). */
+const DATE_FORMAT = schemaMessage('error.VALIDATION_ERROR.schema.date_format');
+
 const finiquitoSchema = z
   .object({
     employee_id: uuidString(),
-    termination_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
-    last_paid_through: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
+    termination_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, DATE_FORMAT),
+    last_paid_through: z.string().regex(/^\d{4}-\d{2}-\d{2}/, DATE_FORMAT),
     termination_reason: z.enum(['renuncia', 'despido', 'rescision_por_el_trabajador', 'muerte']),
     pending_vacation_days: z.number().optional(),
   })
@@ -79,7 +83,7 @@ const createEmployeeSchema = z.object({
   last_name: boundedString({ min: 1, max: 100 }),
   email: emailString().optional(),
   country_code: z.enum(['MX', 'US']),
-  hire_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
+  hire_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, DATE_FORMAT),
   // Country-specific (one of these blocks)
   rfc: z.string().optional(),
   curp: z.string().optional(),

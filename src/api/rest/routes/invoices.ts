@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
+import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
@@ -61,7 +62,7 @@ const createInvoiceSchema = z.object({
     plural: 'renglones',
     salida: 'Parte la factura: un comprobante con más renglones que eso no lo timbra ningún PAC.',
     minimo: 1,
-    mensajeMinimo: 'At least 1 line required',
+    mensajeMinimo: schemaMessage('error.VALIDATION_ERROR.schema.invoice_min_lines'),
   }),
   terms: z.string().optional(),
   memo: z.string().optional(),
@@ -97,7 +98,7 @@ const recordPaymentSchema = z.object({
 // Enforcing it is an observable API change -- a body-less POST that used to
 // succeed now gets 422 VALIDATION_ERROR from validateBody.
 const voidInvoiceSchema = z.object({
-  reason: boundedString({ min: 1 }, { min: 'Reason is required for voiding' }),
+  reason: boundedString({ min: 1 }, { min: schemaMessage('error.VALIDATION_ERROR.schema.void_reason_required') }),
 });
 
 const meta = (req: Request) => ({

@@ -59,7 +59,7 @@ export type RequestPart = { readonly kind: 'body' } | { readonly kind: 'query'; 
 /**
  * One issue of that 422: the dotted field path ('' at the root), the message
  * in English, and the catalog key it was rendered from when it was. A message
- * a schema set itself has no key and reads the same in every language.
+ * a schema wrote as prose has no key and reads the same in every language.
  */
 export interface RequestIssue {
   readonly path: string;
