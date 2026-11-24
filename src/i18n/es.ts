@@ -6724,6 +6724,19 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.deposit_file.run_not_approved':
     'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
     'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
+  // A paycheck that holds a payroll CFDI is not stamped again (MNE-001-736, #601).
+  'payrun.cfdi.already_stamped':
+    'El recibo {id} no se timbró otra vez: ya tiene un CFDI de nómina, folio {uuid} ({status}), timbrado el ' +
+    '{stamped_at}. Un segundo timbre sería un segundo CFDI ante el SAT por el mismo pago. No se envió nada al ' +
+    'PAC ni se escribió nada.',
+  'payrun.cfdi.stamp_in_progress':
+    'Este intento no timbró el recibo {id}: otro timbrado del mismo recibo, u otro cambio sobre él, sigue en ' +
+    'curso y este intento dejó de esperar. No envió nada al PAC ni escribió nada. Lee el recibo antes de ' +
+    'pedirlo de nuevo: si el otro timbrado terminó, el recibo ya lleva su folio.',
+  'payrun.cfdi.stamped_not_recorded':
+    'El recibo {id} SÍ se timbró: el PAC ({provider}) respondió con el folio {uuid}, y el folio no se pudo ' +
+    'escribir en el recibo. No lo timbres otra vez. Guarda este folio: el recibo no lo lleva, y es lo que ' +
+    'pide una cancelación.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +

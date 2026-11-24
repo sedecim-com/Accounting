@@ -6,7 +6,11 @@ import Decimal from 'decimal.js';
 // stored (0.00 from 1 May 2024) and the whole subsidy caused, and the result is
 // checked against the SAT's own nomina12.xsd.
 
-vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+// The generator runs on one transaction since MNE-001-736: its client is this same double.
+vi.mock('../../../src/database/connection.js', () => {
+  const query = vi.fn();
+  return { query, withTransaction: (fn: (tx: unknown) => unknown) => fn({ query, on: vi.fn(), off: vi.fn() }) };
+});
 vi.mock('../../../src/services/integrations/mexico/pac/pac-router.js', () => ({
   pacRouter: { stamp: vi.fn() },
 }));
@@ -28,6 +32,7 @@ async function xmlFor(over: Record<string, string>): Promise<string> {
     if (/FROM paychecks p/.test(sql)) {
       return {
         rows: [{
+          cfdi_uuid: null, cfdi_status: null, cfdi_stamped_at: null,
           paycheck_id: 'pc-1', tenant_id: 't-1', gross_earnings: '100.00', net_pay: '100.00',
           isr_withheld: '10.00', subsidio_empleo: '100.00', subsidio_entregado_efectivo: '0',
           imss_employee: '0', infonavit_withheld: '0',
@@ -48,7 +53,7 @@ async function xmlFor(over: Record<string, string>): Promise<string> {
         }],
       };
     }
-    return { rows: [] };
+    return { rows: [], rowCount: 1 };
   });
   const r = await generateAndStampCfdiNomina(
     'pc-1', { tenantId: 't-1', userId: 'u-1' },
