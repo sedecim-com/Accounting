@@ -304,6 +304,11 @@ external:
     # Importe = the cash the paycheck handed over (0.00 when paid from 1 May 2024), its
     # SubsidioCausado = the whole subsidy of the period, and TotalOtrosPagos. The node is
     # checked against the SAT's nomina12.xsd, vendored in src/services/sat/cfdi40/xsd.
+    # CONTRACT: the payroll CFDI writes Fecha as AAAA-MM-DDThh:mm:ss (tdCFDI:t_FechaH) and
+    # FechaPago, FechaInicialPago, FechaFinalPago and FechaInicioRelLaboral as AAAA-MM-DD
+    # (tdCFDI:t_Fecha): the calendar days pay_periods and employees store, whatever the
+    # zone of the process (src/services/payroll/mx/cfdi-nomina-generator.ts, MNE-001-735,
+    # #601). The hour of Fecha is still the literal 10:00:00, not the local time of issue.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
     # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
     # `reasoning_effort` on chat turns, compaction summaries and the init probe only when

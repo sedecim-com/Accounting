@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
-import { daysBetween } from '../../../utils/calendar-date.js';
+import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
@@ -59,9 +59,10 @@ export async function generateAndStampCfdiNomina(
     subsidio_entregado_efectivo: string;
     imss_employee: string;
     infonavit_withheld: string;
-    period_start: string;
-    period_end: string;
-    pay_date: string;
+    // The driver hands a DATE column over as a `Date`, not as text.
+    period_start: Date;
+    period_end: Date;
+    pay_date: Date;
     tax_year: number;
     emp_first: string;
     emp_last: string;
@@ -75,7 +76,7 @@ export async function generateAndStampCfdiNomina(
     tipo_jornada_sat: string | null;
     riesgo_puesto: string | null;
     puesto: string | null;
-    hire_date: string;
+    hire_date: Date;
     entity_tax_id: string;
     entity_name: string;
     run_id: string;
@@ -118,6 +119,22 @@ export async function generateAndStampCfdiNomina(
     });
   }
 
+  // THE FOUR DATES, AS THE CALENDAR DAYS THE COLUMNS STORE (MNE-001-735, #601).
+  // The driver builds a `Date` at local midnight from a DATE column, and a
+  // template writes a `Date` as «Fri Aug 14 2026 00:00:00 GMT+0000 (…)»: that
+  // text went into the voucher's own number and issue date and into the four
+  // dates of the complement, and the unit specs, which hand over strings, never
+  // saw it. `toCalendarDate` reads the stored day in any zone and refuses what
+  // is not a day, here, before anything is sent: a stamp is not taken back.
+  // CONTRACT: the issue date is tdCFDI:t_FechaH, AAAA-MM-DDThh:mm:ss
+  // (cfdv40.xsd:729); FechaPago, FechaInicialPago, FechaFinalPago and
+  // FechaInicioRelLaboral are AAAA-MM-DD (the complement's schema, lines 657,
+  // 662, 667 and 111).
+  const payDate = toCalendarDate(r.pay_date);
+  const periodStart = toCalendarDate(r.period_start);
+  const periodEnd = toCalendarDate(r.period_end);
+  const hireDate = toCalendarDate(r.hire_date);
+
   // Load earnings and deductions
   const earnings = await query<{
     cfdi_clave_sat: string | null;
@@ -154,7 +171,7 @@ export async function generateAndStampCfdiNomina(
   // Days worked in period (inclusive)
   // #243 · Días de calendario, inclusive: este número viaja en el XML que se
   // le timbra al SAT.
-  const days = daysBetween(r.period_start, r.period_end) + 1;
+  const days = daysBetween(periodStart, periodEnd) + 1;
 
   // THE EXEMPT PART IS THE ONE THE ISR WAS COMPUTED WITH (#297, MNE-001-063).
   // It was a literal zero, so an aguinaldo the engine exempted was declared to
@@ -168,13 +185,15 @@ export async function generateAndStampCfdiNomina(
 
   const payrollType = payrollTypeForRunType(r.run_type);
   const paymentPeriodicity = paymentPeriodicityFor(payrollType, r.pay_frequency);
-  const seniority = seniorityWeeks(r.hire_date, r.period_end);
+  const seniority = seniorityWeeks(hireDate, periodEnd);
 
   // Build minimal CFDI 4.0 payroll (Nomina) XML
+  // NOTE: the hour of the issue date is a literal, not a clock. cfdv40.xsd:731
+  // asks for the local time of the place of issue; MNE-001-735 left it as is.
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:nomina12="http://www.sat.gob.mx/nomina12"
-  Version="4.0" TipoDeComprobante="N" Folio="NOM-${r.emp_number}-${r.pay_date}"
-  Fecha="${r.pay_date}T10:00:00" FormaPago="99" SubTotal="${totalPercepciones.toFixed(2)}"
+  Version="4.0" TipoDeComprobante="N" Folio="NOM-${r.emp_number}-${payDate}"
+  Fecha="${payDate}T10:00:00" FormaPago="99" SubTotal="${totalPercepciones.toFixed(2)}"
   Descuento="${totalDeducciones.toFixed(2)}" Total="${parseFloat(r.net_pay).toFixed(2)}"
   Moneda="MXN" LugarExpedicion="00000" Exportacion="01" MetodoPago="PUE">
   <cfdi:Emisor Rfc="${r.entity_tax_id || 'XAXX010101000'}" Nombre="${escapeXml(r.entity_name)}" RegimenFiscal="601"/>
@@ -186,12 +205,12 @@ export async function generateAndStampCfdiNomina(
   </cfdi:Conceptos>
   <cfdi:Complemento>
     <nomina12:Nomina Version="1.2" TipoNomina="${payrollType}"
-      FechaPago="${r.pay_date}" FechaInicialPago="${r.period_start}" FechaFinalPago="${r.period_end}"
+      FechaPago="${payDate}" FechaInicialPago="${periodStart}" FechaFinalPago="${periodEnd}"
       NumDiasPagados="${days}" TotalPercepciones="${totalPercepciones.toFixed(2)}"
       TotalDeducciones="${totalDeducciones.toFixed(2)}"${subsidyOtherPayment ? ` TotalOtrosPagos="${subsidyOtherPayment.total}"` : ''}>
       <nomina12:Emisor RegistroPatronal="B0000000000"/>
       <nomina12:Receptor Curp="${r.emp_curp || 'XAXX010101HDFNNN00'}" NumSeguridadSocial="${r.emp_nss || ''}"
-        FechaInicioRelLaboral="${r.hire_date}" Antiguedad="${seniority}"
+        FechaInicioRelLaboral="${hireDate}" Antiguedad="${seniority}"
         TipoContrato="${r.tipo_contrato_sat || '01'}" TipoJornada="${r.tipo_jornada_sat || '01'}"
         TipoRegimen="${r.tipo_regimen_sat || '02'}" NumEmpleado="${r.emp_number}"
         Puesto="${escapeXml(r.puesto || 'Empleado')}" RiesgoPuesto="${r.riesgo_puesto || '01'}"
