@@ -177,7 +177,7 @@ describe('the days of a period contribute to IMSS and INFONAVIT once, whatever t
           WHERE p.pay_run_id = $1 AND p.tenant_id = $2 AND t.tax_type IN ('imss', 'infonavit', 'infonavit_credit')
           -- By byte, so the order is the same on every database: a linguistic
           -- collation (en_US, CI's) puts «infonavit_credit EE» before «infonavit ER».
-          ORDER BY 1 COLLATE "C"`,
+          ORDER BY (t.tax_type || ' ' || t.employee_employer) COLLATE "C"`,
         [bonus, f.tenantId]
       );
       expect(rows.map((r) => [r.tax, r.amount, r.base])).toEqual([
