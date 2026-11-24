@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Command } from 'commander';
-import { autoPostIgnoredWarning, program, setupPrompt } from '../../src/cli/mnemosine.js';
+import { autoPostIgnoredWarning, freshRescueIntro, program, setupPrompt } from '../../src/cli/mnemosine.js';
 import { riskOf } from '../../src/cli/kernel/risk.js';
 import { palette } from '../../src/cli/palette.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
@@ -38,6 +38,25 @@ describe('the first-run prompt asks through the kernel, default yes', () => {
   it('in Spanish: ¿Configurar ahora? [S/n]', () => {
     setLanguage('es');
     expect(setupPrompt()).toBe('¿Configurar ahora? [S/n] ');
+  });
+});
+
+// MNE-001-470 · #653, part 3: the rescue's last line before the prompt offers
+// the other language, so a person who cannot read this one finds the way out.
+describe('the first-run rescue offers the other language', () => {
+  it('under English: the gaps, then the Spanish line', () => {
+    setLanguage('en');
+    const lines = freshRescueIntro(['No database configured'], plain);
+    expect(lines.slice(1)).toEqual([
+      '  · No database configured',
+      'Para usar Mnemosine en español: mnemosine idioma es',
+    ]);
+  });
+
+  it('under Spanish: the gaps, then the English line', () => {
+    setLanguage('es');
+    const lines = freshRescueIntro([], plain);
+    expect(lines.at(-1)).toBe('To use Mnemosine in English: mnemosine lang en');
   });
 });
 

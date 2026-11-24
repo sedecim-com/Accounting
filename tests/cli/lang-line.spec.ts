@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import { languageInEffectLine, shownPath } from '../../src/cli/lang-line.js';
-import { LOCALE_ENV_VAR, LOCALE_FLAG, type LocaleDecision, type LocaleSourceKind } from '../../src/i18n/locale.js';
+import { languageInEffectLine, otherLanguageOffer, shownPath } from '../../src/cli/lang-line.js';
+import { DEFAULT_LOCALE, LOCALE_ENV_VAR, LOCALE_FLAG, languageOfLocale, type LocaleDecision, type LocaleSourceKind } from '../../src/i18n/locale.js';
+import { LANGUAGES } from '../../src/i18n/index.js';
 
 // ============================================================
 // `mnemosine lang` SAYS WHICH LANGUAGE, FOR WHAT, AND WHO DECIDED (MNE-001-469 · #653)
@@ -95,5 +96,27 @@ describe('a path under HOME is shown from ~', () => {
     expect(shownPath('/srv/books/mnemosine.config.json', HOME)).toBe('/srv/books/mnemosine.config.json');
     // A sibling whose name starts with the home's is not under it.
     expect(shownPath(`${HOME}2/.mnemosine/config.json`, HOME)).toBe(`${HOME}2/.mnemosine/config.json`);
+  });
+});
+
+// MNE-001-470 · #653, part 3: the first run offers the language it is NOT in,
+// written in that language, from that language's catalog.
+describe('the first run offers the other language, in that language', () => {
+  it('under English it offers Spanish, in Spanish', () => {
+    expect(otherLanguageOffer('en')).toBe('Para usar Mnemosine en español: mnemosine idioma es');
+  });
+
+  it('under Spanish it offers English, in English', () => {
+    expect(otherLanguageOffer('es')).toBe('To use Mnemosine in English: mnemosine lang en');
+  });
+
+  it('under the default it offers the language the default is not, so #657 edits nothing here', () => {
+    const OFFER: Readonly<Record<(typeof LANGUAGES)[number], string>> = {
+      es: 'Para usar Mnemosine en español: mnemosine idioma es',
+      en: 'To use Mnemosine in English: mnemosine lang en',
+    };
+    const current = languageOfLocale(DEFAULT_LOCALE);
+    const other = LANGUAGES.find((l) => l !== current)!;
+    expect(otherLanguageOffer(current)).toBe(OFFER[other]);
   });
 });

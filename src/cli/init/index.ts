@@ -1,3 +1,4 @@
+import { LanguageSection } from './language.js';
 import { InfraSection } from './s0-infra.js';
 import { IdentidadSection } from './s1-identity.js';
 import { UsuariosSection } from './s2-users.js';
@@ -7,6 +8,7 @@ import { ImportSection } from './s5-import.js';
 import type { SetupSection } from './section.js';
 
 export * from './section.js';
+export { LanguageSection } from './language.js';
 export { InfraSection, upsertEnvVar, readEnvVar } from './s0-infra.js';
 export { IdentidadSection } from './s1-identity.js';
 export { UsuariosSection, ROLES } from './s2-users.js';
@@ -17,6 +19,7 @@ export { ImportSection, XML_FIRST_RUN_CAP } from './s5-import.js';
 
 /**
  * Deliberate order: each section assumes the previous ones are resolved.
+ * The language goes first (MNE-001-470): every later step can then speak it.
  * Without a database there is no entity; without an entity there are no users
  * to attribute; without a provider there is no agent. The deferrable ones
  * (fiscal, accounting, memory) come in the second iteration. Policies need
@@ -26,6 +29,7 @@ export { ImportSection, XML_FIRST_RUN_CAP } from './s5-import.js';
  */
 export function buildSections(cwd?: string): SetupSection[] {
   return [
+    new LanguageSection({ cwd }),
     new InfraSection({ cwd }),
     new IdentidadSection({ cwd }),
     new UsuariosSection(),
