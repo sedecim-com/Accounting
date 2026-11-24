@@ -554,7 +554,7 @@ describe('MNE-001-082 · collecting a USD invoice recognises the realised exchan
         },
         f.userId
       )
-    ).rejects.toThrow(/a cuenta del cliente/);
+    ).rejects.toThrow(/on the customer's account/);
     const inv = await query<{ amount_due: string }>('SELECT amount_due::text FROM invoices WHERE id = $1', [invId]);
     expect(new Decimal(inv.rows[0].amount_due).equals('1000')).toBe(true);
   });
@@ -569,7 +569,7 @@ describe('MNE-001-082 · collecting a USD invoice recognises the realised exchan
 
   it('a USD invoice carrying the 1.0 capture default was never converted, so its collection is refused', async () => {
     const { invId, custId } = await issuedUsdInvoice({ status: 'sent' });
-    await expect(collect(invId, custId, '1000.00')).rejects.toThrow(/default de captura|sin convertir/);
+    await expect(collect(invId, custId, '1000.00')).rejects.toThrow(/capture default|unconverted/);
   });
 });
 
@@ -774,7 +774,7 @@ describe('la diferencia cambiaria realizada', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/sin convertir|default de captura/);
+    ).rejects.toThrow(/unconverted|capture default/);
   });
 });
 

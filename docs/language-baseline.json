@@ -24,7 +24,7 @@
     "help-descriptions-without-key": 48,
     "cli-user-strings-without-key": 758,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1987
+    "spanish-user-strings-services": 1934
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1721,7 +1721,6 @@
       "src/services/integrations/mexico/pac/finkok-adapter.ts": 1,
       "src/services/integrations/mexico/pac/simulacion.ts": 4,
       "src/services/integrations/mexico/pac/sovos-reachcore-adapter.ts": 20,
-      "src/services/payments/payment-service.ts": 53,
       "src/services/payroll/common/employee-service.ts": 1,
       "src/services/payroll/common/employer-liability-service.ts": 16,
       "src/services/payroll/common/gl-posting-service.ts": 3,
