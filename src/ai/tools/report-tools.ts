@@ -351,8 +351,9 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     }),
     run: async (input) => {
       observe?.('get_aged_receivables', input);
-      const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
+      // MNE-001-648: a stated date is read as that date, as `customer show --as-of` does.
       const reconstruct = input.as_of_date !== undefined;
+      const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
       const all = await queryAgedReceivableRows(ctx.entityId, { asOfDate: asOf, order: 'overdue', reconstruct });
       const invoices = all.map((r) => ({
         customer_name: r.customer_name,

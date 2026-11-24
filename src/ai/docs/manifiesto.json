@@ -156,7 +156,7 @@
     "src/services/reporting/cash-flow-service.ts": "4991246639d3ce1b7a7963e315b4fe0293c5aad5",
     "src/services/reporting/cash-flow-reconcile.ts": "f87925f80cb08b5735776ce549c69df2dfc6394f",
     "src/index.ts": "b7f65cb6d1623903134aabd493416384fdc7f3bb",
-    "src/ai/tools/report-tools.ts": "2b574686b747262a18e08d94121a929b6b08481f",
+    "src/ai/tools/report-tools.ts": "f878deb3aafc9521f2d55e5fb19a668622cf4c30",
     "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
     "src/ai/memory-service.ts": "51ffab1e042294ece8d9976beadedbe694d60dfc"
   }
