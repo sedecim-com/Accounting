@@ -66,6 +66,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.INVALID_STATUS': "Sólo se restaura a 'soft_close' o 'hard_close'; se pidió '{status}'.",
   'error.PERIOD_NOT_OPEN.restore': 'No se pudo restaurar el periodo {period}: ya no estaba abierto.',
   'error.TENANT_NO_RESUELTO.period': 'No se pudo determinar el inquilino de {entity}.',
+  // MNE-001-645 (#594): `year carry-forward run`, the carry for a year that already exists.
+  'error.CARRY_SOURCE_NOT_SEALED':
+    "{previous} está '{status}': el ejercicio anterior a {year} no está sellado, así que todavía no hay nada que arrastrar. Su cierre duro arrastrará a {period}.",
+  'error.CARRY_SOURCE_MISSING':
+    'El ejercicio {year} es el primero de estos libros: no hay un periodo anterior a {period} del cual arrastrar. Un primer ejercicio abre con: mnemosine opening-balance import',
+  'error.CARRY_TARGET_SEALED.locked':
+    "{period} está 'locked': sus cifras ya salieron del sistema y sus saldos iniciales no se reescriben.",
+  'error.CARRY_TARGET_SEALED.hard_close':
+    "{period} está 'hard_close' y {count, plural, one {# de sus saldos iniciales difiere} other {# de sus saldos iniciales difieren}} de los saldos finales de {previous}. Un periodo cerrado no cambia sin reabrirse: mnemosine period reopen \"{period}\" --force --reason <texto>, corre esto otra vez, y luego ciérralo y séllalo (mnemosine close --period \"{period}\", y otra vez con --hard), que rehace el arrastre de los meses siguientes.",
   'error.IVA_ROLE_UNRESOLVED.no_line':
     'La taxonomía CFDI no define una línea de IVA para ({side}, {method}). Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.',
   'error.MISSING_ROLE_ACCOUNT.no_semantic_layer':
@@ -4330,6 +4339,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.period.year.carried':
     '  Saldos iniciales arrastrados desde {period}: {count, plural, one {# cuenta} other {# cuentas}}',
   'ledger.period.year.open_hint': '  Abre un mes futuro con: mnemosine period open <nombre>',
+  /** `year carry-forward run` (MNE-001-645, #594). `period` arrives in bold in `corrected`. */
+  'ledger.period.year.carry.corrected':
+    'Saldos iniciales de {period} corregidos desde {source}: {count, plural, one {# cuenta} other {# cuentas}}',
+  'ledger.period.year.carry.corrected_detail':
+    '  No se creó ni se editó ninguna póliza; la corrección queda en el rastro de auditoría, por {email}.',
+  'ledger.period.year.carry.would_correct':
+    'Corregiría los saldos iniciales de {period} desde {source}: {count, plural, one {# cuenta} other {# cuentas}}',
+  'ledger.period.year.carry.dry_run': '  Ensayo: el arrastre sí corrió y se deshizo; no se escribió nada.',
+  'ledger.period.year.carry.unchanged':
+    'Los saldos iniciales de {period} ya son los saldos finales de {source}: no hay nada que corregir y no se escribió nada.',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
@@ -4716,6 +4735,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.year.create.argument.year': 'año de cuatro dígitos, p. ej. 2027',
   'help.year.create.option.dry_run': 'muestra el calendario que se crearía; no escribe nada',
   'help.year.create.option.json': 'salida JSON',
+  // MNE-001-645 (#594): the carry for a year that was created without opening balances.
+  'help.year.carry_forward.description': 'El arrastre de saldos hacia un ejercicio fiscal',
+  'help.year.carry_forward.run.description':
+    'Arrastra los saldos finales del ejercicio sellado anterior al primer periodo de un ejercicio fiscal que se creó sin ellos; una segunda corrida no cambia nada',
+  'help.year.carry_forward.run.argument.year': 'el ejercicio fiscal que recibe los saldos iniciales, p. ej. 2028',
+  'help.year.carry_forward.run.option.dry_run':
+    'corre el arrastre y lo deshace: muestra cada saldo inicial que corregiría; no escribe nada',
+  'help.year.carry_forward.run.option.json': 'salida JSON',
+  'help.year.carry_forward.run.examples':
+    '\nEjemplos:\n' +
+    '  2027 se selló antes de que existiera 2028, y January 2028 abre en ceros; ver qué se corregiría:\n' +
+    '    mnemosine year carry-forward run 2028 --dry-run\n' +
+    '  Corregirlo. No se crea ni se edita ninguna póliza, y correrlo otra vez no cambia nada:\n' +
+    '    mnemosine year carry-forward run 2028\n',
   'help.chart.description': 'Catálogo de cuentas: traer el catálogo de un despacho',
   'help.chart.import.description':
     'Importa un XML CatalogoCuentas del Anexo 24, conservando los códigos y la jerarquía del despacho',
