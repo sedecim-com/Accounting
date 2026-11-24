@@ -115,8 +115,8 @@ describe('probeProvider — anthropic, through the session\'s client', () => {
     });
   const header = (init: RequestInit | undefined, name: string) => new Headers(init?.headers).get(name);
 
-  // @anthropic-ai/sdk 1.8.0 sends an API key as a bearer token too
-  // (client.js:450-455), so the probe now does what the session does.
+  // @anthropic-ai/sdk 1.x sends an API key as a bearer token too (apiKeyAuth,
+  // client.js:453-458 in 1.12.0), so the probe does what the session does.
   it("makes the minimal 1-token messages call with the profile's key, as the session's client sends it", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okMessage());
     const r = await probeProvider(anthropicProfile(), { fetchImpl: asFetch(fetchMock) });
