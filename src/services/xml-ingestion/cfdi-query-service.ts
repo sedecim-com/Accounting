@@ -102,10 +102,9 @@ export interface DetalleCfdi extends FilaCfdi {
  *
  * NOTE: `lower()` on the column cannot use the unique index of either table
  * beyond `entity_id` (`uq_xml_documents_entity_cfdi`, and the UNIQUE of
- * `cfdi_classifications`): the lookup reads the entity's rows, not the
- * table's, once per command. An index on (entity_id, lower(cfdi_uuid)), as
- * migration 340 gave `bills`, makes it a probe again (MNE-001-723 is the one
- * of `xml_documents`).
+ * `cfdi_classifications`). Migration 345 (MNE-001-723) gives each table an
+ * index on (entity_id, lower(cfdi_uuid)), as 340 gave `bills`, so the lookup
+ * is one probe and not a read of the entity's rows.
  *
  * The spellings are ordered by byte (`COLLATE "C"`), upper case first, so the
  * refusal names them in the same order on every database: under a linguistic
