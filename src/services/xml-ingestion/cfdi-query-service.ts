@@ -1,5 +1,5 @@
 import { query } from '../../database/connection.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 // ============================================================
 // F02 · EL ESPEJO SE CONSULTA — lecturas de xml_documents para la CLI
@@ -94,6 +94,22 @@ export interface DetalleCfdi extends FilaCfdi {
   }>;
 }
 
+/**
+ * One CFDI of the entity by its UUID, in any letter case (MNE-001-680, #853):
+ * the ingestion stores the UUID as the XML carries it, and SAT's portal prints
+ * it in the other case. The unique index is case-sensitive, so an entity can
+ * hold two rows that differ only by case; they are one and the same CFDI, and
+ * the reader names both instead of picking one.
+ *
+ * NOTE: `lower()` on the column cannot use `uq_xml_documents_entity_cfdi`
+ * beyond `entity_id`: this reads the entity's rows, not the table's, once per
+ * command. An index on (entity_id, lower(cfdi_uuid)), as migration 340 gave
+ * `bills`, would make it a probe again.
+ *
+ * The spellings are ordered by byte (`COLLATE "C"`), upper case first, so the
+ * refusal names them in the same order on every database: under a linguistic
+ * collation (en_US) the lower-case spelling sorts first, under C the upper.
+ */
 export async function getCfdiByUuid(entityId: string, uuid: string): Promise<DetalleCfdi> {
   const doc = await query<DetalleCfdi & { id: string }>(
     `SELECT xd.id, xd.cfdi_uuid, xd.document_type, ${DIRECCION_SQL} AS direction,
@@ -105,10 +121,17 @@ export async function getCfdiByUuid(entityId: string, uuid: string): Promise<Det
             xd.total_impuestos_retenidos::text AS total_impuestos_retenidos,
             xd.xml_content
        FROM xml_documents xd JOIN legal_entities le ON le.id = xd.entity_id
-      WHERE xd.entity_id = $1 AND xd.cfdi_uuid = $2`,
+      WHERE xd.entity_id = $1 AND lower(xd.cfdi_uuid) = lower($2)
+      ORDER BY xd.cfdi_uuid COLLATE "C"`,
     [entityId, uuid]
   );
   if (doc.rows.length === 0) throw new NotFoundError('CFDI', uuid);
+  if (doc.rows.length > 1) {
+    throw new ConflictError({
+      key: 'cfdi.lookup.same_uuid_twice',
+      params: { uuid, count: doc.rows.length, stored: doc.rows.map((row) => row.cfdi_uuid).join(', ') },
+    });
+  }
   const lineas = await query<DetalleCfdi['lineas'][number]>(
     `SELECT line_number, clave_prod_serv, descripcion,
             cantidad::text AS cantidad, importe::text AS importe
