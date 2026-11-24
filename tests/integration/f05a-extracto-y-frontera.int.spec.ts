@@ -7,6 +7,7 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/tenant-fixture.js';
 import { olvidarAlcances } from '../../src/database/scope.js';
 import {
+  StatementHoldsNothingNewError,
   importarEstadoDeCuenta,
   listarEstadosDeCuenta,
   obtenerEstadoDeCuenta,
@@ -390,5 +391,94 @@ describe('F05a · an overlapping statement does not duplicate movements (T25, #1
         '',
       ].join('\n'))
     ).rejects.toThrow(/^1 línea\(s\).*: línea 1 · 2026-02-01 · -50\.00 · COMISION \(en feb\.csv\)\. /);
+  });
+});
+
+describe('F05a · a file whose every movement is already in the account stores nothing (MNE-001-671, #770)', () => {
+  // A second download of the same movements: other bytes, so the document
+  // dedupe (sha256) does not see it, and the same native ids, so no line enters.
+  const HEADER = 'fecha,descripcion,importe,saldo,referencia';
+  // 300.00 in, 40.00 out: the statement closes at 260.00.
+  const FIRST = [HEADER, '2026-06-02,SPEI,300.00,300.00,R-101', '2026-06-09,SPEI,-40.00,260.00,R-102', ''].join('\n');
+  const AGAIN = [HEADER, '2026-06-02,SPEI RECIBIDO,300.00,300.00,R-101', '2026-06-09,SPEI ENVIADO,-40.00,260.00,R-102', ''].join('\n');
+  // One movement already there and one new, 15.00 in: 260.00 + 15.00 = 275.00.
+  const ONE_NEW = [HEADER, '2026-06-09,SPEI,-40.00,260.00,R-102', '2026-06-12,SPEI,15.00,275.00,R-103', ''].join('\n');
+
+  let f: Fixture;
+  let account: string;
+  let firstId: string;
+
+  const importInto = (file: string, text: string, dryRun = false) =>
+    importarEstadoDeCuenta(
+      { entityId: f.entityId, userId: f.userId, bankAccountId: account, ruta: escribir(file, text) },
+      { leer, ...(dryRun ? { dryRun } : {}) }
+    );
+
+  async function count(sql: string, params: unknown[]): Promise<number> {
+    const r = await query<{ c: string }>(sql, params);
+    return Number(r.rows[0].c);
+  }
+  const statements = () => count('SELECT COUNT(*)::text AS c FROM bank_statements WHERE bank_account_id = $1', [account]);
+  const lines = () => count('SELECT COUNT(*)::text AS c FROM bank_transactions WHERE bank_account_id = $1', [account]);
+  const creations = () =>
+    count(
+      `SELECT COUNT(*)::text AS c FROM audit_log
+        WHERE legal_entity_id = $1 AND entity_type = 'bank_statements' AND action = 'create'`,
+      [f.entityId]
+    );
+
+  beforeAll(async () => {
+    f = await crearEntidadHermana(a, 'Todo repetido');
+    account = await cuentaBancaria(f, 'Operativa todo repetido', f.roles.banco ?? unaCuentaDe(f));
+    const first = await importInto('ref-a.csv', FIRST);
+    expect(first.importadas).toBe(2);
+    firstId = first.statementId;
+  }, 120_000);
+
+  it('is refused by key, names the statement that holds the lines, and leaves no statement and no audit row', async () => {
+    const refused = await importInto('ref-b.csv', AGAIN).then(
+      (r) => ({ stored: r.statementId }),
+      (e: unknown) => e
+    );
+    expect(refused).toBeInstanceOf(StatementHoldsNothingNewError);
+    const err = refused as StatementHoldsNothingNewError;
+    expect([err.statusCode, err.code, err.messageKey?.key]).toEqual([422, 'VALIDATION_ERROR', 'bank.import.nothing_new']);
+    expect(err.verdict).toMatchObject({
+      file: 'ref-b.csv',
+      linesRead: 2,
+      duplicates: 2,
+      looseLines: 0,
+      existingStatements: [{ id: firstId, file: 'ref-a.csv', periodStart: '2026-06-02', periodEnd: '2026-06-09' }],
+      dryRun: false,
+    });
+    expect(err.verdict.skipped.map((s) => [s.line, s.reference, s.existingStatementId])).toEqual([
+      [1, 'R-101', firstId],
+      [2, 'R-102', firstId],
+    ]);
+    expect(err.message).toBe(
+      'Nothing new was stored: all 2 movements of the file are already in Operativa todo repetido by native bank id, ' +
+        `in ref-a.csv (2026-06-02..2026-06-09, ${firstId}). No statement was created: work with what is already there.`
+    );
+    expect(err.localized('es')).toContain('No se guardó nada nuevo: los 2 movimientos del archivo ya están en Operativa todo repetido');
+
+    // Nothing of the file exists: no statement, no audit row of a creation, no line.
+    expect([await statements(), await creations(), await lines()]).toEqual([1, 1, 2]);
+    const listed = await listarEstadosDeCuenta(f.entityId, { account });
+    expect(listed.map((s) => [s.id, s.lineasEnBase])).toEqual([[firstId, 2]]);
+  });
+
+  it('a dry run gives the same refusal', async () => {
+    await expect(importInto('ref-b.csv', AGAIN, true)).rejects.toMatchObject({
+      messageKey: { key: 'bank.import.nothing_new' },
+      verdict: { duplicates: 2, dryRun: true },
+    });
+    expect(await statements()).toBe(1);
+  });
+
+  it('a file with one new movement imports as before, from the balance of the real statement', async () => {
+    const r = await importInto('ref-c.csv', ONE_NEW);
+    expect([r.lineasLeidas, r.importadas, r.duplicadas]).toEqual([2, 1, 1]);
+    expect(r.skipped.map((s) => [s.reference, s.existingStatementId])).toEqual([['R-102', firstId]]);
+    expect([await statements(), await creations(), await lines()]).toEqual([2, 2, 3]);
   });
 });
