@@ -3790,6 +3790,58 @@ export const EN = {
   /** `jobs create` whose adoption could not be written. */
   'platform.jobs.create.adopt_failed':
     'The job was created, but it could not be adopted for you ({error}). Adopt it with: mnemosine jobs adopt {id}',
+
+  // MNE-001-587 (#268): what jobs prints to a person, English byte for byte as before.
+  // The two «(s)» stay in English for that reason; Spanish takes the plural.
+  /** `jobs list` with no job. */
+  'platform.jobs.list.none': 'No jobs configured. Create one with `mnemosine jobs create`.',
+  /** The header cells of `jobs list` (the ID column is a literal: the same word in both languages). */
+  'platform.jobs.list.column.name': 'NAME',
+  'platform.jobs.list.column.kind': 'KIND',
+  'platform.jobs.list.column.schedule': 'SCHEDULE',
+  'platform.jobs.list.column.enabled': 'ENABLED',
+  'platform.jobs.list.column.fails': 'FAILS',
+  'platform.jobs.list.column.next_run': 'NEXT RUN',
+  /** The ENABLED cell of `jobs list`. */
+  'platform.jobs.list.enabled': '{enabled, select, yes {yes} other {no}}',
+  /** `jobs history` with no run. */
+  'platform.jobs.history.none': 'No runs recorded yet.',
+  /** The header cells of `jobs history`. */
+  'platform.jobs.history.column.started': 'STARTED',
+  'platform.jobs.history.column.job': 'JOB',
+  'platform.jobs.history.column.status': 'STATUS',
+  'platform.jobs.history.column.drafts': 'DRAFTS',
+  'platform.jobs.history.column.detail': 'DETAIL',
+  /** `jobs create`: the receipt, its summary line and the tick hint. */
+  'platform.jobs.create.done': 'Job created: {id}',
+  'platform.jobs.create.summary': '{name} ({kind}) · schedule {schedule} · next run {next}',
+  'platform.jobs.create.wire_tick': 'Wire the tick: schedule `mnemosine jobs run-due` in cron/launchd.',
+  /** `jobs enable` and `jobs disable`. */
+  'platform.jobs.enable.done': 'Job "{name}" enabled · next run {next}',
+  'platform.jobs.disable.done': 'Job "{name}" disabled.',
+  /** `jobs run-due --dry-run --idempotency-key`: the key is read and ignored. */
+  'platform.jobs.run_due.key_not_applied':
+    '--idempotency-key does not apply to the tick: each due job is claimed atomically, and deduplicating ticks would silently skip legitimate runs.',
+  /** A tick that finds no due job. */
+  'platform.jobs.run_due.none': 'No jobs due.',
+  /** A line of the dry run, and its next-run cell. */
+  'platform.jobs.run_due.would_run': 'would run: {name}  {kind}  {next}',
+  'platform.jobs.run_due.next_run': 'next_run {date}',
+  /** The last line of the dry run. */
+  'platform.jobs.run_due.dry_run_summary': '(dry-run: {count} job(s) due; nothing was claimed or run)',
+  /** A tick without --live. */
+  'platform.jobs.run_due.sandbox':
+    'sandbox: jobs run without the external reads (external_pull / external_diff_trial_balance). A reconciliation cron needs the full surface: schedule `mnemosine jobs run-due --live`.',
+  /** The drafts cell of each outcome of a tick. */
+  'platform.jobs.run_due.outcome_drafts': 'drafts: {count}',
+  /** A job its failure limit disabled during this tick. */
+  'platform.jobs.run_due.auto_disabled':
+    'Job "{name}" reached its failure limit and was auto-disabled. Re-enable with: mnemosine jobs enable {id}',
+  /** A run the history could not record. */
+  'platform.jobs.run_due.record_failed': 'Run of "{name}" could not be recorded in the history: {error}',
+  /** The drafts a tick created. */
+  'platform.jobs.run_due.drafts_created': '{count} draft(s) created — review them with `mnemosine review`.',
+
   /** Help of `jobs adopt`. */
   'help.jobs.adopt.description':
     'Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json, jobs run-due runs only the jobs you adopted',

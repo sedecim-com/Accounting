@@ -22,7 +22,7 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 48,
-    "cli-user-strings-without-key": 838,
+    "cli-user-strings-without-key": 826,
     "help-examples-without-key": 252,
     "spanish-user-strings-services": 2017
   },
@@ -1523,7 +1523,6 @@
       "src/cli/init/s4-policies.ts": 20,
       "src/cli/init/s5-import.ts": 43,
       "src/cli/invoice-command.ts": 52,
-      "src/cli/jobs-command.ts": 12,
       "src/cli/kernel/audit.ts": 1,
       "src/cli/kernel/closable-period.ts": 3,
       "src/cli/kernel/line-spec.ts": 6,
