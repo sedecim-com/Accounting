@@ -1843,16 +1843,58 @@ export const E0_0: Criterio[] = [
     // `writes` and the sweep's `innecesaria` are English in place. #268's
     // console clause does not hold yet for jobs and webhook-sweep, whose
     // English prose is still printed with console.log: a follow-up task.
+    // MNE-001-587 (platform 3/3) is that task. Its part 1 keys what `jobs`
+    // prints and writes it with process.stdout.write, so a check 4 holds
+    // #268's console clause for the leaves that are done: none calls
+    // console.log, and none has an entry in `cli-user-strings-without-key`.
+    // webhook-sweep joins check 4 with part 2.
     enunciado:
-      'The platform family (backup, audit, ai, jobs, webhook-sweep) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue (#268, MNE-001-223/224)',
-    evaluar: () =>
-      familySpeaksByKey('I8.6', 'platform', [
+      'The platform family (backup, audit, ai, jobs, webhook-sweep) prints no Spanish string from the code: its texts come from the I8.6 block of the catalogue, and the leaves that are done print no English without a key and nothing through console.log (#268, MNE-001-223/224/587)',
+    evaluar: () => {
+      const leaves = [
         'src/cli/backup-command.ts',
         'src/cli/audit-command.ts',
         'src/cli/ai-command.ts',
         'src/cli/jobs-command.ts',
         'src/cli/webhook-sweep-command.ts',
-      ]),
+      ];
+      const verdict = familySpeaksByKey('I8.6', 'platform', leaves);
+      if (verdict.estado !== 'ok') return verdict;
+
+      // 4 · #268's console clause, for the leaves that are done (MNE-001-587).
+      const LANE = 'cli-user-strings-without-key';
+      const consoleClean = leaves.filter((rel) => rel !== 'src/cli/webhook-sweep-command.ts');
+      const perFile = (JSON.parse(crudoDe('docs/language-baseline.json')) as {
+        perFile?: Record<string, Record<string, number>>;
+      }).perFile?.[LANE] ?? {};
+      const unkeyed = consoleClean.filter((rel) => perFile[rel] !== undefined);
+      if (unkeyed.length) {
+        return falla(`${unkeyed.join(', ')} print English without a key again («${LANE}»)`);
+      }
+      const consoleCalls: string[] = [];
+      for (const rel of consoleClean) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            n.expression.expression.text === 'console'
+          ) {
+            consoleCalls.push(`${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      if (consoleCalls.length) {
+        return falla(
+          `the platform family prints through console again (${consoleCalls.slice(0, 3).join(', ')}): ` +
+            "#268's console clause is given back"
+        );
+      }
+      return ok(`${verdict.detalle}; ${consoleClean.length} of its leaves print nothing through console and nothing unkeyed`);
+    },
     mutantes: [
       {
         archivo: 'src/cli/backup-command.ts',
@@ -1883,6 +1925,24 @@ export const E0_0: Criterio[] = [
         de: "'platform.ai.stats.latency'",
         a: "'latencia del modelo: {average} ms promedio' as never",
         porque: 'string-back-in-the-code: ai stats writes its latency line in Spanish again, which only check 2 sees',
+      },
+      {
+        archivo: 'src/cli/jobs-command.ts',
+        de: "t('platform.jobs.list.none')",
+        a: "'No jobs configured. Create one with `mnemosine jobs create`.'",
+        porque: 'string-back-in-the-code: jobs list writes its empty line from the code again, and its key is left unread',
+      },
+      {
+        archivo: 'src/cli/jobs-command.ts',
+        de: 'say(c.dim(tickCredentialLine()));',
+        a: 'console.log(c.dim(tickCredentialLine()));',
+        porque: "console-prose: jobs run-due prints through console.log again, which only check 4 sees",
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"cli-user-strings-without-key": {',
+        a: '"cli-user-strings-without-key": {\n      "src/cli/jobs-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records English without a key in jobs again, which only check 4 sees',
       },
     ],
   },
