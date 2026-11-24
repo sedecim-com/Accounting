@@ -707,4 +707,17 @@ describe('fourth review: env, versioned interpreters, runners and PATH', () => {
     approveProjectProfile('vault', project);
     expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-[][][]');
   });
+
+  it('a project helper also runs without the Ruby, Perl, Python-home, LD_AUDIT and git loader variables', () => {
+    script('tools/env2.sh', `printf 'tok-[%s][%s][%s][%s][%s][%s]' "$RUBYOPT" "$RUBYLIB" "$PERL5OPT" "$PYTHONHOME" "$LD_AUDIT" "$GIT_DIR"\n`);
+    vi.stubEnv('RUBYOPT', '-r./tools/evil');
+    vi.stubEnv('RUBYLIB', 'tools');
+    vi.stubEnv('PERL5OPT', '-Mtools');
+    vi.stubEnv('PYTHONHOME', 'tools');
+    vi.stubEnv('LD_AUDIT', './tools/x.so');
+    vi.stubEnv('GIT_DIR', 'tools');
+    writeProject({ api_key_cmd: 'sh tools/env2.sh' });
+    approveProjectProfile('vault', project);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-[][][][][][]');
+  });
 });

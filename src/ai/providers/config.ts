@@ -1154,7 +1154,8 @@ const HELPER_INTERPRETER_RE = /^(python|pypy|node|nodejs|ruby|perl|php|bash|sh|z
 /** `env` names that steer a loader or a startup file, refused whatever their value. */
 const HELPER_REFUSED_ENV_RE = /^(PATH|LD_.*|DYLD_.*|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|PYTHON.*|PERL5.*|RUBY.*|GIT_.*|HOME|XDG_.*)$/;
 /** Stripped from the environment a project helper runs with, so the folder's ./.env cannot steer it. */
-const HELPER_STRIPPED_ENV_RE = /^(BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_.*|PYTHONSTARTUP|PYTHONPATH)$/;
+// Every loader name the env check refuses, except PATH, HOME and XDG_*, which a helper needs to run.
+const HELPER_STRIPPED_ENV_RE = /^(LD_.*|DYLD_.*|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|PYTHON.*|PERL5.*|RUBY.*|GIT_.*)$/;
 
 /** The environment a project helper runs with: this process's, without the loader variables. */
 export function projectHelperEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -1181,7 +1182,8 @@ function resolveThroughPath(command: string, dir: string, pathVar: string | unde
     const candidate = path.resolve(dir, entry, command);
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
-      if (fs.statSync(candidate).isFile()) return candidate;
+      // The real path, so a PATH entry that is a symlink into the project is seen as inside it.
+      if (fs.statSync(candidate).isFile()) return fs.realpathSync(candidate);
     } catch {
       // Not there: the next entry.
     }
