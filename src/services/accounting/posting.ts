@@ -809,6 +809,11 @@ export async function reverseJournalEntry(
  * the cheque's cashing already netted (`followNoteReversal`). Loaded on
  * demand, since ar-ap-posting.ts imports this module. The caller attests
  * what it returns after commit.
+ *
+ * MNE-001-646 · A depreciation entry posts nothing more, but its asset card
+ * is a stored sum of the rows the ledger backs, so it is refreshed here:
+ * the mirror and the card commit together. Loaded on demand for the same
+ * reason (assets/depreciation.ts imports this module).
  */
 async function reversalFollowUps(
   client: pg.PoolClient,
@@ -816,6 +821,17 @@ async function reversalFollowUps(
   mirror: JournalEntry,
   userId: string
 ): Promise<JournalEntry[]> {
+  if (entry.source_type === 'depreciation') {
+    const { refreshAssetCard } = await import('../assets/depreciation.js');
+    const refreshed = entry.source_id ? await refreshAssetCard(client, entry.entity_id, entry.source_id) : 0;
+    if (refreshed !== 1) {
+      throw new AccountingError(
+        'ASSET_CARD_NOT_REFRESHED',
+        `Entry ${entry.entry_number} is a depreciation entry and its asset is not in this entity: the reversal was not posted`
+      );
+    }
+    return [];
+  }
   if (entry.source_type !== 'credit_note') return [];
   const { followNoteReversal } = await import('./ar-ap-posting.js');
   return followNoteReversal(client, entry, mirror, userId);
