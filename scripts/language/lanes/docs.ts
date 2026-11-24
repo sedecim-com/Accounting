@@ -16,6 +16,7 @@
  *   `src-spanish-comment-lines`     líneas de comentario en español en src/ (per-file ratchet, MNE-001-187)
  *   `docs-english-pages-untwinned`  páginas publicadas en inglés sin su gemela .es.md
  *   `docs-spanish-twins-stale`      gemelas cuyo `source_sha` ya no casa con el original
+ *   (these two read docs/ and the root's own pages, such as README.md: MNE-001-192)
  *
  * Los cuatro miden cosas distintas y ninguno cuenta lo que cuenta otro: el
  * primero mira CITAS dentro de los .md, el segundo mira COMENTARIOS dentro de
@@ -596,9 +597,21 @@ export function declaredSha(twinText: string): string | null {
   return m === null ? null : m[1].toLowerCase();
 }
 
-/** Las páginas de docs/, separadas en originales y gemelas. */
+/**
+ * The pages of docs/ plus the root's own pages (README.md and its siblings, one
+ * level deep), split into originals and twins. The root joined in MNE-001-192:
+ * without it README.es.md was invisible, and a stale README twin read as 0.
+ */
 function docsPages(root: string): { originals: string[]; twins: string[] } {
-  const all = filesWithExtension(path.join(root, 'docs'), '.md', 'los carriles de páginas y gemelas');
+  const all = [
+    ...filesWithExtension(path.join(root, 'docs'), '.md', 'los carriles de páginas y gemelas'),
+    ...fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.md'))
+      .map((e) => e.name)
+      .sort()
+      .map((name) => path.join(root, name)),
+  ];
   return {
     originals: all.filter((p) => !p.endsWith('.es.md')),
     twins: all.filter((p) => p.endsWith('.es.md')),
@@ -620,7 +633,7 @@ function untwinnedPagesLane(root: string): Lane {
   const untwinned = englishPagesWithoutTwin(root);
   return {
     id: 'docs-english-pages-untwinned',
-    title: 'docs/ pages published in English with no .es.md twin',
+    title: 'docs/ and root pages published in English with no .es.md twin',
     value: untwinned.length,
     target: 0,
     command: 'npx tsx scripts/language/lanes/docs.ts docs-english-pages-untwinned | wc -l',
@@ -661,7 +674,7 @@ function staleTwinsLane(root: string): Lane {
   const stale = staleTwins(root);
   return {
     id: 'docs-spanish-twins-stale',
-    title: 'docs/ Spanish twins whose source_sha no longer matches the original',
+    title: 'docs/ and root Spanish twins whose source_sha no longer matches the original',
     value: stale.length,
     target: 0,
     // Éste sí se reproduce sin tocar el metro: git calcula el mismo sha.
@@ -689,7 +702,8 @@ function staleTwinsLane(root: string): Lane {
     //      dígito hexadecimal», que cubre `* _ ` : = " '` y los espacios sin
     //      arrastrar aquí la expresión entera del lector.
     command:
-      "for g in $(find docs -name '*.es.md' | sort); do o=${g%.es.md}.md; " +
+      // The root's own twins too (MNE-001-192), one level deep like the meter.
+      "for g in $( (find docs -name '*.es.md'; find . -maxdepth 1 -name '*.es.md' | cut -c3-) | sort); do o=${g%.es.md}.md; " +
       "d=$(head -c 4096 \"$g\" | grep -oiE 'source_sha[^0-9a-f]{1,12}[0-9a-f]{7,40}' " +
       "| head -1 | grep -oiE '[0-9a-f]{7,40}$' | tr 'A-F' 'a-f'); " +
       'if [ -z "$d" ] || [ ! -f "$o" ]; then echo "$g"; continue; fi; ' +
