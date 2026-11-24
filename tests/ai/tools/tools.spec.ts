@@ -383,6 +383,14 @@ describe('get_aged_receivables', () => {
     expect(parsed.count).toBe(2);
   });
 
+  /** What the two cases below read of the tool's answer. */
+  interface AgedReceivablesAnswer {
+    total_due: string;
+    totals_by_currency: unknown;
+    invoices: unknown[];
+    rounding_residual?: unknown;
+  }
+
   // MNE-001-647 (#596). USD 100 at 17.50 is 1 750 in the books; the defect
   // told the agent 1 160 + 100 = 1 260 «MXN».
   it('a dollar invoice says USD, and total_due is the book value in the entity currency', async () => {
@@ -392,7 +400,7 @@ describe('get_aged_receivables', () => {
         { customer_name: 'Cliente C', customer_number: 'C-3', invoice_number: 'F-3', invoice_date: '2026-06-01', due_date: '2026-07-01', currency_code: 'USD', total_amount: '100.0000', amount_due: '100.0000', book_amount_due: '1750.0000', days_overdue: -10 },
       ],
     });
-    const parsed = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string);
+    const parsed = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string) as AgedReceivablesAnswer;
     expect(parsed.total_due).toBe('2910.00');
     expect(parsed.totals_by_currency).toEqual([
       { currency_code: 'MXN', documents: 1, amount_due: '1160.00', book_amount_due: '1160.00' },
@@ -407,7 +415,7 @@ describe('get_aged_receivables', () => {
   it('a rounding residual is named on book_amount_due', async () => {
     const row = { customer_name: 'Cliente A', customer_number: 'C-1', invoice_date: '2026-05-01', due_date: '2026-05-31', currency_code: 'MXN', total_amount: '10.0050', amount_due: '10.0050', book_amount_due: '10.0050', days_overdue: 1 };
     mockQuery.mockResolvedValueOnce({ rows: [{ ...row, invoice_number: 'F-1' }, { ...row, invoice_number: 'F-2' }] });
-    const parsed = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string);
+    const parsed = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string) as AgedReceivablesAnswer;
     expect(parsed.total_due).toBe('20.01');
     expect(parsed.rounding_residual).toEqual({ book_amount_due: '0.01' });
   });
