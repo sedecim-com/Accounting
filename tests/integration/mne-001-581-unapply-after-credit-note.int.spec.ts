@@ -49,6 +49,17 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //   U1u the whole 1,160 to U (PPD 1,000 + 160, 11-06) on 11-10: the plain 232
 //       (c 0), then the 928 (c 128); U releases 160: DR 2150 1,032 / DR 2125
 //       160 / CR 1120 1,160 / CR 2120 32; 2120 160, as before 591.
+//   MNE-001-603 (#792): one `receipt apply` spends the plain cash once, so it
+//   ends where two commands end. T (PPD 200 + 32) and V (PPD 800 + 128), 11-06.
+//   P1  T 232 then V 928 on 11-10: T takes the plain 232 (c 0, CR 2120 32); V
+//       finds no plain left and takes the pool's 928 (c 128 against its 128):
+//       DR 2150 1,032 / DR 2125 160 / CR 1120 1,160 / CR 2120 32; 2120 160,
+//       2125 128 (S's 928), 2150 0. Before 603 V took the 232 again and 696 of
+//       the pool (c 96): DR 2150 1,064 / CR 2120 64, 2120 192, 2150 −32.
+//   P2  V then T: V the plain 232 and 696 of the pool (c 96, CR 2120 32), T the
+//       pool's last 232 (c 32): the same entry and end as P1.
+//   P3  T then S: T the plain 232 (CR 2120 32); S is in `own`, so it takes the
+//       pool first whatever plain says (c 128): 2120 160, 2125 0, 2150 0, as U1t.
 //   U2  S 100 + 16 collected 116; N 100 + 16 (2120 16); unapply → the open
 //       balance is 0: no IVA line, 2125 0, 2120 0. Today 16 and −16.
 //   U3  S 1,160; N 200 + 32 applied (2125 32); 928 collected (releases 128);
@@ -353,6 +364,47 @@ describe('an unapply after a credit note re-parks only the IVA of the balance ow
     const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: u, amountApplied: '1160.00' }], b.f.userId, { date: nov(10) });
     expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '1032.00', '2125': '160.00', '1120': '-1160.00', '2120': '-32.00' });
     expect(await vat(b)).toEqual({ '2125': '128.00', '2120': '160.00' });
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('P1 · T then V in one command: T spends the plain 232, so V takes the pool\'s 928 and its 128, 2120 ends at 160 and 2150 at 0 (MNE-001-603)', async () => {
+    const { b, receipt } = await notedOnAccount('P1');
+    const t = await sale(b, '200.00', nov(6));
+    const v = await sale(b, '800.00', nov(6));
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [
+      { documentId: t, amountApplied: '232.00' }, { documentId: v, amountApplied: '928.00' },
+    ], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '1032.00', '2125': '160.00', '1120': '-1160.00', '2120': '-32.00' });
+    expect(await ledger(b)).toEqual({ '2120': '160.00', '2125': '128.00', '2150': '0.00' });
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('P2 · V then T in one command: V takes the plain 232 and 696 of the pool, T the pool\'s last 232, and both end as P1', async () => {
+    const { b, receipt } = await notedOnAccount('P2');
+    const t = await sale(b, '200.00', nov(6));
+    const v = await sale(b, '800.00', nov(6));
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [
+      { documentId: v, amountApplied: '928.00' }, { documentId: t, amountApplied: '232.00' },
+    ], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '1032.00', '2125': '160.00', '1120': '-1160.00', '2120': '-32.00' });
+    expect(await ledger(b)).toEqual({ '2120': '160.00', '2125': '128.00', '2150': '0.00' });
+    const wp = await november(b);
+    expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
+    expect(gap(wp)).toBeUndefined();
+  }, 120_000);
+
+  it('P3 · T then S in one command: S is the pool\'s own invoice and takes it first, unchanged by 603, and ends as U1t', async () => {
+    const { b, s, receipt } = await notedOnAccount('P3');
+    const t = await sale(b, '200.00', nov(6));
+    const applied = await applyCustomerPayment(b.f.entityId, receipt.paymentId, [
+      { documentId: t, amountApplied: '232.00' }, { documentId: s, amountApplied: '928.00' },
+    ], b.f.userId, { date: nov(10) });
+    expect((await linesOf(b, applied.journalEntry!.id)).net).toEqual({ '2150': '1032.00', '2125': '160.00', '1120': '-1160.00', '2120': '-32.00' });
+    expect(await ledger(b)).toEqual({ '2120': '160.00', '2125': '0.00', '2150': '0.00' });
     const wp = await november(b);
     expect(at16(wp)).toEqual({ base: '200.00', iva: '32.00' });
     expect(gap(wp)).toBeUndefined();
