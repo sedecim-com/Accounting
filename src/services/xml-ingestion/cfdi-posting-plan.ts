@@ -127,6 +127,8 @@ export interface OpcionesPlan {
    * contestaba umbral_capitalizacion_mxn y no cambiaba nada.
    */
   thresholds?: PolicyThresholds;
+  /** MNE-001-742: `false` on an entity that does not keep Mexican books; see `ClassifyOptions.cashBasisVat`. */
+  cashBasisVat?: boolean;
   /**
    * Opens the revenue line of an issued sale by concept. Each credit goes to
    * the first account that exists: the line's `account_id`, `callerAccountId`,
@@ -158,6 +160,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     satStatus: opts.satStatus,
     answers: opts.answers,
     thresholds: opts.thresholds,
+    cashBasisVat: opts.cashBasisVat,
   });
 
   const avisos = [...clasificacion.warnings];
