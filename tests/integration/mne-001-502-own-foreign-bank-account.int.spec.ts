@@ -8,7 +8,9 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import { recordCustomerPayment, recordVendorPayment } from '../../src/services/payments/payment-service.js';
-import { getBankAccount, updateBankAccount, type ParcheCuenta } from '../../src/services/banking/bank-account-service.js';
+import {
+  createBankAccount, getBankAccount, updateBankAccount, type EntradaCuentaBancaria, type ParcheCuenta,
+} from '../../src/services/banking/bank-account-service.js';
 import { generarPolizas } from '../../src/services/sat/anexo24/polizas-service.js';
 import { encrypt } from '../../src/utils/encryption.js';
 import { ValidationError } from '../../src/utils/errors.js';
@@ -228,6 +230,76 @@ describe('bank account edit --foreign-bank, with its reason', () => {
     const r = await edit(S, { satBankCode: null, foreignBank: true });
     expect(r.cambios.map((c) => c.campo)).toEqual(['sat_bank_code', 'bank_is_foreign']);
     expect(await rowOf(S)).toEqual({ bank_is_foreign: true, sat_bank_code: null, has_clabe: false });
+  });
+});
+
+// MNE-001-615 (#697, part 2) · `create --foreign-bank`, with its reason, and the warnings around the mark.
+describe('bank account create --foreign-bank, with its reason (MNE-001-615)', () => {
+  const NAME_151 = 'B'.repeat(150) + '\u{1D505}';
+  const input = (over: Partial<EntradaCuentaBancaria> = {}): EntradaCuentaBancaria => ({
+    accountName: 'Alta en Nueva York', bankName: F_BANK, glAccount: '1199', currencyCode: 'MXN',
+    accountNumber: F_NUMBER, foreignBank: true, ...over,
+  });
+  const create = (over: Partial<EntradaCuentaBancaria> = {}, reason: string | null = REASON, dryRun = false) =>
+    createBankAccount(scope(), input(over), { userId: f.userId, reason, dryRun });
+  const keyOf = async (attempt: Promise<unknown>) => {
+    const e = await attempt.catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ValidationError);
+    return (e as ValidationError).messageKey?.key;
+  };
+  const named = async (name: string) =>
+    (await query<{ id: string }>(`SELECT id FROM bank_accounts WHERE entity_id = $1 AND account_name = $2`, [f.entityId, name])).rows;
+  const keysOf = (warnings: readonly unknown[]) => warnings.map((a) => (typeof a === 'string' ? a : (a as { key: string }).key));
+
+  // A GL account of its own, which no other account maps to and no entry moves.
+  beforeAll(async () => {
+    await query(
+      `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, normal_balance, created_by)
+       VALUES ($1,'1199','Banco extranjero de prueba','asset','current_assets',$2,'debit',$3)`,
+      [uuidv4(), f.entityId, f.userId]
+    );
+  });
+
+  it('without a reason, or with a code (999 included) or a CLABE, it is refused, keyed, and nothing is written', async () => {
+    expect(await keyOf(create({}, null))).toBe('bank.account.foreign_bank.reason_required');
+    expect(await keyOf(create({}, '  '))).toBe('bank.account.foreign_bank.reason_required');
+    expect(await keyOf(create({ satBankCode: '999' }))).toBe('bank.account.create.foreign_bank.sat_bank_code');
+    expect(await keyOf(create({ clabe: VENDOR_CLABE }))).toBe('bank.account.create.foreign_bank.clabe');
+    expect(await named('Alta en Nueva York')).toEqual([]);
+  });
+
+  it('with --dry-run nothing is written; an unmarked one is warned with both ways out, a marked one is not', async () => {
+    const marked = await create({}, REASON, true);
+    expect(marked.dryRun).toBe(true);
+    expect(marked.cuenta.foreignBank).toBe(true);
+    expect(keysOf(marked.advertencias)).toEqual([]);
+    const plain = await create({ foreignBank: false }, null, true);
+    expect(plain.cuenta.foreignBank).toBe(false);
+    expect(keysOf(plain.advertencias)).toEqual(['bank.account.create.no_sat_bank_code']);
+    expect(await named('Alta en Nueva York')).toEqual([]);
+  });
+
+  it('a marked name over 150 is warned on create and never cut', async () => {
+    const r = await create({ bankName: NAME_151 }, REASON, true);
+    expect(r.cuenta.bankName).toBe(NAME_151);
+    expect(r.advertencias).toContainEqual({ key: 'bank.account.foreign_bank.name_too_long', params: { length: 151, max: 150 } });
+  });
+
+  it('creates the account marked: the row holds the mark, and the create audit row keeps it with its reason', async () => {
+    const r = await create();
+    expect(r.dryRun).toBe(false);
+    expect(await rowOf(r.cuenta.id)).toEqual({ bank_is_foreign: true, sat_bank_code: null, has_clabe: false });
+    const rows = await auditRows(r.cuenta.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.new_values).toMatchObject({ bank_is_foreign: true, sat_bank_code: null, clabe: null });
+    expect(rows[0]!.reason).toBe(REASON);
+
+    // Then edit and show warn of a name over 150, and the name is stored whole.
+    const edited = await edit(r.cuenta.id, { bankName: NAME_151 });
+    expect(keysOf(edited.advertencias)).toContain('bank.account.foreign_bank.name_too_long');
+    const shown = await getBankAccount(scope(), r.cuenta.id);
+    expect(shown.bankName).toBe(NAME_151);
+    expect(keysOf(shown.advertencias)).toContain('bank.account.foreign_bank.name_too_long');
   });
 });
 

@@ -2691,6 +2691,20 @@ export const ES: Record<keyof typeof EN, string> = {
     'Una cuenta de banco extranjero no tiene CLABE, que sólo emite un banco residente en México, y esta ' +
     'edición la deja con una. Bórrala en la misma edición con --clabe "" --reason "<por qué>", o quita la ' +
     'marca con --no-foreign-bank --reason "<por qué>".',
+  'bank.account.create.foreign_bank.sat_bank_code':
+    'Una cuenta de banco extranjero no tiene clave c_Banco del SAT, y ésta se daría de alta con {code}. ' +
+    'Quita --sat-bank-code, o dala de alta sin --foreign-bank si su banco reside en México.',
+  'bank.account.create.foreign_bank.clabe':
+    'Una cuenta de banco extranjero no tiene CLABE, que sólo emite un banco residente en México. ' +
+    'Quita --clabe y da su --account-number, o dala de alta sin --foreign-bank si su banco reside en México.',
+  'bank.account.create.no_sat_bank_code':
+    'La cuenta queda sin clave c_Banco del SAT: el archivo de pólizas la exige para el origen y el destino de un pago. ' +
+    'Captúrala con `bank account edit <cuenta> --sat-bank-code <clave>` o, si su banco no reside en México, ' +
+    'márcala con `bank account edit <cuenta> --foreign-bank --reason "<por qué>"`.',
+  'bank.account.foreign_bank.name_too_long':
+    'El nombre del banco tiene {length} caracteres y el archivo de pólizas declara un banco extranjero en un ' +
+    'atributo que admite {max}: cada uno de sus pagos deja fuera su nodo de la póliza, que se nombra, y el nombre nunca se recorta. ' +
+    'Acórtalo con `bank account edit <cuenta> --bank "<nombre de hasta {max} caracteres>"`.',
   'bank.account.edit.nothing_to_change':
     'Nada que cambiar. Pasa --name, --bank, --branch, --type, --currency, --clabe, ' +
     '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift, --iban, ' +
@@ -4615,6 +4629,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.account.create.option.branch': 'sucursal',
   'help.bank.account.create.option.swift': 'código SWIFT/BIC',
   'help.bank.account.create.option.iban': 'código IBAN',
+  'help.bank.account.create.option.foreign_bank':
+    'el banco no reside en México: las pólizas declaran la clave c_Banco 999 y el nombre del banco; exige --reason, ' +
+    'y ni --sat-bank-code ni --clabe',
+  'help.bank.account.create.option.reason':
+    'justificación que queda en el rastro de auditoría; obligatoria con --foreign-bank',
   'help.bank.account.create.option.dry_run': 'corre todas las validaciones y la inserción, y luego lo deshace todo',
   'help.bank.account.create.option.json': 'salida en JSON',
   'help.bank.account.list.description':
