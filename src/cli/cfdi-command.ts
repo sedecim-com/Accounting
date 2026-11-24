@@ -292,7 +292,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   declareRisk(statusSync, {
     risk: 'externo',
     agent: false,
-    llave: { sinLlave: 'a retry consults the SAT again and rewrites the cache' },
+    llave: { sinLlave: { key: 'fiscal_mx.cfdi.sync.retry_reconsults' } },
     writes: 'xml_documents (sat_* cache)',
   });
   statusSync.addHelpText('after', EJEMPLOS.statusSync);
@@ -377,7 +377,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   declareRisk(post, {
     risk: 'irreversible',
     agent: false,
-    llave: { innecesaria: 'one CFDI gives one invoice: a repeat finds its pre-registration closed, or an invoice with its UUID, and is refused' },
+    llave: { innecesaria: t('fiscal_mx.cfdi.post.key_unneeded') },
     writes: 'invoices + invoice_lines + journal_entries + account_balances + pre_registrations + xml_documents',
   });
   post.addHelpText('after', EJEMPLOS.post);
