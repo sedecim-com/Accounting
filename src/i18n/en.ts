@@ -4608,6 +4608,133 @@ export const EN = {
     '{gaps} of {count, plural, one {# account} other {# accounts}} without {scheme} ({scope}): the catalog XML would come out incomplete',
   /** `account restore`. */
   'ledger.account.restore.done': '{code} is active again.',
+  // MNE-001-230: fx. The English that was printed is the same, byte for byte.
+  /** `fx rate list`. `source` is `none` when the policy names no source this reader maps. */
+  'ledger.fx.list.status_unsupported':
+    '--status does not apply here: a published exchange rate has no lifecycle state. Filter with --pair, --source, --rate-type, --since or --until.',
+  'ledger.fx.list.policy':
+    'The fuente_tipo_cambio policy of this firm is "{value}"{source, select, none {, which this reader maps to no source.} other { → source \'{source}\' (policy column: ✓).}}',
+  'ledger.fx.list.no_entity': 'No active entity could be resolved: the source the firm policy uses could not be marked.',
+  /** `fx rate show`: the not-found, and the card of a derived or carried rate. */
+  'ledger.fx.show.not_found':
+    'No {from}/{to} rate ({type}) can be resolved for {date}: not direct, not inverse, not crossed through USD. Capture it with fx rate set.',
+  'ledger.fx.show.derived': ', derived from the inverse or a cross',
+  'ledger.fx.show.inverse': 'inverse {pair} = {rate}',
+  'ledger.fx.show.inverse_derived': ' (derived)',
+  'ledger.fx.show.carried':
+    '⚠ carried from {date}: there is no rate for the day asked. If you need that day\'s rate, capture it with fx rate set.',
+  /** `fx rate set`. */
+  'ledger.fx.set.source_required':
+    '--source is required: say who published the rate ({sources}). DOF and FIX for the same day are different numbers and coexist since migration 057.',
+  'ledger.fx.set.would_set': 'Would set {pair} {date} = {rate}',
+  'ledger.fx.set.until': ', until {date}',
+  'ledger.fx.set.done': 'set as {rate}',
+  /** `fx rate download`: who publishes each source, and why running it fails closed. */
+  'ledger.fx.publisher.dof':
+    'the Federation Official Gazette (DOF; the tax rate of art. 20 CFF, and an operation takes the one published the business day before)',
+  'ledger.fx.publisher.banxico_fix': 'Banxico FIX through the SIE (needs a SIE API token)',
+  'ledger.fx.publisher.fed': 'Federal Reserve H.10',
+  'ledger.fx.publisher.ecb': 'European Central Bank, reference rates',
+  'ledger.fx.download.retry_calls_again': 'a retry calls the exchange-rate provider again',
+  'ledger.fx.download.source_required': '--source is required: {sources}.',
+  'ledger.fx.download.source_unknown': 'Unknown --source "{value}". Use one of: {sources}.',
+  'ledger.fx.download.range_twice': '--as-of and --since/--until are two ways of saying the range; use one.',
+  /** `why` is `sie` for banxico-fix, which needs a token; `source` is the schema's source. */
+  'ledger.fx.download.no_connector':
+    'The download connector does not exist yet: this project does not speak HTTP with third parties without a governed credential, and {why, select, sie {the Banxico SIE requires a token that no credential store of the system governs yet} other {there is no client declared for that source}}. Making up the rate would be the very fault the anti-simulation lock of the PACs prevents. Today the honest paths are: fx rate set <pair> <date> <rate> --source {source} with the published value, or fx rate import (phase 2) from a file.',
+  'ledger.fx.download.would_download': 'Would download from {publisher}',
+  'ledger.fx.download.dates': 'dates: {range}',
+  'ledger.fx.download.today': '(today)',
+  'ledger.fx.download.target':
+    "target: exchange_rates with source='{source}' (057 lets DOF and FIX of the same day live side by side)",
+  'ledger.fx.download.will_fail': '⚠ running it will fail: {reason}',
+  // MNE-001-230: ledger. Its «Available checks» and its open-period note are account's keys.
+  /** `ledger check`. `checks` is the names asked for, or `blocking_checks`. */
+  'ledger.ledger.check.passes': '✔ the ledger passes {checks}',
+  'ledger.ledger.check.blocking_checks': 'the blocking checks',
+  'ledger.ledger.check.findings':
+    '{blocking, plural, one {# blocking finding} other {# blocking findings}}, {warning, plural, one {# warning} other {# warnings}}',
+  /** `ledger stale-draft list`. */
+  'ledger.ledger.stale_draft.days_unreadable': 'Unreadable --days: "{value}".',
+  'ledger.ledger.stale_draft.found':
+    '{count, plural, one {# draft} other {# drafts}} older than {days, plural, one {# day} other {# days}}. Post them with entry post, or withdraw them.',
+  /** `ledger auxiliary show`: the heading, why its beginning balance is not reliable, and the totals. */
+  'ledger.ledger.auxiliary.heading': '{code} {name} · {period} ({status}) · beginning {beginning}{unreliable}',
+  'ledger.ledger.auxiliary.no_carry': "no carry-forward: {period} is '{status}'",
+  'ledger.ledger.auxiliary.no_previous': 'no previous period: there is no cumulative balance to carry',
+  'ledger.ledger.auxiliary.totals': 'debits {debits} · credits {credits} · ending {ending}',
+  'ledger.ledger.auxiliary.drift': ' (computed {computed}: there is drift — run ledger check)',
+  /** `ledger balance show --dim`. */
+  'ledger.ledger.balance.dim_unavailable':
+    '--dim is not available yet: dimensions have no master record yet (dimension family).',
+  // MNE-001-230: entry, its Spanish. Import's «row N» is batch's key.
+  'ledger.entry.preview.heading': '{number} ({status}) · {period} · delta by account if it were posted:',
+  'ledger.entry.preview.no_period': 'no period',
+  'ledger.entry.edit.done': '{number} edited (still a draft; post it with entry post).',
+  'ledger.entry.export.done':
+    '{count, plural, one {# line exported} other {# lines exported}}. No XLSX yet: use --format csv and open it in the spreadsheet.',
+  'ledger.entry.import.dry_run':
+    '{valid, plural, one {# readable entry} other {# readable entries}}, {invalid} with errors (dry-run: nothing was staged)',
+  'ledger.entry.import.done':
+    'batch {id}: {valid, plural, one {# entry staged} other {# entries staged}}, {invalid} with errors',
+  'ledger.entry.import.repeated': ' [repeated: the batch of the first run]',
+  'ledger.entry.import.not_in_ledger':
+    'The batch did NOT touch the ledger: it is checked and posted with the batch family (check/post); meanwhile, it can be inspected by batch_id.',
+  // MNE-001-230: period and year. «I take it as a no» is bank's key, and the
+  // question with no terminal is ap's.
+  /** The note of every write that lands in the active entity. */
+  'ledger.period.active_entity': '→ {entity} (active entity; name another with --entity)',
+  /** How to put a reopened period back (`reopenRemedy`). */
+  'ledger.period.remedy.close_again': 'Close it again with: {close}',
+  'ledger.period.remedy.seal': '  then seal it, which redoes its carry-forward: {close} --hard',
+  /** `period list`. */
+  'ledger.period.status_unknown': 'Unknown --status "{value}". Use one of: {statuses}.',
+  'ledger.period.year_invalid': '--year "{value}" is not a four-digit year.',
+  /** `period show`: the card. */
+  'ledger.period.show.overdue': ' · overdue',
+  'ledger.period.show.position': 'period {number} of fiscal year {year} · {type}',
+  'ledger.period.show.soft_closed': 'soft closed {date}',
+  'ledger.period.show.by': ' by {email}',
+  'ledger.period.show.hard_closed': 'hard closed {date}',
+  'ledger.period.show.entries': 'Entries',
+  'ledger.period.show.entries_total': '({count} total)',
+  'ledger.period.show.none': 'none',
+  'ledger.period.show.checklist': 'Checklist saved at close',
+  /** `period open`. `period` arrives in bold. */
+  'ledger.period.open.would_open': 'Would open {period}',
+  'ledger.period.open.done': '{period} is open',
+  /** `period reopen`. */
+  'ledger.period.reopen.locked':
+    "{period} is 'locked': its information already left the system and it is not reopened — not even with --force. The correction goes in the nearest open period.",
+  'ledger.period.reopen.not_closed': "{period} is '{status}': reopening is only for closed periods.",
+  'ledger.period.reopen.hard_close':
+    '{period} is in hard_close: its closing entries and the carry-forward of balances stay standing when it reopens (the ledger is not touched). If you really want to reopen it, repeat with --force --reason "<why>".',
+  'ledger.period.reopen.would_reopen': 'Would reopen {period}',
+  'ledger.period.reopen.dry_run':
+    '(dry-run: nothing was written; the reopen would be recorded in the audit trail)',
+  'ledger.period.reopen.question': 'Reopen {period} ({status} → open)?',
+  'ledger.period.reopen.cancelled': 'Cancelled.',
+  'ledger.period.reopen.idempotency_hit':
+    '↩ Idempotency hit: key "{key}" already reopened {period} (was {previous}). Nothing was executed again.',
+  'ledger.period.reopen.done': '{period} is open again',
+  'ledger.period.reopen.done_detail': '(was {previous}, by {email}; reason recorded)',
+  'ledger.period.reopen.stale':
+    'Statements or filings derived from this period are now stale: regenerate them after re-closing.',
+  /** `year list`, `year show` and `year create`. */
+  'ledger.period.year.status_unknown': "Unknown --status \"{value}\". A fiscal year is 'open' or 'closed'.",
+  'ledger.period.year.one_status': "A fiscal year is either 'open' or 'closed': pass one --status, or none.",
+  'ledger.period.year.not_a_year': '"{value}" is not a four-digit year.',
+  'ledger.period.year.title': 'Fiscal year {year}',
+  'ledger.period.year.calendar': ' · calendar year',
+  'ledger.period.year.exists':
+    'Fiscal year {year} already exists for {entity} with {count, plural, one {# period} other {# periods}}. Nothing would be created.',
+  'ledger.period.year.would_create': 'Would create fiscal year {year}',
+  'ledger.period.year.would_create_detail':
+    'with 12 monthly periods (calendar year) and the year-end adjustment period (13); months already past and the current one open, the rest future',
+  /** `year` arrives in bold. */
+  'ledger.period.year.created': 'Fiscal year {year} created',
+  'ledger.period.year.created_detail': 'with 12 monthly periods and the year-end adjustment period (13)',
+  'ledger.period.year.open_hint': '  Open a future month with: mnemosine period open <name>',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
@@ -7163,6 +7290,11 @@ export const EN = {
     "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
   'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
   // ==== end of MNE-001-452 ====
+  // ==== MNE-001-447 (#644): a failover walk skips a link with no credential ====
+  // One dim line per skipped link; `mnemosine status` names what is missing.
+  'provider.failover.unconfigured':
+    'provider {from} has no usable credential here, so it was skipped (`mnemosine status` says why); trying {to}',
+  // ==== end of MNE-001-447 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   /** Printed in the language it offers, with `t(key, {}, other)`: each catalog offers its own. */
   'cli.lang.offer': 'To use Mnemosine in English: mnemosine lang en',

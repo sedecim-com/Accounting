@@ -1351,8 +1351,8 @@ export const E0_0: Criterio[] = [
         // desglose, que es exactamente lo que pasaría si alguien reintrodujera
         // una cadena sin clave y resembrara la línea base sin mirar.
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/bank-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/bank-command.ts": 1 },',
         porque: 'terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra',
       },
     ],
@@ -1654,8 +1654,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/cashflow-reconcile-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/cashflow-reconcile-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the family again',
       },
       {
@@ -1694,8 +1694,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/close-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/close-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the root family again',
       },
       {
@@ -1734,8 +1734,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/receipt-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/receipt-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the ar family again',
       },
       {
@@ -1770,8 +1770,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/payroll-isn-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/payroll-isn-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the payroll family again',
       },
       {
@@ -1810,8 +1810,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/asset-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/asset-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the assets family again',
       },
       {
@@ -1862,8 +1862,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/backup-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/backup-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in the platform family again',
       },
       {
@@ -1971,8 +1971,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/e-accounting-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/e-accounting-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in e-accounting again',
       },
       {
@@ -1983,8 +1983,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/sat-commands.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/sat-commands.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in sat again',
       },
       {
@@ -1995,8 +1995,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/diot-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/diot-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in diot again',
       },
       {
@@ -2007,8 +2007,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/rep-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/rep-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in rep again',
       },
       {
@@ -2085,8 +2085,8 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/prepaid-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/prepaid-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in prepaid again',
       },
     ],
@@ -2103,12 +2103,44 @@ export const E0_0: Criterio[] = [
     // which the judge read as Spanish for its chart names, is
     // `help.account.create.examples`, with the command lines as parameters.
     // The `writes` summaries and batch reverse's dry-run reason are English in
-    // place: no screen reads them. MNE-001-230 adds fx, ledger, entry and
-    // period to these leaves.
+    // place: no screen reads them.
+    //
+    // MNE-001-230 (part 2) adds fx, ledger, entry and period (period-command.ts
+    // also registers `year`): 42 Spanish strings, the last ones the lane
+    // counted in src/cli. So the criterion also asks for the lane's total at
+    // 0, as its acceptance asks for the whole CLI lane, and an empty
+    // breakdown. Their reused keys are account's «Available checks» and open
+    // period note, batch's «row N», bank's «I take it as a no» and ap's
+    // question with no terminal. With the breakdown empty, `--tighten` drops
+    // the lane from `perFile`, so every family's ground-given-back mutant now
+    // anchors on `"perFile": {` and writes the breakdown back with one file.
     enunciado:
-      'The ledger family (batch, account) prints no Spanish string from the code: its texts come from the I8.9 block of the catalogue (#271, MNE-001-229)',
-    evaluar: () =>
-      familySpeaksByKey('I8.9', 'ledger', ['src/cli/batch-command.ts', 'src/cli/account-command.ts']),
+      'The ledger family (batch, account, fx, ledger, entry, period) prints no Spanish string from the code: its texts come from the I8.9 block of the catalogue, and the CLI lane of Spanish strings is at 0 (#271, MNE-001-229, MNE-001-230)',
+    evaluar: () => {
+      const family = familySpeaksByKey('I8.9', 'ledger', [
+        'src/cli/batch-command.ts',
+        'src/cli/account-command.ts',
+        'src/cli/fx-command.ts',
+        'src/cli/ledger-command.ts',
+        'src/cli/entry-command.ts',
+        'src/cli/period-command.ts',
+      ]);
+      if (family.estado !== 'ok') return family;
+      const LANE = 'spanish-user-strings-cli';
+      const baseline = JSON.parse(crudoDe('docs/language-baseline.json')) as {
+        lanes?: Record<string, number>;
+        perFile?: Record<string, Record<string, number>>;
+      };
+      const left = Object.keys(baseline.perFile?.[LANE] ?? {});
+      if (baseline.lanes?.[LANE] !== 0 || left.length) {
+        return falla(
+          `«${LANE}» is ${baseline.lanes?.[LANE]}, not 0` +
+            (left.length ? ` (${left.slice(0, 3).join(', ')})` : '') +
+            ': the CLI writes Spanish strings in the code again, after I8 emptied it'
+        );
+      }
+      return family;
+    },
     mutantes: [
       {
         archivo: 'src/cli/batch-command.ts',
@@ -2124,9 +2156,27 @@ export const E0_0: Criterio[] = [
       },
       {
         archivo: 'docs/language-baseline.json',
-        de: '"spanish-user-strings-cli": {',
-        a: '"spanish-user-strings-cli": {\n   "src/cli/batch-command.ts": 1,',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/batch-command.ts": 1 },',
         porque: 'ground-given-back: the breakdown records a Spanish string in batch again',
+      },
+      {
+        archivo: 'src/cli/fx-command.ts',
+        de: "'ledger.fx.show.carried'",
+        a: "'⚠ arrastrado de {date}: no hay tipo del día pedido.' as never",
+        porque: 'string-back-in-the-code: fx rate show says a carried rate in Spanish in the code again, which only check 2 sees',
+      },
+      {
+        archivo: 'src/cli/period-command.ts',
+        de: "'ledger.period.reopen.not_closed'",
+        a: "'{period} está \\'{status}\\': reabrir es sólo para periodos cerrados.' as never",
+        porque: 'string-back-in-the-code: period reopen refuses an open period in Spanish in the code again, which only check 2 sees',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": 0,',
+        a: '"spanish-user-strings-cli": 1,',
+        porque: 'lane-not-at-zero: the lane total says the CLI carries one Spanish string again, with no file in the breakdown',
       },
     ],
   },
