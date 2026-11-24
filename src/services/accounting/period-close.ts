@@ -12,6 +12,7 @@ import { censusGapPolicy, gapsOf, reconcileCensus, severityOfCensusGap, type Cen
 import { entityScope } from '../../database/scope.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
+import { LIVE_ROW } from '../assets/depreciation.js';
 import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -839,12 +840,15 @@ export async function getPeriodCloseStatus(
   // activos daba «Depreciation calculated and posted» sin que existiera
   // depreciación alguna que calcular. Mismo remedio: el universo viaja en el
   // conteo y con cero activos el item confiesa que no comprobó nada.
+  //
+  // MNE-001-646 · A month is depreciated while the ledger backs its row
+  // (`LIVE_ROW`): a reversed or voided entry leaves the asset owing it.
   const undepreciatedAssets = await q<{ total: string; registered: string; sin_depreciar: string }>(
     `SELECT COUNT(*) FILTER (WHERE fa.status = 'active') as total,
             COUNT(*) as registered,
             COUNT(*) FILTER (WHERE fa.status = 'active' AND NOT EXISTS (
               SELECT 1 FROM depreciation_schedules ds
-              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true
+              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW}
             )) as sin_depreciar
      FROM fixed_assets fa
      WHERE fa.entity_id = $1`,

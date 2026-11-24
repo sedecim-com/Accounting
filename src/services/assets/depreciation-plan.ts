@@ -15,6 +15,7 @@ import {
   type DepreciationInput,
 } from './depreciation-math.js';
 import {
+  DEAD_ROW,
   basisLock,
   criteriosDeLaCorrida,
   fechaDelAsiento,
@@ -261,12 +262,16 @@ export async function planDeDepreciacion(
   // plan preguntara sólo por el tipo, prometería un renglón que la corrida ya
   // no hace, y `post` acusaría su propia diferencia todos los meses en que
   // alguien cambiara `base_depreciacion`.
+  //
+  // MNE-001-646 · and, like the run, it leaves out the DEAD row: a month
+  // whose entry was reversed is owed again, and the plan must say so.
   const corridos = await query<{ asset_id: string; schedule_type: string; is_posted: boolean }>(
     `SELECT ds.asset_id, ds.schedule_type, ds.is_posted
        FROM depreciation_schedules ds
        JOIN fixed_assets fa ON fa.id = ds.asset_id
       WHERE ds.fiscal_period_id = $1 AND fa.entity_id = $3
-        AND (ds.is_posted = true OR ds.schedule_type = $2)`,
+        AND (ds.is_posted = true OR ds.schedule_type = $2)
+        AND NOT (${DEAD_ROW})`,
     [periodo.id, tipoDeCalendario, entityId]
   );
   const yaCorridos = new Map(

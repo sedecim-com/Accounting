@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
@@ -261,7 +262,71 @@ export function investmentBaseFor(
 }
 
 /**
- * The investment base each asset's EARLIEST posted tax row was computed on.
+ * A ROW COUNTS WHILE THE LEDGER BACKS IT (MNE-001-646, #595).
+ *
+ * `is_posted` alone is not enough. Reversing a depreciation entry leaves its
+ * row saying `is_posted = true` (056's CHECK still holds: the entry exists),
+ * while the expense has left the result. With the row still counting, the
+ * card kept the month, the close box called it done, and the run refused to
+ * post it again: the month was lost. The reversal is the only correction the
+ * ledger admits (041), so every reader here asks the ledger. Same rule as
+ * `RENGLON_VIGENTE` (accruals/prepaid-service.ts).
+ *
+ * A voided entry is the same case: posted, it gets a mirror; a draft becomes
+ * 'void'. `asset` is the alias of the row's fixed asset, which the caller
+ * scopes by entity; the row's alias is `ds`.
+ */
+const backedBy = (asset: string): string => `EXISTS (
+        SELECT 1 FROM journal_entries je_v
+         WHERE je_v.id = ds.journal_entry_id
+           AND je_v.entity_id = ${asset}.entity_id
+           AND je_v.status = 'posted'
+           AND je_v.reversed_by_entry_id IS NULL
+      )`;
+export const LIVE_ROW = `ds.is_posted = true AND ${backedBy('fa')}`;
+/** A posted row whose entry was reversed or voided. Aliases `ds` and `fa`. */
+export const DEAD_ROW = `ds.is_posted = true AND NOT ${backedBy('fa')}`;
+
+/**
+ * The asset card is the sum of its LIVE rows, never the theoretical schedule.
+ *
+ * Months need not run in order (onboarding mid-year, a forgotten month): run
+ * March, January, February on 120,000 over twelve months and the theoretical
+ * row of February would leave the card at 20,000 against 30,000 in the
+ * ledger, for good. The sum of live rows is the sum of the entries by
+ * construction, and the book value comes from the cost, so it also closes
+ * with MACRS and with salvage. Called by the run and by the reversal of a
+ * depreciation entry (`reversalFollowUps`, posting.ts), each on its own
+ * transaction. Returns the rows updated: the caller refuses anything but 1.
+ */
+export async function refreshAssetCard(
+  client: pg.PoolClient,
+  entityId: string,
+  assetId: string
+): Promise<number> {
+  const r = await client.query(
+    `UPDATE fixed_assets fa SET
+       accumulated_depreciation = p.acumulada,
+       current_book_value = fa.acquisition_cost - p.acumulada,
+       last_depreciation_date = p.ultima,
+       updated_at = NOW()
+     FROM (
+       SELECT COALESCE(SUM(ds.depreciation_expense), 0) AS acumulada,
+              MAX(ds.depreciation_date)                 AS ultima
+         FROM depreciation_schedules ds
+         JOIN fixed_assets f2 ON f2.id = ds.asset_id
+        WHERE ds.asset_id = $1 AND ds.is_posted = true
+          AND f2.entity_id = $2
+          AND ${backedBy('f2')}
+     ) p
+     WHERE fa.id = $1 AND fa.entity_id = $2`,
+    [assetId, entityId]
+  );
+  return r.rowCount ?? 0;
+}
+
+/**
+ * The investment base each asset's EARLIEST live tax row was computed on.
  *
  * A row posted before MNE-001-396 does not record `investment_base`, and every
  * such row was computed on cost less salvage (MACRS ran on the cost, where the
@@ -273,7 +338,7 @@ export async function taxBasesStarted(entityId: string): Promise<Map<string, Inv
             ds.asset_id, ds.calculation_metadata->>'investment_base' AS investment_base
        FROM depreciation_schedules ds
        JOIN fixed_assets fa ON fa.id = ds.asset_id
-      WHERE fa.entity_id = $1 AND ds.is_posted = true AND ds.schedule_type = 'tax'
+      WHERE fa.entity_id = $1 AND ds.schedule_type = 'tax' AND ${LIVE_ROW}
       ORDER BY ds.asset_id, ds.depreciation_date, ds.created_at`,
     [entityId]
   );
@@ -286,7 +351,7 @@ export async function taxBasesStarted(entityId: string): Promise<Map<string, Inv
 }
 
 /**
- * The books each asset of the entity has already POSTED rows under, any month.
+ * The books each asset of the entity has LIVE posted rows under, any month.
  *
  * Read once per run (and once per plan, which must say what the run does).
  */
@@ -295,7 +360,7 @@ export async function postedBooks(entityId: string): Promise<Map<string, Set<str
     `SELECT DISTINCT ds.asset_id, ds.schedule_type
        FROM depreciation_schedules ds
        JOIN fixed_assets fa ON fa.id = ds.asset_id
-      WHERE fa.entity_id = $1 AND ds.is_posted = true`,
+      WHERE fa.entity_id = $1 AND ${LIVE_ROW}`,
     [entityId]
   );
   const byAsset = new Map<string, Set<string>>();
@@ -389,8 +454,12 @@ export async function runMonthlyDepreciation(
       // INSERT con un mensaje de Postgres en vez de un motivo. El JOIN contra
       // fixed_assets es lo que acota por entidad: esta tabla no tiene
       // entity_id propio.
-      const existente = await query<{ id: string }>(
-        `SELECT ds.id
+      //
+      // MNE-001-646 · ONLY A ROW THAT STANDS STOPS THE RUN: a live one, or a
+      // projected one of this book. A posted row whose entry was reversed is
+      // a month the ledger no longer has, and it is owed again.
+      const existente = await query<{ id: string; stands: boolean }>(
+        `SELECT ds.id, NOT (${DEAD_ROW}) AS stands
            FROM depreciation_schedules ds
            JOIN fixed_assets fa ON fa.id = ds.asset_id
           WHERE ds.asset_id = $1 AND ds.fiscal_period_id = $2
@@ -398,7 +467,8 @@ export async function runMonthlyDepreciation(
             AND (ds.is_posted = true OR ds.schedule_type = $3)`,
         [asset.id, periodo.id, tipoDeCalendario, entityId]
       );
-      if (existente.rows.length > 0) continue;
+      if (existente.rows.some((r) => r.stands)) continue;
+      const hasDeadRow = existente.rows.length > 0;
 
       const lock = basisLock(posted.get(asset.id), tipoDeCalendario);
       if (lock !== null) {
@@ -489,6 +559,29 @@ export async function runMonthlyDepreciation(
           { sourceType: 'depreciation', sourceId: asset.id, autoPost: true, client }
         );
 
+        // MNE-001-646 · THE DEAD ROW GOES BEFORE THE NEW ONE IS WRITTEN, of
+        // either book: UNIQUE(asset, period, book) says a month is one row,
+        // and the one there documents a charge the ledger reversed. Nothing
+        // is lost: the entry, its mirror and their link stay in the ledger
+        // (041). The scope and the dead predicate are INSIDE the statement,
+        // so a live row is never touched; zero rows means another run already
+        // replaced it, and this one must not post the month a second time.
+        if (hasDeadRow) {
+          const removed = await client.query(
+            `DELETE FROM depreciation_schedules ds
+              USING fixed_assets fa
+              WHERE ds.asset_id = $1 AND ds.fiscal_period_id = $2
+                AND fa.id = ds.asset_id AND fa.entity_id = $3
+                AND ${DEAD_ROW}`,
+            [asset.id, periodo.id, entityId]
+          );
+          if ((removed.rowCount ?? 0) < 1) {
+            throw new ValidationError(
+              `its reversed row of ${periodo.nombre} was replaced by another run meanwhile: nothing was posted`
+            );
+          }
+        }
+
         // DEFECTO D · el asiento y los metadatos, atados a la fila. Y el
         // alcance por entidad DENTRO del SQL: el asset_id no entra crudo al
         // INSERT «porque la foránea ya lo validaba» —esa frase es la de la
@@ -523,46 +616,9 @@ export async function runMonthlyDepreciation(
           );
         }
 
-        // LA FICHA DEL ACTIVO SE DERIVA DE LO POSTEADO, NO DEL CALENDARIO.
-        //
-        // Antes se copiaban aquí `fila.accumulated_depreciation` y
-        // `fila.ending_book_value`, que son los del RENGLÓN TEÓRICO: lo que el
-        // calendario dice que llevarías acumulado si hubieras corrido todos los
-        // meses anteriores. Nada obliga a correrlos en orden —se onboardea a
-        // mitad de año, o sencillamente se olvida un mes—, y entonces la ficha
-        // afirmaba una acumulada que el mayor no respalda.
-        //
-        // Corrido marzo, luego enero, luego febrero sobre un activo de 120.000
-        // a doce meses: los tres asientos suman 30.000 en el mayor y la ficha
-        // se quedaba diciendo 20.000 y 100.000 de valor en libros, porque el
-        // último UPDATE en ganar era el del renglón de FEBRERO. La diferencia
-        // no se cerraba nunca —cada mes siguiente vuelve a copiar su propio
-        // renglón— y `last_depreciation_date` hasta retrocedía.
-        //
-        // La suma de los renglones POSTEADOS es, por construcción, la misma
-        // que la de los asientos: la 056 exige `journal_entry_id` para
-        // `is_posted`, así que no hay renglón posteado sin asiento detrás. El
-        // valor en libros sale del costo y no de una resta arrastrada, que es
-        // lo que hace que cierre exacto también con MACRS —cuya base es el
-        // costo entero— y con salvamento. Acotado por entidad en el mismo SQL.
-        const actualizacion = await client.query(
-          `UPDATE fixed_assets fa SET
-             accumulated_depreciation = p.acumulada,
-             current_book_value = fa.acquisition_cost - p.acumulada,
-             last_depreciation_date = p.ultima,
-             updated_at = NOW()
-           FROM (
-             SELECT COALESCE(SUM(ds.depreciation_expense), 0) AS acumulada,
-                    MAX(ds.depreciation_date)                 AS ultima
-               FROM depreciation_schedules ds
-               JOIN fixed_assets f2 ON f2.id = ds.asset_id
-              WHERE ds.asset_id = $1 AND ds.is_posted = true
-                AND f2.entity_id = $2
-           ) p
-           WHERE fa.id = $1 AND fa.entity_id = $2`,
-          [asset.id, entityId]
-        );
-        if (actualizacion.rowCount !== 1) {
+        // The card follows the live rows (see `refreshAssetCard`), in this
+        // same transaction and scoped by entity inside its SQL.
+        if ((await refreshAssetCard(client, entityId, asset.id)) !== 1) {
           throw new ValidationError(
             `El activo ${asset.asset_number} no es de esta entidad: no se actualizó su valor en libros.`
           );

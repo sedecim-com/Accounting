@@ -14,6 +14,7 @@ import {
 import { MAPPING_SCHEMES } from './account-service.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
+import { LIVE_ROW } from '../assets/depreciation.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { reconcileCensus } from '../sat-census/reconcile.js';
 import { entityScope } from '../../database/scope.js';
@@ -259,6 +260,7 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
   'fees-without-withholding': (entityId, periodId, limit) =>
     filas(FEES_WITHOUT_WITHHOLDING_ROWS, [entityId, periodId, limit]),
 
+  // The same predicate the checklist box counts with (`LIVE_ROW`).
   'depreciation-posted': (entityId, periodId, limit) =>
     filas(
       `SELECT fa.asset_number, fa.asset_name,
@@ -269,7 +271,7 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
         WHERE fa.entity_id = $1 AND fa.status = 'active'
           AND NOT EXISTS (
             SELECT 1 FROM depreciation_schedules ds
-             WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true)
+             WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW})
         ORDER BY fa.asset_number
         LIMIT $3`,
       [entityId, periodId, limit]
