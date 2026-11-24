@@ -88,14 +88,15 @@ interface AnthropicBlockLike {
 
 interface AnthropicMessageLike {
   role: string;
-  content: string | AnthropicBlockLike[];
+  /** Optional since @anthropic-ai/sdk 1.x: a system message may carry none. */
+  content?: string | AnthropicBlockLike[];
 }
 
 /** Projects Anthropic BetaMessageParam[] into the neutral shape. */
 export function anthropicView(messages: readonly AnthropicMessageLike[]): CompactableMessage[] {
   return messages.map((m) => {
     const text = flattenAnthropic(m);
-    const blocks = typeof m.content === 'string' ? [] : m.content;
+    const blocks = Array.isArray(m.content) ? m.content : [];
     return {
       role: (m.role === 'assistant' ? 'assistant' : 'user'),
       chars: text.length,
@@ -108,6 +109,7 @@ export function anthropicView(messages: readonly AnthropicMessageLike[]): Compac
 
 function flattenAnthropic(m: AnthropicMessageLike): string {
   if (typeof m.content === 'string') return m.content;
+  if (!m.content) return '';
   return m.content
     .map((b) => {
       if (b.type === 'text') return b.text ?? '';
