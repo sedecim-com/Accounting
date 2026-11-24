@@ -1312,6 +1312,7 @@ function fichaComoFila(f: FichaCuentaBancaria, redactado: boolean): Row {
     iban: identificador(f.iban),
     routing_on_file: f.routingEnArchivo,
     sat_bank_code: f.satBankCode ?? '',
+    foreign_bank: f.foreignBank,
     swift: f.swiftCode ?? '',
     book_balance: f.saldoLibro,
     bank_balance: f.saldoBanco ?? '',
@@ -1647,6 +1648,10 @@ Examples:
   mnemosine bank account edit "BBVA Operativa MXN" --clabe 012180001234567899 --reason "Cambio de CLABE notificado por el banco el 2026-07-01"
   # An empty value CLEARS the field; omitting the flag leaves it alone.
   mnemosine bank account edit "Santander Operativa MXN" --swift ""
+  # The bank is not resident in Mexico: its vouchers declare c_Banco 999 and the
+  # bank name. Only a person sets the mark, always with --reason, and an
+  # account at a foreign bank keeps no SAT code and no CLABE.
+  mnemosine bank account edit "First Example USD" --sat-bank-code "" --foreign-bank --reason "Account opened in New York"
 `,
   accountSet: `
 Examples:
@@ -2322,6 +2327,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           f.routingEnArchivo ? t('bank.account.show.routing_on_file') : ''
         );
         linea(t('bank.account.show.label.sat_bank_key'), f.satBankCode ?? '');
+        linea(t('bank.account.show.label.foreign_bank'), f.foreignBank ? t('bank.account.show.foreign_bank_marked') : '');
         linea('SWIFT/BIC', f.swiftCode ?? '');
         linea(
           t('bank.account.show.label.gl_account'),
@@ -2373,6 +2379,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   optionByKey(edit, '--sat-bank-code <ccc>', 'help.bank.account.edit.option.sat_bank_code');
   optionByKey(edit, '--swift <code>', 'help.bank.account.edit.option.swift');
   optionByKey(edit, '--iban <code>', 'help.bank.account.edit.option.iban');
+  // MNE-001-502 · declared as a pair, so commander leaves it undefined when
+  // neither is passed: the mark is only ever what a person wrote.
+  optionByKey(edit, '--foreign-bank', 'help.bank.account.edit.option.foreign_bank');
+  optionByKey(edit, '--no-foreign-bank', 'help.bank.account.edit.option.no_foreign_bank');
   optionByKey(edit, '--reason <text>', 'help.bank.account.edit.option.reason');
   optionByKey(edit, '--dry-run', 'help.bank.account.edit.option.dry_run');
   // The one generic flag here worded as the kernel words it, and it does just
@@ -2401,7 +2411,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       opts: CommonOpts & {
         name?: string; bank?: string; branch?: string; type?: string; currency?: string;
         clabe?: string; accountNumber?: string; routingAch?: string; routingWire?: string;
-        satBankCode?: string; swift?: string; iban?: string;
+        satBankCode?: string; swift?: string; iban?: string; foreignBank?: boolean;
         reason?: string; dryRun?: boolean; yes?: boolean;
       }
     ) =>
@@ -2418,6 +2428,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         if (opts.satBankCode !== undefined) patch.satBankCode = opcionalNulo(opts.satBankCode) ?? null;
         if (opts.swift !== undefined) patch.swiftCode = opcionalNulo(opts.swift) ?? null;
         if (opts.iban !== undefined) patch.iban = opcionalNulo(opts.iban) ?? null;
+        if (opts.foreignBank !== undefined) patch.foreignBank = opts.foreignBank;
 
         const sensibles: string[] = [];
         if (opts.clabe !== undefined) {
@@ -2450,6 +2461,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               sensitive: CAMPOS_SENSIBLES.join(', '),
             })
           );
+        }
+        // MNE-001-502 · the mark, in either direction, the same way: a missing
+        // flag is a usage error (2); the service's ValidationError backs it.
+        if (opts.foreignBank !== undefined && !opts.reason?.trim()) {
+          throw usageError(t('bank.account.foreign_bank.reason_required'));
         }
         if (sensibles.length && !dryRun && opts.yes !== true) {
           const ok = await ask(

@@ -23,6 +23,7 @@ import {
   type FilaCtas,
 } from '../../../src/services/sat/anexo24/validador.js';
 import {
+  EXT_MAX_CHARACTERS,
   FOREIGN_BANK_CODE,
   officialEnumeration,
   parseEnumerations,
@@ -386,6 +387,25 @@ describe('the code a foreign bank is declared with (MNE-001-401)', () => {
     expect(FOREIGN_BANK_CODE).toBe('999');
     expect(officialEnumeration('c_Banco').has(FOREIGN_BANK_CODE)).toBe(true);
   });
+
+  // MNE-001-502: the generator leaves out a name over the limit instead of cutting it.
+  it('each *Ext takes the name up to the limit, counted in characters as the schema counts them', () => {
+    const xsd = fs.readFileSync(path.join(XSD_ROOT, 'ContabilidadE/1_3/PolizasPeriodo/PolizasPeriodo_1_3.xsd'), 'utf8');
+    for (const attribute of ['BanEmisExt', 'BancoOriExt', 'BancoDestExt']) {
+      const declared = new RegExp(`name="${attribute}"[\\s\\S]*?<xs:maxLength value="(\\d+)"`).exec(xsd);
+      expect(Number(declared?.[1]), attribute).toBe(EXT_MAX_CHARACTERS);
+    }
+    // '𝔅' is one character and two UTF-16 units: 150 of them pass and 151 do not.
+    const withName = (name: string): string => {
+      const data = journal();
+      Object.assign(payment(data, 0), { banEmisNal: FOREIGN_BANK_CODE, banEmisExt: name });
+      return construirPolizasXml(data);
+    };
+    const name150 = 'B'.repeat(EXT_MAX_CHARACTERS - 1) + '\u{1D505}';
+    expect(name150.length).toBe(EXT_MAX_CHARACTERS + 1);
+    expect(validateAgainstOfficialXsd(withName(name150), 'journal')).toEqual({ valid: true, errors: [] });
+    expect(validateAgainstOfficialXsd(withName(`${name150}B`), 'journal').valid).toBe(false);
+  });
 });
 
 describe('the validation bites', () => {
@@ -672,9 +692,9 @@ describe("the service's bank-code checks keep it away from the builder's guard (
   const account = (code: string | null) => ({
     id: 'ba-1', account_name: 'Operativa', gl_account_id: 'gl-1', sat_bank_code: code,
     bank_name: 'BBVA México', clabe_encrypted: encrypt('012180001234567895'), clabe_last4: '7895',
-    account_number_encrypted: null, account_number_last4: null,
+    account_number_encrypted: null, account_number_last4: null, bank_is_foreign: false,
   });
-  const codes = ['012', ' 012 ', '', '   ', null] as const;
+  const codes =['012', ' 012 ', '', '   ', null] as const;
   const combos = ['check', 'spei'].flatMap((method) =>
     (['none', ...codes] as const).flatMap((ourCode) =>
       [...codes, 'foreign'].map((dest) => [method, ourCode, dest] as const)

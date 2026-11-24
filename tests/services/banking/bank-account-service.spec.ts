@@ -14,6 +14,7 @@ import {
   routingAbaValido,
   exigirClabe,
   exigirRoutingAba,
+  refuseNationalIdentifierOnForeignBank,
 } from '../../../src/services/banking/bank-account-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -195,5 +196,43 @@ describe('exigirRoutingAba', () => {
       expect(err).toBeInstanceOf(ValidationError);
       expect((err as ValidationError).field).toBe('routing_wire');
     }
+  });
+});
+
+// MNE-001-502 · a foreign account keeps no national identifier, judged on the row as the edit leaves it.
+describe('refuseNationalIdentifierOnForeignBank', () => {
+  const F = { bank_is_foreign: false, sat_bank_code: null, clabe_en_archivo: false };
+  const refusal = (fn: () => void): { key: string | undefined; field: string | undefined } => {
+    try {
+      fn();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const e = err as ValidationError;
+      return { key: e.messageKey?.key, field: e.field };
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('an unmarked account is never judged, whatever it keeps', () => {
+    expect(() => refuseNationalIdentifierOnForeignBank({ ...F, sat_bank_code: '012', clabe_en_archivo: true }, {})).not.toThrow();
+    expect(() => refuseNationalIdentifierOnForeignBank({ ...F, bank_is_foreign: true, sat_bank_code: '012' }, { foreignBank: false })).not.toThrow();
+  });
+
+  it.each([
+    ['marking one with a code', { ...F, sat_bank_code: '012' }, { foreignBank: true }, 'sat_bank_code'],
+    ['marking one with 999', { ...F, sat_bank_code: '999' }, { foreignBank: true }, 'sat_bank_code'],
+    ['marking one with a CLABE', { ...F, clabe_en_archivo: true }, { foreignBank: true }, 'clabe'],
+    ['adding a code to a marked one', { ...F, bank_is_foreign: true }, { satBankCode: '012' }, 'sat_bank_code'],
+    ['adding a CLABE to a marked one', { ...F, bank_is_foreign: true }, { clabe: '012180001234567899' }, 'clabe'],
+  ] as const)('refuses %s, keyed and naming the field', (_case, current, patch, field) => {
+    const r = refusal(() => refuseNationalIdentifierOnForeignBank(current, patch));
+    expect(r.field).toBe(field);
+    expect(r.key).toBe(field === 'clabe' ? 'bank.account.foreign_bank.keeps_clabe' : 'bank.account.foreign_bank.keeps_sat_bank_code');
+  });
+
+  it('accepts one edit that clears the code or the CLABE and sets the mark', () => {
+    expect(() => refuseNationalIdentifierOnForeignBank({ ...F, sat_bank_code: '012' }, { foreignBank: true, satBankCode: null })).not.toThrow();
+    expect(() => refuseNationalIdentifierOnForeignBank({ ...F, sat_bank_code: '012' }, { foreignBank: true, satBankCode: '  ' })).not.toThrow();
+    expect(() => refuseNationalIdentifierOnForeignBank({ ...F, clabe_en_archivo: true }, { foreignBank: true, clabe: null })).not.toThrow();
   });
 });
