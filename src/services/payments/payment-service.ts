@@ -37,7 +37,7 @@ import {
   keptOnAccount, keptRestitutions, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
 import { treatmentOfSales } from '../fiscal/sale-sources.js';
-import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError, AccountingError, ErrorCodes } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import type { TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -698,9 +698,10 @@ export async function recordVendorPayment(
 
     for (const app of entrada.applications) {
       await client.query(
-        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [uuidv4(), paymentId, app.documentId, app.amountApplied, app.discountAmount ?? 0]
+        // MNE-001-678: cash applied with the payment is applied on the payment's day.
+        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount, applied_on)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [uuidv4(), paymentId, app.documentId, app.amountApplied, app.discountAmount ?? 0, entrada.paymentDate]
       );
       // amount_paid recibe SÓLO el efectivo; el saldo baja por los dos. Un
       // descuento no es dinero cobrado: contarlo como pagado inflaría lo que
@@ -3478,6 +3479,8 @@ export interface OpcionesAplicacionProveedor extends OpcionesPago {
   modo?: 'partial' | 'residual';
   /** Obligatorio con `residual`: por qué se renuncia a cobrar el resto. */
   shortPayReason?: string;
+  /** MNE-001-678 · the day of the application; today in the entity's zone when absent. */
+  date?: string;
 }
 
 export interface ResultadoAplicacionProveedor extends ResultadoAplicacion {
@@ -3495,9 +3498,35 @@ export interface ResultadoAplicacionProveedor extends ResultadoAplicacion {
    * merece saber cuál de las dos está viendo.
    */
   descuentosFueraDeTerminos: string[];
+  /** MNE-001-678 · the day of the application, which its entry and its rows carry. */
+  date: string;
 }
 
-/** Aplicar el saldo a cuenta de un pago existente a uno o varios gastos. */
+/**
+ * MNE-001-678 · The day a later event on a vendor payment is dated: the one
+ * given, or today in the entity's zone (`zona_horaria`, never the process
+ * clock), as `receiptEventDate` reads it for a receipt. `today` comes back
+ * with it, for the caller to refuse a day after it in its own words.
+ */
+async function vendorEventDay(
+  client: pg.PoolClient,
+  ctx: { tenantId: string; entityId: string },
+  given: string | undefined
+): Promise<{ date: string; today: string }> {
+  const today = await todayFor(ctx, { client });
+  return { date: given === undefined ? today : toCalendarDate(given), today };
+}
+
+/**
+ * Aplicar el saldo a cuenta de un pago existente a uno o varios gastos.
+ *
+ * MNE-001-678: `opts.date` (default today in the entity's zone) dates the
+ * entry, each new application (`applied_on`, 344) and each bill's
+ * last_payment_date, so the IVA the application credits (LIVA art. 5o. fr.
+ * III and 1o.-B) lands in that day's month. It is refused after today, before
+ * the payment's last posted event, before the date of a bill it pays and in a
+ * period that takes no entry.
+ */
 export async function applyVendorPayment(
   entityId: string,
   paymentId: string,
@@ -3526,13 +3555,22 @@ export async function applyVendorPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacionProveedor> => {
     const pago = await pagoProveedorParaEscribir(client, entityId, paymentId);
+    const tenantId = await tenantDe(client, entityId);
+    const { date, today } = await vendorEventDay(client, { tenantId, entityId }, opts.date);
+    const dated = { payment: pago.payment_number, date };
+    if (date > today) {
+      throw new ValidationError({ key: 'payment.apply.date_future', params: { ...dated, today } }, 'date');
+    }
+    const since = await lastPostedEventOf(client, entityId, pago);
+    if (date < since) {
+      throw new ValidationError({ key: 'payment.apply.date_before_last_event', params: { ...dated, since } }, 'date');
+    }
     const remanente = await remanenteDeVendorPago(client, paymentId, pago.payment_amount);
 
     // LA CUENTA DEL PAGO CORTO NO LA ELIGE ESTE CÓDIGO. A dónde va el saldo
     // que deja de deberse es criterio del despacho —menos costo, u otro
     // ingreso— y hasta puede estar prohibido. Se lee del panel; mientras
     // nadie lo defina, rige el defecto declarado y se dice que es el defecto.
-    const tenantId = await tenantDe(client, entityId);
     const politica = residual
       ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')
       : null;
@@ -3595,6 +3633,14 @@ export async function applyVendorPayment(
         });
       }
       assertMoneda(bill.bill_number, bill.currency_code, pago.currency_code);
+      // MNE-001-678: cash cannot settle a bill before the bill exists.
+      const billDate = toCalendarDate(bill.bill_date);
+      if (date < billDate) {
+        throw new ValidationError(
+          { key: 'payment.apply.date_before_bill', params: { bill: bill.bill_number, billDate, date } },
+          'date'
+        );
+      }
 
       const aplicado = new Decimal(app.amountApplied);
       const descuento = new Decimal(app.discountAmount ?? '0');
@@ -3624,6 +3670,8 @@ export async function applyVendorPayment(
           // #241 · El día del pago se LEE, no se reinterpreta: `payment_date` es
           // DATE y pg lo entrega a medianoche local. Este día decide si el
           // descuento por pronto pago sigue vigente.
+          // MNE-001-678: the payment's day, not the application's `date`: the
+          // vendor grants the discount for when the cash left.
           toCalendarDate(pago.payment_date)
         );
         if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {
@@ -3656,15 +3704,17 @@ export async function applyVendorPayment(
 
       const allocId = uuidv4();
       await client.query(
-        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [allocId, paymentId, app.documentId, app.amountApplied, descuento.toFixed(4)]
+        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount, applied_on)
+         VALUES ($1,$2,$3,$4,$5,$6::date)`,
+        [allocId, paymentId, app.documentId, app.amountApplied, descuento.toFixed(4), date]
       );
       // amount_paid recibe SÓLO el efectivo; el saldo baja por los tres —
       // efectivo, descuento y condonación. Un descuento no es dinero cobrado
       // y una condonación menos aún: contarlos como pagados inflaría lo que
       // el proveedor recibió y descuadraría la conciliación de banco.
       // MNE-001-532 · invariant 3, as the invoice twin of applyCustomerPayment.
+      // GREATEST: an application dated before another payment of the same
+      // bill does not move its last payment back.
       const settled = await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
@@ -3672,7 +3722,7 @@ export async function applyVendorPayment(
            status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
            last_payment_date = GREATEST(last_payment_date, $3::date)
          WHERE id = $4 AND entity_id = $5 AND status = ANY($6::text[]) AND amount_due >= $2`,
-        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId, [...PAGABLES]]
+        [app.amountApplied, baja.toFixed(4), date, app.documentId, entityId, [...PAGABLES]]
       );
       if (settled.rowCount !== 1) {
         throw new AccountingError('BILL_CHANGED', { key: 'error.BILL_CHANGED', params: { bill: bill.bill_number } });
@@ -3715,8 +3765,15 @@ export async function applyVendorPayment(
       },
       posteriores,
       userId,
+      date,
       cuentaCondonacion ?? undefined
-    );
+    ).catch((e: unknown) => {
+      // Posting refuses a day with no open period without naming it: this one entry is dated `date`.
+      if (e instanceof AccountingError && e.code === ErrorCodes.PERIOD_CLOSED) {
+        throw new AccountingError(ErrorCodes.PERIOD_CLOSED, { key: 'payment.apply.date_period_closed', params: dated });
+      }
+      throw e;
+    });
     // 0 included (105, and 341 for the discount's VAT): NULL is left to rows
     // written before anyone stored it.
     for (const fila of filas) {
@@ -3727,7 +3784,7 @@ export async function applyVendorPayment(
     }
 
     await registrarAuditoria(client, {
-      tenantId: await tenantDe(client, entityId),
+      tenantId,
       legalEntityId: entityId,
       userId,
       action: 'update',
@@ -3735,6 +3792,7 @@ export async function applyVendorPayment(
       entityId: paymentId,
       newValues: {
         evento: 'apply',
+        date,
         aplicado: total.toFixed(2),
         documentos: documentos.length,
         journal_entry_id: entry.id,
@@ -3764,6 +3822,7 @@ export async function applyVendorPayment(
         .toFixed(2),
       politicaDefinida: politica?.defined ?? false,
       descuentosFueraDeTerminos: fueraDeTerminos,
+      date,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
@@ -3773,9 +3832,23 @@ export async function applyVendorPayment(
 }
 
 /**
+ * The day of the payment's last posted event, or the payment's own day while
+ * it has none. A cheque's cashing entry (`bank_check_clearing`, MNE-001-508)
+ * is one of those events.
+ */
+async function lastPostedEventOf(client: pg.PoolClient, entityId: string, vp: PagoProveedorVivo): Promise<string> {
+  const last = await client.query<{ d: string | null }>(
+    `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
+      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
+        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing', $3)`,
+    [entityId, vp.id, DISCOUNT_VAT_CORRECTION_SOURCE]
+  );
+  return last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
+}
+
+/**
  * An undo cannot be dated before the payment's last posted event: the ledger
- * would undo it before it happened. A cheque's cashing entry
- * (`bank_check_clearing`, MNE-001-508) is one of those events.
+ * would undo it before it happened.
  */
 async function assertAfterLastEvent(
   client: pg.PoolClient,
@@ -3784,13 +3857,7 @@ async function assertAfterLastEvent(
   date: string,
   what: string
 ): Promise<void> {
-  const last = await client.query<{ d: string | null }>(
-    `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
-      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing', $3)`,
-    [entityId, vp.id, DISCOUNT_VAT_CORRECTION_SOURCE]
-  );
-  const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
+  const since = await lastPostedEventOf(client, entityId, vp);
   if (date < since) {
     throw new ValidationError(
       `${vp.payment_number} was last posted on ${since}: ${what} dated ${date} would undo it before it happened.`,
@@ -3869,10 +3936,10 @@ export interface VendorUnapplyResult {
  * owed again, the cash goes back on account and the discount and IVA they
  * took are given back from what their rows stored.
  *
- * `date` (default today) dates both the closure and the entry, so a balance
- * read "as of" that day sees the two sides move together. It cannot precede
- * the payment's last posted event: the ledger would undo an application
- * before it happened.
+ * `date` (default today in the entity's zone, MNE-001-678) dates both the
+ * closure and the entry, so a balance read "as of" that day sees the two
+ * sides move together. It cannot precede the payment's last posted event: the
+ * ledger would undo an application before it happened.
  *
  * It refuses what it cannot undo exactly, rather than guess:
  *   - a bill closed short (`--mode residual`): the written-off balance, its
@@ -3891,11 +3958,12 @@ export async function unapplyVendorPayment(
 ): Promise<VendorUnapplyResult> {
   const reason = args.reason.trim();
   if (!reason) throw new ValidationError('Say why the application is undone: the reason goes to the audit trail.');
-  const today = toCalendarDate(new Date());
-  const date = args.date === undefined ? today : toCalendarDate(args.date);
-  if (date > today) throw new ValidationError(`An unapply cannot be dated in the future (${date}).`, 'date');
 
   const run = async (client: pg.PoolClient): Promise<VendorUnapplyResult> => {
+    // MNE-001-678: today in the entity's zone, as `payment apply` reads it.
+    const tenantId = await tenantDe(client, entityId);
+    const { date, today } = await vendorEventDay(client, { tenantId, entityId }, args.date);
+    if (date > today) throw new ValidationError(`An unapply cannot be dated in the future (${date}).`, 'date');
     const vp = await pagoProveedorParaEscribir(client, entityId, paymentId);
     if (vp.currency_code !== (await functionalCurrencyOf(client, entityId))) {
       throw new ValidationError(
@@ -3992,7 +4060,7 @@ export async function unapplyVendorPayment(
     const remaining = await remanenteDeVendorPago(client, paymentId, vp.payment_amount);
 
     await registrarAuditoria(client, {
-      tenantId: await tenantDe(client, entityId),
+      tenantId,
       legalEntityId: entityId,
       userId,
       action: 'update',

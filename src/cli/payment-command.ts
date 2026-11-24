@@ -107,6 +107,7 @@ interface AplicarOpts extends CommonOpts {
   discount?: string[];
   mode?: string;
   shortPayReason?: string;
+  date?: string;
 }
 
 /** `--bill A --amount 100 --bill B --amount 50` se lee por posición. */
@@ -145,6 +146,8 @@ Examples:
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 9000.00 --mode partial
   # Close a bill short: what is unpaid stops being owed, so it needs a written reason.
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 15900.00 --mode residual --short-pay-reason "Nota de credito que el proveedor nunca emitio"
+  # Dated: the entry, the application and the bill's last payment carry May 10, and so does the IVA it credits.
+  mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 12000.00 --date 2026-05-10
 `,
   unapply: `
 Examples:
@@ -363,6 +366,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   optionByKey(apply, '--discount <amount...>', 'help.payment.apply.option.discount', { parser: acumular });
   optionByKey(apply, '--mode <mode>', 'help.payment.apply.option.mode', { defaultValue: 'partial' });
   optionByKey(apply, '--short-pay-reason <text>', 'help.payment.apply.option.short_pay_reason');
+  optionByKey(apply, '--date <date>', 'help.payment.apply.option.date');
   optionByKey(apply, '--json', 'help.payment.apply.option.json');
   withContext(apply);
   declareRisk(apply, {
@@ -407,6 +411,8 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const modo: 'partial' | 'residual' = opts.mode === 'residual' ? 'residual' : 'partial';
 
       const ctx = await writeEntityOf(opts);
+      // MNE-001-678: resolved once, so the preview and the write cannot disagree at midnight.
+      const date = opts.date ?? (await hoy(ctx));
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const pago = await resolveVendorPayment(ctx.entityId, ref);
 
@@ -430,7 +436,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       // las dos grafías válidas, y el linter lo demuestra marcando el `as`
       // como innecesario. Un `as` aquí habría escondido el día en que alguien
       // borrara ese guardia.
-      const opciones = { modo, shortPayReason: opts.shortPayReason };
+      const opciones = { modo, shortPayReason: opts.shortPayReason, date };
 
       // La vista previa recorre EL MISMO código y revierte: lo que el motor
       // rechazaría se rechaza antes de preguntar nada.
@@ -449,6 +455,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         t('ap.payment.apply.confirm', {
           count: previo.documentos.length,
           payment: pago.payment_number,
+          date: previo.date,
           entity: ctx.entityName,
           writeOff: previo.condonado !== '0.00' ? 'yes' : 'none',
           amount: previo.condonado,
@@ -495,7 +502,8 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const vp = await resolveVendorPayment(ctx.entityId, ref);
       const bill = await resolveBill(ctx.entityId, opts.bill);
-      const args = { billId: bill.id, reason: opts.reason, date: opts.date };
+      // MNE-001-678: resolved once, as `payment apply` does.
+      const args = { billId: bill.id, reason: opts.reason, date: opts.date ?? (await hoy(ctx)) };
       // The key is looked at BEFORE the preview: after the first unapply there
       // is no live application left, so a retry would die in the preview and
       // never reach the recorded result.
@@ -969,6 +977,7 @@ function imprimirAplicacion(
       [
         {
           payment_number: result.paymentNumber,
+          date: result.date,
           documents: result.documentos.map((d) => ({
             document: d.numero,
             amount_due_before: d.saldoAnterior,
@@ -995,7 +1004,7 @@ function imprimirAplicacion(
       ? p.bold(t('ap.payment.apply.would', { payment: result.paymentNumber }))
       : `${p.green('✔')} ${p.bold(result.paymentNumber)}`) +
       p.dim(
-        ` · ${t('ap.payment.apply.on_account', { before: result.remanenteAnterior, after: result.remanenteNuevo })}` +
+        ` · ${t('ap.payment.apply.on_account', { before: result.remanenteAnterior, after: result.remanenteNuevo, date: result.date })}` +
           (result.journalEntry ? ` · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}` : '')
       ) +
       '\n'

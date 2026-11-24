@@ -1430,12 +1430,16 @@ async function withholdingLines(
  * Espejo del lado cliente, con los roles invertidos y una diferencia real:
  * aquí el descuento por pronto pago SÍ puede aparecer, porque una aplicación
  * tardía dentro de la ventana sigue dando derecho a él.
+ *
+ * MNE-001-678: dated `date`, the day of the application, never the process
+ * clock: the IVA it credits belongs to that day's month.
  */
 export async function postVendorApplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
   aplicaciones: AplicacionPosterior[],
   userId: string,
+  date: string,
   /**
    * Cuenta destino del pago corto. Llega como PARÁMETRO y no se decide aquí:
    * cuál es depende de la política `pago_corto_residual` del despacho, y esta
@@ -1632,7 +1636,7 @@ export async function postVendorApplicationEntry(
 
   const entry = await createJournalEntry(
     payment.entity_id,
-    new Date(),
+    date,
     JournalEntryType.AUTO_PAYMENT,
     documentos.length
       ? `Application of ${payment.payment_number} · IVA creditable on payment: ${documentos.join(', ')}`
