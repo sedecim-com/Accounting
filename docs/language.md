@@ -113,8 +113,8 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 332 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28983 | 0 |
-| `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
-| `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
+| `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
+| `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 48 | 0 |
 | `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 806 | 0 |

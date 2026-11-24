@@ -363,6 +363,66 @@ describe('los cuatro carriles sobre un árbol de juguete', () => {
 });
 
 // ============================================================
+// THE ROOT PAGES (MNE-001-192)
+//
+// README.md lives at the root, not under docs/. Without these cases a root twin
+// is invisible to both lanes: README.es.md could fall behind README.md forever
+// and the stale lane would still read 0. The root is read one level deep: its
+// own pages, not every folder under it.
+// ============================================================
+
+describe('the twin lanes read the root pages too (MNE-001-192)', () => {
+  let root = '';
+
+  const write = (relative: string, content: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  };
+  const laneValue = (id: string): number => {
+    const lane = lanesFor(root).find((c) => c.id === id);
+    if (lane === undefined) throw new Error(`no lane ${id}`);
+    return lane.value;
+  };
+
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'root-pages-'));
+    write('src/a.ts', 'export const one = 1;\n');
+    write('docs/x.md', '# Nada que citar\n');
+    write('GUIDE.md', `# Guide\n\n${LONG_ENGLISH}\n`);
+    write('GUIDE.es.md', `# Guía\n\n> Gemela en español de [GUIDE.md](GUIDE.md) · source_sha: ${blobSha(path.join(root, 'GUIDE.md'))}\n`);
+    // A folder below the root is not a root page: only docs/ is walked deep.
+    write('notes/deep.md', `# Deep\n\n${LONG_ENGLISH}\n`);
+  });
+
+  afterAll(() => {
+    if (root !== '') fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('a root English page without a twin counts; one with its twin does not', () => {
+    expect(laneValue('docs-english-pages-untwinned')).toBe(0);
+    write('ALONE.md', `# Alone\n\n${LONG_ENGLISH}\n`);
+    expect(linesFor('docs-english-pages-untwinned', root)).toEqual(['ALONE.md']);
+    fs.rmSync(path.join(root, 'ALONE.md'));
+  });
+
+  it('a fresh root twin does not count, and goes stale when its source changes', () => {
+    expect(laneValue('docs-spanish-twins-stale')).toBe(0);
+    fs.appendFileSync(path.join(root, 'GUIDE.md'), '\nOne more paragraph nobody translated.\n');
+    expect(linesFor('docs-spanish-twins-stale', root)).toEqual([
+      'GUIDE.es.md\tsource_sha ' + declaredSha(fs.readFileSync(path.join(root, 'GUIDE.es.md'), 'utf8')) + ' ya no casa con GUIDE.md',
+    ]);
+  });
+
+  it('the executed `command` of the stale lane sees the root twin as well', () => {
+    const lane = lanesFor(root).find((c) => c.id === 'docs-spanish-twins-stale');
+    const output = execSync(lane!.command, { cwd: root, encoding: 'utf8', shell: '/bin/bash' });
+    expect(lane!.value).toBe(1);
+    expect(Number(output.trim())).toBe(lane!.value);
+  });
+});
+
+// ============================================================
 // EL CERO QUE PARECE UNA VICTORIA
 //
 // Los cuatro carriles tienen meta cero, así que un recorrido que no encuentra
@@ -549,6 +609,31 @@ describe('lo que el árbol real enseña, y lo que NO debe volver a contarse', ()
       const [where, text] = r.split('\t');
       expect(where).toMatch(/^src\/.+\.ts:\d+$/);
       expect(isSpanishComment(text)).toBe(true);
+    }
+  });
+});
+
+describe('README.md is the English source and README.es.md its twin (MNE-001-192)', () => {
+  const relativeLinks = (page: string): string[] =>
+    [...withoutFencedBlocks(fs.readFileSync(path.join(ROOT, page), 'utf8')).join('\n').matchAll(/\]\(([^)\s]+)\)/g)]
+      .map((m) => m[1])
+      .filter((target) => !/^[a-z]+:/i.test(target) && !target.startsWith('#'))
+      .map((target) => target.split('#')[0]);
+
+  it('README.md reads as English and its twin declares the sha of today\'s source', () => {
+    const ratio = spanishRatio(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8'));
+    expect(ratio !== null && ratio < 0.2).toBe(true);
+    const twin = fs.readFileSync(path.join(ROOT, 'README.es.md'), 'utf8');
+    expect(blobSha(path.join(ROOT, 'README.md')).startsWith(declaredSha(twin) ?? '-')).toBe(true);
+    expect(linesFor('docs-english-pages-untwinned')).not.toContain('README.md');
+    expect(linesFor('docs-spanish-twins-stale')).toEqual([]);
+  });
+
+  it('every relative link of both pages points to a file or folder that exists', () => {
+    for (const page of ['README.md', 'README.es.md']) {
+      const links = relativeLinks(page);
+      expect(links.length, page).toBeGreaterThan(20);
+      for (const target of links) expect(fs.existsSync(path.join(ROOT, target)), `${page} → ${target}`).toBe(true);
     }
   });
 });
