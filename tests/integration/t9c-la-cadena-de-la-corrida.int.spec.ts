@@ -197,25 +197,30 @@ describe('y la cadena PROPIA sigue funcionando', () => {
     expect(r.status, `contestó ${r.status}`).toBe(201);
   });
 
-  it('la corrida propia sí se calcula, y sus totales son los que sale de calcular', async () => {
-    const r = await pedir(srv, 'POST', `/payroll/pay-runs/${CORRIDA_A}/calculate`, {
-      pay_period_id: PERIODO_A,
-      employee_inputs: [],
-    });
-    expect(r.status, `contestó ${r.status}`).toBe(200);
-    const { rows } = await query<{ total_gross: string }>(
-      'SELECT total_gross FROM pay_runs WHERE id = $1',
-      [CORRIDA_A]
-    );
-    expect(rows[0].total_gross).toBe('0.00');
-  });
-
   it('el recibo propio llega al timbrado: lo para el PAC simulado, no la frontera', async () => {
     // 422 PAC_SIMULADO y no 404: la frontera dejó pasar el recibo propio y
     // quien se niega es el guardián del PAC de mentira, que es otra puerta.
     // Se afirma «no 404» y nada más — un 200 aquí exigiría un PAC de verdad.
     const r = await pedir(srv, 'POST', `/payroll/paychecks/${RECIBO_A}/cfdi-nomina`, {});
     expect(r.status, `contestó ${r.status}`).not.toBe(404);
+  });
+
+  // After the stamp on purpose (MNE-001-657): calculating again REPLACES the
+  // run's paychecks, and this one sends no employee, so RECIBO_A goes with it.
+  it('la corrida propia sí se calcula, y sus totales son los que sale de calcular', async () => {
+    const r = await pedir(srv, 'POST', `/payroll/pay-runs/${CORRIDA_A}/calculate`, {
+      pay_period_id: PERIODO_A,
+      employee_inputs: [],
+    });
+    expect(r.status, `contestó ${r.status}`).toBe(200);
+    const { rows } = await query<{ total_gross: string; paychecks: number }>(
+      `SELECT total_gross,
+              (SELECT COUNT(*)::int FROM paychecks WHERE pay_run_id = pay_runs.id) AS paychecks
+         FROM pay_runs WHERE id = $1`,
+      [CORRIDA_A]
+    );
+    expect(rows[0].total_gross).toBe('0.00');
+    expect(rows[0].paychecks, 'the totals say 0.00 and the run still holds a paycheck').toBe(0);
   });
 
   it('y la corrida propia aprobada se marca pagada de verdad', async () => {

@@ -223,7 +223,7 @@ describe('T1-T2 · PMT-1 with 1,160.00 on account moves whole to B on 06-15', ()
     const apply = await refusal(
       applyCustomerPayment(f.entityId, source.id, [{ documentId: invoiceA, amountApplied: '1160.00' }], f.userId, { date: '2026-06-16' })
     );
-    expect(apply.message).toContain('no alcanza');
+    expect(apply.message).toContain('does not cover it');
 
     const reverse = await refusal(reverseCustomerPayment(f.entityId, source.id, { reason: 'bounced', cause: 'taken_back' }, f.userId));
     expect(reverse.messageKey?.key).toBe('receipt.reverse.has_transfer');

@@ -236,10 +236,10 @@ describe('a reversed receipt', () => {
 
 describe('refusals write nothing', () => {
   it.each<[string, ReceiptTraceFields, RegExp]>([
-    ['a payer account with no payer bank', { payerAccount: PAYER_ACCOUNT }, /cuenta del cliente.*banco/],
+    ['a payer account with no payer bank', { payerAccount: PAYER_ACCOUNT }, /customer's account was given and its bank/],
     ['a payer bank off c_Banco', { payerBank: '003' }, /«003».*c_Banco/],
-    ['a national and a foreign payer bank', { payerBank: '002', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
-    ['a cheque number on a SPEI receipt', { checkNumber: '4501' }, /número de cheque/],
+    ['a national and a foreign payer bank', { payerBank: '002', payerForeignBank: 'Bank of Nowhere' }, /national.*foreign/],
+    ['a cheque number on a SPEI receipt', { checkNumber: '4501' }, /cheque number/],
     ['a payer bank longer than three characters', { payerBank: '0021' }, /--payer-bank/],
     ['no trace field', {}, /--payer-bank/],
   ])('%s', async (_case, fields, message) => {
