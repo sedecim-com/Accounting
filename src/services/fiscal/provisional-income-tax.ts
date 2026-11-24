@@ -364,7 +364,11 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       `SELECT l.account_id, SUM(l.credit_amount)::text AS credit
          FROM journal_entry_lines l
          JOIN journal_entries je ON je.id = l.journal_entry_id
-        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = 'customer_credit_transfer'
+        WHERE je.entity_id = $1 AND je.status = 'posted'
+          AND (je.source_type = 'customer_credit_transfer'
+               -- MNE-001-499: nor does the mirror of one (receipt reverse).
+               OR je.reverses_entry_id IN (SELECT o.id FROM journal_entries o
+                                            WHERE o.entity_id = $1 AND o.source_type = 'customer_credit_transfer'))
           AND je.entry_date >= $2::date AND je.entry_date <= $3::date
           AND l.account_id = ANY($4::uuid[]) AND COALESCE(l.credit_amount, 0) > 0
         GROUP BY l.account_id`,
