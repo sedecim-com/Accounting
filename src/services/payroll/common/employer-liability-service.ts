@@ -4,6 +4,7 @@ import { withTransaction } from '../../../database/connection.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
+import { CONTRIBUTIONS_ELSEWHERE_DETAIL } from '../mx/employment-subsidy.js';
 import {
   basesIsnDeCorrida,
   calcularIsn,
@@ -511,16 +512,19 @@ async function acumular(
   const propios = await client.query<{
     imss: string;
     recibos: number;
+    contributed_elsewhere: number;
     ajenos: number;
   }>(
     `SELECT COALESCE(SUM(p.imss_employer) FILTER (WHERE e.entity_id = $3), 0)::text AS imss,
             COUNT(*) FILTER (WHERE e.entity_id = $3)::int AS recibos,
+            COUNT(*) FILTER (WHERE e.entity_id = $3
+                               AND p.calculation_details -> $4::text IS NOT NULL)::int AS contributed_elsewhere,
             COUNT(*) FILTER (WHERE e.entity_id <> $3)::int AS ajenos
        FROM paychecks p
        JOIN employees e ON e.id = p.employee_id AND e.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.pay_run_id = $2
         AND e.country_code = 'MX'`,
-    [tenantId, payRunId, entityId]
+    [tenantId, payRunId, entityId, CONTRIBUTIONS_ELSEWHERE_DETAIL]
   );
   const recibosMx = propios.rows[0]?.recibos ?? 0;
   const recibosAjenos = propios.rows[0]?.ajenos ?? 0;
@@ -540,13 +544,18 @@ async function acumular(
   // Recibos mexicanos sin un peso de cuota patronal es un síntoma, no un
   // resultado: casi siempre significa que el SBC del trabajador no está
   // capturado, y entonces el costo laboral de la corrida está incompleto.
-  if (recibosMx > 0 && imssPropio.isZero()) {
+  //
+  // Except a paycheck whose days another paycheck of the period already
+  // contributed (MNE-001-658): a year-end bonus paid in its own run owes no
+  // quota, and its zero says nothing about the SBC.
+  const paychecksThatContribute = recibosMx - (propios.rows[0]?.contributed_elsewhere ?? 0);
+  if (paychecksThatContribute > 0 && imssPropio.isZero()) {
     hallazgos.push({
       codigo: 'imss_patronal_en_cero',
       severidad: 'aviso',
       periodo: `${c.period_start} a ${c.period_end}`,
       mensaje:
-        `La corrida tiene ${recibosMx} recibo(s) mexicanos y el IMSS patronal suma cero. ` +
+        `La corrida tiene ${paychecksThatContribute} recibo(s) mexicanos y el IMSS patronal suma cero. ` +
         'Revisa el SBC de esos trabajadores: sin él no hay cuota que acumular y el costo ' +
         'laboral de la corrida queda corto.',
     });

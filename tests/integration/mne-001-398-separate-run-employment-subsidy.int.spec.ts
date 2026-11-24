@@ -162,12 +162,15 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
       expect(rows[0].calculation_notes).toMatch(/264\.30/);
     });
 
-    it('net pay is gross less the whole ISR and IMSS: no subsidy is added', () => {
+    it('net pay is gross less the whole ISR and nothing else: no subsidy is added, no IMSS is taken twice', () => {
+      // MNE-001-658 (#601): this case used to subtract a second IMSS quota,
+      // whatever it was. The fortnight carries the worker's quota of the
+      // fifteen days and the aguinaldo run of the same period carries none;
+      // the figures by hand are in the spec of MNE-001-658.
+      expect(Number(regular.imss_employee)).toBeGreaterThan(0);
       const p = bonus.paycheck;
-      const expected = new Decimal(p.gross_earnings)
-        .minus(p.isr_withheld)
-        .minus(p.imss_employee)
-        .minus(p.infonavit_withheld);
+      expect([p.imss_employee, p.infonavit_withheld]).toEqual(['0.00', '0.00']);
+      const expected = new Decimal(p.gross_earnings).minus(p.isr_withheld);
       expect(new Decimal(p.net_pay).toFixed(2)).toBe(expected.toFixed(2));
     });
 
