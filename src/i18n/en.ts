@@ -2650,6 +2650,9 @@ export const EN = {
   // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
   'receipt.cause.not_reversed':
     'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.balance_transfer':
+    'The receipt {number} is a transfer of customer credit: it moved no money, so its reversal has no cause to state. Nothing was written.',
+  'receipt.cause.none_for_transfer': 'none: a transfer of customer credit moved no money',
   'receipt.cause.already_stated':
     'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
   'receipt.cause.reason_required':

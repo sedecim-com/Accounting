@@ -1398,7 +1398,12 @@ async function receiptEventDate(
         AND ((source_id = $2
               AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing'))
           OR (source_type = '${CUSTOMER_CREDIT_TRANSFER_SOURCE}' AND source_id IN (
-                SELECT t.id FROM customer_payments t WHERE t.entity_id = $1 AND t.transferred_from_payment_id = $2)))`,
+                SELECT t.id FROM customer_payments t WHERE t.entity_id = $1 AND t.transferred_from_payment_id = $2))
+          -- MNE-001-499: so is its mirror, which gave the credit back on its own day.
+          OR reverses_entry_id IN (
+                SELECT o.id FROM journal_entries o
+                  JOIN customer_payments t ON t.id = o.source_id AND t.entity_id = $1 AND t.transferred_from_payment_id = $2
+                 WHERE o.entity_id = $1 AND o.source_type = '${CUSTOMER_CREDIT_TRANSFER_SOURCE}'))`,
     [entityId, receipt.id]
   );
   const recorded = toCalendarDate(receipt.payment_date);
@@ -1510,15 +1515,16 @@ async function remanenteDe(client: pg.PoolClient, entityId: string, paymentId: s
 }
 
 /**
- * MNE-001-499 · When a receipt's money was received, for the advance it carries: a transfer row takes the
- * day of its source (the cashing day, for a check). One indexed read, and only for a transfer row.
+ * MNE-001-499 · When a receipt's money was received, for the advance it carries: a treated transfer row
+ * takes the day of its source (the cashing day, for a check). One indexed read, and only for such a row.
  */
 async function receivedAs(
   client: pg.PoolClient,
   entityId: string,
   receipt: PagoVivo
 ): Promise<Pick<PagoVivo, 'payment_method' | 'payment_date' | 'check_cashed_date'>> {
-  if (receipt.payment_method !== BALANCE_TRANSFER_METHOD) return receipt;
+  // An untreated TRF carries only its own kept pool, caused on its own applications: its own day.
+  if (receipt.payment_method !== BALANCE_TRANSFER_METHOD || receipt.advance_base_amount === null) return receipt;
   const r = await client.query<Pick<PagoVivo, 'payment_method' | 'payment_date' | 'check_cashed_date'>>(
     `SELECT s.payment_method, s.payment_date, s.check_cashed_date::text AS check_cashed_date
        FROM customer_payments t JOIN customer_payments s ON s.id = t.transferred_from_payment_id AND s.entity_id = t.entity_id
@@ -2632,8 +2638,10 @@ export async function listCustomerPayments(
     // MNE-001-421: a receipt that is all advance owes the advance CFDI the client issues, never a REP.
     where.push(`(cp.advance_base_amount IS NULL OR cp.advance_base_amount + cp.advance_iva_amount <> cp.payment_amount)`);
     // MNE-001-594: a transfer of customer credit received no payment, so no REP documents it.
+    // MNE-001-499: once it settles an invoice, that extinction is the payment a REP documents (LIVA art. 1o.-B).
     params.push(BALANCE_TRANSFER_METHOD);
-    where.push(`cp.payment_method <> $${params.length}`);
+    where.push(`(cp.payment_method <> $${params.length} OR EXISTS (
+      SELECT 1 FROM payment_allocations nr_pa WHERE nr_pa.payment_id = cp.id AND nr_pa.unapplied_at IS NULL))`);
   }
   if (filtro.unapplied) {
     where.push(`cp.status = 'completed' AND ${cashOnAccountSql('cp')} > 0`);
@@ -2981,16 +2989,20 @@ async function reverseCreditTransfer(
       !new Decimal(advance?.iva ?? 0).equals(row.advance_iva_amount ?? 0);
   if (carries) throw new ValidationError({ key: 'receipt.reverse.transfer_carries_caused', params: { receipt } });
 
-  const original = await client.query<{ entry_number: string }>(
-    'SELECT entry_number FROM journal_entries WHERE id = $1 AND entity_id = $2', [row.journal_entry_id, entityId]
+  // Dated today in the entity's zone, the floor `receiptEventDate` reads for the source's next event.
+  const original = (await client.query<JournalEntry>(
+    'SELECT * FROM journal_entries WHERE id = $1 AND entity_id = $2 FOR UPDATE', [row.journal_entry_id, entityId]
+  )).rows[0];
+  const today = await todayFor({ tenantId: await tenantDe(client, entityId), entityId }, { client });
+  const reversal = await reverseWithinTransaction(
+    client, original, userId, `Reversal of ${original.entry_number}: ${args.reason}`, today
   );
-  const { reversal } = await voidJournalEntryInTx(client, row.journal_entry_id as string, userId, args.reason);
   const written = await client.query(
-    `UPDATE customer_payments SET status = 'reversed', reversed_at = NOW()
+    `UPDATE customer_payments SET reversed_at = NOW(), status = 'reversed'
       WHERE id = $1 AND entity_id = $2 AND status = '${ESTADO}' AND payment_method = '${BALANCE_TRANSFER_METHOD}'`,
     [row.id, entityId]
   );
-  if (written.rowCount !== 1 || reversal === null) {
+  if (written.rowCount !== 1) {
     throw new AccountingError('REVERSE_RACE', `${receipt} changed while it was being reversed; nothing was written.`);
   }
   await registrarAuditoria(client, {
@@ -3006,7 +3018,7 @@ async function reverseCreditTransfer(
   });
   return {
     paymentId: row.id, paymentNumber: receipt,
-    reversals: [{ entryNumber: reversal.entry_number, of: original.rows[0].entry_number }],
+    reversals: [{ entryNumber: reversal.entry_number, of: original.entry_number }],
     attestations: [{ entityId, entryId: reversal.id }],
     documentosReabiertos: [], cause: null, causeDefaulted: false, warnings: [],
   };
@@ -3055,6 +3067,10 @@ export async function stateReversalCause(
     );
     if (found.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
     const row = found.rows[0];
+    // MNE-001-499: a transfer of customer credit moved no money, so its reversal has no cause to state.
+    if (row.payment_method === BALANCE_TRANSFER_METHOD) {
+      throw new ValidationError({ key: 'receipt.cause.balance_transfer', params: { number: row.payment_number } });
+    }
     if (row.status !== 'reversed') {
       throw new ValidationError({
         key: 'receipt.cause.not_reversed', params: { number: row.payment_number, status: row.status },

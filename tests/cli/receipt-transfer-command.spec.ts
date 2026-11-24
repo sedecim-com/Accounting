@@ -216,3 +216,30 @@ describe('receipt transfer record refuses before reading, and hands the transfer
     });
   });
 });
+
+describe('receipt show of a reversed transfer (MNE-001-499, #937 B2)', () => {
+  it('says it has no cause to state instead of «not stated»', async () => {
+    const { getCustomerPayment } = await import('../../src/services/payments/payment-service.js');
+    vi.mocked(getCustomerPayment).mockResolvedValueOnce({
+      id: 'cp-trf', payment_number: 'TRF-2026-00001', customer_id: 'cus-b', customer_name: 'Cliente Cesionario SA',
+      payment_amount: '1160.00', currency_code: 'MXN', payment_date: new Date('2026-06-15T12:00:00Z'),
+      payment_method: 'balance_transfer', reference_number: null, status: 'reversed', journal_entry_number: 'JE-2026-00007',
+      cfdi_uuid: null, cfdi_pago_indice: null, reversed_at: new Date('2026-06-20T12:00:00Z'),
+      reversal_cause: null, reversal_cause_stated_at: null, unapplied_amount: '0.00',
+      advance_base: null, advance_tax_rate: null, advance_iva: null, check_cashed_date: null, check_cashed_tx_id: null,
+      aplicaciones: [],
+    } as unknown as Awaited<ReturnType<typeof getCustomerPayment>>);
+    const p = new Command('mnemosine').exitOverride();
+    resetDeclarations();
+    registerReceiptCommand(p, deps);
+    let out = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => { out += String(chunk); return true; });
+    try {
+      await p.parseAsync(['node', 'mnemosine', 'receipt', 'show', 'TRF-2026-00001', '--entity', 'ent-1']);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(out).toContain(t('receipt.cause.none_for_transfer', {}, 'en'));
+    expect(out).not.toContain('not stated');
+  });
+});

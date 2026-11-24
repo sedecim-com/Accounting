@@ -12,6 +12,8 @@ import {
   reverseCustomerPayment,
   getCustomerPayment,
   transferCustomerCredit,
+  stateReversalCause,
+  listCustomerPayments,
 } from '../../src/services/payments/payment-service.js';
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { buildProvisionalIncomeTaxWorkpaper } from '../../src/services/fiscal/provisional-income-tax.js';
@@ -391,7 +393,12 @@ describe('S5 · a treated TRF reversed gives A its whole advance back', () => {
     await reverseCustomerPayment(f.entityId, t.transferId, { reason: 'agreement cancelled' }, f.userId);
     expect(await onAccountOf(f, advance.paymentId)).toBe('1160.00');
     const invoiceA = await invoice(f, customerA, '2026-06-01', 'PPD');
-    const r = await apply(f, advance.paymentId, invoiceA.id, '1160.00', '2026-06-20');
+    // The credit came back on the mirror's day (B1 of #937), so A applies it from then on.
+    const mirror = (await query<{ d: string }>(
+      `SELECT to_char(m.entry_date, 'YYYY-MM-DD') AS d FROM journal_entries o JOIN journal_entries m ON m.id = o.reversed_by_entry_id
+        WHERE o.id = $1`, [t.journalEntry.id]
+    )).rows[0].d;
+    const r = await apply(f, advance.paymentId, invoiceA.id, '1160.00', mirror);
     expect(r.documentos[0]).toMatchObject({ advanceIva: '160.00' });
     const june = await paper(f, 6);
     expect(ivaOf(june, [t.transferId])).toBe('0.00');
@@ -425,4 +432,60 @@ describe('S7 · B\'s invoice with IEPS: 2180 and 2120 end where one collection p
     expect(await since(f, before)).toEqual(collected);
     await expectLedgerFoots(f);
   }, 240_000);
+});
+
+describe('review of #937 · B1, B2, N1, N2', () => {
+  it('B1 · after its TRF is reversed, A cannot apply the returned credit before the mirror\'s day', async () => {
+    const source = await unappliedReceipt(f, customerA);
+    const t = await transfer(f, source.id, customerB, '1160.00');
+    await reverseCustomerPayment(f.entityId, t.transferId, { reason: 'agreement cancelled' }, f.userId);
+    const mirror = (await query<{ d: string }>(
+      `SELECT to_char(m.entry_date, 'YYYY-MM-DD') AS d FROM journal_entries o JOIN journal_entries m ON m.id = o.reversed_by_entry_id
+        WHERE o.id = $1`, [t.journalEntry.id]
+    )).rows[0].d;
+    const invoiceA = await invoice(f, customerA, '2026-06-01', 'PPD');
+    const e = await refusal(apply(f, source.id, invoiceA.id, '1160.00', '2026-06-20'));
+    expect(e.messageKey?.key).toBe('receipt.apply.date_before_last_event');
+    expect(e.message).toContain(mirror);
+    expect(await onAccountOf(f, source.id)).toBe('1160.00');
+  }, 180_000);
+
+  it('B2 · a reversed TRF takes no cause afterwards: it moved no money', async () => {
+    const source = await unappliedReceipt(f, customerA);
+    const t = await transfer(f, source.id, customerB, '1160.00');
+    await reverseCustomerPayment(f.entityId, t.transferId, { reason: 'agreement cancelled' }, f.userId);
+    const e = await refusal(stateReversalCause(f.entityId, t.transferId, { cause: 'not_collected', reason: 'x' }, f.userId));
+    expect(e.messageKey?.key).toBe('receipt.cause.balance_transfer');
+    expect(e.message).toContain(t.transferNumber);
+    const row = (await query<{ cause: string | null }>(
+      'SELECT reversal_cause AS cause FROM customer_payments WHERE id = $1', [t.transferId]
+    )).rows[0];
+    expect(row.cause).toBeNull();
+  }, 180_000);
+
+  it('N1 · --needs-rep lists a TRF applied to a stamped PPD invoice, as rep missing list does, and not one unapplied', async () => {
+    const source = await unappliedReceipt(f, customerA);
+    const applied = await transfer(f, source.id, customerB, '600.00');
+    const idle = await transfer(f, source.id, customerB, '560.00');
+    const ppd = await invoice(f, customerB, '2026-06-01', 'PPD');
+    await stamp(ppd.id);
+    await apply(f, applied.transferId, ppd.id, '600.00', '2026-06-20');
+    const listed = (await listCustomerPayments(f.entityId, { needsRep: true, limit: 500 })).rows.map((r) => r.payment_number);
+    const awaiting = (await listPaymentsAwaitingRep(query, f.entityId)).awaiting.map((p) => p.payment_number);
+    expect(awaiting).toContain(applied.transferNumber);
+    expect(listed).toContain(applied.transferNumber);
+    expect(listed).not.toContain(idle.transferNumber);
+  }, 180_000);
+
+  it('N2 · an untreated TRF\'s own kept pool was received on its own day, not its source\'s', async () => {
+    const source = await unappliedReceipt(f, customerA);
+    const t = await transfer(f, source.id, customerB, '1160.00');
+    const ppd = await invoice(f, customerB, '2026-06-01', 'PPD');
+    const pue = await invoice(f, customerB, '2026-06-10', 'PUE');
+    await apply(f, t.transferId, ppd.id, '1160.00', '2026-06-20');
+    await unapplyCustomerPayment(f.entityId, t.transferId, { invoiceId: ppd.id, reason: 'wrong invoice', date: '2026-06-21' }, f.userId);
+    // The pool's IVA (160.00) was caused in June, on B's application; the PUE of 06-10 caused its own in June too.
+    const r = await apply(f, t.transferId, pue.id, '1160.00', '2026-07-03');
+    expect(r.documentos[0]).toMatchObject({ advanceIvaTwiceIn: '2026-06' });
+  }, 180_000);
 });

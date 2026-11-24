@@ -2489,6 +2489,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
   'receipt.cause.not_reversed':
     'El cobro {number} está en «{status}»: la causa sólo se declara para un cobro reversado. No se escribió nada.',
+  'receipt.cause.balance_transfer':
+    'El cobro {number} es un traspaso de crédito de un cliente: no movió dinero, así que su reversa no tiene causa que declarar. No se escribió nada.',
+  'receipt.cause.none_for_transfer': 'ninguna: un traspaso de crédito de un cliente no movió dinero',
   'receipt.cause.already_stated':
     'El cobro {number} ya tiene su causa, {cause}, declarada el {stated_at}: una causa declarada no se sobrescribe. No se escribió nada.',
   'receipt.cause.reason_required':

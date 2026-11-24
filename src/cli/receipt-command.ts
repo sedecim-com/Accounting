@@ -665,7 +665,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       );
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
-        fact('Reversal cause', cobro.reversal_cause ?? 'not stated');
+        // MNE-001-499: a transfer moved no money, so it has no cause to state.
+        fact('Reversal cause', cobro.payment_method === 'balance_transfer'
+          ? t('receipt.cause.none_for_transfer') : (cobro.reversal_cause ?? 'not stated'));
         // Later than the reversal when the cause was stated afterwards (MNE-001-511).
         if (cobro.reversal_cause_stated_at) fact('Cause stated', new Date(cobro.reversal_cause_stated_at).toISOString());
       }
