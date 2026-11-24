@@ -183,10 +183,33 @@ describe('porcionDelDocumento', () => {
     });
     expect(mitad).toBe('40.0000');
   });
+
+  it('a stretch that undid more than it applied gives back, negative, what the applying one put in (MNE-001-682)', () => {
+    // 580.00 of 1,160.00 carries 1,000.00 × 580 / 1,160 = 500.00; undone, the same 500.00 leaves.
+    const half = { aplicadoPrevio: '0', aplicadoAhora: '580.0000', totalDocumento: '1160.0000' };
+    const undone = { aplicadoPrevio: '580.0000', aplicadoAhora: '-580.0000', totalDocumento: '1160.0000' };
+    expect([porcionDelDocumento('1000.0000', half), porcionDelDocumento('1000.0000', undone)]).toEqual(['500.0000', '-500.0000']);
+  });
 });
 
 describe('desglosarDocumento', () => {
   const doc = { documentId: 'b1', documentNumber: 'BILL-001' };
+
+  it('splits a month that took the bill out with the sign on every box, and no signed zero (MNE-001-682)', () => {
+    const r = desglosarDocumento({
+      ...doc,
+      renglones: [
+        renglon({ tasa: '16.00', importe: '1000.0000', iva: '160.0000' }),
+        renglon({ tasa: '0.00', importe: '500.0000', iva: '0.0000' }),
+      ],
+      ivaCabecera: '160.0000',
+      ivaPagado: '-160.0000',
+      porcion: { aplicadoPrevio: '1660.0000', aplicadoAhora: '-1660.0000', totalDocumento: '1660.0000' },
+      politicaBaseExenta: 'exigir_base',
+    });
+    expect(r.desglose.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
+    expect(r.desglose.tasa0).toEqual({ base: '-500.0000', iva: '0.0000' });
+  });
 
   it('reparte el 16 %, el 0 % y lo exento en tres casillas distintas', () => {
     const r = desglosarDocumento({

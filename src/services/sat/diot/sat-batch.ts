@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { sumarDesgloses, DECIMALES_DIOT } from './desglose.js';
+import { baseDelDesglose, sumarDesgloses, DECIMALES_DIOT } from './desglose.js';
 import type { DiotConstruida, RenglonDiot } from './modelo.js';
 import { RFC_GENERICO_EXTRANJERO, RFC_GENERICO_NACIONAL } from './rfc.js';
 import { OPERATIONS_BY_PARTY_TYPE } from './tercero.js';
@@ -99,9 +99,10 @@ export const LAYOUT_ANSWERS: readonly LayoutAnswer[] = Object.freeze([
       'it. The §3.6 example fills 16 %, border and import boxes on a single line. For the same ' +
       'reason one key (third-party type, operation type, RFC or foreign tax id) is one record: ' +
       'vendor records that share it — every global (15) supplier, or two records with one RFC — ' +
-      'are added up before rounding. A negative net (returns larger than purchases) is refused: ' +
-      'it belongs in the §3.2 "devoluciones, descuentos y bonificaciones" fields, which this file ' +
-      'does not fill yet.',
+      'are added up before rounding, a document of the month with negative amounts included (a ' +
+      'vendor payment unapplied or reversed, MNE-001-682). A negative net is refused, once per ' +
+      'third party: the amounts carry no sign, and returns belong in the §3.2 "devoluciones, ' +
+      'descuentos y bonificaciones" fields, which this file does not fill yet.',
     section: '§3.2, §3.6',
   },
 ]);
@@ -240,16 +241,13 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     f[2] = t.tipoTercero === '15' ? RFC_GENERICO_NACIONAL : (t.rfc ?? '');
   }
 
+  /** The fields whose net of the month is negative: refused once, together, at the end. */
+  const negative: string[] = [];
   const amount = (i: number, value: string, keepZero = false): void => {
     if (!keepZero && new Decimal(value).isZero()) return;
     const units = toWholeUnits(value);
     if (units.startsWith('-')) {
-      refuse(
-        `${who}: el neto del mes es negativo (${value}, campo ${i + 1}): las devoluciones, ` +
-          `descuentos y bonificaciones superan a las compras. El layout los declara en sus ` +
-          `propios campos de §3.2 ("devoluciones, descuentos y bonificaciones"), que este ` +
-          `archivo todavía no llena; captúralo en el portal.`
-      );
+      negative.push(`campo ${i + 1}: ${value}`);
     } else if (units.length > MAX_DIGITS) {
       refuse(`${who}: el importe ${value} no cabe en un campo numérico de ${MAX_DIGITS} posiciones.`);
     }
@@ -265,6 +263,8 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     amount(valueIndex, base);
     if (f[valueIndex] !== '' && new Decimal(f[valueIndex]).greaterThan(0)) {
       amount(ivaIndex, iva, true);
+    } else if (f[valueIndex].startsWith('-')) {
+      amount(ivaIndex, iva);
     } else if (toWholeUnits(iva) !== '0') {
       refuse(
         `${who}: tiene IVA de ${iva} (campo ${ivaIndex + 1}) sin un valor de los actos mayor a ` +
@@ -310,6 +310,16 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     amount(50, d.tasa0.base);
   }
   amount(47, r.ivaRetenido);
+  if (negative.length > 0) {
+    // MNE-001-682: the documents the month took out, which is what a vendor payment undone in it leaves.
+    const undone = r.documentos.filter((x) => new Decimal(x.ivaPagado).isNegative() || new Decimal(baseDelDesglose(x.desglose)).isNegative());
+    refuse(
+      `${who}: el neto del mes es negativo (${negative.join('; ')}): lo que el mes deshizo o devolvió supera a lo ` +
+        `que pagó. Gastos de un pago desaplicado o reversado en el mes: ${undone.map((x) => x.billNumber).join(', ') || 'ninguno'}. ` +
+        `El layout no admite importes negativos y declara las devoluciones, descuentos y bonificaciones en sus ` +
+        `propios campos de §3.2, que este archivo todavía no llena; captúralo en el portal.`
+    );
+  }
   // The IVA was credited in the ledger, so the CFDIs were given tax effects.
   f[53] = '01';
   return f;
