@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { helpKeyOf } from '../../src/cli/kernel/help.js';
+import { riskOf } from '../../src/cli/kernel/risk.js';
 import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import type { MessageParams, TranslationKey } from '../../src/i18n/index.js';
 import {
@@ -53,6 +54,11 @@ describe('close and control families, help by key (#314, MNE-001-092)', () => {
     ['closing pack generate', 'help.closing.pack.generate.option.output'],
     ['closing pack verify', 'help.closing.pack.verify.argument.file'],
     ['year create', 'help.year.create.argument.year'],
+    ['year carry-forward', 'help.year.carry_forward.description'],
+    ['year carry-forward run', 'help.year.carry_forward.run.description'],
+    ['year carry-forward run', 'help.year.carry_forward.run.argument.year'],
+    ['year carry-forward run', 'help.year.carry_forward.run.option.dry_run'],
+    ['year carry-forward run', 'help.year.carry_forward.run.option.json'],
     ['chart import', 'help.chart.import.option.partial'],
     ['opening-balance import', 'help.opening_balance.import.option.subledger'],
     ['opening-balance import', 'help.opening_balance.import.option.chart'],
@@ -73,6 +79,25 @@ describe('close and control families, help by key (#314, MNE-001-092)', () => {
     expect(keys['--entity']).toBe('cli.flag.entity');
     expect(keys['--tenant']).toBe('cli.flag.tenant_scope');
     expect(keys['--user']).toBe('cli.flag.user');
+  });
+
+  it('year carry-forward run (MNE-001-645) is a write the agent cannot call, with no idempotency key, and its examples follow the language', () => {
+    const leaf = node('year carry-forward run');
+    expect(riskOf(leaf)).toMatchObject({ risk: 'escritura', agentAllowed: false });
+    expect(node('year carry-forward').alias()).toBe('arrastre');
+    expect(leaf.alias()).toBe('ejecutar');
+    // Idempotent by its domain, as `year create` and `period open`: a retry finds the balances right.
+    expect(leaf.options.map((o) => o.long)).not.toContain('--idempotency-key');
+    const helpIn = (language: 'en' | 'es'): string => {
+      setLanguage(language);
+      let text = '';
+      leaf.configureOutput({ writeOut: (chunk) => { text += chunk; } });
+      leaf.outputHelp();
+      return text;
+    };
+    expect(helpIn('en')).toContain('mnemosine year carry-forward run 2028 --dry-run');
+    expect(helpIn('en')).toContain('Examples:');
+    expect(helpIn('es')).toContain('Ejemplos:');
   });
 
   it('the Spanish DIOT family description keeps "de México" and the infinitive style of its siblings', () => {

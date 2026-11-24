@@ -96,6 +96,15 @@ export const EN = {
   'error.INVALID_STATUS': "A period is restored only to 'soft_close' or 'hard_close'; '{status}' was asked for.",
   'error.PERIOD_NOT_OPEN.restore': 'Period {period} could not be restored: it was no longer open.',
   'error.TENANT_NO_RESUELTO.period': 'The tenant of {entity} could not be determined.',
+  // MNE-001-645 (#594): `year carry-forward run`, the carry for a year that already exists.
+  'error.CARRY_SOURCE_NOT_SEALED':
+    "{previous} is '{status}': the year before {year} is not sealed, so there is nothing to carry yet. Its hard close will carry into {period}.",
+  'error.CARRY_SOURCE_MISSING':
+    'Fiscal year {year} is the first one of these books: there is no period before {period} to carry from. A first year opens with: mnemosine opening-balance import',
+  'error.CARRY_TARGET_SEALED.locked':
+    "{period} is 'locked': its figures already left the system and its opening balances are not rewritten.",
+  'error.CARRY_TARGET_SEALED.hard_close':
+    "{period} is 'hard_close' and {count, plural, one {# of its opening balances differs} other {# of its opening balances differ}} from the closing balances of {previous}. A closed period does not change without being reopened: mnemosine period reopen \"{period}\" --force --reason <text>, run this again, then close it and seal it (mnemosine close --period \"{period}\", and again with --hard), which redoes the carry of the months after it.",
   // iva-cash-basis.ts
   'error.IVA_ROLE_UNRESOLVED.no_line':
     'The CFDI taxonomy defines no VAT line for ({side}, {method}). Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.',
@@ -4983,6 +4992,16 @@ export const EN = {
   'ledger.period.year.carried':
     '  Opening balances carried from {period}: {count, plural, one {# account} other {# accounts}}',
   'ledger.period.year.open_hint': '  Open a future month with: mnemosine period open <name>',
+  /** `year carry-forward run` (MNE-001-645, #594). `period` arrives in bold in `corrected`. */
+  'ledger.period.year.carry.corrected':
+    'Opening balances of {period} corrected from {source}: {count, plural, one {# account} other {# accounts}}',
+  'ledger.period.year.carry.corrected_detail':
+    '  No entry was created or edited; the correction is in the audit trail, by {email}.',
+  'ledger.period.year.carry.would_correct':
+    'Would correct the opening balances of {period} from {source}: {count, plural, one {# account} other {# accounts}}',
+  'ledger.period.year.carry.dry_run': '  Dry run: the carry really ran and was rolled back; nothing was written.',
+  'ledger.period.year.carry.unchanged':
+    'The opening balances of {period} already are the closing balances of {source}: nothing to correct, and nothing was written.',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
@@ -5377,6 +5396,20 @@ export const EN = {
   'help.year.create.argument.year': 'four-digit year, e.g. 2027',
   'help.year.create.option.dry_run': 'show the calendar that would be created; write nothing',
   'help.year.create.option.json': 'JSON output',
+  // MNE-001-645 (#594): the carry for a year that was created without opening balances.
+  'help.year.carry_forward.description': 'The carry-forward of balances into a fiscal year',
+  'help.year.carry_forward.run.description':
+    'Carry the closing balances of the sealed year before it into the first period of a fiscal year that was created without them; a second run changes nothing',
+  'help.year.carry_forward.run.argument.year': 'the fiscal year that receives the opening balances, e.g. 2028',
+  'help.year.carry_forward.run.option.dry_run':
+    'run the carry and roll it back: show each opening balance it would correct; write nothing',
+  'help.year.carry_forward.run.option.json': 'JSON output',
+  'help.year.carry_forward.run.examples':
+    '\nExamples:\n' +
+    '  2027 was sealed before 2028 existed, and January 2028 opens at zero; see what would be corrected:\n' +
+    '    mnemosine year carry-forward run 2028 --dry-run\n' +
+    '  Correct it. No entry is created or edited, and running it again changes nothing:\n' +
+    '    mnemosine year carry-forward run 2028\n',
   'help.chart.description': 'Chart of accounts: bring a firm catalog in',
   'help.chart.import.description': 'Import an Anexo 24 CatalogoCuentas XML, keeping the firm codes and hierarchy',
   'help.chart.import.option.partial': 'write even if some rows are left out (default: all or nothing)',

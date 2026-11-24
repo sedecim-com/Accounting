@@ -69,6 +69,7 @@ vi.mock('../../src/services/accounting/fiscal-calendar-service.js', async (origi
   listFiscalYears: vi.fn(async () => []),
   getFiscalYear: vi.fn(),
   createFiscalYear: vi.fn(async () => ({ yearNumber: 2027, fiscalYearId: 'Y1', periods: 13 })),
+  carryForwardIntoYear: vi.fn(),
 }));
 const keyStore = { repetido: false, resultado: undefined as unknown };
 vi.mock('../../src/services/idempotency/idempotency-store.js', async (original) => ({
@@ -95,6 +96,7 @@ import { registerEntryCommand } from '../../src/cli/entry-command.js';
 import { registerPeriodCommand, registerYearCommand, reopenRemedy } from '../../src/cli/period-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
+import { AccountingError } from '../../src/utils/errors.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
 import { verTipo } from '../../src/services/fx/rate-service.js';
 import { listStaleDrafts, runLedgerChecks } from '../../src/services/accounting/ledger-checks.js';
@@ -103,6 +105,7 @@ import { getAccountBalanceByPeriod } from '../../src/services/accounting/account
 import { listEntriesWithLines, previewEntryPosting } from '../../src/services/accounting/journal-entry-service.js';
 import { parseImportFile, stageEntryImport } from '../../src/services/accounting/entry-import-service.js';
 import {
+  carryForwardIntoYear,
   createFiscalYear,
   getFiscalYear,
   getPeriodDetail,
@@ -200,6 +203,22 @@ const bornOnSealedBooks = (accounts: number) => () => {
     },
   } as never);
 };
+
+/** `year carry-forward run 2028`: what the carry corrected in the year's first period (#594). */
+const carried = (codes: string[], written: boolean) => () => {
+  vi.mocked(carryForwardIntoYear).mockResolvedValueOnce({
+    year_number: 2028,
+    period: { id: 'P1', period_name: 'January 2028', status: 'open' },
+    carried_from: 'Year-end adjustments 2027',
+    corrections: codes.map((code) => ({ code, before: '0.0000', after: '10000.0000' })),
+    written,
+  } as never);
+};
+const carryRefused = (code: string, key: string, params: Record<string, unknown>) => () => {
+  vi.mocked(carryForwardIntoYear).mockRejectedValueOnce(new AccountingError(code, { key, params } as never));
+};
+const CARRY = ['year', 'carry-forward', 'run', '2028'];
+const CARRY_NAMES = { period: 'January 2028', previous: 'Year-end adjustments 2027', year: 2028 };
 
 type Where = 'error' | 'out' | 'err';
 type Case = {
@@ -506,6 +525,44 @@ const CASES: Case[] = [
     en: 'Year-end adjustments 2026: 1 account\n', es: 'Year-end adjustments 2026: 1 cuenta\n' },
   { key: 'ledger.period.year.open_hint', argv: ['year', 'create', '2027'], where: 'out',
     en: '  Open a future month with: mnemosine period open <name>\n', es: '  Abre un mes futuro con: mnemosine period open <nombre>\n' },
+
+  // ---- year carry-forward run (MNE-001-645, #594) ----
+  { key: 'ledger.period.year.carry.corrected', argv: CARRY, where: 'out', setup: carried(['1111', '2140', '3300'], true),
+    en: '✔ Opening balances of January 2028 corrected from Year-end adjustments 2027: 3 accounts\n',
+    es: '✔ Saldos iniciales de January 2028 corregidos desde Year-end adjustments 2027: 3 cuentas\n' },
+  { key: 'ledger.period.year.carry.corrected', argv: CARRY, where: 'out', setup: carried(['1111'], true),
+    en: 'Year-end adjustments 2027: 1 account\n', es: 'Year-end adjustments 2027: 1 cuenta\n' },
+  { key: 'ledger.period.year.carry.corrected_detail', argv: CARRY, where: 'out', setup: carried(['1111'], true),
+    en: '  No entry was created or edited; the correction is in the audit trail, by contador@example.test.\n',
+    es: '  No se creó ni se editó ninguna póliza; la corrección queda en el rastro de auditoría, por contador@example.test.\n' },
+  { key: 'ledger.period.year.carry.would_correct', argv: [...CARRY, '--dry-run'], where: 'out', setup: carried(['1111', '2140'], false),
+    en: '\nWould correct the opening balances of January 2028 from Year-end adjustments 2027: 2 accounts\n',
+    es: '\nCorregiría los saldos iniciales de January 2028 desde Year-end adjustments 2027: 2 cuentas\n' },
+  { key: 'ledger.period.year.carry.dry_run', argv: [...CARRY, '--dry-run'], where: 'out', setup: carried(['1111'], false),
+    en: '  Dry run: the carry really ran and was rolled back; nothing was written.\n',
+    es: '  Ensayo: el arrastre sí corrió y se deshizo; no se escribió nada.\n' },
+  { key: 'ledger.period.year.carry.unchanged', argv: CARRY, where: 'out', setup: carried([], false),
+    en: 'The opening balances of January 2028 already are the closing balances of Year-end adjustments 2027: nothing to correct, and nothing was written.\n',
+    es: 'Los saldos iniciales de January 2028 ya son los saldos finales de Year-end adjustments 2027: no hay nada que corregir y no se escribió nada.\n' },
+  { key: 'error.CARRY_SOURCE_NOT_SEALED', argv: CARRY, where: 'error',
+    setup: carryRefused('CARRY_SOURCE_NOT_SEALED', 'error.CARRY_SOURCE_NOT_SEALED', { ...CARRY_NAMES, status: 'open' }),
+    en: "Year-end adjustments 2027 is 'open': the year before 2028 is not sealed, so there is nothing to carry yet. Its hard close will carry into January 2028.",
+    es: "Year-end adjustments 2027 está 'open': el ejercicio anterior a 2028 no está sellado, así que todavía no hay nada que arrastrar. Su cierre duro arrastrará a January 2028." },
+  { key: 'error.CARRY_SOURCE_MISSING', argv: CARRY, where: 'error',
+    setup: carryRefused('CARRY_SOURCE_MISSING', 'error.CARRY_SOURCE_MISSING', CARRY_NAMES),
+    en: 'Fiscal year 2028 is the first one of these books: there is no period before January 2028 to carry from. A first year opens with: mnemosine opening-balance import',
+    es: 'El ejercicio 2028 es el primero de estos libros: no hay un periodo anterior a January 2028 del cual arrastrar. Un primer ejercicio abre con: mnemosine opening-balance import' },
+  { key: 'error.CARRY_TARGET_SEALED.locked', argv: CARRY, where: 'error',
+    setup: carryRefused('CARRY_TARGET_SEALED', 'error.CARRY_TARGET_SEALED.locked', CARRY_NAMES),
+    en: "January 2028 is 'locked': its figures already left the system and its opening balances are not rewritten.",
+    es: "January 2028 está 'locked': sus cifras ya salieron del sistema y sus saldos iniciales no se reescriben." },
+  { key: 'error.CARRY_TARGET_SEALED.hard_close', argv: CARRY, where: 'error',
+    setup: carryRefused('CARRY_TARGET_SEALED', 'error.CARRY_TARGET_SEALED.hard_close', { ...CARRY_NAMES, count: 3 }),
+    en: 'January 2028 is \'hard_close\' and 3 of its opening balances differ from the closing balances of Year-end adjustments 2027. A closed period does not change without being reopened: mnemosine period reopen "January 2028" --force --reason <text>, run this again, then close it and seal it (mnemosine close --period "January 2028", and again with --hard), which redoes the carry of the months after it.',
+    es: 'January 2028 está \'hard_close\' y 3 de sus saldos iniciales difieren de los saldos finales de Year-end adjustments 2027. Un periodo cerrado no cambia sin reabrirse: mnemosine period reopen "January 2028" --force --reason <texto>, corre esto otra vez, y luego ciérralo y séllalo (mnemosine close --period "January 2028", y otra vez con --hard), que rehace el arrastre de los meses siguientes.' },
+  { key: 'error.CARRY_TARGET_SEALED.hard_close', argv: CARRY, where: 'error', prefix: true,
+    setup: carryRefused('CARRY_TARGET_SEALED', 'error.CARRY_TARGET_SEALED.hard_close', { ...CARRY_NAMES, count: 1 }),
+    en: "January 2028 is 'hard_close' and 1 of its opening balances differs from", es: "January 2028 está 'hard_close' y 1 de sus saldos iniciales difiere de" },
 ];
 
 describe('I8.9 · fx, ledger, entry, period and year speak by key', () => {
@@ -553,6 +610,64 @@ describe('I8.9 · fx, ledger, entry, period and year speak by key', () => {
     resetLanguage();
     expect(await detailOf('es')).toEqual(en);
     expect(en).toEqual({ fuente: 'fed', editor: 'Federal Reserve H.10' });
+  });
+
+  describe('year carry-forward run (MNE-001-645, #594)', () => {
+    it('runs the repair on the year given, as the reviewer, and lists each account before and after', async () => {
+      const seen = await run({ argv: CARRY, setup: carried(['1111', '2140'], true) }, 'en');
+      expect(carryForwardIntoYear).toHaveBeenCalledWith('E1', 2028, 'U1', { dryRun: false });
+      expect(seen.code).toBe(0);
+      expect(seen.out).toMatch(/account\s+before\s+after/);
+      expect(seen.out).toMatch(/1111\s+0\.0000\s+10000\.0000/);
+      expect(seen.out).toMatch(/2140\s+0\.0000\s+10000\.0000/);
+    });
+
+    it('--dry-run is passed to the service, which rolls its own run back', async () => {
+      const seen = await run({ argv: [...CARRY, '--dry-run'], setup: carried(['1111'], false) }, 'en');
+      expect(carryForwardIntoYear).toHaveBeenCalledWith('E1', 2028, 'U1', { dryRun: true });
+      expect(seen.code).toBe(0);
+      expect(seen.out).toMatch(/1111\s+0\.0000\s+10000\.0000/);
+    });
+
+    it('a second run exits 0 and prints no table: there is nothing to list', async () => {
+      const seen = await run({ argv: CARRY, setup: carried([], false) }, 'en');
+      expect(seen.code).toBe(0);
+      expect(seen.out).not.toMatch(/before/);
+    });
+
+    it.each([
+      ['corrected', ['1111'], true, []],
+      ['would_correct', ['1111'], false, ['--dry-run']],
+      ['unchanged', [], false, []],
+    ] as const)('--json says %s, with the period, its source and each correction', async (status, codes, written, flags) => {
+      const seen = await run({ argv: [...CARRY, ...flags, '--json'], setup: carried([...codes], written) }, 'en');
+      const printed = JSON.parse(seen.out) as { schema: number; count: number; rows: unknown[] };
+      expect(printed).toMatchObject({ schema: 1, count: 1 });
+      expect(printed.rows).toEqual([{
+        year_number: 2028,
+        period: 'January 2028',
+        carried_from: 'Year-end adjustments 2027',
+        status,
+        accounts: codes.length,
+        corrections: codes.map((code) => ({ code, before: '0.0000', after: '10000.0000' })),
+      }]);
+    });
+
+    it.each([
+      ['CARRY_SOURCE_NOT_SEALED', 'error.CARRY_SOURCE_NOT_SEALED', 5],
+      ['CARRY_TARGET_SEALED', 'error.CARRY_TARGET_SEALED.locked', 5],
+      ['CARRY_SOURCE_MISSING', 'error.CARRY_SOURCE_MISSING', 4],
+    ] as const)('%s exits %s… as a state that blocks, or a year with nothing before it', async (code, key, exit) => {
+      const seen = await run({ argv: CARRY, setup: carryRefused(code, key, { ...CARRY_NAMES, status: 'open' }) }, 'en');
+      expect(seen.code).toBe(exit);
+      expect(seen.out).toBe('');
+    });
+
+    it('something that is not a year is a usage error, before any query', async () => {
+      const seen = await run({ argv: ['year', 'carry-forward', 'run', 'dos-mil'] }, 'en');
+      expect(seen.error).toBe('"dos-mil" is not a four-digit year.');
+      expect(carryForwardIntoYear).not.toHaveBeenCalled();
+    });
   });
 
   it('reopenRemedy speaks the active language', () => {

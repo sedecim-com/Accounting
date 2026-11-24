@@ -17,9 +17,10 @@ import {
   getFiscalYear,
   ensureFiscalYear,
   createFiscalYear,
+  carryForwardIntoYear,
 } from '../../../src/services/accounting/fiscal-calendar-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError, ConflictError, AccountingError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -344,5 +345,162 @@ describe('createFiscalYear — the same calendar, but existing is a conflict', (
   it('refuses something that is not a four-digit year, before touching the database', async () => {
     await expect(createFiscalYear(ENTITY, 26)).rejects.toThrow(ValidationError);
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('carryForwardIntoYear — a year created without opening balances is repaired by the same carry (#594)', () => {
+  const JANUARY = { fiscal_year_id: 'fy28', id: 'jan', period_name: 'January 2028', status: 'open' };
+  const P13 = { id: 'p13', period_name: 'Year-end adjustments 2027', status: 'hard_close' };
+  const ZERO = [{ code: '1111', beginning: '0.0000' }];
+  const CARRIED = [{ code: '1111', beginning: '10000.0000' }, { code: '3300', beginning: '-10000.0000' }];
+
+  /** The books: the year's first period, the period before it, and the two readings of its beginnings. */
+  function books(over: {
+    first?: Array<typeof JANUARY>; previous?: Array<typeof P13>; before?: typeof ZERO; after?: typeof ZERO;
+  } = {}) {
+    const first = over.first ?? [JANUARY];
+    const readings = [over.before ?? ZERO, over.after ?? CARRIED];
+    // The cascade: the year's first period, then February, which is open.
+    const next = [
+      { id: 'jan', period_name: 'January 2028', status: first[0]?.status },
+      { id: 'feb', period_name: 'February 2028', status: 'open' },
+    ];
+    client.query.mockImplementation(async (text: string) => {
+      if (/FOR UPDATE OF fp/.test(text)) return { rows: first };
+      if (/FOR SHARE OF fp/.test(text)) return { rows: over.previous ?? [P13] };
+      if (/SELECT a\.code, ab\.beginning_balance/.test(text)) return { rows: readings.shift() };
+      if (/closed\.start_date/.test(text)) return { rows: [next.shift()] };
+      if (/INSERT INTO account_balances/.test(text)) return { rows: [], rowCount: 2 };
+      return { rows: [] };
+    });
+  }
+  const statements = () => client.query.mock.calls.map((call) => String(call[0]).replace(/\s+/g, ' '));
+  const audits = () => statements().filter((text) => /INSERT INTO audit_log/.test(text));
+
+  it('corrects in seven statements, none per account, and leaves its audit row', async () => {
+    books();
+    const result = await carryForwardIntoYear(ENTITY, 2028, USER);
+
+    expect(result).toEqual({
+      year_number: 2028,
+      period: { id: 'jan', period_name: 'January 2028', status: 'open' },
+      carried_from: 'Year-end adjustments 2027',
+      corrections: [
+        { code: '1111', before: '0.0000', after: '10000.0000' },
+        { code: '3300', before: '0.0000', after: '-10000.0000' },
+      ],
+      written: true,
+    });
+    const ran = statements();
+    expect(ran).toHaveLength(7);
+    // The year's first period, by entity and year, locked against its own hard close and a second repair.
+    expect(ran[0]).toMatch(/FROM fiscal_years fy JOIN fiscal_periods fp .*fy\.entity_id = \$1 AND fy\.year_number = \$2 .*LIMIT 1 FOR UPDATE OF fp/);
+    expect(txParams(0)).toEqual([ENTITY, 2028]);
+    // The same reading before and after the carry, bounded by period and entity.
+    expect(ran[1]).toBe(ran[5]);
+    expect(ran[1]).toMatch(/WHERE ab\.fiscal_period_id = \$2 AND ab\.entity_id = \$1/);
+    expect(txParams(1)).toEqual([ENTITY, 'jan']);
+    // The carry is the one `year create` runs: its lookup with its lock, then one set-based statement.
+    expect(ran[2]).toMatch(/FOR SHARE OF fp/);
+    expect(txParams(2)).toEqual([ENTITY, 'fy28']);
+    expect(ran[4]).toMatch(/INSERT INTO account_balances/);
+    expect(txParams(4)).toEqual([ENTITY, 'p13', 'jan']);
+    expect(ran[6]).toMatch(/INSERT INTO audit_log/);
+    const audit = txParams(6) as unknown[];
+    expect(audit.slice(1, 7)).toEqual([USER, 'tenant-1', ENTITY, 'update', 'fiscal_period', 'jan']);
+    expect(JSON.parse(audit[7] as string)).toEqual({ beginning_balances: { '1111': '0.0000', '3300': '0.0000' } });
+    expect(JSON.parse(audit[8] as string)).toEqual({
+      beginning_balances: { '1111': '10000.0000', '3300': '-10000.0000' },
+      carried_from: 'Year-end adjustments 2027',
+      fiscal_year: 2028,
+    });
+  });
+
+  it('a second run finds the balances right: it reports no corrections, rolls back and writes no audit row', async () => {
+    books({ before: CARRIED, after: CARRIED });
+    const result = await carryForwardIntoYear(ENTITY, 2028, USER);
+
+    expect(result).toMatchObject({ corrections: [], written: false });
+    expect(statements()).toHaveLength(6);
+    expect(audits()).toEqual([]);
+  });
+
+  it('a dry run is the same run, rolled back: the corrections, and no audit row', async () => {
+    books();
+    const result = await carryForwardIntoYear(ENTITY, 2028, USER, { dryRun: true });
+
+    expect(result.corrections).toHaveLength(2);
+    expect(result.written).toBe(false);
+    expect(statements()).toHaveLength(6);
+    expect(audits()).toEqual([]);
+  });
+
+  it.each(['open', 'soft_close', 'future'])('refuses when the period before the year is %s, naming it', async (status) => {
+    books({ previous: [{ ...P13, status }] });
+    const err = await carryForwardIntoYear(ENTITY, 2028, USER).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AccountingError);
+    expect(err).toMatchObject({
+      code: 'CARRY_SOURCE_NOT_SEALED',
+      messageKey: {
+        key: 'error.CARRY_SOURCE_NOT_SEALED',
+        params: { previous: 'Year-end adjustments 2027', status, year: 2028, period: 'January 2028' },
+      },
+    });
+    expect(statements()).toHaveLength(3);
+    expect(audits()).toEqual([]);
+  });
+
+  it('refuses the first year of the books: nothing comes before it', async () => {
+    books({ previous: [] });
+    const err = await carryForwardIntoYear(ENTITY, 2028, USER).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({
+      code: 'CARRY_SOURCE_MISSING',
+      messageKey: { key: 'error.CARRY_SOURCE_MISSING', params: { year: 2028, period: 'January 2028' } },
+    });
+    expect(audits()).toEqual([]);
+  });
+
+  it('refuses a locked first period at once: the carry never writes one', async () => {
+    books({ first: [{ ...JANUARY, status: 'locked' }] });
+    const err = await carryForwardIntoYear(ENTITY, 2028, USER).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({
+      code: 'CARRY_TARGET_SEALED',
+      messageKey: { key: 'error.CARRY_TARGET_SEALED.locked', params: { period: 'January 2028' } },
+    });
+    expect(statements()).toHaveLength(1);
+  });
+
+  it('refuses a hard-closed first period whose openings differ, with the count, on a dry run too', async () => {
+    for (const dryRun of [false, true]) {
+      client.query.mockReset();
+      books({ first: [{ ...JANUARY, status: 'hard_close' }] });
+      const err = await carryForwardIntoYear(ENTITY, 2028, USER, { dryRun }).catch((e: unknown) => e);
+
+      expect(err).toMatchObject({
+        code: 'CARRY_TARGET_SEALED',
+        messageKey: {
+          key: 'error.CARRY_TARGET_SEALED.hard_close',
+          params: { period: 'January 2028', previous: 'Year-end adjustments 2027', count: 2 },
+        },
+      });
+      expect(audits()).toEqual([]);
+    }
+  });
+
+  it('a hard-closed first period whose openings are right is not a refusal: there is nothing to correct', async () => {
+    books({ first: [{ ...JANUARY, status: 'hard_close' }], before: CARRIED, after: CARRIED });
+    const result = await carryForwardIntoYear(ENTITY, 2028, USER);
+
+    expect(result).toMatchObject({ period: { status: 'hard_close' }, corrections: [], written: false });
+    expect(audits()).toEqual([]);
+  });
+
+  it('a year that does not exist is not found, after one statement', async () => {
+    books({ first: [] });
+    await expect(carryForwardIntoYear(ENTITY, 2031, USER)).rejects.toThrow(NotFoundError);
+    expect(statements()).toHaveLength(1);
   });
 });
