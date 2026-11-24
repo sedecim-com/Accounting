@@ -1,9 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { AgentContext } from '../context.js';
 import { buildSystemBlocks } from '../system-prompt.js';
 import { MnemosineAgent } from '../agent.js';
 import { OpenAiCompatSession } from './openai-compat.js';
 import { createOpenAiClient } from './openai-client.js';
+import { createAnthropicClient } from './anthropic-client.js';
 import type { LlmSession, ResolvedProfile, SessionCallbacks } from './types.js';
 import type { CompactionConfig, CompactionResult } from '../compaction.js';
 import type { GroundingOptions } from '../grounding.js';
@@ -122,7 +122,9 @@ export async function createLlmSession(
   if (profile.apiKey) opts.onCredential?.(profile.apiKey);
   let session: LlmSession;
   if (profile.type === 'anthropic') {
-    const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
+    // SECURITY: built in anthropic-client.ts, which `mnemosine status` probes
+    // with too: the profile's key or the SDK's own sources, nothing else.
+    const client = createAnthropicClient(profile);
     session = new MnemosineAgent(client, ctx, systemBlocks, budgeted, profile.model, profile.name, {
       compaction,
       cwd: opts.cwd,

@@ -1086,8 +1086,9 @@ export class NotAProviderCredentialError extends Error {
 
 /**
  * A shared project file asked for something its person has not approved.
- * Not a MissingProviderCredentialError: `ingest` fails loudly on it, and
- * failover does not move past it.
+ * Not a MissingProviderCredentialError: `ingest` fails loudly on it. A
+ * failover walk skips it as `unconfigured`, with nothing run or sent
+ * (MNE-001-447).
  */
 export type ProjectRefusalCode = 'helper_unapproved' | 'helper_never' | 'helper_unbindable' | 'pair_unapproved';
 

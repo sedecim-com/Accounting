@@ -6533,6 +6533,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'Corre en esta carpeta, con el ./.env de la carpeta en su entorno. Un script de este proyecto que nombre queda aprobado por su contenido; un comando que se encuentra por PATH o npx, sólo por su nombre.',
   'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',
   // ==== end of MNE-001-452 ====
+  // ==== MNE-001-447 (#644): a failover walk skips a link with no credential ====
+  'provider.failover.unconfigured':
+    'el proveedor {from} no tiene aquí una credencial que sirva, así que se saltó (`mnemosine status` dice por qué); se prueba {to}',
+  // ==== end of MNE-001-447 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   'cli.lang.offer': 'Para usar Mnemosine en español: mnemosine idioma es',
   'cli.lang.step.title': 'Idioma',
