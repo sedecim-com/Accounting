@@ -11,7 +11,7 @@ import type { CheckResult } from '../../ai/doctor-service.js';
 export type SectionStatus = 'ok' | 'partial' | 'missing';
 
 export type SectionId =
-  | 'infra' | 'identidad' | 'usuarios' | 'ia'
+  | 'idioma' | 'infra' | 'identidad' | 'usuarios' | 'ia'
   | 'fiscal' | 'contabilidad' | 'memoria' | 'politicas' | 'importar';
 
 /** Flags for the non-interactive mode (`init --yes`). */
