@@ -204,6 +204,13 @@ describe('views', () => {
     expect(view[2].text).toContain(UUID);
   });
 
+  it('anthropicView takes a message with no content (SDK 1.x system message) as empty text', () => {
+    // @anthropic-ai/sdk 1.x widened BetaMessageParam with BetaSystemMessageParam,
+    // whose `content` is optional (an effort-only message carries none).
+    const view = anthropicView([{ role: 'user', content: 'hola' }, { role: 'system' }]);
+    expect(view[1]).toEqual({ role: 'user', chars: 0, opensToolUse: false, isToolResult: false, text: '' });
+  });
+
   it('openAiView flags tool roles and tool_calls', () => {
     const view = openAiView([
       { role: 'user', content: 'hola' },

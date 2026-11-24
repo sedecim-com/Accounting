@@ -180,7 +180,7 @@ describe('providerReadiness — every profile of the config that wins', () => {
   });
 });
 
-// MNE-001-444: the sources the installed @anthropic-ai/sdk (0.128.0) reads
+// MNE-001-444: the sources the installed @anthropic-ai/sdk (1.8.0) reads
 // when the profile's own variable and helper give nothing, in its order. Every
 // case runs over a temporary HOME: the config root is built there, and the
 // SDK's own variables are passed in `env`, never read from this machine.
@@ -365,8 +365,22 @@ describe('credentialState — the Anthropic SDK\'s own sources', () => {
     expect(credentialState(anthropic(), { cwd, home, env: all }).source).toMatchObject({ sdk: { via: 'auth_token' } });
     const { ANTHROPIC_AUTH_TOKEN: _t, ...noToken } = all;
     expect(credentialState(anthropic(), { cwd, home, env: noToken }).source).toMatchObject({ sdk: { via: 'custom_header' } });
+    // SDK 1.x (core/credentials.js:108-137): federation from the environment comes
+    // before the active profile, unless ANTHROPIC_PROFILE names one.
     expect(credentialState(anthropic(), { cwd, home, env: { HOME: home, ...federation, ANTHROPIC_IDENTITY_TOKEN: 'fake' } }).source)
-      .toMatchObject({ sdk: { via: 'profile' } });
+      .toMatchObject({ sdk: { via: 'federation' } });
+    expect(
+      credentialState(anthropic(), {
+        cwd, home, env: { HOME: home, ...federation, ANTHROPIC_IDENTITY_TOKEN: 'fake', ANTHROPIC_PROFILE: 'default' },
+      }).source
+    ).toMatchObject({ sdk: { via: 'profile', profile: 'default' } });
+  });
+
+  it('ANTHROPIC_PROFILE naming a profile with no file is no source, even with federation set (the SDK throws)', () => {
+    const s = credentialState(anthropic(), {
+      cwd, home, env: { HOME: home, ...federation, ANTHROPIC_IDENTITY_TOKEN: 'fake', ANTHROPIC_PROFILE: 'ghost' },
+    });
+    expect(s.source.kind).toBe('missing');
   });
 
   it('an empty or blank SDK variable counts as unset, as the SDK reads it', () => {
