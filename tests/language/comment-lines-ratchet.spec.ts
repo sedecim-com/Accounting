@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { compare, tighten } from '../../scripts/language-status.js';
-import { ROOT, SPANISH_COMMENT_PER_ENTRY_RULE, lanesFor } from '../../scripts/language/lanes/docs.js';
+import { ROOT, SPANISH_COMMENT_PER_ENTRY_RULE, docsLanes, lanesFor } from '../../scripts/language/lanes/docs.js';
 import { CRITERIOS } from '../../src/plan/criterios.js';
 import type { Lane } from '../../scripts/language/lane.js';
 
@@ -123,19 +123,26 @@ describe('the comment lane, judged file by file on a toy tree', () => {
 
 describe('the comment lane on the real tree', () => {
   const baseline = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'language-baseline.json'), 'utf8')) as {
+    _: string;
+    _por_que: string;
+    seeded: string;
     lanes: Record<string, number>;
     perFile: Record<string, Record<string, number>>;
   };
 
-  it('has a ceiling and a per-file floor in the baseline', () => {
+  it('has a ceiling and a per-file floor in the baseline, and the tree is within them', () => {
     expect(baseline.lanes[LANE]).toBeGreaterThan(0);
     const floors = baseline.perFile[LANE] ?? {};
     expect(Object.keys(floors).length).toBeGreaterThan(100);
     expect(Object.keys(floors).every((file) => file.startsWith('src/') && file.endsWith('.ts'))).toBe(true);
-    // The per-file floors never add up to more than the ceiling: a seed writes
-    // both from one measurement, and --tighten only lowers either.
-    expect(Object.values(floors).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(baseline.lanes[LANE]);
-  });
+    // What --check asks of this lane. While the lane was informational the
+    // stored floors stopped describing any tree (85 files above theirs on
+    // develop at ab086e3d), so judging it needed the reseed of MNE-001-187.
+    const lane = docsLanes().find((c) => c.id === LANE);
+    expect(lane).toBeDefined();
+    // Only this lane is measured here, so the other lanes' entries read as dead: they are left out.
+    expect(compare([lane!], baseline).filter((f) => f.lane === LANE)).toEqual([]);
+  }, 120_000);
 
   it('E1.1 stays green: the jurisdiction module weighs in the comment lane, and that lane is exempt by name', async () => {
     // The module's Spanish comments are blessed until I20 translates them, so
