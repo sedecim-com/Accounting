@@ -30,9 +30,9 @@ import {
   ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago, issuedVatStillParked, issuedVatOfOpenBalance,
   reclassRoles, DISCOUNT_VAT_CORRECTION_SOURCE,
 } from '../accounting/iva-cash-basis.js';
-import { iepsKeptOnAccount, iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
+import { iepsKeptOnAccount, iepsMovedForInvoice, iepsTakenByRows } from '../accounting/ieps-cash-basis.js';
 import {
-  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf, iepsTakeOf,
+  ADVANCE_TREATMENTS, advanceBackOnAccount, advanceSourceNote, backAsAdvance, cancelsUncausedIva, isAdvanceTreatment, capKept, keptIvaOf, iepsBackOf, iepsTakeOf,
   restitutedByRow, restitutedCash, restitutedOf, heldKeptByRow,
   keptOnAccount, keptRestitutions, releaseDayOf, reparkSameMonth, splitAdvance, storedAdvanceTreatment, takeFromAdvance, type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
@@ -1865,6 +1865,7 @@ export async function applyCustomerPayment(
         ...(deferred ? { advanceIvaDeferred: take.iva } : {}),
         advanceIvaCashedOn: cashedOn,
         ...(new Decimal(iepsTake).greaterThan(0) ? { advanceIeps: iepsTake } : {}),
+        allocationId: allocId,
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: inv.tax_amount,
         totalAmount: inv.total_amount,
@@ -2274,6 +2275,11 @@ export async function unapplyCustomerPayment(
     // MNE-001-590: what stays caused goes back to 2181 all the same, because the invoice is owed again, and the
     // cash back on account carries it (LIEPS art. 10), so a later application nets it instead of causing it again.
     const iepsKept = iepsStays ? await iepsMovedForInvoice(client, entityId, factura.id, paymentId) : new Decimal(0);
+    // MNE-001-604: what the rows took from the cash on account goes back with it, net of the share released on that
+    // cash, read by row from the ledger (`iepsTakenByRows`); a row written before reads as before.
+    const iepsRead = iepsStays ? await iepsTakenByRows(client, entityId, vivas.rows.map((r) => r.id)) : new Map<string, never>();
+    const iepsBack = new Decimal(iepsBackOf(vivas.rows.map((r) => ({ amount: r.amount_applied, plain: r.plain, read: iepsRead.get(r.id) }))));
+    const iepsOnAccount = iepsKept.plus(iepsBack);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
@@ -2336,8 +2342,11 @@ export async function unapplyCustomerPayment(
         ...(iepsMoved.greaterThan(0)
           ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
           : {}),
-        ...(iepsKept.greaterThan(0)
-          ? { iepsKept: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsKept.toFixed(4) } }
+        ...(iepsKept.greaterThan(0) || !iepsBack.isZero()
+          ? { iepsKept: {
+              invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsKept.toFixed(4),
+              ...(iepsBack.isZero() ? {} : { back: iepsBack.toFixed(4) }),
+            } }
           : {}),
       },
       userId
@@ -2360,7 +2369,7 @@ export async function unapplyCustomerPayment(
         iva_kept_caused: keptIva.toFixed(4),
         ...(forCashing.greaterThan(0) ? { iva_at_cashing: forCashing.toFixed(4) } : {}),
         ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
-        ...(iepsKept.greaterThan(0) ? { ieps_kept_caused: iepsKept.toFixed(4) } : {}),
+        ...(iepsOnAccount.greaterThan(0) ? { ieps_kept_caused: iepsOnAccount.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
