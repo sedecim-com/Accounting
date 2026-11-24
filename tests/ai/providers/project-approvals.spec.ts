@@ -643,3 +643,68 @@ describe('third review: a project api_key_cmd is accepted only in a shape whose 
     expect(state.label).not.toContain('until you approve it');
   });
 });
+
+// The fourth review: env values, interpreters under another name, the helper's environment.
+describe('fourth review: env, versioned interpreters, runners and PATH', () => {
+  function script(rel: string, body: string): string {
+    const target = path.join(project, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, body);
+    fs.chmodSync(target, 0o755);
+    return target;
+  }
+  beforeEach(() => {
+    script('tools/key.sh', `touch '${marker}'; printf 'tok-1'\n`);
+    script('tools/k.js', `require('fs').writeFileSync(${JSON.stringify(marker)}, ''); process.stdout.write('tok-js')\n`);
+    script('tools/k.py', 'print("tok-py")\n');
+    script('tools/gcloud', `#!/bin/sh\ntouch '${marker}'; printf 'tok-falso'\n`);
+    script('tools/x.so', 'no es una biblioteca\n');
+  });
+
+  it.each([
+    ['PATH pointing into the project', 'env PATH=tools:/usr/bin:/bin gcloud auth print-access-token'],
+    ['BASH_ENV', 'env BASH_ENV=tools/k.sh bash tools/key.sh'],
+    ['LD_PRELOAD', 'env LD_PRELOAD=./tools/x.so gcloud auth print-access-token'],
+    ['NODE_OPTIONS', 'env NODE_OPTIONS=--inspect node tools/k.js'],
+    ['an env value that reaches the project', 'env CONFIG=tools/key.sh printf x'],
+    ['python3.12 -m', 'python3.12 -m tools.k'],
+    ['a versioned interpreter as a PATH command', '/usr/bin/python3.12 tools/k.py'],
+    ['pytest', 'pytest -q'],
+    ['git', 'git config --get user.key'],
+  ])('%s is refused as helper_unbindable, and nothing runs', (_label, command) => {
+    writeProject({ api_key_cmd: command });
+    const err = refusal(() => approveProjectProfile('vault', project));
+    expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('nodejs ./tools/k.js is shape b: accepted, and an edit to the script asks again', () => {
+    writeProject({ api_key_cmd: 'nodejs ./tools/k.js' });
+    expect(approveProjectProfile('vault', project).approved).toContain('helper');
+    fs.appendFileSync(path.join(project, 'tools', 'k.js'), '// editado\n');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+  });
+
+  it('a PATH command that resolves inside the project through the user PATH is refused', () => {
+    script('bin/mytool', `#!/bin/sh\ntouch '${marker}'; printf 'tok-falso'\n`);
+    vi.stubEnv('PATH', `${path.join(project, 'bin')}:/usr/bin:/bin`);
+    writeProject({ api_key_cmd: 'mytool' });
+    expect((refusal(() => approveProjectProfile('vault', project)) as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    script('mytool2', `#!/bin/sh\nprintf 'tok-falso'\n`);
+    vi.stubEnv('PATH', `.:/usr/bin:/bin`);
+    writeProject({ api_key_cmd: 'mytool2' });
+    expect((refusal(() => approveProjectProfile('vault', project)) as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("a project helper runs without the loader variables of the folder's environment", () => {
+    script('tools/env.sh', `printf 'tok-[%s][%s][%s]' "$NODE_OPTIONS" "$BASH_ENV" "$PYTHONPATH"\n`);
+    vi.stubEnv('NODE_OPTIONS', '--require=./tools/k.js');
+    vi.stubEnv('BASH_ENV', 'tools/key.sh');
+    vi.stubEnv('PYTHONPATH', 'tools');
+    writeProject({ api_key_cmd: 'sh tools/env.sh' });
+    approveProjectProfile('vault', project);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-[][][]');
+  });
+});

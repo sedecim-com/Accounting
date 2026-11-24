@@ -89,8 +89,14 @@ output when a connection problem is unclear.
   print-access-token`), bound by name. Tokens are one space apart and hold
   only letters, digits and `_ . / : = @ % + , -`; no argument may reach a
   path of the project, and task or package runners (`npm`, `npx`, `make`,
-  …) are refused. Anything else is refused and never approved: tell them to
-  ask whoever keeps the file to rewrite it in one of those shapes. A renewal
+  …) are refused. An interpreter under a versioned name (`python3.12`,
+  `nodejs`) counts as one; `env` may not set `PATH`, `LD_*`, `BASH_ENV`,
+  `NODE_OPTIONS` and other loader names, nor a value that reaches the
+  project; a PATH command found inside the project is refused; and the
+  helper runs without the folder's loader variables. A script that sources
+  other project files is bound only by its own content. Anything else is
+  refused and never approved: tell them to ask whoever keeps the file to
+  rewrite it in one of those shapes. A renewal
   re-checks the approval, scripts included, before each re-run.
   The approval also binds where the key goes, scheme included, as the SDK
   resolves it: an `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in `./.env`

@@ -1145,8 +1145,21 @@ export function profileDestinations(
 // redirection, ;, &, |, tab or newline can reach the shell.
 const HELPER_TOKEN_RE = /^[A-Za-z0-9_./:=@%+,-]+$/;
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@%+,-]*$/;
-/** Shape b: these run the project script that is their very next token. */
-const HELPER_INTERPRETERS: ReadonlySet<string> = new Set(['sh', 'bash', 'node', 'python', 'python3', 'ruby', 'perl']);
+/**
+ * Shape b: an interpreter, under any versioned name (python3.12, nodejs),
+ * runs only the project script that is its very next token. Anywhere else it
+ * is refused, so `python3.12 -m` cannot pass as a PATH command.
+ */
+const HELPER_INTERPRETER_RE = /^(python|pypy|node|nodejs|ruby|perl|php|bash|sh|zsh|dash|ksh|lua)[0-9.]*$/;
+/** `env` names that steer a loader or a startup file, refused whatever their value. */
+const HELPER_REFUSED_ENV_RE = /^(PATH|LD_.*|DYLD_.*|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|PYTHON.*|PERL5.*|RUBY.*|GIT_.*|HOME|XDG_.*)$/;
+/** Stripped from the environment a project helper runs with, so the folder's ./.env cannot steer it. */
+const HELPER_STRIPPED_ENV_RE = /^(BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_.*|PYTHONSTARTUP|PYTHONPATH)$/;
+
+/** The environment a project helper runs with: this process's, without the loader variables. */
+export function projectHelperEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !HELPER_STRIPPED_ENV_RE.test(name)));
+}
 /**
  * Never a PATH command (shape c): each runs code it finds in the project on
  * its own (a task or package runner, a build tool, a shell, an interpreter
@@ -1159,8 +1172,22 @@ const HELPER_REFUSED_COMMANDS: ReadonlySet<string> = new Set([
   'Rscript', 'java', 'tsx', 'ts-node', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh', 'osascript', 'awk',
   'env', 'xargs', 'parallel', 'sudo', 'doas', 'su', 'eval', 'exec', 'source', '.', 'cd', 'pushd', 'command',
   'builtin', 'nohup', 'time', 'nice', 'timeout', 'stdbuf', 'setsid', 'watch', 'chroot',
-  ...HELPER_INTERPRETERS,
+  'pytest', 'jest', 'vitest', 'mocha', 'eslint', 'prettier', 'tsc', 'git', 'rails', 'mise', 'direnv', 'asdf',
 ]);
+
+/** Where the shell finds a bare command through PATH (an empty entry is the folder itself), or null. */
+function resolveThroughPath(command: string, dir: string, pathVar: string | undefined): string | null {
+  for (const entry of (pathVar ?? '').split(':')) {
+    const candidate = path.resolve(dir, entry, command);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Not there: the next entry.
+    }
+  }
+  return null;
+}
 const MAX_HASHED_BYTES = 2 * 1024 ** 3;
 
 /** SHA-256 of a regular file, read in chunks; null when it cannot be read whole. */
@@ -1188,7 +1215,7 @@ type Binding = { files: string[] } | { unbindable: string };
  * in (the project file's own folder, unresolved: mnemosine's cwd there), or
  * why it cannot be approved. Accepted, optionally after `env NAME=value…`:
  *   a) a project script run directly: `./tools/key.sh [args]`;
- *   b) an interpreter of HELPER_INTERPRETERS and a project script as its very
+ *   b) an interpreter (HELPER_INTERPRETER_RE) and a project script as its very
  *      next token (no flag before it): `sh tools/key.sh [args]`;
  *   c) a PATH command not in HELPER_REFUSED_COMMANDS, bound by name.
  * A script is bound by `<real path>:<sha256>`. No argument may touch a path
@@ -1202,9 +1229,15 @@ function helperBinding(file: string, command: string): Binding {
     return { unbindable: 'it holds a character or a spacing outside the accepted ones (letters, digits and _ . / : = @ % + , -, one space apart)' };
   }
   let i = 0;
+  const envValues: string[] = [];
   if (tokens[0] === 'env') {
     i = 1;
-    while (i < tokens.length && ENV_ASSIGNMENT_RE.test(tokens[i])) i++;
+    while (i < tokens.length && ENV_ASSIGNMENT_RE.test(tokens[i])) {
+      const [name, ...value] = tokens[i].split('=');
+      if (HELPER_REFUSED_ENV_RE.test(name)) return { unbindable: `env sets ${name}, which steers what a program loads` };
+      envValues.push(value.join('='));
+      i++;
+    }
   }
   const head = tokens[i];
   if (head === undefined) return { unbindable: 'it names no command' };
@@ -1227,18 +1260,23 @@ function helperBinding(file: string, command: string): Binding {
     const problem = bindScript(head); // shape a
     if (problem) return { unbindable: problem };
     rest = tokens.slice(i + 1);
-  } else if (!head.includes('/') && HELPER_INTERPRETERS.has(head)) {
+  } else if (!head.includes('/') && HELPER_INTERPRETER_RE.test(head)) {
     const scriptToken = tokens[i + 1]; // shape b
     if (scriptToken === undefined) return { unbindable: `${head} runs no script of the project` };
     const problem = bindScript(scriptToken);
     if (problem) return { unbindable: `${head} must run a script of the project as its next token: ${problem}` };
     rest = tokens.slice(i + 2);
-  } else if (HELPER_REFUSED_COMMANDS.has(base)) {
+  } else if (HELPER_REFUSED_COMMANDS.has(base) || HELPER_INTERPRETER_RE.test(base)) {
     return { unbindable: `${base} runs code mnemosine cannot bind` };
   } else {
-    rest = tokens.slice(i + 1); // shape c
+    // shape c: the shell finds it through PATH, which must not lead into the project.
+    const found = head.includes('/') ? null : resolveThroughPath(head, dir, process.env.PATH);
+    if (found !== null && inside(found) !== null) {
+      return { unbindable: `${head} is found through PATH inside the project` };
+    }
+    rest = tokens.slice(i + 1);
   }
-  for (const arg of rest) {
+  for (const arg of [...envValues, ...rest]) {
     const candidates = new Set([arg, arg.replace(/^-+/, ''), arg.replace(/^-[A-Za-z]/, ''), ...arg.split(/[=:,]/)]);
     for (const candidate of candidates) {
       if (!candidate) continue;
@@ -1500,15 +1538,17 @@ export function resolveProfile(
     // person approved that exact command for that host, unless they chose
     // `never`. Checked BEFORE it runs; the error never quotes the command.
     // It runs in the folder mnemosine resolves for, whose ./.env is in its environment.
+    // A project helper runs without the folder's loader variables.
+    const helperEnv = isProjectOrigin(origin) ? projectHelperEnv() : undefined;
     if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);
-    apiKey = runCredentialHelperSync(name, profile.api_key_cmd, { cwd });
+    apiKey = runCredentialHelperSync(name, profile.api_key_cmd, { cwd, env: helperEnv });
     // Every helper that got this far is the person's own or one they approved.
     if (profile.type === 'openai-compatible') {
       const command = profile.api_key_cmd;
       // A project helper is re-checked before each re-run, scripts included.
       const run = async (p: string, c: string): Promise<string> => {
         if (isProjectOrigin(origin)) await assertProjectHelperAllowedAsync(name, origin, profile, own);
-        return runCredentialHelper(p, c, { cwd });
+        return runCredentialHelper(p, c, { cwd, env: isProjectOrigin(origin) ? projectHelperEnv() : undefined });
       };
       keyRenewal = new RenewingHelperKey(name, command, apiKey, { run });
     }

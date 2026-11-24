@@ -69,6 +69,8 @@ export interface HelperRunOptions {
   timeoutMs?: number;
   /** The folder it runs in; default process.cwd(). */
   cwd?: string;
+  /** Its environment; default process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Runs the helper once, synchronously: the first run, before the session opens. */
@@ -78,6 +80,7 @@ export function runCredentialHelperSync(profile: string, command: string, opts: 
   try {
     out = execSync(command, {
       cwd: opts.cwd,
+      env: opts.env,
       encoding: 'utf-8',
       timeout: timeoutMs,
       maxBuffer: HELPER_MAX_OUTPUT_BYTES,
@@ -105,7 +108,7 @@ export function runCredentialHelper(profile: string, command: string, opts: Help
       clearTimeout(timer);
       fn();
     };
-    const child = spawn(command, { cwd: opts.cwd, shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(command, { cwd: opts.cwd, env: opts.env, shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
     const chunks: Buffer[] = [];
     let size = 0;
     const timer = setTimeout(() => {

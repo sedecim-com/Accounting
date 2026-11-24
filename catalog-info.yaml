@@ -134,7 +134,12 @@ provides:
     # argument of which reaches the project; tokens one space apart, from
     # [A-Za-z0-9_./:=@%+,-]. Anything else is refused (ProjectFileRefusalError code
     # helper_unbindable), cannot be approved, and readiness says so; a renewal re-checks
-    # the approval. Store keys are scrypt (N 2^14, r 8, p 1) with a 16-byte salt
+    # the approval. Versioned interpreter names count as interpreters; env may not set
+    # loader names (PATH, LD_*, BASH_ENV, NODE_OPTIONS, PYTHON*, …) or a value reaching the
+    # project; a PATH command resolving inside the project is refused; a project helper
+    # runs without BASH_ENV, ENV, NODE_OPTIONS, NODE_PATH, LD_PRELOAD, LD_LIBRARY_PATH,
+    # DYLD_*, PYTHONSTARTUP and PYTHONPATH. A script that sources other project files is
+    # bound only by its own content. Store keys are scrypt (N 2^14, r 8, p 1) with a 16-byte salt
     # kept in the store; a store without a salt approves nothing.
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
