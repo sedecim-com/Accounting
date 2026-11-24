@@ -287,6 +287,90 @@ describe('an official page on every card (MNE-001-367)', () => {
   });
 });
 
+// The agenda decisions of Compilation Vol. 14 and the tentative ones of the June
+// 2026 IFRIC Update (MNE-001-368, #133; answer 4 of 2026-11-15). The titles are
+// the IFRS Foundation's own, copied by hand from the Vol. 14 news page and PDF and
+// from the June 2026 IFRIC Update, all read on 2026-11-24.
+const VOL14_NEW = [
+  'Determining and Accounting for Transaction Costs (IFRS 9)',
+  'Embedded Prepayment Option (IFRS 9)',
+  'Economic Benefits from Use of a Battery under an Offtake Arrangement (IFRS 16)',
+  'Assessment of a Specified Main Business Activity for the Purposes of the Separate Financial Statements of a Parent (IFRS 18)',
+  'Classification of a Foreign Exchange Difference from an Intragroup Monetary Liability (or Asset) (IFRS 18)',
+  'Classification of Gains and Losses on a Derivative Managing a Foreign Currency Exposure (IFRS 18)',
+  'Scope of the Requirement to Disclose Expenses by Nature (IFRS 18)',
+  'Fair Presentation and Compliance with IFRS Accounting Standards (IAS 1)',
+];
+const VOL14_UPDATED = [
+  'Disclosure of Revenues and Expenses for Reportable Segments (IFRS 8)',
+  'Physical Settlement of Contracts to Buy or Sell a Non-financial Item (IFRS 9)',
+  'Normal operating cycle (IAS 1)',
+  'Demand Deposits with Restrictions on Use arising from a Contract with a Third Party (IAS 7)',
+  'Disclosure of Changes in Liabilities Arising from Financing Activities (IAS 7)',
+  'Subsequent Expenditure on Biological Assets (IAS 41)',
+];
+const JUNE_2026_TENTATIVE = [
+  'Management-defined Performance Measures—Hypothetical Income and Expenses (IFRS 18)',
+  'Management-defined Performance Measures—Public Communications (IFRS 18)',
+  'Classification of Income and Expenses from Cash and Cash Equivalents (IFRS 18)',
+  'Classification of Income and Expenses when an Entity Has a Main Business Activity of Providing Financing to Customers (IFRS 18)',
+  'Control Assessment for a Single-investor Fund (IFRS 10)',
+  'Assessment of Specified Main Business Activities for a Manufacturer-Lessor (IFRS 18)',
+  'Labels of Subtotals (IFRS 18)',
+  'Presentation of Operating Expenses (IFRS 18)',
+];
+const IFRIC_UPDATE_JUNE_2026 = 'https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/';
+const AGENDA_DECISION_DOCS = 'https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/';
+
+/** The `## ` sections of a manual, each with its heading and its body. */
+function sections(markdown: string): { heading: string; body: string }[] {
+  return markdown
+    .split(/^(?=## )/m)
+    .filter((chunk) => chunk.startsWith('## '))
+    .map((chunk) => ({ heading: chunk.slice(0, chunk.indexOf('\n')), body: chunk }));
+}
+
+describe('agenda decisions of Vol. 14 and the June 2026 tentatives (MNE-001-368)', () => {
+  const doc = fs.readFileSync(path.join(DOCS, 'niif-interpretaciones.md'), 'utf-8');
+  const all = sections(doc);
+  const holding = (title: string) => all.filter((s) => s.body.includes(`*${title}*`));
+
+  it('the 14 decisions of Vol. 14 each have one final section, sourced to ifrs.org, with the status read that day', () => {
+    for (const title of [...VOL14_NEW, ...VOL14_UPDATED]) {
+      const found = holding(title);
+      expect(found.length, title).toBe(1);
+      const { heading, body } = found[0]!;
+      expect(heading, title).toMatch(/^## AD — /);
+      expect(body, `${title}: its decision document on ifrs.org`).toContain(AGENDA_DECISION_DOCS);
+      expect(body, `${title}: the status in the source's own words, with the day it was read`).toMatch(
+        /\*\*Estado \(leído el \d{4}-\d{2}-\d{2}\):\*\* concluida[^\n]*«[^»]+»/,
+      );
+      expect(body, title).not.toContain('no definitiva');
+    }
+  });
+
+  it('the 8 tentative decisions of June 2026 each say «tentativa, no definitiva» and cite that IFRIC Update', () => {
+    for (const title of JUNE_2026_TENTATIVE) {
+      const found = holding(title);
+      expect(found.length, title).toBe(1);
+      const { heading, body } = found[0]!;
+      expect(heading, title).toMatch(/^## AD tentativa — /);
+      expect(body, title).toMatch(/\*\*Estado \(leído el \d{4}-\d{2}-\d{2}\):\*\* tentativa, no definitiva\./);
+      expect(body, `${title}: the source's own words`).toMatch(/«[^»]+»/);
+      expect(body, title).toContain(IFRIC_UPDATE_JUNE_2026);
+    }
+  });
+
+  it('the manual counts its decisions: no section is left over, and the intro does not say three', () => {
+    const final = all.filter((s) => s.heading.startsWith('## AD — '));
+    const tentative = all.filter((s) => s.heading.startsWith('## AD tentativa — '));
+    // 2 older decisions (crypto-assets 2019, SaaS 2021) plus the 14 of Vol. 14.
+    expect(final.length).toBe(2 + VOL14_NEW.length + VOL14_UPDATED.length);
+    expect(tentative.length).toBe(JUNE_2026_TENTATIVE.length);
+    expect(doc.slice(0, doc.indexOf('\n## '))).not.toMatch(/tres decisiones de agenda/);
+  });
+});
+
 describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
   it('PROCESS.md declares N as a positive whole number of months', () => {
     // Throws when the line is missing or malformed: there is no default N.
