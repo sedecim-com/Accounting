@@ -2658,6 +2658,21 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-605 (#809): the live allocation a reversed receipt still has, closed by a person.
+  'receipt.allocation.close.not_reversed':
+    'The receipt {number} is "{status}": only the live allocation of a reversed receipt is closed this way, because only a reversal already reopened its invoice. Nothing was written.',
+  'receipt.allocation.close.nothing_live':
+    'The receipt {number} has no live allocation on {invoice}: there is nothing to close. Nothing was written.',
+  'receipt.allocation.close.after_reversal':
+    'The live allocation of {number} on {invoice} was written after the receipt was reversed, so the reversal never reopened the invoice for it: closing it alone would leave the invoice short. Report it. Nothing was written.',
+  'receipt.allocation.close.would_close':
+    'Would close {count} live allocation(s) of {number} on {invoice}, {amount}, dated at the reversal ({closed_at}); nothing posts and the invoice is not touched',
+  'receipt.allocation.close.confirm':
+    'Close {count} live allocation(s) of the reversed receipt {number} on {invoice} ({amount})? The reversal already reopened the invoice and mirrored its entries; this only closes the row, dated at the reversal, and posts nothing. It cannot be undone.',
+  'receipt.allocation.close.closed':
+    '{number}: {count} allocation(s) on {invoice} closed ({amount}), dated at the reversal ({closed_at}); nothing was posted',
+  'receipt.allocation.close.dry_run': 'Dry run: the close really ran and was rolled back; nothing was written.',
+  'receipt.allocation.close.key_unneeded': 'a repeat finds no live allocation on that invoice and is refused',
   // MNE-001-498 (#695): a customer's cash on account, transferred to another customer.
   'receipt.transfer.reason_required':
     'Transferring a customer\'s credit requires --reason "<the agreement>": it is written to the audit trail and on the transfer. Nothing was written.',
@@ -4525,6 +4540,20 @@ export const EN = {
   'help.receipt.cause.record.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
   'help.receipt.cause.record.option.json': 'JSON output',
+  // MNE-001-605 (#809): the live allocation of a reversed receipt, closed by a person.
+  'help.receipt.allocation.description': "A receipt's allocations to its invoices",
+  'help.receipt.allocation.close.description':
+    'Close the live allocation a reversed collection still has on an invoice (ar check: orphan-application): dated at the reversal, audited, posts nothing',
+  'help.receipt.allocation.close.argument.ref': 'payment number or id of the reversed collection',
+  'help.receipt.allocation.close.option.invoice': 'invoice number or id the live allocation settles',
+  'help.receipt.allocation.close.option.reason': 'why it is closed: written to the audit trail',
+  'help.receipt.allocation.close.option.json': 'JSON output',
+  'help.receipt.allocation.close.examples':
+    '\nExamples:\n' +
+    '  ar check named PMT-2026-00042 (reversed) → INV-2026-00051 116.00 under orphan-application; see what would be closed:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Left live by its reversal" --dry-run\n' +
+    '  Close it; the reversal already reopened the invoice, so nothing posts:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Left live by its reversal"\n',
   // MNE-001-568 (#612): the trace of a registered payment, completed afterwards.
   'help.payment.trace.description': 'The payment trace of a registered payment: its cheque, and the account and bank the money went to',
   'help.payment.trace.record.description':
@@ -4733,9 +4762,10 @@ export const EN = {
     "a customer's cash settles another customer's invoice: review it; nothing is blocked",
   'ar.check.cross_party_application.none': 'none',
   'ar.check.orphan_application.found':
-    "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
-    "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
-    'report it before collecting that invoice again',
+    "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA. " +
+    "On a reversed receipt the reversal already reopened the invoice and mirrored its entries, so only the row's close is missing: " +
+    'close it with `receipt allocation close <receipt> --invoice <invoice> --reason "<why>"`, which posts nothing, ' +
+    'before collecting that invoice again. On a void or failed receipt, report it',
   'ar.check.orphan_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
