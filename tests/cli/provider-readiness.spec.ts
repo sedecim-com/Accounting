@@ -132,7 +132,8 @@ describe('jobs run-due prints the tick\'s credential line before the first job',
       providers: { vault: { type: 'openai-compatible', model: 'vm', base_url: 'https://v.example.test/v1', api_key_cmd: helperCmd() } },
     });
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
-    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void order.push(a.map(String).join(' ')));
+    // The leaf writes its lines to stdout, not console.log (MNE-001-587).
+    const log = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => { order.push(String(c).replace(/\n$/, '')); return true; });
     order.length = 0;
     try {
       const program = new Command();
