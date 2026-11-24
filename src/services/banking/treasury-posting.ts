@@ -8,13 +8,15 @@ import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
 import {
   entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
 } from '../accounting/iva-cash-basis.js';
-import { iepsCausedByReceipt, iepsMoveLines, iepsMovedForInvoice, type IepsMove } from '../accounting/ieps-cash-basis.js';
+import {
+  iepsCausedByReceipt, iepsHeldForCashing, iepsMoveLines, iepsMovedForInvoice, type IepsMove,
+} from '../accounting/ieps-cash-basis.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
 import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
-import { advanceBackOnAccount, keptOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
+import { advanceBackOnAccount, heldIepsLeft, keptOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
 
 // ============================================================
 // LOS TRES ASIENTOS DE TESORERÍA (F05d · 055)
@@ -2218,7 +2220,7 @@ export async function recordCustomerChecksCashing(
     const pending = [];
     for (const receipt of receipts) pending.push(await pendingRelease(client, entityId, receipt, cashBasis));
     const total = pending.reduce(
-      (s, p) => p.ieps.reduce((t, m) => t.plus(m.amount), s.plus(p.total)), new Decimal(0)
+      (s, p) => [...p.ieps, ...p.heldIeps].reduce((t, m) => t.plus(m.amount), s.plus(p.total)), new Decimal(0)
     );
 
     // The release belongs to the cashing's month, so it is never posted with
@@ -2230,10 +2232,11 @@ export async function recordCustomerChecksCashing(
 
     const results: CustomerCheckCashing[] = [];
     for (const [i, receipt] of receipts.entries()) {
-      const { functional, shares, releases, ieps, advance, total: released } = pending[i];
-      const iepsReleased = ieps.reduce((sum, m) => sum.plus(m.amount), new Decimal(0));
+      const { functional, shares, releases, ieps, heldIeps, advance, total: released } = pending[i];
+      // MNE-001-608: with the IEPS of the cash back on account, which the cashing causes too.
+      const iepsReleased = [...ieps, ...heldIeps].reduce((sum, m) => sum.plus(m.amount), new Decimal(0));
       const entry = released.greaterThan(0) || iepsReleased.greaterThan(0)
-        ? await postCashing(client, entityId, receipt, credit, releases, ieps, advance, opts.userId)
+        ? await postCashing(client, entityId, receipt, credit, releases, { ieps, heldIeps }, advance, opts.userId)
         : null;
       if (entry) attest(tenantId, entityId, entry.id);
 
@@ -2316,6 +2319,12 @@ interface PendingRelease {
  * art. 5o.-C takes LIVA's tests of collection): its share today, minus what
  * this receipt's tagged lines already moved, so a cheque posted before the
  * hold, whose own entry moved it, moves nothing again.
+ *
+ * MNE-001-608 (#792, risk 3 of #891) · and the IEPS of the cash its unapplies
+ * put back on account while it was held (`heldIeps`, read from the rows'
+ * marker by `iepsHeldForCashing`), less the cash live rows took from that pool
+ * under `defer_to_cashing` (`heldIepsLeft`): that cash is collected today too
+ * (LIEPS arts. 10 and 5o.-C; LIVA art. 1-B), so the cashing causes its IEPS.
  */
 async function pendingRelease(
   client: pg.PoolClient,
@@ -2323,7 +2332,8 @@ async function pendingRelease(
   receipt: CheckReceiptRow,
   cashBasis: boolean
 ): Promise<{
-  functional: boolean; shares: number; releases: PendingRelease[]; ieps: IepsMove[]; advance: Decimal; total: Decimal;
+  functional: boolean; shares: number; releases: PendingRelease[]; ieps: IepsMove[]; heldIeps: IepsMove[];
+  advance: Decimal; total: Decimal;
 }> {
   const functional = receipt.currency === receipt.functional_currency;
   // An advance is refused in another currency, and before MNE-001-558 one by
@@ -2334,11 +2344,12 @@ async function pendingRelease(
   // when an unapply put their cash back while the cheque was held (`unapply_kept_iva_amount`, read by the
   // pool's own reader): that cash is collected today too (LIVA art. 1-B), so the cashing causes it.
   const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
+  const pool = functional && treatment === null ? await keptOnAccount(client, entityId, receipt.id) : null;
   const back = !functional
     ? '0'
     : treatment !== null
       ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva
-      : (await keptOnAccount(client, entityId, receipt.id)).iva;
+      : pool?.iva ?? '0';
   // MNE-001-573 · less the IVA its live PPD allocations took and cancelled
   // nothing for (`defer_to_cashing`): the share each one releases below
   // causes it, so the advance's own leaves 2150 only for the rest.
@@ -2373,7 +2384,22 @@ async function pendingRelease(
     const due = new Decimal(share.amount).minus(await iepsMovedForInvoice(client, entityId, share.invoiceId, receipt.id));
     if (due.greaterThan(0)) ieps.push({ ...share, amount: due.toFixed(ESCALA) });
   }
-  return { functional, shares: shares.length, releases, ieps, advance, total };
+  const heldIeps: IepsMove[] = [];
+  const held = pool && cashBasis ? await iepsHeldForCashing(client, entityId, receipt.id) : [];
+  if (pool && held.length > 0) {
+    const taken = await client.query<{ taken: string }>(
+      `SELECT COALESCE(SUM(pa.advance_base_amount + pa.advance_iva_amount), 0)::text AS taken
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+        WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL`,
+      [receipt.id, entityId]
+    );
+    const left = heldIepsLeft(held.map((m) => m.amount), { cash: pool.cash, consumed: taken.rows[0]?.taken ?? '0' });
+    held.forEach((m, i) => {
+      if (new Decimal(left[i]).greaterThan(0)) heldIeps.push({ ...m, amount: left[i] });
+    });
+  }
+  return { functional, shares: shares.length, releases, ieps, heldIeps, advance, total };
 }
 
 /**
@@ -2400,14 +2426,17 @@ async function deferredAdvanceIva(client: pg.PoolClient, entityId: string, recei
   return total;
 }
 
-/** One receipt's cashing entry, DR 2125 (or 2150, an advance's) / CR 2120, and what it released stored. */
+/**
+ * One receipt's cashing entry, DR 2125 (or 2150, an advance's) / CR 2120, and what it released stored.
+ * MNE-001-608 · The IEPS of its cash back on account (`heldIeps`) is DR 2150 / CR 2180, tagged.
+ */
 async function postCashing(
   client: pg.PoolClient,
   entityId: string,
   receipt: CheckReceiptRow,
   credit: BankCreditRow,
   releases: PendingRelease[],
-  ieps: IepsMove[],
+  { ieps, heldIeps }: { ieps: IepsMove[]; heldIeps: IepsMove[] },
   advance: Decimal,
   userId: string
 ): Promise<{ id: string; entry_number: string }> {
@@ -2428,6 +2457,15 @@ async function postCashing(
     },
   ]);
   lines.push(...(await iepsMoveLines(client, entityId, receipt.id, ieps, 'release', `cheque ${checkLabel} cashed ${credit.date}`)));
+  const heldLines = await iepsMoveLines(client, entityId, receipt.id, heldIeps, 'cause', `cheque ${checkLabel} cashed ${credit.date}`);
+  if (heldLines.length > 0) {
+    lines.push({
+      account_id: requireRole(roles, 'anticipo_clientes'),
+      debit_amount: heldIeps.reduce((s, m) => s.plus(m.amount), new Decimal(0)).toFixed(ESCALA),
+      credit_amount: null,
+      description: `IEPS of the cash of ${receipt.payment_number} back on account out of customer advances, cheque cashed ${credit.date}`,
+    }, ...heldLines);
+  }
   if (advance.greaterThan(0)) {
     const amount = advance.toFixed(ESCALA);
     lines.push(
