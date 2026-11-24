@@ -1,0 +1,430 @@
+# mnemosine
+
+> Gemela en español de [`README.md`](README.md) · source_sha: c0c324dbf1deb32cdfbbdb674476ed95b8c5b40e
+
+> Agente contable de partida doble para despachos en México, desde la terminal · Tier-1 · Dominio: contabilidad · Owner: @vic2099 · Ficha: [`catalog-info.yaml`](catalog-info.yaml)
+
+Un agente contable que se usa desde la terminal. Lleva contabilidad de partida
+doble sobre PostgreSQL —catálogo, pólizas, clientes y proveedores, bancos,
+periodos, reportes— con el cumplimiento fiscal mexicano (CFDI 4.0, catálogos del
+SAT, IVA sobre base de flujo) dentro del motor, no encima de él.
+
+Lo que lo distingue no es que un modelo hable de contabilidad: es **quién puede
+escribir**. La IA nunca postea el mayor ni toca un sistema externo. Propone en
+dos tiempos —`ai_drafts` para los asientos, `ai_external_ops` para todo lo que
+sale al mundo (timbrar, enviar, pagar)— y una persona aprueba. La aprobación es
+un registro con integridad, no una bandera; los límites que la gobiernan viven
+en `src/ai/floor.ts` y sólo se combinan con `Math.min`, así que ninguna
+configuración, política guardada ni bandera futura puede subirlos.
+
+El repositorio se llama `Accounting` y el paquete `accounting-core` por su
+origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue ahí
+y es el que el agente opera, pero el producto es el CLI. La API REST (`/v1`) y
+el tablero web de sólo lectura (`mnemosine web`) siguen en el árbol y pueden
+volver a ganar funciones: el dueño levantó su congelamiento el 2026-11-18
+(PRD-003, D-04 enmendada).
+
+**A dónde va.** El objetivo que fijó el dueño es un sistema contable completo,
+multijurisdicción, operado desde el CLI y nativo para IA, con núcleo contable,
+módulos de cálculo de nómina y cumplimiento de las normas NIF y NIIF. Hoy está
+más cerca de la primera línea de este archivo que de esa: México es la
+jurisdicción completa, Estados Unidos es parcial y las NIIF son conocimiento
+del agente, no comportamiento del motor. Lo que falta, medido, está en
+[`docs/SCOPE.md`](docs/SCOPE.md) («El objetivo»); el primer hito, en
+[`docs/MVP.md`](docs/MVP.md); lo planeado, en
+[PRD-003](docs/prd/PRD-003-producto-completo.md), todavía en revisión; sus
+decisiones D-01 a D-10, que este archivo cita, las respondió el dueño el
+2026-11-17 en [#603](https://github.com/sedecim-com/Accounting/issues/603).
+
+---
+
+## Cómo encaja en la plataforma
+
+Es uno de los repos de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)).
+
+- **No recibe de ni entrega a** ningún otro repo de Sedecim hoy.
+- **Sus contrapartes son externas:** el contador, el SAT y el IMSS (por medio del contribuyente), Contalink, PAC y proveedores de modelo.
+- **Convive con `accounting-manager`,** que contabiliza en Contalink las comisiones que Grupo Promessa paga a sus agentes. No es una variante de este repo: otro usuario, otro libro y otra regla de aprobación. La frontera: un solo escritor por compañía de Contalink, identificada por RFC ([ADR-0004](docs/adr/0004-coexistence-with-accounting-manager.md)).
+
+Detalle en [`docs/platform/inventory.md`](docs/platform/inventory.md), y el nivel de madurez en [`docs/platform/maturity.md`](docs/platform/maturity.md).
+
+---
+
+## En qué estado está
+
+Este proyecto no publica una tabla de estado escrita a mano. La pregunta se le
+hace al código:
+
+```bash
+npm run plan:status
+```
+
+Ese comando evalúa criterios ejecutables (`src/plan/criteria/`) contra el
+árbol y decide el estado de cada paquete de trabajo. Responde cuántos paquetes
+tienen todos sus criterios en verde, y para los restantes imprime la razón
+exacta de su rojo. La CI corre `plan:status --exigir=...` sobre los ya cerrados:
+es un trinquete contra el retroceso, no un informe. Un paquete que resulta ser
+un falso verde se **reabre** en el mismo commit que lo quita de esa lista, con
+su porqué.
+
+Lo mismo con la superficie del CLI: el número de comandos lo cuenta
+`npm run catalogo:estado` sobre el árbol del binario y lo escribe en
+[`docs/cli-command-catalog.md`](docs/cli-command-catalog.md); la CI verifica que
+el bloque esté al día.
+
+Este archivo no trae cifras a propósito: una cifra escrita a mano caduca en
+cuanto alguien empuja. Las dan esos dos comandos, y lo ya entregado, con su PR
+y su fecha, está en [`docs/HISTORY.md`](docs/HISTORY.md).
+
+### Lo que todavía no es lo que parece
+
+Se dice aquí porque descubrirlo leyendo el código sería peor:
+
+- **La atestación en blockchain está simulada.** Todos los adaptadores de cadena
+  declaran `simulado = true` (`src/services/blockchain/chain-adapters.ts`,
+  `zkverify-client.ts`): no hay transacción en ninguna red. Por eso la
+  verificación pública está **apagada por omisión** —se enciende con
+  `PUBLIC_VERIFICATION_ENABLED=true`— y, aun encendida, cada endpoint se niega a
+  servir una fila simulada. No es parte del objetivo: PRD-003 (D-04) la retira,
+  junto con los adaptadores de pago simulados.
+- **El timbrado con PAC no se puede usar en producción.** De los cuatro
+  adaptadores, tres (Finkok, Edicom, SW Sapien) se declaran simulados y un
+  cerrojo les impide timbrar fuera de sandbox; sólo Sovos/Reachcore declara
+  `simulado = false`. Timbrar y cancelar están fuera del MVP y son alcance de
+  la v1.0 ([`docs/MVP.md`](docs/MVP.md) §1,
+  [#105](https://github.com/sedecim-com/Accounting/issues/105)): ya hay
+  contrato con Sovos, y el dueño pidió varios proveedores, cada uno con la llave
+  que agregue el administrador. Mientras tanto, los CFDI los emite el cliente
+  en su sistema y aquí se ingieren.
+- **Ante el SAT se descarga y se sella; no se presenta.** La descarga masiva de
+  CFDI con la e.firma existe (`mnemosine sat download`), y el censo se lee
+  contra lo contabilizado. Presentar la contabilidad electrónica, la DIOT y las
+  declaraciones sigue siendo manual, en el portal.
+- **Multijurisdicción todavía no es una propiedad del motor.** El código conoce
+  dos países (`JurisdictionCode = 'MX' | 'US'`) y el paquete por país de
+  [`docs/jurisdicciones.md`](docs/jurisdicciones.md) no existe como frontera.
+- **Las NIIF son conocimiento del agente, no comportamiento**, y las NIF viven
+  dentro de los motores, sin módulo propio. Lo que falta de cada una está en
+  `docs/SCOPE.md`, «El objetivo».
+- **La nómina de Estados Unidos es parcial**: hay calculadores registrados para
+  los 50 estados y el Distrito de Columbia, y sólo cinco tienen parámetros
+  sembrados (PRD-003, D-03).
+- **GraphQL se retiró** ([#101](https://github.com/sedecim-com/Accounting/issues/101)).
+  Era una segunda puerta al mismo motor, apagada tras una bandera y sin un solo
+  consumidor. La única API HTTP es REST `/v1`.
+- **Siete manejadores REST están retirados** y lanzan `NotImplementedError` en
+  vez de fingir que hicieron algo.
+- **No hay servidor MCP** (PRD-003, D-07). Un agente externo opera el CLI como
+  cualquier otro programa: `--json`, códigos de salida y `--dry-run`.
+- **El respaldo existe, pero programarlo es tuyo.** `mnemosine backup` crea,
+  lista, verifica ensayando la restauración y restaura; además exporta un
+  inquilino o una entidad, que es una exportación y no un respaldo restaurable. Importa más que en otro
+  sistema: desde la migración 041 el mayor es físicamente inmutable y
+  `audit_log` es de sólo agregar, así que un error de datos **no se puede
+  reparar a mano**.
+
+---
+
+## Arranque rápido
+
+**Requisitos:** Node ≥ 22.12 (`engines` lo exige), PostgreSQL 15. Redis es opcional
+(caché y limitador; el CLI no lo necesita).
+
+```bash
+git clone https://github.com/sedecim-com/Accounting.git
+cd Accounting
+npm ci
+scripts/setup.sh     # .env de desarrollo, Postgres, base, roles y migraciones
+npm run seed         # opcional: tenant, entidad, catálogo y periodos de demostración
+```
+
+`scripts/setup.sh` es idempotente y nunca reescribe un `.env` que ya exista. Usa
+el Postgres que responda en `TEST_ADMIN_DATABASE_URL`; si no hay ninguno y hay
+Docker, levanta uno con la versión de CI. El devcontainer (`.devcontainer/`) lo
+corre al crearse. Los pasos a mano, y lo que significa cada variable, están en
+[`docs/MVP.md`](docs/MVP.md) §7 y en `.env.example`. `JWT_SECRET` y
+`ENCRYPTION_KEY` pueden ir vacíos en desarrollo: el arranque se **niega** a
+correr con los valores de desarrollo bajo `NODE_ENV=production`.
+
+El binario no está instalado como comando global: se invoca por npm.
+
+```bash
+npm run mnemosine -- init      # asistente: infraestructura, entidad, usuarios, proveedor de IA
+npm run mnemosine -- doctor    # base, migraciones, proveedor, credenciales, aislamiento
+npm run mnemosine -- chat      # la sesión conversacional
+```
+
+Con RLS activo cada comando necesita saber sobre qué inquilino trabaja: pon
+`MNEMOSINE_TENANT` en `.env` o pasa `-T <uuid>`.
+
+La ayuda y los mensajes salen en español o en inglés: `--locale es-MX|en-US`, o
+`MNEMOSINE_LOCALE`. `mnemosine --help` dice la precedencia completa.
+
+El primer ciclo real es corto:
+
+```bash
+npm run mnemosine -- ingest facturas/*.xml   # CFDI → reglas → clasificación → BORRADORES
+npm run mnemosine -- drafts                  # qué propuso la IA
+npm run mnemosine -- review                  # aprobar (postea de verdad) o rechazar
+npm run mnemosine -- report trial-balance show   # y ver el efecto
+```
+
+La referencia exacta de comandos y banderas —generada del propio programa, nunca
+a mano— está en [`src/ai/docs/cli-reference.md`](src/ai/docs/cli-reference.md).
+
+---
+
+## El proveedor del modelo
+
+mnemosine no está casado con un proveedor. Hay dos motores de sesión: el nativo
+de Anthropic (`MnemosineAgent`, con caché de prompt y bloques de razonamiento) y
+un adaptador OpenAI-compatible (`OpenAiCompatSession`) que sirve a todo lo demás.
+Los perfiles de fábrica (`BUILTIN_PROFILES`, en `src/ai/providers/config.ts`)
+son trece: anthropic, openai, gemini, grok, nvidia, qwen, minimax, openrouter,
+copilot y hermes, más tres locales: `ollama`, `hermes-agent` y `openclaw`.
+`nvidia` es la prueba alojada de NVIDIA, que registra lo que recibe: nunca para
+datos de clientes. Se añaden o se redefinen en `mnemosine.config.json`.
+
+La credencial del proveedor es de cada usuario: la pone en su entorno. No hay
+una llave compartida, y ninguna vive en el repositorio.
+
+**Funciona con modelos locales y sin API key.** El perfil `ollama` viene de
+fábrica: basta `MNEMOSINE_PROVIDER=ollama`, o un `mnemosine.config.json` en la
+raíz (no se versiona: está en `.gitignore`) que lo deje por omisión y nombre un
+modelo que tengas instalado:
+
+```json
+{
+  "default_provider": "ollama",
+  "providers": {
+    "ollama": {
+      "type": "openai-compatible",
+      "model": "llama3.1",
+      "base_url": "http://localhost:11434/v1"
+    }
+  }
+}
+```
+
+El modelo local debe soportar *tool calling*: sin herramientas el agente puede
+conversar, pero no consultar el mayor ni dejar un borrador.
+
+**Los secretos nunca van en el archivo de configuración.** El perfil sólo
+*nombra* de dónde sale la credencial: `api_key_env` (una variable de entorno) o
+`api_key_cmd` (un comando que la imprime — un gestor de secretos, o el token de
+una suscripción ya autenticada). El esquema es estricto y falla ruidosamente
+ante una llave desconocida: un `api_key_evn` mal tecleado caería en los valores
+por omisión, que es el peor modo de fallo para un archivo que gobierna
+credenciales.
+
+Precedencia: `--provider` > `MNEMOSINE_PROVIDER` > `default_provider` >
+`anthropic`. `npm run mnemosine -- providers` lista lo que hay configurado;
+`status` sondea cuál responde de verdad.
+
+Dos avisos que el propio catálogo lleva escritos: `hermes-agent` y `openclaw`
+corren **sus propias** herramientas del lado del servidor y no devuelven las
+llamadas al cliente — por ese canal las herramientas contables no se invocan.
+
+---
+
+## Arquitectura
+
+Cinco capas, de fuera hacia dentro:
+
+1. **CLI (`src/cli/`)** — comandos de commander sobre un núcleo compartido
+   (`src/cli/kernel/`) que impone lo transversal: declaración de riesgo por
+   comando, puerta de confirmación en las mutaciones, alcance por entidad,
+   formato de salida y códigos de salida.
+2. **Agente (`src/ai/`)** — sesión, prompt de sistema, herramientas, compactación
+   del historial, memoria de la firma (precedentes que el usuario puede corregir
+   y borrar), *skills* de la firma con divulgación progresiva, trabajos
+   programados, webhooks de entrada y una bitácora de uso y costo por llamada.
+3. **Escrituras en dos tiempos** — `draft-service` (asientos) y `external-service`
+   (bandeja de salida hacia sistemas externos), más `approval-policy` y el suelo
+   inamovible de `floor.ts`.
+4. **Servicios (`src/services/`)** — el motor: contabilidad y posteo, cierre de
+   periodo, AP/AR, pagos, bancos, activos, nómina MX/USA, ingesta de CFDI,
+   reportes, bóveda de credenciales fiscales, auditoría.
+5. **Base (`src/database/`)** — las migraciones (sólo se añaden, nunca se edita
+   una aplicada) y las políticas de RLS, que se reaplican después de cada
+   migración.
+
+Todas las escrituras físicas al mayor pasan por un único módulo
+(`services/accounting/posting.ts`). El borrador aprobado no toma un atajo: crea
+el asiento por `createJournalEntry`, con todas las validaciones del motor.
+
+La API REST (`/v1`) sigue viva y auditada, y puede volver a ganar rutas desde
+que el dueño enmendó D-04 el 2026-11-18; el CLI y ella comparten servicios.
+Los trabajos desatendidos —ingesta, tareas programadas— corren con una
+superficie de herramientas **nombrada**, no con la completa, y sin la red de
+seguridad conversacional: no hay nadie mirando el turno correctivo.
+
+---
+
+## Aislamiento entre inquilinos
+
+No es un `WHERE` en TypeScript. Es *row-level security* de PostgreSQL:
+
+- La aplicación conecta como `mnemosine_app`, un rol **sujeto a RLS** que sólo
+  puede DML y no posee nada. `mnemosine_owner` posee el esquema y sólo lo usa
+  `npm run migrate`. Ambos se crean con `scripts/provision-roles.sql`, que no es
+  una migración porque los roles son objetos de nivel clúster.
+- El contexto se abre con `enterTenant` en el CLI, o con `withTenant`, y cada
+  conexión ya tomada recibe `set_config('app.current_tenant', …, true)` —
+  parametrizado, porque el inquilino viene de datos.
+- `src/database/rls-policies.sql` es **idempotente y se reejecuta después de
+  cada migración**. La razón es una cicatriz: una migración de endurecimiento
+  protege lo que existe cuando corre, y `ai_external_ops` nació nueve minutos
+  después, sin política y en silencio.
+- Cruzar la frontera de entidad devuelve **404, siempre**. Un 403 confirmaría
+  que el recurso existe.
+- La CI tiene un job aparte para esto, y conecta como `mnemosine_app` a
+  propósito: corriendo como superusuario la RLS no filtra nada y una política
+  ausente jamás se detectaría.
+
+`src/config/index.ts` se niega a arrancar en producción con los secretos de
+desarrollo, y el arranque comprueba que el rol no ignore RLS.
+
+---
+
+## Lo fiscal mexicano
+
+Es la parte que no se puede improvisar y la razón de que el motor sea propio:
+
+- **CFDI 4.0**: analizador, catálogos del SAT, validación, taxonomía contable y
+  plan de posteo por comprobante. Lo que escribió un tercero —el XML— entra
+  envuelto como no confiable: es dato, jamás instrucción.
+- **IVA sobre base de flujo** (LIVA art. 1-B y art. 5 fr. III). El `MetodoPago`
+  decide: en **PUE** el IVA se causa o acredita al emitir; en **PPD** no, y se
+  estaciona en *IVA trasladado no cobrado* / *IVA pendiente de acreditar* hasta
+  que llega el complemento de pago (REP), que lo mueve a las cuentas efectivas.
+  La liga del REP con el documento original y la reclasificación existen como
+  motor y como comando.
+- **e.firma y CSD** en una bóveda cifrada, con bitácora de accesos; el material
+  no se lee fuera de `withCredential`.
+- **Timbrado** enrutado entre PAC con failover — con la limitación de simulación
+  dicha arriba.
+- **NIF mexicanas** e IFRS/NIIF viven como conocimiento consultable del agente
+  en `src/ai/docs/`, no como prosa en el prompt: la sesión paga contexto sólo
+  por lo que abre.
+
+## Dos jurisdicciones, un motor
+
+El sistema empieza por México y Estados Unidos y aspira a más países. Hoy la
+semántica es mexicana casi en todo y Estados Unidos tiene la nómina federal y
+estatal (FIT, FICA, FUTA, SUTA, 941/940/W-2) —con parámetros sembrados para
+cinco estados y tablas por corregir— y poco más. El inventario verificado
+de qué motor existe para cada país —con sus huecos nombrados y su
+`archivo:línea`— está en
+[`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
+
+La regla de diseño que ordena la internacionalización es una: **la ley no se
+decide y el criterio no se legisla.** Lo que fija la ley (tasas, topes, tablas,
+UMA) va a una tabla con vigencia y fuente oficial; lo que decide el despacho
+(base de depreciación, destino del resultado) va al panel de políticas con su
+lector; cada país es un paquete configurable sobre el mismo motor. El diseño
+del panel por jurisdicción —y por qué el de hoy no sabe de países— está en
+[`docs/jurisdicciones.md`](docs/jurisdicciones.md).
+
+---
+
+## Pruebas
+
+```bash
+npm run typecheck        # tsc --noEmit sobre src/
+npm run typecheck:tests
+npm test                 # unitarias
+npm run test:integration # contra Postgres real
+```
+
+Todo lo que corre CI, en una sola orden: `scripts/verify.sh` (ver `AGENTS.md`, «Comandos»).
+
+La suite de integración crea y destruye una base efímera por corrida, por lo que
+pide `TEST_ADMIN_DATABASE_URL` (un rol con `CREATE DATABASE`) y se niega a
+arrancar sin ella. Corre en serie a propósito: varias pruebas cuentan filas.
+
+`npm run lint` ya no es un adorno: corre ESLint 10 con información de tipos
+(`eslint.config.mjs`) sobre `src/`, `tests/` y `scripts/`, y la CI lo exige. Los
+errores rompen la compilación; las advertencias llevan trinquete (el
+`--max-warnings` del guion `lint` de `package.json`, congelado en lo medido)
+para que sólo puedan bajar.
+
+---
+
+## Cómo contribuir
+
+Lee [CONTRIBUTING.md](CONTRIBUTING.md): están ahí el flujo, los invariantes de la
+casa y por qué los mensajes de commit explican el *porqué* y no el diff.
+
+En corto: un PR por idea, desde una rama propia y contra `develop` (el flujo es
+`feature → develop → release → main`,
+[ADR-0008](docs/adr/0008-develop-release-branches.md)), con la CI en verde:
+Tipos, Pruebas unitarias, Integración contra Postgres, Aislamiento por
+inquilino, Estado del plan y Commit subjects. La puerta es la CI: no hay
+aprobaciones obligatorias ni revisión obligatoria de otro modelo (Witness dejó
+de ser requisito el 2026-11-15); la revisión humana que pide cada issue la fija
+`docs/ROUTING.md`. El ciclo completo —plan, issue, PR, CI— está en
+[`docs/PROCESS.md`](docs/PROCESS.md). Si tu cambio cierra un paquete del plan,
+añádelo a la lista `--exigir` de `.github/workflows/ci.yml` en el mismo commit;
+si lo reabre, quítalo ahí mismo y di por qué.
+
+El código, los comentarios y los mensajes de commit **nacen en inglés** (epic
+[#141](https://github.com/sedecim-com/Accounting/issues/141)). Lo que lee el
+usuario —la ayuda del CLI, los mensajes, la documentación— va en inglés primero
+y en español, u otro idioma, después (decisión del dueño del 2026-11-15); la
+regla y lo que falta por traducir están en [`docs/language.md`](docs/language.md).
+Nada de emoji, nada de `feat:` ni `chore:`.
+
+## Seguridad
+
+Si encontraste una vulnerabilidad, **no abras un issue ni un PR con el arreglo**:
+un diff público es la divulgación. El canal privado y las prioridades están en
+[SECURITY.md](SECURITY.md).
+
+## Licencia
+
+Apache 2.0 — ver [LICENSE](LICENSE) y [NOTICE](NOTICE). No hace falta CLA: la
+sección 5 de la propia licencia cubre las contribuciones.
+
+## Más documentación
+
+La **[wiki del repositorio](https://github.com/sedecim-com/Accounting/wiki)** es
+el sitio largo: cómo funciona por dentro y por qué se decidió así. Este README
+responde qué es y cómo arrancar; la wiki responde todo lo demás —arquitectura,
+el modelo de autonomía del agente, el aislamiento por inquilino, lo fiscal
+mexicano con ejemplos numéricos, el glosario para quien no es contador, y
+solución de problemas—. Su fuente vive en
+[`docs/wiki/`](docs/wiki/) y se publica desde ahí.
+
+Dentro del repositorio:
+
+- **Las puertas del framework:** [`AGENTS.md`](AGENTS.md) para agentes, [`docs/SCOPE.md`](docs/SCOPE.md), [`docs/MVP.md`](docs/MVP.md),
+  [`docs/REPO_MAP.md`](docs/REPO_MAP.md),
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/RUNBOOK.md`](docs/RUNBOOK.md), las decisiones en
+  [`docs/adr/`](docs/adr/README.md) y el ciclo de un desarrollo nuevo en [`docs/prd/`](docs/prd/README.md).
+- [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md) — la superficie de
+  comandos a la que se aspira, contrastada fila por fila contra el backend, con
+  el recuento generado.
+- [`src/ai/docs/cli-reference.md`](src/ai/docs/cli-reference.md) — la superficie
+  exacta de hoy, generada del binario.
+- [`docs/migraciones.md`](docs/migraciones.md) — numeración, rangos y los cuatro
+  duplicados históricos que no se pueden renumerar.
+- [`docs/pac-proveedores.md`](docs/pac-proveedores.md) — proveedores de timbrado.
+- [`docs/plan-catalogo.md`](docs/plan-catalogo.md) — «Doce sprints o sesenta»: el
+  modelo de coste por fila y el orden por flujos.
+- [`docs/plan-cierre-brechas.md`](docs/plan-cierre-brechas.md) — las garantías
+  heredadas, dispuestas partida por partida.
+- [`docs/jurisdicciones.md`](docs/jurisdicciones.md) — la jurisdicción como
+  dimensión: el diseño rector del panel de configuración por país.
+- [`docs/investigacion/2026-09-06-normas-y-motores/`](docs/investigacion/2026-09-06-normas-y-motores/)
+  — la investigación normativa y de motores: el inventario verificado de motores por
+  jurisdicción, y las fuentes oficiales de US GAAP, IFRS/NIIF, NIF y lo fiscal de México
+  y Estados Unidos.
+- [`docs/investigacion/2026-09-02-mejores-practicas/`](docs/investigacion/2026-09-02-mejores-practicas/)
+  — la investigación de conectores y dirección: PACs, proveedores de IA, onboarding, tablero
+  gráfico, canales de mensajería y la arquitectura experimental de cuentas públicas/privadas.
+  Toda liga verificada con fetch; las muertas se dicen. En la wiki: cinco páginas de «Hacia
+  dónde va» derivadas de ella.
+- [`docs/auditorias/`](docs/auditorias/) — las auditorías adversariales. La de
+  agosto abrió con siete lentes; la de septiembre subió a doce y cada hallazgo
+  mayor pasó por un escéptico con el encargo de refutarlo.
