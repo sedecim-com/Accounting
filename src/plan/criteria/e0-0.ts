@@ -1994,10 +1994,28 @@ export const E0_0: Criterio[] = [
     // are English in place, which this criterion cannot see: language:status
     // --check does. MNE-001-228 adds bill, payment, ap and vendor under this
     // same id.
+    //
+    // MNE-001-228 part 1 adds `ap reconcile`, `vendor` and `payment`: 16
+    // Spanish strings and 46 English ones without a key. The «(s)» of the
+    // capped items, the documents of apply and the entries and bills of
+    // reverse are ICU plurals; the account 1135 of the short-pay note is a
+    // parameter. Part 2 adds bill-command.ts to these leaves.
     enunciado:
-      'The ap family (prepaid) prints no Spanish string from the code: its texts come from the I8.8 block of the catalogue (#270, MNE-001-227)',
-    evaluar: () => familySpeaksByKey('I8.8', 'ap', ['src/cli/prepaid-command.ts']),
+      'The ap family (prepaid, ap reconcile, vendor, payment) prints no Spanish string from the code: its texts come from the I8.8 block of the catalogue (#270, MNE-001-227, MNE-001-228)',
+    evaluar: () =>
+      familySpeaksByKey('I8.8', 'ap', [
+        'src/cli/prepaid-command.ts',
+        'src/cli/ap-command.ts',
+        'src/cli/vendor-command.ts',
+        'src/cli/payment-command.ts',
+      ]),
     mutantes: [
+      {
+        archivo: 'src/cli/payment-command.ts',
+        de: "'ap.payment.reverse.confirm'",
+        a: "'Reverse {payment} on {date}? {entries} ledger entry(ies) get a mirror' as never",
+        porque: 'string-back-in-the-code: payment reverse counts its mirrored entries with «(s)» in the code again, which only check 2 sees',
+      },
       {
         archivo: 'src/cli/prepaid-command.ts',
         de: "'ap.prepaid.run.entries_note'",
