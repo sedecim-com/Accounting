@@ -259,6 +259,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
    npx tsx scripts/openapi.ts --check
    npx tsx scripts/ux-status.ts --check
    npx tsx scripts/language-status.ts --check
+   npx tsx scripts/command-manifest.ts --check
    ```
 
    La lista de `--exigir` es la de `ci.yml` el día que se escribió esto: cópiala de ahí.
@@ -278,6 +279,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 | `docs/cli-command-catalog.md` (bloque) y `docs/catalogo-minimos.json` | Recuento del binario y suelo | `npm run catalogo:estado`. Ojo: **sin `--check` reescribe el archivo** |
 | `docs/HISTORY.md` | Censo generado y filas a mano | `npm run historial:estado` |
 | `docs/openapi.json` | Se genera de las rutas | `npm run openapi` |
+| `docs/command-manifest.json` | Se genera del árbol de comandos y de su registro de riesgo | `npm run command:manifest` |
 | `tests/api/golden/rest-body.golden.json` y `tests/ai/tools/tool-schemas.golden.json` | Se generan de los esquemas de cuerpo y de las herramientas del agente, y son contrato (#367) | `npx tsx scripts/zod-contract-goldens.ts --write`, sólo si el PR cambia ese contrato a propósito |
 
 **El entorno local.** Un solo comando, idempotente (#335):

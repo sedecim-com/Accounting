@@ -720,6 +720,8 @@ mirror	memory	E5.1 output-flag-writes-complete-output	src/cli/kernel/output.ts	p
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/kernel/audit.ts	la acusación se disuelve dentro de la regla tautológica: R11 vuelve a decir sólo lo que declareRisk acaba de inyectar y deja de poder fallar
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/receipt-command.ts	el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` deja de existir para quien la lea
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/payment-command.ts	dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener llamada propia
+mirror	memory	E5.1 agent-tools-from-risk-registry	src/ai/tools/index.ts	named-not-called: the tool factory re-exports the registry and derives nothing from it. Until MNE-001-693 any file outside the kernel that named the symbol turned this green, and the command manifest names it
+mirror	memory	E5.1 agent-tools-from-risk-registry	src/ai/tools/observer.ts	called-beside-the-factory: an agent module really calls the registry, and buildTools imports only its types, which do not exist at run time, so no tool can come from it
 mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)
 mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	importing the receivables core must turn red by its MODULE: the name imported is on no list, so only the module fence can catch it (MNE-001-454)
 mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	the hand door of an issued CFDI posts an invoice and its entry: a tool that names it must turn red (MNE-001-417)
@@ -1506,6 +1508,8 @@ anchor	src/plan/criteria/e5-1.ts	de: ' emit(data, opts, out);',
 anchor	src/plan/criteria/e5-1.ts	de: "rule: 'R11 llave aceptada sin honrar',",
 anchor	src/plan/criteria/e5-1.ts	de: "const AMBITO_DE_COBRO = 'receipt record';",
 anchor	src/plan/criteria/e5-1.ts	de: " scope: 'payment create',",
+anchor	src/plan/criteria/e5-1.ts	de: "import { withInlinedInputSchema } from './inline-schema-refs.js';",
+anchor	src/plan/criteria/e5-1.ts	de: 'export type ToolObserver = (toolName: string, input: unknown) => void;',
 anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(',
 anchor	src/plan/criteria/e5-1.ts	de: "import { query } from '../../database/connection.js';",
 anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(',
