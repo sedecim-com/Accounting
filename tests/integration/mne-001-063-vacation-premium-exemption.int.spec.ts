@@ -85,6 +85,8 @@ describe('the vacation premium is taxed only above 15 UMA a year, and the CFDI s
     );
     expect(rows[0].base).toBe('7240.35');
 
+    // A paycheck is stamped once its run is approved (MNE-001-720).
+    await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1 AND tenant_id = $2`, [runId, f.tenantId]);
     const spy = vi.spyOn(pacRouter, 'stamp').mockResolvedValue({
       uuid: uuidv4(), xml_timbrado: '', cadena_original: '',
       fecha_timbrado: new Date(), no_certificado_sat: '0000', sello_sat: '',
