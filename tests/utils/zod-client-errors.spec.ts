@@ -24,6 +24,8 @@ import {
   normalizeLegacyIssues,
   parseForClient,
   parseForClientKeyed,
+  keyedIssueParams,
+  schemaMessage,
   type ClientIssue,
   type KeyedClientIssue,
 } from '../../src/utils/zod-client-errors.js';
@@ -578,7 +580,8 @@ describe('parseForClientKeyed names the key and the parameters of every issue it
     // not know, travels verbatim and has no key.
     ['a message the schema sets', z.string().min(1, 'msg'), '', [{ path: '', message: 'msg' }]],
     ['a refine with a message', z.string().refine((v) => v === 'a', { message: 'Must be a' }), 'b', [{ path: '', message: 'Must be a' }]],
-    ['a regex with a message', z.string().regex(/^a$/, 'YYYY-MM-DD'), 'b', [{ path: '', message: 'YYYY-MM-DD' }]],
+    // Not 'YYYY-MM-DD': a schema writes that one by key since MNE-001-588.
+    ['a regex with a message', z.string().regex(/^a$/, 'Not a date'), 'b', [{ path: '', message: 'Not a date' }]],
     ['a format zod 3 had no name for', z.ipv4(), 'x', [{ path: '', message: 'Invalid IPv4 address' }]],
     ['a code the map does not know', z.record(z.string().regex(/^a/), z.number()), { b: 1 }, [{ path: 'b', message: 'Invalid key in record' }]],
   ];
@@ -597,6 +600,56 @@ describe('parseForClientKeyed names the key and the parameters of every issue it
 
   it('a success is the parsed data, as from parseForClient', () => {
     expect(parseForClientKeyed(z.object({ a: z.string().default('x') }), {})).toStrictEqual({ success: true, data: { a: 'x' } });
+  });
+});
+
+describe('a message a schema sets by key is keyed in the 422 too (MNE-001-588)', () => {
+  const SCHEMA = 'error.VALIDATION_ERROR.schema';
+
+  it('schemaMessage is the English of the key, and the issue it words carries that key', () => {
+    const message = schemaMessage(`${SCHEMA}.date_format`);
+    expect(message).toBe('YYYY-MM-DD');
+    expect(parseForClientKeyed(z.object({ d: z.string().regex(/^\d{4}$/, message) }), { d: 'x' })).toStrictEqual({
+      success: false,
+      issues: [keyed('d', 'YYYY-MM-DD', { key: `${SCHEMA}.date_format` })],
+    });
+  });
+
+  it('a refine, an array minimum and an error map written by key are keyed alike', () => {
+    const empty = schemaMessage(`${SCHEMA}.at_least_one_field`);
+    const lines = schemaMessage(`${SCHEMA}.entry_min_lines`);
+    const amount = schemaMessage(`${SCHEMA}.matched_amount_positive`);
+    const schema = z.object({
+      patch: z.object({ a: z.string().optional() }).refine((o) => Object.keys(o).length > 0, { message: empty }),
+      lines: z.array(z.string()).min(2, lines),
+      amount: z.union([z.string(), z.number()], { error: () => amount }),
+    });
+    expect(parseForClientKeyed(schema, { patch: {}, lines: [], amount: true })).toStrictEqual({
+      success: false,
+      issues: [
+        keyed('patch', 'At least one field must be provided', { key: `${SCHEMA}.at_least_one_field` }),
+        keyed('lines', 'At least 2 lines required', { key: `${SCHEMA}.entry_min_lines` }),
+        keyed('amount', 'matched_amount must be a positive decimal', { key: `${SCHEMA}.matched_amount_positive` }),
+      ],
+    });
+  });
+
+  it('a custom issue carries a key with per-request values in its params', () => {
+    const cap = { key: `${VE}.too_big.array`, params: { bound: 'inclusive', maximum: '1' } } as const;
+    const schema = z.array(z.string()).superRefine((rows, ctx) => {
+      if (rows.length > 1) ctx.addIssue({ code: 'custom', ...keyedIssueParams(cap) });
+    });
+    const parsed = parseForClientKeyed(schema, ['a', 'b']);
+    expect(parsed).toStrictEqual({ success: false, issues: [keyed('', 'Array must contain at most 1 element(s)', cap)] });
+    const err = new RequestValidationError({ kind: 'body' }, parsed.success ? [] : parsed.issues);
+    expect(err.localized('es')).toBe('Cuerpo de la petición inválido: <root>: El arreglo debe tener como máximo 1 elemento');
+  });
+
+  it('a message written as prose still has no key', () => {
+    expect(parseForClientKeyed(z.string().min(1, 'Not by key'), '')).toStrictEqual({
+      success: false,
+      issues: [{ path: '', message: 'Not by key' }],
+    });
   });
 });
 

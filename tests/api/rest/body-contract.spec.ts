@@ -460,14 +460,68 @@ describe('G3 · the 422 envelope', () => {
     }
   });
 
-  it('a message the schema writes itself travels verbatim after the Spanish frame', async () => {
+  it('a message the schema writes itself reads Spanish after the Spanish frame (MNE-001-588)', async () => {
     const res = await post('PATCH /v1/accounts/:id', '{}', { 'x-request-id': 'req-367', 'accept-language': 'es' });
     expect(res.status).toBe(422);
     expectEnvelope(
       (await res.json()) as Envelope,
-      'Cuerpo de la petición inválido: <root>: At least one field must be provided',
+      'Cuerpo de la petición inválido: <root>: Debe enviarse al menos un campo',
       'es'
     );
+  });
+});
+
+describe('G6 · every message a schema sets itself is a catalogue key (MNE-001-588)', () => {
+  // One row per message: its English is the text the schema always wrote
+  // (G1 pins it against the golden), and Spanish now renders it too. Every
+  // literal is written by hand.
+  const SPANISH_FRAME = 'Cuerpo de la petición inválido: ';
+  const match = (extra: Record<string, unknown>) => ({ matched_entity_type: 'journal_entry_line', matched_entity_id: ID, ...extra });
+  const severance = { employee_id: ID, termination_date: 'x', last_paid_through: '2024-01-15', termination_reason: 'renuncia' };
+  const rows: Array<[string, string, unknown, string, string]> = [
+    ['an empty PATCH (accounts)', 'PATCH /v1/accounts/:id', {}, '<root>: At least one field must be provided', '<root>: Debe enviarse al menos un campo'],
+    ['an empty PATCH (pre-registrations)', 'PATCH /v1/pre-registrations/:id', {}, '<root>: At least one field required', '<root>: Hace falta al menos un campo'],
+    ['an upload with no XML', 'POST /v1/upload', {}, '<root>: xml_content or xml_contents array is required', '<root>: Hace falta xml_content o el arreglo xml_contents'],
+    ['a customer with no name', 'POST /v1/customers', { entity_id: ID }, '<root>: company_name or first_name is required', '<root>: Hace falta company_name o first_name'],
+    [
+      'a line with both amounts',
+      'POST /v1/journal-entries',
+      { entity_id: ID, entry_date: '2024-01-15', lines: [line({ credit_amount: '1' }), line()] },
+      'lines.0: Each line must have either debit_amount OR credit_amount, not both',
+      'lines.0: Cada renglón lleva debit_amount O credit_amount, no los dos',
+    ],
+    ['an unknown PAC', 'PUT /v1/admin/integrations/pac/preferences/all', { pac_primary: 'nope' }, 'pac_primary: Unknown PAC provider', 'pac_primary: Proveedor de PAC desconocido'],
+    ['a matched amount of the wrong type', 'POST /v1/bank-accounts/transactions/:id/match', match({ matched_amount: true }), 'matched_amount: matched_amount must be a positive decimal', 'matched_amount: matched_amount debe ser un decimal positivo'],
+    ['a matched amount left out', 'POST /v1/bank-accounts/transactions/:id/match', match({}), 'matched_amount: Required', 'matched_amount: Obligatorio'],
+    [
+      'a matched amount with five decimals',
+      'POST /v1/bank-accounts/transactions/:id/match',
+      match({ matched_amount: '1.00001' }),
+      'matched_amount: matched_amount must be a positive decimal with at most 4 fractional digits',
+      'matched_amount: matched_amount debe ser un decimal positivo con 4 decimales como máximo',
+    ],
+    ['an invoice with no lines', 'POST /v1/invoices', { entity_id: ID, customer_id: ID, invoice_date: '2024-01-15', due_date: '2024-01-15', lines: [] }, 'lines: At least 1 line required', 'lines: Hace falta al menos 1 renglón'],
+    ['a journal entry with one line', 'POST /v1/journal-entries', { entity_id: ID, entry_date: '2024-01-15', lines: [line()] }, 'lines: At least 2 lines required', 'lines: Hacen falta al menos 2 renglones'],
+    ['a void with no reason', 'POST /v1/invoices/:id/void', { reason: '' }, 'reason: Reason is required for voiding', 'reason: Para anular hace falta un motivo'],
+    ['a date that is not one', 'POST /v1/payroll/finiquito', severance, 'termination_date: YYYY-MM-DD', 'termination_date: AAAA-MM-DD'],
+  ];
+
+  /** The error `validateBody` hands to `next` for `body`. */
+  function refusalOf(key: string, body: unknown): AppError {
+    let caught: unknown;
+    void handlerFor(key)({ body } as express.Request, {} as express.Response, (err?: unknown) => {
+      caught = err;
+    });
+    if (!(caught instanceof AppError)) throw new Error(`${key} did not refuse the body`);
+    return caught;
+  }
+
+  it.each(rows)('%s', (_label, key, body, english, spanish) => {
+    const err = refusalOf(key, body);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.message).toBe(`${INVALID}${english}`);
+    expect(err.localized('en')).toBe(`${INVALID}${english}`);
+    expect(err.localized('es')).toBe(`${SPANISH_FRAME}${spanish}`);
   });
 });
 

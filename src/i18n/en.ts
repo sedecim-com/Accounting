@@ -152,6 +152,36 @@ export const EN = {
   'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
   /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
   'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
+  // ---- MNE-001-588 · the messages the REST schemas set themselves, by key (issue #151) ----
+  // Each English is the schema's own text of before, byte for byte
+  // (tests/api/golden/rest-body.golden.json pins it). A schema writes them
+  // through `schemaMessage` (src/utils/zod-client-errors.ts). Field names
+  // are never translated.
+  /** `.refine` of the PATCH bodies of accounts, customers and vendors: an empty body. */
+  'error.VALIDATION_ERROR.schema.at_least_one_field': 'At least one field must be provided',
+  /** `.refine` of the PATCH bodies of pre-registrations and processing rules: an empty body. */
+  'error.VALIDATION_ERROR.schema.at_least_one_field_required': 'At least one field required',
+  /** `.refine` of `POST /v1/upload`: neither `xml_content` nor a non-empty `xml_contents`. */
+  'error.VALIDATION_ERROR.schema.xml_content_required': 'xml_content or xml_contents array is required',
+  /** `.refine` of `POST /v1/customers`: a customer with no name of either kind. */
+  'error.VALIDATION_ERROR.schema.customer_name_required': 'company_name or first_name is required',
+  /** `.refine` of a journal entry line that carries both amounts. */
+  'error.VALIDATION_ERROR.schema.line_debit_or_credit': 'Each line must have either debit_amount OR credit_amount, not both',
+  /** `.refine` of the PAC preferences: a provider the adapters do not know. */
+  'error.VALIDATION_ERROR.schema.unknown_pac': 'Unknown PAC provider',
+  /** The error map of `matched_amount`: neither a string nor a number. */
+  'error.VALIDATION_ERROR.schema.matched_amount_positive': 'matched_amount must be a positive decimal',
+  /** `.refine` of `matched_amount`: not a plain positive decimal that fits DECIMAL(19,4). */
+  'error.VALIDATION_ERROR.schema.matched_amount_scale':
+    'matched_amount must be a positive decimal with at most 4 fractional digits',
+  /** The array minimum of an invoice's `lines`. */
+  'error.VALIDATION_ERROR.schema.invoice_min_lines': 'At least 1 line required',
+  /** The array minimum of a journal entry's `lines`. */
+  'error.VALIDATION_ERROR.schema.entry_min_lines': 'At least 2 lines required',
+  /** The string minimum of `reason` when voiding an invoice or a journal entry. */
+  'error.VALIDATION_ERROR.schema.void_reason_required': 'Reason is required for voiding',
+  /** The regex of a calendar date field: the format it expects. */
+  'error.VALIDATION_ERROR.schema.date_format': 'YYYY-MM-DD',
   // ---- MNE-001-150 · a path no route serves (issue #151) ----
   /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
   'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
