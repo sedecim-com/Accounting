@@ -15,7 +15,8 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 //
 //   · recordFiledReturn writes a monthly IVA return and its credits in ONE
 //     transaction. The provisional ISR fits the same table, but its writer is
-//     not this task's.
+//     not this task's. Its two doors are `filing record` and, for an amended
+//     return, `filing correct` (MNE-001-629).
 //   · filedReturnInForce reads the last link of a period's chain: an amended
 //     return («complementaria», CFF art. 32) replaces the one before it, and
 //     the return in force is the one nobody replaces.
@@ -35,10 +36,10 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 // when Postgres raises them.
 //
 // A CREDIT TAKES NO MORE THAN IS LEFT (MNE-001-613, LIVA art. 6). Inside the
-// transaction that writes, the writer reads balancesInFavorBefore, the
-// workpaper's reader, and refuses a credit above what its source period still
-// holds after the returns in force of other periods, the compensations and a
-// refund request. An amendment that lowers a balance below what others
+// transaction that writes, the writer runs once the query of
+// balancesInFavorBefore, the workpaper's reader, and refuses a credit above
+// what its source period still holds after the returns in force of other
+// periods, the compensations and a refund request. An amendment that lowers a balance below what others
 // already used is refused too, naming them: the later returns are amended
 // first (CFF art. 32). Every write of an entity's record of one tax takes the
 // advisory lock `filed_tax_returns:<entity>:<obligation>` first, so two
@@ -325,8 +326,13 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
 
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
     [`filed_tax_returns:${scope.entityId}:${f.obligation}`]);
-  await assertCreditsAvailable(c, scope, f, credits, sources);
-  if (replaced) await assertAmendmentCoversUse(c, scope, f);
+  // One read serves both rules: the earlier months for the credits and, for an
+  // amendment, its own month, which `including` adds without changing the rest.
+  const balances = credits.length > 0 || replaced
+    ? await readBalances(scope, f.obligation, f.period, Boolean(replaced), c)
+    : [];
+  assertCreditsAvailable(f, credits, sources, balances);
+  if (replaced) await assertAmendmentCoversUse(c, scope, f, balances);
 
   let id: string;
   try {
@@ -344,12 +350,13 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
        f.amountPayable ?? '0', f.balanceInFavor ?? '0', f.amountPaid ?? null, f.paidOn ?? null,
        f.recordedBy ?? null]
     );
+    if (ins.rows.length !== 1) throw new NotFoundError('Entity', scope.entityId);
     id = ins.rows[0].id;
   } catch (e) {
     throw inWords(e, f, replaces);
   }
   if (sources.length > 0) {
-    await c.query(
+    const written = await c.query(
       `INSERT INTO filed_tax_return_credits
          (entity_id, obligation, return_id, return_period, source_return_id, source_period, amount)
        SELECT r.entity_id, r.obligation, r.id, r.period, s.id, s.period, s.amount
@@ -361,6 +368,10 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
       [id, scope.tenantId, sources.map((s) => s.id), sources.map((s) => `${s.period}-01`),
        credits.map((x) => x.amount)]
     );
+    // A return never stays without one of the credits it states: this throws, and the write rolls back.
+    if (written.rowCount !== sources.length) {
+      throw new Error(`Filed return ${id}: ${written.rowCount} of its ${sources.length} credits were written`);
+    }
   }
   const back = await c.query<FiledReturn>(`${RETURN_SELECT} WHERE r.id = $1`, [id]);
   return back.rows[0];
@@ -373,12 +384,11 @@ async function writeFiling(c: pg.PoolClient, scope: EntityScope, f: FiledReturnF
  * left out by the reader, so an amendment is checked against what the
  * return it replaces did not use, not against it twice.
  */
-async function assertCreditsAvailable(
-  c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling,
-  credits: ReadonlyArray<{ ack: string; amount: string }>, sources: readonly Referenced[]
-): Promise<void> {
-  if (credits.length === 0) return;
-  const left = new Map((await balancesInFavorBefore(scope, f.obligation, f.period, c)).map((x) => [x.period, availableOf(x)]));
+function assertCreditsAvailable(
+  f: FiledReturnFiling, credits: ReadonlyArray<{ ack: string; amount: string }>, sources: readonly Referenced[],
+  balances: readonly BalanceInFavorSource[]
+): void {
+  const left = new Map(balances.map((x) => [x.period, availableOf(x)]));
   credits.forEach((x, i) => {
     const sourcePeriod = sources[i].period;
     const available = left.get(sourcePeriod) ?? new Decimal(0);
@@ -397,8 +407,10 @@ async function assertCreditsAvailable(
  * record would hold a credit LIVA art. 6 does not allow, so it is refused,
  * naming the returns to amend first: the conservative reading of #308.
  */
-async function assertAmendmentCoversUse(c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling): Promise<void> {
-  const own = (await readBalances(scope, f.obligation, f.period, true, c)).find((x) => x.period === f.period);
+async function assertAmendmentCoversUse(
+  c: pg.PoolClient, scope: EntityScope, f: FiledReturnFiling, balances: readonly BalanceInFavorSource[]
+): Promise<void> {
+  const own = balances.find((x) => x.period === f.period);
   if (!own) return;
   const used = new Decimal(own.credited).plus(own.compensated);
   const balance = new Decimal(f.balanceInFavor ?? 0);
