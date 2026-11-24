@@ -109,8 +109,8 @@
   "hashes": {
     "src/services/accounting/posting.ts": "4b0572e71c68fa1431056062f1097ada86a2611e",
     "src/services/accounting/validation.ts": "e4208d85f2037fdca382e25db68be452c03fac18",
-    "src/services/accounting/fiscal-calendar-service.ts": "0772025016cf4d7c1cf2ba143a1d947d6bd1031a",
-    "src/cli/entry-command.ts": "76201faac5d758687cb842354f0291849d110a35",
+    "src/services/accounting/fiscal-calendar-service.ts": "3a3fc0699045080ced53668c96f1a0b1fc7f4712",
+    "src/cli/entry-command.ts": "2aec1f9c3912814b65537534b0518f52439f878a",
     "src/services/accounting/iva-cash-basis.ts": "b667b3b282e3cd6a7b0368b2eef0e65ac4e5fa22",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "4b36a121400a9ffc304aa240125214a52dc2648b",
     "src/services/integrations/mexico/pac/pac-router.ts": "e51f69e09c6cd2906d8174e81291114019f2d27e",

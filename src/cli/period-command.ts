@@ -13,6 +13,7 @@ import {
   listFiscalYears,
   getFiscalYear,
   createFiscalYear,
+  carryForwardIntoYear,
   assertFiscalYearNumber,
   PERIOD_STATUSES,
 } from '../services/accounting/fiscal-calendar-service.js';
@@ -724,6 +725,79 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
             ? deps.palette.dim(`${t('ledger.period.year.carried', { period: carried.from, count: carried.accounts })}\n`)
             : '') +
           deps.palette.dim(`${t('ledger.period.year.open_hint')}\n`)
+      );
+    })
+  );
+
+  // ---- year carry-forward run (MNE-001-645, #594) ------------------
+  // The year that was created after its predecessor was sealed, before
+  // `year create` carried: its first period has no beginning balances. The
+  // service runs the creation's own carry on it and says what it corrected;
+  // the dry run is that same run, rolled back by the service.
+  const carryForward = describeCommand(
+    year.command('carry-forward').alias('arrastre'),
+    'help.year.carry_forward.description'
+  );
+  const carryRun = describeCommand(
+    argumentByKey(carryForward.command('run').alias('ejecutar'), '<year>', 'help.year.carry_forward.run.argument.year'),
+    'help.year.carry_forward.run.description'
+  );
+  withContext(carryRun);
+  optionByKey(carryRun, '--dry-run', 'help.year.carry_forward.run.option.dry_run');
+  optionByKey(carryRun, '--json', 'help.year.carry_forward.run.option.json');
+  // No --idempotency-key, as `year create` and `period open`: the act is
+  // idempotent by its domain. A retry finds the balances right, says so and
+  // writes nothing, where a replayed result would repeat «corrected».
+  declareRisk(carryRun, {
+    risk: 'escritura',
+    agent: false,
+    writes: "account_balances (beginning and ending of the year's first period); audit_log action 'update'",
+  });
+  carryRun.addHelpText('after', () => t('help.year.carry_forward.run.examples'));
+  carryRun.action((yearArg: string, opts: CommonOpts & { dryRun?: boolean }) =>
+    run(async () => {
+      // Tenant FIRST, as in `year create`: resolving the entity is itself a query under RLS.
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      announceTarget(deps, opts, ctx);
+      const yearNumber = Number(yearArg);
+      if (!Number.isInteger(yearNumber)) throw usageError({ key: 'ledger.period.year.not_a_year', params: { value: yearArg } });
+
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const result = await carryForwardIntoYear(ctx.entityId, yearNumber, reviewer.userId, {
+        dryRun: opts.dryRun === true,
+      });
+      const count = result.corrections.length;
+      const status = count === 0 ? 'unchanged' : result.written ? 'corrected' : 'would_correct';
+      if (opts.json) {
+        render([{
+          year_number: result.year_number, period: result.period.period_name, carried_from: result.carried_from,
+          status, accounts: count, corrections: result.corrections,
+        }], { json: true });
+        return;
+      }
+
+      const p = deps.palette;
+      const said = { period: result.period.period_name, source: result.carried_from, count };
+      if (status === 'unchanged') {
+        process.stdout.write(`${t('ledger.period.year.carry.unchanged', said)}\n`);
+        return;
+      }
+      process.stdout.write(
+        status === 'corrected'
+          ? `${p.green('✔')} ${t('ledger.period.year.carry.corrected', { ...said, period: p.bold(said.period) })}\n`
+          : `\n${p.bold(t('ledger.period.year.carry.would_correct', said))}\n`
+      );
+      render(result.corrections.map((c) => ({ account: c.code, before: c.before, after: c.after })), {
+        format: 'table',
+        fields: 'account,before,after',
+      });
+      process.stdout.write(
+        p.dim(
+          `${status === 'corrected'
+            ? t('ledger.period.year.carry.corrected_detail', { email: reviewer.email })
+            : t('ledger.period.year.carry.dry_run')}\n`
+        )
       );
     })
   );

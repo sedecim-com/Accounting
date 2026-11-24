@@ -145,6 +145,9 @@ const BLOCKED_CODES = new Set([
   // F01 · maker-checker: la política del panel prohíbe que quien creó
   // postee. No es entrada inválida: es el estado del control interno.
   'SOD_QUIEN_CREA_NO_POSTEA',
+  // MNE-001-645: `year carry-forward run` is refused by the state of a period,
+  // the one it carries from (not sealed) or the one it writes (sealed).
+  'CARRY_SOURCE_NOT_SEALED', 'CARRY_TARGET_SEALED',
 ]);
 
 export function translateDomainError(err: unknown): unknown {
