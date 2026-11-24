@@ -95,8 +95,14 @@ describe('recordFiledReturn refuses by key, before Postgres speaks', () => {
   });
 });
 
-/** A client whose first query answers the lookup and whose second throws `error`. */
-const clientFailingOnInsert = (error: unknown) => ({
+/** July's 5,000.00, as balancesInFavorBefore reads it: nothing used yet, so August may credit 3,000.00. */
+const julyLeft = (credited: string) => ({
+  rows: [{ acknowledgementNumber: 'OP-SYN-0701', period: '2026-07', filedOn: '2026-08-14', balanceInFavor: '5000.00',
+    credited, compensated: '0.00', refundRequested: '0.00' }],
+});
+
+/** A client that answers the lookup, the lock and the reader (July with `credited` used), then gives `last`. */
+const clientWith = (credited: string, last: () => Promise<unknown>) => ({
   query: vi.fn()
     .mockResolvedValueOnce({
       rows: [{
@@ -105,7 +111,35 @@ const clientFailingOnInsert = (error: unknown) => ({
           balanceInFavor: '5000.00' }],
       }],
     })
-    .mockRejectedValueOnce(error),
+    .mockResolvedValueOnce({ rows: [{}] })
+    .mockResolvedValueOnce(julyLeft(credited))
+    .mockImplementationOnce(last),
+});
+/** The same client, whose insert throws `error`. */
+const clientFailingOnInsert = (error: unknown) => clientWith('0.00', () => Promise.reject(error as Error));
+
+describe('recordFiledReturn credits no more than is left (MNE-001-613, LIVA art. 6)', () => {
+  it('takes the lock on the entity and the tax, then refuses 3,000.00 when 2,999.99 is left, before the insert', async () => {
+    const insert = vi.fn(() => Promise.reject(new Error('reached the insert')));
+    const client = clientWith('2000.01', insert);
+    const err = await recordFiledReturn(scope, august, client as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ValidationError);
+    expect((err as AppError).field).toBe('credits[0].amount');
+    expect((err as AppError).messageKey).toEqual({
+      key: 'filed_return.credit_above_available',
+      params: { acknowledgement: 'OP-SYN-0701', sourcePeriod: '2026-07', requested: '3000.00', available: '2999.99' },
+    });
+    expect((err as AppError).localized('es')).not.toBe((err as AppError).localized('en'));
+    expect(client.query.mock.calls[1]).toEqual(
+      ['SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['filed_tax_returns:entity-1:iva_monthly']]);
+    expect(client.query.mock.calls[2][1]).toEqual(['entity-1', 'tenant-1', 'iva_monthly', '2026-08-01', false]);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('reaches the insert when exactly what is left is credited', async () => {
+    const client = clientWith('2000.00', () => Promise.reject(new Error('reached the insert')));
+    await expect(recordFiledReturn(scope, august, client as never)).rejects.toThrow('reached the insert');
+  });
 });
 
 describe('recordFiledReturn says the three UNIQUE violations in words', () => {

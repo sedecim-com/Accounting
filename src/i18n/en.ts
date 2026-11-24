@@ -4727,6 +4727,8 @@ export const EN = {
   'filed_return.credit_source_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: record that return first, then the one that credits its balance. Nothing was written.',
   'filed_return.credit_source_not_earlier': 'Return {acknowledgement} covers {sourcePeriod}: a return for {period} credits balances of earlier months only (LIVA art. 6). Nothing was written.',
   'filed_return.credit_source_no_balance': 'Return {acknowledgement} left no balance in favour: there is nothing of it to credit. Nothing was written.',
+  'filed_return.credit_above_available': 'Return {acknowledgement} ({sourcePeriod}) has {available} of its balance in favour left to credit, after what the returns in force of other months credited, what was compensated and any refund request: {requested} cannot be credited from it (LIVA art. 6). Nothing was written.',
+  'filed_return.amended_below_used': 'The amended return leaves {balance} in favour for {period}, but {used} of that balance is already used: {credited} credited by the returns in force {returns}, and {compensated} compensated. Amend those returns first, then record this one (LIVA art. 6, CFF art. 32). Nothing was written.',
   'filed_return.replaced_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: an amended return replaces one already recorded. Nothing was written.',
   'filed_return.replaced_other_period': 'Return {acknowledgement} covers {replacedPeriod}: an amended return for {period} replaces a return of the same month. Nothing was written.',
   'filed_return.amended_before_replaced': 'The amended return is filed on {filedOn}, before return {acknowledgement}, which it replaces, was filed on {replacedFiledOn}: an amendment comes after (CFF art. 32). Nothing was written.',
@@ -5778,6 +5780,65 @@ export const EN = {
   'help.sat.cred.revoke.description': 'Revokes the credential and deletes the material from the vault (irreversible)',
   'help.sat.cred.revoke.option.entity': 'Legal entity',
   'help.sat.cred.revoke.option.user': 'Who revokes',
+  // ==== MNE-001-427 · help by key, report and asset (issue #314) ====
+  //
+  // Fiscal and reports 2/2: the two families whole, roots included, English as
+  // shown. The two aging groups come from one function and keep a key each.
+  // The lists in `report view sync --view` and in `asset create --method` and
+  // `--tax-method` are parameters: machine values, not translated. Every
+  // generic flag a leaf declares keeps a key of its own: `asset create
+  // --dry-run` says what the rehearsal shows.
+  'help.report.description': 'Financial statements, trial balance, general ledger and ageing',
+  'help.report.trial_balance.description': 'Trial balance',
+  'help.report.trial_balance.show.description': 'Debits, credits and ending balance by account, with the footing',
+  'help.report.trial_balance.show.option.level': 'roll up to at most this account level (default: every level)',
+  'help.report.trial_balance.show.option.exclude_zero': 'omit accounts whose ending balance is exactly zero',
+  'help.report.balance_sheet.description': 'Balance sheet',
+  'help.report.balance_sheet.show.description': 'Assets, liabilities and equity at a cutoff date, in natural sign',
+  'help.report.income_statement.description': 'Income statement',
+  'help.report.income_statement.show.description': 'Revenue, expenses and net income for a period',
+  'help.report.general_ledger.description': 'General ledger detail',
+  'help.report.general_ledger.show.description': 'Posted movements line by line, filterable by account and date',
+  'help.report.general_ledger.show.option.account': 'restrict to one account (code or id)',
+  'help.report.aged_receivable.description': 'Aged receivables',
+  'help.report.aged_receivable.show.description': 'Open customer invoices by age bucket, with the amount still due',
+  'help.report.aged_payable.description': 'Aged payables',
+  'help.report.aged_payable.show.description': 'Open vendor bills by age bucket, with the amount still due',
+  'help.report.view.description': 'The reporting materialized views (mv_trial_balance, mv_account_balance_summary)',
+  'help.report.view.show.description': 'Whether each reporting view still agrees with the ledger, and by how much',
+  'help.report.view.sync.description': 'Rebuild the reporting materialized views from the ledger (firm-wide)',
+  'help.report.view.sync.option.view': 'which views to rebuild (default: all of {views})',
+  'help.report.view.sync.option.no_concurrently': 'rebuild with an exclusive lock; needed only for a never-populated view',
+  'help.asset.description': 'Fixed asset register: the ledger of what the company owns and depreciates',
+  'help.asset.create.description':
+    'Register a fixed asset with its class, dates, cost and accounts — writes no journal entry',
+  'help.asset.create.argument.name': 'what the asset is called in the register',
+  'help.asset.create.option.category': 'asset class: its id, or enough of its name to be unambiguous',
+  'help.asset.create.option.cost': 'original cost of the investment (MOI), as a decimal',
+  'help.asset.create.option.acquired': 'acquisition date (YYYY-MM-DD)',
+  'help.asset.create.option.in_service':
+    'date depreciation starts (YYYY-MM-DD); defaults from the first-month convention on the panel',
+  'help.asset.create.option.book': 'the depreciation book you believe you are working on; checked against the panel',
+  'help.asset.create.option.capitalized':
+    'whether the cost is ALREADY charged to the asset account in the ledger — no default',
+  'help.asset.create.option.source_entry': 'the journal entry the cost already sits in, when it is known',
+  'help.asset.create.option.salvage': 'residual value at the end of its life (default 0)',
+  'help.asset.create.option.life_years': 'useful life in years',
+  'help.asset.create.option.life_months': 'useful life in months; years are the ceiling of months over twelve',
+  'help.asset.create.option.method': 'BOOK depreciation method: {methods}',
+  'help.asset.create.option.tax_method': 'TAX depreciation method: {methods}',
+  'help.asset.create.option.asset_account': 'GL account the cost sits in (defaults from the class)',
+  'help.asset.create.option.accum_account': 'accumulated depreciation account (defaults from the class)',
+  'help.asset.create.option.expense_account': 'depreciation expense account (defaults from the class)',
+  'help.asset.create.option.number': 'asset number; generated from the entity series when omitted',
+  'help.asset.create.option.description': 'what the asset is',
+  'help.asset.create.option.vendor': 'vendor it was bought from',
+  'help.asset.create.option.serial': 'serial number, so the register can find the physical thing',
+  'help.asset.create.option.location': 'where it is',
+  'help.asset.create.option.dry_run': 'run the real path and undo it: shows the asset that would be created',
+  'help.asset.category.description': 'Asset classes: useful life, LISR rate and the three default accounts',
+  'help.asset.category.seed.description':
+    'Create the missing Mexican asset classes, with their LISR art. 34/35 maximum rate',
   // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
   //
   // The first agent task: the six families whole, English as shown (the roots

@@ -62,6 +62,8 @@ function incomeStatementName(value: string, row: Row): string {
 import type { Palette } from './palette.js';
 import {
   declareRisk,
+  describeCommand,
+  optionByKey,
   render,
   withContext,
   withOutput,
@@ -258,10 +260,7 @@ Examples:
 } as const;
 
 export function registerReportCommand(program: Command, deps: ReportCommandDeps): void {
-  const report = program
-    .command('report')
-    .alias('reporte')
-    .description('Financial statements, trial balance, general ledger and ageing');
+  const report = describeCommand(program.command('report').alias('reporte'), 'help.report.description');
 
   const note = (message: string) => process.stderr.write(deps.palette.dim(`${message}\n`));
   const warn = (message: string) => process.stderr.write(deps.palette.yellow(`${message}\n`));
@@ -302,18 +301,11 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     note(`${title} · ${ctx.entityName} · ${ctx.currency} · ${scope}`);
 
   // ---- report trial-balance show -----------------------------------
-  const trialBalance = report
-    .command('trial-balance')
-    .alias('balanza')
-    .description('Trial balance');
-  const tbShow = trialBalance
-    .command('show')
-    .alias('ver')
-    .description('Debits, credits and ending balance by account, with the footing');
+  const trialBalance = describeCommand(report.command('trial-balance').alias('balanza'), 'help.report.trial_balance.description');
+  const tbShow = describeCommand(trialBalance.command('show').alias('ver'), 'help.report.trial_balance.show.description');
   withOutput(withSelection(withTime(withContext(tbShow))));
-  tbShow
-    .option('--level <n>', 'roll up to at most this account level (default: every level)')
-    .option('--exclude-zero', 'omit accounts whose ending balance is exactly zero');
+  optionByKey(tbShow, '--level <n>', 'help.report.trial_balance.show.option.level');
+  optionByKey(tbShow, '--exclude-zero', 'help.report.trial_balance.show.option.exclude_zero');
   declareRisk(tbShow, { risk: 'lectura', agent: true });
   tbShow.addHelpText('after', EJEMPLOS.trialBalance);
   tbShow.action((opts: CommonOpts & { level?: string; excludeZero?: boolean }) =>
@@ -437,14 +429,8 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
   );
 
   // ---- report balance-sheet show -----------------------------------
-  const balanceSheet = report
-    .command('balance-sheet')
-    .alias('balance')
-    .description('Balance sheet');
-  const bsShow = balanceSheet
-    .command('show')
-    .alias('ver')
-    .description('Assets, liabilities and equity at a cutoff date, in natural sign');
+  const balanceSheet = describeCommand(report.command('balance-sheet').alias('balance'), 'help.report.balance_sheet.description');
+  const bsShow = describeCommand(balanceSheet.command('show').alias('ver'), 'help.report.balance_sheet.show.description');
   withOutput(withSelection(withTime(withContext(bsShow))));
   declareRisk(bsShow, { risk: 'lectura', agent: true });
   bsShow.addHelpText('after', EJEMPLOS.balanceSheet);
@@ -529,14 +515,11 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
   );
 
   // ---- report income-statement show --------------------------------
-  const incomeStatement = report
-    .command('income-statement')
-    .alias('resultados')
-    .description('Income statement');
-  const isShow = incomeStatement
-    .command('show')
-    .alias('ver')
-    .description('Revenue, expenses and net income for a period');
+  const incomeStatement = describeCommand(
+    report.command('income-statement').alias('resultados'),
+    'help.report.income_statement.description'
+  );
+  const isShow = describeCommand(incomeStatement.command('show').alias('ver'), 'help.report.income_statement.show.description');
   withOutput(withSelection(withTime(withContext(isShow))));
   declareRisk(isShow, { risk: 'lectura', agent: true });
   isShow.addHelpText('after', EJEMPLOS.incomeStatement);
@@ -592,16 +575,10 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
   );
 
   // ---- report general-ledger show ----------------------------------
-  const generalLedger = report
-    .command('general-ledger')
-    .alias('mayor')
-    .description('General ledger detail');
-  const glShow = generalLedger
-    .command('show')
-    .alias('ver')
-    .description('Posted movements line by line, filterable by account and date');
+  const generalLedger = describeCommand(report.command('general-ledger').alias('mayor'), 'help.report.general_ledger.description');
+  const glShow = describeCommand(generalLedger.command('show').alias('ver'), 'help.report.general_ledger.show.description');
   withOutput(withSelection(withTime(withContext(glShow))));
-  glShow.option('--account <code>', 'restrict to one account (code or id)');
+  optionByKey(glShow, '--account <code>', 'help.report.general_ledger.show.option.account');
   declareRisk(glShow, { risk: 'lectura', agent: true });
   glShow.addHelpText('after', EJEMPLOS.generalLedger);
   glShow.action((opts: CommonOpts & { account?: string }) =>
@@ -675,18 +652,14 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
 
   function registerAging(parent: Command, kind: 'receivable' | 'payable'): void {
     const isAr = kind === 'receivable';
-    const group = parent
-      .command(isAr ? 'aged-receivable' : 'aged-payable')
-      .alias(isAr ? 'antiguedad-cobrar' : 'antiguedad-pagar')
-      .description(isAr ? 'Aged receivables' : 'Aged payables');
-    const show = group
-      .command('show')
-      .alias('ver')
-      .description(
-        isAr
-          ? 'Open customer invoices by age bucket, with the amount still due'
-          : 'Open vendor bills by age bucket, with the amount still due'
-      );
+    const group = describeCommand(
+      parent.command(isAr ? 'aged-receivable' : 'aged-payable').alias(isAr ? 'antiguedad-cobrar' : 'antiguedad-pagar'),
+      isAr ? 'help.report.aged_receivable.description' : 'help.report.aged_payable.description'
+    );
+    const show = describeCommand(
+      group.command('show').alias('ver'),
+      isAr ? 'help.report.aged_receivable.show.description' : 'help.report.aged_payable.show.description'
+    );
     withOutput(withSelection(withTime(withContext(show))));
     declareRisk(show, { risk: 'lectura', agent: true });
     show.addHelpText('after', isAr ? EJEMPLOS.agedReceivable : EJEMPLOS.agedPayable);
@@ -757,15 +730,9 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
   }
 
   // ---- report view show / sync -------------------------------------
-  const view = report
-    .command('view')
-    .alias('vista')
-    .description('The reporting materialized views (mv_trial_balance, mv_account_balance_summary)');
+  const view = describeCommand(report.command('view').alias('vista'), 'help.report.view.description');
 
-  const viewShow = view
-    .command('show')
-    .alias('ver')
-    .description('Whether each reporting view still agrees with the ledger, and by how much');
+  const viewShow = describeCommand(view.command('show').alias('ver'), 'help.report.view.show.description');
   withOutput(withSelection(withContext(viewShow)));
   declareRisk(viewShow, { risk: 'lectura', agent: true });
   viewShow.addHelpText('after', EJEMPLOS.viewShow);
@@ -792,14 +759,12 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     })
   );
 
-  const viewSync = view
-    .command('sync')
-    .alias('sincronizar')
-    .description('Rebuild the reporting materialized views from the ledger (firm-wide)');
+  const viewSync = describeCommand(view.command('sync').alias('sincronizar'), 'help.report.view.sync.description');
   withOutput(withContext(viewSync));
-  viewSync
-    .option('--view <name...>', `which views to rebuild (default: all of ${REPORTING_VIEWS.join(', ')})`)
-    .option('--no-concurrently', 'rebuild with an exclusive lock; needed only for a never-populated view');
+  optionByKey(viewSync, '--view <name...>', 'help.report.view.sync.option.view', {
+    params: { views: REPORTING_VIEWS.join(', ') },
+  });
+  optionByKey(viewSync, '--no-concurrently', 'help.report.view.sync.option.no_concurrently');
   // escritura, and closed to the agent: this takes locks, costs real time on a
   // large ledger and changes what every other reader sees. `report view show`
   // is the preview — it says whether a rebuild would change anything at all.
