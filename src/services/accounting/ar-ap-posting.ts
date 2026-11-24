@@ -1185,6 +1185,8 @@ export interface AplicacionPosterior {
    * negative, no line at zero. Only the rest of the cash leaves 2150.
    */
   advanceIeps?: string;
+  /** MNE-001-604 · customer side only: the allocation row, tagged on its IEPS lines so its unapply reads its take back. */
+  allocationId?: string;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1281,6 +1283,7 @@ export async function postReceiptApplicationEntry(
         ieps.push({
           invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount,
           ...(take.greaterThan(0) ? { take: take.toFixed(4) } : {}),
+          ...(app.allocationId ? { allocationId: app.allocationId } : {}),
         });
         iepsTaken = iepsTaken.plus(take);
       }
@@ -1681,6 +1684,10 @@ function discountVatLine(accountId: string, role: string, amount: string, billNu
  * MNE-001-590 · `iepsKept` is that same figure when it stays caused: it goes
  * back to the uncollected role (CR) with no 2180 line, and the cash back on
  * account carries it, so 2150 is credited only for the rest.
+ *
+ * MNE-001-604 · `iepsKept.back` is what the rows took from the cash on
+ * account, net of the share released on it: it goes back to 2180 with the
+ * cash, and 2150 is credited for neither.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -1709,7 +1716,7 @@ export async function postReceiptUnapplicationEntry(
   const vat = new Decimal(app.withholdingIva ?? '0');
   const kept = new Decimal(app.keptIva ?? '0');
   const advanceIva = new Decimal(app.advanceIva ?? '0').plus(kept);
-  const iepsKept = new Decimal(app.iepsKept?.amount ?? '0');
+  const iepsKept = new Decimal(app.iepsKept?.amount ?? '0').plus(app.iepsKept?.back ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),

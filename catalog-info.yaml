@@ -152,6 +152,13 @@ provides:
     # r - e (DR when negative, no line at zero) and DR 2150 less e. `--json` is unchanged.
     # Rollback: the previous build does not read that IEPS, so before reverting post DR 2181 /
     # CR 2150 by hand, tagged, for each kept IEPS still on account.
+    # CONTRACT: that application now tags each IEPS line with its allocation row
+    # (`ieps_release.allocation_id`), and the unapply of such a row credits 2180 with the IEPS
+    # it took from the cash on account, net of the share released on that cash (DR when
+    # negative), and 2150 only the rest (MNE-001-604, #792; LIEPS arts. 10 and 5o.-C): the pool
+    # and 2180 go back to where they were before the application. `--json` is unchanged; a row
+    # applied before this build carries no tag and unapplies as before. Rollback: revert; the
+    # 2180 lines this build posted stay valid and the previous build reads them as pool IEPS.
     # CONTRACT: `receipt unapply` of a receipt with no treatment by a cheque the bank has not
     # cashed, from a PPD invoice, still posts no IVA line (CR 2150 the whole cash), and now
     # stores on each row the IVA its share would have released (`unapply_kept_iva_amount`);

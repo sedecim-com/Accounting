@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type pg from 'pg';
-import { heldIepsShare, iepsHeldForCashing, iepsKeptOnAccount, iepsMoveLines } from '../../src/services/accounting/ieps-cash-basis.js';
+import { heldIepsShare, iepsHeldForCashing, iepsKeptOnAccount, iepsMoveLines, iepsTakenByRows } from '../../src/services/accounting/ieps-cash-basis.js';
 
 // MNE-001-590 (#792) · the lines that keep an unapplied receipt's IEPS caused and
 // net it on a later application, by hand. The ledger reads themselves are
@@ -143,5 +143,53 @@ describe('iepsMoveLines · cause', () => {
       'IEPS now in ieps_por_pagar (caused on cheque CHQ-608 cashed 2026-06-01, LIEPS art. 10) on the cash back on account, ' +
         'kept for the cashing when it was unapplied - Invoice A'
     );
+  });
+});
+
+// MNE-001-604 (#792) · an unapply gives back what its rows took from the cash on account, read by row. By hand.
+describe('iepsMoveLines · keep with back', () => {
+  it('U1: r 0 and back 74.0741 is one 2180 credit, tagged with the invoice and the receipt', async () => {
+    const lines = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-c', invoiceNumber: 'C', amount: '0', back: '74.0741' }], 'keep', 'unapply');
+    expect(amounts(lines)).toEqual([[DUE, null, '74.0741']]);
+    expect(lines[0].tags).toEqual(tags('inv-c'));
+    expect(lines[0].description).toBe(
+      'IEPS the cash on account carried, taken on its application, back with it (unapply; caused when collected, LIEPS art. 10) - Invoice C'
+    );
+  });
+
+  it('U2: r 40 and back 37.0370 is 2181 Cr 40 and 2180 Cr 37.0370; a negative back is a 2180 debit; zero adds nothing', async () => {
+    const two = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-d', invoiceNumber: 'D', amount: '40', back: '37.0370' }], 'keep', 'unapply');
+    expect(amounts(two)).toEqual([[UNCOLLECTED, null, '40.0000'], [DUE, null, '37.0370']]);
+    const debit = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-d', invoiceNumber: 'D', amount: '80', back: '-80' }], 'keep', 'unapply');
+    expect(amounts(debit)).toEqual([[UNCOLLECTED, null, '80.0000'], [DUE, '80.0000', null]]);
+    expect(debit[1].description).toBe('IEPS released on cash from on account undone (unapply), net of what it carried - Invoice D');
+    const none = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-d', invoiceNumber: 'D', amount: '80', back: '0' }], 'keep', 'unapply');
+    expect(amounts(none)).toEqual([[UNCOLLECTED, null, '80.0000']]);
+  });
+
+  it('a release tags its allocation row beside the invoice and the receipt', async () => {
+    const lines = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-c', invoiceNumber: 'C', amount: '0', take: '74.0741', allocationId: 'row-1' }], 'release', 'collection');
+    expect(lines[0].tags).toEqual({ ieps_release: { invoice_id: 'inv-c', payment_id: 'pay-1', allocation_id: 'row-1' } });
+  });
+});
+
+describe('iepsTakenByRows', () => {
+  it('one entity-scoped query over both roles, by row, unreversed; no rows reads nothing', async () => {
+    const sql: string[] = [];
+    const params: unknown[][] = [];
+    const client = {
+      query: async (text: string, p?: unknown[]) => {
+        sql.push(String(text).replace(/\s+/g, ' '));
+        params.push(p ?? []);
+        return { rows: [{ allocation_id: 'row-1', released: '0', taken: '74.0741' }] };
+      },
+    } as unknown as pg.PoolClient;
+    const read = await iepsTakenByRows(client, ENTITY, ['row-1', 'row-2']);
+    expect([...read.entries()]).toEqual([['row-1', { released: '0.0000', taken: '74.0741' }]]);
+    expect(params[0]).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1', 'row-2']]);
+    expect(sql[0]).toContain("l.tags -> 'ieps_release' ->> 'allocation_id' = ANY($4::text[])");
+    expect(sql[0]).toContain('je.entity_id = $1 AND je.status = \'posted\' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false');
+    expect(await iepsTakenByRows(client, ENTITY, [])).toEqual(new Map());
+    expect(sql).toHaveLength(1);
   });
 });
