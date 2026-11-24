@@ -1917,16 +1917,51 @@ export const E0_0: Criterio[] = [
     // option descriptions of cfdi and three risk texts are English in place,
     // which this criterion cannot see: language:status --check does, as for
     // sat. rep's reads come through a `receipts` seam for its spec.
+    // MNE-001-600 (I8.7 part 3) closes #269's console clause: `sat cred` add,
+    // status, audit and revoke printed their English prose with 24 console.*
+    // calls and no key. They write through stdout and stderr now, from the
+    // block, with an ICU plural for the days to expiry; `sat download` keeps
+    // its keys and loses its nine console.log, and the idempotency reasons of
+    // sat and cfdi are keys. So the family also writes through no console.*
+    // call, which is the check added after the shared three.
     enunciado:
-      'The fiscal-mx family (e-accounting, sat, diot, cfdi, rep) prints no Spanish string from the code: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225, MNE-001-226)',
-    evaluar: () =>
-      familySpeaksByKey('I8.7', 'fiscal-mx', [
+      'The fiscal-mx family (e-accounting, sat, sat download, diot, cfdi, rep) prints no Spanish string from the code and writes through no console.* call: its texts come from the I8.7 block of the catalogue (#269, MNE-001-225, MNE-001-226, MNE-001-600)',
+    evaluar: () => {
+      const leaves = [
         'src/cli/e-accounting-command.ts',
         'src/cli/sat-commands.ts',
+        'src/cli/sat-download-commands.ts',
         'src/cli/diot-command.ts',
         'src/cli/cfdi-command.ts',
         'src/cli/rep-command.ts',
-      ]),
+      ];
+      const verdict = familySpeaksByKey('I8.7', 'fiscal-mx', leaves);
+      if (verdict.estado !== 'ok') return verdict;
+      // 4 · #269's console clause: a console.* call, read from the syntax tree
+      // so a comment that names one does not count.
+      const loud: string[] = [];
+      for (const rel of leaves) {
+        const sf = ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+        const visit = (n: ts.Node): void => {
+          if (
+            ts.isPropertyAccessExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            n.expression.text === 'console'
+          ) {
+            loud.push(`${rel}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`);
+          }
+          n.forEachChild(visit);
+        };
+        visit(sf);
+      }
+      if (loud.length) {
+        return falla(
+          `${loud.length} console.* use(s) in the fiscal-mx family (${loud.slice(0, 3).join(', ')}): ` +
+            'its leaves write through stdout and stderr, as #269 asks'
+        );
+      }
+      return ok(`${verdict.detalle}; no leaf writes through console.*`);
+    },
     mutantes: [
       {
         archivo: 'src/cli/e-accounting-command.ts',
@@ -1975,6 +2010,18 @@ export const E0_0: Criterio[] = [
         de: '"spanish-user-strings-cli": {',
         a: '"spanish-user-strings-cli": {\n   "src/cli/rep-command.ts": 1,',
         porque: 'ground-given-back: the breakdown records a Spanish string in rep again',
+      },
+      {
+        archivo: 'src/cli/sat-commands.ts',
+        de: "t('fiscal_mx.sat.cred.revoke.done')",
+        a: "'Credencial revocada y material borrado de la bóveda.'",
+        porque: 'string-back-in-the-code: sat cred revoke reports the destroyed e.firma in Spanish to every reader again',
+      },
+      {
+        archivo: 'src/cli/sat-commands.ts',
+        de: "stdout.write(t('fiscal_mx.sat.cred.audit.none') + '\\n');",
+        a: "console.log(t('fiscal_mx.sat.cred.audit.none'));",
+        porque: 'console-back-in-the-leaf: sat cred audit prints through console.log again, which only check 4 sees',
       },
     ],
   },

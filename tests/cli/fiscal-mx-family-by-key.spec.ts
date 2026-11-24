@@ -203,7 +203,10 @@ describe('I8.7 · cfdi speaks by key (MNE-001-226)', () => {
     const { cli } = program();
     const sync = riskOf(leafOf(cli, 'cfdi', 'status', 'sync'))!;
     expect(sync.writes).toBe('xml_documents (sat_* cache)');
-    expect(sync.llave).toEqual({ sinLlave: 'a retry consults the SAT again and rewrites the cache' });
+    expect(sync.llave).toEqual({ sinLlave: { key: 'fiscal_mx.cfdi.sync.retry_reconsults' } });
+    expect(riskOf(leafOf(cli, 'cfdi', 'post'))!.llave).toEqual({
+      innecesaria: 'one CFDI gives one invoice: a repeat finds its pre-registration closed, or an invoice with its UUID, and is refused',
+    });
     const option = (names: string[], flag: string) =>
       leafOf(cli, ...names).options.find((o) => o.long === flag)?.description;
     expect(option(['cfdi', 'list'], '--direction')).toBe('emitido, recibido or ajeno (derived against the RFC of the entity)');

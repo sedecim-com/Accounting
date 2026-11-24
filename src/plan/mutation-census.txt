@@ -66,6 +66,8 @@ mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/diot-command.ts	st
 mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in diot again
 mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/cfdi-command.ts	string-back-in-the-code: cfdi status sync tallies the SAT answers in Spanish with «(s)» again, which only check 2 sees
 mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in rep again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/sat-commands.ts	string-back-in-the-code: sat cred revoke reports the destroyed e.firma in Spanish to every reader again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/sat-commands.ts	console-back-in-the-leaf: sat cred audit prints through console.log again, which only check 4 sees
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/bill-command.ts	string-back-in-the-code: bill inbox run counts the selection with «pre-registro(s)» in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/payment-command.ts	string-back-in-the-code: payment reverse counts its mirrored entries with «(s)» in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/prepaid-command.ts	string-back-in-the-code: prepaid run counts its adjusting entries in Spanish with «(s)» again, which only check 2 sees
@@ -850,6 +852,8 @@ anchor	src/plan/criteria/e0-0.ts	de: "t('fiscal_mx.diot.unfiled.headline')",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "'fiscal_mx.cfdi.sync.done'",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "t('fiscal_mx.sat.cred.revoke.done')",
+anchor	src/plan/criteria/e0-0.ts	de: "stdout.write(t('fiscal_mx.sat.cred.audit.none') + '\\n');",
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.bill.inbox.run.summary'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.payment.reverse.confirm'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.prepaid.run.entries_note'",

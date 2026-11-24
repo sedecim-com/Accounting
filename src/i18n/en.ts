@@ -4021,6 +4021,117 @@ export const EN = {
   'fiscal_mx.rep.reconcile.done':
     '{retried, plural, one {# retried} other {# retried}}: {linked, plural, one {# linked} other {# linked}}, {parked, plural, one {# still parked} other {# still parked}}, {errors, plural, one {# error} other {# errors}}',
 
+  // MNE-001-600: sat cred (add, status, audit, revoke) and the family's idempotency reasons.
+  /** A --cer or --key path that does not exist. `label` is `.cer` or `.key`. */
+  'fiscal_mx.sat.cred.file_missing': 'The {label} file does not exist: {file}',
+  /** The file's permissions let other users of the system read it. */
+  'fiscal_mx.sat.cred.file_exposed':
+    'WARNING: {file} is readable by other users of the system (mode {mode}). Consider: chmod 600 {file}',
+  /** --idempotency-key passed to a leaf that needs none. `reason` is the leaf's own key_unneeded. */
+  'fiscal_mx.sat.cred.key_unneeded_note': '--idempotency-key does not apply here: {reason}.',
+  /** Why `sat cred add` needs no idempotency key. */
+  'fiscal_mx.sat.cred.add.key_unneeded': 'custody is guarded by the typed consent and the credential status',
+  /** The title above the certificate summary. */
+  'fiscal_mx.sat.cred.add.certificate_read': 'Certificate read',
+  /** The certificate summary, one indented field per line. No secret: type, RFC, serial and validity are public. */
+  'fiscal_mx.sat.cred.add.certificate':
+    '  type: {type}\n  RFC: {rfc}\n  serial: {serial}\n  validity: {from} → {to}\n  target entity: {entity} ({taxId})',
+  /** The certificate is a CSD, which the bulk download rejects. */
+  'fiscal_mx.sat.cred.add.csd': 'This is a CSD (digital seal), not an e.firma. The SAT bulk download rejects it.',
+  /** The certificate belongs to another RFC than the entity's. */
+  'fiscal_mx.sat.cred.add.rfc_mismatch':
+    'The certificate\'s RFC ({rfc}) does not match the entity "{entity}" ({taxId}).',
+  /** After the RFC mismatch. */
+  'fiscal_mx.sat.cred.add.pick_entity': 'Use --entity to pick the correct entity.',
+  /** The certificate's validity ended. `date` is a calendar date. */
+  'fiscal_mx.sat.cred.add.expired': 'The certificate expired on {date}. Renew it at the SAT.',
+  /** `sat cred add --dry-run`: valid, and nothing stored. */
+  'fiscal_mx.sat.cred.add.dry_run':
+    '(dry-run: certificate valid for this entity. The real run asks the key password, verifies the pair and stores the material in the vault. Nothing was stored.)',
+  /** Without --live: the local checks passed. */
+  'fiscal_mx.sat.cred.add.validation_passed': 'Validation passed.',
+  /** Without --live: the deposit is opt-in. */
+  'fiscal_mx.sat.cred.add.live_needed':
+    'Storing the e.firma in the vault is the real external effect and is opt-in: re-run with --live to be asked the password and complete the deposit.',
+  /** The hidden prompt for the private key's password; what is typed is not echoed. */
+  'fiscal_mx.sat.cred.add.password_prompt': 'Private key password (not shown)',
+  /** The key does not open with that password, or is not the certificate's. */
+  'fiscal_mx.sat.cred.add.bad_pair': 'The key does not match the certificate, or the password is incorrect.',
+  /** The pair opened locally. */
+  'fiscal_mx.sat.cred.add.pair_verified': 'Key pair verified locally.',
+  /** The typed consent. `accept` is the literal word the leaf compares, in every language. */
+  'fiscal_mx.sat.cred.add.consent_prompt':
+    'Do you authorize storing this e.firma? type "accept" to continue (--yes does not skip this)',
+  /** The consent was not given. */
+  'fiscal_mx.sat.cred.add.cancelled': 'Cancelled. Nothing was saved.',
+  /** The deposit receipt's first line. */
+  'fiscal_mx.sat.cred.add.registered': 'e.firma registered for {entity}',
+  /** Where the material is kept: the vault backend's name. */
+  'fiscal_mx.sat.cred.add.custody': 'custody: {backend}',
+  /** Whether unattended use is allowed, and the daily limit. */
+  'fiscal_mx.sat.cred.add.unattended':
+    'unattended use: {unattended, select, yes {allowed} other {forbidden}} · limit: {limit}/24h',
+  /** The command that lists the accesses. */
+  'fiscal_mx.sat.cred.add.audit_hint': 'audit: {command}',
+  /** `sat cred status` with no credential. */
+  'fiscal_mx.sat.cred.status.none': 'No credentials registered. Add one with: {command}',
+  /** A credential past its validity. */
+  'fiscal_mx.sat.cred.status.expired': '(expired)',
+  /** Fewer than 60 days of validity left. */
+  'fiscal_mx.sat.cred.status.expires_soon':
+    '(expires in {days, plural, one {# day} other {# days}} — renew at the SAT)',
+  /** Days of validity left. */
+  'fiscal_mx.sat.cred.status.expires_in': '(expires in {days, plural, one {# day} other {# days}})',
+  /** The certificate serial and the vault backend. */
+  'fiscal_mx.sat.cred.status.custody': 'serial {serial} · custody {backend}',
+  /** Unattended use, daily limit and last use. `last` is a timestamp or status.never_used. */
+  'fiscal_mx.sat.cred.status.usage':
+    'unattended: {unattended, select, yes {yes} other {no}} · limit {limit}/24h · last use: {last}',
+  /** No use recorded yet. */
+  'fiscal_mx.sat.cred.status.never_used': 'never',
+  /** The vault's health check. `detail` is the backend's own text. */
+  'fiscal_mx.sat.cred.status.vault': 'Vault: {health, select, ok {OK} other {ERROR}} — {detail}',
+  /** `sat cred audit` with an empty log. */
+  'fiscal_mx.sat.cred.audit.none': 'No accesses recorded.',
+  /** Above the access log. */
+  'fiscal_mx.sat.cred.audit.title': 'Accesses to the credential of {entity}',
+  /** How an access was made. */
+  'fiscal_mx.sat.cred.audit.mode': '{mode, select, unattended {unattended} other {with operator}}',
+  /** Why `sat cred revoke` needs no idempotency key. */
+  'fiscal_mx.sat.cred.revoke.key_unneeded': 'a second revoke is refused because no active credential remains',
+  /** `sat cred revoke --dry-run` with no active credential. */
+  'fiscal_mx.sat.cred.revoke.nothing_active': 'There is no active credential to revoke; the real run would refuse too.',
+  /** The verb of revoke.would, printed in bold. */
+  'fiscal_mx.sat.cred.revoke.would_revoke': 'Would revoke',
+  /** `sat cred revoke --dry-run`: what the real run destroys. `verb` is revoke.would_revoke, `custody` revoke.custody. */
+  'fiscal_mx.sat.cred.revoke.would':
+    '{verb} the {type} of {entity} (serial {serial}) and cryptographically destroy its vault material {custody}',
+  /** The vault backend, after revoke.would. */
+  'fiscal_mx.sat.cred.revoke.custody': '(custody: {backend})',
+  /** After revoke.would. */
+  'fiscal_mx.sat.cred.revoke.dry_run': '(dry-run: nothing was revoked or destroyed)',
+  /** Before the typed confirmation. */
+  'fiscal_mx.sat.cred.revoke.about_to': 'You are about to delete the e.firma of {entity} from custody.',
+  /** After revoke.about_to. */
+  'fiscal_mx.sat.cred.revoke.irreversible':
+    'The deletion is cryptographic and irreversible; it will have to be loaded again.',
+  /** The confirmation prompt. */
+  'fiscal_mx.sat.cred.revoke.confirm_prompt': 'Type the RFC of the entity to confirm',
+  /** The typed RFC was not the entity's. */
+  'fiscal_mx.sat.cred.revoke.cancelled': 'Cancelled.',
+  /** The revocation finished. */
+  'fiscal_mx.sat.cred.revoke.done': 'Credential revoked and material deleted from the vault.',
+  /** Why `sat download check` needs no idempotency key. */
+  'fiscal_mx.sat.download.check.key_unneeded': 'asking the state again is harmless and records the latest state',
+  /** Why `sat package download` needs no idempotency key. */
+  'fiscal_mx.sat.download.package.key_unneeded':
+    'a package already archived is never downloaded again, and each CFDI deduplicates by UUID',
+  /** Why `cfdi status sync` does not honor an idempotency key. */
+  'fiscal_mx.cfdi.sync.retry_reconsults': 'a retry consults the SAT again and rewrites the cache',
+  /** Why `cfdi post` needs no idempotency key. */
+  'fiscal_mx.cfdi.post.key_unneeded':
+    'one CFDI gives one invoice: a repeat finds its pre-registration closed, or an invoice with its UUID, and is refused',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
