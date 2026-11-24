@@ -346,7 +346,7 @@ function successfulToolNames(messages: Anthropic.Beta.BetaMessageParam[]): strin
   const nameById = new Map<string, string>();
   const names: string[] = [];
   for (const m of messages) {
-    if (typeof m.content === 'string') continue;
+    if (!Array.isArray(m.content)) continue;
     for (const block of m.content) {
       if (block.type === 'tool_use') {
         nameById.set(block.id, block.name);
@@ -367,7 +367,7 @@ function collectToolUses(messages: Anthropic.Beta.BetaMessageParam[]): TurnToolU
   const uses: TurnToolUse[] = [];
   const byId = new Map<string, TurnToolUse>();
   for (const m of messages) {
-    if (typeof m.content === 'string') continue;
+    if (!Array.isArray(m.content)) continue;
     for (const block of m.content) {
       if (block.type === 'tool_use') {
         const use: TurnToolUse = { name: block.name, input: block.input, resultPreview: '' };
@@ -400,7 +400,7 @@ function previewToolResult(content: unknown): string {
 
 function stripCacheMarks(messages: Anthropic.Beta.BetaMessageParam[]): void {
   for (const m of messages) {
-    if (typeof m.content === 'string') continue;
+    if (!Array.isArray(m.content)) continue;
     for (const block of m.content) {
       if ('cache_control' in block && block.cache_control) {
         delete (block as { cache_control?: unknown }).cache_control;

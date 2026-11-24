@@ -37,7 +37,7 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 - **En una instalación:** quitar cada credencial del proveedor de modelo que el agente puede usar. El trabajo sigue por el camino manual (#319): sin credencial, `ingest` corre sólo la capa determinista y deja el resto en la bandeja. Las fuentes, una por una, y cómo apagar cada una:
   - **La variable del perfil** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … la que nombra su `api_key_env`): borrarla o vaciarla donde viva, sea tu shell, el `./.env` de la carpeta o `~/.mnemosine/.env`. Recuerda que `./.env` gana sobre `~/.mnemosine/.env`, y que una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta.
   - **`api_key_cmd`** del perfil, en `~/.mnemosine/config.json` o en el `mnemosine.config.json` de la carpeta: quitar la clave, o el perfil.
-  - Para un perfil `anthropic`, además, lo que el SDK de Anthropic lee por su cuenta (el espejo es de `@anthropic-ai/sdk` 0.128.0):
+  - Para un perfil `anthropic`, además, lo que el SDK de Anthropic lee por su cuenta (el espejo es de `@anthropic-ai/sdk` 1.8.0):
     - `ANTHROPIC_API_KEY`, aunque el perfil nombre otra variable;
     - `ANTHROPIC_AUTH_TOKEN`: borrarla;
     - una línea `x-api-key` o `Authorization` en `ANTHROPIC_CUSTOM_HEADERS`: quitar esa línea, o la variable;

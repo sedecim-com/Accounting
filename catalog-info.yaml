@@ -163,6 +163,13 @@ provides:
     # of it from 2120. Rollback: the previous build does not cause the marker at the cashing
     # and reads it as IVA already caused, so before reverting record on this build the
     # cashing of each such cheque, and clear the marker of one the bank has still not cashed.
+    # CONTRACT: on an invoice that parked IEPS, that cashing also posts DR 2150 / CR 2180 for
+    # the IEPS of the marked share (parked x marker / the invoice's IVA), tagged `ieps_release`
+    # with the invoice and the cheque, and `iepsReleased` counts it (MNE-001-608, risk 3 of
+    # #891; LIEPS arts. 10 and 5o.-C): the cash on account carries it, so a later `receipt
+    # apply` nets it (590). Cash taken from the pool before the cashing under `defer_to_cashing`
+    # carries none. Rollback: the entries this build posted stay valid and are netted by the
+    # previous build too; revert the PR.
     # CONTRACT: a credit note issued while such a cheque waits still takes its IVA from 2125
     # alone, and now tags that line `held_restitution` with the cheque (MNE-001-607, #792
     # decision (A), risk 2 of #891); `bank check reconcile --receipt` then causes the marker

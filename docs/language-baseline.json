@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 146,
+    "spanish-user-strings-cli": 106,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -22,7 +22,7 @@
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 99,
-    "cli-user-strings-without-key": 880,
+    "cli-user-strings-without-key": 847,
     "help-examples-without-key": 253
   },
   "perFile": {
@@ -849,7 +849,6 @@
     "spanish-user-strings-cli": {
       "src/cli/account-command.ts": 29,
       "src/cli/batch-command.ts": 35,
-      "src/cli/bill-command.ts": 40,
       "src/cli/entry-command.ts": 9,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
@@ -1135,7 +1134,7 @@
       "src/cli/backup-command.ts": 77,
       "src/cli/bank-command.ts": 800,
       "src/cli/batch-command.ts": 106,
-      "src/cli/bill-command.ts": 174,
+      "src/cli/bill-command.ts": 173,
       "src/cli/bill-rule-command.ts": 1,
       "src/cli/cashflow-command.ts": 130,
       "src/cli/cashflow-reconcile-command.ts": 40,
@@ -1503,7 +1502,7 @@
       "src/cli/asset-command.ts": 3,
       "src/cli/bank-command.ts": 11,
       "src/cli/banner.ts": 2,
-      "src/cli/bill-command.ts": 34,
+      "src/cli/bill-command.ts": 1,
       "src/cli/bill-rule-command.ts": 7,
       "src/cli/cashflow-command.ts": 20,
       "src/cli/cashflow-reconcile-command.ts": 2,

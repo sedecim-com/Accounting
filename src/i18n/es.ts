@@ -3679,6 +3679,121 @@ export const ES: Record<keyof typeof EN, string> = {
   'ap.payment.reverse.idempotency_hit': '↩ Idempotency hit: la llave "{key}" ya reversó esto; nada se escribió otra vez.',
   'ap.payment.reverse.result': '{mode, select, dry_run {Reversaría {payment}} other {{payment} reversado}}',
   'ap.payment.reverse.detail': 'el {date} · {entries}',
+  // MNE-001-614: bill (the last ap leaf).
+  'ap.bill.date_invalid': '{flag} debe ser una fecha AAAA-MM-DD; llegó "{value}".',
+  'ap.bill.line_number_invalid': '--line debe ser un número de línea; llegó "{line}".',
+  'ap.bill.dry_run': 'Ensayo: no se escribió nada.',
+  'ap.bill.list.as_of_unsupported':
+    '--as-of pregunta qué estaba abierto en una fecha, que es una pregunta de antigüedad que este comando no puede contestar (necesita la historia de pagos cruzada por factura). Usa --until para la fecha del documento.',
+  'ap.bill.list.date_basis_invalid':
+    '--date-basis {basis} no está definido para una factura: una factura tiene fecha de documento y, una vez aprobada, fecha de contabilización. Usa document o posting.',
+  'ap.bill.show.disappeared': 'La factura {ref} desapareció mientras se leía.',
+  'ap.bill.show.lines_title': 'Líneas',
+  'ap.bill.show.journal_title': 'Póliza',
+  'ap.bill.show.no_cfdi': 'Ninguno: esta factura no se capturó desde un XML.',
+  'ap.bill.create.vendor_missing': '¿Qué proveedor? Pásalo como argumento o con --vendor.',
+  'ap.bill.create.lines_missing': 'Una factura necesita al menos una línea: --line "account=5100;qty=1;price=1000;tax-amount=160".',
+  'ap.bill.create.line_without_account': 'Cada línea necesita account=<código>: una línea sin cuenta no se puede contabilizar.',
+  'ap.bill.create.line_without_price': 'La línea "account={account}" no trae price=<importe>.',
+  'ap.bill.create.no_due_date':
+    'No hay fecha de vencimiento, y "{terms}" no implica ninguna. Pasa --due-date, o fija con `vendor terms set` unas condiciones de las que se pueda calcular.',
+  'ap.bill.create.legacy_tax_key':
+    'tax= es el MONTO del IVA de la línea, no la tasa; usa tax-amount= para que quede explícito. tax= deja de aceptarse en la versión {version}.',
+  'ap.bill.create.done': '· {subtotal} + {tax} IVA = {total} {currency} · vence {due}',
+  'ap.bill.create.draft_note': 'Estado draft: nada está en el mayor hasta `bill approve`.',
+  'ap.bill.create.file_unreadable': 'No se puede leer --from-file "{path}".',
+  'ap.bill.create.file_not_json': '--from-file "{path}" no es JSON válido: {message}',
+  'ap.bill.create.file_not_object': '--from-file "{path}" debe contener un objeto JSON con un arreglo "lines".',
+  'ap.bill.line.set.done': '{bill} línea {line} recodificada',
+  'ap.bill.approve.not_approvable':
+    'La factura {bill} está en "{status}", no en {approvable}. {reason, select, posted {Ya está en el mayor; reversarla es `bill reverse`, que todavía no tiene backend.} other {Sólo se aprueba una factura que todavía se está trabajando.}}',
+  'ap.bill.approve.statuses': '{list} o {last}',
+  'ap.bill.approve.confirm': '¿Contabilizar {bill} ({total} {currency}) en el mayor de {entity}? Esto no se deshace.',
+  'ap.bill.approve.no_terminal':
+    'Esto contabiliza en el mayor y no hay terminal donde confirmar. Re-ejecuta con --yes cuando lo tengas decidido, o con --dry-run para ver el asiento.',
+  'ap.bill.approve.done':
+    '{bill} aprobada{posted, select, entry { · asiento {entry} contabilizado el {date}} other { · sin asiento: ya estaba contabilizada}}',
+  'ap.bill.approve.key_not_needed':
+    'No hacía falta --idempotency-key: la aprobación ya es idempotente por el estado de la factura y su journal_entry_id.',
+  'ap.bill.approve.no_entry': '{bill} no produce asiento (ya estaba contabilizada, o su total es cero).',
+  'ap.bill.approve.entry_title': 'Asiento {entry} · {date}',
+  'ap.bill.approve.period_closed':
+    '{bill} no se puede contabilizar: {message}. Su fecha cae en un periodo cerrado o bloqueado. Reabre el periodo, o contabilízala en uno abierto cuando exista `bill edit` para mover la fecha.',
+  'ap.bill.approve.missing_role': '{bill} no se puede contabilizar: {message}',
+  'ap.bill.inbox.id_invalid': '"{id}" no es el id de un pre-registro (uuid). Sácalo de `bill inbox list`.',
+  'ap.bill.inbox.value_unknown': '{flag} "{value}" no existe. Los valores posibles son: {values}.',
+  'ap.bill.inbox.unnamed_issuer': 'emisor sin nombre',
+  'ap.bill.inbox.no_rfc': 'sin RFC',
+  'ap.bill.inbox.list.new_vendors':
+    '{count} de {total} traen un proveedor que NO está en el catálogo (marcados «{mark}»).',
+  'ap.bill.inbox.list.new_vendors_note':
+    '  Contabilizarlos daría de alta la contraparte con el nombre y el RFC del XML.\n  `bill inbox run` los rechaza salvo que lleve --allow-new-vendor; la otra salida\n  es darlos de alta a mano con `vendor create`.',
+  'ap.bill.inbox.edit.cost_center_needs_line': '--cost-center codifica una línea: pasa también --line <n>.',
+  'ap.bill.inbox.edit.cost_center_invalid': '--cost-center debe ser el id de un centro de costo (uuid); llegó "{value}".',
+  'ap.bill.inbox.edit.nothing_to_code': 'Nada que codificar: pasa --account, o --line con --account o --cost-center.',
+  'ap.bill.inbox.edit.done': '{ref} {target, select, default {cuenta por omisión fijada} other {línea {line} codificada}}',
+  'ap.bill.inbox.edit.uncoded':
+    '· {count, plural, one {# línea sigue sin cuenta} other {# líneas siguen sin cuenta}}',
+  'ap.bill.inbox.edit.post_with': 'Contabilízalo con `mnemosine bill inbox run {id}`.',
+  'ap.bill.inbox.run.reason_missing': '--action reject descarta un documento: exige --reason "<por qué>".',
+  'ap.bill.inbox.run.batch_missing': '--action set-batch necesita --batch <id o número de lote>.',
+  'ap.bill.inbox.run.action_unknown': '--action "{value}" no existe. Usa una de: {actions}.',
+  'ap.bill.inbox.run.id_and_bulk': 'Pasa un id, o --bulk con --query. Los dos a la vez no significan nada.',
+  'ap.bill.inbox.run.nothing_selected': '¿Sobre qué? Pasa el id de un pre-registro, o --bulk con --query "status=ready".',
+  'ap.bill.inbox.run.bulk_without_query':
+    '--bulk sin --query actuaría sobre TODA la bandeja. Nombra la selección: --query "status=ready,mode=manual" (claves: {keys}).',
+  'ap.bill.inbox.run.query_unparsable':
+    'No se entiende --query "{spec}". Cada parte es clave=valor separada por comas: --query "status=ready,mode=manual". Claves: {keys}.',
+  'ap.bill.inbox.run.query_keys_unknown':
+    '{count, plural, one {Clave} other {Claves}} que --query no conoce: {unknown}. Claves: {keys}.',
+  'ap.bill.inbox.run.requires_approval_invalid': 'requires-approval sólo admite true o false; llegó "{value}".',
+  'ap.bill.inbox.run.query_narrows_nothing': '--query "{spec}" no acota nada. Nombra al menos un criterio.',
+  'ap.bill.inbox.run.batch_not_found': 'No hay un lote de proceso "{ref}" en esta entidad.',
+  'ap.bill.inbox.run.not_in_inbox': 'El pre-registro {id} no está en la bandeja de {entity}.',
+  'ap.bill.inbox.run.over_cap':
+    'La selección pasa de {cap} pre-registros. Un lote más grande que eso no es una orden que alguien haya revisado: acota con --query (status, mode, since, until, vendor).',
+  'ap.bill.inbox.run.query_selects_none': 'La consulta "{query}" no selecciona ningún pre-registro. Nada que hacer.',
+  'ap.bill.inbox.run.waiting':
+    '  {count, plural, one {Hay # pre-registro} other {Hay # pre-registros}} esperando una decisión humana, que esta consulta no alcanza.',
+  'ap.bill.inbox.run.waiting_note':
+    '  Se ven con `bill inbox list --status draft`, y ahí están los que se pararon\n  por traer proveedor nuevo: repítelos con --query "status=draft".',
+  'ap.bill.inbox.run.summary':
+    '{action}: {count, plural, one {# pre-registro} other {# pre-registros}}{totals}',
+  'ap.bill.inbox.run.already_posted':
+    '  {count, plural, one {# ya está contabilizado y se saltará.} other {# ya están contabilizados y se saltarán.}}',
+  'ap.bill.inbox.run.new_vendors':
+    '  {count, plural, one {# crearía un PROVEEDOR NUEVO} other {# crearían un PROVEEDOR NUEVO}}: {vendors}',
+  'ap.bill.inbox.run.new_vendor_allowed':
+    '  --allow-new-vendor está puesto: se darán de alta con el nombre y el RFC del XML.',
+  'ap.bill.inbox.run.new_vendor_refused':
+    '  Sin --allow-new-vendor se rechazan uno a uno, con el motivo, y el resto sigue.',
+  'ap.bill.inbox.run.confirm':
+    '{kind, select, process {¿Contabilizar {count, plural, one {# pre-registro} other {# pre-registros}} en los libros de {entity}? Cada uno nace como factura POSTEADA con su póliza. Esto no se deshace.} other {¿Aplicar "{action}" a {count, plural, one {# pre-registro} other {# pre-registros}} de {entity}?}}',
+  'ap.bill.inbox.run.no_terminal':
+    'No hay terminal donde confirmar. Re-ejecuta con --yes cuando lo tengas decidido, o con --dry-run para ver lo que haría.',
+  'ap.bill.inbox.run.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya completó este acto — {ok}/{total} {action}\n  No se ejecutó nada otra vez; éste es el resultado registrado.',
+  'ap.bill.inbox.run.done': '{action}: {ok} de {total}',
+  'ap.bill.inbox.run.skipped': ' · {count} ya {count, plural, one {estaba} other {estaban}}',
+  'ap.bill.inbox.run.failed': ' · {count} sin hacer',
+  'ap.bill.inbox.run.detail.already_posted': 'ya estaba contabilizado',
+  'ap.bill.inbox.run.detail.bill': 'factura {bill}',
+  'ap.bill.inbox.run.detail.entry': 'póliza {entry}',
+  'ap.bill.inbox.run.detail.payment': 'pago {payment}',
+  'ap.bill.inbox.run.detail.posted': 'contabilizado',
+  'ap.bill.inbox.run.detail.approved': 'aprobado',
+  'ap.bill.inbox.run.detail.rejected': 'rechazado',
+  'ap.bill.inbox.run.detail.scheduled': 'programado en el lote {batch}',
+  'ap.bill.inbox.run.vanished': 'desapareció de la bandeja mientras se procesaba',
+  'ap.bill.inbox.run.not_a_bill':
+    'es un pre-registro de tipo "{type}", no una factura de proveedor ni su nota de crédito. `bill inbox run` sólo contabiliza gastos y las notas que los bajan; un complemento de pago emitido registraría COBROS DE CLIENTES, que no es lo que este comando dice hacer.',
+  'ap.bill.inbox.run.type_unknown': 'desconocido',
+  'ap.bill.inbox.run.needs_approval':
+    'requiere aprobación previa y está en "{state}". Apruébalo primero: `bill inbox run <id> --action approve`.',
+  'ap.bill.inbox.run.not_pending': 'no estaba pendiente de aprobación (o no requiere aprobación, o ya se rechazó)',
+  'ap.bill.inbox.run.not_rejectable':
+    'ya está contabilizado o ya estaba rechazado: lo contabilizado no se rechaza, se reversa',
+  'ap.bill.inbox.run.not_schedulable': 'está completado o rechazado: ya no se programa',
 
   // ==== end of I8.8 ====
 

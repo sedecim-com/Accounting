@@ -53,6 +53,7 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  CliError,
   dateOnly,
   ExitCode,
   type ExitCodeValue,
@@ -142,7 +143,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function requireDate(flag: string, value: string): string {
   if (!DATE_RE.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) {
-    throw usageError(`${flag} must be a date as YYYY-MM-DD; got "${value}".`);
+    throw usageError({ key: 'ap.bill.date_invalid', params: { flag, value } });
   }
   return value;
 }
@@ -194,10 +195,13 @@ export function resolveLineTaxAmount(parsed: Record<string, string>): {
   };
 }
 
-/** Una sola línea de aviso, por invocación, cuando alguien escribe `tax=`. */
-export const LEGACY_TAX_KEY_WARNING =
-  'tax= es el MONTO del IVA de la línea, no la tasa; usa tax-amount= para que quede explícito. ' +
-  `tax= deja de aceptarse en la versión ${LEGACY_LINE_FORMS_RETIRE_IN}.`;
+/**
+ * One warning line, per invocation, when someone writes `tax=`. A function and
+ * not a constant (MNE-001-614): the locale is resolved after this module loads.
+ */
+export function legacyTaxKeyWarning(): string {
+  return t('ap.bill.create.legacy_tax_key', { version: LEGACY_LINE_FORMS_RETIRE_IN });
+}
 
 /**
  * La ayuda de --line, una clave por renglón. El help enumeraba cinco claves de
@@ -432,8 +436,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.
-`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -471,17 +474,11 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         const ctx = await entityOf(opts);
 
         if (opts.asOf) {
-          throw usageError(
-            '--as-of asks what was open on a date, which is an aging question this command cannot answer ' +
-              '(it needs the payment history joined per bill). Use --until for the document date.'
-          );
+          throw usageError({ key: 'ap.bill.list.as_of_unsupported' });
         }
         const basis = String(opts.dateBasis ?? 'document');
         if (basis !== 'document' && basis !== 'posting') {
-          throw usageError(
-            `--date-basis ${basis} is not defined for a bill: a bill has a document date and, once approved, ` +
-              'a posting date. Use document or posting.'
-          );
+          throw usageError({ key: 'ap.bill.list.date_basis_invalid', params: { basis } });
         }
 
         let since = opts.since;
@@ -539,7 +536,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         includeJournal: opts.journal === true,
         includeCfdi: opts.cfdi === true,
       });
-      if (!full) throw notFound(`Bill ${ref} disappeared while reading it.`);
+      if (!full) throw notFound({ key: 'ap.bill.show.disappeared', params: { ref } });
 
       const lines = (full.lines as Record<string, unknown>[] | undefined) ?? [];
       const journal = full.journal_entry as { lines?: Record<string, unknown>[] } | undefined;
@@ -565,7 +562,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
       );
 
       if (lines.length) {
-        process.stderr.write(deps.palette.dim('\nLines\n'));
+        process.stderr.write(deps.palette.dim(`\n${t('ap.bill.show.lines_title')}\n`));
         render(
           lines.map((l) => ({
             line: l.line_number,
@@ -579,14 +576,14 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         );
       }
       if (journal?.lines?.length) {
-        process.stderr.write(deps.palette.dim('\nJournal entry\n'));
+        process.stderr.write(deps.palette.dim(`\n${t('ap.bill.show.journal_title')}\n`));
         render(journal.lines, { format: 'table', idField: 'line_number' });
       }
       if (opts.cfdi) {
         const cfdi = (full.cfdi as Record<string, unknown>[] | undefined) ?? [];
         process.stderr.write(deps.palette.dim('\nCFDI\n'));
         if (cfdi.length) render(cfdi, { format: 'table', idField: 'cfdi_uuid' });
-        else process.stderr.write(deps.palette.dim('  None: this bill was not captured from an XML.\n'));
+        else process.stderr.write(deps.palette.dim(`  ${t('ap.bill.show.no_cfdi')}\n`));
       }
     })
   );
@@ -627,14 +624,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         const fromFile = opts.fromFile ? readBillFile(opts.fromFile) : {};
         const vendorRef = positional ?? opts.vendor ?? (fromFile.vendor as string | undefined);
-        if (!vendorRef) throw usageError('Which vendor? Pass it as the argument or with --vendor.');
+        if (!vendorRef) throw usageError({ key: 'ap.bill.create.vendor_missing' });
         const vendorRow = await resolveVendor(ctx.entityId, vendorRef);
 
         const specs = [...(opts.line ?? []), ...((fromFile.lines as unknown[] | undefined) ?? [])];
         if (specs.length === 0) {
-          throw usageError(
-            'A bill needs at least one line: --line "account=5100;qty=1;price=1000;tax-amount=160".'
-          );
+          throw usageError({ key: 'ap.bill.create.lines_missing' });
         }
 
         const lines: BillLineInput[] = [];
@@ -650,9 +645,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
             parsed = normalizeLineRecord(spec as Record<string, unknown>, BILL_LINE_GRAMMAR);
           }
           const accountRef = parsed.account;
-          if (!accountRef) throw usageError('Every line needs account=<code>: a line with no account cannot be posted.');
+          if (!accountRef) throw usageError({ key: 'ap.bill.create.line_without_account' });
           const price = parsed.price ?? parsed['unit-price'];
-          if (price === undefined) throw usageError(`Line "account=${accountRef}" has no price=<amount>.`);
+          if (price === undefined) throw usageError({ key: 'ap.bill.create.line_without_price', params: { account: accountRef } });
 
           const tax = resolveLineTaxAmount(parsed);
           someLineUsedLegacyTaxKey ||= tax.usedLegacyTaxKey;
@@ -670,7 +665,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         // Un aviso por invocación, no por línea: quien tecleó tax= tres veces
         // ya entendió a la primera.
         if (someLineUsedLegacyTaxKey) {
-          process.stderr.write(deps.palette.dim(`  ${LEGACY_TAX_KEY_WARNING}\n`));
+          process.stderr.write(deps.palette.dim(`  ${legacyTaxKeyWarning()}\n`));
         }
         if (someLineUsedLegacyComma) {
           process.stderr.write(deps.palette.dim(`  ${LEGACY_COMMA_WARNING}\n`));
@@ -686,10 +681,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           dueDateFrom(billDate, terms) ??
           undefined;
         if (!dueDate) {
-          throw usageError(
-            `No due date, and "${terms}" implies none. Pass --due-date, or set terms a due date can be ` +
-              'computed from with `vendor terms set`.'
-          );
+          throw usageError({ key: 'ap.bill.create.no_due_date', params: { terms: String(terms) } });
         }
 
         // The arithmetic is shown before it is written: a bill whose total
@@ -718,12 +710,16 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         process.stdout.write(
           `${deps.palette.green('✔')} ${deps.palette.bold(created.bill_number)} ` +
             `${vendorRow.company_name} ${deps.palette.dim(
-              `· ${computed.subtotal} + ${computed.tax_amount} tax = ${computed.total_amount} ${created.currency_code} · due ${dueDate}`
+              t('ap.bill.create.done', {
+                subtotal: computed.subtotal,
+                tax: computed.tax_amount,
+                total: computed.total_amount,
+                currency: created.currency_code,
+                due: dueDate,
+              })
             )}\n`
         );
-        process.stderr.write(
-          deps.palette.dim('  Status draft: nothing is in the ledger until `bill approve`.\n')
-        );
+        process.stderr.write(deps.palette.dim(`  ${t('ap.bill.create.draft_note')}\n`));
       })
   );
 
@@ -748,7 +744,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         const ctx = await entityOf(opts);
         const lineNumber = Number(opts.line);
         if (!Number.isInteger(lineNumber) || lineNumber < 1) {
-          throw usageError(`--line must be a line number; got "${opts.line}".`);
+          throw usageError({ key: 'ap.bill.line_number_invalid', params: { line: String(opts.line) } });
         }
         const target = await resolveBill(ctx.entityId, ref);
         const accountId = opts.account ? (await resolveAccount(ctx.entityId, opts.account)).id : undefined;
@@ -761,7 +757,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         });
 
         process.stdout.write(
-          `${deps.palette.green('✔')} ${target.bill_number} line ${updated.line_number} recoded ` +
+          `${deps.palette.green('✔')} ${t('ap.bill.line.set.done', { bill: target.bill_number, line: updated.line_number })} ` +
             `${deps.palette.dim(`(${updated.total_amount})`)}\n`
         );
       })
@@ -778,7 +774,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   declareRisk(approve, {
     risk: 'irreversible',
     agent: false,
-    llave: { innecesaria: 'la aprobación ya es idempotente por el estado de la factura y su journal_entry_id' },
+    llave: { innecesaria: 'approval is already idempotent behind the bill status and its journal_entry_id' },
     writes: 'bills.status, journal_entries',
   });
   approve.addHelpText('after', EJEMPLOS.approve);
@@ -792,12 +788,18 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         const target = await resolveBill(ctx.entityId, ref);
         if (!(APPROVABLE_STATUSES as readonly string[]).includes(target.status)) {
-          throw blockedByState(
-            `Bill ${target.bill_number} is "${target.status}", not ${APPROVABLE_STATUSES.join(' or ')}. ` +
-              (target.journal_entry_id
-                ? 'It is already in the ledger; reversing it is `bill reverse`, which has no backend yet.'
-                : 'Only a bill still being worked on can be approved.')
-          );
+          throw blockedByState({
+            key: 'ap.bill.approve.not_approvable',
+            params: {
+              bill: target.bill_number,
+              status: target.status,
+              approvable: {
+                key: 'ap.bill.approve.statuses',
+                params: { list: APPROVABLE_STATUSES.slice(0, -1).join(', '), last: APPROVABLE_STATUSES[APPROVABLE_STATUSES.length - 1] },
+              },
+              reason: target.journal_entry_id ? 'posted' : 'other',
+            },
+          });
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
@@ -817,7 +819,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         for (const w of preview.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w, getLanguage())}\n`));
 
         if (opts.dryRun) {
-          process.stderr.write(deps.palette.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(deps.palette.dim(`${t('ap.bill.dry_run')}\n`));
           if (opts.json) {
             render([{ bill: target.bill_number, dry_run: true, deductibility_findings: preview.deductibilityFindings.map((f) => withCashFindingMessage(f, getLanguage())) }], { json: true });
           }
@@ -825,14 +827,14 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         }
 
         if (!opts.yes) {
-          const question =
-            `Post ${target.bill_number} (${target.total_amount} ${target.currency_code}) to the ledger of ` +
-            `${ctx.entityName}? This cannot be undone.`;
+          const question = t('ap.bill.approve.confirm', {
+            bill: target.bill_number,
+            total: target.total_amount,
+            currency: target.currency_code,
+            entity: ctx.entityName,
+          });
           if (!stdin.isTTY && !deps.confirm) {
-            throw abortedByUser(
-              'This posts to the ledger and there is no terminal to confirm at. ' +
-                'Re-run with --yes when you mean it, or with --dry-run to see the entry.'
-            );
+            throw abortedByUser({ key: 'ap.bill.approve.no_terminal' });
           }
           if (!(await ask(question))) throw abortedByUser();
         }
@@ -855,20 +857,17 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           );
         } else {
           process.stdout.write(
-            `${deps.palette.green('✔')} ${deps.palette.bold(target.bill_number)} approved` +
-              (result.entry
-                ? ` · entry ${deps.palette.bold(result.entry.entry_number)} posted ${dateOnly(result.entry.entry_date)}`
-                : ' · no entry: it was already posted') +
-              '\n'
+            `${deps.palette.green('✔')} ${t('ap.bill.approve.done', {
+              bill: deps.palette.bold(target.bill_number),
+              posted: result.entry ? 'entry' : 'none',
+              entry: result.entry ? deps.palette.bold(result.entry.entry_number) : '',
+              date: result.entry ? dateOnly(result.entry.entry_date) : '',
+            })}\n`
           );
         }
         for (const w of result.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w, getLanguage())}\n`));
         if (opts.idempotencyKey) {
-          process.stderr.write(
-            deps.palette.dim(
-              '  --idempotency-key was not needed: approval is idempotent behind the bill status and its journal_entry_id.\n'
-            )
-          );
+          process.stderr.write(deps.palette.dim(`  ${t('ap.bill.approve.key_not_needed')}\n`));
         }
       })
   );
@@ -952,14 +951,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           // viaja con el dato.
           process.stderr.write(
             deps.palette.yellow(
-              `\n${nuevos.length} de ${rows.length} traen un proveedor que NO está en el catálogo ` +
-                `(marcados «${MARCA_NUEVO}»).\n`
-            ) +
-              deps.palette.dim(
-                '  Contabilizarlos daría de alta la contraparte con el nombre y el RFC del XML.\n' +
-                  '  `bill inbox run` los rechaza salvo que lleve --allow-new-vendor; la otra salida\n' +
-                  '  es darlos de alta a mano con `vendor create`.\n'
-              )
+              `\n${t('ap.bill.inbox.list.new_vendors', { count: nuevos.length, total: rows.length, mark: MARCA_NUEVO })}\n`
+            ) + deps.palette.dim(`${t('ap.bill.inbox.list.new_vendors_note')}\n`)
           );
         }
       })
@@ -983,23 +976,23 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         bootstrapTenant(opts.tenant);
         const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
         if (!UUID_RE.test(idArg.trim())) {
-          throw usageError(`"${idArg}" is not a pre-registration id (uuid). Take it from \`bill inbox list\`.`);
+          throw usageError({ key: 'ap.bill.inbox.id_invalid', params: { id: idArg } });
         }
         let lineNumber: number | undefined;
         if (opts.line !== undefined) {
           lineNumber = Number(opts.line);
           if (!Number.isInteger(lineNumber) || lineNumber < 1) {
-            throw usageError(`--line must be a line number; got "${opts.line}".`);
+            throw usageError({ key: 'ap.bill.line_number_invalid', params: { line: String(opts.line) } });
           }
         }
         if (opts.costCenter !== undefined && lineNumber === undefined) {
-          throw usageError('--cost-center codes one line: pass --line <n> too.');
+          throw usageError({ key: 'ap.bill.inbox.edit.cost_center_needs_line' });
         }
         if (opts.costCenter !== undefined && !UUID_RE.test(opts.costCenter.trim())) {
-          throw usageError(`--cost-center must be a cost center id (uuid); got "${opts.costCenter}".`);
+          throw usageError({ key: 'ap.bill.inbox.edit.cost_center_invalid', params: { value: opts.costCenter } });
         }
         if (!opts.account && opts.costCenter === undefined) {
-          throw usageError('Nothing to code: pass --account, or --line with --account or --cost-center.');
+          throw usageError({ key: 'ap.bill.inbox.edit.nothing_to_code' });
         }
         const accountId = opts.account ? (await resolveAccount(ctx.entityId, opts.account)).id : undefined;
 
@@ -1025,18 +1018,19 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           lines, coded.default_account_id as string | null, await eligibleSuggestions({ query }, ctx.entityId, lines)
         ).length;
         process.stdout.write(
-          `${deps.palette.green('✔')} ${idArg.trim().slice(0, 8)} ` +
-            (lineNumber === undefined ? 'default account set' : `line ${lineNumber} coded`) +
-            deps.palette.dim(` · ${uncoded} line(s) still without an account`) +
+          `${deps.palette.green('✔')} ${t('ap.bill.inbox.edit.done', {
+            ref: idArg.trim().slice(0, 8),
+            target: lineNumber === undefined ? 'default' : 'line',
+            line: lineNumber ?? '',
+          })}` +
+            deps.palette.dim(` ${t('ap.bill.inbox.edit.uncoded', { count: uncoded })}`) +
             '\n'
         );
         const uuid = coded.document_type === 'invoice' ? await issuedCfdiUuid(ctx.entityId, coded.xml_document_id) : null;
         if (uuid) {
           process.stderr.write(deps.palette.dim(`  ${t('bill.inbox.edit.issued_post_with', { uuid })}\n`));
         } else if (uncoded === 0) {
-          process.stderr.write(
-            deps.palette.dim(`  Post it with \`mnemosine bill inbox run ${idArg.trim()}\`.\n`)
-          );
+          process.stderr.write(deps.palette.dim(`  ${t('ap.bill.inbox.edit.post_with', { id: idArg.trim() })}\n`));
         }
       })
   );
@@ -1069,8 +1063,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     llave: { scope: 'bill inbox run' },
     agent: false,
     writes:
-      'pre_registrations; con --action process además bills, bill_lines, ASIENTOS POSTEADOS y, ' +
-      'sólo con --allow-new-vendor, vendors',
+      'pre_registrations; with --action process also bills, bill_lines, POSTED ENTRIES and, ' +
+      'only with --allow-new-vendor, vendors',
   });
   inboxRun.addHelpText('after', EJEMPLOS.inboxRun);
   inboxRun.action(
@@ -1091,33 +1085,28 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         const accion = normalizarAccion(opts.action);
         if (accion === 'reject' && !opts.reason) {
-          throw usageError('--action reject descarta un documento: exige --reason "<por qué>".');
+          throw usageError({ key: 'ap.bill.inbox.run.reason_missing' });
         }
         if (accion === 'set-batch' && !opts.batch) {
-          throw usageError('--action set-batch necesita --batch <id o número de lote>.');
+          throw usageError({ key: 'ap.bill.inbox.run.batch_missing' });
         }
 
         // ── LA SELECCIÓN. Un id, o --bulk con --query; nunca las dos, y nunca
         // --bulk a secas: un lote que no nombra su selección acabaría actuando
         // sobre la bandeja entera, que es el error que no se puede deshacer.
         if (idArg && opts.bulk) {
-          throw usageError('Pasa un id, o --bulk con --query. Los dos a la vez no significan nada.');
+          throw usageError({ key: 'ap.bill.inbox.run.id_and_bulk' });
         }
         let filtro: FiltroBandeja;
         if (idArg) {
           if (!UUID_RE.test(idArg.trim())) {
-            throw usageError(`"${idArg}" no es el id de un pre-registro (uuid). Sácalo de \`bill inbox list\`.`);
+            throw usageError({ key: 'ap.bill.inbox.id_invalid', params: { id: idArg } });
           }
           filtro = { ids: [idArg.trim()] };
         } else if (!opts.bulk) {
-          throw usageError(
-            '¿Sobre qué? Pasa el id de un pre-registro, o --bulk con --query "status=ready".'
-          );
+          throw usageError({ key: 'ap.bill.inbox.run.nothing_selected' });
         } else if (!opts.query) {
-          throw usageError(
-            '--bulk sin --query actuaría sobre TODA la bandeja. Nombra la selección: ' +
-              `--query "status=ready,mode=manual" (claves: ${CLAVES_QUERY.join(', ')}).`
-          );
+          throw usageError({ key: 'ap.bill.inbox.run.bulk_without_query', params: { keys: CLAVES_QUERY.join(', ') } });
         } else {
           filtro = await filtroDesdeQuery(ctx.entityId, opts.query);
         }
@@ -1128,13 +1117,10 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         if (idArg && rows.length === 0) {
           // «No existe» y «no es de tu entidad» dan la misma respuesta: el
           // filtro va dentro del SQL y aquí no hay rama que los distinga.
-          throw notFound(`El pre-registro ${idArg} no está en la bandeja de ${ctx.entityName}.`);
+          throw notFound({ key: 'ap.bill.inbox.run.not_in_inbox', params: { id: idArg, entity: ctx.entityName } });
         }
         if (rows.length > TOPE_DEL_LOTE) {
-          throw usageError(
-            `La selección pasa de ${TOPE_DEL_LOTE} pre-registros. Un lote más grande que eso no es ` +
-              'una orden que alguien haya revisado: acota con --query (status, mode, since, until, vendor).'
-          );
+          throw usageError({ key: 'ap.bill.inbox.run.over_cap', params: { cap: TOPE_DEL_LOTE } });
         }
         if (rows.length === 0) {
           // Y SE DICE DÓNDE MIRAR, porque el caso frecuente no es que no haya
@@ -1151,15 +1137,10 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           );
           const n = Number(rezagados.rows[0]?.n ?? 0);
           process.stderr.write(
-            deps.palette.dim(`La consulta "${opts.query}" no selecciona ningún pre-registro. Nada que hacer.\n`) +
+            deps.palette.dim(`${t('ap.bill.inbox.run.query_selects_none', { query: String(opts.query) })}\n`) +
               (n > 0
-                ? deps.palette.yellow(
-                    `  Hay ${n} pre-registro(s) esperando una decisión humana, que esta consulta no alcanza.\n`
-                  ) +
-                  deps.palette.dim(
-                    '  Se ven con `bill inbox list --status draft`, y ahí están los que se pararon\n' +
-                      '  por traer proveedor nuevo: repítelos con --query "status=draft".\n'
-                  )
+                ? deps.palette.yellow(`${t('ap.bill.inbox.run.waiting', { count: n })}\n`) +
+                  deps.palette.dim(`${t('ap.bill.inbox.run.waiting_note')}\n`)
                 : '')
           );
           return;
@@ -1184,34 +1165,32 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         }
         process.stderr.write(
           deps.palette.dim(
-            `\n${accion}: ${rows.length} pre-registro(s)` +
-              `${totalesPorMoneda(rows)}\n`
+            `\n${t('ap.bill.inbox.run.summary', { action: accion, count: rows.length, totals: totalesPorMoneda(rows) })}\n`
           )
         );
         if (accion === 'process') {
           const yaHechos = rows.filter((r) => r.status === 'completed').length;
           if (yaHechos) {
             process.stderr.write(
-              deps.palette.dim(`  ${yaHechos} ya está(n) contabilizado(s) y se saltará(n).\n`)
+              deps.palette.dim(`${t('ap.bill.inbox.run.already_posted', { count: yaHechos })}\n`)
             );
           }
           if (nuevos.length) {
-            const aviso =
-              `  ${nuevos.length} crearía(n) un PROVEEDOR NUEVO: ` +
-              `${nuevos.map((r) => `${nombreDelEmisor(r)} (${r.emisor_rfc ?? 'sin RFC'})`).join('; ')}\n`;
+            const aviso = `${t('ap.bill.inbox.run.new_vendors', {
+              count: nuevos.length,
+              vendors: nuevos.map((r) => `${nombreDelEmisor(r)} (${r.emisor_rfc ?? t('ap.bill.inbox.no_rfc')})`).join('; '),
+            })}\n`;
             process.stderr.write(
               (opts.allowNewVendor ? deps.palette.yellow(aviso) : deps.palette.dim(aviso)) +
                 deps.palette.dim(
-                  opts.allowNewVendor
-                    ? '  --allow-new-vendor está puesto: se darán de alta con el nombre y el RFC del XML.\n'
-                    : '  Sin --allow-new-vendor se rechazan uno a uno, con el motivo, y el resto sigue.\n'
+                  `${opts.allowNewVendor ? t('ap.bill.inbox.run.new_vendor_allowed') : t('ap.bill.inbox.run.new_vendor_refused')}\n`
                 )
             );
           }
         }
 
         if (dryRun) {
-          process.stderr.write(deps.palette.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(deps.palette.dim(`${t('ap.bill.dry_run')}\n`));
           return;
         }
 
@@ -1219,16 +1198,14 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         // cualquier acción sobre más de un documento, porque un lote escrito
         // de memoria es la forma normal de equivocarse.
         if (!opts.yes && (accion === 'process' || rows.length > 1)) {
-          const pregunta =
-            accion === 'process'
-              ? `¿Contabilizar ${rows.length} pre-registro(s) en los libros de ${ctx.entityName}? ` +
-                'Cada uno nace como factura POSTEADA con su póliza. Esto no se deshace.'
-              : `¿Aplicar "${accion}" a ${rows.length} pre-registro(s) de ${ctx.entityName}?`;
+          const pregunta = t('ap.bill.inbox.run.confirm', {
+            kind: accion === 'process' ? 'process' : 'other',
+            action: accion,
+            count: rows.length,
+            entity: ctx.entityName,
+          });
           if (!stdin.isTTY && !deps.confirm) {
-            throw abortedByUser(
-              'No hay terminal donde confirmar. Re-ejecuta con --yes cuando lo tengas decidido, ' +
-                'o con --dry-run para ver lo que haría.'
-            );
+            throw abortedByUser({ key: 'ap.bill.inbox.run.no_terminal' });
           }
           if (!(await ask(pregunta))) throw abortedByUser();
         }
@@ -1275,9 +1252,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         if (acto.repetido) {
           process.stderr.write(
-            `↩ Idempotency hit: key "${opts.idempotencyKey}" already completed this act — ` +
-              `${acto.resultado.ok}/${acto.resultado.total} ${accion}\n` +
-              '  Nothing was executed again; this is the recorded result.\n'
+            `${t('ap.bill.inbox.run.idempotency_hit', {
+              key: String(opts.idempotencyKey),
+              ok: acto.resultado.ok,
+              total: acto.resultado.total,
+              action: accion,
+            })}\n`
           );
           if (opts.json) render([acto.resultado], { json: true });
           return;
@@ -1290,9 +1270,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           render(results, { format: 'table', idField: 'ref' });
           process.stdout.write(
             `${failed === 0 ? deps.palette.green('✔') : deps.palette.yellow('!')} ` +
-              `${accion}: ${ok} de ${results.length}` +
-              (skipped ? deps.palette.dim(` · ${skipped} ya estaba(n)`) : '') +
-              (failed ? deps.palette.dim(` · ${failed} sin hacer`) : '') +
+              t('ap.bill.inbox.run.done', { action: accion, ok, total: results.length }) +
+              (skipped ? deps.palette.dim(t('ap.bill.inbox.run.skipped', { count: skipped })) : '') +
+              (failed ? deps.palette.dim(t('ap.bill.inbox.run.failed', { count: failed })) : '') +
               '\n'
           );
         }
@@ -1318,16 +1298,10 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 function asLedgerRefusal(err: unknown, billNumber: string): unknown {
   const code = (err as { code?: string } | null)?.code;
   if (code === ErrorCodes.PERIOD_CLOSED) {
-    return blockedByState(
-      `${billNumber} cannot be posted: ${(err as Error).message}. ` +
-        'Its bill date falls in a period that is closed or locked. Reopen the period, or post it ' +
-        'in an open one once `bill edit` exists to move the date.'
-    );
+    return blockedByState({ key: 'ap.bill.approve.period_closed', params: { bill: billNumber, message: (err as Error).message } });
   }
   if (code === 'MISSING_ROLE_ACCOUNT') {
-    return blockedByState(
-      `${billNumber} cannot be posted: ${(err as Error).message}`
-    );
+    return blockedByState({ key: 'ap.bill.approve.missing_role', params: { bill: billNumber, message: (err as Error).message } });
   }
   return err;
 }
@@ -1339,16 +1313,16 @@ function readBillFile(path: string): Record<string, unknown> {
   try {
     text = readFileSync(clean, 'utf-8');
   } catch {
-    throw usageError(`Cannot read --from-file "${clean}".`);
+    throw usageError({ key: 'ap.bill.create.file_unreadable', params: { path: clean } });
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    throw usageError(`--from-file "${clean}" is not valid JSON: ${(err as Error).message}`);
+    throw usageError({ key: 'ap.bill.create.file_not_json', params: { path: clean, message: (err as Error).message } });
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw usageError(`--from-file "${clean}" must contain a JSON object with a "lines" array.`);
+    throw usageError({ key: 'ap.bill.create.file_not_object', params: { path: clean } });
   }
   return parsed as Record<string, unknown>;
 }
@@ -1361,7 +1335,7 @@ function readBillFile(path: string): Record<string, unknown> {
 function validarDominio(flag: string, values: string[], dominio: readonly string[]): string[] {
   for (const v of values) {
     if (!dominio.includes(v)) {
-      throw usageError(`${flag} "${v}" no existe. Los valores posibles son: ${dominio.join(', ')}.`);
+      throw usageError({ key: 'ap.bill.inbox.value_unknown', params: { flag, value: v, values: dominio.join(', ') } });
     }
   }
   return values;
@@ -1450,7 +1424,7 @@ function esProveedorNuevo(r: FilaBandeja): boolean {
 }
 
 function nombreDelEmisor(r: FilaBandeja): string {
-  return r.suggested_vendor_name ?? r.emisor_nombre ?? 'emisor sin nombre';
+  return r.suggested_vendor_name ?? r.emisor_nombre ?? t('ap.bill.inbox.unnamed_issuer');
 }
 
 function resumirPreRegistro(r: FilaBandeja): Record<string, unknown> {
@@ -1497,7 +1471,7 @@ function normalizarAccion(valor: string | undefined): AccionBandeja {
   // se manda el SQL, no en la superficie.
   const canon = v === 'set_batch' ? 'set-batch' : v;
   if (!(ACCIONES_BANDEJA as readonly string[]).includes(canon)) {
-    throw usageError(`--action "${valor}" no existe. Usa una de: ${ACCIONES_BANDEJA.join(', ')}.`);
+    throw usageError({ key: 'ap.bill.inbox.run.action_unknown', params: { value: String(valor), actions: ACCIONES_BANDEJA.join(', ') } });
   }
   return canon as AccionBandeja;
 }
@@ -1508,19 +1482,17 @@ async function filtroDesdeQuery(entityId: string, spec: string): Promise<FiltroB
   for (const parte of spec.split(',')) {
     const eq = parte.indexOf('=');
     if (eq < 0) {
-      throw usageError(
-        `No se entiende --query "${spec}". Cada parte es clave=valor separada por comas: ` +
-          `--query "status=ready,mode=manual". Claves: ${CLAVES_QUERY.join(', ')}.`
-      );
+      throw usageError({ key: 'ap.bill.inbox.run.query_unparsable', params: { spec, keys: CLAVES_QUERY.join(', ') } });
     }
     pares[parte.slice(0, eq).trim().toLowerCase()] = parte.slice(eq + 1).trim();
   }
 
   const desconocidas = Object.keys(pares).filter((k) => !(CLAVES_QUERY as readonly string[]).includes(k));
   if (desconocidas.length) {
-    throw usageError(
-      `Clave(s) que --query no conoce: ${desconocidas.join(', ')}. Claves: ${CLAVES_QUERY.join(', ')}.`
-    );
+    throw usageError({
+      key: 'ap.bill.inbox.run.query_keys_unknown',
+      params: { count: desconocidas.length, unknown: desconocidas.join(', '), keys: CLAVES_QUERY.join(', ') },
+    });
   }
 
   const filtro: FiltroBandeja = {};
@@ -1529,7 +1501,7 @@ async function filtroDesdeQuery(entityId: string, spec: string): Promise<FiltroB
   if (pares['requires-approval']) {
     const v = pares['requires-approval'].toLowerCase();
     if (v !== 'true' && v !== 'false') {
-      throw usageError(`requires-approval sólo admite true o false; llegó "${pares['requires-approval']}".`);
+      throw usageError({ key: 'ap.bill.inbox.run.requires_approval_invalid', params: { value: pares['requires-approval'] } });
     }
     filtro.requiresApproval = v === 'true';
   }
@@ -1541,7 +1513,7 @@ async function filtroDesdeQuery(entityId: string, spec: string): Promise<FiltroB
   // Una consulta con todas las claves vacías selecciona la bandeja entera,
   // que es justo lo que --bulk no puede hacer sin nombrarlo.
   if (Object.keys(filtro).length === 0) {
-    throw usageError(`--query "${spec}" no acota nada. Nombra al menos un criterio.`);
+    throw usageError({ key: 'ap.bill.inbox.run.query_narrows_nothing', params: { spec } });
   }
   return filtro;
 }
@@ -1554,7 +1526,7 @@ async function resolverLote(entityId: string, ref: string): Promise<string> {
       LIMIT 1`,
     [entityId, ref.trim()]
   );
-  if (r.rows.length === 0) throw notFound(`No hay un lote de proceso "${ref}" en esta entidad.`);
+  if (r.rows.length === 0) throw notFound({ key: 'ap.bill.inbox.run.batch_not_found', params: { ref } });
   return r.rows[0].id;
 }
 
@@ -1594,7 +1566,7 @@ async function ejecutarBandeja(orden: {
         // Repetir un lote donde algunos ya entraron es normal, no un error:
         // se salta y se dice, y el código de salida no se mancha por ello.
         skipped++;
-        results.push({ ref, status: 'skipped', detail: 'ya estaba contabilizado', id: fila.id });
+        results.push({ ref, status: 'skipped', detail: t('ap.bill.inbox.run.detail.already_posted'), id: fila.id });
         continue;
       }
       const detail = await unActoDeBandeja(orden, fila, service);
@@ -1608,7 +1580,8 @@ async function ejecutarBandeja(orden: {
       results.push({
         ref,
         status: espera ? 'needs-human' : 'error',
-        detail: (err as Error).message,
+        // The person's language: a keyed refusal renders now; its `.message` is the English one.
+        detail: err instanceof CliError ? err.localized() : (err as Error).message,
         id: fila.id,
       });
     }
@@ -1649,7 +1622,7 @@ async function unActoDeBandeja(
         `SELECT * FROM pre_registrations WHERE id = $1 AND entity_id = $2`,
         [fila.id, orden.entityId]
       );
-      if (fresca.rows.length === 0) throw notFound('desapareció de la bandeja mientras se procesaba');
+      if (fresca.rows.length === 0) throw notFound({ key: 'ap.bill.inbox.run.vanished' });
       const cruda = fresca.rows[0];
 
       // ESTE COMANDO SÓLO CONTABILIZA FACTURAS DE PROVEEDOR.
@@ -1670,12 +1643,14 @@ async function unActoDeBandeja(
       // MNE-001-555: a vendor's credit note goes through too. It lowers the
       // bill it names, or waits with its reason (received-credit-note.ts).
       if (cruda.document_type !== 'bill' && cruda.document_type !== 'credit_note') {
-        throw blockedByState(
-          `es un pre-registro de tipo "${textoDe(cruda.document_type, 'desconocido')}", ` +
-            'no una factura de proveedor ni su nota de crédito. ' +
-            '`bill inbox run` sólo contabiliza gastos y las notas que los bajan; un complemento de pago ' +
-            'emitido registraría COBROS DE CLIENTES, que no es lo que este comando dice hacer.'
-        );
+        throw blockedByState({
+          key: 'ap.bill.inbox.run.not_a_bill',
+          params: {
+            type: typeof cruda.document_type === 'string' && cruda.document_type.trim()
+              ? cruda.document_type
+              : { key: 'ap.bill.inbox.run.type_unknown' },
+          },
+        });
       }
 
       // LA APROBACIÓN QUE EL LISTADO PROMETE, EXIGIDA.
@@ -1686,10 +1661,10 @@ async function unActoDeBandeja(
       // NULL para siempre. Una columna que anuncia un control y un verbo que
       // lo ignora es peor que no tener el control.
       if (cruda.requires_approval === true && cruda.approval_status !== 'approved') {
-        throw blockedByState(
-          `requiere aprobación previa y está en "${textoDe(cruda.approval_status, 'pending')}". ` +
-            'Apruébalo primero: `bill inbox run <id> --action approve`.'
-        );
+        throw blockedByState({
+          key: 'ap.bill.inbox.run.needs_approval',
+          params: { state: textoDe(cruda.approval_status, 'pending') },
+        });
       }
 
       const r = await service!.processToAccounting(cruda, orden.userId, {
@@ -1698,12 +1673,12 @@ async function unActoDeBandeja(
       const bill = r.bill as { bill_number?: string } | undefined;
       const asiento = r.journalEntry as { entry_number?: string } | null | undefined;
       return [
-        bill?.bill_number ? `factura ${bill.bill_number}` : null,
-        asiento?.entry_number ? `póliza ${asiento.entry_number}` : null,
-        r.paymentId ? `pago ${r.paymentId}` : null,
+        bill?.bill_number ? t('ap.bill.inbox.run.detail.bill', { bill: bill.bill_number }) : null,
+        asiento?.entry_number ? t('ap.bill.inbox.run.detail.entry', { entry: asiento.entry_number }) : null,
+        r.paymentId ? t('ap.bill.inbox.run.detail.payment', { payment: String(r.paymentId) }) : null,
       ]
         .filter(Boolean)
-        .join(' · ') || 'contabilizado';
+        .join(' · ') || t('ap.bill.inbox.run.detail.posted');
     }
 
     case 'approve': {
@@ -1725,11 +1700,9 @@ async function unActoDeBandeja(
         [orden.userId, orden.note ?? null, fila.id, orden.entityId]
       );
       if (!r.rowCount) {
-        throw blockedByState(
-          'no estaba pendiente de aprobación (o no requiere aprobación, o ya se rechazó)'
-        );
+        throw blockedByState({ key: 'ap.bill.inbox.run.not_pending' });
       }
-      return 'aprobado';
+      return t('ap.bill.inbox.run.detail.approved');
     }
 
     case 'reject': {
@@ -1754,11 +1727,9 @@ async function unActoDeBandeja(
         ]
       );
       if (!r.rowCount) {
-        throw blockedByState(
-          'ya está contabilizado o ya estaba rechazado: lo contabilizado no se rechaza, se reversa'
-        );
+        throw blockedByState({ key: 'ap.bill.inbox.run.not_rejectable' });
       }
-      return 'rechazado';
+      return t('ap.bill.inbox.run.detail.rejected');
     }
 
     case 'set-batch': {
@@ -1768,8 +1739,8 @@ async function unActoDeBandeja(
           WHERE id = $2 AND entity_id = $3 AND status NOT IN ('completed', 'rejected')`,
         [orden.batchId, fila.id, orden.entityId]
       );
-      if (!r.rowCount) throw blockedByState('está completado o rechazado: ya no se programa');
-      return `programado en el lote ${orden.batchId}`;
+      if (!r.rowCount) throw blockedByState({ key: 'ap.bill.inbox.run.not_schedulable' });
+      return t('ap.bill.inbox.run.detail.scheduled', { batch: String(orden.batchId) });
     }
   }
 }
@@ -1780,11 +1751,11 @@ function printEntry(
   billNumber: string
 ): void {
   if (!result.entry) {
-    process.stderr.write(p.yellow(`${billNumber} produces no journal entry (already posted, or a zero total).\n`));
+    process.stderr.write(p.yellow(`${t('ap.bill.approve.no_entry', { bill: billNumber })}\n`));
     return;
   }
   process.stderr.write(
-    p.dim(`\nEntry ${result.entry.entry_number} · ${dateOnly(result.entry.entry_date)}\n`)
+    p.dim(`\n${t('ap.bill.approve.entry_title', { entry: result.entry.entry_number, date: dateOnly(result.entry.entry_date) })}\n`)
   );
   render(result.entryLines, { format: 'table', idField: 'line_number' });
 }
