@@ -70,6 +70,9 @@ mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/bill-command.ts	string-ba
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/payment-command.ts	string-back-in-the-code: payment reverse counts its mirrored entries with «(s)» in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/prepaid-command.ts	string-back-in-the-code: prepaid run counts its adjusting entries in Spanish with «(s)» again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ap-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in prepaid again
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/batch-command.ts	string-back-in-the-code: batch post names what an idempotency hit replays with «póliza(s)» in the code again, which only check 2 sees
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/account-command.ts	string-back-in-the-code: account map check counts the covered accounts with «cuenta(s)» in the code again, which only check 2 sees
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in batch again
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -844,6 +847,9 @@ anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.bill.inbox.run.summary'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.payment.reverse.confirm'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ap.prepaid.run.entries_note'",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "'ledger.batch.post.recorded'",
+anchor	src/plan/criteria/e0-0.ts	de: "'ledger.account.map.check.complete'",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
