@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { softClosePeriod, hardClosePeriod } from '../../src/services/accounting/period-close.js';
@@ -133,6 +133,7 @@ describe('the annual close posts into period 13 and the closing balance can be g
     await entry(`${YEAR}-03-10`, 'March sale', f.roles.banco, f.cuentas['4100'], '10000.0000');
     // December is only soft closed: posting may still reach it, which is
     // exactly when a closing entry dated December 31 would fall into it.
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(periods.get(12)!, f.entityId, f.userId);
     await softClosePeriod(periods.get(13)!, f.entityId, f.userId);
     await hardClosePeriod(periods.get(13)!, f.entityId, f.userId, 'year-end close');

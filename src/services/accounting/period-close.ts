@@ -68,6 +68,7 @@ export const CLOSE_CHECK_CODES = [
   'ap-subledger-delta',
   'withholding-accounts-layout',
   'sat-census-missing',
+  'year-months-sealed',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -95,6 +96,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'ap-subledger-delta': 'Payables subledger agrees with its control account',
   'withholding-accounts-layout': 'Withholding roles follow the withholding accounts layout',
   'sat-census-missing': 'Every CFDI the SAT lists for the period is in the books',
+  'year-months-sealed': 'Every other period of the fiscal year is hard-closed',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -157,6 +159,11 @@ export interface PeriodCloseStatus {
   blocking_issues: string[];
   warnings: string[];
   checklist: PeriodCloseChecklistItem[];
+  /**
+   * MNE-001-661. Only on the last period of a fiscal year: the other periods
+   * of that year that are not hard-closed or locked, in books order.
+   */
+  unsealed_periods?: UnsealedPeriod[];
 }
 
 /** Cuántas cuentas se nombran en el detalle antes de resumir con un «+N». */
@@ -227,6 +234,82 @@ export function censusBox(rec: CensusReconciliation, policyValue: string): Perio
     is_complete: parts.length === 0,
     severity,
     details: parts.length > 0 ? parts.join('; ') : undefined,
+  };
+}
+
+/** A period of a fiscal year that still takes entries: not 'hard_close', not 'locked'. */
+export interface UnsealedPeriod {
+  period_name: string;
+  status: string;
+}
+
+/**
+ * MNE-001-661 (#602). The other periods of the fiscal year that $2 closes
+ * which are not sealed, in books order. No row when $2 is not the last period
+ * of its year: only that one sweeps the result. One statement, bounded by
+ * entity and fiscal year (at most twelve rows); the checklist and
+ * `closing explain` both run this text, so they cannot disagree.
+ */
+export const UNSEALED_PERIODS_OF_YEAR = `
+  SELECT p.period_name, p.status
+    FROM fiscal_periods last
+    JOIN fiscal_periods p
+      ON p.entity_id = last.entity_id AND p.fiscal_year_id = last.fiscal_year_id AND p.id <> last.id
+   WHERE last.id = $2 AND last.entity_id = $1
+     AND p.status NOT IN ('hard_close', 'locked')
+     AND NOT EXISTS (SELECT 1 FROM fiscal_periods later
+                      WHERE later.entity_id = last.entity_id AND later.fiscal_year_id = last.fiscal_year_id
+                        AND later.period_number > last.period_number)
+   ORDER BY p.period_number`;
+
+/**
+ * What `year_seal_with_unsealed_months` answers. Only the literal
+ * 'accept_unsealed' lets the year be sealed over them; any other value falls
+ * on the default, which is the option that sweeps nothing early, and says so.
+ */
+export function yearSealNeedsSealedMonths(policyValue: string): boolean {
+  if (policyValue === 'accept_unsealed') return false;
+  if (policyValue !== 'require_hard_close') {
+    avisarValorDesconocido('year_seal_with_unsealed_months', policyValue, 'require_hard_close');
+  }
+  return true;
+}
+
+/** «December 2025 (soft_close), …»: each period with its status, as the refusal and the box name them. */
+export function nameUnsealed(unsealed: UnsealedPeriod[]): string {
+  return unsealed.map((p) => `${p.period_name} (${p.status})`).join(', ');
+}
+
+/**
+ * MNE-001-661 (#602). The box of a fiscal year's last period, apart and
+ * without a database. The annual seal sweeps what is posted at that moment,
+ * and a period that is not hard-closed still takes entries.
+ *
+ * It weighs as the panel says, in the state the period is in: under the
+ * default it blocks the SEAL, so it blocks once the period stands at it
+ * ('soft_close'). The soft close of the last period sweeps nothing and is
+ * reversible, so there the box only warns that the seal will be refused.
+ */
+export function yearMonthsSealedBox(
+  unsealed: UnsealedPeriod[],
+  policyValue: string,
+  periodStatus: string
+): PeriodCloseChecklistItem {
+  const required = yearSealNeedsSealedMonths(policyValue);
+  const atTheSeal = periodStatus === 'soft_close';
+  const outcome = !required
+    ? 'The firm accepts sealing the fiscal year over them (policy year_seal_with_unsealed_months)'
+    : atTheSeal
+      ? 'The fiscal year is not sealed over a period that still takes entries: hard-close each first, ' +
+        'or answer the policy year_seal_with_unsealed_months'
+      : 'The seal of the fiscal year will be refused until each is, or until the policy ' +
+        'year_seal_with_unsealed_months accepts it';
+  return {
+    codigo: 'year-months-sealed',
+    item: CLOSE_CHECK_ITEMS['year-months-sealed'],
+    is_complete: unsealed.length === 0,
+    severity: required && atTheSeal ? 'blocking' : 'warning',
+    details: unsealed.length > 0 ? `${nameUnsealed(unsealed)}: not hard-closed. ${outcome}` : undefined,
   };
 }
 
@@ -516,8 +599,13 @@ export async function getPeriodCloseStatus(
   // por pertenencia, como toda la serie TEN. La misma consulta resuelve el
   // inquilino, que varias casillas leen del panel de políticas (línea de
   // banco sin explicar, REP) y todas comparten.
-  const dueno = await q<{ tenant_id: string; end_date: string }>(
-    `SELECT le.tenant_id, to_char(fp.end_date, 'YYYY-MM-DD') AS end_date
+  const dueno = await q<{ tenant_id: string; end_date: string; status: string; closes_year: boolean }>(
+    // `closes_year`: the definition the seal uses to decide that it sweeps,
+    // the highest period_number of the fiscal year (MNE-001-661).
+    `SELECT le.tenant_id, to_char(fp.end_date, 'YYYY-MM-DD') AS end_date, fp.status,
+            NOT EXISTS (SELECT 1 FROM fiscal_periods later
+                         WHERE later.entity_id = fp.entity_id AND later.fiscal_year_id = fp.fiscal_year_id
+                           AND later.period_number > fp.period_number) AS closes_year
        FROM fiscal_periods fp
        JOIN legal_entities le ON le.id = fp.entity_id
       WHERE fp.id = $2 AND fp.entity_id = $1`,
@@ -1189,11 +1277,28 @@ export async function getPeriodCloseStatus(
     if (!box.is_complete) (box.severity === 'blocking' ? blocking_issues : warnings).push(`${box.item}: ${box.details}`);
   }
 
+  // 11. MNE-001-661 (#602) · THE YEAR'S LAST PERIOD WAITS FOR THE OTHERS. Only
+  // on that period: it is the one whose seal sweeps the result, and a monthly
+  // close has nothing to say here. One statement for the whole year, and the
+  // panel says whether the firm seals over periods that still take entries.
+  let unsealed_periods: UnsealedPeriod[] | undefined;
+  if (dueno.rows[0].closes_year) {
+    unsealed_periods = (await q<{ period_name: string; status: string }>(
+      UNSEALED_PERIODS_OF_YEAR, [entityId, periodId]
+    )).rows;
+    const yearSeal = await getPolicy(ctxPanel, 'year_seal_with_unsealed_months', client);
+    const box = yearMonthsSealedBox(unsealed_periods, yearSeal.value, dueno.rows[0].status);
+    checklist.push(box);
+    // The finding alone: it opens with the periods, which is what is acted on.
+    if (box.details) (box.severity === 'blocking' ? blocking_issues : warnings).push(box.details);
+  }
+
   return {
     can_close: blocking_issues.length === 0,
     blocking_issues,
     warnings,
     checklist,
+    ...(unsealed_periods ? { unsealed_periods } : {}),
   };
 }
 
@@ -1321,6 +1426,20 @@ export async function hardClosePeriod(
     // subledger out of step (#98), and only the CLI used to ask again before
     // the irreversible step — REST and any other caller sealed it anyway.
     const status = await getPeriodCloseStatus(periodId, entityId, client);
+    // MNE-001-661 (#602). The annual seal over a period that still takes
+    // entries is refused by key, naming each one, before the generic refusal.
+    const waiting = status.checklist.find((c) => c.codigo === 'year-months-sealed');
+    if (waiting && !waiting.is_complete && waiting.severity === 'blocking') {
+      const unsealed = status.unsealed_periods ?? [];
+      throw new AccountingError(
+        'YEAR_MONTHS_NOT_SEALED',
+        {
+          key: 'error.YEAR_MONTHS_NOT_SEALED',
+          params: { period: period.period_name, count: unsealed.length, periods: nameUnsealed(unsealed) },
+        },
+        { unsealed_periods: unsealed }
+      );
+    }
     if (!status.can_close) {
       throw new AccountingError(
         'CANNOT_CLOSE_PERIOD',
