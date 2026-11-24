@@ -27,6 +27,7 @@
     "mutantes": "tsx scripts/mutantes.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
     "ux:status": "tsx scripts/ux-status.ts",
+    "command:manifest": "tsx scripts/command-manifest.ts",
     "language:status": "tsx scripts/language-status.ts",
     "language:extract": "tsx scripts/language/extract.ts",
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
