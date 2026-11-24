@@ -3039,13 +3039,10 @@ async function correrOutboxImpl(
   }
 }
 
-const outbox = describeCommand(
-  program.command('outbox').aliases(['envio', 'envios']),
-  'help.outbox.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without executing (deprecated: use `outbox list`)');
+const outbox = describeCommand(program.command('outbox').aliases(['envio', 'envios']), 'help.outbox.description');
+optionByKey(outbox, '-e, --entity <idOrName>', 'help.outbox.option.entity');
+optionByKey(outbox, '-u, --user <email>', 'help.outbox.option.user');
+optionByKey(outbox, '-l, --list', 'help.outbox.option.list');
 
 const outboxList = describeCommand(
   outbox.command('list').alias('listar'),
@@ -3067,16 +3064,11 @@ outboxList.action(async (_opts: unknown, cmdArg: Command) => {
   }
 });
 
-const outboxRun = describeCommand(
-  outbox
-    .command('run')
-    .alias('ejecutar')
-    .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively'),
-  'help.outbox.run.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.outboxRun);
+const outboxRun = describeCommand(outbox.command('run').alias('ejecutar'), 'help.outbox.run.description');
+argumentByKey(outboxRun, '[id...]', 'help.outbox.run.argument.id');
+optionByKey(outboxRun, '-e, --entity <idOrName>', 'help.outbox.run.option.entity');
+optionByKey(outboxRun, '-u, --user <email>', 'help.outbox.run.option.user');
+outboxRun.addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
   llave: { innecesaria: 'each operation is claimed atomically and stays bound to its row' },

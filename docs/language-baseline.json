@@ -21,10 +21,10 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 99,
+    "help-descriptions-without-key": 48,
     "cli-user-strings-without-key": 838,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 2012
+    "spanish-user-strings-services": 2011
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1487,11 +1487,8 @@
       "audit": 14,
       "backup": 21,
       "completion": 2,
-      "jobs": 28,
-      "outbox": 6,
       "status": 5,
-      "subscription": 6,
-      "webhooks": 17
+      "subscription": 6
     },
     "cli-user-strings-without-key": {
       "src/cli/anexo24-migration-command.ts": 1,
@@ -1701,7 +1698,7 @@
       "src/services/backup/backup-service.ts": 22,
       "src/services/backup/exportacion-inquilino.ts": 21,
       "src/services/backup/ledger-en-base.ts": 2,
-      "src/services/banking/bank-account-service.ts": 48,
+      "src/services/banking/bank-account-service.ts": 47,
       "src/services/banking/bank-statement-service.ts": 36,
       "src/services/banking/book-items.ts": 3,
       "src/services/banking/match-service.ts": 27,

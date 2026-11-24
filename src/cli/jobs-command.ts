@@ -10,7 +10,7 @@ import { runDueJobs, type RunAgentTurn } from '../ai/jobs/runner.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, usageError } from './kernel/index.js';
 import { argumentByKey, describeCommand, optionByKey } from './kernel/help.js';
-import { t } from '../i18n/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import { calendarDateTimeIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { tickCredentialLine } from './provider-readiness.js';
@@ -132,15 +132,13 @@ function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette'], zone: string
 
 export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   const c = deps.palette;
-  const jobs = program
-    .command('jobs')
-    .alias('tareas')
-    .description('Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)');
+  const jobs = describeCommand(program.command('jobs').alias('tareas'), 'help.jobs.description');
 
-  const withCommon = (cmd: Command): Command =>
-    cmd
-      .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-      .option('-t, --tenant <id>', 'Tenant');
+  // -e and -t with the leaf's own keys: their English is not cli.flag.*'s.
+  const withCommon = (cmd: Command, keys: { entity: TranslationKey; tenant: TranslationKey }): Command => {
+    optionByKey(cmd, '-e, --entity <idOrName>', keys.entity);
+    return optionByKey(cmd, '-t, --tenant <id>', keys.tenant);
+  };
 
   // The same two flags, with their help by key, for the leaves born keyed.
   const withKeyedCommon = (cmd: Command): Command => {
@@ -165,19 +163,23 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
     };
 
-  withCommon(jobs.command('list'))
-    .description('List the scheduled jobs of this entity')
-    .action(run(async (ctx) => {
+  const list = describeCommand(jobs.command('list'), 'help.jobs.list.description');
+  withCommon(list, { entity: 'help.jobs.list.option.entity', tenant: 'help.jobs.list.option.tenant' });
+  list.action(run(async (ctx) => {
       for (const line of formatJobsTable(await listJobs(ctx), c, await zoneFor(ctx))) console.log(line);
     }));
 
-  withCommon(jobs.command('create'))
-    .description('Create a scheduled job')
-    .requiredOption('--name <name>', 'Job name (unique per entity)')
-    .requiredOption('--kind <kind>', `Job kind: ${JOB_KINDS.join(' | ')}`)
-    .requiredOption('--schedule <cron>', '5-field cron expression, e.g. "0 2 * * *" (nightly at 02:00)')
-    .option('--max-failures <n>', 'Auto-disable after N consecutive failures (default 3)')
-    .option('--user <email>', 'Who creates the job (audit)')
+  const create = describeCommand(jobs.command('create'), 'help.jobs.create.description');
+  withCommon(create, { entity: 'help.jobs.create.option.entity', tenant: 'help.jobs.create.option.tenant' });
+  optionByKey(create, '--name <name>', 'help.jobs.create.option.name', { mandatory: true });
+  optionByKey(create, '--kind <kind>', 'help.jobs.create.option.kind', {
+    params: { kinds: JOB_KINDS.join(' | ') },
+    mandatory: true,
+  });
+  optionByKey(create, '--schedule <cron>', 'help.jobs.create.option.schedule', { mandatory: true });
+  optionByKey(create, '--max-failures <n>', 'help.jobs.create.option.max_failures');
+  optionByKey(create, '--user <email>', 'help.jobs.create.option.user');
+  create
     .addHelpText('after', CREATE_EXAMPLES)
     .action(
       run(async (ctx, opts: { name: string; kind: string; schedule: string; maxFailures?: string; user?: string }) => {
@@ -254,9 +256,10 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
     }
   });
 
-  withCommon(jobs.command('enable'))
-    .description('Enable a job (resets its failure counter and recomputes the next run)')
-    .argument('<jobId>', 'Job id')
+  const enable = describeCommand(jobs.command('enable'), 'help.jobs.enable.description');
+  withCommon(enable, { entity: 'help.jobs.enable.option.entity', tenant: 'help.jobs.enable.option.tenant' });
+  argumentByKey(enable, '<jobId>', 'help.jobs.enable.argument.job_id');
+  enable
     .addHelpText('after', ENABLE_EXAMPLES)
     .action(async (jobId: string, opts: CommonOpts) => {
       try {
@@ -270,9 +273,10 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
     });
 
-  withCommon(jobs.command('disable'))
-    .description('Disable a job (it stays configured; runs stop)')
-    .argument('<jobId>', 'Job id')
+  const disable = describeCommand(jobs.command('disable'), 'help.jobs.disable.description');
+  withCommon(disable, { entity: 'help.jobs.disable.option.entity', tenant: 'help.jobs.disable.option.tenant' });
+  argumentByKey(disable, '<jobId>', 'help.jobs.disable.argument.job_id');
+  disable
     .addHelpText('after', DISABLE_EXAMPLES)
     .action(async (jobId: string, opts: CommonOpts) => {
       try {
@@ -286,8 +290,8 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
     });
 
-  const runDue = withCommon(jobs.command('run-due'))
-    .description('Tick entry point: claim and run every due job (call this from cron/launchd; --live enables the external reads)');
+  const runDue = describeCommand(jobs.command('run-due'), 'help.jobs.run_due.description');
+  withCommon(runDue, { entity: 'help.jobs.run_due.option.entity', tenant: 'help.jobs.run_due.option.tenant' });
   // Externo, declarado junto a su registro (S0.6): el único brazo de una
   // corrida desatendida que sale del sistema son las lecturas contra el
   // sistema del cliente con su credencial, y --live es su compuerta — sin la
@@ -396,11 +400,11 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
     }));
 
-  withCommon(jobs.command('history'))
-    .description('Execution log (most recent first)')
-    .option('--job <jobId>', 'Only this job')
-    .option('--limit <n>', 'Rows to show (default 20)')
-    .action(run(async (ctx, opts: { job?: string; limit?: string }) => {
+  const history = describeCommand(jobs.command('history'), 'help.jobs.history.description');
+  withCommon(history, { entity: 'help.jobs.history.option.entity', tenant: 'help.jobs.history.option.tenant' });
+  optionByKey(history, '--job <jobId>', 'help.jobs.history.option.job');
+  optionByKey(history, '--limit <n>', 'help.jobs.history.option.limit');
+  history.action(run(async (ctx, opts: { job?: string; limit?: string }) => {
       const runs = await listRuns(ctx, {
         jobId: opts.job,
         limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
