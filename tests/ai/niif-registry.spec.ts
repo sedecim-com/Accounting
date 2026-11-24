@@ -134,10 +134,19 @@ const SMES_PAGE = 'https://www.ifrs.org/issued-standards/ifrs-for-smes/';
 const CINIF_HOSTS = ['www.cinif.org.mx', 'cinif.org.mx'];
 /**
  * cinif.org.mx paths that hold no document: the homepage under both of its
- * paths, and the two pages that answer HTTP 200 with a sign-up screen (report §1
- * and §8.2), so a reader without an account sees no standard there.
+ * paths, the sign-in screen itself, and the pages that send a reader without an
+ * account there (report §1 and §8.2; on 2026-11-24 each answered HTTP 302 to
+ * usuario_login.php?info=DENIED, MNE-001-365), so that reader sees no standard.
  */
-const CINIF_NOT_DOCUMENTS = ['/', '/index.php', '/normatividad_listadonormas.php', '/normatividad_plandetrabajo.php'];
+const CINIF_NOT_DOCUMENTS = [
+  '/',
+  '/index.php',
+  '/usuario_login.php',
+  '/normatividad_listadonormas.php',
+  '/normatividad_plandetrabajo.php',
+  '/exclusivo_mejoras.php',
+  '/exclusivo_orientacion.php',
+];
 
 interface OfficialRule {
   /** What the card is missing, as the failure names it. */
@@ -335,5 +344,130 @@ describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
     }
     const frameworkDoc = fs.readFileSync(path.join(DOCS, 'nif-marco.md'), 'utf-8');
     expect(frameworkDoc).toContain('Incertidumbres sobre negocio en marcha');
+  });
+});
+
+// ============================================================
+// THE CINIF CHANGES OF 2026-2028 IN THE NIF MANUALS (MNE-001-365, #133)
+//
+// Plan of 14 Nov 2026 on #133, task 3: nif-registro.md and
+// niif-marco-presentacion.md name the Mejoras a las NIF 2026 (B-11, C-10,
+// C-13), the Mejoras 2027 project (B-7, D-1, D-4) and the B-4/B-6 changes of
+// 2028, each with its effective date and a cinif.org.mx document; the B-3
+// «PENDIENTE DE VERIFICAR» is closed from the B-3 project; and the corpus says
+// that a CINIF page behind its sign-in screen is not an open source.
+// ============================================================
+
+/** A manual cut into items: a bullet with its indented lines, or a paragraph. */
+function manualItems(file: string): string[] {
+  const items: string[] = [];
+  let current: string[] = [];
+  const flush = () => {
+    if (current.length) items.push(current.join(' '));
+    current = [];
+  };
+  for (const line of fs.readFileSync(path.join(DOCS, file), 'utf-8').split('\n')) {
+    if (line.trim() === '' || /^(- |#|\*\*)/.test(line)) flush();
+    if (line.trim() !== '') current.push(line.trim());
+  }
+  flush();
+  return items;
+}
+
+function urlsIn(text: string): string[] {
+  return (text.match(/https:\/\/[^\s()«»]+/g) ?? []).map((url) => url.replace(/[.,;:]+$/, ''));
+}
+
+/** «B-1» must not match «B-11», nor «D-1» match «D-10». */
+const namesNif = (text: string, code: string) => new RegExp(`(?<![\\w-])${code}(?!\\d)`).test(text);
+
+const CINIF_CHANGES = [
+  {
+    group: 'Mejoras a las NIF 2026',
+    codes: ['B-11', 'C-10', 'C-13'],
+    effective: '1-ene-2026',
+    source: 'https://www.cinif.org.mx/uploads/Mejoras_NIF_2026_PROYECTO_AUSCULTACION.pdf',
+  },
+  {
+    group: 'Mejoras a las NIF 2027',
+    codes: ['B-7', 'D-1', 'D-4'],
+    effective: '1-ene-2027',
+    source: 'https://www.cinif.org.mx/uploads/Auscultacion_Mejoras_NIF_2027.pdf',
+  },
+  {
+    group: 'B-4/B-6 2028',
+    codes: ['B-4', 'B-6'],
+    effective: '1-ene-2028',
+    source: 'https://www.cinif.org.mx/uploads/2025-Carta_Invitacion_Auscultacion_B1_B3.pdf',
+  },
+] as const;
+
+const CHANGE_MANUALS = ['nif-registro.md', 'niif-marco-presentacion.md'] as const;
+
+describe('the CINIF changes of 2026-2028 in the NIF manuals (MNE-001-365)', () => {
+  it('leaves no «PENDIENTE DE VERIFICAR» in any manual', () => {
+    const open = fs
+      .readdirSync(DOCS)
+      .filter((f) => f.endsWith('.md'))
+      .flatMap((f) =>
+        fs
+          .readFileSync(path.join(DOCS, f), 'utf-8')
+          .split('\n')
+          .flatMap((line, i) => (/PENDIENTE DE VERIFICAR/i.test(line) ? [`${f}:${i + 1}`] : []))
+      );
+    expect(open).toEqual([]);
+  });
+
+  it('names each changed NIF with its effective date and its CINIF document, in both manuals', () => {
+    const missing: string[] = [];
+    for (const manual of CHANGE_MANUALS) {
+      const items = manualItems(manual);
+      for (const change of CINIF_CHANGES) {
+        for (const code of change.codes) {
+          const found = items.some(
+            (item) => namesNif(item, code) && item.includes(change.effective) && urlsIn(item).includes(change.source)
+          );
+          if (!found) missing.push(`${manual}: ${change.group} ${code} (${change.effective}, ${change.source})`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('cites only CINIF documents, never a page behind its sign-in screen', () => {
+    for (const manual of CHANGE_MANUALS) {
+      for (const url of manualItems(manual).flatMap(urlsIn)) {
+        if (new URL(url).hostname.endsWith('cinif.org.mx')) expect(CINIF_DOCUMENT.accepts(url), url).toBe(true);
+      }
+    }
+  });
+
+  it('records the Mejoras 2027 as a project in consultation, not as promulgated text', () => {
+    for (const manual of CHANGE_MANUALS) {
+      const items = manualItems(manual).filter((item) => urlsIn(item).includes(CINIF_CHANGES[1].source));
+      expect(items.length, manual).toBeGreaterThan(0);
+      for (const item of items) expect(item, manual).toMatch(/proyecto/i);
+    }
+  });
+
+  it('closes the B-3 point on management-defined measures from the B-3 project', () => {
+    const items = manualItems('niif-marco-presentacion.md').filter((item) => /\bMDM\b/.test(item));
+    expect(items.length).toBeGreaterThan(0);
+    expect(
+      items.some(
+        (item) =>
+          /proyecto/i.test(item) &&
+          urlsIn(item).includes('https://www.cinif.org.mx/uploads/NIF_B-3_proyecto_auscultacion.pdf')
+      )
+    ).toBe(true);
+  });
+
+  it('says that the CINIF pages behind its sign-in screen are not an open source', () => {
+    const item = manualItems('nif-registro.md').find(
+      (i) => i.includes('normatividad_listadonormas.php') && i.includes('normatividad_plandetrabajo.php')
+    );
+    expect(item).toBeDefined();
+    expect(item).toMatch(/no (es|son) fuente abierta/);
+    expect(item).toContain('usuario_login.php');
   });
 });
