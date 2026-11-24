@@ -183,6 +183,54 @@ function agentToolCensus(): { envelopes: Set<string>; tools: Map<string, { file:
   return { envelopes, tools };
 }
 
+// ============================================================
+// THE BRIDGE FROM THE RISK REGISTRY TO THE AGENT'S TOOLS (MNE-001-693)
+//
+// Read through the seam and PARSED, like the census above: «calls the
+// registry» is a question about the shape of an expression. A regex cannot
+// tell a call from the same text in a string, and a search by name cannot tell
+// a consumer from a re-export.
+// ============================================================
+/** Where `buildTools` assembles what the model receives. */
+const TOOL_FACTORY = 'src/ai/tools/index.ts';
+const REGISTRY_READER = 'allDeclarations';
+
+const relativeOf = (abs: string): string => path.relative(rutaDe(), abs).split(path.sep).join('/');
+
+/** The modules under src/ai whose code calls the registry. */
+function registryCallers(): string[] {
+  const callers: string[] = [];
+  for (const abs of fuentes('src/ai')) {
+    const source = leer(abs);
+    // Parsing every agent module to find one name would cost more than the answer.
+    if (!source.includes(REGISTRY_READER)) continue;
+    let calls = false;
+    const visit = (n: ts.Node): void => {
+      if (ts.isCallExpression(n)) {
+        const callee = n.expression;
+        const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
+        if (name === REGISTRY_READER) calls = true;
+      }
+      if (!calls) ts.forEachChild(n, visit);
+    };
+    visit(ts.createSourceFile(abs, source, ts.ScriptTarget.Latest, false));
+    if (calls) callers.push(relativeOf(abs));
+  }
+  return callers;
+}
+
+/** The modules the tool factory imports by a relative path, as repository paths. */
+function factoryImports(): Set<string> {
+  const imported = new Set<string>();
+  if (!existe(TOOL_FACTORY)) return imported;
+  for (const st of ts.createSourceFile(TOOL_FACTORY, crudoDe(TOOL_FACTORY), ts.ScriptTarget.Latest, false).statements) {
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+    if (st.importClause?.isTypeOnly || !st.moduleSpecifier.text.startsWith('.')) continue;
+    imported.add(path.posix.join(path.posix.dirname(TOOL_FACTORY), st.moduleSpecifier.text).replace(/\.js$/, '.ts'));
+  }
+  return imported;
+}
+
 export const E5_1: Criterio[] = [
 
   // ---- E5.1 · Madurez del agente ----
@@ -545,30 +593,60 @@ export const E5_1: Criterio[] = [
     paquete: 'E5.1',
     id: 'agent-tools-from-risk-registry',
     enunciado: 'Las herramientas del agente se derivan del registro de riesgo del CLI',
+    mutantes: [
+      {
+        archivo: TOOL_FACTORY,
+        de: "import { withInlinedInputSchema } from './inline-schema-refs.js';",
+        a:
+          "import { withInlinedInputSchema } from './inline-schema-refs.js';\n" +
+          "export { allDeclarations } from '../../cli/kernel/risk.js';",
+        porque:
+          'named-not-called: the tool factory re-exports the registry and derives nothing from it. Until MNE-001-693 any file outside the kernel that named the symbol turned this green, and the command manifest names it',
+      },
+      {
+        archivo: 'src/ai/tools/observer.ts',
+        de: 'export type ToolObserver = (toolName: string, input: unknown) => void;',
+        a:
+          "import { allDeclarations } from '../../cli/kernel/risk.js';\n" +
+          'export const DECLARED_LEAVES = allDeclarations().length;\n' +
+          'export type ToolObserver = (toolName: string, input: unknown) => void;',
+        porque:
+          'called-beside-the-factory: an agent module really calls the registry, and buildTools imports only its types, which do not exist at run time, so no tool can come from it',
+      },
+    ],
     evaluar: () => {
-      // FALSO VERDE CORREGIDO. La versión anterior contaba cualquier mención
-      // de `allDeclarations` fuera de risk.ts como «consumidor», y eso
-      // incluía el re-export del barril (kernel/index.ts) — un archivo que no
-      // consume nada, sólo reexporta. El tablero decía «el puente existe»
-      // mientras las herramientas del agente seguían escritas a mano. Un
-      // criterio cuyo verde puede producirlo un `export {...} from` no mide
-      // un puente: mide que el símbolo exista, que ya lo mide el compilador.
+      // TWO FALSE GREENS, BOTH CLOSED BY ASKING FOR MORE THAN A NAME.
       //
-      // Consumidor de verdad = un archivo FUERA del núcleo del CLI que nombre
-      // el símbolo. El puente será real cuando src/ai derive su superficie de
-      // herramientas del registro; hasta entonces, rojo honesto.
-      const cons = consumidoresDe('allDeclarations', 'risk.ts').filter(
-        (f) => !f.startsWith('src/cli/kernel/')
+      // The first version counted any mention of `allDeclarations` outside
+      // risk.ts, which the barrel's re-export (kernel/index.ts) satisfied. The
+      // second asked for a file outside the kernel that names the symbol, and
+      // the command manifest (src/cli/command-manifest.ts, MNE-001-693) is
+      // such a file: it reads the registry to publish it, and derives no tool.
+      //
+      // What the sentence claims is a path from the registry to the tools the
+      // model receives, so that is what is read: a module of the agent CALLS
+      // the registry (a call expression in the parsed source: an import, a
+      // re-export, a comment or a string calls nothing), and `buildTools`
+      // reaches that call, in its own file or in one it imports.
+      //
+      // IT IS NECESSARY, NOT SUFFICIENT: it does not count how many tools come
+      // from the registry. MNE-001-391 adds that count when its design exists.
+      const callers = registryCallers();
+      const imported = factoryImports();
+      const reached = callers.filter((f) => f === TOOL_FACTORY || imported.has(f));
+      if (reached.length > 0) {
+        return ok(`buildTools reaches a call to the risk registry: ${reached.join(', ')}`);
+      }
+      const beside =
+        callers.length > 0
+          ? `${callers.join(', ')} calls allDeclarations(), but ${TOOL_FACTORY} does not import it`
+          : 'no module under src/ai calls allDeclarations()';
+      return falla(
+        `${beside}: the agent's tools are still written by hand instead of being derived from ` +
+          'the risk registry (MNE-001-391). Naming the registry elsewhere, as the command manifest ' +
+          'does, is not the bridge. The unattended session runs on a named surface (S0.3), and ' +
+          'that list is written by hand too'
       );
-      return cons.length > 0
-        ? ok(`el puente existe: ${cons.join(', ')}`)
-        : falla(
-            'allDeclarations no tiene consumidor fuera del núcleo (el re-export del barril no ' +
-              'consume nada): las herramientas del agente siguen escritas a mano en vez de ' +
-              'derivarse del registro de riesgo. La sesión desatendida ya corre con superficie ' +
-              'nombrada (S0.3), pero esa lista también es a mano — el puente que las derive es ' +
-              'una aspiración, y este rojo es su registro'
-          );
     },
   },
   {

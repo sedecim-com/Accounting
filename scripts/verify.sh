@@ -34,7 +34,7 @@ for key in DATABASE_URL MIGRATION_DATABASE_URL TEST_ADMIN_DATABASE_URL; do
   [ -z "$value" ] || export "$key=$value"
 done
 
-GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map integration restore isolation eval commit-subjects"
+GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map manifest integration restore isolation eval commit-subjects"
 
 VERBOSE=0
 INTEGRATION=1
@@ -152,6 +152,11 @@ run_gate ux               npx tsx scripts/ux-status.ts --check
 run_gate language         npx tsx scripts/language-status.ts --check
 # ci: npx tsx scripts/repo-map.ts --check
 run_gate repo-map         npx tsx scripts/repo-map.ts --check
+# The command manifest (MNE-001-693). No step of ci.yml runs this --check yet:
+# that line sits in a critical path and is the owner's to add, and this comment
+# becomes its ci annotation then. Until that day CI sees a stale manifest through
+# tests/cli/command-manifest.spec.ts, inside the unit gate.
+run_gate manifest         npx tsx scripts/command-manifest.ts --check
 
 # ci: npm run test:integration -- --coverage
 # (CI also provisions roles with scripts/provision-roles.sql; without them 7 attack cases report as skipped)
