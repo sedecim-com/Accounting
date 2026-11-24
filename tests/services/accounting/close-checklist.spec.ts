@@ -8,6 +8,9 @@ import {
   subledgerDeltaCheck,
   severityOfMissingAccrual,
   prepaidAmortizedCheck,
+  yearMonthsSealedBox,
+  yearSealNeedsSealedMonths,
+  nameUnsealed,
 } from '../../../src/services/accounting/period-close.js';
 import {
   REMEDIO_DE,
@@ -314,5 +317,73 @@ describe('prepaidAmortizedCheck (MNE-001-129, #128)', () => {
   it('the code is in the registry and its remedy is the prepaid run', () => {
     expect(esCodigoDeCierre('prepaid-amortized')).toBe(true);
     expect(REMEDIO_DE['prepaid-amortized']).toMatch(/^mnemosine prepaid run --period/);
+  });
+});
+
+describe('yearMonthsSealedBox (MNE-001-661, #602)', () => {
+  const december = { period_name: 'December 2025', status: 'soft_close' };
+  const november = { period_name: 'November 2025', status: 'open' };
+
+  it("only the literal 'accept_unsealed' lets a year be sealed over unsealed periods", () => {
+    expect(yearSealNeedsSealedMonths('accept_unsealed')).toBe(false);
+    expect(yearSealNeedsSealedMonths('require_hard_close')).toBe(true);
+  });
+
+  it('an odd panel value falls on the default: it never sweeps a year early', () => {
+    expect(yearSealNeedsSealedMonths('')).toBe(true);
+    expect(yearSealNeedsSealedMonths('ACCEPT_UNSEALED')).toBe(true);
+    expect(yearSealNeedsSealedMonths('avisar')).toBe(true);
+  });
+
+  it('names each period with its status, in the order given', () => {
+    expect(nameUnsealed([november, december])).toBe('November 2025 (open), December 2025 (soft_close)');
+    expect(nameUnsealed([])).toBe('');
+  });
+
+  it('with every other period sealed the box is green, and at the seal it says it would block', () => {
+    const box = yearMonthsSealedBox([], 'require_hard_close', 'soft_close');
+    expect(box).toMatchObject({ codigo: 'year-months-sealed', is_complete: true, severity: 'blocking' });
+    expect(box.item).toBe(CLOSE_CHECK_ITEMS['year-months-sealed']);
+    expect(box.details).toBeUndefined();
+  });
+
+  it('under the default, at the seal, an unsealed period BLOCKS and is named with the policy', () => {
+    const box = yearMonthsSealedBox([november, december], 'require_hard_close', 'soft_close');
+    expect(box.is_complete).toBe(false);
+    expect(box.severity).toBe('blocking');
+    expect(box.details).toBe(
+      'November 2025 (open), December 2025 (soft_close): not hard-closed. ' +
+        'The fiscal year is not sealed over a period that still takes entries: hard-close each first, ' +
+        'or answer the policy year_seal_with_unsealed_months'
+    );
+  });
+
+  it('under the default, while the last period is still open, it only warns that the seal will be refused', () => {
+    const box = yearMonthsSealedBox([december], 'require_hard_close', 'open');
+    expect(box.is_complete).toBe(false);
+    expect(box.severity).toBe('warning');
+    expect(box.details).toBe(
+      'December 2025 (soft_close): not hard-closed. ' +
+        'The seal of the fiscal year will be refused until each is, or until the policy ' +
+        'year_seal_with_unsealed_months accepts it'
+    );
+  });
+
+  it('under accept_unsealed it warns in every state and says the firm accepts it', () => {
+    for (const status of ['open', 'soft_close']) {
+      const box = yearMonthsSealedBox([december], 'accept_unsealed', status);
+      expect(box.is_complete).toBe(false);
+      expect(box.severity).toBe('warning');
+      expect(box.details).toBe(
+        'December 2025 (soft_close): not hard-closed. ' +
+          'The firm accepts sealing the fiscal year over them (policy year_seal_with_unsealed_months)'
+      );
+    }
+  });
+
+  it('the code is in the registry, with a remedy that names the hard close and the policy', () => {
+    expect(esCodigoDeCierre('year-months-sealed')).toBe(true);
+    expect(REMEDIO_DE['year-months-sealed']).toMatch(/^mnemosine close --period <period> --hard/);
+    expect(REMEDIO_DE['year-months-sealed']).toContain('year_seal_with_unsealed_months');
   });
 });

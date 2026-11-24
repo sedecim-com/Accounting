@@ -302,10 +302,26 @@ describe('the census of the VAT released above the CFDI', () => {
       enterTenant(a.f.tenantId);
     }
   }, 240_000);
+
+  it('C8 · MNE-001-679: cash paid on account in March and applied in April and in May carries each excess in the month it was applied', async () => {
+    const billId = await oldBill(a, cfdi(3));
+    const onAccount = await pay(a, '', '1252.80', 3);
+    for (const date of ['2026-04-10', '2026-05-10']) {
+      await applyVendorPayment(a.f.entityId, onAccount, [{ documentId: billId, amountApplied: '626.40' }], a.f.userId, { date });
+    }
+
+    // Each half released 252.80 × 626.40 / 1,252.80 = 126.40 and owed 172.80 / 2 = 86.40: 40.00 over, where the ledger credited it.
+    const x = await findingOf(a, billId);
+    expect(paymentsOf(x)).toEqual([
+      [onAccount, '2026-04-10', '126.4000', '86.4000', '40.0000'],
+      [onAccount, '2026-05-10', '126.4000', '86.4000', '40.0000'],
+    ]);
+    expect(x?.byMonth).toEqual([{ month: '2026-04', excess: '40.0000' }, { month: '2026-05', excess: '40.0000' }]);
+  }, 120_000);
 });
 
 // ============================================================
-// PART 2 · THE AUDITED CORRECTION AND ITS PANEL KEY
+// PART 2· THE AUDITED CORRECTION AND ITS PANEL KEY
 // ============================================================
 
 const KEY = 'vat_overcredit_correction_period';

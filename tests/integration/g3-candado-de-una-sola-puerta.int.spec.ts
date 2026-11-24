@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
-import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { levantar, pedir, sesionDe } from './helpers/servidor.js';
 import journalEntriesRouter from '../../src/api/rest/routes/journal-entries.js';
 import {
@@ -317,6 +317,7 @@ describe('el daño colateral que el candado NO puede causar', () => {
     // Los asientos de cierre nacían con source_type NULO, que en este libro
     // significa «alguien la redactó a mano». No lo son: los calcula el barrido.
     // Sin marcarles el origen, encender la política congelaba el cierre anual.
+    await acceptSealOverUnsealedMonths(c);
     await softClosePeriod(c.periodos[12], c.entityId, c.userId);
     await hardClosePeriod(c.periodos[12], c.entityId, c.userId, 'cierre bajo exigir');
 

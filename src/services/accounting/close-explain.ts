@@ -5,6 +5,7 @@ import {
   CLOSE_CHECK_CODES,
   CLOSE_CHECK_ITEMS,
   FEES_WITHOUT_WITHHOLDING_ROWS,
+  UNSEALED_PERIODS_OF_YEAR,
   type CloseCheckCode,
   type SubledgerCode,
   getPeriodCloseStatus,
@@ -77,6 +78,9 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'ap-subledger-delta': 'mnemosine ap reconcile --explain  (splits the delta into named items)',
   'withholding-accounts-layout': 'mnemosine account role sync --dry-run  (then without --dry-run to apply it)',
   'sat-census-missing': 'mnemosine sat download reconcile --period <YYYY-MM>',
+  'year-months-sealed':
+    'mnemosine close --period <period> --hard  (each period listed, oldest first; or answer the policy ' +
+    'year_seal_with_unsealed_months with mnemosine pending)',
 };
 
 export interface OpcionesDeExplicacion {
@@ -428,6 +432,14 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       ...rec.cancelledBooked.map((i) => ({ needs: 'reverse', ...i })),
     ];
     return { total: all.length, renglones: all.slice(0, limit) };
+  },
+
+  // Mirror of check 11 (MNE-001-661): the statement of the box, one row per
+  // period of the year that is not sealed. At most twelve, so the limit is
+  // applied to the rows already read.
+  'year-months-sealed': async (entityId, periodId, limit) => {
+    const { rows } = await query<{ period_name: string; status: string }>(UNSEALED_PERIODS_OF_YEAR, [entityId, periodId]);
+    return { total: rows.length, renglones: rows.slice(0, limit) };
   },
 
   'ar-subledger-delta': (entityId) => subledgerRows(entityId, 'ar-subledger-delta'),

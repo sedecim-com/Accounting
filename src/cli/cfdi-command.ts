@@ -9,6 +9,7 @@ import { t } from '../i18n/index.js';
 import readline from 'node:readline/promises';
 import {
   listCfdis,
+  findCfdiId,
   getCfdiByUuid,
   getClassificationTrail,
 } from '../services/xml-ingestion/cfdi-query-service.js';
@@ -259,13 +260,11 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   statusShow.action((uuid: string, opts: CommonOpts & { refresh?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
-      const doc = await query<{ id: string }>(
-        `SELECT id FROM xml_documents WHERE entity_id = $1 AND cfdi_uuid = $2`,
-        [ctx.entityId, uuid]
-      );
-      if (doc.rows.length === 0) throw notFound({ key: 'fiscal_mx.cfdi.status.not_in_mirror', params: { uuid } });
+      // In any letter case, and refused before the SAT is asked when the entity holds it twice (MNE-001-724).
+      const id = await findCfdiId(ctx.entityId, uuid);
+      if (!id) throw notFound({ key: 'fiscal_mx.cfdi.status.not_in_mirror', params: { uuid } });
       if (opts.refresh) {
-        const checked = await new SATValidationService().validateAndUpdate(doc.rows[0].id);
+        const checked = await new SATValidationService().validateAndUpdate(id);
         if (checked?.status === 'cancelled') note(t('cfdi.status.bills_marked', { count: checked.billsMarked ?? 0 }));
       }
       const fila = await query<Record<string, unknown>>(
@@ -273,7 +272,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
                 sat_fecha_cancelacion::text AS sat_fecha_cancelacion,
                 sat_validated_at::text AS sat_validated_at
            FROM xml_documents WHERE id = $1`,
-        [doc.rows[0].id]
+        [id]
       );
       if (!opts.refresh && fila.rows[0].sat_validated_at === null) {
         note(t('fiscal_mx.cfdi.status.never_checked'));

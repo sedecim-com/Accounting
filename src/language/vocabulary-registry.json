@@ -6180,6 +6180,30 @@
     },
     {
       "class": "policy-key",
+      "where": "year_seal_with_unsealed_months",
+      "es": "year_seal_with_unsealed_months",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-661): whether a fiscal year is sealed while another of its periods is not hard-closed."
+    },
+    {
+      "class": "policy-value",
+      "where": "year_seal_with_unsealed_months/require_hard_close",
+      "es": "require_hard_close",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the annual seal is refused until every other period of the year is hard-closed."
+    },
+    {
+      "class": "policy-value",
+      "where": "year_seal_with_unsealed_months/accept_unsealed",
+      "es": "accept_unsealed",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the year is sealed over them, and the close checklist warns and names them."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
