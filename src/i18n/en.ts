@@ -3110,6 +3110,12 @@ export const EN = {
   'bank.import.counts':
     '{added, plural, one {# new} other {# new}}, ' +
     '{duplicated, plural, one {# already there} other {# already there}}',
+  'bank.import.nothing_new':
+    'Nothing new was stored: {count, plural, one {the only movement of the file is} other {all # movements of the file are}} ' +
+    'already in {account} by native bank id' +
+    '{held, select, none {} other {, in {statements}}}' +
+    '{loose, plural, =0 {} other { (# entered with no statement)}}. ' +
+    'No statement was created: work with what is already there.',
   'bank.import.findings':
     '{file}: {count, plural, one {# integrity finding} other {# integrity findings}}. They are ' +
     'in staging all the same — it is `bank statement check` that exits 4.',

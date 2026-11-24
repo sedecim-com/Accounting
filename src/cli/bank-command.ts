@@ -22,6 +22,7 @@ import {
   type TipoDeCuenta,
 } from '../services/banking/bank-account-service.js';
 import {
+  StatementHoldsNothingNewError,
   importarEstadoDeCuenta,
   listarEstadosDeCuenta,
   obtenerEstadoDeCuenta,
@@ -149,6 +150,7 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { t } from '../i18n/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
+import { AppError } from '../utils/errors.js';
 
 // ============================================================
 // mnemosine bank · banco
@@ -2677,16 +2679,38 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             // Con varios eso no cabe, así que se informan TODOS y se sale con el
             // código del primero: un lote a medias que saliera 0 escondería
             // justo lo que hay que ir a mirar.
-            if (rutas.length === 1) throw err;
+            //
+            // MNE-001-671: a file that brings nothing new is refused with its
+            // counts, and `--json` owes them on stdout as a row, so with
+            // `--json` that one refusal is listed here even when it is alone.
+            if (rutas.length === 1 && !(opts.json && err instanceof StatementHoldsNothingNewError)) throw err;
             fallidos.push({ archivo: path.basename(ruta), err });
           }
         }
 
         const p = deps.palette;
         if (opts.json) {
+          const refused = fallidos.flatMap((f): Record<string, unknown>[] => {
+            if (!(f.err instanceof StatementHoldsNothingNewError)) return [];
+            const v = f.err.verdict;
+            return [{
+              statement_id: '',
+              stored: false,
+              file: v.file,
+              sha256: v.sha256,
+              account: v.account.name,
+              read: v.linesRead,
+              imported: 0,
+              duplicated: v.duplicates,
+              skipped: v.skipped,
+              existing_statements: v.existingStatements,
+              dry_run: v.dryRun,
+            }];
+          });
           render(
-            hechos.map((r) => ({
+            hechos.map((r): Record<string, unknown> => ({
               statement_id: r.statementId,
+              stored: true,
               file: r.archivo,
               sha256: r.sha256,
               format: r.formato,
@@ -2705,7 +2729,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               overlap_policy: r.overlapPolicy,
               findings: r.hallazgos.length,
               dry_run: r.ensayo,
-            })),
+            })).concat(refused),
             { json: true, idField: 'statement_id' }
           );
         } else {
@@ -2744,7 +2768,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
         if (fallidos.length) {
           for (const f of fallidos) {
-            process.stderr.write(`${p.red('✘')} ${f.archivo}: ${(f.err as Error).message}\n`);
+            const message = f.err instanceof AppError ? f.err.localized() : (f.err as Error).message;
+            process.stderr.write(`${p.red('✘')} ${f.archivo}: ${message}\n`);
           }
           return exitCodeFor(fallidos[0].err);
         }

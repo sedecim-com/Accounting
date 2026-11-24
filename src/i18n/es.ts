@@ -2898,6 +2898,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.import.counts':
     '{added, plural, one {# nueva} other {# nuevas}}, ' +
     '{duplicated, plural, one {# ya estaba} other {# ya estaban}}',
+  'bank.import.nothing_new':
+    'No se guardó nada nuevo: {count, plural, one {el único movimiento del archivo ya está} other {los # movimientos del archivo ya están}} ' +
+    'en {account} por su id nativo del banco' +
+    '{held, select, none {} other {, en {statements}}}' +
+    '{loose, plural, =0 {} one { (# entró sin estado de cuenta)} other { (# entraron sin estado de cuenta)}}. ' +
+    'No se creó ningún estado de cuenta: trabaja con lo que ya está.',
   'bank.import.findings':
     '{file}: {count, plural, one {# hallazgo} other {# hallazgos}} de integridad. Están en ' +
     'staging igual — es `bank statement check` quien sale 4.',

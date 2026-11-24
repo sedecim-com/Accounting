@@ -647,6 +647,28 @@ export async function importarEstadoDeCuenta(
     const skipped = await nameSkippedLines(client, entrada.entityId, cuenta.id, leido, entered);
     const duplicadas = skipped.length;
 
+    // MNE-001-671 (#770) · A FILE THAT BRINGS NOTHING NEW STORES NOTHING. The
+    // statement row above went in before its lines; when every line was
+    // skipped it would stay as a document with two balances and no movement,
+    // offered to `list`, to reconciliation, and to the next import as the
+    // neighbour its continuity is measured against. Thrown inside the
+    // transaction, in a dry run too, so nothing of the file is kept. A file
+    // with no lines at all is not this case: a month with no movement is a
+    // statement.
+    if (leido.lineas.length > 0 && importadas === 0) {
+      throw new StatementHoldsNothingNewError({
+        file: archivo,
+        sha256,
+        account: { id: cuenta.id, name: cuenta.account_name },
+        linesRead: leido.lineas.length,
+        duplicates: duplicadas,
+        skipped,
+        existingStatements: await statementsHolding(client, entrada.entityId, cuenta.id, skipped),
+        looseLines: skipped.filter((x) => x.existingStatementId === null).length,
+        dryRun: opts.dryRun === true,
+      });
+    }
+
     const avisos = [...norm.avisos];
     if (skipped.length > 0) {
       avisos.push(
@@ -864,6 +886,70 @@ export interface OverlapLine {
   transactionId: string;
   existingStatementId: string;
   existingFile: string | null;
+}
+
+/** A statement that already holds lines of a refused file. */
+export interface HoldingStatement {
+  id: string;
+  file: string | null;
+  periodStart: string;
+  periodEnd: string;
+}
+
+/** What a refused file was: the counts and where its lines already are. */
+export interface NothingNewVerdict {
+  file: string;
+  sha256: string;
+  account: { id: string; name: string };
+  linesRead: number;
+  duplicates: number;
+  skipped: SkippedLine[];
+  existingStatements: HoldingStatement[];
+  /** Lines already in the account that hang from no statement (REST). */
+  looseLines: number;
+  dryRun: boolean;
+}
+
+/**
+ * Every line of the file is already in the account by the bank's native id
+ * (MNE-001-671, #770). A 422: the file is fine, it just adds nothing, and the
+ * caller can read `verdict` instead of parsing the message.
+ */
+export class StatementHoldsNothingNewError extends ValidationError {
+  constructor(public readonly verdict: NothingNewVerdict) {
+    super({
+      key: 'bank.import.nothing_new',
+      params: {
+        account: verdict.account.name,
+        count: verdict.duplicates,
+        statements: verdict.existingStatements
+          .map((x) => `${x.file === null ? '' : `${x.file} `}(${x.periodStart}..${x.periodEnd}, ${x.id})`)
+          .join('; '),
+        held: verdict.existingStatements.length === 0 ? 'none' : 'some',
+        loose: verdict.looseLines,
+      },
+    });
+    this.name = 'StatementHoldsNothingNewError';
+  }
+}
+
+/** The statements the skipped lines hang from: one read by primary key, on the refused path only. */
+async function statementsHolding(
+  client: pg.PoolClient,
+  entityId: string,
+  bankAccountId: string,
+  skipped: SkippedLine[]
+): Promise<HoldingStatement[]> {
+  const ids = [...new Set(skipped.flatMap((x) => (x.existingStatementId === null ? [] : [x.existingStatementId])))];
+  if (ids.length === 0) return [];
+  const r = await client.query<{ id: string; file_name: string | null; period_start: string; period_end: string }>(
+    `SELECT id, file_name, period_start::text AS period_start, period_end::text AS period_end
+       FROM bank_statements
+      WHERE id = ANY($1::uuid[]) AND bank_account_id = $2 AND entity_id = $3
+      ORDER BY period_start, id`,
+    [ids, bankAccountId, entityId]
+  );
+  return r.rows.map((x) => ({ id: x.id, file: x.file_name, periodStart: x.period_start, periodEnd: x.period_end }));
 }
 
 const OVERLAP_POLICY_KEY = 'bank_statement_overlap';

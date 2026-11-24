@@ -1288,6 +1288,67 @@ describe('bank statement import', () => {
     );
     expect(r.exitCode, 'ENOENT del lector de archivo, no un 0 silencioso').not.toBe(0);
   });
+
+  // MNE-001-671 (#770): every line conflicts on its native bank id, so none
+  // enters, and the lines are already in statement ST.
+  const respAllDuplicates = (text: string, params: unknown[]) => {
+    if (/INSERT INTO bank_transactions/.test(text)) return filas([]);
+    if (/bt\.bank_transaction_id = ANY/.test(text)) {
+      return filas((params[2] as string[]).map((ref) => ({ bank_transaction_id: ref, statement_id: ST })));
+    }
+    if (/FROM bank_statements\s+WHERE id = ANY/.test(text)) {
+      return filas([{ id: ST, file_name: 'julio-banco.csv', period_start: '2026-07-01', period_end: '2026-07-31' }]);
+    }
+    return respImport(text, params);
+  };
+
+  describe('a file whose every movement is already in the account (MNE-001-671)', () => {
+    let again: string;
+    beforeAll(() => {
+      again = join(dir, 'julio-otra-descarga.csv');
+      writeFileSync(
+        again,
+        [
+          'fecha,descripcion,importe,saldo,referencia',
+          '2026-07-01,Deposito inicial,1000.00,1000.00,R-1',
+          '2026-07-15,Pago de servicio,-250.00,750.00,R-2',
+        ].join('\n') + '\n',
+        'utf8'
+      );
+    });
+
+    it('is refused with the validation code and by key, and writes no audit row', async () => {
+      const r = await run(['bank', 'statement', 'import', again, '--account', ACC], respAllDuplicates);
+      expect(r.exitCode).toBe(4);
+      expect(r.errs.map((e) => (e as { messageKey?: { key: string } }).messageKey?.key)).toEqual(['bank.import.nothing_new']);
+      expect((r.errs[0] as Error).message).toContain(
+        'Nothing new was stored: all 2 movements of the file are already in BBVA MXN by native bank id, ' +
+          `in julio-banco.csv (2026-07-01..2026-07-31, ${ST}). No statement was created`
+      );
+      expect(r.out).toBe('');
+      expect(r.sql.filter((s) => /INSERT INTO audit_log/.test(s.text))).toEqual([]);
+    });
+
+    it('--json carries the verdict and the counts as a row, and still exits 4', async () => {
+      const r = await run(['bank', 'statement', 'import', again, '--account', ACC, '--json'], respAllDuplicates);
+      expect(r.exitCode).toBe(4);
+      const { count, rows } = JSON.parse(r.out) as { count: number; rows: Array<Record<string, unknown>> };
+      expect(count).toBe(1);
+      expect(rows[0]).toMatchObject({
+        statement_id: '', stored: false, file: 'julio-otra-descarga.csv', account: 'BBVA MXN',
+        read: 2, imported: 0, duplicated: 2, dry_run: false,
+        existing_statements: [{ id: ST, file: 'julio-banco.csv', periodStart: '2026-07-01', periodEnd: '2026-07-31' }],
+      });
+      expect((rows[0]['skipped'] as Array<{ reference: string }>).map((x) => x.reference)).toEqual(['R-1', 'R-2']);
+    });
+
+    it('a stored file says stored: true in --json', async () => {
+      const r = await run(['bank', 'statement', 'import', archivo, '--account', ACC, '--json'], respImport);
+      expect(r.exitCode).toBe(0);
+      expect((JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows.map((x) => [x['file'], x['stored'], x['imported']]))
+        .toEqual([['julio.csv', true, 2]]);
+    });
+  });
 });
 
 // ============================================================

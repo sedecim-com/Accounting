@@ -39,7 +39,7 @@ mnemosine bank statement import ./extractos/bbva-2026-08.xml --account "BBVA Ope
 mnemosine bank statement check
 ```
 
-El formato se detecta solo (CAMT.053, MT940, OFX y otros; `--format` lo fija). Volver a importar el mismo archivo no agrega nada: se deduplica por el hash del contenido. Un CSV no trae saldo final, así que se afirma con `--closing-balance`, y si el archivo sí lo trae y no coincide, la importación se niega: así se atrapa una descarga truncada.
+El formato se detecta solo (CAMT.053, MT940, OFX y otros; `--format` lo fija). Volver a importar el mismo archivo no agrega nada: se deduplica por el hash del contenido. Otra descarga cuyos movimientos ya están todos en la cuenta (por el id del banco) tampoco guarda nada: el comando la rechaza con código 4 y dice en qué estado de cuenta ya están. Un CSV no trae saldo final, así que se afirma con `--closing-balance`, y si el archivo sí lo trae y no coincide, la importación se niega: así se atrapa una descarga truncada.
 
 ```bash
 mnemosine bank statement import ./extractos/santander-2026-08.csv --account "Santander Operativa MXN" \
