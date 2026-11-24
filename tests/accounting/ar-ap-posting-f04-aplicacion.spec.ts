@@ -22,6 +22,8 @@ const mockCreate = createJournalEntry as unknown as Mock;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
 const USER = 'u0000000-0000-0000-0000-000000000001';
+/** MNE-001-678 · the day the application is dated; its entry carries it. */
+const DAY = '2026-05-10';
 
 // ============================================================
 // F04 · APLICAR EL ANTICIPO A PROVEEDOR
@@ -232,10 +234,12 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
       fakeClient(),
       pago(),
       [aplicacion()],
-      USER
+      USER, DAY
     );
 
     expect(entry.id).toBe('je-1');
+    // MNE-001-678: the entry is dated the day it is given, never the clock's.
+    expect(mockCreate.mock.calls[0][1]).toBe('2026-05-10');
     expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
     expect(lineaDe('acct:anticipo_proveedores').credit_amount).toBe('1160.0000');
     expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('160.0000');
@@ -258,7 +262,7 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
       fakeClient(),
       pago(),
       [aplicacion()],
-      USER
+      USER, DAY
     );
 
     expect(lines()).toHaveLength(2);
@@ -277,7 +281,7 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
     state.metodoPorGasto = { 'bill-1': 'PUE' };
     state.parked = { 'bill-1': '160.0000' };
 
-    const { ivaPorGasto } = await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER);
+    const { ivaPorGasto } = await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER, DAY);
 
     expect(lines()).toHaveLength(4);
     expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('160.0000');
@@ -290,7 +294,7 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
     state.metodoPorGasto = { 'bill-1': 'PUE' };
     state.parked = { 'bill-1': '0' };
 
-    const released = (await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER)).ivaPorGasto;
+    const released = (await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER, DAY)).ivaPorGasto;
 
     expect(lines()).toHaveLength(2);
     expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
@@ -316,7 +320,7 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
           totalAmount: '580.0000',
         }),
       ],
-      USER
+      USER, DAY
     );
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
@@ -344,7 +348,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
       fakeClient(),
       pago(),
       [aplicacion({ amount: '980.0000', discount: '20.0000' })],
-      USER
+      USER, DAY
     );
 
     expect(lineaDe('acct:cxp').debit_amount).toBe('1000.0000');
@@ -367,7 +371,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
       fakeClient(),
       pago(),
       [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })],
-      USER
+      USER, DAY
     );
 
     expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
@@ -388,7 +392,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
     state.released = { 'bill-1': '152.0000' };
 
     const { discountVatByBill } = await postVendorApplicationEntry(
-      fakeClient(), pago(), [aplicacion({ amount: '0.0000', discount: '58.0000', priorApplied: '1102.0000', closes: true })], USER
+      fakeClient(), pago(), [aplicacion({ amount: '0.0000', discount: '58.0000', priorApplied: '1102.0000', closes: true })], USER, DAY
     );
 
     expect(discountVatByBill.get('bill-1')).toBe('8.0000');
@@ -405,7 +409,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
       fakeClient(),
       pago({ holdsIvaUntilCashed: true }),
       [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })],
-      USER
+      USER, DAY
     );
 
     // 152 stays parked for the cashing: it is not a rounding gap to sweep.
@@ -421,7 +425,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
     state.parked = { 'bill-1': '0' };
 
     const { discountVatByBill } = await postVendorApplicationEntry(
-      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER
+      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER, DAY
     );
 
     expect(discountVatByBill.get('bill-1')).toBe('0.0000');
@@ -435,7 +439,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
     state.standard = 'us_gaap';
 
     const { discountVatByBill } = await postVendorApplicationEntry(
-      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER
+      fakeClient(), pago(), [aplicacion({ amount: '1102.0000', discount: '58.0000', closes: true })], USER, DAY
     );
 
     expect(discountVatByBill.size).toBe(0);
@@ -450,7 +454,7 @@ describe('el descuento por pronto pago extingue pasivo sin efectivo detrás', ()
     await postVendorApplicationEntry(
       fakeClient(), pago(),
       [aplicacion({ amount: '150.0000', discount: '10.0000', taxAmount: '160.0000', totalAmount: '160.0000', closes: true })],
-      USER
+      USER, DAY
     );
 
     expect(lineasDe('acct:devolucion_compras')).toHaveLength(0);
@@ -472,7 +476,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
         fakeClient(),
         pago(),
         [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-        USER
+        USER, DAY
       )
     ).rejects.toMatchObject({ code: 'WRITE_OFF_ACCOUNT_UNRESOLVED' });
     await expect(
@@ -480,7 +484,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
         fakeClient(),
         pago(),
         [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-        USER
+        USER, DAY
       )
     ).rejects.toThrow(/pago_corto_residual/);
     expect(mockCreate).not.toHaveBeenCalled();
@@ -493,7 +497,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
       fakeClient(),
       pago(),
       [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-      USER,
+      USER, DAY,
       'devolucion_compras'
     );
 
@@ -521,7 +525,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
       fakeClient(),
       pago(),
       [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-      USER,
+      USER, DAY,
       'otros_ingresos'
     );
 
@@ -540,7 +544,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
       fakeClient(),
       pago(),
       [aplicacion({ amount: '900.0000', discount: '20.0000', writeOff: '240.0000', closes: true })],
-      USER,
+      USER, DAY,
       'otros_ingresos'
     );
 
@@ -567,7 +571,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
       fakeClient(),
       pago(),
       [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-      USER,
+      USER, DAY,
       'devolucion_compras'
     );
 
@@ -587,7 +591,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
       fakeClient(),
       pago(),
       [aplicacion({ amount: '1000.0000', writeOff: '160.0000' })],
-      USER,
+      USER, DAY,
       'devolucion_compras'
     );
 
@@ -617,7 +621,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
           totalAmount: '160.0000',
         }),
       ],
-      USER,
+      USER, DAY,
       'devolucion_compras'
     );
 
@@ -651,7 +655,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
           totalAmount: '0.0000',
         }),
       ],
-      USER,
+      USER, DAY,
       'devolucion_compras'
     );
 
@@ -669,7 +673,7 @@ describe('el pago corto cierra el gasto y no deja residuo en 1135', () => {
     state.rolesFaltantes = ['anticipo_proveedores'];
 
     await expect(
-      postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER)
+      postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER, DAY)
     ).rejects.toMatchObject({ code: 'MISSING_ROLE_ACCOUNT' });
     expect(mockCreate).not.toHaveBeenCalled();
   });

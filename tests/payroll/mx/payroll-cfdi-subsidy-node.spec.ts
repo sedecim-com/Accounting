@@ -36,7 +36,7 @@ async function xmlFor(over: Record<string, string>): Promise<string> {
           emp_nss: null, emp_number: 'E1', tipo_regimen_sat: '02', tipo_contrato_sat: '01',
           tipo_jornada_sat: '01', riesgo_puesto: '1', puesto: null, hire_date: '2026-01-05',
           entity_tax_id: 'AAA010101AAA', entity_name: 'Empresa',
-          run_type: 'regular', pay_frequency: 'quincenal', ...over,
+          run_id: 'run-1', run_status: 'approved', run_type: 'regular', pay_frequency: 'quincenal', ...over,
         }],
       };
     }

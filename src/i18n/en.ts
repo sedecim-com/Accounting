@@ -2800,6 +2800,15 @@ export const EN = {
   'credit_note.received.closed_period': 'Credit note {note} is dated {date}, in a period that is closed. It waits until the closed-period policy is answered: mnemosine pending define cfdi_periodo_cerrado periodo_actual',
   'payment.apply.other_vendor':
     '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
+  // MNE-001-678 (#787): a vendor application is dated.
+  'payment.apply.date_future':
+    '{payment} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
+  'payment.apply.date_before_last_event':
+    '{payment} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  'payment.apply.date_before_bill':
+    '{bill} is dated {billDate}: cash applied on {date} would settle it before the bill existed. Date the application {billDate} or later. Nothing was applied.',
+  'payment.apply.date_period_closed':
+    '{payment} cannot be applied on {date}: that day has no open fiscal period (it is hard-closed, locked or was never opened). Date the application in an open period. Nothing was applied.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
   'receipt.advance.treatment_unknown':
     'The IVA treatment "{value}" of an advance is not known: state one of {allowed}.',
@@ -4547,9 +4556,9 @@ export const EN = {
   'ap.payment.apply.not_applicable': 'Bill {bill} is "{status}"; only {payable} bills can be applied to.',
   /** The confirmation of `payment apply`. `writeOff` is `none` when nothing is written off. */
   'ap.payment.apply.confirm':
-    'Apply {count, plural, one {# document} other {# documents}} of {payment} in {entity}{writeOff, select, none {} other {, WRITING OFF {amount} that will stop being owed}}? This posts to the ledger.',
+    'Apply {count, plural, one {# document} other {# documents}} of {payment} on {date} in {entity}{writeOff, select, none {} other {, WRITING OFF {amount} that will stop being owed}}? This posts to the ledger.',
   'ap.payment.apply.would': 'Would apply {payment}',
-  'ap.payment.apply.on_account': 'on account {before} → {after}',
+  'ap.payment.apply.on_account': 'on account {before} → {after} · {date}',
   /** A discount the terms did not grant, named apart from an early-payment one. */
   'ap.payment.apply.discount_outside_terms': 'Discount taken outside the terms on {bills}',
   'ap.payment.apply.discount_outside_terms_why': 'it is a negotiated deduction, not an agreed early-payment discount.',
@@ -6537,6 +6546,8 @@ export const EN = {
   'help.payment.apply.option.mode': 'partial (leave the rest open) or residual (close it short)',
   'help.payment.apply.option.short_pay_reason':
     'why the unpaid balance is being written off; required by --mode residual',
+  'help.payment.apply.option.date':
+    'day of the application (YYYY-MM-DD), which dates its entry, the application and the bill\'s last payment; defaults to today in the entity\'s time zone',
   'help.payment.apply.option.json': 'JSON output',
   'help.payment.unapply.description':
     'Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account',
@@ -6544,7 +6555,7 @@ export const EN = {
   'help.payment.unapply.option.bill': 'the bill to unapply from',
   'help.payment.unapply.option.reason': 'why: it lands in the audit trail',
   'help.payment.unapply.option.date':
-    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today',
+    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today in the entity\'s time zone',
   'help.payment.unapply.option.json': 'JSON output',
   'help.payment.reverse.description':
     'Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again',
@@ -7150,6 +7161,20 @@ export const EN = {
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
 
+  // ==== MNE-001-647 · the totals of an aged listing, per currency (#596) ====
+  'report.aging.total.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}',
+  'report.aging.total.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}',
+  'report.aging.total_foreign.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}; book value {book} {functional}',
+  'report.aging.total_foreign.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}; book value {book} {functional}',
+  'report.aging.book_value.receivable':
+    'Book value of {count, plural, one {the open invoice} other {the # open invoices}}: {book} {functional}',
+  'report.aging.book_value.payable':
+    'Book value of {count, plural, one {the open bill} other {the # open bills}}: {book} {functional}',
+
   // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
   //
   // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
@@ -7339,6 +7364,13 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'Paycheck {id} was not stamped: its run {run} is {status}, and a payroll CFDI is issued only for a run ' +
+    'that is approved or paid. Nothing was sent to the PAC and nothing was written.',
+  'payrun.deposit_file.run_not_approved':
+    'No deposit file was built for run {id}: it is {status}, and a deposit file is built only for a run ' +
+    'that is approved or paid. Nothing was written.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +

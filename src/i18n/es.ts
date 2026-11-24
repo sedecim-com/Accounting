@@ -2604,6 +2604,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'credit_note.received.closed_period': 'La nota de crédito {note} tiene fecha {date}, en un periodo que está cerrado. Espera a que se conteste la política del periodo cerrado: mnemosine pending define cfdi_periodo_cerrado periodo_actual',
   'payment.apply.other_vendor':
     '{bill} es del proveedor {billVendor} y el pago {payment} es del proveedor {paymentVendor}: el saldo a cuenta sólo salda gastos de su propio proveedor. Registra el pago a nombre de {billVendor}, o aplica {payment} a un gasto de {paymentVendor}.',
+  // MNE-001-678 (#787): a vendor application is dated.
+  'payment.apply.date_future':
+    'El pago {payment} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
+  'payment.apply.date_before_last_event':
+    'El último asiento del pago {payment} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  'payment.apply.date_before_bill':
+    '{bill} es del {billDate}: el efectivo aplicado el {date} lo saldaría antes de que existiera el gasto. Fecha la aplicación el {billDate} o después. No se aplicó nada.',
+  'payment.apply.date_period_closed':
+    'El pago {payment} no se puede aplicar el {date}: ese día no tiene un periodo fiscal abierto (está en cierre duro, bloqueado o nunca se abrió). Fecha la aplicación en un periodo abierto. No se aplicó nada.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
   'receipt.advance.treatment_unknown':
     'No conozco el tratamiento de IVA "{value}" para un anticipo: declara uno de {allowed}.',
@@ -3956,9 +3965,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'ap.payment.apply.retry_reapplies': 'un reintento vuelve a repartir el pago y postea otro asiento',
   'ap.payment.apply.not_applicable': 'La factura {bill} está en "{status}"; sólo se aplican pagos a facturas {payable}.',
   'ap.payment.apply.confirm':
-    '¿Aplicar {count, plural, one {# documento} other {# documentos}} de {payment} en {entity}{writeOff, select, none {} other {, CONDONANDO {amount}, que dejará de deberse}}? Esto contabiliza en el mayor.',
+    '¿Aplicar {count, plural, one {# documento} other {# documentos}} de {payment} el {date} en {entity}{writeOff, select, none {} other {, CONDONANDO {amount}, que dejará de deberse}}? Esto contabiliza en el mayor.',
   'ap.payment.apply.would': 'Aplicaría {payment}',
-  'ap.payment.apply.on_account': 'a cuenta {before} → {after}',
+  'ap.payment.apply.on_account': 'a cuenta {before} → {after} · {date}',
   'ap.payment.apply.discount_outside_terms': 'Descuento tomado fuera de las condiciones en {bills}',
   'ap.payment.apply.discount_outside_terms_why': 'es una deducción negociada, no un pronto pago pactado.',
   'ap.payment.apply.written_off': '{amount} dejó de deberse (pago corto)',
@@ -5901,6 +5910,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.apply.option.mode': 'partial (deja abierto el resto) o residual (la cierra pagando de menos)',
   'help.payment.apply.option.short_pay_reason':
     'por qué se da de baja el saldo que no se pagó; obligatorio con --mode residual',
+  'help.payment.apply.option.date':
+    'día de la aplicación (AAAA-MM-DD), que fecha su asiento, la aplicación y el último pago del gasto; por omisión, hoy en la zona horaria de la entidad',
   'help.payment.apply.option.json': 'salida en JSON',
   'help.payment.unapply.description':
     'Desaplica un pago de una factura como un evento NUEVO y fechado: la factura vuelve a deberse y el ' +
@@ -5909,7 +5920,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.unapply.option.bill': 'la factura de la que se desaplica',
   'help.payment.unapply.option.reason': 'por qué: queda en el rastro de auditoría',
   'help.payment.unapply.option.date':
-    'fecha de la desaplicación, para el renglón cerrado y su póliza (AAAA-MM-DD); por omisión, hoy',
+    'fecha de la desaplicación, para el renglón cerrado y su póliza (AAAA-MM-DD); por omisión, hoy en la zona horaria de la entidad',
   'help.payment.unapply.option.json': 'salida en JSON',
   'help.payment.reverse.description':
     'Reversa un pago que regresó: cada póliza que contabilizó recibe su espejo fechado, y sus facturas ' +
@@ -6506,6 +6517,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
 
+  // ==== MNE-001-647 · the totals of an aged listing, per currency (#596) ====
+  'report.aging.total.receivable':
+    'Total por cobrar {amount} {currency} en {count, plural, one {# factura abierta} other {# facturas abiertas}}',
+  'report.aging.total.payable':
+    'Total por pagar {amount} {currency} en {count, plural, one {# factura de proveedor abierta} other {# facturas de proveedor abiertas}}',
+  'report.aging.total_foreign.receivable':
+    'Total por cobrar {amount} {currency} en {count, plural, one {# factura abierta} other {# facturas abiertas}}; valor en libros {book} {functional}',
+  'report.aging.total_foreign.payable':
+    'Total por pagar {amount} {currency} en {count, plural, one {# factura de proveedor abierta} other {# facturas de proveedor abiertas}}; valor en libros {book} {functional}',
+  'report.aging.book_value.receivable':
+    'Valor en libros de {count, plural, one {la factura abierta} other {las # facturas abiertas}}: {book} {functional}',
+  'report.aging.book_value.payable':
+    'Valor en libros de {count, plural, one {la factura de proveedor abierta} other {las # facturas de proveedor abiertas}}: {book} {functional}',
+
   // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
   'doctor.check.permission_conflicts': 'Segregación de funciones (permisos)',
   'doctor.summary.title': 'Revisión de salud de Mnemosine',
@@ -6673,6 +6698,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'El recibo {id} no se timbró: su corrida {run} está en estado {status}, y el CFDI de nómina sólo se emite ' +
+    'para una corrida aprobada o pagada. No se envió nada al PAC ni se escribió nada.',
+  'payrun.deposit_file.run_not_approved':
+    'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
+    'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +

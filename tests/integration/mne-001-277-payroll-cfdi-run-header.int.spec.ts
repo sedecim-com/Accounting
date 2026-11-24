@@ -37,6 +37,8 @@ describe('payroll CFDI header reads pay_runs.run_type and pay_schedules.frequenc
       tenant_id: f.tenantId, pay_run_id: runId, employee_id: employeeId,
       earnings: [{ earning_type: 'salary', amount: 3000, cfdi_clave_sat: '001' }],
     });
+    // A paycheck is stamped once its run is approved (MNE-001-720).
+    await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1 AND tenant_id = $2`, [runId, f.tenantId]);
     return r.paycheck_id;
   }
 

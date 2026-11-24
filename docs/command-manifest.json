@@ -5025,6 +5025,7 @@
       "options": [
         {"name":"amount","flags":"--amount <amount...>","type":"string[]","required":false},
         {"name":"bill","flags":"--bill <ref...>","type":"string[]","required":false},
+        {"name":"date","flags":"--date <date>","type":"string","required":false},
         {"name":"discount","flags":"--discount <amount...>","type":"string[]","required":false},
         {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
         {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},

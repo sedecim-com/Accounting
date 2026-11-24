@@ -69,7 +69,7 @@ import { registerApCommand } from '../../src/cli/ap-command.js';
 import { registerVendorCommand } from '../../src/cli/vendor-command.js';
 import { registerPaymentCommands } from '../../src/cli/payment-command.js';
 import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
-import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
+import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import { apReconcile } from '../../src/services/ap/ap-controls.js';
 import { getVendorById, setVendorTerms } from '../../src/services/ap/vendor-service.js';
 import { requireExplicitEntity } from '../../src/cli/kernel/entity-context.js';
@@ -81,6 +81,7 @@ import {
   unapplyVendorPayment,
 } from '../../src/services/payments/payment-service.js';
 import { conLlave, mirarLlave } from '../../src/services/idempotency/idempotency-store.js';
+import { todayFor } from '../../src/services/policy/today.js';
 
 type Localized = Error & { localized: (l: 'es' | 'en') => string };
 const pass = (s: string) => s;
@@ -314,6 +315,7 @@ const APPLIED = {
   ],
   remanenteAnterior: '2000.00',
   remanenteNuevo: '320.00',
+  date: '2026-07-31',
   condonado: '60.00',
   descuentosFueraDeTerminos: ['BILL-2026-00011'],
   cuentaCondonacion: '7010 Otros ingresos',
@@ -458,7 +460,7 @@ describe('I8.8 · payment apply speaks by key', () => {
     vi.mocked(resolveBill).mockResolvedValue(BILL as never);
     vi.mocked(applyVendorPayment).mockResolvedValue(APPLIED as never);
     await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1100', '--mode', 'residual', '--dry-run']);
-    expect(out).toContain('Would apply VPMT-2026-00019 · on account 2000.00 → 320.00\n');
+    expect(out).toContain('Would apply VPMT-2026-00019 · on account 2000.00 → 320.00 · 2026-07-31\n');
     expect(err).toContain('  Discount taken outside the terms on BILL-2026-00011: it is a negotiated deduction, not an agreed early-payment discount.\n');
     expect(err).toContain('  60.00 stopped being owed (short payment) → 7010 Otros ingresos\n');
     expect(err).toContain(
@@ -472,7 +474,7 @@ describe('I8.8 · payment apply speaks by key', () => {
     out = '';
     err = '';
     await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1100', '--mode', 'residual', '--dry-run']);
-    expect(out).toContain('Aplicaría VPMT-2026-00019 · a cuenta 2000.00 → 320.00\n');
+    expect(out).toContain('Aplicaría VPMT-2026-00019 · a cuenta 2000.00 → 320.00 · 2026-07-31\n');
     expect(err).toContain('  Descuento tomado fuera de las condiciones en BILL-2026-00011: es una deducción negociada, no un pronto pago pactado.\n');
     expect(err).toContain('  60.00 dejó de deberse (pago corto) → 7010 Otros ingresos\n');
     expect(err).toContain('  Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía:');
@@ -488,14 +490,47 @@ describe('I8.8 · payment apply speaks by key', () => {
     vi.mocked(applyVendorPayment).mockResolvedValueOnce(APPLIED as never);
     await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1100', '--mode', 'residual'], no);
     expect(asked).toEqual([
-      'Apply 1 document of VPMT-2026-00019 in Entidad Sintetica SA? This posts to the ledger.',
-      'Apply 2 documents of VPMT-2026-00019 in Entidad Sintetica SA, WRITING OFF 60.00 that will stop being owed? This posts to the ledger.',
+      'Apply 1 document of VPMT-2026-00019 on 2026-07-31 in Entidad Sintetica SA? This posts to the ledger.',
+      'Apply 2 documents of VPMT-2026-00019 on 2026-07-31 in Entidad Sintetica SA, WRITING OFF 60.00 that will stop being owed? This posts to the ledger.',
     ]);
     setLanguage('es');
     vi.mocked(applyVendorPayment).mockResolvedValueOnce(APPLIED as never);
     await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1100', '--mode', 'residual'], no);
     expect(asked[2]).toBe(
-      '¿Aplicar 2 documentos de VPMT-2026-00019 en Entidad Sintetica SA, CONDONANDO 60.00, que dejará de deberse? Esto contabiliza en el mayor.'
+      '¿Aplicar 2 documentos de VPMT-2026-00019 el 2026-07-31 en Entidad Sintetica SA, CONDONANDO 60.00, que dejará de deberse? Esto contabiliza en el mayor.'
+    );
+  });
+
+  // MNE-001-678 (#787): the application is dated, and its day is resolved once.
+  it('--date reaches the preview and the write; without it both take the entity\'s today, read once', async () => {
+    vi.mocked(resolveBill).mockResolvedValue(BILL as never);
+    vi.mocked(applyVendorPayment).mockResolvedValue({ ...APPLIED, date: '2026-05-10' } as never);
+    const yes = async () => true;
+    const dated = await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1160', '--date', '2026-05-10', '--json'], yes);
+    expect(dated.error).toBeUndefined();
+    expect(vi.mocked(applyVendorPayment).mock.calls.map((c) => c[4])).toEqual([
+      { modo: 'partial', shortPayReason: undefined, date: '2026-05-10', dryRun: true },
+      { modo: 'partial', shortPayReason: undefined, date: '2026-05-10' },
+    ]);
+    expect(todayFor).not.toHaveBeenCalled();
+    expect((JSON.parse(out) as { rows: Array<{ date: string }> }).rows[0].date).toBe('2026-05-10');
+
+    vi.mocked(applyVendorPayment).mockClear();
+    await run([...APPLY, '--bill', 'BILL-2026-00007', '--amount', '1160'], yes);
+    expect(vi.mocked(applyVendorPayment).mock.calls.map((c) => (c[4] as { date?: string }).date)).toEqual(['2026-07-31', '2026-07-31']);
+    expect(todayFor).toHaveBeenCalledTimes(1);
+  });
+
+  it('help.payment.apply.option.date, in en and es', async () => {
+    const option = (cli: Command) =>
+      cli.commands.find((c) => c.name() === 'payment')!.commands.find((c) => c.name() === 'apply')!
+        .options.find((o) => o.long === '--date')!.description;
+    expect(option(program().cli)).toBe(
+      'day of the application (YYYY-MM-DD), which dates its entry, the application and the bill\'s last payment; defaults to today in the entity\'s time zone'
+    );
+    // Commander keeps the English source on the option; the help renderer reads the key in the reader's language.
+    expect(t('help.payment.apply.option.date', {}, 'es')).toBe(
+      'día de la aplicación (AAAA-MM-DD), que fecha su asiento, la aplicación y el último pago del gasto; por omisión, hoy en la zona horaria de la entidad'
     );
   });
 });
@@ -535,6 +570,8 @@ describe('I8.8 · payment unapply and reverse speak by key', () => {
     expect(asked[0]).toBe(
       'Unapply 1160.00 of VPMT-2026-00019 from BILL-2026-00007 on 2026-07-31 (0.00 → 1160.00)? The cash goes back on account.'
     );
+    // MNE-001-678: with no --date the leaf hands the service the entity's today, the same for the preview.
+    expect(vi.mocked(unapplyVendorPayment).mock.calls.map((c) => c[2].date)).toEqual(['2026-07-31', '2026-07-31']);
     err = '';
     out = '';
     vi.mocked(mirarLlave).mockResolvedValueOnce({ result: UNAPPLIED } as never);

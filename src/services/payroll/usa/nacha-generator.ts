@@ -3,9 +3,10 @@ import { toCalendarDate } from '../../../utils/calendar-date.js';
 import { createHash } from 'crypto';
 import { query } from '../../../database/connection.js';
 import { decrypt } from '../../../utils/encryption.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { ConflictError, NotFoundError } from '../../../utils/errors.js';
 import type { EntityScope } from '../../../database/scope.js';
 import { corridaEnEntidad } from '../common/alcance-nomina.js';
+import { runIsReleased, type PayRunStatus } from '../common/pay-run-release.js';
 
 // ============================================================
 // NACHA ACH Direct Deposit File Generator (PPD format)
@@ -75,8 +76,8 @@ export async function generateNachaFile(
   payRunId: string,
   companyInfo: NachaCompanyInfo
 ): Promise<{ content: string; batch_id: string; total_amount: number; entry_count: number }> {
-  const payRun = await query<{ tenant_id: string; pay_date: string }>(
-    `SELECT pr.tenant_id, pp.pay_date FROM pay_runs pr
+  const payRun = await query<{ tenant_id: string; pay_date: string; status: PayRunStatus }>(
+    `SELECT pr.tenant_id, pp.pay_date, pr.status FROM pay_runs pr
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      WHERE pr.id = $1 AND pr.tenant_id = $2 AND ${corridaEnEntidad('pr.pay_period_id', 3)}`,
     [payRunId, scope.tenantId, scope.entityId]
@@ -84,6 +85,18 @@ export async function generateNachaFile(
   // 404, identical to a run that does not exist. It used to be a plain Error:
   // a 500 here and a 200 on a foreign run is an oracle.
   if (payRun.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
+
+  // THE RUN'S STATUS, BEFORE A PAYCHECK IS READ (MNE-001-720, #601): it rides
+  // in the statement above, after the scope. A run nobody approved got its
+  // file and its batch like any other, and since MNE-001-657 that batch is
+  // what stops the run from being calculated again. Refused here, no account
+  // is read or decrypted.
+  if (!runIsReleased(payRun.rows[0].status)) {
+    throw new ConflictError({
+      key: 'payrun.deposit_file.run_not_approved',
+      params: { id: payRunId, status: payRun.rows[0].status },
+    });
+  }
 
   const paychecks = await query<{
     id: string;

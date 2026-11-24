@@ -175,14 +175,33 @@ export async function readEmploymentSubsidySeparateRun(
   return value;
 }
 
-/** What the employee's OTHER paychecks of the same pay period already carry. */
-export interface SubsidyOfOtherRuns {
+/**
+ * What the employee's OTHER paychecks of the same pay period already carry:
+ * the subsidy they caused and, since MNE-001-658, the IMSS and INFONAVIT they
+ * charged. One read answers both questions, so a paycheck asks once.
+ */
+export interface OtherPaychecksInPeriod {
   paychecks: number;
   /** Their ISR base (`paychecks.taxable_wages_isr`). */
   taxableIsr: Decimal;
   /** The subsidy they caused: credited against their ISR plus delivered in cash. */
   subsidy: Decimal;
+  /** The worker's and the employer's IMSS quota they charged. */
+  imssEmployee: Decimal;
+  imssEmployer: Decimal;
+  /** The employer's INFONAVIT contribution and the worker's credit discount they charged. */
+  infonavitEmployer: Decimal;
+  infonavitCredit: Decimal;
+  /** The SBC base those quotas were charged on (`paychecks.taxable_wages_imss`). */
+  contributionBase: Decimal;
 }
+
+/**
+ * The key of `paychecks.calculation_details` under which a paycheck records
+ * the IMSS and INFONAVIT its period's other paychecks already charged. The
+ * employer liability reads it. It is persisted: never rename it.
+ */
+export const CONTRIBUTIONS_ELSEWHERE_DETAIL = 'contributions_charged_by_other_paychecks_of_period';
 
 /**
  * Reads the employee's paychecks of the other runs of the same pay period.
@@ -191,16 +210,30 @@ export interface SubsidyOfOtherRuns {
  * Scope: tenant and employee in the SQL; the period is the run's own, which
  * the caller resolved inside the tenant and the entity.
  */
-export async function subsidyOfOtherRunsInPeriod(ctx: {
+export async function otherPaychecksInPeriod(ctx: {
   tenantId: string;
   employeeId: string;
   payRunId: string;
   payPeriodId: string;
-}): Promise<SubsidyOfOtherRuns> {
-  const r = await query<{ paychecks: number; taxable: string; subsidy: string }>(
+}): Promise<OtherPaychecksInPeriod> {
+  const r = await query<{
+    paychecks: number;
+    taxable: string;
+    subsidy: string;
+    imss_employee: string;
+    imss_employer: string;
+    infonavit_employer: string;
+    infonavit_credit: string;
+    contribution_base: string;
+  }>(
     `SELECT COUNT(*)::int AS paychecks,
             COALESCE(SUM(p.taxable_wages_isr), 0) AS taxable,
-            COALESCE(SUM(p.subsidio_empleo), 0) AS subsidy
+            COALESCE(SUM(p.subsidio_empleo), 0) AS subsidy,
+            COALESCE(SUM(p.imss_employee), 0) AS imss_employee,
+            COALESCE(SUM(p.imss_employer), 0) AS imss_employer,
+            COALESCE(SUM(p.infonavit_employer), 0) AS infonavit_employer,
+            COALESCE(SUM(p.infonavit_withheld), 0) AS infonavit_credit,
+            COALESCE(SUM(p.taxable_wages_imss), 0) AS contribution_base
        FROM paychecks p
        JOIN pay_runs pr ON pr.id = p.pay_run_id AND pr.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1
@@ -215,6 +248,11 @@ export async function subsidyOfOtherRunsInPeriod(ctx: {
     paychecks: row?.paychecks ?? 0,
     taxableIsr: new Decimal(row?.taxable ?? 0),
     subsidy: new Decimal(row?.subsidy ?? 0),
+    imssEmployee: new Decimal(row?.imss_employee ?? 0),
+    imssEmployer: new Decimal(row?.imss_employer ?? 0),
+    infonavitEmployer: new Decimal(row?.infonavit_employer ?? 0),
+    infonavitCredit: new Decimal(row?.infonavit_credit ?? 0),
+    contributionBase: new Decimal(row?.contribution_base ?? 0),
   };
 }
 
