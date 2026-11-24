@@ -2867,6 +2867,21 @@ export const EN = {
     'An account at a foreign bank has no CLABE, which only a bank resident in Mexico issues, and this edit ' +
     'leaves it with one. Clear it in the same edit with --clabe "" --reason "<why>", or remove the mark with ' +
     '--no-foreign-bank --reason "<why>".',
+  // MNE-001-615 · the mark at creation, and the warnings around it.
+  'bank.account.create.foreign_bank.sat_bank_code':
+    'An account at a foreign bank has no SAT c_Banco code, and this one would be created with {code}. ' +
+    'Drop --sat-bank-code, or create it without --foreign-bank if its bank is resident in Mexico.',
+  'bank.account.create.foreign_bank.clabe':
+    'An account at a foreign bank has no CLABE, which only a bank resident in Mexico issues. ' +
+    'Drop --clabe and give its --account-number, or create it without --foreign-bank if its bank is resident in Mexico.',
+  'bank.account.create.no_sat_bank_code':
+    'The account has no SAT c_Banco code: the vouchers file needs it for the origin and destination of a payment. ' +
+    'Capture it with `bank account edit <account> --sat-bank-code <code>` or, if its bank is not resident in ' +
+    'Mexico, mark it with `bank account edit <account> --foreign-bank --reason "<why>"`.',
+  'bank.account.foreign_bank.name_too_long':
+    'The bank name has {length} characters and the vouchers file declares a foreign bank in an attribute that ' +
+    'takes {max}: each of its payments leaves its node out of the voucher, which is named, and the name is never cut. ' +
+    'Shorten it with `bank account edit <account> --bank "<name of up to {max} characters>"`.',
   'bank.account.edit.nothing_to_change':
     'Nothing to change. Pass --name, --bank, --branch, --type, --currency, --clabe, ' +
     '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift, --iban, ' +
@@ -5137,6 +5152,10 @@ export const EN = {
   'help.bank.account.create.option.branch': 'branch',
   'help.bank.account.create.option.swift': 'SWIFT/BIC',
   'help.bank.account.create.option.iban': 'IBAN',
+  'help.bank.account.create.option.foreign_bank':
+    'the bank is not resident in Mexico: vouchers declare c_Banco 999 and the bank name; requires --reason, ' +
+    'and no --sat-bank-code or --clabe',
+  'help.bank.account.create.option.reason': 'justification recorded in the audit trail; required with --foreign-bank',
   'help.bank.account.create.option.dry_run': 'run every validation and the insert, then roll it back',
   'help.bank.account.create.option.json': 'JSON output',
   'help.bank.account.list.description':

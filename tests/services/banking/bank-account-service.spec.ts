@@ -15,6 +15,7 @@ import {
   exigirClabe,
   exigirRoutingAba,
   refuseNationalIdentifierOnForeignBank,
+  foreignBankNameTooLong,
 } from '../../../src/services/banking/bank-account-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -234,5 +235,32 @@ describe('refuseNationalIdentifierOnForeignBank', () => {
     expect(() => refuseNationalIdentifierOnForeignBank({ ...F, sat_bank_code: '012' }, { foreignBank: true, satBankCode: null })).not.toThrow();
     expect(() => refuseNationalIdentifierOnForeignBank({ ...F, sat_bank_code: '012' }, { foreignBank: true, satBankCode: '  ' })).not.toThrow();
     expect(() => refuseNationalIdentifierOnForeignBank({ ...F, clabe_en_archivo: true }, { foreignBank: true, clabe: null })).not.toThrow();
+  });
+});
+
+// MNE-001-615 · the same rule at creation, keyed by the flag to drop; and the over-150 warning.
+describe('the mark at creation, and a foreign name over 150', () => {
+  it.each([
+    [{ satBankCode: '999' }, 'bank.account.create.foreign_bank.sat_bank_code', 'sat_bank_code'],
+    [{ clabe: '012180001234567899' }, 'bank.account.create.foreign_bank.clabe', 'clabe'],
+  ] as const)('create refuses %j with its own key', (patch, key, field) => {
+    try {
+      refuseNationalIdentifierOnForeignBank({ sat_bank_code: null }, { foreignBank: true, ...patch }, 'create');
+    } catch (err) {
+      expect((err as ValidationError).messageKey?.key).toBe(key);
+      expect((err as ValidationError).field).toBe(field);
+      return;
+    }
+    throw new Error('expected a refusal');
+  });
+
+  it('counts code points of the sanitized name, warns only past 150, and only on a marked account', () => {
+    const astral = '\u{1D505}';
+    expect(foreignBankNameTooLong(true, 'B'.repeat(149) + astral)).toBeUndefined();
+    expect(foreignBankNameTooLong(true, `  ${'B'.repeat(75)}\n\n${'B'.repeat(74)}  `)).toBeUndefined();
+    expect(foreignBankNameTooLong(true, 'B'.repeat(150) + astral)).toEqual({
+      key: 'bank.account.foreign_bank.name_too_long', params: { length: 151, max: 150 },
+    });
+    expect(foreignBankNameTooLong(false, 'B'.repeat(300))).toBeUndefined();
   });
 });

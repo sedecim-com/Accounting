@@ -44,6 +44,16 @@ export const FOREIGN_BANK_CODE = '999';
  */
 export const EXT_MAX_CHARACTERS = 150;
 
+/**
+ * MNE-001-615 · How long a foreign bank's name is in its `*Ext` attribute: the
+ * text as the vouchers' sanitizer leaves it (each run of whitespace one space,
+ * trimmed), counted in code points as the XSD counts characters. The vouchers
+ * file and `bank account create|edit|show` read the same count.
+ */
+export function extCharacters(name: string): number {
+  return [...name.replace(/\s+/g, ' ').trim()].length;
+}
+
 /** The `xs:simpleType` names the generators check against. */
 export type OfficialEnumeration = 'c_CodAgrup' | 'c_Banco' | 'c_Moneda' | 'c_MetPagos';
 

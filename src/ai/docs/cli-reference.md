@@ -5467,6 +5467,8 @@ Options:
   --branch <text>                                          branch
   --swift <code>                                           SWIFT/BIC
   --iban <code>                                            IBAN
+  --foreign-bank                                           the bank is not resident in Mexico: vouchers declare c_Banco 999 and the bank name; requires --reason, and no --sat-bank-code or --clabe
+  --reason <text>                                          justification recorded in the audit trail; required with --foreign-bank
   --dry-run                                                run every validation and the insert, then roll it back
   --json                                                   JSON output
   -y, --yes                                                skip the confirmation prompt
@@ -5489,6 +5491,9 @@ Examples:
   # A company card is a LIABILITY and maps to a liability account. --dry-run
   # runs the real insert, unique 1:1 index included, and rolls it back.
   mnemosine bank account create "Banorte Empresarial" --bank "Banorte" --gl-account 2110 --currency MXN --type credit-card --dry-run
+  # An account at a bank not resident in Mexico: its account number, no CLABE
+  # and no SAT code, and the mark with the reason the audit trail keeps.
+  mnemosine bank account create "First Example Operativa" --bank "First Example Bank, N.A." --gl-account 1115 --currency MXN --account-number 000123456789 --foreign-bank --reason "Account opened in New York" --dry-run
 ```
 
 #### `mnemosine bank account list` (alias: listar)
