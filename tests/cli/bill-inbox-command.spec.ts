@@ -264,10 +264,10 @@ describe('bill inbox', () => {
   it('run: --bulk without --query is refused', async () => {
     const r = await run(['bill', 'inbox', 'run', '--bulk', '--yes'], defaultResp([fila()]));
     expect(r.exitCode, 'error de uso, no fallo de ejecución').toBe(2);
-    expect(
-      (r.errs[0] as Error | undefined)?.message,
-      'y el mensaje dice el daño que evita, no sólo que se negó'
-    ).toMatch(/--bulk sin --query/);
+    // MNE-001-614: the text comes from the catalogue; `.message` is the English one.
+    const e = r.errs[0] as (Error & { localized: (l: 'es' | 'en') => string }) | undefined;
+    expect(e?.message, 'y el mensaje dice el daño que evita, no sólo que se negó').toMatch(/--bulk without --query would act on the WHOLE inbox/);
+    expect(e?.localized('es')).toMatch(/--bulk sin --query actuaría sobre TODA la bandeja/);
   });
 
   it('run set-batch: batch resolved in entity', async () => {
@@ -338,7 +338,9 @@ describe('bill inbox', () => {
     // porque un 403 confirmaría que el pre-registro existe, y en un despacho
     // que lleva varios clientes ese es justo el dato que no se puede regalar.
     expect(r.exitCode, 'cruzar de entidad no existe; no es «prohibido»').toBe(3);
-    expect((r.errs[0] as Error | undefined)?.message).toMatch(/no está en la bandeja/);
+    const e = r.errs[0] as (Error & { localized: (l: 'es' | 'en') => string }) | undefined;
+    expect(e?.message).toMatch(/is not in the inbox of/);
+    expect(e?.localized('es')).toMatch(/no está en la bandeja/);
   });
 
   // ING-2 (#319, MNE-001-030): coding a stranded CFDI by hand.

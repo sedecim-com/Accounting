@@ -2000,16 +2000,30 @@ export const E0_0: Criterio[] = [
     // capped items, the documents of apply and the entries and bills of
     // reverse are ICU plurals; the account 1135 of the short-pay note is a
     // parameter. Part 2 adds bill-command.ts to these leaves.
+    //
+    // MNE-001-614 is that part 2: `bill` and its CFDI inbox, 40 Spanish
+    // strings and 34 English ones without a key. The `innecesaria` reason of
+    // `bill approve` is risk metadata: English in place, it is the one string
+    // the file leaves in the without-key lane, as payment's did. Every
+    // «(s)» is an ICU plural, the approvable statuses are a nested key, and
+    // the `detail` column of `bill inbox run` follows the person's language.
     enunciado:
-      'The ap family (prepaid, ap reconcile, vendor, payment) prints no Spanish string from the code: its texts come from the I8.8 block of the catalogue (#270, MNE-001-227, MNE-001-228)',
+      'The ap family (prepaid, ap reconcile, vendor, payment, bill) prints no Spanish string from the code: its texts come from the I8.8 block of the catalogue (#270, MNE-001-227, MNE-001-228, MNE-001-614)',
     evaluar: () =>
       familySpeaksByKey('I8.8', 'ap', [
         'src/cli/prepaid-command.ts',
         'src/cli/ap-command.ts',
         'src/cli/vendor-command.ts',
         'src/cli/payment-command.ts',
+        'src/cli/bill-command.ts',
       ]),
     mutantes: [
+      {
+        archivo: 'src/cli/bill-command.ts',
+        de: "'ap.bill.inbox.run.summary'",
+        a: "'{action}: {count} pre-registro(s){totals}' as never",
+        porque: 'string-back-in-the-code: bill inbox run counts the selection with «pre-registro(s)» in the code again, which only check 2 sees',
+      },
       {
         archivo: 'src/cli/payment-command.ts',
         de: "'ap.payment.reverse.confirm'",

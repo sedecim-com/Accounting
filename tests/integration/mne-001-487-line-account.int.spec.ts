@@ -176,7 +176,7 @@ describe('MNE-001-552 · which account a received line posts to', () => {
   it('B2 · the account a person gives the document beats a suggestion', async () => {
     const id = await received('BDO060101AB1', { history: '6100' });
     expect((await row(id)).lines).toContain(`"suggested_account_id": "${f.cuentas['6100']}"`);
-    expect((await edit(id, '--account', '6200')).out).toContain('0 line(s) still without an account');
+    expect((await edit(id, '--account', '6200')).out).toContain('0 lines still without an account');
     expect((await run(id)).exitCode).toBe(0);
     expect(await posted(id)).toEqual(on('6200'));
   });
@@ -243,6 +243,6 @@ describe('MNE-001-552 · which account a received line posts to', () => {
 
   it('B7 · the summary does not count a control-account suggestion as an account', async () => {
     const id = await received('BSU060101AB1', { concepts: 2, stale: '2110' });
-    expect((await edit(id, '--line', '2', '--account', '6100')).out).toContain('1 line(s) still without an account');
+    expect((await edit(id, '--line', '2', '--account', '6100')).out).toContain('1 line still without an account');
   });
 });

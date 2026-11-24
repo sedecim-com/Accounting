@@ -4159,6 +4159,140 @@ export const EN = {
   'ap.payment.reverse.idempotency_hit': '↩ Idempotency hit: key "{key}" already reversed this; nothing was written again.',
   'ap.payment.reverse.result': '{mode, select, dry_run {Would reverse {payment}} other {{payment} reversed}}',
   'ap.payment.reverse.detail': 'on {date} · {entries}',
+  // MNE-001-614: bill (the last ap leaf).
+  /** A date flag of `bill list`, `bill create` or `--query since|until` that is not YYYY-MM-DD. */
+  'ap.bill.date_invalid': '{flag} must be a date as YYYY-MM-DD; got "{value}".',
+  /** `bill line set --line` and `bill inbox edit --line` that is not a positive integer. */
+  'ap.bill.line_number_invalid': '--line must be a line number; got "{line}".',
+  'ap.bill.dry_run': 'Dry run: nothing was written.',
+  /** `bill list`: the two time flags a bill list cannot answer. */
+  'ap.bill.list.as_of_unsupported':
+    '--as-of asks what was open on a date, which is an aging question this command cannot answer (it needs the payment history joined per bill). Use --until for the document date.',
+  'ap.bill.list.date_basis_invalid':
+    '--date-basis {basis} is not defined for a bill: a bill has a document date and, once approved, a posting date. Use document or posting.',
+  /** `bill show`: the refusal and the headings of the stacked tables. */
+  'ap.bill.show.disappeared': 'Bill {ref} disappeared while reading it.',
+  'ap.bill.show.lines_title': 'Lines',
+  'ap.bill.show.journal_title': 'Journal entry',
+  'ap.bill.show.no_cfdi': 'None: this bill was not captured from an XML.',
+  /** `bill create`: the refusals, the legacy tax= warning, the receipt and the draft note. */
+  'ap.bill.create.vendor_missing': 'Which vendor? Pass it as the argument or with --vendor.',
+  'ap.bill.create.lines_missing': 'A bill needs at least one line: --line "account=5100;qty=1;price=1000;tax-amount=160".',
+  'ap.bill.create.line_without_account': 'Every line needs account=<code>: a line with no account cannot be posted.',
+  'ap.bill.create.line_without_price': 'Line "account={account}" has no price=<amount>.',
+  'ap.bill.create.no_due_date':
+    'No due date, and "{terms}" implies none. Pass --due-date, or set terms a due date can be computed from with `vendor terms set`.',
+  'ap.bill.create.legacy_tax_key':
+    'tax= is the AMOUNT of the IVA of the line, not the rate; use tax-amount= so that it is explicit. tax= stops being accepted in version {version}.',
+  'ap.bill.create.done': '· {subtotal} + {tax} tax = {total} {currency} · due {due}',
+  'ap.bill.create.draft_note': 'Status draft: nothing is in the ledger until `bill approve`.',
+  /** `bill create --from-file`. */
+  'ap.bill.create.file_unreadable': 'Cannot read --from-file "{path}".',
+  'ap.bill.create.file_not_json': '--from-file "{path}" is not valid JSON: {message}',
+  'ap.bill.create.file_not_object': '--from-file "{path}" must contain a JSON object with a "lines" array.',
+  /** `bill line set`: the receipt, before the dim total. */
+  'ap.bill.line.set.done': '{bill} line {line} recoded',
+  /** `bill approve`. `reason` is `posted` when the bill already has an entry; `posted` of the receipt is `entry` or `none`. */
+  'ap.bill.approve.not_approvable':
+    'Bill {bill} is "{status}", not {approvable}. {reason, select, posted {It is already in the ledger; reversing it is `bill reverse`, which has no backend yet.} other {Only a bill still being worked on can be approved.}}',
+  /** The approvable statuses as a list: every one but the last, then the last. */
+  'ap.bill.approve.statuses': '{list} or {last}',
+  'ap.bill.approve.confirm': 'Post {bill} ({total} {currency}) to the ledger of {entity}? This cannot be undone.',
+  'ap.bill.approve.no_terminal':
+    'This posts to the ledger and there is no terminal to confirm at. Re-run with --yes when you mean it, or with --dry-run to see the entry.',
+  'ap.bill.approve.done':
+    '{bill} approved{posted, select, entry { · entry {entry} posted {date}} other { · no entry: it was already posted}}',
+  'ap.bill.approve.key_not_needed':
+    '--idempotency-key was not needed: approval is idempotent behind the bill status and its journal_entry_id.',
+  'ap.bill.approve.no_entry': '{bill} produces no journal entry (already posted, or a zero total).',
+  'ap.bill.approve.entry_title': 'Entry {entry} · {date}',
+  /** The ledger refusals of `bill approve`; `message` is the engine's. */
+  'ap.bill.approve.period_closed':
+    '{bill} cannot be posted: {message}. Its bill date falls in a period that is closed or locked. Reopen the period, or post it in an open one once `bill edit` exists to move the date.',
+  'ap.bill.approve.missing_role': '{bill} cannot be posted: {message}',
+  /** `bill inbox`: shared by list, edit and run. */
+  'ap.bill.inbox.id_invalid': '"{id}" is not a pre-registration id (uuid). Take it from `bill inbox list`.',
+  'ap.bill.inbox.value_unknown': '{flag} "{value}" does not exist. The possible values are: {values}.',
+  'ap.bill.inbox.unnamed_issuer': 'unnamed issuer',
+  'ap.bill.inbox.no_rfc': 'no RFC',
+  /** `bill inbox list`: the rows whose vendor is not in the catalog. `mark` is the marker of their cell. */
+  'ap.bill.inbox.list.new_vendors':
+    '{count} of {total} {count, plural, one {comes} other {come}} from a vendor that is NOT in the catalog (marked «{mark}»).',
+  'ap.bill.inbox.list.new_vendors_note':
+    '  Posting them would create the counterparty with the name and the RFC of the XML.\n  `bill inbox run` refuses them unless it carries --allow-new-vendor; the other way out\n  is to create them by hand with `vendor create`.',
+  /** `bill inbox edit`. `target` is `default` or `line`. */
+  'ap.bill.inbox.edit.cost_center_needs_line': '--cost-center codes one line: pass --line <n> too.',
+  'ap.bill.inbox.edit.cost_center_invalid': '--cost-center must be a cost center id (uuid); got "{value}".',
+  'ap.bill.inbox.edit.nothing_to_code': 'Nothing to code: pass --account, or --line with --account or --cost-center.',
+  'ap.bill.inbox.edit.done': '{ref} {target, select, default {default account set} other {line {line} coded}}',
+  'ap.bill.inbox.edit.uncoded':
+    '· {count, plural, one {# line still without an account} other {# lines still without an account}}',
+  'ap.bill.inbox.edit.post_with': 'Post it with `mnemosine bill inbox run {id}`.',
+  /** `bill inbox run`: the flags and the selection. */
+  'ap.bill.inbox.run.reason_missing': '--action reject discards a document: it requires --reason "<why>".',
+  'ap.bill.inbox.run.batch_missing': '--action set-batch needs --batch <batch id or number>.',
+  'ap.bill.inbox.run.action_unknown': '--action "{value}" does not exist. Use one of: {actions}.',
+  'ap.bill.inbox.run.id_and_bulk': 'Pass an id, or --bulk with --query. The two together mean nothing.',
+  'ap.bill.inbox.run.nothing_selected': 'On what? Pass the id of a pre-registration, or --bulk with --query "status=ready".',
+  'ap.bill.inbox.run.bulk_without_query':
+    '--bulk without --query would act on the WHOLE inbox. Name the selection: --query "status=ready,mode=manual" (keys: {keys}).',
+  'ap.bill.inbox.run.query_unparsable':
+    'Cannot read --query "{spec}". Each part is key=value separated by commas: --query "status=ready,mode=manual". Keys: {keys}.',
+  'ap.bill.inbox.run.query_keys_unknown':
+    '{count, plural, one {Key} other {Keys}} that --query does not know: {unknown}. Keys: {keys}.',
+  'ap.bill.inbox.run.requires_approval_invalid': 'requires-approval only takes true or false; got "{value}".',
+  'ap.bill.inbox.run.query_narrows_nothing': '--query "{spec}" narrows nothing. Name at least one criterion.',
+  'ap.bill.inbox.run.batch_not_found': 'There is no processing batch "{ref}" in this entity.',
+  'ap.bill.inbox.run.not_in_inbox': 'Pre-registration {id} is not in the inbox of {entity}.',
+  'ap.bill.inbox.run.over_cap':
+    'The selection goes over {cap} pre-registrations. A batch bigger than that is not an order someone has reviewed: narrow it with --query (status, mode, since, until, vendor).',
+  'ap.bill.inbox.run.query_selects_none': 'The query "{query}" selects no pre-registration. Nothing to do.',
+  'ap.bill.inbox.run.waiting':
+    '  {count, plural, one {There is # pre-registration} other {There are # pre-registrations}} waiting for a human decision, which this query does not reach.',
+  'ap.bill.inbox.run.waiting_note':
+    '  They are seen with `bill inbox list --status draft`, and there are the ones that stopped\n  because they came with a new vendor: repeat them with --query "status=draft".',
+  /** What the run would do, before it is asked. `totals` is the per-currency sum, with its leading « · ». */
+  'ap.bill.inbox.run.summary':
+    '{action}: {count, plural, one {# pre-registration} other {# pre-registrations}}{totals}',
+  'ap.bill.inbox.run.already_posted':
+    '  {count, plural, one {# is already posted and will be skipped.} other {# are already posted and will be skipped.}}',
+  'ap.bill.inbox.run.new_vendors':
+    '  {count, plural, one {# would create a NEW VENDOR} other {# would create NEW VENDORS}}: {vendors}',
+  'ap.bill.inbox.run.new_vendor_allowed':
+    '  --allow-new-vendor is set: they will be created with the name and the RFC of the XML.',
+  'ap.bill.inbox.run.new_vendor_refused':
+    '  Without --allow-new-vendor they are refused one by one, with the reason, and the rest goes on.',
+  /** The question before the run. `kind` is `process` or the other actions. */
+  'ap.bill.inbox.run.confirm':
+    '{kind, select, process {Post {count, plural, one {# pre-registration} other {# pre-registrations}} to the books of {entity}? Each one is born as a POSTED bill with its entry. This cannot be undone.} other {Apply "{action}" to {count, plural, one {# pre-registration} other {# pre-registrations}} of {entity}?}}',
+  'ap.bill.inbox.run.no_terminal':
+    'There is no terminal to confirm at. Re-run with --yes once you have decided, or with --dry-run to see what it would do.',
+  'ap.bill.inbox.run.idempotency_hit':
+    '↩ Idempotency hit: key "{key}" already completed this act — {ok}/{total} {action}\n  Nothing was executed again; this is the recorded result.',
+  /** The result line: done of total, then the skipped and the failed, each dim. */
+  'ap.bill.inbox.run.done': '{action}: {ok} of {total}',
+  'ap.bill.inbox.run.skipped': ' · {count} already done',
+  'ap.bill.inbox.run.failed': ' · {count} not done',
+  /** The `detail` column of each row: prose for the person, in its language. `status` is the code. */
+  'ap.bill.inbox.run.detail.already_posted': 'already posted',
+  'ap.bill.inbox.run.detail.bill': 'bill {bill}',
+  'ap.bill.inbox.run.detail.entry': 'entry {entry}',
+  'ap.bill.inbox.run.detail.payment': 'payment {payment}',
+  'ap.bill.inbox.run.detail.posted': 'posted',
+  'ap.bill.inbox.run.detail.approved': 'approved',
+  'ap.bill.inbox.run.detail.rejected': 'rejected',
+  'ap.bill.inbox.run.detail.scheduled': 'scheduled in batch {batch}',
+  /** The refusals of one row. `type` is the pre-registration's document type, or the unknown one. */
+  'ap.bill.inbox.run.vanished': 'it disappeared from the inbox while it was being processed',
+  'ap.bill.inbox.run.not_a_bill':
+    'it is a pre-registration of type "{type}", not a vendor bill nor its credit note. `bill inbox run` only posts expenses and the notes that lower them; an issued payment complement would record CUSTOMER RECEIPTS, which is not what this command says it does.',
+  'ap.bill.inbox.run.type_unknown': 'unknown',
+  'ap.bill.inbox.run.needs_approval':
+    'it requires a prior approval and is at "{state}". Approve it first: `bill inbox run <id> --action approve`.',
+  'ap.bill.inbox.run.not_pending': 'it was not pending approval (or it needs no approval, or it was already rejected)',
+  'ap.bill.inbox.run.not_rejectable':
+    'it is already posted or was already rejected: what is posted is not rejected, it is reversed',
+  'ap.bill.inbox.run.not_schedulable': 'it is completed or rejected: it is no longer scheduled',
 
   // ==== end of I8.8 ====
 
