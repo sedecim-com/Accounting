@@ -3425,6 +3425,8 @@ interface PagoProveedorVivo {
   status: string;
   payment_method: string;
   check_cleared_tx_id: string | null;
+  /** The day the bank cashed it (`check_cleared_date`); NULL with no cashing recorded. */
+  check_cleared_on: string | null;
 }
 
 /** El pago, acotado por entidad y con candado. */
@@ -3436,7 +3438,8 @@ async function pagoProveedorParaEscribir(
   const r = await client.query<PagoProveedorVivo>(
     `SELECT id, payment_number, vendor_id, payment_amount, currency_code,
             payment_date, bank_account_id, journal_entry_id, status,
-            payment_method, check_cleared_tx_id
+            payment_method, check_cleared_tx_id,
+            to_char(check_cleared_date, 'YYYY-MM-DD') AS check_cleared_on
        FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -3524,7 +3527,8 @@ async function vendorEventDay(
  * entry, each new application (`applied_on`, 344) and each bill's
  * last_payment_date, so the IVA the application credits (LIVA art. 5o. fr.
  * III and 1o.-B) lands in that day's month. It is refused after today, before
- * the payment's last posted event, before the date of a bill it pays and in a
+ * the payment's last posted event, before the day the bank cashed it when it
+ * was paid by check (MNE-001-746), before the date of a bill it pays and in a
  * period that takes no entry.
  */
 export async function applyVendorPayment(
@@ -3562,6 +3566,15 @@ export async function applyVendorPayment(
       throw new ValidationError({ key: 'payment.apply.date_future', params: { ...dated, today } }, 'date');
     }
     const since = await lastPostedEventOf(client, entityId, pago);
+    // MNE-001-746: a price paid by check is paid the day the bank cashes it
+    // (LIVA art. 1o.-B), and once cashed, its application credits the bill's
+    // IVA on its own day (below). A cashing with the cash still on account
+    // posted no entry for `since` to see, so its day is read from the payment.
+    // Of the two days, the later one speaks.
+    const cashedOn = pago.check_cleared_on;
+    if (cashedOn !== null && cashedOn >= since && date < cashedOn) {
+      throw new ValidationError({ key: 'payment.apply.date_before_cashing', params: { ...dated, cashedOn } }, 'date');
+    }
     if (date < since) {
       throw new ValidationError({ key: 'payment.apply.date_before_last_event', params: { ...dated, since } }, 'date');
     }
