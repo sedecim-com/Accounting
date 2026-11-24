@@ -164,7 +164,7 @@ describe('los lotes de la ingesta están acotados en el esquema', () => {
 // ============================================================
 
 /** El final del mensaje que arma `arregloAcotado`. Sólo lo dice el tope. */
-const FRASE_DEL_TOPE = 'por petición.';
+const FRASE_DEL_TOPE = 'fit in one request.';
 
 const movimientosDe = (n: number): unknown[] =>
   Array.from({ length: n }, (_, i) => ({
@@ -181,8 +181,8 @@ const renglonesDe = (n: number, campos: (i: number) => Record<string, unknown>):
 async function rechazaPorTope(path: string, body: unknown, llegaron: number, caben: number): Promise<void> {
   const r = await postearCon(path, body);
   expect(r.status).toBe(422);
-  expect(r.texto).toContain(`llegaron ${llegaron}`);
-  expect(r.texto).toContain(`caben ${caben} ${FRASE_DEL_TOPE}`);
+  expect(r.texto).toContain(`: ${llegaron} `);
+  expect(r.texto).toContain(`and ${caben} ${FRASE_DEL_TOPE}`);
 }
 
 /** El tope NO es lo que rechaza: pase lo que pase después, no fue por longitud. */

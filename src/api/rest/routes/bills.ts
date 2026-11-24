@@ -62,8 +62,7 @@ const createBillSchema = z.object({
   // El porqué del número, en topes.ts.
   lines: arregloAcotado(billLineSchema, {
     tope: MAX_RENGLONES_POR_DOCUMENTO,
-    plural: 'renglones',
-    salida: 'Parte el comprobante: con más renglones que eso lo que hay es una importación.',
+    refusal: 'error.VALIDATION_ERROR.cap.bill_lines',
     minimo: 1,
   }),
   terms: z.string().optional(),
@@ -88,8 +87,7 @@ const vendorPaymentSchema = z.object({
     }),
     {
       tope: MAX_APLICACIONES_POR_PAGO,
-      plural: 'aplicaciones',
-      salida: 'Un pago contra más documentos que eso es una remesa: regístrala como varios pagos.',
+      refusal: 'error.VALIDATION_ERROR.cap.bill_payment_applications',
     }
   ).optional(),
   memo: z.string().optional(),

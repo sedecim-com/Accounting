@@ -13,6 +13,7 @@
  * here is a client-visible change, and it goes through its own CONTRACT PR.
  *
  * CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
+ * CONTRACT: since MNE-001-588 (#151) the over-cap line is a catalogue key, so the golden records its English (`error.VALIDATION_ERROR.cap.*`); its Spanish, the text every language read before, is what `Accept-Language: es` reads.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

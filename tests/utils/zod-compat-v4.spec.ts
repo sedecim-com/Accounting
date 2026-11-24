@@ -75,7 +75,7 @@ describe('the compat checks are the built-ins they replace, to any reader', () =
 });
 
 describe('the array cap travels on its check', () => {
-  const capped = arregloAcotado(z.string(), { tope: 3, plural: 'filas', salida: 'Parte el lote.', minimo: 1 });
+  const capped = arregloAcotado(z.string(), { tope: 3, refusal: 'error.VALIDATION_ERROR.cap.pre_registration_ids', minimo: 1 });
   const inner = (schema: z.core.$ZodType): z.core.$ZodType =>
     schema instanceof z.core.$ZodOptional ? schema._zod.def.innerType : schema;
 
@@ -97,7 +97,7 @@ describe('the array cap travels on its check', () => {
     expect(tooMany.error?.issues.map((i) => [i.path.join('.'), i.code])).toEqual([['rows', 'custom']]);
     const valid = rows.safeParse({ rows: ['a', 'b', 'c', 'd'] });
     expect(valid.error?.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
-      ['rows', 'llegaron 4 filas y caben 3 por petición. Parte el lote.'],
+      ['rows', '4 ids arrived and 3 fit in one request. Split the batch into several requests.'],
     ]);
     // Within the cap the elements are still validated, issues and all.
     expect(rows.safeParse({ rows: ['a', 1] }).error?.issues.map((i) => i.path.join('.'))).toEqual(['rows.1']);
@@ -110,7 +110,7 @@ describe('the array cap travels on its check', () => {
         calls++;
         return true;
       }),
-      { tope: 2, plural: 'filas', salida: 'Parte el lote.' }
+      { tope: 2, refusal: 'error.VALIDATION_ERROR.cap.pre_registration_ids' }
     );
     for (const schema of [counted, counted.describe('rows'), counted.refine(() => true), counted.min(1)]) {
       expect(schema.safeParse(['a', 'b', 'c']).error?.issues).toHaveLength(1);

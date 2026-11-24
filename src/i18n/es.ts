@@ -556,6 +556,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.schema.entry_min_lines': 'Hacen falta al menos 2 renglones',
   'error.VALIDATION_ERROR.schema.void_reason_required': 'Para anular hace falta un motivo',
   'error.VALIDATION_ERROR.schema.date_format': 'AAAA-MM-DD',
+  'error.VALIDATION_ERROR.cap.bank_transactions':
+    'llegaron {received} movimientos y caben {maximum} por petición. Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.',
+  'error.VALIDATION_ERROR.cap.bill_lines':
+    'llegaron {received} renglones y caben {maximum} por petición. Parte el comprobante: con más renglones que eso lo que hay es una importación.',
+  'error.VALIDATION_ERROR.cap.bill_payment_applications':
+    'llegaron {received} aplicaciones y caben {maximum} por petición. Un pago contra más documentos que eso es una remesa: regístrala como varios pagos.',
+  'error.VALIDATION_ERROR.cap.invoice_lines':
+    'llegaron {received} renglones y caben {maximum} por petición. Parte la factura: un comprobante con más renglones que eso no lo timbra ningún PAC.',
+  'error.VALIDATION_ERROR.cap.journal_entry_lines':
+    'llegaron {received} renglones y caben {maximum} por petición. Una póliza más larga que eso es una importación: pártela, o usa `mnemosine entry import`.',
+  'error.VALIDATION_ERROR.cap.pre_registration_ids':
+    'llegaron {received} ids y caben {maximum} por petición. Parte el lote en varias peticiones.',
+  'error.VALIDATION_ERROR.cap.xml_documents':
+    'llegaron {received} documentos y caben {maximum} por petición. Parte el lote, o cárgalo con `mnemosine ingest`, que procesa por archivo.',
   // ---- MNE-001-150 · a path no route serves; see en.ts ----
   'error.ROUTE_NOT_FOUND': 'No hay ninguna ruta para {method} {path}.',
   // ==== fin de error.* ================================================

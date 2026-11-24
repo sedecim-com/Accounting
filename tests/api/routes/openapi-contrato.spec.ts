@@ -485,8 +485,7 @@ describe('de Zod a JSON Schema: lo que la API usa', () => {
     // limitarse a advertir que hay algo más.
     const acotado = arregloAcotado(z.string(), {
       tope: 500,
-      plural: 'cosas',
-      salida: 'pártelo',
+      refusal: 'error.VALIDATION_ERROR.cap.pre_registration_ids',
       minimo: 1,
     });
     expect(conv(acotado)).toEqual({
