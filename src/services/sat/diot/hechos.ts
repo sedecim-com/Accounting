@@ -94,9 +94,22 @@ import type { Hallazgo } from './hallazgos.js';
 // the cashing (every cheque recorded before MNE-001-508, and a foreign-currency
 // one still) keeps its payment date, and any other cheque counts on
 // `check_cleared_date`. With no cashing that date is NULL and the share enters
-// no month. The rule is per payment, not per application: an application made
-// after the cashing is credited by the ledger on its own day and counted here
-// on the cashing day, as a transfer applied late is counted on its payment day.
+// no month.
+//
+// THE DAY OF AN APPLICATION (MNE-001-679, #787)
+//
+// Creditable VAT is credited in the month it is effectively paid (LIVA art.
+// 5o. fr. III), and cash on account pays a bill the day it is applied to it,
+// when the vendor's claim is extinguished (art. 1o.-B, first paragraph); the
+// DIOT reports that month (art. 32 fr. VIII). `payment apply --date` stores
+// that day (`applied_on`, migration 344) and dates its entry by it
+// (MNE-001-678), so each application counts on its own day
+// (`APPLICATION_CREDIT_DATE`): the later of the day it was applied and its
+// payment's day above. A transfer of March applied in May counts in May, where
+// the ledger debited the creditable account; cash applied before its cashing
+// still waits for the bank. A row with no stored day, written before the day
+// was kept, reads its payment's date as it always did, so no month already
+// shown moves.
 //
 // ============================================================
 
@@ -196,17 +209,40 @@ const CREDITED_BEFORE_CASHING = `EXISTS (
                AND jel.debit_amount > 0
                AND (vp.check_cleared_date IS NULL OR je.entry_date < vp.check_cleared_date))`;
 
-// CONTRACT: the month in which the DIOT and the IVA workpaper (SAT
-// deliverables) count a vendor payment. NULL for a cheque that waits for its
-// cashing: it enters no month. Read over a `vendor_payments vp` row; the VAT
-// over-credit census names each payment's month by it (MNE-001-562).
-export const CREDIT_DATE = `CASE WHEN vp.payment_method <> 'check' OR ${CREDITED_BEFORE_CASHING}
+// CONTRACT: the day a vendor payment's cash counts as paid for the DIOT and
+// the IVA workpaper (SAT deliverables): its date, or the cashing day of a
+// cheque that waited for it, and NULL while it has no cashing: it enters no
+// month. Read over a `vendor_payments vp` row. Since MNE-001-679 it is no
+// longer the day every application of the payment counts on: that is
+// `APPLICATION_CREDIT_DATE`, which is never earlier. The DIOT changes
+// compatibly: only an application with a stored day later than this one moves,
+// to the month of that day.
+const CREDIT_DATE = `CASE WHEN vp.payment_method <> 'check' OR ${CREDITED_BEFORE_CASHING}
                  THEN vp.payment_date ELSE vp.check_cleared_date END`;
 
 /**
+ * The day a vendor application was applied to its bill: the one its row stores
+ * (`applied_on`, migration 344), or its payment's date for a row written before
+ * a writer stored it. Read over `payment_applications pa` and its
+ * `vendor_payments vp`.
+ */
+export const APPLIED_ON = `COALESCE(pa.applied_on, vp.payment_date)`;
+
+/**
+ * CONTRACT: the day on which the DIOT and the IVA workpaper (SAT deliverables)
+ * count one vendor application, and the VAT over-credit census names its month
+ * (MNE-001-562): the later of `APPLIED_ON` and its payment's `CREDIT_DATE`
+ * (LIVA art. 5o. fr. III and 1o.-B). NULL while `CREDIT_DATE` is NULL.
+ * NOTE: `date_larger`, the function behind `max(date)`, and not GREATEST:
+ * GREATEST skips a NULL and would return the application's own day for a
+ * payment that still waits for its cashing.
+ */
+export const APPLICATION_CREDIT_DATE = `date_larger(${APPLIED_ON}, ${CREDIT_DATE})`;
+
+/**
  * Los gastos a los que un pago del mes les aplicó dinero, con lo acumulado al
- * cierre del mes y al cierre del mes ANTERIOR. El día de cada pago es
- * `CREDIT_DATE`: el suyo, o el del cobro si es un cheque que esperó su cobro.
+ * cierre del mes y al cierre del mes ANTERIOR. Each application counts on its
+ * own day, `APPLICATION_CREDIT_DATE` (MNE-001-679).
  *
  * LA ENTIDAD SE ACOTA DOS VECES A PROPÓSITO. `payment_applications` no tiene
  * `entity_id` —es la tabla puente—, así que la frontera tiene que venir de
@@ -231,7 +267,7 @@ async function gastosPagadosEnElMes(
        FROM bills b
        JOIN payment_applications pa ON pa.bill_id = b.id
        JOIN vendor_payments vp ON vp.id = pa.payment_id
-      CROSS JOIN LATERAL (SELECT ${CREDIT_DATE} AS credited_on) cd
+      CROSS JOIN LATERAL (SELECT ${APPLICATION_CREDIT_DATE} AS credited_on) cd
       WHERE b.entity_id = $1
         AND vp.entity_id = $1
         AND vp.journal_entry_id IS NOT NULL
@@ -392,9 +428,10 @@ async function retencionesDe(
 
 /**
  * What each bill has applied by vendor payments credited up to `hasta`. Both
- * ends of the bridge are scoped, and the payments are the ones
- * `gastosPagadosEnElMes` counts, on the same day (`CREDIT_DATE`): a cheque
- * that waits for its cashing has paid nothing yet (MNE-001-559).
+ * ends of the bridge are scoped, and the applications are the ones
+ * `gastosPagadosEnElMes` counts, on the same day (`APPLICATION_CREDIT_DATE`):
+ * a cheque that waits for its cashing has paid nothing yet (MNE-001-559), and
+ * cash on account pays the day it is applied (MNE-001-679).
  */
 async function appliedThrough(
   client: pg.PoolClient,
@@ -411,7 +448,7 @@ async function appliedThrough(
        JOIN vendor_payments vp ON vp.id = pa.payment_id
       WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
         AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
-        AND ${CREDIT_DATE} <= $3::date
+        AND ${APPLICATION_CREDIT_DATE} <= $3::date
       GROUP BY pa.bill_id`,
     [entityId, [...billIds], hasta]
   );
