@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 255 of 407 subcommands
+  spelling is `-T` at the root and `-t` on the 256 of 408 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -8883,6 +8883,10 @@ Commands:
   record|registrar [options]  Record a monthly IVA return already filed in the
                               SAT portal: its acuse, what it left payable or in
                               favour, its payment and the balances it credited
+  correct|corregir [options]  Record an amended monthly IVA return
+                              («complementaria») already filed in the SAT
+                              portal, linked to the return it replaces; both are
+                              kept
   help [command]              display help for command
 ```
 
@@ -8973,13 +8977,57 @@ Options:
   -h, --help                               display help for command
 
 This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.
-An amended return («complementaria») is not recorded here.
+An amended return («complementaria») is recorded with `mnemosine filing correct`.
 
 Examples:
   See the row the July return would leave, with its balance in favour, writing nothing:
     mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run
   August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:
     mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json
+```
+
+### `mnemosine filing correct` (alias: corregir)
+
+```
+Usage: mnemosine filing correct|corregir [options]
+
+Record an amended monthly IVA return («complementaria») already filed in the SAT
+portal, linked to the return it replaces; both are kept
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --form <form>                            which return it is: iva (the monthly IVA)
+  --period <YYYY-MM>                       month the return covers
+  --replaces <acuse>                       acuse of the return in force this one replaces: the last one filed for that month
+  --filed-on <date>                        day the return was filed (YYYY-MM-DD), after its month ends
+  --acuse <number>                         operation number of the acknowledgement («acuse»): how the record names this return
+  --capture-line <line>                    payment reference the SAT gave with the filing (the capture line), when the return has something to pay
+  --payable <amount>                       amount payable the return left, up to two decimals (use 0 for a return at zero)
+  --in-favor <amount>                      balance in favour the return left, up to two decimals; never together with --payable
+  --paid <amount>                          what was paid with the capture line; goes with --paid-on
+  --paid-on <date>                         day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid
+  --credit <acuse:amount>                  an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+This records an amended return a person already filed (CFF art. 32). It sends nothing to the SAT.
+The return it replaces stays in the record. From now on the month is read from the amended one, and later working papers take its balance in favour from it.
+An amended return states every figure again: repeat each --credit of the return it replaces, or this one credits nothing. --paid is what was paid with this return's own capture line.
+It is refused when it leaves less in favour than later months already credited: amend those returns first.
+
+Examples:
+  See the row an amended July return would leave, with 4,200.00 in favour where 5,000.00 were declared, writing nothing:
+    mnemosine filing correct --form iva --period 2026-07 --replaces OP-0701 --filed-on 2026-09-10 --acuse OP-0702 --in-favor 4200.00 --dry-run
+  Amend August: 8,500.00 of IVA less the same 3,000.00 credited from July, 5,500.00 payable, and the 500.00 of difference paid that day:
+    mnemosine filing correct --form iva --period 2026-08 --replaces OP-0801 --filed-on 2026-10-02 --acuse OP-0802 --capture-line LC-0802 --payable 5500.00 --paid 500.00 --paid-on 2026-10-02 --credit OP-0701:3000.00 --json
 ```
 
 ## `mnemosine annual` (alias: anual)

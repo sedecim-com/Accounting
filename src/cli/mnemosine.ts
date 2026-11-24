@@ -3676,7 +3676,8 @@ registerPayCalendarCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
-// MNE-001-577 (#308): the record of a monthly IVA return a person already filed.
+// MNE-001-577 (#308): the record of a monthly IVA return a person already filed;
+// MNE-001-629: and of the amended return that replaces it (`filing correct`).
 registerFilingRecordCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-457 (#622): the profit coefficient of a filed annual return, which
 // the ISR of the workpaper above cannot settle without.

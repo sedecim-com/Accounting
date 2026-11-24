@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { riskOf } from '../../src/cli/kernel/risk.js';
-import { parseFilingRecord } from '../../src/cli/filing-record-command.js';
+import { parseFilingCorrect, parseFilingRecord } from '../../src/cli/filing-record-command.js';
 import { CliError } from '../../src/cli/kernel/cli-error.js';
 import { resetLanguage } from '../../src/i18n/index.js';
 import { describedIn, expectEveryKeyInFormat, expectSpanishHelp, node, unkeyedInFamilies } from './helpers/help-by-key.js';
@@ -13,6 +13,10 @@ import { describedIn, expectEveryKeyInFormat, expectSpanishHelp, node, unkeyedIn
 // the agent cannot call, and its help speaks by key in en and es. The rules
 // of the return itself are the service's (tests/services/fiscal), and the
 // whole leaf runs against Postgres in mne-001-577-filing-record.int.spec.ts.
+//
+// MNE-001-629 · `mnemosine filing correct` is the same leaf for an amended
+// return: the same flags, and `--replaces`, the acuse of the return in force
+// it replaces. It runs against Postgres in mne-001-629-filing-correct.int.spec.ts.
 // ============================================================
 
 afterEach(() => resetLanguage());
@@ -23,9 +27,11 @@ const AUGUST = {
   payable: '5000.00', paid: '5000.00', paidOn: '2026-09-16', credit: ['OP-SYN-0701:3000.00'],
 };
 
-const refusal = (opts: Record<string, unknown>): { exit: number; key: string | undefined } => {
+const refusal = (
+  opts: Record<string, unknown>, parse: (o: Record<string, unknown>) => unknown = parseFilingRecord
+): { exit: number; key: string | undefined } => {
   try {
-    parseFilingRecord(opts);
+    parse(opts);
   } catch (e) {
     const err = e as CliError;
     return { exit: err.exitCode, key: err.key };
@@ -84,6 +90,30 @@ describe('parseFilingRecord', () => {
   });
 });
 
+describe('parseFilingCorrect', () => {
+  /** August amended on 2026-10-02: 8,500.00 of IVA less the same 3,000.00 = 5,500.00 payable; 500.00 more paid. */
+  const AMENDED = {
+    ...AUGUST, filedOn: '2026-10-02', acuse: 'OP-SYN-0802', captureLine: 'LC-SYN-0802', payable: '5500.00',
+    paid: '500.00', paidOn: '2026-10-02', replaces: ' OP-SYN-0801 ',
+  };
+
+  it('is the filing of the same flags, naming the return it replaces', () => {
+    expect(parseFilingCorrect(AMENDED)).toEqual({
+      obligation: 'iva_monthly', period: '2026-08', filedOn: '2026-10-02', acknowledgementNumber: 'OP-SYN-0802',
+      captureLine: 'LC-SYN-0802', amountPayable: '5500.00', amountPaid: '500.00', paidOn: '2026-10-02',
+      credits: [{ sourceAcknowledgement: 'OP-SYN-0701', amount: '3000.00' }], replacesAcknowledgement: 'OP-SYN-0801',
+    });
+  });
+
+  it.each<[string, Record<string, unknown>, string]>([
+    ['no --replaces', { replaces: undefined }, 'filing.correct.replaces_required'],
+    ['a --replaces of spaces', { replaces: '  ' }, 'filing.correct.replaces_required'],
+    ['a flag of the return itself', { period: '2026-13' }, 'filing.record.period_invalid'],
+  ])('refuses %s with exit 2 by key', (_, change, key) => {
+    expect(refusal({ ...AMENDED, ...change }, parseFilingCorrect)).toEqual({ exit: 2, key });
+  });
+});
+
 describe('mnemosine filing, help by key', () => {
   it('the lane finds no description without key in the family', () => {
     expect(unkeyedInFamilies(['filing'])).toEqual([]);
@@ -108,5 +138,20 @@ describe('mnemosine filing, help by key', () => {
     expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--json']));
     expect(longs).not.toContain('--idempotency-key');
     expect(longs).not.toContain('--replaces');
+  });
+
+  it('filing correct speaks by key, and is a write the agent cannot call, with --replaces and no idempotency key', () => {
+    const leaf = node('filing correct');
+    const described = describedIn(leaf);
+    expect(described.length).toBeGreaterThan(12);
+    expectEveryKeyInFormat(described, 'filing');
+    expectSpanishHelp('filing correct', 'help.filing.correct.description');
+    expectSpanishHelp('filing correct', 'help.filing.correct.option.replaces');
+    resetLanguage();
+    expect(leaf.aliases()).toEqual(['corregir']);
+    expect(riskOf(leaf)).toMatchObject({ risk: 'escritura', agentAllowed: false });
+    const longs = leaf.options.map((o) => o.long);
+    expect(longs).toEqual(expect.arrayContaining(['--replaces', '--dry-run', '--yes', '--json', '--credit']));
+    expect(longs).not.toContain('--idempotency-key');
   });
 });
