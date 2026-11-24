@@ -67,6 +67,7 @@ const result = (over: Partial<CustomerCreditTransfer> = {}): CustomerCreditTrans
   ],
   sourceOnAccount: { before: '1160.00', after: '0.00' },
   customerOnAccount: { before: '0.00', after: '1160.00' },
+  advance: null,
   ...over,
 });
 
@@ -179,6 +180,17 @@ describe('receipt transfer record refuses before reading, and hands the transfer
     expect(out).toContain(t('receipt.transfer.on_account', { party: 'PMT-2026-00001', before: '1160.00', after: '0.00' }, 'en'));
     expect(out).toContain(t('receipt.transfer.on_account', { party: 'C-B Cliente Cesionario SA', before: '0.00', after: '1160.00' }, 'en'));
     expect(err).toContain('Dry run: nothing was written.');
+    expect(out).not.toContain(t('receipt.transfer.carries', { base: '1000.00', iva: '160.00' }, 'en'));
+  });
+
+  it('of a treated advance it says the base and IVA the credit carries, and --json gives both (MNE-001-499)', async () => {
+    const treated = result({ amount: '580.00', advance: { base: '500.00', iva: '80.00' } });
+    service.mockResolvedValueOnce(treated);
+    const { out } = await transfer([...ARGS, '--reason', 'Convenio 15-jun', '--dry-run']);
+    expect(out).toContain(t('receipt.transfer.carries', { base: '500.00', iva: '80.00' }, 'en'));
+    service.mockResolvedValueOnce(treated).mockResolvedValueOnce(treated);
+    const json = await transfer([...ARGS, '--reason', 'Convenio 15-jun', '--yes', '--json']);
+    expect((JSON.parse(json.out) as { rows: Record<string, unknown>[] }).rows[0]).toMatchObject({ advance_base: '500.00', advance_iva: '80.00' });
   });
 
   it('without --yes and with no terminal it aborts after the preview, and nothing is written', async () => {
@@ -200,6 +212,7 @@ describe('receipt transfer record refuses before reading, and hands the transfer
       amount: '1160.00', date: '2026-06-15', entry_number: 'JE-2026-00007',
       source_on_account_before: '1160.00', source_on_account_after: '0.00',
       customer_on_account_before: '0.00', customer_on_account_after: '1160.00',
+      advance_base: null, advance_iva: null,
     });
   });
 });

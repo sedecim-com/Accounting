@@ -1288,6 +1288,8 @@ function printTransfer(r: CustomerCreditTransfer, p: Palette, rehearsal: boolean
       source_on_account_after: r.sourceOnAccount.after,
       customer_on_account_before: r.customerOnAccount.before,
       customer_on_account_after: r.customerOnAccount.after,
+      advance_base: r.advance?.base ?? null,
+      advance_iva: r.advance?.iva ?? null,
     }], { json: true });
     return;
   }
@@ -1302,6 +1304,7 @@ function printTransfer(r: CustomerCreditTransfer, p: Palette, rehearsal: boolean
   }
   process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.sourceNumber, before: r.sourceOnAccount.before, after: r.sourceOnAccount.after })}\n`);
   process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.toCustomer, before: r.customerOnAccount.before, after: r.customerOnAccount.after })}\n`);
+  if (r.advance) process.stdout.write(`  ${t('receipt.transfer.carries', r.advance)}\n`);
 }
 
 /** The cause a reversed receipt keeps, as the dry run, the confirmation and the result say it (MNE-001-509). */

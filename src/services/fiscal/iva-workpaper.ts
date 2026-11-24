@@ -698,7 +698,8 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
     `WITH events AS (
        SELECT cp.id, cp.advance_base_amount AS base, cp.advance_iva_amount AS iva, ${countedOn('cp', 'cp.payment_date')} AS on_day
          FROM customer_payments cp
-        WHERE cp.entity_id = $1
+        -- MNE-001-499: a transfer row collected nothing; its source's day counted the advance.
+        WHERE cp.entity_id = $1 AND cp.payment_method <> 'balance_transfer'
        UNION ALL
        SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount,
               CASE WHEN pa.invoice_id = ANY($4::uuid[]) THEN COALESCE(pa.applied_on, cp.payment_date)
@@ -1543,6 +1544,8 @@ async function reversalFindings(
             CASE WHEN cp.reversal_cause_stated_at > cp.reversed_at THEN cp.reversal_cause_stated_at::date::text END AS stated_on
        FROM customer_payments cp ${MIRROR_OF_RECEIPT}
       WHERE cp.entity_id = $1 AND cp.status = 'reversed' AND cp.journal_entry_id IS NOT NULL
+        -- MNE-001-499: a transfer's reversal moved no money; its applications count on their own days.
+        AND cp.payment_method <> 'balance_transfer'
         AND (${REVERSED_ON} >= $2::date OR cp.id = ANY($3::uuid[]))
       ORDER BY cp.payment_number`,
     [entityId, range.desde, [...new Set([
