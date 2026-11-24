@@ -2497,6 +2497,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-605 (#809): the live allocation a reversed receipt still has, closed by a person.
+  'receipt.allocation.close.not_reversed':
+    'El cobro {number} está en «{status}»: así sólo se cierra la aplicación viva de un cobro reversado, porque sólo la reversa ya reabrió su factura. No se escribió nada.',
+  'receipt.allocation.close.nothing_live':
+    'El cobro {number} no tiene ninguna aplicación viva sobre {invoice}: no hay qué cerrar. No se escribió nada.',
+  'receipt.allocation.close.after_reversal':
+    'La aplicación viva de {number} sobre {invoice} se escribió después de reversar el cobro, así que la reversa nunca reabrió la factura por ella: cerrarla sola dejaría la factura corta. Repórtala. No se escribió nada.',
+  'receipt.allocation.close.would_close':
+    'Cerraría {count} aplicación(es) viva(s) de {number} sobre {invoice}, {amount}, con la fecha de la reversa ({closed_at}); no postea nada ni toca la factura',
+  'receipt.allocation.close.confirm':
+    '¿Cerrar {count} aplicación(es) viva(s) del cobro reversado {number} sobre {invoice} ({amount})? La reversa ya reabrió la factura y reflejó sus pólizas; esto sólo cierra la fila, con la fecha de la reversa, y no postea nada. No se puede deshacer.',
+  'receipt.allocation.close.closed':
+    '{number}: {count} aplicación(es) sobre {invoice} cerrada(s) ({amount}), con la fecha de la reversa ({closed_at}); no se posteó nada',
+  'receipt.allocation.close.dry_run': 'Ensayo: el cierre sí corrió y se deshizo; no se escribió nada.',
+  'receipt.allocation.close.key_unneeded': 'un reintento no encuentra ninguna aplicación viva sobre esa factura y se rechaza',
   // MNE-001-498 (#695): el saldo a cuenta de un cliente, traspasado a otro cliente.
   'receipt.transfer.reason_required':
     'Traspasar el crédito de un cliente exige --reason "<el acuerdo>": queda escrito en el rastro de auditoría y en el traspaso. No se escribió nada.',
@@ -4000,6 +4015,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.cause.record.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
   'help.receipt.cause.record.option.json': 'salida JSON',
+  // MNE-001-605 (#809): the live allocation of a reversed receipt, closed by a person.
+  'help.receipt.allocation.description': 'Las aplicaciones de un cobro a sus facturas',
+  'help.receipt.allocation.close.description':
+    'Cierra la aplicación viva que un cobro reversado aún tiene sobre una factura (ar check: orphan-application): con la fecha de la reversa, auditada, sin postear nada',
+  'help.receipt.allocation.close.argument.ref': 'número de cobro o id del cobro reversado',
+  'help.receipt.allocation.close.option.invoice': 'número o id de la factura que salda la aplicación viva',
+  'help.receipt.allocation.close.option.reason': 'por qué se cierra: queda escrito en el rastro de auditoría',
+  'help.receipt.allocation.close.option.json': 'salida JSON',
+  'help.receipt.allocation.close.examples':
+    '\nEjemplos:\n' +
+    '  ar check nombró PMT-2026-00042 (reversed) → INV-2026-00051 116.00 en orphan-application; ver qué se cerraría:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Quedó viva tras su reversa" --dry-run\n' +
+    '  Cerrarla; la reversa ya reabrió la factura, así que no postea nada:\n' +
+    '    mnemosine receipt allocation close PMT-2026-00042 --invoice INV-2026-00051 --reason "Quedó viva tras su reversa"\n',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado después.
   'help.payment.trace.description': 'El rastro de un pago registrado: su cheque, y la cuenta y el banco a donde fue el dinero',
   'help.payment.trace.record.description':
@@ -4212,9 +4241,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
   'ar.check.cross_party_application.none': 'ninguna',
   'ar.check.orphan_application.found':
-    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA; ' +
-    'la reversa ya reabrió la factura y sólo falta cerrar la fila, que ningún comando escribe: ' +
-    'repórtala antes de volver a cobrar esa factura',
+    'la aplicación de un cobro muerto sigue contando como cobrada, así que el siguiente cobro de su factura no libera su IVA. ' +
+    'En un cobro reversado la reversa ya reabrió la factura y reflejó sus pólizas, así que sólo falta cerrar la fila: ' +
+    'ciérrala con `receipt allocation close <cobro> --invoice <factura> --reason "<por qué>"`, que no postea nada, ' +
+    'antes de volver a cobrar esa factura. En un cobro anulado o fallido, repórtala',
   'ar.check.orphan_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',

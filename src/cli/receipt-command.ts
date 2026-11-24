@@ -13,6 +13,7 @@ import {
   unapplyCustomerPayment,
   reverseCustomerPayment,
   stateReversalCause,
+  closeOrphanAllocation,
   transferCustomerCredit,
   type CustomerCreditTransfer,
   getCustomerPayment,
@@ -1077,6 +1078,67 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           })}\n`
         );
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
+      })
+  );
+
+  // ---- receipt allocation close (MNE-001-605, #809) ----------------
+  // The live allocation a reversed receipt still has on an invoice, the row
+  // `ar check` names in orphan-application, closed by a person. It posts
+  // nothing: the reversal already mirrored the entries and reopened the invoice.
+  const allocation = describeCommand(receipt.command('allocation').alias('aplicacion'), 'help.receipt.allocation.description');
+  const allocationClose = describeCommand(
+    allocation.command('close').alias('cerrar'), 'help.receipt.allocation.close.description'
+  );
+  argumentByKey(allocationClose, '<ref>', 'help.receipt.allocation.close.argument.ref');
+  withContext(allocationClose);
+  optionByKey(allocationClose, '--invoice <ref>', 'help.receipt.allocation.close.option.invoice', { mandatory: true });
+  // `close` is not an undo verb, so the kernel does not inject --reason: the leaf declares it, mandatory.
+  optionByKey(allocationClose, '--reason <text>', 'help.receipt.allocation.close.option.reason', { mandatory: true });
+  optionByKey(allocationClose, '--json', 'help.receipt.allocation.close.option.json');
+  declareRisk(allocationClose, {
+    risk: 'irreversible',
+    llave: { innecesaria: t('receipt.allocation.close.key_unneeded') },
+    agent: false,
+    writes: 'payment_allocations (closure)',
+  });
+  allocationClose.addHelpText('after', () => t('help.receipt.allocation.close.examples'));
+  allocationClose.action(
+    (ref: string, opts: CommonOpts & { invoice: string; reason: string }) =>
+      run(async () => {
+        const { dryRun } = gateMutation(allocationClose, opts as unknown as Record<string, unknown>);
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+
+        const payment = await getCustomerPayment(ctx.entityId, ref);
+        const invoice = await resolveInvoice(ctx.entityId, opts.invoice);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const args = { invoiceId: invoice.id, reason: opts.reason };
+        const said = (r: Awaited<ReturnType<typeof closeOrphanAllocation>>) => ({
+          count: r.closed, number: r.paymentNumber, invoice: r.invoiceNumber, amount: r.amount,
+          closed_at: r.closedAt.toISOString(),
+        });
+
+        const preview = await closeOrphanAllocation(ctx.entityId, payment.id, args, reviewer.userId, { dryRun: true });
+        if (dryRun) {
+          process.stdout.write(`${t('receipt.allocation.close.would_close', said(preview))}\n`);
+          process.stderr.write(p.dim(`${t('receipt.allocation.close.dry_run')}\n`));
+          return;
+        }
+
+        await confirmOrAbort(opts, t('receipt.allocation.close.confirm', said(preview)));
+
+        const result = await closeOrphanAllocation(ctx.entityId, payment.id, args, reviewer.userId);
+        if (opts.json) {
+          render([{
+            payment_number: result.paymentNumber,
+            invoice: result.invoiceNumber,
+            closed: result.closed,
+            amount: result.amount,
+            unapplied_at: result.closedAt.toISOString(),
+          }], { json: true });
+          return;
+        }
+        process.stdout.write(`${p.green('✔')} ${t('receipt.allocation.close.closed', said(result))}\n`);
       })
   );
 

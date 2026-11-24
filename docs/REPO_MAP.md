@@ -129,6 +129,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `tests/cli/report-command.spec.ts`
 - `tests/integration/a6-conductor-y-expediente.int.spec.ts`
 - `tests/integration/d1a-ataque.int.spec.ts`
+- `tests/integration/f03-cobrar.int.spec.ts`
 - `tests/integration/f05d-ataque.int.spec.ts`
 - `tests/integration/f07a-ataque.int.spec.ts`
 - `tests/integration/f07cd-ataque.int.spec.ts`
