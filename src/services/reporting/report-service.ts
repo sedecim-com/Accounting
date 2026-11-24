@@ -1863,6 +1863,24 @@ export async function getGeneralLedger(
 // AGED RECEIVABLES / PAYABLES
 // ------------------------------------------------------------
 
+/**
+ * SQL: the book value of a document's open balance in the functional
+ * currency. `alias` is the document table's alias, `entityParam` the
+ * placeholder of the entity id (the functional currency is read in the SQL).
+ *
+ * The control account carries an open foreign document at the rate it was
+ * born with, because payments book the realised difference against that same
+ * rate (MNE-001-112; the why is in fx-revaluation.ts). It lives here so the
+ * aging and the reconciliations read one expression.
+ */
+export function bookAmountDueSql(alias: string, entityParam: string): string {
+  return (
+    `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ` +
+    `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) ` +
+    `THEN ${alias}.amount_due ELSE ROUND(${alias}.amount_due * ${alias}.exchange_rate, 4) END`
+  );
+}
+
 export interface AgedReceivableRow {
   customer_id: string;
   customer_name: string;
@@ -1871,8 +1889,12 @@ export interface AgedReceivableRow {
   invoice_number: string;
   invoice_date: Date | string;
   due_date: Date | string;
+  /** The document's currency: `total_amount` and `amount_due` are in it. */
+  currency_code: string;
   total_amount: string;
   amount_due: string;
+  /** `amount_due` in the functional currency, at the rate the document was posted at (NIF B-15). */
+  book_amount_due: string;
   days_overdue: number;
 }
 
@@ -1884,8 +1906,10 @@ export interface AgedPayableRow {
   bill_number: string;
   bill_date: Date | string;
   due_date: Date | string;
+  currency_code: string;
   total_amount: string;
   amount_due: string;
+  book_amount_due: string;
   days_overdue: number;
 }
 
@@ -1903,6 +1927,10 @@ export const PAYABLE_OPEN_STATUSES = ['approved', 'posted', 'partially_paid'] as
  * ageing — fine for a collections call, wrong for an auditor. Rebuilding the
  * point in time needs the payment history, which no table here carries in a
  * usable shape (see the catalog's 🟡 note on aged-payables).
+ *
+ * MNE-001-647: a row is in its document's currency and says which, and
+ * `book_amount_due` is that balance in the functional currency, read in this
+ * same statement. Nothing is revalued here.
  */
 export async function queryAgedReceivableRows(
   entityId: string,
@@ -1913,7 +1941,8 @@ export async function queryAgedReceivableRows(
     `SELECT
       c.id as customer_id, c.company_name as customer_name, c.customer_number,
       i.id as invoice_id, i.invoice_number, i.invoice_date, i.due_date,
-      i.total_amount, i.amount_due,
+      i.currency_code, i.total_amount, i.amount_due,
+      ${bookAmountDueSql('i', '$1')} as book_amount_due,
       ($2::date - i.due_date) as days_overdue
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
@@ -1934,7 +1963,8 @@ export async function queryAgedPayableRows(
     `SELECT
       v.id as vendor_id, v.company_name as vendor_name, v.vendor_number,
       b.id as bill_id, b.bill_number, b.bill_date, b.due_date,
-      b.total_amount, b.amount_due,
+      b.currency_code, b.total_amount, b.amount_due,
+      ${bookAmountDueSql('b', '$1')} as book_amount_due,
       ($2::date - b.due_date) as days_overdue
     FROM bills b
     JOIN vendors v ON v.id = b.vendor_id
@@ -1952,12 +1982,51 @@ export interface AgingReport<Row> {
   rows: Row[];
   /** Open documents matched, before limit/offset. */
   total: number;
-  /** Summed over every matched document, never over the page. */
-  total_due: string;
+  /** Per currency, over every matched document, never over the page. */
+  totals_by_currency: AgingCurrencyTotal[];
+  /** Σ book_amount_due: the whole listing in the functional currency. */
+  total_book_amount_due: string;
 }
 
-function sumDue(rows: { amount_due: string }[], scale: number): string {
-  return rows.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0)).toFixed(scale);
+export interface AgingCurrencyTotal {
+  currency_code: string;
+  documents: number;
+  /** In `currency_code`. Balances of different currencies are never added. */
+  amount_due: string;
+  /** In the functional currency. */
+  book_amount_due: string;
+}
+
+/**
+ * The totals of an aged listing (MNE-001-647): what is due in each currency,
+ * and the book value of it all in the functional one. One pass over rows
+ * already in memory.
+ */
+export function totalAging(
+  rows: Array<Pick<AgedReceivableRow, 'currency_code' | 'amount_due' | 'book_amount_due'>>,
+  scale: number = LEDGER_SCALE
+): Pick<AgingReport<unknown>, 'totals_by_currency' | 'total_book_amount_due'> {
+  const byCurrency = new Map<string, { documents: number; due: Decimal; book: Decimal }>();
+  let book = new Decimal(0);
+  for (const r of rows) {
+    const sum = byCurrency.get(r.currency_code) ?? { documents: 0, due: new Decimal(0), book: new Decimal(0) };
+    sum.documents += 1;
+    sum.due = sum.due.plus(r.amount_due);
+    sum.book = sum.book.plus(r.book_amount_due);
+    byCurrency.set(r.currency_code, sum);
+    book = book.plus(r.book_amount_due);
+  }
+  return {
+    totals_by_currency: [...byCurrency.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([currency_code, sum]) => ({
+        currency_code,
+        documents: sum.documents,
+        amount_due: sum.due.toFixed(scale),
+        book_amount_due: sum.book.toFixed(scale),
+      })),
+    total_book_amount_due: book.toFixed(scale),
+  };
 }
 
 function paginate<T>(rows: T[], limit?: number, offset?: number): T[] {
@@ -1983,7 +2052,7 @@ export async function getAgedReceivables(
     as_of_date: opts.asOfDate,
     rows: paginate(all, opts.limit, opts.offset),
     total: all.length,
-    total_due: sumDue(all, opts.scale ?? LEDGER_SCALE),
+    ...totalAging(all, opts.scale),
   };
 }
 
@@ -1997,7 +2066,7 @@ export async function getAgedPayables(
     as_of_date: opts.asOfDate,
     rows: paginate(all, opts.limit, opts.offset),
     total: all.length,
-    total_due: sumDue(all, opts.scale ?? LEDGER_SCALE),
+    ...totalAging(all, opts.scale),
   };
 }
 

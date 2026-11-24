@@ -93,6 +93,8 @@ import {
   queryAgedPayableRows,
   getAgedReceivables,
   getAgedPayables,
+  totalAging,
+  bookAmountDueSql,
   getPeriodMovementByAccountType,
 } from '../../../src/services/reporting/report-service.js';
 import { query, currentTenant } from '../../../src/database/connection.js';
@@ -1276,22 +1278,72 @@ describe('ageing', () => {
     expect(sql(0)).not.toMatch(/DROP TABLE/);
   });
 
-  it('totals the amount due over every open document, not over the page', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [
-        { amount_due: '1000.0000' }, { amount_due: '2000.0000' }, { amount_due: '3000.0000' },
+  // MNE-001-647 (#596). MXN 1 000 + 2 000 and USD 3 000 at 17.50 (book
+  // 52 500): the defect printed one total, 6 000.
+  const MIXED = [
+    { currency_code: 'MXN', amount_due: '1000.0000', book_amount_due: '1000.0000' },
+    { currency_code: 'USD', amount_due: '3000.0000', book_amount_due: '52500.0000' },
+    { currency_code: 'MXN', amount_due: '2000.0000', book_amount_due: '2000.0000' },
+  ];
+
+  it('the currency and the book value come in the statement that reads the rows: one query', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAgedReceivableRows(ENTITY, { asOfDate: '2026-08-25' });
+    expect(sql(0)).toMatch(/i\.currency_code, i\.total_amount, i\.amount_due,/);
+    expect(sql(0)).toContain(`${bookAmountDueSql('i', '$1')} as book_amount_due`);
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAgedPayableRows(ENTITY, { asOfDate: '2026-08-25' });
+    expect(sql(1)).toMatch(/b\.currency_code, b\.total_amount, b\.amount_due,/);
+    expect(sql(1)).toContain(`${bookAmountDueSql('b', '$1')} as book_amount_due`);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('the book value is the balance at the rate the document was posted at, and the balance itself in the functional currency', () => {
+    expect(bookAmountDueSql('i', '$1')).toBe(
+      'CASE WHEN i.currency_code IS NULL OR i.currency_code = ' +
+        '(SELECT functional_currency FROM legal_entities WHERE id = $1) ' +
+        'THEN i.amount_due ELSE ROUND(i.amount_due * i.exchange_rate, 4) END'
+    );
+  });
+
+  it('totals per currency and never across: dollars are not added to pesos', () => {
+    expect(totalAging(MIXED)).toEqual({
+      totals_by_currency: [
+        { currency_code: 'MXN', documents: 2, amount_due: '3000.0000', book_amount_due: '3000.0000' },
+        { currency_code: 'USD', documents: 1, amount_due: '3000.0000', book_amount_due: '52500.0000' },
       ],
+      total_book_amount_due: '55500.0000',
     });
+    expect(JSON.stringify(totalAging(MIXED))).not.toContain('6000');
+  });
+
+  it('an empty listing totals nothing, at the scale asked for', () => {
+    expect(totalAging([], 2)).toEqual({ totals_by_currency: [], total_book_amount_due: '0.00' });
+  });
+
+  it('receivables are totalled over every open document, not over the page', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: MIXED });
     const aging = await getAgedReceivables(ENTITY, { asOfDate: '2026-08-25', limit: 1 });
     expect(aging.rows).toHaveLength(1);
     expect(aging.total).toBe(3);
-    expect(aging.total_due).toBe('6000.0000');
+    expect(aging.totals_by_currency.map((t) => [t.currency_code, t.documents])).toEqual([['MXN', 2], ['USD', 1]]);
+    expect(aging.total_book_amount_due).toBe('55500.0000');
+    expect(aging).not.toHaveProperty('total_due');
   });
 
   it('payables total the same way', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ amount_due: '1160.0000' }, { amount_due: '2900.0000' }] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { currency_code: 'MXN', amount_due: '1160.0000', book_amount_due: '1160.0000' },
+        { currency_code: 'MXN', amount_due: '2900.0000', book_amount_due: '2900.0000' },
+      ],
+    });
     const aging = await getAgedPayables(ENTITY, { asOfDate: '2026-08-25' });
-    expect(aging.total_due).toBe('4060.0000');
+    expect(aging.totals_by_currency).toEqual([
+      { currency_code: 'MXN', documents: 2, amount_due: '4060.0000', book_amount_due: '4060.0000' },
+    ]);
+    expect(aging.total_book_amount_due).toBe('4060.0000');
   });
 });
 

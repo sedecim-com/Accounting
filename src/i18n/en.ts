@@ -7117,6 +7117,20 @@ export const EN = {
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
 
+  // ==== MNE-001-647 · the totals of an aged listing, per currency (#596) ====
+  'report.aging.total.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}',
+  'report.aging.total.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}',
+  'report.aging.total_foreign.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}; book value {book} {functional}',
+  'report.aging.total_foreign.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}; book value {book} {functional}',
+  'report.aging.book_value.receivable':
+    'Book value of {count, plural, one {the open invoice} other {the # open invoices}}: {book} {functional}',
+  'report.aging.book_value.payable':
+    'Book value of {count, plural, one {the open bill} other {the # open bills}}: {book} {functional}',
+
   // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
   //
   // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
