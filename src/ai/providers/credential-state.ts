@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { isInstallationSecretVariable, listProfiles, userConfigPath } from './config.js';
+import { isInstallationSecretVariable, listProfiles, projectHelperGate, projectPairGate, userConfigPath } from './config.js';
+import type { MnemosineConfig } from './config.js';
 import type { ProviderProfile } from './types.js';
 import { t } from '../../i18n/index.js';
 
@@ -65,6 +66,12 @@ export type CredentialSource =
   | { kind: 'anthropic'; sdk: AnthropicSdkSource }
   /** An api_key_cmd, in the config file it was read from; a project file is shared. */
   | { kind: 'helper'; file: string | null; shared: boolean }
+  /**
+   * What a shared project file asks that its person has not approved (MNE-001-452):
+   * its api_key_cmd (or `project_helpers: never`), or, with `variable` and
+   * `host`, sending that variable to a host its provider does not document.
+   */
+  | { kind: 'unapproved'; file: string; never: boolean; variable?: string; host?: string; unbindable?: boolean }
   /** Neither a variable nor a helper: «local» only for a loopback base_url. */
   | { kind: 'none'; local: boolean }
   | { kind: 'missing'; variable: string; where: string | null }
@@ -73,7 +80,7 @@ export type CredentialSource =
 
 export interface CredentialState {
   source: CredentialSource;
-  /** True unless the credential is missing or refused. Advisory only. */
+  /** True unless the credential is missing, refused or unapproved. Advisory only. */
   ready: boolean;
   /**
    * What the folder's ./.env says about the profile's variable: 'key' when it
@@ -82,6 +89,14 @@ export interface CredentialState {
    * CLI loads ./.env first and keeps its value), null otherwise.
    */
   folderEnv: 'key' | 'empty' | null;
+  /**
+   * The variables that reroute or re-sign this profile's sessions which the
+   * folder's ./.env sets (MNE-001-452): ANTHROPIC_BASE_URL and
+   * ANTHROPIC_CONFIG_DIR for an anthropic profile, OPENAI_BASE_URL for an
+   * openai-compatible one with no base_url. They serve everyone who runs
+   * mnemosine in that folder.
+   */
+  folderRouting: string[];
   /** The one sentence every surface prints. Never a value, never a command. */
   label: string;
 }
@@ -92,10 +107,12 @@ export interface CredentialStateOptions {
   env?: NodeJS.ProcessEnv;
   /** Home directory, to tell the user file from a project file; default os.homedir(). */
   home?: string;
-  /** The config file the profile was read from (listProfiles().source). */
+  /** The config file the profile was read from (listProfiles().origins[name]). */
   source?: string | null;
   /** The operating system, which picks the Anthropic SDK's config root; default process.platform. */
   platform?: NodeJS.Platform;
+  /** ~/.mnemosine/config.json as listProfiles parsed it (listProfiles().own); omitted, it is read. */
+  own?: MnemosineConfig | null;
 }
 
 /** True for localhost, 127.0.0.0/8 and ::1; false for anything else or no URL. */
@@ -275,10 +292,33 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
   if (variable && isInstallationSecretVariable(variable)) {
     source = { kind: 'refused', variable };
   } else if (variable && env[variable]) {
-    source = { kind: 'env', variable };
+    const file = options.source ?? null;
+    let pair: { variable: string; host: string } | null = null;
+    if (profile.api_key_env && file !== null && file !== userConfigPath(home)) {
+      try {
+        pair = projectPairGate(file, profile, { home, env });
+      } catch {
+        // A store that does not parse approves nothing: resolveProfile says which.
+        pair = { variable, host: t('provider.credential.unchecked_host') };
+      }
+    }
+    source = pair && file ? { kind: 'unapproved', file, never: false, ...pair } : { kind: 'env', variable };
   } else if (profile.api_key_cmd) {
     const file = options.source ?? null;
-    source = { kind: 'helper', file, shared: file !== null && file !== userConfigPath(home) };
+    const shared = file !== null && file !== userConfigPath(home);
+    let gate: { never: boolean; unbindable?: string } | null = null;
+    if (shared) {
+      try {
+        gate = projectHelperGate(file, profile, { home, env, own: options.own });
+      } catch {
+        // A store or user file that does not parse approves nothing: resolveProfile says which.
+        gate = { never: false };
+      }
+    }
+    source =
+      gate && file
+        ? { kind: 'unapproved', file, never: gate.never, ...(gate.unbindable ? { unbindable: true } : {}) }
+        : { kind: 'helper', file, shared };
   } else if (isAnthropic && (sdk = anthropicSdkSource(env, options.platform))) {
     source = { kind: 'anthropic', sdk };
   } else if (variable) {
@@ -288,13 +328,19 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
     source = { kind: 'none', local: isLoopbackUrl(profile.base_url) };
   }
 
+  const routing = isAnthropic
+    ? ['ANTHROPIC_BASE_URL', 'ANTHROPIC_CONFIG_DIR']
+    : profile.base_url
+      ? []
+      : ['OPENAI_BASE_URL'];
+  const watchKey = !!variable && source.kind !== 'refused';
+  // One parse of ./.env for both questions.
+  const parsed = watchKey || routing.length > 0 ? readFolderEnv(cwd) : null;
   let folderEnv: CredentialState['folderEnv'] = null;
-  if (variable && source.kind !== 'refused') {
-    const parsed = readFolderEnv(cwd);
-    if (parsed && Object.prototype.hasOwnProperty.call(parsed, variable)) {
-      folderEnv = parsed[variable] === '' ? 'empty' : 'key';
-    }
+  if (watchKey && parsed && Object.prototype.hasOwnProperty.call(parsed, variable)) {
+    folderEnv = parsed[variable] === '' ? 'empty' : 'key';
   }
+  const folderRouting = routing.filter((name) => !!parsed?.[name]);
 
   let label: string;
   switch (source.kind) {
@@ -307,6 +353,22 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
         : t(source.shared ? 'provider.credential.helper_in_shared' : 'provider.credential.helper_in', {
             file: collapseHome(source.file, home),
           });
+      break;
+    case 'unapproved':
+      label = source.variable
+        ? t('provider.credential.unapproved_pair', {
+            variable: source.variable,
+            host: source.host ?? '',
+            file: collapseHome(source.file, home),
+          })
+        : t(
+            source.unbindable
+              ? 'provider.credential.unbindable'
+              : source.never
+                ? 'provider.credential.unapproved_never'
+                : 'provider.credential.unapproved',
+            { file: collapseHome(source.file, home) }
+          );
       break;
     case 'anthropic':
       label = anthropicLabel(source.sdk, home);
@@ -329,8 +391,12 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
   } else if (folderEnv === 'empty') {
     label = t('provider.credential.folder_empty', { label, variable: variable ?? '', file: folderFile });
   }
+  if (folderRouting.length > 0) {
+    label = t('provider.credential.folder_routing', { label, variables: folderRouting.join(', '), file: folderFile });
+  }
 
-  return { source, ready: source.kind !== 'missing' && source.kind !== 'refused', folderEnv, label };
+  const ready = source.kind !== 'missing' && source.kind !== 'refused' && source.kind !== 'unapproved';
+  return { source, ready, folderEnv, folderRouting, label };
 }
 
 export interface ProviderReadiness {
@@ -343,10 +409,10 @@ export interface ProviderReadiness {
 
 /** The answer for every profile of the config that wins in `cwd`. */
 export function providerReadiness(options: Omit<CredentialStateOptions, 'source'> = {}): ProviderReadiness {
-  const { profiles, defaultName, source } = listProfiles(options.cwd);
+  const { profiles, defaultName, source, origins, own } = listProfiles(options.cwd);
   const states: Record<string, CredentialState> = {};
   for (const [name, profile] of Object.entries(profiles)) {
-    states[name] = credentialState(profile, { ...options, source });
+    states[name] = credentialState(profile, { ...options, source: origins[name], own });
   }
   return { defaultName, source, profiles, states };
 }

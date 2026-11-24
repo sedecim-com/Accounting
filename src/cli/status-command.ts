@@ -179,7 +179,7 @@ function toRow(
 export async function buildStatusReport(options: BuildStatusOptions = {}): Promise<StatusReport> {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
-  const { profiles, defaultName, source } = listProfiles(cwd);
+  const { profiles, defaultName, source, origins } = listProfiles(cwd);
 
   const thresholds = resolveIngestThresholds({}, cwd);
   const active = profiles[defaultName] as ProfileWithFailover | undefined;
@@ -202,7 +202,7 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
   }
 
   const rows = new Map<string, ProviderStatusRow>();
-  for (const target of probeTargets) rows.set(target.name, toRow(target.name, target, env, cwd, source));
+  for (const target of probeTargets) rows.set(target.name, toRow(target.name, target, env, cwd, origins[target.name] ?? null));
 
   const resolveProfileFn = options.resolveProfileFn ?? resolveProfile;
   const probeable: ResolvedProfile[] = [];

@@ -271,7 +271,7 @@ describe('the startup errors of chat and ask', () => {
 describe('missingCredentialHint', () => {
   it('nothing to say for a ready profile', () => {
     const profile = { type: 'openai-compatible' as const, model: 'm', api_key_env: 'FAKE_KEY' };
-    const state = { source: { kind: 'env' as const, variable: 'FAKE_KEY' }, ready: true, folderEnv: null, label: 'FAKE_KEY set' };
+    const state = { source: { kind: 'env' as const, variable: 'FAKE_KEY' }, ready: true, folderEnv: null, folderRouting: [], label: 'FAKE_KEY set' };
     expect(missingCredentialHint('p', profile, state)).toBeNull();
   });
 });

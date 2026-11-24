@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -272,5 +272,29 @@ describe('skillsPromptIndex — compact cached index', () => {
     const shown = index.split('\n').filter((l) => l.startsWith('- ')).length;
     const overflow = Number(/\(\+(\d+) more/.exec(index)?.[1]);
     expect(shown + overflow).toBe(30);
+  });
+});
+
+// MNE-001-452 review: the user's own profile stays beneath a project file, and
+// so does its `skills` allowlist.
+describe('skill store — the allowlist of a user profile beneath a project file', () => {
+  it("a user profile's skills key still applies in a folder with a project file", () => {
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemosine-skills-proj-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemosine-skills-home-'));
+    const spy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      makeSkill(projectDir, 'a', simpleSkill('a'));
+      makeSkill(projectDir, 'b', simpleSkill('b'));
+      fs.mkdirSync(path.join(homeDir, '.mnemosine'), { recursive: true });
+      fs.writeFileSync(path.join(homeDir, '.mnemosine', 'config.json'), JSON.stringify({
+        providers: { mio: { type: 'openai-compatible', model: 'm', base_url: 'http://localhost:9/v1', skills: ['a'] } },
+      }));
+      fs.writeFileSync(path.join(projectDir, 'mnemosine.config.json'), JSON.stringify({ default_provider: 'mio' }));
+      expect(visibleSkills(projectDir, { homeDir, env: {} }).map((s) => s.name)).toEqual(['a']);
+    } finally {
+      spy.mockRestore();
+      fs.rmSync(projectDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 });
