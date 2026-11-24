@@ -11,6 +11,7 @@ vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
 import { Command } from 'commander';
 import { registerAccountCommand, fechaDeCatalogo } from '../../src/cli/account-command.js';
 import { ExitCode } from '../../src/cli/kernel/index.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 // ============================================================
 // F07a · LA SUPERFICIE DEL AGRUPADOR desde la terminal.
@@ -111,8 +112,11 @@ async function correr(...argv: string[]): Promise<Corrida> {
     shutdown: (c: number) => {
       code = c;
     },
+    // MNE-001-229: the leaf speaks by key; these assertions read its Spanish,
+    // as the CLI's own reportError prints it in the active language.
     reportError: (e: unknown) => {
-      err += `${(e as Error).message}\n`;
+      const l = e as Error & { localized?: () => string };
+      err += `${l.localized ? l.localized() : l.message}\n`;
     },
   });
   const spyOut = vi.spyOn(process.stdout, 'write').mockImplementation((s) => {
@@ -123,9 +127,11 @@ async function correr(...argv: string[]): Promise<Corrida> {
     err += String(s);
     return true;
   });
+  setLanguage('es');
   try {
     await program.parseAsync(['node', 'mnemosine', 'account', ...argv]);
   } finally {
+    resetLanguage();
     spyOut.mockRestore();
     spyErr.mockRestore();
   }
@@ -163,7 +169,7 @@ describe('fechaDeCatalogo', () => {
 
   it('lo que no es un año de cuatro dígitos es error de uso, con el valor que llegó', () => {
     expect(() => fechaDeCatalogo('26')).toThrow(/"26"/);
-    expect(() => fechaDeCatalogo('dos mil')).toThrow(/cuatro dígitos/);
+    expect(() => fechaDeCatalogo('dos mil')).toThrow(/four-digit fiscal year/);
   });
 });
 
@@ -185,7 +191,7 @@ describe('account map check · la compuerta reporta la población nueva', () => 
       alcance: 'cuentas_con_movimientos', alcanceElegido: true, poblacion: 5, huecos: [],
     };
     const r = await correr('map', 'check');
-    expect(r.err).toMatch(/cobertura completa: 5 cuenta\(s\) con sat-agrupador/);
+    expect(r.err).toMatch(/cobertura completa: 5 cuentas con sat-agrupador/);
     expect(r.err).toMatch(/elegido en el panel/);
     expect(r.code).toBe(ExitCode.OK);
   });
@@ -201,7 +207,7 @@ describe('account map check · la compuerta reporta la población nueva', () => 
       ],
     };
     const r = await correr('map', 'check');
-    expect(r.err).toMatch(/2 de 5 cuenta\(s\) sin sat-agrupador \(alcance "cuentas_con_movimientos", por omisión\)/);
+    expect(r.err).toMatch(/2 de 5 cuentas sin sat-agrupador \(alcance "cuentas_con_movimientos", por omisión\)/);
     expect(r.out).toMatch(/1120/);
     expect(r.code).toBe(ExitCode.VALIDATION);
   });
