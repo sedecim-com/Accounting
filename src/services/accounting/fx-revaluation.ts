@@ -668,18 +668,8 @@ export async function assertNoLiveRevaluation(
 // entry. The reconciliations show it as its own line.
 // ============================================================
 
-/**
- * SQL: the book value of a document's open balance in the functional
- * currency. `alias` is the document table's alias, `entityParam` the
- * placeholder of the entity id (the functional currency is read in the SQL).
- */
-export function bookAmountDueSql(alias: string, entityParam: string): string {
-  return (
-    `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ` +
-    `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) ` +
-    `THEN ${alias}.amount_due ELSE ROUND(${alias}.amount_due * ${alias}.exchange_rate, 4) END`
-  );
-}
+/** That book value, as SQL. It lives in the report layer since MNE-001-647: the aging reads it too. */
+export { bookAmountDueSql } from '../reporting/report-service.js';
 
 /** Open foreign documents per currency: what the subledger holds in each, and at what book value. */
 export interface ForeignOpen {

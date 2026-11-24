@@ -234,7 +234,11 @@ router.get('/income-statement', requirePermission('reports:read'), requireEntity
   });
 }));
 
-/** The key set this endpoint has always published, held stable by hand. */
+/**
+ * The key set this endpoint has always published, held stable by hand.
+ * MNE-001-647 adds `currency_code` (the currency of the two amounts) and
+ * `book_amount_due` (the balance in the entity's functional currency).
+ */
 const publishedInvoice = (r: AgedReceivableRow) => ({
   customer_id: r.customer_id,
   customer_name: r.customer_name,
@@ -242,8 +246,10 @@ const publishedInvoice = (r: AgedReceivableRow) => ({
   invoice_number: r.invoice_number,
   invoice_date: r.invoice_date,
   due_date: r.due_date,
+  currency_code: r.currency_code,
   total_amount: r.total_amount,
   amount_due: r.amount_due,
+  book_amount_due: r.book_amount_due,
   days_overdue: r.days_overdue,
 });
 
@@ -254,8 +260,10 @@ const publishedBill = (r: AgedPayableRow) => ({
   bill_number: r.bill_number,
   bill_date: r.bill_date,
   due_date: r.due_date,
+  currency_code: r.currency_code,
   total_amount: r.total_amount,
   amount_due: r.amount_due,
+  book_amount_due: r.book_amount_due,
   days_overdue: r.days_overdue,
 });
 
@@ -270,7 +278,10 @@ router.get('/aged-receivables', requirePermission('reports:read'), requireEntity
   const report = await getAgedReceivables(entityId as string, { asOfDate: asOf, order: 'party' });
 
   res.json({
-    data: { entity_id: entityId, as_of_date: asOf, invoices: report.rows.map(publishedInvoice) },
+    data: {
+      entity_id: entityId, as_of_date: asOf, invoices: report.rows.map(publishedInvoice),
+      totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
+    },
     meta: meta(req),
   });
 }));
@@ -284,7 +295,10 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
   const report = await getAgedPayables(entityId as string, { asOfDate: asOf, order: 'party' });
 
   res.json({
-    data: { entity_id: entityId, as_of_date: asOf, bills: report.rows.map(publishedBill) },
+    data: {
+      entity_id: entityId, as_of_date: asOf, bills: report.rows.map(publishedBill),
+      totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
+    },
     meta: meta(req),
   });
 }));

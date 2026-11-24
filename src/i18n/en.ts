@@ -1708,7 +1708,7 @@ export const EN = {
 
   'policy.received_credit_note_cost.question': 'When a vendor sends a credit note for a bill, which account takes the cost it lowers?',
   'policy.received_credit_note_cost.impact': 'Governs the entry of a received credit note posted from the inbox (`bill inbox run`). With "bill_accounts" the cost goes back to the expense accounts the bill debited, in proportion to its lines. With "purchase_returns" it goes to purchase returns and discounts (5200), whatever the bill debited. The payable and the VAT move the same either way.',
-  'policy.received_credit_note_cost.rationale': 'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+  'policy.received_credit_note_cost.rationale': 'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, two categories the chart keeps apart. In the seeded chart 5200 belongs to cost of sales, and the account an expense goes to by default (6100) to operating expenses: an operating expense lowered through 5200 would understate a cost of sales it never was part of. The reason is the chart; no paragraph of an accounting standard is cited for it.',
   'policy.received_credit_note_cost.why': 'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
   'policy.received_credit_note_cost.what': 'When you run a vendor credit note from the inbox, I debit accounts payable for its total, take its VAT out of where the VAT of its bill is, and credit the cost to the account you choose here.',
   'policy.received_credit_note_cost.if_skipped': 'The cost goes back to the expense accounts of the bill.',
@@ -3119,6 +3119,12 @@ export const EN = {
   'bank.import.counts':
     '{added, plural, one {# new} other {# new}}, ' +
     '{duplicated, plural, one {# already there} other {# already there}}',
+  'bank.import.nothing_new':
+    'Nothing new was stored: {count, plural, one {the only movement of the file is} other {all # movements of the file are}} ' +
+    'already in {account} by native bank id' +
+    '{held, select, none {} other {, in {statements}}}' +
+    '{loose, plural, =0 {} other { (# entered with no statement)}}. ' +
+    'No statement was created: work with what is already there.',
   'bank.import.findings':
     '{file}: {count, plural, one {# integrity finding} other {# integrity findings}}. They are ' +
     'in staging all the same — it is `bank statement check` that exits 4.',
@@ -5480,7 +5486,7 @@ export const EN = {
     'an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each',
   'help.filing.record.footer':
     'This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.\n' +
-    'An amended return («complementaria») is not recorded here.\n' +
+    'An amended return («complementaria») is recorded with `mnemosine filing correct`.\n' +
     '\nExamples:\n' +
     '  See the row the July return would leave, with its balance in favour, writing nothing:\n' +
     '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
@@ -5500,6 +5506,22 @@ export const EN = {
   'filing.record.paid_on_in_future': '--paid-on {value} is after today ({today}): only a payment already made is recorded. Nothing was written.',
   'filing.record.dry_run': 'Dry run: the return is valid and was rolled back; nothing was written.',
   'filing.record.recorded': 'Recorded: {acuse} is the {period} return in force. Nothing was sent to the SAT.',
+  // ==== MNE-001-629 · filing correct (issue #308) ====
+  'help.filing.correct.description':
+    'Record an amended monthly IVA return («complementaria») already filed in the SAT portal, linked to the return it replaces; both are kept',
+  'help.filing.correct.option.replaces': 'acuse of the return in force this one replaces: the last one filed for that month',
+  'help.filing.correct.footer':
+    'This records an amended return a person already filed (CFF art. 32). It sends nothing to the SAT.\n' +
+    'The return it replaces stays in the record. From now on the month is read from the amended one, and later working papers take its balance in favour from it.\n' +
+    'An amended return states every figure again: repeat each --credit of the return it replaces, or this one credits nothing. --paid is what was paid with this return\'s own capture line.\n' +
+    'It is refused when it leaves less in favour than later months already credited: amend those returns first.\n' +
+    '\nExamples:\n' +
+    '  See the row an amended July return would leave, with 4,200.00 in favour where 5,000.00 were declared, writing nothing:\n' +
+    '    mnemosine filing correct --form iva --period 2026-07 --replaces OP-0701 --filed-on 2026-09-10 --acuse OP-0702 --in-favor 4200.00 --dry-run\n' +
+    '  Amend August: 8,500.00 of IVA less the same 3,000.00 credited from July, 5,500.00 payable, and the 500.00 of difference paid that day:\n' +
+    '    mnemosine filing correct --form iva --period 2026-08 --replaces OP-0801 --filed-on 2026-10-02 --acuse OP-0802 --capture-line LC-0802 --payable 5500.00 --paid 500.00 --paid-on 2026-10-02 --credit OP-0701:3000.00 --json',
+  'filing.correct.replaces_required': 'Missing --replaces: give the acuse of the return in force this amended return replaces. The first return of a month is recorded with `mnemosine filing record`. Nothing was written.',
+  'filing.correct.recorded': 'Recorded: {acuse} replaces {replaced} and is the {period} return in force. Both are kept. Nothing was sent to the SAT.',
   // ==== MNE-001-457 · annual figure record (issue #622) ====
   'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
   'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
@@ -7106,6 +7128,20 @@ export const EN = {
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
 
+  // ==== MNE-001-647 · the totals of an aged listing, per currency (#596) ====
+  'report.aging.total.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}',
+  'report.aging.total.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}',
+  'report.aging.total_foreign.receivable':
+    'Total due {amount} {currency} across {count, plural, one {# open invoice} other {# open invoices}}; book value {book} {functional}',
+  'report.aging.total_foreign.payable':
+    'Total due {amount} {currency} across {count, plural, one {# open bill} other {# open bills}}; book value {book} {functional}',
+  'report.aging.book_value.receivable':
+    'Book value of {count, plural, one {the open invoice} other {the # open invoices}}: {book} {functional}',
+  'report.aging.book_value.payable':
+    'Book value of {count, plural, one {the open bill} other {the # open bills}}: {book} {functional}',
+
   // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
   //
   // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
@@ -7415,6 +7451,9 @@ export const EN = {
   'help.cfdi.post.argument.uuid': 'UUID of a CFDI this entity issued, as cfdi list prints it',
   'help.cfdi.post.option.account': 'revenue account, by code or id, of every concept with no account of its own',
   'help.cfdi.post.option.json': 'one row: invoice number, status, amount due, entry number and dry_run',
+  'cfdi.lookup.same_uuid_twice':
+    'CFDI {uuid} is stored {count} times in this entity, under UUIDs that differ only in letter case: {stored}. ' +
+    'They are one fiscal folio, so none was picked. Until only one of them is kept, this CFDI cannot be read by its UUID.',
   'cfdi.post.bad_uuid':
     '"{uuid}" is not a CFDI UUID. List the issued CFDI to post with: mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending',
   'cfdi.post.confirm':

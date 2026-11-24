@@ -299,8 +299,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // MNE-001-457: `annual figure record`, nested the same way.
   annual: { figure: 'cifra' },
   'annual figure': { record: 'registrar' },
-  // MNE-001-577: `filing record`, beside the workpaper group of MNE-001-060.
-  filing: { workpaper: 'papel-trabajo', record: 'registrar' },
+  // MNE-001-577: `filing record`, beside the workpaper group of MNE-001-060; MNE-001-629: `filing correct`.
+  filing: { workpaper: 'papel-trabajo', record: 'registrar', correct: 'corregir' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },

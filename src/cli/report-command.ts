@@ -683,8 +683,10 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
             bucket: bucketOf(r.days_overdue),
             days_overdue: r.days_overdue,
             due_date: isoDate(r.due_date),
+            currency_code: r.currency_code,
             total_amount: money(r.total_amount),
             amount_due: money(r.amount_due),
+            book_amount_due: money(r.book_amount_due),
           };
           return isAr
             ? {
@@ -709,10 +711,28 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
           total: aging.total,
           idField: isAr ? 'invoice_number' : 'bill_number',
         });
-        note(
-          `Total due ${aging.total_due} across ${aging.total} open ` +
-            (isAr ? 'invoice(s)' : 'bill(s)')
-        );
+        // MNE-001-647: one line per currency, never one figure that adds two
+        // of them; the book value is what puts them side by side.
+        const party = isAr ? 'receivable' : 'payable';
+        const totals = aging.totals_by_currency.length
+          ? aging.totals_by_currency
+          : [{ currency_code: ctx.currency, documents: 0, amount_due: money('0'), book_amount_due: money('0') }];
+        for (const total of totals) {
+          const foreign = total.currency_code !== ctx.currency;
+          note(
+            t(`report.aging.${foreign ? 'total_foreign' : 'total'}.${party}`, {
+              amount: total.amount_due, currency: total.currency_code, count: total.documents,
+              book: total.book_amount_due, functional: ctx.currency,
+            })
+          );
+        }
+        if (totals.some((total) => total.currency_code !== ctx.currency)) {
+          note(
+            t(`report.aging.book_value.${party}`, {
+              book: aging.total_book_amount_due, functional: ctx.currency, count: aging.total,
+            })
+          );
+        }
 
         // The limit of this report, said out loud rather than left for an
         // auditor to discover: the cutoff ages the DUE DATE, but the amount

@@ -2307,7 +2307,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ],
     defaultValue: 'bill_accounts',
     defaultRationale:
-      'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+      'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, two categories the chart keeps apart. In the seeded chart 5200 belongs to cost of sales, and the account an expense goes to by default (6100) to operating expenses: an operating expense lowered through 5200 would understate a cost of sales it never was part of. The reason is the chart; no paragraph of an accounting standard is cited for it.',
     whyAsking:
       'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
     whatIDo:
