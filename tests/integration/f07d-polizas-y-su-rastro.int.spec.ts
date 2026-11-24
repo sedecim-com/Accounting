@@ -269,7 +269,7 @@ describe('la columna que se leía y nadie escribía', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/incompatibles/);
+    ).rejects.toThrow(/incompatible/);
   });
 
   it('rechaza el banco destino SIN cuenta destino: el banco solo no permite emitir el rastro', async () => {
@@ -287,7 +287,7 @@ describe('la columna que se leía y nadie escribía', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/cuenta destino/);
+    ).rejects.toThrow(/destination account/);
   });
 });
 
@@ -1009,11 +1009,11 @@ describe('a receipt declares the payer bank and account, and our account as the 
   it.each([
     ['a payer bank off c_Banco', { paymentMethod: 'spei', payerBankCode: '003' }, /«003».*c_Banco/],
     ['a payer bank that is not three digits', { paymentMethod: 'spei', payerBankCode: '12' }, /«12».*c_Banco/],
-    ['a national and a foreign payer bank', { paymentMethod: 'spei', payerBankCode: '002', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
-    ['999 with a foreign name', { paymentMethod: 'spei', payerBankCode: '999', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
-    ['a payer account with no payer bank', { paymentMethod: 'spei', payerAccount: PAYER_ACCOUNT }, /cuenta del cliente.*banco/],
+    ['a national and a foreign payer bank', { paymentMethod: 'spei', payerBankCode: '002', payerForeignBank: 'Bank of Nowhere' }, /national.*foreign/],
+    ['999 with a foreign name', { paymentMethod: 'spei', payerBankCode: '999', payerForeignBank: 'Bank of Nowhere' }, /national.*foreign/],
+    ['a payer account with no payer bank', { paymentMethod: 'spei', payerAccount: PAYER_ACCOUNT }, /customer's account was given and its bank/],
     ['a payer bank on a cash receipt', { paymentMethod: 'cash', payerBankCode: '002' }, /«cash»/],
-    ['a cheque number longer than the node allows', { paymentMethod: 'check', checkNumber: '1'.repeat(21) }, /20 caracteres/],
+    ['a cheque number longer than the node allows', { paymentMethod: 'check', checkNumber: '1'.repeat(21) }, /20 characters/],
   ] as const)('refuses %s before anything is written', async (_case, payer, message) => {
     const before = await receiptRows();
     const issued = await issuedInvoice(RECEIPT_MONTH, '10.00');

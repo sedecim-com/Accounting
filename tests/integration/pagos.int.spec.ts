@@ -188,7 +188,7 @@ describe('lo que el servicio se niega a hacer', () => {
     // El mensaje desglosa efectivo y descuento desde F04: extinguir pasivo
     // dejó de ser sólo aplicar efectivo, así que decir «se intentan aplicar»
     // ya no describiría lo que se rechaza.
-    ).rejects.toThrow(/debe 116\.00 y se intentan extinguir 500\.00/);
+    ).rejects.toThrow(/owes 116\.00 and 500\.00 is being extinguished/);
   });
 
   it('las aplicaciones no pueden sumar más que el pago', async () => {
@@ -204,7 +204,7 @@ describe('lo que el servicio se niega a hacer', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/no se puede aplicar más de lo que se pagó/);
+    ).rejects.toThrow(/more than was paid cannot be applied/);
   });
 
   it('un pago sin aplicar a nada se rechaza: no liberaría nada', async () => {
@@ -216,7 +216,7 @@ describe('lo que el servicio se niega a hacer', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/no libera saldo ni acredita IVA/);
+    ).rejects.toThrow(/releases no balance and credits no VAT/);
   });
 
   it('un estado distinto de completed se rechaza nombrando al programador que no existe', async () => {
@@ -230,7 +230,7 @@ describe('lo que el servicio se niega a hacer', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/programador de pagos que no existe/);
+    ).rejects.toThrow(/payment scheduler that does not exist/);
   });
 });
 
@@ -308,7 +308,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/aparece dos veces/);
+    ).rejects.toThrow(/appears twice/);
 
     const bd = await query<{ amount_due: string; status: string }>(
       `SELECT amount_due, status FROM bills WHERE id = $1`, [gasto.billId]
@@ -329,7 +329,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/Tienen que coincidir/);
+    ).rejects.toThrow(/They have to match/);
   });
 
   it('un gasto en otra moneda no se paga con un importe crudo', async () => {
@@ -344,7 +344,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/está en USD y el pago en MXN/);
+    ).rejects.toThrow(/is in USD and the payment in MXN/);
   });
 
   it('un descuento por pronto pago YA no se rechaza: extingue pasivo y va al contra-costo', async () => {
@@ -386,7 +386,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/NOTA DE CRÉDITO/);
+    ).rejects.toThrow(/CREDIT NOTE/);
   });
 
   it('un gasto en borrador no se paga: su pasivo no está en el mayor', async () => {
@@ -403,7 +403,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/su pasivo tiene que estar en el mayor primero/);
+    ).rejects.toThrow(/its liability has to be in the ledger first/);
   });
 
   it('el pago se atribuye al proveedor del gasto, no a otro', async () => {
@@ -417,6 +417,6 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/auxiliar equivocado/);
+    ).rejects.toThrow(/wrong subledger/);
   });
 });

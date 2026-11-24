@@ -96,6 +96,90 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.ENTITY_NOT_FOUND.posting': 'La entidad {entity} no existe o no es visible.',
   'error.TENANT_NO_RESUELTO.entry':
     'No se pudo determinar el inquilino de la entidad {entity}: el asiento no se escribe sin rastro de auditoría.',
+  // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
+  'error.VALIDATION_ERROR.payment.destination_bank_both':
+    'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
+  'error.VALIDATION_ERROR.payment.destination_bank_length':
+    'La clave de banco destino «{national}» tiene {length} caracteres y el c_Banco del SAT son {expected}. Un banco no se identifica por su nombre en este campo: si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.',
+  'error.VALIDATION_ERROR.payment.destination_bank_off_list':
+    'La clave de banco destino «{national}» no está en el catálogo c_Banco del SAT (tres dígitos de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.',
+  'error.VALIDATION_ERROR.payment.destination_account_missing':
+    'Se indicó el banco destino y no la cuenta destino. En la póliza del Anexo 24 la cuenta destino es el dato obligatorio del nodo de transferencia y el banco el opcional: el banco solo no permite emitir el rastro y sí aparenta que el pago ya lo tiene.',
+  'error.VALIDATION_ERROR.payment.cheque_on_other_method':
+    'Se dio número de cheque («{cheque}») a un pago {side, select, cliente {cobrado} other {hecho}} por «{method}». El número de cheque identifica un cheque: sobre otro método la póliza del Anexo 24 declararía un cheque que no existe. Usa la referencia bancaria para el folio de una transferencia.',
+  'error.VALIDATION_ERROR.payment.cheque_too_long':
+    'El número de cheque «{cheque}» pasa de los 20 caracteres que admite el nodo Cheque de la póliza del Anexo 24.',
+  'error.VALIDATION_ERROR.payment.payer_bank_on_vendor_payment':
+    'El banco y la cuenta del pagador sólo se capturan en un cobro. En un pago a proveedor el origen es nuestra cuenta bancaria (`--bank`), y su clave c_Banco vive en esa cuenta.',
+  'error.VALIDATION_ERROR.payment.payer_bank_method':
+    'Se dio banco o cuenta del cliente a un cobro por «{method}». Sólo un cheque o una transferencia declaran de qué banco salió el dinero en la póliza del Anexo 24.',
+  'error.VALIDATION_ERROR.payment.payer_bank_both':
+    'El cobro declara banco del cliente nacional («{bank}») y extranjero («{foreign}») a la vez. Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.',
+  'error.VALIDATION_ERROR.payment.payer_bank_off_list':
+    'La clave de banco del cliente «{bank}» no está en el catálogo c_Banco del SAT (tres dígitos de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.',
+  'error.VALIDATION_ERROR.payment.payer_account_without_bank':
+    'Se indicó la cuenta del cliente y no su banco. El nodo de pago de la póliza exige el banco de origen: la cuenta sola no permite emitirlo y sí aparenta que el cobro ya tiene su rastro.',
+  'error.VALIDATION_ERROR.payment.payer_trace_too_long':
+    'La cuenta del cliente admite hasta 50 caracteres y el nombre de su banco extranjero hasta 150, los mismos límites del nodo de pago de la póliza.',
+  'error.PAYMENT_STATE_UNSUPPORTED':
+    "Un pago sólo puede registrarse como '{state}': mnemosine registra pagos que YA ocurrieron. El estado '{status}' pertenece a un programador de pagos que no existe, y un pago que no ha salido del banco no puede tocar el mayor.",
+  'error.VALIDATION_ERROR.payment.no_application':
+    'Un pago sin aplicar a ningún documento no libera saldo ni acredita IVA: indica a qué se aplica.',
+  'error.VALIDATION_ERROR.payment.advance_without_party':
+    'Un anticipo sin documento necesita el {side, select, cliente {cliente} other {proveedor}} explícito: sin documento no hay de dónde deducirlo.',
+  'error.VALIDATION_ERROR.payment.document_repeated':
+    'El documento {document} aparece dos veces en el mismo pago. Súmalas en una sola aplicación: repetirlo restaría su saldo dos veces.',
+  'error.VALIDATION_ERROR.payment.customer_discount_is_credit_note':
+    'Un descuento concedido a un cliente no es una línea del cobro: es una NOTA DE CRÉDITO, con su documento y su CFDI de egreso. Emítela con `mnemosine credit-note create --type descuento` y aplícala a la factura.',
+  'error.VALIDATION_ERROR.payment.applications_exceed_amount':
+    'Las aplicaciones suman {total} y el pago es de {amount}: no se puede aplicar más de lo que se pagó.',
+  'error.VALIDATION_ERROR.payment.applications_mismatch':
+    'Las aplicaciones suman {total} y el pago es de {amount}. Tienen que coincidir: lo que sobra quedaría cargado a la cuenta de control sin bajar de ningún auxiliar. Si el remanente es deliberado, dilo con onAccount (--on-account): quedará como anticipo {side, select, cliente {del cliente} other {a proveedores}}.',
+  'error.VALIDATION_ERROR.payment.currency_mismatch':
+    '{document} está en {documentCurrency} y el pago en {paymentCurrency}. Un importe en otra moneda se restaría crudo del saldo y se asentaría crudo, sin tipo de cambio.',
+  'error.VALIDATION_ERROR.payment.document_rate_missing':
+    '{document} está en {currency} pero su exchange_rate es {rate} (el default de captura): se asentó sin convertir. Corrige el documento antes de {settle, select, cobrarlo {cobrarlo} other {pagarlo}} — la diferencia cambiaria se mide contra la tasa a la que el documento nació (NIF B-15).',
+  'error.VALIDATION_ERROR.payment.rate_not_positive': 'El tipo de cambio del pago ({rate}) tiene que ser mayor que cero.',
+  'error.VALIDATION_ERROR.payment.bank_account_inactive':
+    'La cuenta bancaria "{account}" está inactiva: no registra movimientos nuevos. Elige una cuenta activa de `bank account list`.',
+  'error.VALIDATION_ERROR.payment.advance_other_currency':
+    'El anticipo viene en {currency} y esta entidad lleva sus libros en {functional}. No lo registro convertido porque la tasa y su fuente las decide el despacho en la política `fuente_tipo_cambio`, no yo; y no lo registro sin convertir porque asentaría una cifra de otra moneda como si fuera de ésta. Aplica el {side, select, cliente {cobro} other {pago}} a un documento en su moneda, o registra el anticipo en {functional}.',
+  'error.VALIDATION_ERROR.payment.vendor_unresolved': 'No se pudo determinar el proveedor del pago.',
+  'error.VALIDATION_ERROR.payment.customer_unresolved': 'No se pudo determinar el cliente del cobro.',
+  'error.FX_AR_ON_ACCOUNT_NOT_WIRED.receipt':
+    'El cobro en {currency} deja {amount} a cuenta del cliente. Un saldo a cuenta en otra moneda todavía no se puede aplicar ni desaplicar convertido, así que no lo registro: aplica el cobro completo a facturas en {currency}.',
+  'error.VALIDATION_ERROR.payment.bill_not_payable':
+    '{bill} está en "{status}" y sólo se puede pagar un gasto {payable}: su pasivo tiene que estar en el mayor primero.',
+  'error.VALIDATION_ERROR.payment.bill_not_applicable': '{bill} está en "{status}" y sólo se puede aplicar a un gasto {payable}.',
+  'error.VALIDATION_ERROR.payment.bill_other_vendor':
+    '{bill} es del proveedor {vendor} y el pago se atribuye a {counterparty}: el pago quedaría en el auxiliar equivocado.',
+  'error.VALIDATION_ERROR.payment.bill_exceeds_due':
+    '{bill} debe {due} y se intentan extinguir {settled} ({cash} de efectivo + {discount} de descuento).',
+  'error.VALIDATION_ERROR.payment.invoice_not_collectible':
+    '{invoice} está en "{status}" y sólo se puede cobrar una factura {collectible}: su ingreso tiene que estar en el mayor primero.',
+  'error.VALIDATION_ERROR.payment.invoice_not_applicable':
+    '{invoice} está en "{status}" y sólo se puede aplicar a una factura {collectible}.',
+  'error.VALIDATION_ERROR.payment.invoice_other_customer':
+    '{invoice} es del cliente {customer} y el cobro se atribuye a {counterparty}: quedaría en el auxiliar equivocado.',
+  'error.VALIDATION_ERROR.payment.invoice_exceeds_due': '{invoice} debe {due} y se intentan aplicar {applied}.',
+  'error.VALIDATION_ERROR.payment.discount_over_terms':
+    '{bill} concede {granted} de descuento por pronto pago ("{terms}") y se están tomando {taken}. La diferencia no es descuento: es pagar de menos. Si es deliberado, dilo con --mode residual --short-pay-reason.',
+  'error.VALIDATION_ERROR.payment.not_completed':
+    "{side, select, cliente {El cobro} other {El pago}} {payment} está en '{status}': sólo un {side, select, cliente {cobro} other {pago}} 'completed' admite este evento.",
+  'error.VALIDATION_ERROR.payment.apply_which_invoices': 'Indica a qué factura(s) se aplica el saldo a cuenta.',
+  'error.VALIDATION_ERROR.payment.apply_which_bills': 'Indica a qué gasto(s) se aplica el saldo a cuenta.',
+  'error.VALIDATION_ERROR.payment.application_document_repeated':
+    'El documento {document} aparece dos veces en la misma aplicación: súmalas en una.',
+  'error.VALIDATION_ERROR.payment.on_account_short':
+    '{side, select, cliente {El cobro} other {El pago}} {payment} tiene {left} sin aplicar y se intentan aplicar {total}: el saldo a cuenta no alcanza.',
+  'error.VALIDATION_ERROR.payment.nothing_to_unapply':
+    'El cobro {receipt} no tiene ninguna aplicación viva sobre {invoice}: no hay qué desaplicar.',
+  'error.VALIDATION_ERROR.payment.reversal_fee_not_wired':
+    'La comisión por devolución todavía no se puede registrar: necesita una cuenta con rol de comisiones bancarias en la capa semántica. Reversa el cobro sin --fee y registra la comisión como asiento manual mientras tanto.',
+  'error.VALIDATION_ERROR.payment.short_pay_reason_required':
+    'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que desapareció.',
+  'error.VALIDATION_ERROR.payment.short_pay_forbidden':
+    'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o cambia la política con `mnemosine pending reopen pago_corto_residual` (si ya estaba definida) y luego `mnemosine pending define pago_corto_residual`.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
@@ -4496,7 +4580,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.create.option.period': 'periodo de pago de la entidad activa (su id)',
   'help.pay_run.create.option.type': 'tipo de corrida: {types}',
   'help.pay_run.calculate.description':
-    'Calcula de bruto a neto a cada empleado del archivo de insumos y totaliza la corrida',
+    'Calcula de bruto a neto a cada empleado del archivo de insumos y totaliza la corrida; ' +
+    'una corrida sin aprobar se puede volver a calcular, y sus recibos se rehacen',
   'help.pay_run.calculate.argument.id': 'corrida de nómina por calcular',
   'help.pay_run.calculate.option.file': 'JSON con los insumos de los empleados: un arreglo, o {shape}',
   'help.pay_run.approve.description':
@@ -6479,6 +6564,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.calculate.file_required':
     'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
   'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',
+  'payrun.calculate.paycheck_left_the_system':
+    'La corrida {id} no se puede volver a calcular: {count, plural, one {# de sus recibos ya tiene} ' +
+    'other {# de sus recibos ya tienen}} un CFDI de nómina o un lote de depósito, y volver a calcular ' +
+    'reemplaza todos los recibos de la corrida. No se cambió nada.',
+  'payrun.calculate.changed_meanwhile': 'La corrida {id} cambió mientras se calculaba. No se escribió nada.',
   'payrun.approve.confirm':
     'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
     'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',

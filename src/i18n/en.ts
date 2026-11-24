@@ -132,6 +132,99 @@ export const EN = {
   'error.TENANT_NO_RESUELTO.entry':
     'The tenant of entity {entity} could not be determined: the entry is not written without an audit trail.',
 
+  // ---- MNE-001-480 part 1 · the refusals of src/services/payments that were Spanish prose (issue #151) ----
+  // `error.VALIDATION_ERROR.payment.<case>` for a ValidationError, beside the
+  // `schema.*` cases of MNE-001-152; `error.<CODE>[.<case>]` for an
+  // AccountingError. The Spanish twin is the text each site printed. `side` is
+  // the party the site already names, the customer or the vendor.
+  // The bank trace of the money
+  'error.VALIDATION_ERROR.payment.destination_bank_both':
+    'The payment declares a national destination bank («{national}») and a foreign one («{foreign}») at once. Anexo 24 asks for the catalogue CODE for a national bank and the NAME for a foreign one: declaring both states two incompatible things about the same movement, and the file carries them as they are to the authority.{foreignCode, select, yes { A foreign bank is given by its name alone: the voucher puts the code {code} on it when it writes it.} other {}}',
+  'error.VALIDATION_ERROR.payment.destination_bank_length':
+    'The destination bank code «{national}» has {length} characters and the SAT c_Banco has {expected}. A bank is not identified by its name in this field: if the bank is foreign, give its name in the foreign bank field.',
+  'error.VALIDATION_ERROR.payment.destination_bank_off_list':
+    'The destination bank code «{national}» is not in the SAT c_Banco catalogue (three digits from the published list). If the bank is foreign, give its name in the foreign bank field.',
+  'error.VALIDATION_ERROR.payment.destination_account_missing':
+    'The destination bank was given and the destination account was not. In the Anexo 24 voucher the destination account is the required field of the transfer node and the bank the optional one: the bank alone does not let the trace be issued, and it looks as if the payment already had it.',
+  'error.VALIDATION_ERROR.payment.cheque_on_other_method':
+    'A cheque number («{cheque}») was given to a payment {side, select, cliente {received} other {made}} by «{method}». A cheque number identifies a cheque: on another method the Anexo 24 voucher would declare a cheque that does not exist. Use the bank reference for the folio of a transfer.',
+  'error.VALIDATION_ERROR.payment.cheque_too_long':
+    'The cheque number «{cheque}» is longer than the 20 characters the Cheque node of the Anexo 24 voucher admits.',
+  'error.VALIDATION_ERROR.payment.payer_bank_on_vendor_payment':
+    "The payer's bank and account are captured only on a receipt. On a payment to a vendor the origin is our own bank account (`--bank`), and its c_Banco code lives on that account.",
+  'error.VALIDATION_ERROR.payment.payer_bank_method':
+    'A customer bank or account was given to a receipt by «{method}». Only a cheque or a transfer declares, in the Anexo 24 voucher, which bank the money left from.',
+  'error.VALIDATION_ERROR.payment.payer_bank_both':
+    'The receipt declares a national customer bank («{bank}») and a foreign one («{foreign}») at once. A foreign bank is given by its name alone: the voucher puts the code {code} on it when it writes it.',
+  'error.VALIDATION_ERROR.payment.payer_bank_off_list':
+    'The customer bank code «{bank}» is not in the SAT c_Banco catalogue (three digits from the published list). If the bank is foreign, give its name in the foreign bank field.',
+  'error.VALIDATION_ERROR.payment.payer_account_without_bank':
+    "The customer's account was given and its bank was not. The payment node of the voucher requires the origin bank: the account alone does not let it be issued, and it looks as if the receipt already had its trace.",
+  'error.VALIDATION_ERROR.payment.payer_trace_too_long':
+    "The customer's account admits up to 50 characters and the name of its foreign bank up to 150, the same limits as the payment node of the voucher.",
+  // Recording a payment or a receipt
+  'error.PAYMENT_STATE_UNSUPPORTED':
+    "A payment can only be recorded as '{state}': mnemosine records payments that have ALREADY happened. The status '{status}' belongs to a payment scheduler that does not exist, and a payment that has not left the bank cannot touch the ledger.",
+  'error.VALIDATION_ERROR.payment.no_application':
+    'A payment applied to no document releases no balance and credits no VAT: say what it applies to.',
+  'error.VALIDATION_ERROR.payment.advance_without_party':
+    'An advance with no document needs the {side, select, cliente {customer} other {vendor}} stated explicitly: with no document there is nothing to deduce it from.',
+  'error.VALIDATION_ERROR.payment.document_repeated':
+    'The document {document} appears twice in the same payment. Add them up into a single application: repeating it would subtract its balance twice.',
+  'error.VALIDATION_ERROR.payment.customer_discount_is_credit_note':
+    'A discount granted to a customer is not a line of the receipt: it is a CREDIT NOTE, with its document and its egreso CFDI. Issue it with `mnemosine credit-note create --type descuento` and apply it to the invoice.',
+  'error.VALIDATION_ERROR.payment.applications_exceed_amount':
+    'The applications add up to {total} and the payment is {amount}: more than was paid cannot be applied.',
+  'error.VALIDATION_ERROR.payment.applications_mismatch':
+    'The applications add up to {total} and the payment is {amount}. They have to match: what is left over would be charged to the control account without coming off any subledger. If the remainder is deliberate, say so with onAccount (--on-account): it will stay as an advance {side, select, cliente {from the customer} other {to vendors}}.',
+  'error.VALIDATION_ERROR.payment.currency_mismatch':
+    '{document} is in {documentCurrency} and the payment in {paymentCurrency}. An amount in another currency would be subtracted raw from the balance and posted raw, with no exchange rate.',
+  'error.VALIDATION_ERROR.payment.document_rate_missing':
+    '{document} is in {currency} but its exchange_rate is {rate} (the capture default): it was posted unconverted. Correct the document before {settle, select, cobrarlo {collecting it} other {paying it}}: the exchange difference is measured against the rate the document was born with (NIF B-15).',
+  'error.VALIDATION_ERROR.payment.rate_not_positive': "The payment's exchange rate ({rate}) has to be greater than zero.",
+  'error.VALIDATION_ERROR.payment.bank_account_inactive':
+    'The bank account "{account}" is inactive: it records no new movements. Choose an active account from `bank account list`.',
+  'error.VALIDATION_ERROR.payment.advance_other_currency':
+    'The advance comes in {currency} and this entity keeps its books in {functional}. I do not record it converted, because the rate and its source are decided by the firm in the policy `fuente_tipo_cambio`, not by me; and I do not record it unconverted, because it would post a figure in another currency as if it were in this one. Apply the {side, select, cliente {receipt} other {payment}} to a document in its currency, or record the advance in {functional}.',
+  'error.VALIDATION_ERROR.payment.vendor_unresolved': 'The vendor of the payment could not be determined.',
+  'error.VALIDATION_ERROR.payment.customer_unresolved': 'The customer of the receipt could not be determined.',
+  'error.FX_AR_ON_ACCOUNT_NOT_WIRED.receipt':
+    "The receipt in {currency} leaves {amount} on the customer's account. A balance on account in another currency cannot be applied or unapplied with conversion yet, so I do not record it: apply the whole receipt to invoices in {currency}.",
+  // The documents a payment or a receipt settles
+  'error.VALIDATION_ERROR.payment.bill_not_payable':
+    '{bill} is "{status}" and only a bill in {payable} can be paid: its liability has to be in the ledger first.',
+  'error.VALIDATION_ERROR.payment.bill_not_applicable': '{bill} is "{status}" and only a bill in {payable} can be applied to.',
+  'error.VALIDATION_ERROR.payment.bill_other_vendor':
+    '{bill} belongs to vendor {vendor} and the payment is attributed to {counterparty}: the payment would land in the wrong subledger.',
+  'error.VALIDATION_ERROR.payment.bill_exceeds_due':
+    '{bill} owes {due} and {settled} is being extinguished ({cash} in cash + {discount} in discount).',
+  'error.VALIDATION_ERROR.payment.invoice_not_collectible':
+    '{invoice} is "{status}" and only an invoice in {collectible} can be collected: its revenue has to be in the ledger first.',
+  'error.VALIDATION_ERROR.payment.invoice_not_applicable':
+    '{invoice} is "{status}" and only an invoice in {collectible} can be applied to.',
+  'error.VALIDATION_ERROR.payment.invoice_other_customer':
+    '{invoice} belongs to customer {customer} and the receipt is attributed to {counterparty}: it would land in the wrong subledger.',
+  'error.VALIDATION_ERROR.payment.invoice_exceeds_due': '{invoice} owes {due} and {applied} is being applied.',
+  'error.VALIDATION_ERROR.payment.discount_over_terms':
+    '{bill} grants {granted} of early-payment discount ("{terms}") and {taken} is being taken. The difference is not a discount: it is paying less. If it is deliberate, say so with --mode residual --short-pay-reason.',
+  // Applying, unapplying and reversing what was recorded
+  'error.VALIDATION_ERROR.payment.not_completed':
+    "{side, select, cliente {Receipt} other {Payment}} {payment} is '{status}': only a 'completed' {side, select, cliente {receipt} other {payment}} admits this event.",
+  'error.VALIDATION_ERROR.payment.apply_which_invoices': 'Say which invoice(s) the balance on account applies to.',
+  'error.VALIDATION_ERROR.payment.apply_which_bills': 'Say which bill(s) the balance on account applies to.',
+  'error.VALIDATION_ERROR.payment.application_document_repeated':
+    'The document {document} appears twice in the same application: add them up into one.',
+  'error.VALIDATION_ERROR.payment.on_account_short':
+    '{side, select, cliente {Receipt} other {Payment}} {payment} has {left} unapplied and {total} is being applied: the balance on account does not cover it.',
+  'error.VALIDATION_ERROR.payment.nothing_to_unapply':
+    'Receipt {receipt} has no live application on {invoice}: there is nothing to unapply.',
+  'error.VALIDATION_ERROR.payment.reversal_fee_not_wired':
+    'The return fee cannot be recorded yet: it needs an account with the bank-fees role in the semantic layer. Reverse the receipt without --fee and record the fee as a manual entry meanwhile.',
+  'error.VALIDATION_ERROR.payment.short_pay_reason_required':
+    'Closing a bill by paying less erases a liability that was owed: say why with --short-pay-reason. Without a written reason, the auditor only sees a balance that disappeared.',
+  'error.VALIDATION_ERROR.payment.short_pay_forbidden':
+    'The policy `pago_corto_residual` of this firm is set to "prohibir": no bill is closed by paying less. Ask the vendor for the credit note and apply it, or change the policy with `mnemosine pending reopen pago_corto_residual` (if it was already defined) and then `mnemosine pending define pago_corto_residual`.',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
@@ -5149,7 +5242,8 @@ export const EN = {
   'help.pay_run.create.option.period': 'pay period of the active entity (its id)',
   'help.pay_run.create.option.type': 'run type: {types}',
   'help.pay_run.calculate.description':
-    'Calculate gross to net for each employee in the inputs file and total the run',
+    'Calculate gross to net for each employee in the inputs file and total the run; ' +
+    'a run that is not approved can be calculated again, which rebuilds its paychecks',
   'help.pay_run.calculate.argument.id': 'pay run to calculate',
   'help.pay_run.calculate.option.file': 'JSON with the employee inputs: an array, or {shape}',
   'help.pay_run.approve.description':
@@ -7130,6 +7224,11 @@ export const EN = {
   'payrun.calculate.file_required':
     'Missing --file: the employee inputs of the period (earnings and deductions) come from a JSON file.',
   'payrun.calculate.next': 'Next: `mnemosine pay-run approve {id} --dry-run` to see what approving writes.',
+  'payrun.calculate.paycheck_left_the_system':
+    'Run {id} cannot be calculated again: {count, plural, one {# of its paychecks already has} ' +
+    'other {# of its paychecks already have}} a payroll CFDI or a deposit batch, and calculating again ' +
+    'replaces every paycheck of the run. Nothing was changed.',
+  'payrun.calculate.changed_meanwhile': 'Run {id} changed while it was being calculated. Nothing was written.',
   'payrun.approve.confirm':
     'You are about to APPROVE run {id} ({employees, plural, one {# employee} other {# employees}}, ' +
     'net pay {net}) and write its employer liability. Approval is not undone. Continue?',
