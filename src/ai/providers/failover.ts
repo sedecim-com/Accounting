@@ -74,7 +74,7 @@ const BILLING_RE =
 const TIMEOUT_RE = /\btim(ed|e).?out\b|deadline exceeded/i;
 
 // The Anthropic SDK's own «no credential» error, a plain Error raised before
-// any request is sent (node_modules/@anthropic-ai/sdk/client.js:407 in 1.8.0).
+// any request is sent (node_modules/@anthropic-ai/sdk/client.js:410 in 1.12.0).
 const ANTHROPIC_NO_CREDENTIAL_RE = /could not resolve authentication method/i;
 
 /**

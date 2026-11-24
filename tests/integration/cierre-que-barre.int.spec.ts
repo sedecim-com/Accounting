@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { softClosePeriod, hardClosePeriod } from '../../src/services/accounting/period-close.js';
@@ -73,6 +73,7 @@ describe('el barrido anual con cuentas contra-naturales', () => {
     expect(await saldoDelEjercicio(f, f.cuentas['5100'])).toBeCloseTo(6000, 4);
     expect(await saldoDelEjercicio(f, f.cuentas['5200'])).toBeCloseTo(-1000, 4);
 
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'cierre del ejercicio');
 
@@ -93,6 +94,7 @@ describe('el barrido anual con cuentas contra-naturales', () => {
     const f = await crearInquilino('Cierre dos pasos');
     enterTenant(f.tenantId);
     await poblarEjercicio(f);
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId);
 
@@ -114,6 +116,7 @@ describe('el barrido anual con cuentas contra-naturales', () => {
     );
 
     await poblarEjercicio(f);
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId);
 
@@ -128,6 +131,7 @@ describe('recierre de un periodo reabierto', () => {
     enterTenant(f.tenantId);
     await poblarEjercicio(f);
 
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId);
     expect(await saldoDe(f.cuentas['3300'], f.periodos[12])).toBeCloseTo(-3000, 4);
@@ -178,6 +182,7 @@ describe('recierre de un periodo reabierto', () => {
     );
 
     await poblarEjercicio(f);
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId);
 

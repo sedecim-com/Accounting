@@ -262,6 +262,19 @@ export async function crearInquilino(app: App, nombre: string): Promise<Inquilin
   return { tenantId, entityId, userId, fiscalYearId, periodos, cuentas, roles };
 }
 
+/**
+ * MNE-001-661 (#602). The firm of the scenario declares that it seals a
+ * fiscal year over periods that are not hard-closed. For a scenario that
+ * seals December over the eleven months it never closed: it measures the
+ * sweep, not the order of the closes, and under the default of
+ * `year_seal_with_unsealed_months` that seal is refused.
+ */
+async function acceptSealOverUnsealedMonths(app: App, tenant: Inquilino): Promise<void> {
+  const ctx = { tenantId: tenant.tenantId, entityId: tenant.entityId };
+  await app.policies.seedPolicies(ctx);
+  await app.policies.resolvePolicy(ctx, 'year_seal_with_unsealed_months', 'accept_unsealed', tenant.userId);
+}
+
 /** A second legal entity inside an existing tenant, and what was seeded for it. */
 export interface SiblingEntity {
   entityId: string;
@@ -978,6 +991,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
 
       const diciembre = inq.periodos[12];
       try {
+        await acceptSealOverUnsealedMonths(app, inq);
         await app.cierre.softClosePeriod(diciembre, inq.entityId, inq.userId);
         await app.cierre.hardClosePeriod(diciembre, inq.entityId, inq.userId, 'cierre del ejercicio');
       } catch (e) {
@@ -1173,6 +1187,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
 
       const RANGO = { startDate: '2026-01-01', endDate: '2026-12-31' };
       try {
+        await acceptSealOverUnsealedMonths(app, inq);
         await app.cierre.softClosePeriod(inq.periodos[12], inq.entityId, inq.userId);
         await app.cierre.hardClosePeriod(inq.periodos[12], inq.entityId, inq.userId, 'cierre del ejercicio');
       } catch (e) {

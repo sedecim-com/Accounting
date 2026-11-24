@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
+import { acceptSealOverUnsealedMonths, crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
 import { query, withTransaction, closeDatabase } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import {
@@ -127,6 +127,7 @@ describe('asientos de cierre anual', () => {
 
     // Resultado del ejercicio en el último periodo, y cierre duro del año.
     await postear(12, '800.00', f.roles.banco, f.roles.ingreso);
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId);
 
