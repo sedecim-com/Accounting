@@ -5941,7 +5941,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.init.description':
     'Configuración guiada: infraestructura, entidad, usuarios, proveedor de IA y tu contabilidad',
   'help.init.option.status': 'Sólo muestra el estado; no configura nada',
-  'help.init.option.section': 'Configura una sola sección (infra|identity|users|ai|policies|import)',
+  'help.init.option.section': 'Configura una sola sección (language|infra|identity|users|ai|policies|import)',
   'help.init.option.yes': 'No interactivo: usa los valores por omisión y las banderas, sin preguntar nada',
   'help.init.option.tenant': 'Inquilino (despacho)',
   'help.init.option.entity': 'Nombre de la entidad legal que se crea',
@@ -6383,6 +6383,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.switch.kept': 'La sesión sigue en {current}.',
   'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
+  'cli.lang.offer': 'Para usar Mnemosine en español: mnemosine idioma es',
+  'cli.lang.step.title': 'Idioma',
+  'cli.lang.step.prompt': '¿Qué idioma?',
+  // ==== end of MNE-001-470 ====
   // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
   'help.lang.argument.language':
     'el idioma que se fija: {choices}; sin él, muestra el idioma en efecto y qué lo decidió',

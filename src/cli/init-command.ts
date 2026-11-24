@@ -115,6 +115,7 @@ export function makeSectionContext(
  * Spanish id (the section's internal id), mirroring the command aliases.
  */
 const SECTION_ALIASES: Record<string, string> = {
+  language: 'idioma', idioma: 'idioma',
   infra: 'infra', infrastructure: 'infra',
   identity: 'identidad', identidad: 'identidad',
   users: 'usuarios', usuarios: 'usuarios',
@@ -180,7 +181,7 @@ export async function runInitWizard(
   const selected = wanted ? sections.filter((s) => s.id === wanted) : sections;
   if (selected.length === 0) {
     console.error(
-      `Unknown section: "${opts.section}". Options: infra, identity, users, ai, policies, import`
+      `Unknown section: "${opts.section}". Options: language, infra, identity, users, ai, policies, import`
     );
     return { completed: false, offerChat: false };
   }
