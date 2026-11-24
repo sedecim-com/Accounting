@@ -322,6 +322,10 @@ external:
     # over its synthetic golden set; ingest, jobs run-due and init's import refuse it, and
     # a failover walk never moves into it (src/ai/providers/trial-endpoint.ts,
     # MNE-001-448, #644).
+    # CONTRACT: `mnemosine status` probes an `anthropic` profile through the SDK client
+    # the session builds (src/ai/providers/anthropic-client.ts): the profile's key or the
+    # SDK's own sources, its headers and its host, never the profile's base_url or
+    # headers, one 1-token request with no retry (MNE-001-447, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

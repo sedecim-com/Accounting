@@ -258,6 +258,7 @@ El salto no ocurre ante cualquier error. [`failover.ts`](https://github.com/sede
 | Categoría | ¿Salta? | Por qué |
 |---|---|---|
 | `auth`, `rate_limit`, `server`, `timeout`, `billing` | Sí | Otro proveedor puede responder. |
+| `unconfigured` | Sí, **sin enfriamiento** | El eslabón no tiene aquí una credencial que sirva: falta su variable, su helper no imprimió ninguna, o es un helper o un par de un archivo de proyecto que no aprobaste. No se mandó nada, así que no hay nada que enfriar. |
 | `overflow` | **No** | El prompt no cabe en ningún proveedor de ventana parecida. Eso es trabajo de la compactación. |
 | `refusal` | **No** | Una negativa de seguridad tiene que llegarle a la persona, no irse de compras hasta que algún modelo obedezca. |
 | `aborted` | **No** | Un Ctrl+C no es una falla del proveedor; reintentar reanudaría una corrida que alguien acaba de cancelar. |
@@ -267,7 +268,7 @@ El salto no ocurre ante cualquier error. [`failover.ts`](https://github.com/sede
 
 Los enfriamientos son escalonados por proveedor —30 s la primera vez, duplicando hasta un tope de 5 min, en memoria— y el recorrido **siempre arranca en la cabeza de la cadena**: en cuanto expira el enfriamiento del principal, la siguiente llamada lo vuelve a probar a él primero. Los respaldos son temporales.
 
-La atribución del modelo es correcta por construcción: la retrollamada del intento recibe el perfil **realmente usado**, así que un borrador creado por el modelo de respaldo queda atribuido a ese modelo, no al que se pidió. Y cada salto deja una fila en `ai_agent_events` con `kind = 'failover'`.
+La atribución del modelo es correcta por construcción: la retrollamada del intento recibe el perfil **realmente usado**, así que un borrador creado por el modelo de respaldo queda atribuido a ese modelo, no al que se pidió. Y cada salto deja una fila en `ai_agent_events` con `kind = 'failover'`, salvo el de un eslabón `unconfigured`: ése se dice en una línea tenue y no deja fila, porque `mnemosine ai stats` cuenta fallas del proveedor, no huecos de configuración. Un perfil cuyo `api_key_env` nombra un secreto de la instalación no se salta: se rechaza y la cadena se detiene ahí. Un 404 o un 410 tampoco salta.
 
 ---
 
@@ -301,7 +302,7 @@ mnemosine status
 mnemosine status --all
 ```
 
-La sonda ([`probe.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/ai/providers/probe.ts)) contesta una sola pregunta por proveedor —¿puede servir una petición ahora mismo?— con la llamada más barata que el endpoint ofrece: `GET {base_url}/models` para los OpenAI-compatibles, que no cuesta tokens, y para Anthropic un `POST /v1/messages` con `max_tokens: 1`, porque no hay endpoint autenticado más barato y un token es el piso. Diez segundos de tiempo límite, sin reintentos, aisladas entre sí, y el error **categorizado con la misma taxonomía** que usa la cadena de respaldo: `auth` y `billing` piden acciones distintas del operador.
+La sonda ([`probe.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/ai/providers/probe.ts)) contesta una sola pregunta por proveedor —¿puede servir una petición ahora mismo?— con la llamada más barata que el endpoint ofrece: `GET {base_url}/models` para los OpenAI-compatibles, que no cuesta tokens, y para Anthropic un `POST /v1/messages` con `max_tokens: 1`, porque no hay endpoint autenticado más barato y un token es el piso. La de Anthropic va por el mismo cliente del SDK que arma la sesión: la misma credencial —la llave del perfil o, sin ella, lo que el SDK encuentra por su cuenta, como `ANTHROPIC_AUTH_TOKEN` o la sesión de `ant auth login`—, las mismas cabeceras (`Authorization: Bearer`) y el mismo host, sin el `base_url` ni los `headers` del perfil, que la sesión tampoco manda; `ANTHROPIC_BASE_URL` de tu entorno sí cuenta, como en la sesión. Diez segundos de tiempo límite, sin reintentos, aisladas entre sí, y el error **categorizado con la misma taxonomía** que usa la cadena de respaldo: `auth` y `billing` piden acciones distintas del operador.
 
 Sin `--all`, sondea la cadena de respaldo activa. Con `--all`, todos los perfiles configurados.
 
@@ -316,7 +317,7 @@ Si algo no responde, el diagnóstico paso a paso está en [[Solucion-de-problema
 
 > **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
 
-- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` apuntaba a `console.anthropic.com/settings/keys`, que hace 301; desde MNE-001-444 apunta a `platform.claude.com/settings/keys`.
+- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` siguió con la cabecera vieja hasta que el SDK 1.8.0 pasó la sesión a `Authorization: Bearer` (#920), y la sonda de `status` la siguió en MNE-001-447. El deep-link de `KEY_URLS` apuntaba a `console.anthropic.com/settings/keys`, que hace 301; desde MNE-001-444 apunta a `platform.claude.com/settings/keys`.
 - **Todos los proveedores relevantes exponen listado de modelos** (`GET /v1/models` o equivalente): la puerta `providers models` que la sonda del init podría usar para no adivinar el id sigue sin existir, y con ella la instantánea de deriva y una política `ia_deriva_modelo`.
 - **Siguen sin perfil** Mistral, Groq, Together, DeepSeek, Cerebras y Fireworks, y sin plantilla Azure OpenAI ni AWS Bedrock; `api_key_cmd` no tiene TTL (`config.ts:712-727`); el PKCE de OpenRouter no está en el init. La nota del perfil `openclaw` está incompleta: su endpoint sí acepta herramientas (`config.ts:473`).
 
