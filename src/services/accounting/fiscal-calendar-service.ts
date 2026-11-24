@@ -639,3 +639,152 @@ export async function createFiscalYear(
   }
   return result;
 }
+
+/** One account whose beginning balance the carry changes, in the ledger's sign (debit positive). */
+export interface OpeningCorrection {
+  code: string;
+  before: string;
+  after: string;
+}
+
+/** What `year carry-forward run` found, and did, on a year's first period. */
+export interface YearCarryForward {
+  year_number: number;
+  /** The year's first period in books order: the one the carry writes. */
+  period: { id: string; period_name: string; status: FiscalPeriodStatus };
+  /** The sealed period right before it, whose endings are carried. */
+  carried_from: string;
+  /** The accounts whose beginning changes; empty when they already are the carried figures. */
+  corrections: OpeningCorrection[];
+  /** False on a dry run and when there was nothing to correct: the run was rolled back. */
+  written: boolean;
+}
+
+/** Takes a result out of a transaction that has to roll back (the pattern of invoice-service.ts). */
+class CarryRolledBack extends Error {
+  constructor(readonly result: YearCarryForward) {
+    super('carry rolled back');
+    this.name = 'CarryRolledBack';
+  }
+}
+
+/**
+ * One period's beginning balances by account code: one statement, whatever
+ * the size of the chart. In byte order, so the corrections are listed the
+ * same way whatever the collation of the database.
+ */
+async function beginningsOf(
+  client: pg.PoolClient,
+  entityId: string,
+  periodId: string
+): Promise<Map<string, string>> {
+  const r = await client.query<{ code: string; beginning: string }>(
+    `SELECT a.code, ab.beginning_balance::text AS beginning
+       FROM account_balances ab JOIN accounts a ON a.id = ab.account_id
+      WHERE ab.fiscal_period_id = $2 AND ab.entity_id = $1
+      ORDER BY a.code COLLATE "C"`,
+    [entityId, periodId]
+  );
+  return new Map(r.rows.map((row) => [row.code, row.beginning]));
+}
+
+/**
+ * MNE-001-645 (#594). `year carry-forward run`: the carry for a year that
+ * already exists. A year created after its predecessor was sealed, by the
+ * code before MNE-001-644, has no beginning balances and cannot close its
+ * first period. This runs on it the carry `ensureFiscalYear` runs at
+ * creation, `openFiscalYearOnSealedBooks`, and nothing of its own: it reads
+ * the first period's beginnings before and after, and what differs is what
+ * the carry corrected. So it writes what a year created today is born with.
+ *
+ * The carry writes beginnings and recomputes endings from them; entries,
+ * lines and the period's debit and credit totals are not touched, so a first
+ * period that already has movements keeps them and moves by the difference.
+ *
+ * Idempotent: with nothing to correct the transaction is rolled back and no
+ * audit row is written. A dry run is the same run, rolled back, so it shows
+ * what the real one writes and fails where the real one fails.
+ *
+ * It refuses when the period before the year is not sealed (its own hard
+ * close will carry), when there is none, and when the first period is itself
+ * sealed and would change: a closed period does not change without being
+ * reopened. The lock on the first period makes its hard close, and a second
+ * run of this, wait.
+ */
+export async function carryForwardIntoYear(
+  entityId: string,
+  yearNumber: number,
+  userId: string,
+  opts: { dryRun?: boolean } = {}
+): Promise<YearCarryForward> {
+  try {
+    return await withTransaction(async (client) => {
+      const first = await client.query<{
+        fiscal_year_id: string; id: string; period_name: string; status: FiscalPeriodStatus;
+      }>(
+        `SELECT fy.id AS fiscal_year_id, fp.id, fp.period_name, fp.status
+           FROM fiscal_years fy
+           JOIN fiscal_periods fp ON fp.fiscal_year_id = fy.id AND fp.entity_id = fy.entity_id
+          WHERE fy.entity_id = $1 AND fy.year_number = $2
+          ORDER BY fp.start_date ASC, fp.period_number ASC LIMIT 1
+          FOR UPDATE OF fp`,
+        [entityId, yearNumber]
+      );
+      if (first.rows.length === 0) throw new NotFoundError('Fiscal year', String(yearNumber));
+      const { fiscal_year_id: fiscalYearId, ...period } = first.rows[0];
+      const names = { year: yearNumber, period: period.period_name };
+      // The carry never writes a locked period, so there is nothing to compare.
+      if (period.status === FiscalPeriodStatus.LOCKED) {
+        throw new AccountingError('CARRY_TARGET_SEALED', { key: 'error.CARRY_TARGET_SEALED.locked', params: names });
+      }
+
+      const before = await beginningsOf(client, entityId, period.id);
+      const opening = await openFiscalYearOnSealedBooks(client, entityId, fiscalYearId);
+      if (!opening.previous) {
+        throw new AccountingError('CARRY_SOURCE_MISSING', { key: 'error.CARRY_SOURCE_MISSING', params: names });
+      }
+      const previous = opening.previous.period_name;
+      if (!opening.carry) {
+        throw new AccountingError('CARRY_SOURCE_NOT_SEALED', {
+          key: 'error.CARRY_SOURCE_NOT_SEALED',
+          params: { ...names, previous, status: opening.previous.status },
+        });
+      }
+
+      const corrections: OpeningCorrection[] = [];
+      for (const [code, after] of await beginningsOf(client, entityId, period.id)) {
+        // A row the carry created had no beginning: it opened at zero.
+        const was = before.get(code) ?? '0.0000';
+        if (was !== after) corrections.push({ code, before: was, after });
+      }
+      const result: YearCarryForward = {
+        year_number: yearNumber, period, carried_from: previous, corrections, written: false,
+      };
+      if (corrections.length === 0) throw new CarryRolledBack(result);
+      if (period.status === FiscalPeriodStatus.HARD_CLOSE) {
+        throw new AccountingError('CARRY_TARGET_SEALED', {
+          key: 'error.CARRY_TARGET_SEALED.hard_close',
+          params: { ...names, previous, count: corrections.length },
+        });
+      }
+      if (opts.dryRun) throw new CarryRolledBack(result);
+
+      const figures = (side: 'before' | 'after') =>
+        Object.fromEntries(corrections.map((c) => [c.code, c[side]]));
+      await registrarAuditoria(client, {
+        tenantId: await inquilinoDeEntidad(client, entityId),
+        legalEntityId: entityId,
+        userId,
+        action: 'update',
+        entityType: 'fiscal_period',
+        entityId: period.id,
+        oldValues: { beginning_balances: figures('before') },
+        newValues: { beginning_balances: figures('after'), carried_from: previous, fiscal_year: yearNumber },
+      });
+      return { ...result, written: true };
+    });
+  } catch (err) {
+    if (err instanceof CarryRolledBack) return err.result;
+    throw err;
+  }
+}

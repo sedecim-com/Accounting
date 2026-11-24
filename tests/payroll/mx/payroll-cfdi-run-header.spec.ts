@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { types } from 'pg';
 
 // MNE-001-277 · TipoNomina, PeriodicidadPago and Antiguedad come from the run,
 // the pay schedule and the hire date, not from literals or the surname.
@@ -21,7 +22,7 @@ import { pacRouter } from '../../../src/services/integrations/mexico/pac/pac-rou
 const mockQuery = query as unknown as Mock;
 const mockStamp = pacRouter.stamp as unknown as Mock;
 
-async function xmlFor(over: Record<string, string | null>): Promise<string> {
+async function xmlFor(over: Record<string, string | Date | null>): Promise<string> {
   mockQuery.mockImplementation(async (sql: string) => {
     if (/FROM paychecks p/.test(sql)) {
       return {
@@ -135,5 +136,56 @@ describe('the run has to be approved before its paycheck is stamped', () => {
     expect(mockStamp).toHaveBeenCalledTimes(1);
     const first = String(mockQuery.mock.calls[0][0]);
     expect(first).toMatch(/pr\.status AS run_status/);
+  });
+});
+
+// MNE-001-735 (#601): the specs above hand the generator a row of strings. The
+// driver does not: it parses a DATE column (oid 1082) into a `Date` at the
+// process's local midnight. These rows are built by that same parser.
+//
+// By hand: 2026-08-01 to 2026-08-15 is 15 days with both counted. From
+// 2025-03-09 to 2026-03-09 is 365 days and to 2026-08-15 is 159 more
+// (22 + 30 + 31 + 30 + 31 + 15): 525 with both counted, 75 weeks exactly, so a
+// day lost at either end would read P74W.
+describe('the dates of a row as the driver reads it', () => {
+  const zoneBefore = process.env.TZ;
+  const asTheDriverReads = types.getTypeParser(types.builtins.DATE) as (day: string) => Date;
+  const rowOfDates = () => ({
+    period_start: asTheDriverReads('2026-08-01'),
+    period_end: asTheDriverReads('2026-08-15'),
+    pay_date: asTheDriverReads('2026-08-14'),
+    hire_date: asTheDriverReads('2025-03-09'),
+  });
+
+  afterEach(() => {
+    if (zoneBefore === undefined) delete process.env.TZ;
+    else process.env.TZ = zoneBefore;
+  });
+
+  // The side of Greenwich: 0 on it, 1 west of it, -1 east of it.
+  it.each([
+    ['UTC', 0],
+    ['America/Mexico_City', 1],
+    ['Asia/Tokyo', -1],
+  ])('in %s the XML carries the stored days in the formats of the two schemas', async (zone, side) => {
+    process.env.TZ = zone;
+    const row = rowOfDates();
+    expect(row.pay_date).toBeInstanceOf(Date);
+    expect(Math.sign(row.pay_date.getTimezoneOffset())).toBe(side);
+
+    const doc = await xmlFor({ emp_number: 'N-735', pay_frequency: 'quincenal', ...row });
+    expect(doc).toContain(' Folio="NOM-N-735-2026-08-14"');
+    expect(doc).toContain(' Fecha="2026-08-14T10:00:00"');
+    expect(doc).toContain(' FechaPago="2026-08-14" FechaInicialPago="2026-08-01" FechaFinalPago="2026-08-15"');
+    expect(doc).toContain(' FechaInicioRelLaboral="2025-03-09"');
+    expect(doc).toContain(' NumDiasPagados="15"');
+    expect(doc).toContain(' Antiguedad="P75W"');
+    expect(mockStamp.mock.calls[0][0]).toBe(doc);
+  });
+
+  it('a value that is not a calendar day is refused before the PAC is called', async () => {
+    await expect(xmlFor({ pay_date: 'Fri Aug 14 2026' })).rejects.toThrow(ValidationError);
+    expect(mockStamp).not.toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 });
