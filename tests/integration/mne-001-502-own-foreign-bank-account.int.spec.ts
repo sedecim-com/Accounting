@@ -62,10 +62,14 @@ async function auditRows(id: string) {
   return r.rows;
 }
 
-/** Refused with the key, before any write: the row and its audit trail are as they were. */
-async function refused(id: string, attempt: Promise<unknown>, key: string): Promise<void> {
+/**
+ * Refused with the key, before any write: the row and its audit trail are as they were.
+ * The attempt is a thunk, started only after the before-snapshot: a promise passed in
+ * already running would reject while the snapshot is read, with no handler attached yet.
+ */
+async function refused(id: string, attempt: () => Promise<unknown>, key: string): Promise<void> {
   const before = [await rowOf(id), await auditRows(id)];
-  const e = await attempt.catch((x: unknown) => x);
+  const e = await attempt().catch((x: unknown) => x);
   expect(e).toBeInstanceOf(ValidationError);
   expect((e as ValidationError).messageKey?.key).toBe(key);
   expect([await rowOf(id), await auditRows(id)]).toEqual(before);
@@ -187,8 +191,8 @@ describe('migration 343 · the column and its CHECK', () => {
 
 describe('bank account edit --foreign-bank, with its reason', () => {
   it('without a reason it is refused, keyed, and nothing is written', async () => {
-    await refused(F, edit(F, { foreignBank: true }, null), 'bank.account.foreign_bank.reason_required');
-    await refused(F, edit(F, { foreignBank: true }, '   '), 'bank.account.foreign_bank.reason_required');
+    await refused(F, () => edit(F, { foreignBank: true }, null), 'bank.account.foreign_bank.reason_required');
+    await refused(F, () => edit(F, { foreignBank: true }, '   '), 'bank.account.foreign_bank.reason_required');
   });
 
   it('with --dry-run nothing is written', async () => {
@@ -217,7 +221,7 @@ describe('bank account edit --foreign-bank, with its reason', () => {
     ['adding 999 to a marked account', () => F, { satBankCode: '999' }, 'bank.account.foreign_bank.keeps_sat_bank_code'],
     ['adding a CLABE to a marked account', () => F, { clabe: VENDOR_CLABE }, 'bank.account.foreign_bank.keeps_clabe'],
   ] as const)('%s is refused before any write', async (_case, id, patch, key) => {
-    await refused(id(), edit(id(), patch), key);
+    await refused(id(), () => edit(id(), patch), key);
   });
 
   it('one edit that clears the code and sets the mark is accepted, judged on the row as it leaves it', async () => {
@@ -293,7 +297,7 @@ describe('P1-P5 · the month of October, from F marked and from N unmarked', () 
   }, 120_000);
 
   it('removing the mark is audited the same way, and F\'s vouchers are named again', async () => {
-    await refused(F, edit(F, { foreignBank: false }, null), 'bank.account.foreign_bank.reason_required');
+    await refused(F, () => edit(F, { foreignBank: false }, null), 'bank.account.foreign_bank.reason_required');
     await edit(F, { foreignBank: false }, 'El banco resultó residente en México');
     const last = (await auditRows(F)).at(-1);
     expect(last).toEqual({
