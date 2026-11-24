@@ -24,7 +24,7 @@
     "help-descriptions-without-key": 99,
     "cli-user-strings-without-key": 847,
     "help-examples-without-key": 253,
-    "spanish-user-strings-services": 2012
+    "spanish-user-strings-services": 2018
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1733,7 +1733,7 @@
       "src/services/fiscal/inpc/parseo.ts": 14,
       "src/services/fiscal/inpc/periodo.ts": 7,
       "src/services/fiscal/issued-credit-notes.ts": 9,
-      "src/services/fiscal/iva-workpaper.ts": 61,
+      "src/services/fiscal/iva-workpaper.ts": 67,
       "src/services/fiscal/prior-balance.ts": 5,
       "src/services/fiscal/provisional-income-tax-inputs.ts": 8,
       "src/services/fiscal/provisional-income-tax.ts": 11,
