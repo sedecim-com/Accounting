@@ -1071,7 +1071,7 @@ export const E1_2: Criterio[] = [
       const mensaje = customerSide.slice(compara, inserta);
       const refusalKey = 'error.VALIDATION_ERROR.payment.advance_other_currency';
       const catalogText = (file: string): string =>
-        new RegExp(`'${refusalKey.replace(/\./g, '\\.')}':\\s*'([^']*)'`).exec(codigoDe(file))?.[1] ?? '';
+        new RegExp(`'${refusalKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}':\\s*'([^']*)'`).exec(codigoDe(file))?.[1] ?? '';
       if (
         !mensaje.includes(`key: '${refusalKey}'`) ||
         !['src/i18n/en.ts', 'src/i18n/es.ts'].every((f) => /fuente_tipo_cambio/.test(catalogText(f)))
