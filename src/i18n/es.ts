@@ -3469,6 +3469,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'platform.jobs.create.adopted': '  Adoptado para ti: con jobs.run_due en "adopted", tu tic lo corre.',
   'platform.jobs.create.adopt_failed':
     'El trabajo se creó, pero no se pudo adoptar para ti ({error}). Adóptalo con: mnemosine jobs adopt {id}',
+  'platform.jobs.list.none': 'No hay trabajos configurados. Crea uno con `mnemosine jobs create`.',
+  'platform.jobs.list.column.name': 'NOMBRE',
+  'platform.jobs.list.column.kind': 'TIPO',
+  'platform.jobs.list.column.schedule': 'CALENDARIO',
+  'platform.jobs.list.column.enabled': 'ACTIVO',
+  'platform.jobs.list.column.fails': 'FALLOS',
+  'platform.jobs.list.column.next_run': 'PRÓXIMA CORRIDA',
+  'platform.jobs.list.enabled': '{enabled, select, yes {sí} other {no}}',
+  'platform.jobs.history.none': 'Todavía no hay corridas registradas.',
+  'platform.jobs.history.column.started': 'INICIO',
+  'platform.jobs.history.column.job': 'TRABAJO',
+  'platform.jobs.history.column.status': 'ESTADO',
+  'platform.jobs.history.column.drafts': 'BORRADORES',
+  'platform.jobs.history.column.detail': 'DETALLE',
+  'platform.jobs.create.done': 'Trabajo creado: {id}',
+  'platform.jobs.create.summary': '{name} ({kind}) · calendario {schedule} · próxima corrida {next}',
+  'platform.jobs.create.wire_tick': 'Conecta el tic: programa `mnemosine jobs run-due` en cron/launchd.',
+  'platform.jobs.enable.done': 'Trabajo "{name}" habilitado · próxima corrida {next}',
+  'platform.jobs.disable.done': 'Trabajo "{name}" deshabilitado.',
+  'platform.jobs.run_due.key_not_applied':
+    '--idempotency-key no aplica al tic: cada trabajo vencido se reclama de forma atómica, y deduplicar tics saltaría en silencio corridas legítimas.',
+  'platform.jobs.run_due.none': 'Ningún trabajo está vencido.',
+  'platform.jobs.run_due.would_run': 'correría: {name}  {kind}  {next}',
+  'platform.jobs.run_due.next_run': 'próxima corrida {date}',
+  'platform.jobs.run_due.dry_run_summary':
+    '(--dry-run: {count, plural, one {# trabajo vencido} other {# trabajos vencidos}}; no se reclamó ni corrió nada)',
+  'platform.jobs.run_due.sandbox':
+    'sandbox: los trabajos corren sin las lecturas externas (external_pull / external_diff_trial_balance). Un cron de conciliación necesita la superficie completa: programa `mnemosine jobs run-due --live`.',
+  'platform.jobs.run_due.outcome_drafts': 'borradores: {count}',
+  'platform.jobs.run_due.auto_disabled':
+    'El trabajo "{name}" llegó a su límite de fallos y se deshabilitó solo. Vuelve a habilitarlo con: mnemosine jobs enable {id}',
+  'platform.jobs.run_due.record_failed': 'La corrida de "{name}" no se pudo registrar en el historial: {error}',
+  'platform.jobs.run_due.drafts_created':
+    '{count, plural, one {# borrador creado: se revisa} other {# borradores creados: se revisan}} con `mnemosine review`.',
   'help.jobs.adopt.description':
     'Adopta un trabajo: con jobs.run_due en "adopted" en ~/.mnemosine/config.json, jobs run-due corre sólo los trabajos que adoptaste',
   'help.jobs.adopt.argument.job_id': 'Id del trabajo (se omite con --list)',

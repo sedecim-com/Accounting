@@ -92,7 +92,8 @@ async function as(home: string, ...argv: string[]): Promise<Run> {
   let error: unknown = null;
   const homedir = vi.spyOn(os, 'homedir').mockReturnValue(home);
   const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
-  const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.map(String).join(' ')));
+  // The leaf writes its lines to stdout, not console.log (MNE-001-587).
+  const log = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => { out.push(String(c).replace(/\n$/, '')); return true; });
   const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
     err += String(chunk);
     return true;
