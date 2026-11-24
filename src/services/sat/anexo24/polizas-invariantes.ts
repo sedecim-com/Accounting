@@ -138,7 +138,8 @@ export interface UntracedMoney {
   /**
    * The option of `bank account edit` that completes that bank account, when
    * it is not its c_Banco code: a receipt into it also needs its number for
-   * CtaDest (#611). Absent: `--sat-bank-code <clave>`.
+   * CtaDest (#611), and a foreign bank's name must fit its `*Ext`
+   * (MNE-001-502). Absent: `--sat-bank-code <clave>`, or the foreign-bank mark.
    */
   bankAccountFlag?: string;
   /**
@@ -273,8 +274,14 @@ export function polizaConDineroSinRastro(
           `capturar el pago no lo arregla, y un pago nuevo a la misma contraparte saldría igual. ` +
           `Corrige ese registro y vuelve a generar.`
         : s.missingOnBankAccount !== undefined
-          ? ` El dato falta en ${s.missingOnBankAccount}, no en el pago: captúralo ` +
-            `(\`bank account edit <cuenta> ${s.bankAccountFlag ?? '--sat-bank-code <clave>'}\`) y vuelve a generar.`
+          ? ` El dato falta en ${s.missingOnBankAccount}, no en el pago: ` +
+            (s.bankAccountFlag !== undefined
+              ? `captúralo (\`bank account edit <cuenta> ${s.bankAccountFlag}\`) y vuelve a generar.`
+              : // MNE-001-502: with no c_Banco code there are two ways out, and
+                // only a person takes the second: nothing infers the mark.
+                `captura su clave (\`bank account edit <cuenta> --sat-bank-code <clave>\`) o, si su banco no ` +
+                `reside en México, márcala (\`bank account edit <cuenta> --foreign-bank --reason <motivo>\`), ` +
+                `y vuelve a generar.`)
           : s.completedBy !== undefined
             ? ` Complétalo en el pago ya registrado (\`${s.completedBy}\`) y vuelve a generar.`
             : s.noCommandFixes !== undefined

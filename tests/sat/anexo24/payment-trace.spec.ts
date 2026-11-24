@@ -50,8 +50,20 @@ const account = (over: Partial<BankAccount> = {}): BankAccount => ({
   clabe_last4: CLABE.slice(-4),
   account_number_encrypted: null,
   account_number_last4: null,
+  bank_is_foreign: false,
   ...over,
 });
+
+/** MNE-001-502 · F of the plan: an own account at a foreign bank, no c_Banco code, no CLABE, a person marked it. */
+const F_NUMBER = '000123456789';
+const F_BANK = 'First Example Bank, N.A.';
+const foreignAccount = (over: Partial<BankAccount> = {}): BankAccount =>
+  account({
+    id: 'ba-f', account_name: 'Cuenta en Nueva York', sat_bank_code: null, bank_name: F_BANK,
+    clabe_encrypted: null, clabe_last4: null,
+    account_number_encrypted: encrypt(F_NUMBER), account_number_last4: F_NUMBER.slice(-4),
+    bank_is_foreign: true, ...over,
+  });
 
 /** What the accountant reads: the motive from the service, the remedy from the invariant. */
 function finding(
@@ -415,6 +427,9 @@ const CAUSES: readonly Cause[] = [
   { name: 'a receipt into an account with no c_Banco code', direction: 'entra', payment: receipt(), bank: account({ sat_bank_code: null }), remedy: 'bank account edit <cuenta> --sat-bank-code <clave>', site: 'our-bank-code' },
   { name: 'a receipt into an account with no number', direction: 'entra', payment: receipt(), bank: account({ clabe_encrypted: null }), remedy: 'bank account edit <cuenta> --clabe <18 dígitos>', site: 'entra-to-account' },
   { name: 'a receipt with no payer bank', direction: 'entra', payment: receipt({ banco_origen_sat: null }), bank: account(), remedy: '`receipt trace record PMT-2026-00011 --payer-bank <clave> --reason <motivo>`', site: 'payer-bank' },
+  // MNE-001-502: our foreign bank's name goes out whole or not at all.
+  { name: 'a cheque from a foreign-bank account whose name is over 150', direction: 'sale', payment: vendorCheck(), bank: foreignAccount({ bank_name: 'B'.repeat(151) }), remedy: 'bank account edit <cuenta> --bank <nombre de hasta 150 caracteres>', site: 'our-foreign-name' },
+  { name: 'a receipt into a foreign-bank account with a blank name', direction: 'entra', payment: receipt(), bank: foreignAccount({ bank_name: '  ' }), remedy: 'bank account edit <cuenta> --bank <nombre de hasta 150 caracteres>', site: 'our-foreign-name' },
 ];
 
 describe('every cause of a registered payment has a remedy that is true (MNE-001-568)', () => {
@@ -469,5 +484,142 @@ describe('every cause of a registered payment has a remedy that is true (MNE-001
   it('no cause is left out: one row per branch of `rastroDePago` that names a motive', () => {
     const branches = (rastroDePago.toString().match(/\bmotivo:/g) ?? []).length;
     expect(new Set(CAUSES.map((c) => c.site)).size).toBe(branches);
+  });
+});
+
+// ============================================================
+// MNE-001-502 (#697, part 1) · AN OWN ACCOUNT A PERSON MARKED AS AT A FOREIGN
+// BANK. It has no c_Banco code, so it is declared as 999 with its bank's name
+// in the `*Ext` of our side. The same account unmarked stays named: nothing
+// infers the mark. Hand figures P1-P5 and the lengths, from the plan.
+// ============================================================
+
+describe('an own account marked as at a foreign bank goes out as 999 with its name (MNE-001-502)', () => {
+  const N = (over: Partial<BankAccount> = {}): BankAccount => foreignAccount({ bank_is_foreign: false, ...over });
+  /** A cheque of 58.00 (P1, P4). */
+  const check4001 = vendorCheck({ check_number: '4001', payment_amount: '58.0000' });
+  /** A SPEI of 116.00 to a CLABE at bank 012 (P2, P5). */
+  const spei = payment({ cuenta_destino: CLABE, banco_destino_sat: '012' });
+  /** A receipt of 232.00 from a payer at bank 072 (P3). */
+  const received = receipt({ payment_amount: '232.0000', banco_origen_sat: '072' });
+
+  it('P1: the cheque 4001 from F carries BanEmisNal 999 and BanEmisExt with F\'s name', () => {
+    const r = rastroDePago(check4001, 'sale', foreignAccount(), passThrough, ENTRY);
+    expect(r.motivo).toBeUndefined();
+    expect(r.pago).toEqual({
+      clase: 'cheque', num: '4001', banEmisNal: '999', banEmisExt: F_BANK, ctaOri: F_NUMBER,
+      fecha: '2026-10-15', benef: 'Fletes del Norte SA', rfc: 'FNO010101AB1', monto: '58.00', moneda: 'MXN',
+    });
+  });
+
+  it('P2: the SPEI from F carries BancoOriNal 999 and BancoOriExt, and the destination stays 012 with no name', () => {
+    const r = rastroDePago(spei, 'sale', foreignAccount(), passThrough, ENTRY);
+    expect(r.pago).toEqual({
+      clase: 'transferencia', ctaOri: F_NUMBER, bancoOriNal: '999', bancoOriExt: F_BANK, ctaDest: CLABE, bancoDestNal: '012',
+      fecha: '2026-10-15', benef: 'Fletes del Norte SA', rfc: 'FNO010101AB1', monto: '116.00', moneda: 'MXN',
+    });
+  });
+
+  it('P3: a receipt into F carries BancoDestNal 999 and BancoDestExt, and the payer bank 072 with no name', () => {
+    const r = rastroDePago(received, 'entra', foreignAccount(), passThrough, ENTRY);
+    expect(r.pago).toEqual({
+      clase: 'transferencia', ctaOri: PAYER_ACCOUNT, bancoOriNal: '072', ctaDest: F_NUMBER, bancoDestNal: '999', bancoDestExt: F_BANK,
+      fecha: '2026-10-15', benef: 'Cliente Puntual SA', rfc: 'CPU010101AB1', monto: '232.00', moneda: 'MXN',
+    });
+  });
+
+  it('a transfer from F to a foreign destination carries both names', () => {
+    const r = rastroDePago(
+      payment({ cuenta_destino: 'GB29NWBK60161331926819', banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }),
+      'sale', foreignAccount(), passThrough, ENTRY
+    );
+    expect(r.pago).toMatchObject({ bancoOriNal: '999', bancoOriExt: F_BANK, bancoDestNal: '999', bancoDestExt: 'Bank of Nowhere' });
+  });
+
+  it.each([
+    ['P4 the cheque 4001', 'sale', check4001, 'el nodo Cheque exige BanEmisNal'],
+    ['P5 the SPEI', 'sale', spei, 'el nodo Transferencia exige BancoOriNal'],
+    ['the receipt', 'entra', received, 'el nodo Transferencia exige BancoDestNal'],
+  ] as const)('%s from N, unmarked, stays named, and the remedy names both ways out', (_case, direction, p, node) => {
+    // N has F's foreign-looking name, no code and no CLABE: none of it marks it.
+    const f = finding(p, direction, N());
+    expect(f.node).toBe(false);
+    expect(f.text).toContain('«Cuenta en Nueva York» (id ba-f), que no tiene clave c_Banco');
+    expect(f.text).toContain(node);
+    expect(f.text).toContain('`bank account edit <cuenta> --sat-bank-code <clave>`');
+    expect(f.text).toContain('si su banco no reside en México');
+    expect(f.text).toContain('`bank account edit <cuenta> --foreign-bank --reason <motivo>`');
+    expect(f.text).not.toContain('999');
+  });
+
+  it('a marked account that has a code declares the code and never a name with it', () => {
+    const r = rastroDePago(check4001, 'sale', foreignAccount({ sat_bank_code: '012' }), passThrough, ENTRY);
+    expect(r.pago).toMatchObject({ banEmisNal: '012' });
+    expect(r.pago).not.toHaveProperty('banEmisExt');
+  });
+
+  it('F with no account number: the cheque stays named for its origin account', () => {
+    const f = finding(check4001, 'sale', foreignAccount({ account_number_encrypted: null, account_number_last4: null }));
+    expect(f.node).toBe(false);
+    expect(f.text).toContain('no se pudo resolver la cuenta de origen');
+  });
+
+  it('the name goes through the sanitizer it is given, naming the voucher and our bank account', () => {
+    const calls: string[][] = [];
+    const recording = (raw: string, entry: string, field: string): string => {
+      calls.push([raw, entry, field]);
+      return raw.replace(/\s+/g, ' ').trim();
+    };
+    const r = rastroDePago(spei, 'sale', foreignAccount({ bank_name: 'First Example\nBank, N.A.' }), recording, ENTRY);
+    expect(r.pago).toMatchObject({ bancoOriNal: '999', bancoOriExt: F_BANK });
+    expect(calls).toContainEqual([
+      'First Example\nBank, N.A.', ENTRY, 'BancoOriExt de la cuenta bancaria «Cuenta en Nueva York» (id ba-f)',
+    ]);
+  });
+
+  // The XSD counts characters, which are code points: '𝔅' (U+1D505) is one
+  // character and two UTF-16 units.
+  const OUTSIDE_BMP = '\u{1D505}';
+
+  it('a name of 150 code points (151 UTF-16 units) goes out whole', () => {
+    const name = 'B'.repeat(149) + OUTSIDE_BMP;
+    expect(name.length).toBe(151);
+    const r = rastroDePago(check4001, 'sale', foreignAccount({ bank_name: name }), passThrough, ENTRY);
+    expect(r.pago).toMatchObject({ banEmisNal: '999', banEmisExt: name });
+  });
+
+  it('the length is counted after the sanitizer: 150 once its spaces collapse goes out', () => {
+    const r = rastroDePago(
+      spei, 'sale', foreignAccount({ bank_name: `${'B'.repeat(75)}  \n ${'B'.repeat(74)}` }),
+      (raw) => raw.replace(/\s+/g, ' ').trim(), ENTRY
+    );
+    expect(r.pago).toMatchObject({ bancoOriExt: `${'B'.repeat(75)} ${'B'.repeat(74)}` });
+  });
+
+  it.each([
+    ['Cheque', 'BanEmisExt', 'sale', check4001, 'el cheque 4001 sale de'],
+    ['Transferencia', 'BancoOriExt', 'sale', spei, 'la transferencia VPMT-2026-00007 sale de'],
+    ['Transferencia', 'BancoDestExt', 'entra', received, 'el cobro PMT-2026-00011 entra a'],
+  ] as const)('a name of 151 code points leaves the %s node out, names %s, 151 and 150, and is never truncated', (node, attribute, direction, p, what) => {
+    const name = 'B'.repeat(150) + OUTSIDE_BMP;
+    const r = rastroDePago(p, direction, foreignAccount({ bank_name: name }), passThrough, ENTRY);
+    expect(r.pago).toBeUndefined();
+    expect(r.motivo).toBe(
+      `${what} la cuenta bancaria «Cuenta en Nueva York» (id ba-f), de banco extranjero, cuyo nombre de banco tiene ` +
+        `151 caracteres; el nodo ${node} lo declara en ${attribute}, que admite 150, y el nombre no se recorta`
+    );
+    const f = finding(p, direction, foreignAccount({ bank_name: name }));
+    expect(f.text).toContain('`bank account edit <cuenta> --bank <nombre de hasta 150 caracteres>`');
+    expect(f.text).not.toContain('--sat-bank-code');
+  });
+
+  it('a blank name leaves the node out and names the account', () => {
+    const r = rastroDePago(check4001, 'sale', foreignAccount({ bank_name: ' \t ' }), passThrough, ENTRY);
+    expect(r.pago).toBeUndefined();
+    expect(r.motivo).toBe(
+      'el cheque 4001 sale de la cuenta bancaria «Cuenta en Nueva York» (id ba-f), de banco extranjero, cuyo nombre de ' +
+        'banco está vacío; el nodo Cheque lo declara en BanEmisExt'
+    );
+    expect(r.missingOnBankAccount).toBe('la cuenta bancaria «Cuenta en Nueva York» (id ba-f)');
   });
 });

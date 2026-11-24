@@ -156,6 +156,31 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     expect(noCommand.detalle).not.toContain('payment create');
   });
 
+  // MNE-001-502: an account with no code has two ways out, and only a person takes the second.
+  it('an account without its code names both ways out; another datum of the account names only its own flag', () => {
+    const [noCode, longName] = polizaConDineroSinRastro([
+      {
+        numUnIdenPol: 'JE-ACC',
+        motivo: 'el cheque 30001 sale de una cuenta sin clave c_Banco, y el nodo Cheque exige BanEmisNal',
+        missingOnBankAccount: 'la cuenta bancaria «Operativa» (id ba-1)',
+      },
+      {
+        numUnIdenPol: 'JE-EXT',
+        motivo: 'el cheque 30002 sale de una cuenta de banco extranjero cuyo nombre tiene 151 caracteres',
+        missingOnBankAccount: 'la cuenta bancaria «Nueva York» (id ba-2)',
+        bankAccountFlag: '--bank <nombre de hasta 150 caracteres>',
+      },
+    ]);
+    expect(noCode.detalle).toContain(
+      'El dato falta en la cuenta bancaria «Operativa» (id ba-1), no en el pago: captura su clave ' +
+        '(`bank account edit <cuenta> --sat-bank-code <clave>`) o, si su banco no reside en México, márcala ' +
+        '(`bank account edit <cuenta> --foreign-bank --reason <motivo>`), y vuelve a generar.'
+    );
+    expect(longName.detalle).toContain('(`bank account edit <cuenta> --bank <nombre de hasta 150 caracteres>`) y vuelve a generar.');
+    expect(longName.detalle).not.toContain('--foreign-bank');
+    expect(longName.detalle).not.toContain('--sat-bank-code');
+  });
+
   it('sin nada que denunciar, no denuncia', () => {
     expect(polizaConDineroSinRastro([])).toEqual([]);
   });

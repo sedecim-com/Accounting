@@ -5610,7 +5610,9 @@ Options:
   --sat-bank-code <ccc>                                    SAT c_Banco key; empty clears it
   --swift <code>                                           SWIFT/BIC; empty clears it
   --iban <code>                                            IBAN; empty clears it
-  --reason <text>                                          justification recorded in the audit trail; required for identifiers
+  --foreign-bank                                           the bank is not resident in Mexico: vouchers declare c_Banco 999 and the bank name; requires --reason
+  --no-foreign-bank                                        remove the foreign-bank mark; requires --reason
+  --reason <text>                                          justification recorded in the audit trail; required for identifiers and the foreign-bank mark
   --dry-run                                                apply the change and roll it back, showing what would differ
   -y, --yes                                                skip the confirmation prompt
   --json                                                   JSON output
@@ -5625,6 +5627,10 @@ Examples:
   mnemosine bank account edit "BBVA Operativa MXN" --clabe 012180001234567899 --reason "Cambio de CLABE notificado por el banco el 2026-07-01"
   # An empty value CLEARS the field; omitting the flag leaves it alone.
   mnemosine bank account edit "Santander Operativa MXN" --swift ""
+  # The bank is not resident in Mexico: its vouchers declare c_Banco 999 and the
+  # bank name. Only a person sets the mark, always with --reason, and an
+  # account at a foreign bank keeps no SAT code and no CLABE.
+  mnemosine bank account edit "First Example USD" --sat-bank-code "" --foreign-bank --reason "Account opened in New York"
 ```
 
 #### `mnemosine bank account set` (alias: fijar)

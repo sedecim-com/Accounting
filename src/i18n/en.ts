@@ -2854,9 +2854,23 @@ export const EN = {
   'bank.account.show.never_reconciled': 'never',
   'bank.account.show.status_active': 'active',
   'bank.account.show.status_archived': 'archived',
+  // MNE-001-502 · the foreign-bank mark: only a person sets it, always with a reason.
+  'bank.account.show.label.foreign_bank': 'Foreign bank',
+  'bank.account.show.foreign_bank_marked': 'not resident in Mexico',
+  'bank.account.foreign_bank.reason_required':
+    '--foreign-bank and --no-foreign-bank require --reason "<why>": the mark says whether the bank is ' +
+    'resident in Mexico, and the vouchers file declares it. The reason is kept in the audit trail, which is append-only.',
+  'bank.account.foreign_bank.keeps_sat_bank_code':
+    'An account at a foreign bank has no SAT c_Banco code, and this edit leaves it with {code}. ' +
+    'Clear it in the same edit with --sat-bank-code "", or remove the mark with --no-foreign-bank --reason "<why>".',
+  'bank.account.foreign_bank.keeps_clabe':
+    'An account at a foreign bank has no CLABE, which only a bank resident in Mexico issues, and this edit ' +
+    'leaves it with one. Clear it in the same edit with --clabe "" --reason "<why>", or remove the mark with ' +
+    '--no-foreign-bank --reason "<why>".',
   'bank.account.edit.nothing_to_change':
     'Nothing to change. Pass --name, --bank, --branch, --type, --currency, --clabe, ' +
-    '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift or --iban.',
+    '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift, --iban, ' +
+    '--foreign-bank or --no-foreign-bank.',
   'bank.account.edit.reason_required':
     '{fields} changes one of the identifiers the money leaves by ({sensitive}): it requires ' +
     '--reason "<why>". The reason is kept in the audit trail, which is append-only.',
@@ -5150,7 +5164,11 @@ export const EN = {
   'help.bank.account.edit.option.sat_bank_code': 'SAT c_Banco key; empty clears it',
   'help.bank.account.edit.option.swift': 'SWIFT/BIC; empty clears it',
   'help.bank.account.edit.option.iban': 'IBAN; empty clears it',
-  'help.bank.account.edit.option.reason': 'justification recorded in the audit trail; required for identifiers',
+  'help.bank.account.edit.option.foreign_bank':
+    'the bank is not resident in Mexico: vouchers declare c_Banco 999 and the bank name; requires --reason',
+  'help.bank.account.edit.option.no_foreign_bank': 'remove the foreign-bank mark; requires --reason',
+  'help.bank.account.edit.option.reason':
+    'justification recorded in the audit trail; required for identifiers and the foreign-bank mark',
   'help.bank.account.edit.option.dry_run': 'apply the change and roll it back, showing what would differ',
   'help.bank.account.edit.option.json': 'JSON output',
   'help.bank.account.set.description':
