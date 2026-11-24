@@ -67,6 +67,7 @@ const result = (over: Partial<CustomerCreditTransfer> = {}): CustomerCreditTrans
   ],
   sourceOnAccount: { before: '1160.00', after: '0.00' },
   customerOnAccount: { before: '0.00', after: '1160.00' },
+  advance: null,
   ...over,
 });
 
@@ -179,6 +180,17 @@ describe('receipt transfer record refuses before reading, and hands the transfer
     expect(out).toContain(t('receipt.transfer.on_account', { party: 'PMT-2026-00001', before: '1160.00', after: '0.00' }, 'en'));
     expect(out).toContain(t('receipt.transfer.on_account', { party: 'C-B Cliente Cesionario SA', before: '0.00', after: '1160.00' }, 'en'));
     expect(err).toContain('Dry run: nothing was written.');
+    expect(out).not.toContain(t('receipt.transfer.carries', { base: '1000.00', iva: '160.00' }, 'en'));
+  });
+
+  it('of a treated advance it says the base and IVA the credit carries, and --json gives both (MNE-001-499)', async () => {
+    const treated = result({ amount: '580.00', advance: { base: '500.00', iva: '80.00' } });
+    service.mockResolvedValueOnce(treated);
+    const { out } = await transfer([...ARGS, '--reason', 'Convenio 15-jun', '--dry-run']);
+    expect(out).toContain(t('receipt.transfer.carries', { base: '500.00', iva: '80.00' }, 'en'));
+    service.mockResolvedValueOnce(treated).mockResolvedValueOnce(treated);
+    const json = await transfer([...ARGS, '--reason', 'Convenio 15-jun', '--yes', '--json']);
+    expect((JSON.parse(json.out) as { rows: Record<string, unknown>[] }).rows[0]).toMatchObject({ advance_base: '500.00', advance_iva: '80.00' });
   });
 
   it('without --yes and with no terminal it aborts after the preview, and nothing is written', async () => {
@@ -200,6 +212,34 @@ describe('receipt transfer record refuses before reading, and hands the transfer
       amount: '1160.00', date: '2026-06-15', entry_number: 'JE-2026-00007',
       source_on_account_before: '1160.00', source_on_account_after: '0.00',
       customer_on_account_before: '0.00', customer_on_account_after: '1160.00',
+      advance_base: null, advance_iva: null,
     });
+  });
+});
+
+describe('receipt show of a reversed transfer (MNE-001-499, #937 B2)', () => {
+  it('says it has no cause to state instead of «not stated»', async () => {
+    const { getCustomerPayment } = await import('../../src/services/payments/payment-service.js');
+    vi.mocked(getCustomerPayment).mockResolvedValueOnce({
+      id: 'cp-trf', payment_number: 'TRF-2026-00001', customer_id: 'cus-b', customer_name: 'Cliente Cesionario SA',
+      payment_amount: '1160.00', currency_code: 'MXN', payment_date: new Date('2026-06-15T12:00:00Z'),
+      payment_method: 'balance_transfer', reference_number: null, status: 'reversed', journal_entry_number: 'JE-2026-00007',
+      cfdi_uuid: null, cfdi_pago_indice: null, reversed_at: new Date('2026-06-20T12:00:00Z'),
+      reversal_cause: null, reversal_cause_stated_at: null, unapplied_amount: '0.00',
+      advance_base: null, advance_tax_rate: null, advance_iva: null, check_cashed_date: null, check_cashed_tx_id: null,
+      aplicaciones: [],
+    } as unknown as Awaited<ReturnType<typeof getCustomerPayment>>);
+    const p = new Command('mnemosine').exitOverride();
+    resetDeclarations();
+    registerReceiptCommand(p, deps);
+    let out = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => { out += String(chunk); return true; });
+    try {
+      await p.parseAsync(['node', 'mnemosine', 'receipt', 'show', 'TRF-2026-00001', '--entity', 'ent-1']);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(out).toContain(t('receipt.cause.none_for_transfer', {}, 'en'));
+    expect(out).not.toContain('not stated');
   });
 });

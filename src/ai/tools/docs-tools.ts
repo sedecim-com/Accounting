@@ -40,7 +40,7 @@ export const DOC_TOPICS = {
   'niif-pasivos-empleados-impuestos': 'IAS 37 provisions (NIC 37 Provisiones, Pasivos Contingentes y Activos Contingentes), IAS 19 defined benefits (NIC 19 Beneficios a los Empleados), IFRS 2 (NIIF 2), IAS 12 deferred taxes and Pillar Two (NIC 12 Impuesto a las Ganancias), IAS 26 (NIC 26)',
   'niif-grupos': 'IFRS 3 business combinations (NIIF 3 Combinaciones de Negocios), IFRS 10/11/12 consolidation and joint arrangements (NIIF 10 Estados Financieros Consolidados, NIIF 11 Acuerdos Conjuntos, NIIF 12), IAS 27/28 equity method (NIC 27/28)',
   'niif-moneda-seguros-adopcion': 'IAS 21 foreign currency, 2025/2027 amendments (NIC 21 Efectos de las Variaciones en las Tasas de Cambio de la Moneda Extranjera), IAS 29 hyperinflation (NIC 29 Información Financiera en Economías Hiperinflacionarias), IFRS 17 insurance (NIIF 17 Contratos de Seguro), IFRS 1 (NIIF 1), IFRS 14→IFRS 20 in 2029 (NIIF 14→NIIF 20)',
-  'niif-interpretaciones': 'the 20 IFRIC/SIC interpretations in force (interpretaciones CINIIF/SIC) and agenda decisions (decisiones de agenda): crypto-assets, SaaS, restricted deposits',
+  'niif-interpretaciones': 'the 20 IFRIC/SIC interpretations in force (interpretaciones CINIIF/SIC) and agenda decisions (decisiones de agenda): crypto-assets, SaaS, restricted deposits, and the 2026 ones: the 14 of Compilation Vol. 14 and the 8 tentative ones of June 2026',
   'niif-pymes-convergencia': 'IFRS for SMEs, third edition, 2027 (Norma de Contabilidad NIIF para las PyMEs, Tercera Edición), and the Mexican FRS ↔ IFRS convergence map with practical suppletory application (supletoriedad)',
 } as const;
 

@@ -2739,6 +2739,9 @@ export const EN = {
   // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
   'receipt.cause.not_reversed':
     'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.balance_transfer':
+    'The receipt {number} is a transfer of customer credit: it moved no money, so its reversal has no cause to state. Nothing was written.',
+  'receipt.cause.none_for_transfer': 'none: a transfer of customer credit moved no money',
   'receipt.cause.already_stated':
     'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
   'receipt.cause.reason_required':
@@ -2774,9 +2777,9 @@ export const EN = {
   'receipt.transfer.not_functional_currency':
     'The receipt {receipt} is in {currency}: only cash on account in {functional} is transferred, because the transfer moves its amount in customer advances as it stands. Nothing was written.',
   'receipt.transfer.source_is_transfer':
-    'The receipt {receipt} is itself a transfer of customer credit: passing it on to a third customer waits for part 2 (MNE-001-499), which defines how such a chain is undone. Nothing was written.',
-  'receipt.transfer.advance_in_499':
-    'The cash on account of {receipt} is an advance whose IVA was caused when it was collected (its base in customer advances, its IVA in IVA charged): transferring it splits base and IVA, which arrives with MNE-001-499. Nothing was written.',
+    'The receipt {receipt} is itself a transfer of customer credit: it is not passed on to a third customer. To correct it, reverse it with `mnemosine receipt reverse {receipt} --reason "<why>"` and transfer from the original receipt. Nothing was written.',
+  'receipt.transfer.kept_caused':
+    'The cash on account of {receipt} came back from an unapply that kept its IVA or IEPS caused: that tax is read from this receipt\'s own allocations and cannot follow the credit to another customer. Apply it to this customer\'s invoices instead. Nothing was written.',
   'receipt.transfer.cheque_not_cashed':
     'The receipt {receipt} is a cheque the bank has not cashed: it is not collected until it is cashed (LIVA art. 1-B), and a bounce would have to undo a credit the other customer relies on. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`. Nothing was written.',
   'receipt.transfer.same_customer':
@@ -2787,10 +2790,15 @@ export const EN = {
     '{receipt} cannot be transferred on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was written.',
   'receipt.transfer.date_before_last_event':
     '{receipt} was last posted on {since}: a transfer dated {date} would give away its cash before that happened. Date it {since} or later. Nothing was written.',
-  'receipt.transfer.events_in_499':
-    'The receipt {receipt} is a transfer of customer credit: applying it to invoices, unapplying it and reversing it arrive with part 2 (MNE-001-499), which dates its IVA and mirrors its entry. Until then a wrong transfer is corrected with a transfer back. Nothing was written.',
   'receipt.reverse.has_transfer':
-    'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Undo the transfer first (MNE-001-499). Nothing was written.',
+    'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Reverse the transfer first with `mnemosine receipt reverse <transfer> --reason "<why>"`. Nothing was written.',
+  'receipt.reverse.transfer_applied':
+    'The transfer {receipt} is applied to {invoices}: reversing it would take back a credit that already settled them. Unapply it first. Nothing was written.',
+  'receipt.reverse.transfer_carries_caused':
+    'The cash on account of the transfer {receipt} came back from an unapply that kept its IVA or IEPS caused: reversing it would give the original receipt the cash without that tax. Apply it again to the customer\'s invoices instead. Nothing was written.',
+  'receipt.reverse.transfer_cause':
+    'The transfer {receipt} moved no money, so its reversal has no cause: run it without --cause. Nothing was written.',
+  'receipt.transfer.carries': 'Carries an advance of base {base} and IVA {iva}, caused when the source was collected',
   'receipt.transfer.would_transfer': 'Would transfer {amount} of {source} from {from} to {to} on {date}',
   'receipt.transfer.on_account': '{party} on account: {before} → {after}',
   'receipt.transfer.confirm':

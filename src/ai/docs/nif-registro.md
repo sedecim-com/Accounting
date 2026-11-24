@@ -144,7 +144,9 @@ grandes de largo plazo, sugiere evaluar D-5 con el contador.
 Una operación con parte relacionada se registra como cualquier otra, pero
 **exige revelación**: naturaleza de la relación, monto, saldos pendientes y
 condiciones. Lo que la norma prohíbe es afirmar que fueron condiciones de
-mercado sin sustento.
+mercado sin sustento. Desde las Mejoras a las NIF 2026, toda entidad revela
+además el total de beneficios del personal gerencial clave (ver «Cambios del
+CINIF 2026-2028» abajo).
 
 **Este sistema no la cubre.** No hay marca de parte relacionada en clientes ni
 proveedores, ni informe que las agrupe. Si el contador identifica una, el
@@ -208,6 +210,97 @@ razonable menos costos de disposición y valor de uso): el exceso es pérdida
 por deterioro — Cargo Resultados · Abono Deterioro acumulado (complementaria
 del activo), y la depreciación futura se recalcula. Es estimación con juicio:
 propón solo con confirmación del usuario.
+
+## Cambios del CINIF 2026-2028: Mejoras 2026, Mejoras 2027 y B-4/B-6
+
+Resumen de documentos del CINIF en abierto, leídos el 2026-11-24; no copia su
+texto. El texto promulgado vive en el libro NIF 2026, que es de pago, así que
+donde sólo hay proyecto se dice «proyecto» y se cita como tal.
+
+- **Mejoras a las NIF 2026**, vigentes para ejercicios desde el 1-ene-2026,
+  con aplicación anticipada en 2025. La página del libro NIF 2026 dice que el
+  libro las incluye. Sección I (generan cambio contable):
+  - **NIF B-11** (párr. 50.4): los flujos de efectivo de la disposición de
+    activos de larga duración y de las operaciones discontinuadas se presentan
+    de forma prospectiva; los estados de flujos de periodos anteriores que se
+    presentan comparativos no se reformulan.
+  - **NIF C-10** (párr. 32.6): un contrato de bienes de uso propio se trata
+    como IFD sólo si al valuarlo inicialmente se designa a valor razonable con
+    efecto en resultados, para eliminar o reducir una asimetría contable; el
+    proyecto lo presenta como alineación con NIIF 9. Párr. 35.2.4 y 62.2.2: un
+    instrumento contratado con una parte relacionada (p. ej. una permuta de
+    tasa de la subsidiaria con su controladora) puede ser instrumento de
+    cobertura en los estados individuales; en los consolidados esa cobertura se
+    elimina, y la revelación dice si se celebró con partes relacionadas.
+  - **NIF C-13** (párr. 61.10, nuevo, y 66.1): toda entidad revela el importe
+    total de los beneficios a empleados del personal gerencial clave; la EIP lo
+    segrega en beneficios directos a corto y largo plazo, pagos basados en
+    acciones, beneficios por terminación y post-empleo. Es revelación de
+    partes relacionadas, no un cambio a NIF D-3.
+  - Sección II (precisiones sin cambio contable ni fecha de vigencia): NIF A-1
+    y B-4 (capital ganado; en B-4 también los ORI netos), B-6 (párr. 56.1,
+    pasivos a corto plazo), C-20 (cambio de modelo de negocio), D-4 (alcance:
+    impuestos sobre una utilidad fiscal de base neta, no bruta), el párr. 60.1
+    de revelación de todas las NIF particulares y el glosario.
+  Fuentes: proyecto de auscultación del 15-sep-2025,
+  https://www.cinif.org.mx/uploads/Mejoras_NIF_2026_PROYECTO_AUSCULTACION.pdf
+  y la página del libro, https://www.cinif.org.mx/info_libro2026.php (leídos
+  el 2026-11-24). El texto promulgado no se verificó en fuente abierta.
+- **Mejoras a las NIF 2027: proyecto en auscultación**, fechado el
+  31-ago-2026, con comentarios hasta el 30-sep-2026; propone vigencia para
+  ejercicios desde el 1-ene-2027, con aplicación anticipada en 2026. El
+  2026-11-24 la página de auscultación del CINIF lo seguía listando como
+  proyecto y ninguna fuente abierta mostraba su promulgación: es propuesta, no
+  requisito. Sección I del proyecto:
+  - **NIF B-7**: cómo evaluar si lo adquirido es un negocio. Define sus
+    elementos (insumos, procesos sustantivos y productos, párr. 32.1, nuevo);
+    pide como mínimo un insumo y un proceso sustantivo (41.3.3); si casi todo
+    el valor razonable de los activos brutos adquiridos está en un solo activo
+    o grupo de activos similares, no es negocio (41.3.5), y entonces se
+    reconocen activos y pasivos uno a uno, y el costo restante se reparte
+    entre los activos no monetarios según sus valores razonables relativos
+    (41.3.6). El párr. 49.1 precisa las fusiones entre entidades bajo control
+    común (método de valor en libros).
+  - **NIF D-1** (párr. 42.4.42, nuevo): anticipos de clientes en moneda
+    extranjera. Por regla es partida no monetaria y queda al tipo de cambio
+    histórico de la fecha de la transacción; sólo es monetaria cuando no obliga
+    a entregar bienes o servicios en cantidad y características fijas y su
+    precio no está garantizado, y entonces se convierte al tipo de cambio de
+    cierre y la fluctuación va al estado de resultado integral.
+  - **NIF D-4** (párr. 20.1 y 20.1A, nuevo): alcance. Lo que decide si un
+    impuesto es a la utilidad es su base de cálculo fiscal (neta de ingresos
+    menos costos y gastos), no la forma de pago ni quién lo recibe; un impuesto
+    fuera de alcance se trata con NIF C-9.
+  - Sección II (precisiones sin cambio contable):
+    NIF A-2 Incertidumbres sobre negocio en marcha, C-8, C-9, C-19 y C-20.
+  Fuentes: https://www.cinif.org.mx/uploads/Auscultacion_Mejoras_NIF_2027.pdf
+  y https://www.cinif.org.mx/normatividad_nifenauscultacion.php (leídos el
+  2026-11-24).
+- **NIF B-4 y NIF B-6, cambios con vigencia 2028.** Van en los párrafos
+  transitorios de la nueva NIF B-1 (en su proyecto, párr. 80.4 para B-4 y 80.5
+  para B-6). La carta de auscultación del 31-jul-2025 propone que entren en
+  vigor con las nuevas B-1 y B-3, el 1-ene-2028, con aplicación anticipada
+  desde el 1-ene-2027. En B-4: remite a los requisitos de la nueva B-1 (10.2),
+  presenta por separado los ajustes retrospectivos por cambios en políticas
+  contables y por correcciones de errores (52.3.4), los trata como ajuste al
+  saldo inicial de resultados acumulados (52.3.5) y elimina los párr. 53.1 y
+  53.2. En B-6: remite también a la B-1 (10.2), amplía los criterios para
+  presentar rubros adicionales por separado (52.14) y elimina los párr. 20.2,
+  20.3, 52.4 y 59.3. Fuentes:
+  https://www.cinif.org.mx/uploads/2025-Carta_Invitacion_Auscultacion_B1_B3.pdf
+  y https://www.cinif.org.mx/uploads/NIF_B-1_proyecto_auscultacion.pdf
+  (proyecto; leídos el 2026-11-24). El texto promulgado está en el libro NIF
+  2026 y no se verificó en fuente abierta.
+- **Qué páginas del CINIF son fuente abierta** (comprobado el 2026-11-24):
+  `normatividad_listadonormas.php` (listado de normas promulgadas),
+  `normatividad_plandetrabajo.php` (plan de trabajo), `exclusivo_mejoras.php`
+  (Mejoras a las NIF) y `exclusivo_orientacion.php` (Orientaciones a las NIF)
+  responden con una redirección HTTP 302 a `usuario_login.php?info=DENIED`,
+  una pantalla que pide usuario y contraseña; el libro NIF 2026
+  (`normatividad_NIF2026.php`) se consulta con usuario tras pagar una cuota.
+  Una página tras login no es fuente abierta: no se cita como fuente de una
+  afirmación. Las fuentes abiertas son la página de auscultación, la página
+  informativa del libro y los PDF que el CINIF publica en `/uploads/`.
 
 ## Recordatorios transversales
 

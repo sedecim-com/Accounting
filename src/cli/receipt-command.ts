@@ -665,7 +665,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       );
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
-        fact('Reversal cause', cobro.reversal_cause ?? 'not stated');
+        // MNE-001-499: a transfer moved no money, so it has no cause to state.
+        fact('Reversal cause', cobro.payment_method === 'balance_transfer'
+          ? t('receipt.cause.none_for_transfer') : (cobro.reversal_cause ?? 'not stated'));
         // Later than the reversal when the cause was stated afterwards (MNE-001-511).
         if (cobro.reversal_cause_stated_at) fact('Cause stated', new Date(cobro.reversal_cause_stated_at).toISOString());
       }
@@ -1288,6 +1290,8 @@ function printTransfer(r: CustomerCreditTransfer, p: Palette, rehearsal: boolean
       source_on_account_after: r.sourceOnAccount.after,
       customer_on_account_before: r.customerOnAccount.before,
       customer_on_account_after: r.customerOnAccount.after,
+      advance_base: r.advance?.base ?? null,
+      advance_iva: r.advance?.iva ?? null,
     }], { json: true });
     return;
   }
@@ -1302,6 +1306,7 @@ function printTransfer(r: CustomerCreditTransfer, p: Palette, rehearsal: boolean
   }
   process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.sourceNumber, before: r.sourceOnAccount.before, after: r.sourceOnAccount.after })}\n`);
   process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.toCustomer, before: r.customerOnAccount.before, after: r.customerOnAccount.after })}\n`);
+  if (r.advance) process.stdout.write(`  ${t('receipt.transfer.carries', r.advance)}\n`);
 }
 
 /** The cause a reversed receipt keeps, as the dry run, the confirmation and the result say it (MNE-001-509). */
