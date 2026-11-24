@@ -407,6 +407,24 @@ export function keptIvaOf(row: { amount: string; plain: string; released: string
 }
 
 /**
+ * MNE-001-604 (#792) · The IEPS an unapply gives back to the cash on account
+ * beyond the invoice's share: per row read back by `iepsTakenByRows`, its
+ * take e, less the part of its release r that the cash from the pool settled
+ * (r less `keptIvaOf`'s plain share, which stays kept as before), so the cash
+ * goes back with what it carried, as the advance IVA does (MNE-001-461).
+ * Signed, at four decimals. A row with no reading (written before) gives 0.
+ */
+export function iepsBackOf(
+  rows: readonly { amount: string; plain: string; read?: { released: string; taken: string } }[]
+): string {
+  return rows.reduce((sum, r) => {
+    if (!r.read) return sum;
+    const fromPool = new Decimal(r.read.released).minus(keptIvaOf({ amount: r.amount, plain: r.plain, released: r.read.released }));
+    return sum.plus(r.read.taken).minus(fromPool);
+  }, new Decimal(0)).toFixed(4);
+}
+
+/**
  * MNE-001-574 with MNE-001-581 (#792, decision (A)) · The rows' kept IVA,
  * capped at `cap`: after a credit note the cash keeps caused only what goes
  * back to 2125 for the balance owed again (LIVA art. 7: the note's

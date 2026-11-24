@@ -62,6 +62,18 @@ export interface IepsMove {
    * when the two are equal.
    */
   take?: string;
+  /**
+   * MNE-001-604 · on a release only: the allocation row it belongs to, tagged
+   * on its lines (`allocation_id`), so the row's take is read back by row
+   * (`iepsTakenByRows`).
+   */
+  allocationId?: string;
+  /**
+   * MNE-001-604 · on a `keep` only: what the rows took from the cash on
+   * account goes back with it, net of the share released on that cash
+   * (`iepsBackOf`), signed: 2180 is credited it, debited when negative.
+   */
+  back?: string;
 }
 
 /**
@@ -146,6 +158,40 @@ export async function iepsKeptOnAccount(
     [entityId, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], paymentId]
   );
   return Decimal.max(new Decimal(rows[0]?.kept ?? '0'), 0).toFixed(SCALE);
+}
+
+/**
+ * MNE-001-604 (#792) · What each allocation row's application moved, read
+ * back from its tagged lines (`allocation_id`, written since this task):
+ * `released`, the invoice's share it moved out of 2181, and `taken`, the
+ * IEPS it took from the cash on account (2181 Dr r and 2180 Cr r − e sum, as
+ * debit − credit, to e). A row written before carries no such tag and is
+ * absent, so its unapply reads as before. One query, entity-scoped.
+ */
+export async function iepsTakenByRows(
+  client: pg.PoolClient,
+  entityId: string,
+  allocationIds: readonly string[]
+): Promise<Map<string, { released: string; taken: string }>> {
+  if (allocationIds.length === 0) return new Map();
+  const { rows } = await client.query<{ allocation_id: string; released: string; taken: string }>(
+    `SELECT l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' AS allocation_id,
+            SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($3::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' = ANY($4::text[])
+      GROUP BY 1`,
+    [entityId, IEPS_UNCOLLECTED_ROLE, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], [...allocationIds]]
+  );
+  return new Map(rows.map((r) => [r.allocation_id, {
+    released: new Decimal(r.released).toFixed(SCALE), taken: new Decimal(r.taken).toFixed(SCALE),
+  }]));
 }
 
 /**
@@ -283,6 +329,10 @@ export async function iepsCausedByReceipt(
  * amount − take, debited when that is negative, and gets no line at zero. A
  * take is written even for an invoice that releases nothing.
  *
+ * MNE-001-604 · A `keep` with `back` also gives the cash what its rows took
+ * from it: one 2180 line, CR back (DR when negative), tagged, beside 2181 Cr
+ * amount (none at zero). A release tags its row (`allocationId`).
+ *
  * MNE-001-608 · `cause` is a held cheque's cashing of the IEPS its cash back
  * on account carries (`iepsHeldForCashing`): one 2180 credit, tagged, so the
  * cash carries it (`iepsKeptOnAccount`); 2181 does not move, because the
@@ -296,7 +346,8 @@ export async function iepsMoveLines(
   direction: 'release' | 'repark' | 'keep' | 'cause',
   event: string
 ): Promise<IepsLine[]> {
-  const live = moves.filter((m) => new Decimal(m.amount).greaterThan(0) || new Decimal(m.take ?? '0').greaterThan(0));
+  const live = moves.filter((m) =>
+    new Decimal(m.amount).greaterThan(0) || new Decimal(m.take ?? '0').greaterThan(0) || !new Decimal(m.back ?? '0').isZero());
   if (live.length === 0) return [];
   const { rows } = await client.query<{ role: string; account_id: string }>(
     `SELECT role, account_id FROM account_roles
@@ -318,7 +369,9 @@ export async function iepsMoveLines(
   const due = accountOf(IEPS_DUE_ROLE);
 
   return live.flatMap((m): IepsLine[] => {
-    const tags = { [IEPS_MOVE_TAG]: { invoice_id: m.invoiceId, payment_id: paymentId } };
+    const tags = {
+      [IEPS_MOVE_TAG]: { invoice_id: m.invoiceId, payment_id: paymentId, ...(m.allocationId ? { allocation_id: m.allocationId } : {}) },
+    };
     const amount = new Decimal(m.amount).toFixed(SCALE);
     if (direction === 'cause') {
       return [{
@@ -331,14 +384,31 @@ export async function iepsMoveLines(
       }];
     }
     if (direction === 'keep') {
-      return [{
-        account_id: uncollected,
-        debit_amount: null,
-        credit_amount: amount,
-        description: `IEPS back in ${IEPS_UNCOLLECTED_ROLE} (${event}), kept caused in ${IEPS_DUE_ROLE} on the cash ` +
-          `back on account (LIEPS art. 10) - Invoice ${m.invoiceNumber}`,
-        tags,
-      }];
+      const back = new Decimal(m.back ?? '0');
+      return [
+        ...(new Decimal(amount).greaterThan(0)
+          ? [{
+              account_id: uncollected,
+              debit_amount: null,
+              credit_amount: amount,
+              description: `IEPS back in ${IEPS_UNCOLLECTED_ROLE} (${event}), kept caused in ${IEPS_DUE_ROLE} on the cash ` +
+                `back on account (LIEPS art. 10) - Invoice ${m.invoiceNumber}`,
+              tags,
+            }]
+          : []),
+        ...(back.isZero()
+          ? []
+          : [{
+              account_id: due,
+              debit_amount: back.isNegative() ? back.negated().toFixed(SCALE) : null,
+              credit_amount: back.isNegative() ? null : back.toFixed(SCALE),
+              description: back.isNegative()
+                ? `IEPS released on cash from on account undone (${event}), net of what it carried - Invoice ${m.invoiceNumber}`
+                : `IEPS the cash on account carried, taken on its application, back with it (${event}; caused when ` +
+                  `collected, LIEPS art. 10) - Invoice ${m.invoiceNumber}`,
+              tags,
+            }]),
+      ];
     }
     const take = new Decimal(m.take ?? '0');
     if (direction === 'release' && take.greaterThan(0)) {
