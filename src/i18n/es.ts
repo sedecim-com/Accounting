@@ -6000,6 +6000,60 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.usage.option.since': 'Ventana: Nd (p. ej., 7d, 30d) o AAAA-MM-DD',
   'help.usage.option.by': 'Agrupa por: {choices}',
   'help.usage.option.json': 'salida en JSON',
+  // ==== MNE-001-244 · help by key, jobs, webhooks and outbox (issue #314) ====
+  'help.jobs.description':
+    'Tareas programadas y guardadas del agente (todo lo que producen son borradores para revisar, nunca escrituras directas)',
+  'help.jobs.list.description': 'Lista los trabajos programados de esta entidad',
+  'help.jobs.list.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.list.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.create.description': 'Crea un trabajo programado',
+  'help.jobs.create.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.create.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.create.option.name': 'Nombre del trabajo (único por entidad)',
+  'help.jobs.create.option.kind': 'Tipo de trabajo: {kinds}',
+  'help.jobs.create.option.schedule': 'Expresión cron de 5 campos, p. ej., "0 2 * * *" (cada noche a las 02:00)',
+  'help.jobs.create.option.max_failures': 'Se desactiva solo tras N fallas seguidas (por omisión, 3)',
+  'help.jobs.create.option.user': 'Quién crea el trabajo (auditoría)',
+  'help.jobs.enable.description': 'Activa un trabajo (reinicia su contador de fallas y recalcula la siguiente corrida)',
+  'help.jobs.enable.argument.job_id': 'Id del trabajo',
+  'help.jobs.enable.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.enable.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.disable.description': 'Desactiva un trabajo (sigue configurado; las corridas se detienen)',
+  'help.jobs.disable.argument.job_id': 'Id del trabajo',
+  'help.jobs.disable.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.disable.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.run_due.description':
+    'Punto de entrada del tick: reclama y corre cada trabajo vencido (llámalo desde cron/launchd; --live habilita las lecturas externas)',
+  'help.jobs.run_due.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.run_due.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.history.description': 'Bitácora de corridas (las más recientes primero)',
+  'help.jobs.history.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.jobs.history.option.tenant': 'Inquilino (despacho)',
+  'help.jobs.history.option.job': 'Sólo este trabajo',
+  'help.jobs.history.option.limit': 'Filas que se muestran (por omisión, 20)',
+  'help.webhooks.description': 'Tokens de webhook entrantes: credenciales dedicadas que despiertan a un agente lector restringido',
+  'help.webhooks.create.description': 'Crea un token de webhook (el token en claro se muestra UNA vez y nunca se guarda)',
+  'help.webhooks.create.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.webhooks.create.option.tenant': 'Inquilino (despacho)',
+  'help.webhooks.create.option.source': 'Tipo de origen: {kinds}',
+  'help.webhooks.list.description': 'Lista los tokens de webhook (nombres y uso, nunca el valor de los tokens)',
+  'help.webhooks.list.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.webhooks.list.option.tenant': 'Inquilino (despacho)',
+  'help.webhooks.list.option.json': 'salida en JSON',
+  'help.webhooks.disable.description': 'Desactiva un token de webhook (las entregas con él empiezan a fallar con 401)',
+  'help.webhooks.disable.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.webhooks.disable.option.tenant': 'Inquilino (despacho)',
+  'help.webhooks.deliveries.description': 'Entregas entrantes recientes: estado, borradores creados y señales de sospecha',
+  'help.webhooks.deliveries.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.webhooks.deliveries.option.tenant': 'Inquilino (despacho)',
+  'help.webhooks.deliveries.option.limit': 'Filas que se muestran (1-200)',
+  'help.webhooks.deliveries.option.json': 'salida en JSON',
+  'help.outbox.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.outbox.option.user': 'Quién ejecuta (por omisión: el único usuario activo del inquilino)',
+  'help.outbox.option.list': 'Sólo lista, sin ejecutar (obsoleto: usa `outbox list`)',
+  'help.outbox.run.argument.id': 'ids de las operaciones que se ejecutan; omítelos para revisar toda la cola de forma interactiva',
+  'help.outbox.run.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
+  'help.outbox.run.option.user': 'Quién ejecuta (por omisión: el único usuario activo del inquilino)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -6378,6 +6432,44 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.switch.kept': 'La sesión sigue en {current}.',
   'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-452 (#645): what a shared project file may run ====
+  'provider.credential.unapproved':
+    'api_key_cmd en {file}, un archivo de proyecto compartido, sin aprobar aquí: no corre hasta que lo apruebes',
+  'provider.credential.unbindable':
+    'api_key_cmd en {file}, un archivo de proyecto compartido, en una forma que no se puede aprobar: no corre hasta que se reescriba',
+  'provider.credential.hint.unbindable':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, en una forma que no se puede aprobar: pide a quien lo mantiene que apunte providers.{name}.api_key_cmd a un script dentro del proyecto, corrido directo o con sh/bash/node/python, o a un comando fuera de él.',
+  'provider.credential.unapproved_never':
+    'api_key_cmd en {file}, un archivo de proyecto compartido: "project_helpers" es "never" en ~/.mnemosine/config.json, así que no corre',
+  'provider.credential.unapproved_pair':
+    '{variable} definida, pero {file}, un archivo de proyecto compartido, la manda a {host}, donde su proveedor no la recibe: sin aprobar aquí',
+  'provider.credential.unchecked_host': 'un host que no pudo comprobar',
+  'provider.credential.folder_routing':
+    '{label}; {file} define {variables}, que le sirven a todo el que corre mnemosine en esa carpeta',
+  'provider.credential.hint.unapproved_pair':
+    'El proveedor {name} de {file}, un archivo de proyecto compartido, mandaría {variable} a {host}: si confías ese host con ella, corre `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, que no has aprobado: lee providers.{name}.api_key_cmd ahí y, si confías en él, corre `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved_never':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, y "project_helpers" es "never" en ~/.mnemosine/config.json: define el perfil en tu propio archivo.',
+  'help.providers.approve.description':
+    'Aprueba, sólo para ti, lo que corre o envía un perfil del mnemosine.config.json de esta carpeta (como direnv allow)',
+  'help.providers.approve.argument.profile': 'el perfil, como lo nombra el archivo de proyecto',
+  'help.providers.approve.footer':
+    'Ejemplos:\n' +
+    '  Lee primero providers.vault.api_key_cmd en ./mnemosine.config.json; luego apruébalo para ti:\n' +
+    '    mnemosine providers approve vault',
+  'provider.approve.builtin': '{name} es un perfil de fábrica: no hay nada que aprobar.',
+  'provider.approve.own_file': '{name} viene de tu propio {file}: no hay nada que aprobar.',
+  'provider.approve.nothing':
+    '{name} en {file} no corre ningún api_key_cmd ni manda una llave a otro host: no hay nada que aprobar.',
+  'provider.approve.pair': 'Aprobado para ti: providers.{name} en {file} puede mandar {variable} a {host}. Otro host pide otra aprobación.',
+  'provider.approve.helper':
+    'Aprobado para ti: el api_key_cmd de providers.{name} en {file}, para {host}. Un comando o un host distinto pide otra aprobación.',
+  'provider.approve.helper_scope':
+    'Corre en esta carpeta, con el ./.env de la carpeta en su entorno. Un script de este proyecto que nombre queda aprobado por su contenido; un comando que se encuentra por PATH o npx, sólo por su nombre.',
+  'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',
+  // ==== end of MNE-001-452 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   'cli.lang.offer': 'Para usar Mnemosine en español: mnemosine idioma es',
   'cli.lang.step.title': 'Idioma',

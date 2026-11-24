@@ -100,10 +100,10 @@ export class IaSection implements SetupSection {
     // user wants a change, so they skip this path.
     const persisted = this.persistedDefault();
     if (persisted && !ctx.flags.provider && !ctx.flags.model) {
-      const { profiles, source } = listProfiles(this.cwd);
+      const { profiles, origins } = listProfiles(this.cwd);
       const p = profiles[persisted];
       // A helper counts as ready: the probe below runs it, as the session does.
-      const ready = !!p && credentialState(p, { cwd: this.cwd, home: this.deps.home, source }).ready;
+      const ready = !!p && credentialState(p, { cwd: this.cwd, home: this.deps.home, source: origins[persisted] }).ready;
       if (ready) {
         ctx.print(`  Provider "${persisted}" is already configured; verifying it live…`);
         const probe = await probeFn(persisted);
@@ -121,13 +121,13 @@ export class IaSection implements SetupSection {
     let firstPass = true;
     // Bounded so a scripted/non-interactive session can never loop forever.
     for (let attempt = 0; attempt < 8; attempt++) {
-      const { profiles, defaultName, source } = listProfiles(this.cwd);
+      const { profiles, defaultName, origins } = listProfiles(this.cwd);
 
       // State of each profile: what is ready to use NOW (env may have
       // gained keys on a previous iteration). The same answer doctor and
       // `mnemosine providers` give; it never runs a helper.
       const rows = Object.entries(profiles).map(([name, p]) => {
-        const state = credentialState(p, { cwd: this.cwd, home: this.deps.home, source });
+        const state = credentialState(p, { cwd: this.cwd, home: this.deps.home, source: origins[name] });
         return { name, profile: p, state, ready: state.ready, local: isLoopbackUrl(p.base_url) };
       });
 

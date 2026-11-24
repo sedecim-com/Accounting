@@ -97,6 +97,50 @@ provides:
     # an openai-compatible profile from ~/.mnemosine/config.json the helper is the openai
     # SDK's async apiKey, re-run after five minutes and after a 401; from a project file
     # it runs once per session (src/ai/providers/credential-helper.ts, MNE-001-446, #644).
+    # CONTRACT (MNE-001-452, #645, breaking for a shared project file; experimental
+    # surface, the owner's «D3 con salida»): an api_key_cmd read from ./mnemosine.config.json
+    # runs only after the person running mnemosine approves that exact command, for that
+    # file and host, with `mnemosine providers approve <profile>`, recorded as a hash in
+    # ~/.mnemosine/project-approvals.json (0600); a changed command or host asks again, and
+    # an unapproved one raises ProjectFileRefusalError naming the field and the command to
+    # type, never the helper's text. An approved one renews like the person's own.
+    # `"project_helpers": "approved" | "never"`, read from ~/.mnemosine/config.json only,
+    # picks that approval (the default) or never running a project file's helper. A
+    # project file with a credential written by hand (an auth-named header or a key-shaped
+    # header value, a key-shaped api_key_cmd, model, models.<p> or api_key_env, a base_url
+    # with a password or a key) is refused at load, naming the field and never its value,
+    # with no `.rejected-` copy and no key that changes it. Readiness says «not approved»
+    # and doctor fails with the approve command. Rollback: revert; delete
+    # ~/.mnemosine/project-approvals.json; the previous build refuses `project_helpers`.
+    # CONTRACT (MNE-001-452 part B, #645): listProfiles layers built-ins, then the
+    # providers and models of ~/.mnemosine/config.json, then the project file's, and
+    # returns each profile's origin; every other key keeps the first file that exists. A
+    # user file that does not parse now stops a folder with a project file too. A
+    # project profile whose api_key_env is set is refused (ProjectFileRefusalError,
+    # naming the variable and host, never the value) unless that variable goes to the
+    # host a built-in documents for it or its reader approved the pair with
+    # `providers approve`. Readiness reports such a pair as «not approved», and adds
+    # `folderRouting`: ANTHROPIC_BASE_URL / ANTHROPIC_CONFIG_DIR (anthropic) or
+    # OPENAI_BASE_URL (openai-compatible with no base_url) set in the folder's ./.env,
+    # which doctor warns about. Criterion shared-project-file-runs-and-sends-nothing-unapproved.
+    # Both approvals bind the destination as origins (scheme and host) resolved as the
+    # SDKs do: base_url, else OPENAI_BASE_URL, for openai-compatible; ANTHROPIC_BASE_URL
+    # (the session) and base_url (the probe) for anthropic. A helper's approval also binds
+    # the SHA-256 of each project file its command names; it runs in the resolving folder.
+    # The credential check runs before the schema, so no `.rejected-` copy is ever kept.
+    # A project api_key_cmd is accepted only as (optionally after `env NAME=value`) a
+    # project script run directly, sh/bash/node/python/python3/ruby/perl followed at once
+    # by a project script, or a PATH command that is not a task or package runner and no
+    # argument of which reaches the project; tokens one space apart, from
+    # [A-Za-z0-9_./:=@%+,-]. Anything else is refused (ProjectFileRefusalError code
+    # helper_unbindable), cannot be approved, and readiness says so; a renewal re-checks
+    # the approval. Versioned interpreter names count as interpreters; env may not set
+    # loader names (PATH, LD_*, BASH_ENV, NODE_OPTIONS, PYTHON*, …) or a value reaching the
+    # project; a PATH command resolving inside the project is refused; a project helper
+    # runs without BASH_ENV, ENV, NODE_OPTIONS, NODE_PATH, LD_PRELOAD, LD_LIBRARY_PATH,
+    # DYLD_*, PYTHONSTARTUP and PYTHONPATH. A script that sources other project files is
+    # bound only by its own content. Store keys are scrypt (N 2^14, r 8, p 1) with a 16-byte salt
+    # kept in the store; a store without a salt approves nothing.
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
     # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs

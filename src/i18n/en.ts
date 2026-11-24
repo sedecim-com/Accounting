@@ -6514,6 +6514,66 @@ export const EN = {
   'help.usage.option.since': 'Window: Nd (e.g. 7d, 30d) or YYYY-MM-DD',
   'help.usage.option.by': 'Group by: {choices}',
   'help.usage.option.json': 'JSON output',
+  // ==== MNE-001-244 · help by key, jobs, webhooks and outbox (issue #314) ====
+  //
+  // Operations 1/2: the three families whole, English as shown. `jobs adopt`,
+  // `jobs unadopt`, `outbox list` and the `outbox` root were born keyed. The
+  // lists of `jobs create --kind` and `webhooks create --source` are
+  // parameters: machine values, not translated. Every generic flag a leaf
+  // declares keeps a key of its own: «Legal entity (id, RFC or name fragment)»
+  // and «Tenant» are not the texts of cli.flag.entity and cli.flag.tenant_scope.
+  'help.jobs.description': 'Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)',
+  'help.jobs.list.description': 'List the scheduled jobs of this entity',
+  'help.jobs.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.list.option.tenant': 'Tenant',
+  'help.jobs.create.description': 'Create a scheduled job',
+  'help.jobs.create.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.create.option.tenant': 'Tenant',
+  'help.jobs.create.option.name': 'Job name (unique per entity)',
+  'help.jobs.create.option.kind': 'Job kind: {kinds}',
+  'help.jobs.create.option.schedule': '5-field cron expression, e.g. "0 2 * * *" (nightly at 02:00)',
+  'help.jobs.create.option.max_failures': 'Auto-disable after N consecutive failures (default 3)',
+  'help.jobs.create.option.user': 'Who creates the job (audit)',
+  'help.jobs.enable.description': 'Enable a job (resets its failure counter and recomputes the next run)',
+  'help.jobs.enable.argument.job_id': 'Job id',
+  'help.jobs.enable.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.enable.option.tenant': 'Tenant',
+  'help.jobs.disable.description': 'Disable a job (it stays configured; runs stop)',
+  'help.jobs.disable.argument.job_id': 'Job id',
+  'help.jobs.disable.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.disable.option.tenant': 'Tenant',
+  'help.jobs.run_due.description':
+    'Tick entry point: claim and run every due job (call this from cron/launchd; --live enables the external reads)',
+  'help.jobs.run_due.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.run_due.option.tenant': 'Tenant',
+  'help.jobs.history.description': 'Execution log (most recent first)',
+  'help.jobs.history.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.jobs.history.option.tenant': 'Tenant',
+  'help.jobs.history.option.job': 'Only this job',
+  'help.jobs.history.option.limit': 'Rows to show (default 20)',
+  'help.webhooks.description': 'Inbound webhook tokens: dedicated credentials that wake a restricted reader agent',
+  'help.webhooks.create.description': 'Create a webhook token (the raw token is shown ONCE and never stored)',
+  'help.webhooks.create.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.webhooks.create.option.tenant': 'Tenant',
+  'help.webhooks.create.option.source': 'Source kind: {kinds}',
+  'help.webhooks.list.description': 'List webhook tokens (names and usage — never token values)',
+  'help.webhooks.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.webhooks.list.option.tenant': 'Tenant',
+  'help.webhooks.list.option.json': 'JSON output',
+  'help.webhooks.disable.description': 'Disable a webhook token (deliveries with it start failing with 401)',
+  'help.webhooks.disable.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.webhooks.disable.option.tenant': 'Tenant',
+  'help.webhooks.deliveries.description': 'Recent inbound deliveries: status, drafts created and suspicion flags',
+  'help.webhooks.deliveries.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.webhooks.deliveries.option.tenant': 'Tenant',
+  'help.webhooks.deliveries.option.limit': 'Rows to show (1-200)',
+  'help.webhooks.deliveries.option.json': 'JSON output',
+  'help.outbox.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.outbox.option.user': 'Who executes (default: sole active user of the tenant)',
+  'help.outbox.option.list': 'Only list, without executing (deprecated: use `outbox list`)',
+  'help.outbox.run.argument.id': 'operation ids to execute; omit to review the whole queue interactively',
+  'help.outbox.run.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.outbox.run.option.user': 'Who executes (default: sole active user of the tenant)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -6924,6 +6984,44 @@ export const EN = {
   'provider.switch.kept': 'The session stays on {current}.',
   'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
   // ==== end of MNE-001-444 ====
+  // ==== MNE-001-452 (#645): what a shared project file may run ====
+  'provider.credential.unapproved':
+    'api_key_cmd in {file}, a shared project file, not approved here: it does not run until you approve it',
+  'provider.credential.unbindable':
+    'api_key_cmd in {file}, a shared project file, in a form that cannot be approved: it does not run until it is rewritten',
+  'provider.credential.hint.unbindable':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, in a form that cannot be approved: ask whoever keeps it to point providers.{name}.api_key_cmd at a script inside the project, run directly or by sh/bash/node/python, or at a command outside it.',
+  'provider.credential.unapproved_never':
+    'api_key_cmd in {file}, a shared project file: "project_helpers" is "never" in ~/.mnemosine/config.json, so it does not run',
+  'provider.credential.unapproved_pair':
+    '{variable} set, but {file}, a shared project file, sends it to {host}, where its provider does not take it: not approved here',
+  'provider.credential.unchecked_host': 'a host it could not check',
+  'provider.credential.folder_routing':
+    '{label}; {file} sets {variables}, which serve everyone who runs mnemosine in that folder',
+  'provider.credential.hint.unapproved_pair':
+    'Provider {name} in {file}, a shared project file, would send {variable} to {host}: if you trust that host with it, run `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, that you have not approved: read providers.{name}.api_key_cmd there and, if you trust it, run `mnemosine providers approve {name}`.',
+  'provider.credential.hint.unapproved_never':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, and "project_helpers" is "never" in ~/.mnemosine/config.json: define the profile in your own file.',
+  'help.providers.approve.description':
+    'Approves, for you alone, what a profile of this folder\'s mnemosine.config.json runs or sends (as direnv allow)',
+  'help.providers.approve.argument.profile': 'the profile, as the project file names it',
+  'help.providers.approve.footer':
+    'Examples:\n' +
+    '  Read providers.vault.api_key_cmd in ./mnemosine.config.json first; then approve it for you:\n' +
+    '    mnemosine providers approve vault',
+  'provider.approve.builtin': '{name} is a built-in profile: there is nothing to approve.',
+  'provider.approve.own_file': '{name} comes from your own {file}: there is nothing to approve.',
+  'provider.approve.nothing':
+    '{name} in {file} runs no api_key_cmd and sends no key to another host: there is nothing to approve.',
+  'provider.approve.pair': 'Approved for you: providers.{name} in {file} may send {variable} to {host}. Another host asks again.',
+  'provider.approve.helper':
+    'Approved for you: the api_key_cmd of providers.{name} in {file}, for {host}. A changed command or host asks again.',
+  'provider.approve.helper_scope':
+    "It runs in this folder, with the folder's ./.env in its environment. A script of this project it names is approved by its content; a command found through PATH or npx is approved by its name only.",
+  'provider.approve.never': '"project_helpers" is "never" in ~/.mnemosine/config.json, so it still does not run.',
+  // ==== end of MNE-001-452 ====
   // ==== MNE-001-470 · the first run and init offer the other language (issue #653) ====
   /** Printed in the language it offers, with `t(key, {}, other)`: each catalog offers its own. */
   'cli.lang.offer': 'To use Mnemosine in English: mnemosine lang en',

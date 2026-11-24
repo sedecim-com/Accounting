@@ -127,7 +127,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
-import { credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
+import { approveProfileLines, credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -1303,7 +1303,7 @@ describeCommand(program.command('entities').alias('entidades'), 'help.entities.d
     }
   });
 
-describeCommand(program.command('providers').alias('proveedores'), 'help.providers.description')
+const providersCommand = describeCommand(program.command('providers').alias('proveedores'), 'help.providers.description')
   .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
@@ -1315,6 +1315,28 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
       await shutdown(exitCodeFor(err));
     }
   });
+
+// MNE-001-452 (#645): a shared project file's helper runs only once its person
+// approves it here, as `direnv allow`. It never prints the command.
+const providersApprove = describeCommand(
+  providersCommand.command('approve').alias('aprobar'),
+  'help.providers.approve.description'
+);
+argumentByKey(providersApprove, '<profile>', 'help.providers.approve.argument.profile');
+declareRisk(providersApprove, {
+  risk: 'escritura',
+  agent: false,
+  writes: "~/.mnemosine/project-approvals.json, the person's own (never the project file)",
+});
+providersApprove.addHelpText('after', () => `\n${t('help.providers.approve.footer')}\n`).action(async (name: string) => {
+  try {
+    for (const line of approveProfileLines(name, c)) console.log(line);
+    await shutdown(0);
+  } catch (err) {
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+});
 
 const askCommand = describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description');
 argumentByKey(askCommand, '<question...>', 'help.ask.argument.question');
@@ -3051,13 +3073,10 @@ async function correrOutboxImpl(
   }
 }
 
-const outbox = describeCommand(
-  program.command('outbox').aliases(['envio', 'envios']),
-  'help.outbox.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without executing (deprecated: use `outbox list`)');
+const outbox = describeCommand(program.command('outbox').aliases(['envio', 'envios']), 'help.outbox.description');
+optionByKey(outbox, '-e, --entity <idOrName>', 'help.outbox.option.entity');
+optionByKey(outbox, '-u, --user <email>', 'help.outbox.option.user');
+optionByKey(outbox, '-l, --list', 'help.outbox.option.list');
 
 const outboxList = describeCommand(
   outbox.command('list').alias('listar'),
@@ -3079,16 +3098,11 @@ outboxList.action(async (_opts: unknown, cmdArg: Command) => {
   }
 });
 
-const outboxRun = describeCommand(
-  outbox
-    .command('run')
-    .alias('ejecutar')
-    .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively'),
-  'help.outbox.run.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.outboxRun);
+const outboxRun = describeCommand(outbox.command('run').alias('ejecutar'), 'help.outbox.run.description');
+argumentByKey(outboxRun, '[id...]', 'help.outbox.run.argument.id');
+optionByKey(outboxRun, '-e, --entity <idOrName>', 'help.outbox.run.option.entity');
+optionByKey(outboxRun, '-u, --user <email>', 'help.outbox.run.option.user');
+outboxRun.addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
   llave: { innecesaria: 'each operation is claimed atomically and stays bound to its row' },

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { loadConfigFile } from '../providers/config.js';
+import { listProfiles } from '../providers/config.js';
 import {
   evaluateGates,
   applyAllowlist,
@@ -249,9 +249,15 @@ function resolveEnvironment(cwd: string, opts: SkillStoreOptions): ResolvedEnvir
   const env = opts.env ?? process.env;
   const homeDir = opts.homeDir ?? os.homedir();
   let config: unknown = opts.config;
+  // The effective profiles, when the config comes from disk: the user's own
+  // stay beneath a project file's (MNE-001-452), so their `skills` allowlist
+  // still applies there. One read of the files serves both.
+  let profiles: Record<string, unknown> | undefined;
   if (config === undefined && !('config' in opts)) {
     try {
-      config = loadConfigFile(cwd).config;
+      const listed = listProfiles(cwd);
+      config = listed.config;
+      profiles = listed.profiles;
     } catch {
       config = undefined; // unreadable config: config-gated skills stay gated
     }
@@ -261,8 +267,9 @@ function resolveEnvironment(cwd: string, opts: SkillStoreOptions): ResolvedEnvir
     const cfg = config as { default_provider?: unknown; providers?: Record<string, unknown> };
     const profileName =
       env.MNEMOSINE_PROVIDER || (typeof cfg.default_provider === 'string' ? cfg.default_provider : '');
-    if (profileName && cfg.providers && typeof cfg.providers === 'object') {
-      allowlist = resolveProfileAllowlist(cfg.providers[profileName]);
+    const pool = profiles ?? (cfg.providers && typeof cfg.providers === 'object' ? cfg.providers : undefined);
+    if (profileName && pool) {
+      allowlist = resolveProfileAllowlist(pool[profileName]);
     }
   }
   return { env, config, allowlist, homeDir };

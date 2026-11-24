@@ -110,7 +110,10 @@ export const E4_2: Criterio[] = [
       // Σ(credit − debit), the AP control and the DIOT — is the same second
       // layer written the other way round, and a debit-only pattern let it
       // stay while this criterion turned green.
-      const copias = dondeAparece(/SUM\(\s*COALESCE\(jel\.(debit|credit)_amount/i, ['src'], true).filter(
+      // Any alias (MNE-001-439, the owner's answer of 15 Nov in #101): `l.`, a
+      // table name, or none. Only journal_entry_lines has these columns
+      // (migration 001), so the bare column is the same ledger sum.
+      const copias = dondeAparece(/SUM\(\s*COALESCE\(\s*(?:\w+\.)*(debit|credit)_amount/i, ['src'], true).filter(
         (f) => !f.includes('report-service')
       );
       if (copias.length > 0) {

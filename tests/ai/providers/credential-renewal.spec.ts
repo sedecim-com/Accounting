@@ -3,7 +3,9 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import * as path from 'node:path';
 import { OpenAIError } from 'openai';
-import { MissingProviderCredentialError, resolveProfile } from '../../../src/ai/providers/config.js';
+import {
+  MissingProviderCredentialError, ProjectFileRefusalError, approveProjectProfile, resolveProfile,
+} from '../../../src/ai/providers/config.js';
 import {
   CredentialHelperError,
   HELPER_RENEW_AFTER_MS,
@@ -148,20 +150,24 @@ describe('a helper in your own ~/.mnemosine/config.json renews its token', () =>
 });
 
 describe('a helper anywhere else runs once per session, as before', () => {
-  it('a project file helper is not renewed', async () => {
-    fs.writeFileSync(path.join(project, 'mnemosine.config.json'), JSON.stringify(profileEntry(countingHelper())));
+  it('a project file helper does not run until approved, and then renews like the person\'s own (MNE-001-452)', async () => {
+    // A project api_key_cmd names its script directly (no shell forms): the same
+    // counting helper, as a script of the project.
+    fs.writeFileSync(path.join(project, 'count.sh'), countingHelper() + '\n');
+    fs.writeFileSync(path.join(project, 'mnemosine.config.json'), JSON.stringify(profileEntry('sh count.sh')));
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(runs()).toBe(0);
+    approveProjectProfile('vault', project);
     let now = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     const profile = resolveProfile('vault', undefined, project);
-    expect(profile.keyRenewal).toBeUndefined();
+    expect(profile.keyRenewal).toBeDefined();
     const client = createOpenAiClient(profile);
     await ask(client);
     now += 2 * HELPER_RENEW_AFTER_MS;
-    statuses = [401];
-    await expect(ask(client)).rejects.toMatchObject({ status: 401 });
     await ask(client);
-    expect(runs()).toBe(1);
-    expect(new Set(sent)).toEqual(new Set(['Bearer tok-inventado-1']));
+    expect(runs()).toBe(2);
+    expect(new Set(sent)).toEqual(new Set(['Bearer tok-inventado-1', 'Bearer tok-inventado-2']));
   });
 
   it('an anthropic profile with a helper still sends its output once, as an API key', () => {
