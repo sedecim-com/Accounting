@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { probeProvider, probeAll, PROBE_TIMEOUT_MS } from '../../../src/ai/providers/probe.js';
 import type { ResolvedProfile } from '../../../src/ai/providers/types.js';
 
@@ -77,18 +80,112 @@ describe('probeProvider — openai-compatible', () => {
   });
 });
 
-describe('probeProvider — anthropic', () => {
-  it('makes the minimal 1-token messages call with x-api-key', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(200));
+// MNE-001-447 (#644 P7): status probes an anthropic profile through the
+// SDK client the session builds, so the probe sends what the session sends,
+// to the host the session uses. The SDK reads the environment on its own, so
+// each test pins every variable it reads to an invented value or to unset,
+// and points its config root at an empty folder.
+describe('probeProvider — anthropic, through the session\'s client', () => {
+  const ANTHROPIC_VARIABLES = [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_CUSTOM_HEADERS',
+    'ANTHROPIC_PROFILE',
+    'ANTHROPIC_FEDERATION_RULE_ID',
+    'ANTHROPIC_ORGANIZATION_ID',
+    'ANTHROPIC_IDENTITY_TOKEN',
+    'ANTHROPIC_IDENTITY_TOKEN_FILE',
+  ];
+  let configDir: string;
+  beforeEach(() => {
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-probe-anthropic-'));
+    for (const variable of ANTHROPIC_VARIABLES) vi.stubEnv(variable, '');
+    vi.stubEnv('ANTHROPIC_CONFIG_DIR', configDir);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  });
+
+  const okMessage = () =>
+    new Response(JSON.stringify({ id: 'msg_probe', type: 'message', role: 'assistant', content: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  const header = (init: RequestInit | undefined, name: string) => new Headers(init?.headers).get(name);
+
+  // @anthropic-ai/sdk 1.8.0 sends an API key as a bearer token too
+  // (client.js:450-455), so the probe now does what the session does.
+  it("makes the minimal 1-token messages call with the profile's key, as the session's client sends it", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okMessage());
     const r = await probeProvider(anthropicProfile(), { fetchImpl: asFetch(fetchMock) });
     expect(r.ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
-    expect(init.method).toBe('POST');
-    expect(init.headers['x-api-key']).toBe('sk-ant-fake-456');
-    const body = JSON.parse(init.body);
+    expect(init?.method).toBe('POST');
+    expect(header(init, 'authorization')).toBe('Bearer sk-ant-fake-456');
+    const body = JSON.parse(init?.body as string) as { max_tokens: number; model: string };
     expect(body.max_tokens).toBe(1); // hard floor: the probe never burns more
     expect(body.model).toBe('claude-opus-5');
+  });
+
+  it("with ANTHROPIC_AUTH_TOKEN, sends Authorization: Bearer and ignores the profile's base_url and headers, as the session does", async () => {
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'tok-inventado-de-prueba');
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okMessage());
+    const r = await probeProvider(
+      anthropicProfile({ apiKey: undefined, base_url: 'https://proxy.example.test', headers: { 'x-extra-header': 'from-the-profile' } }),
+      { fetchImpl: asFetch(fetchMock) }
+    );
+    expect(r.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(header(init, 'authorization')).toBe('Bearer tok-inventado-de-prueba');
+    expect(header(init, 'x-api-key')).toBeNull();
+    expect(header(init, 'x-extra-header')).toBeNull();
+  });
+
+  it('follows ANTHROPIC_BASE_URL from the person\'s environment, as the SDK does for the session', async () => {
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://gateway.example.test');
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okMessage());
+    await probeProvider(anthropicProfile(), { fetchImpl: asFetch(fetchMock) });
+    expect(fetchMock.mock.calls[0][0]).toBe('https://gateway.example.test/v1/messages');
+  });
+
+  it('with no credential anywhere, sends nothing and reads as unconfigured', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okMessage());
+    const r = await probeProvider(anthropicProfile({ apiKey: undefined }), { fetchImpl: asFetch(fetchMock) });
+    expect(r.ok).toBe(false);
+    expect(r.category).toBe('unconfigured');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('classifies a 401 as auth in one attempt, and never echoes the key', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key sk-ant-fake-456' } }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    const r = await probeProvider(anthropicProfile(), { fetchImpl: asFetch(fetchMock) });
+    expect(r.ok).toBe(false);
+    expect(r.category).toBe('auth');
+    expect(r.detail).toContain('HTTP 401');
+    expect(JSON.stringify(r)).not.toContain('sk-ant-fake-456');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 529 is server, and the probe does not retry it', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }), {
+        status: 529,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    const r = await probeProvider(anthropicProfile(), { fetchImpl: asFetch(fetchMock) });
+    expect(r.category).toBe('server');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

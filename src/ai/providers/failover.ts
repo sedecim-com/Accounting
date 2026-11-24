@@ -1,4 +1,6 @@
 import type { ProviderProfile } from './types.js';
+import { MissingProviderCredentialError, ProjectFileRefusalError } from './config.js';
+import { CredentialHelperError } from './credential-helper.js';
 
 // ============================================================
 // ERROR-TYPED FAILOVER CHAINS (OpenClaw pattern)
@@ -8,6 +10,10 @@ import type { ProviderProfile } from './types.js';
 // chain walks to the next profile:
 //
 //   auth / rate_limit / server / timeout / billing → failover
+//   unconfigured → failover WITHOUT a cooldown: the link has no
+//               credential here (none set, a helper that printed
+//               none, a project helper or pair not approved), so
+//               nothing failed upstream and nothing was sent.
 //   overflow  → NEVER: the prompt is too big for ANY provider of
 //               a similar window; that belongs to compaction.
 //   refusal   → NEVER: a safety refusal must reach the human, not
@@ -35,6 +41,7 @@ export type ProviderErrorCategory =
   | 'server'
   | 'timeout'
   | 'billing'
+  | 'unconfigured'
   | 'overflow'
   | 'refusal'
   | 'aborted'
@@ -47,6 +54,7 @@ export const FAILOVER_ELIGIBLE: ReadonlySet<ProviderErrorCategory> = new Set([
   'server',
   'timeout',
   'billing',
+  'unconfigured',
 ]);
 
 export function isFailoverEligible(category: ProviderErrorCategory): boolean {
@@ -64,6 +72,29 @@ const REFUSAL_RE = /\brefusal\b|\bmodel\b[\s\S]{0,40}\brefus(ed|es)\b|declined t
 const BILLING_RE =
   /insufficient_quota|exceeded your current quota|billing|credit balance|insufficient credit|payment required|plan and billing/i;
 const TIMEOUT_RE = /\btim(ed|e).?out\b|deadline exceeded/i;
+
+// The Anthropic SDK's own «no credential» error, a plain Error raised before
+// any request is sent (node_modules/@anthropic-ai/sdk/client.js:407 in 1.8.0).
+const ANTHROPIC_NO_CREDENTIAL_RE = /could not resolve authentication method/i;
+
+/**
+ * True when the link has no credential to call with, as readiness would say
+ * (credential-state.ts: missing or unapproved), or its helper printed none.
+ * An installation secret named as api_key_env (NotAProviderCredentialError)
+ * is not one of them: that profile is refused, and the walk stops on it.
+ */
+function isUnconfigured(err: unknown): boolean {
+  if (
+    err instanceof MissingProviderCredentialError ||
+    err instanceof CredentialHelperError ||
+    err instanceof ProjectFileRefusalError
+  ) {
+    return true;
+  }
+  // A renewal that failed: the openai SDK wraps it as an OpenAIError with it as its cause.
+  if ((err as { cause?: unknown } | null)?.cause instanceof CredentialHelperError) return true;
+  return err instanceof Error && ANTHROPIC_NO_CREDENTIAL_RE.test(err.message);
+}
 
 const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT']);
 // DOMException-style abort code: caller cancellation, NOT a timeout.
@@ -117,6 +148,8 @@ function fullText(err: ErrorShape): string {
  */
 export function classifyProviderError(err: unknown): ProviderErrorCategory {
   if (err == null) return 'unknown';
+  // First: a helper's deadline would otherwise read as a timeout.
+  if (isUnconfigured(err)) return 'unconfigured';
   const e = (typeof err === 'object' ? err : { message: String(err) }) as ErrorShape;
   const type = wireType(e);
   const text = `${type} ${fullText(e)}`;
@@ -260,6 +293,8 @@ export class AllProvidersFailedError extends Error {
  *    the next call automatically re-probes it first.
  *  - If every profile is cooling down, the cooldowns are ignored and the
  *    chain is walked anyway: availability beats backoff politeness.
+ *  - A link with no credential here (unconfigured) is skipped without a
+ *    cooldown.
  *  - Non-eligible categories (overflow / refusal / aborted / unknown)
  *    re-throw IMMEDIATELY: overflow belongs to compaction, a cancellation
  *    belongs to the human who issued it, and a refusal or an unclassified
@@ -294,7 +329,8 @@ export async function runWithFailover<T>(
       if (options.signal?.aborted) throw err;
       const category = classifyProviderError(err);
       if (!isFailoverEligible(category)) throw err;
-      cooldowns.trip(profile.name, now());
+      // Nothing failed upstream, so nothing cools: the next call asks it again.
+      if (category !== 'unconfigured') cooldowns.trip(profile.name, now());
       failures.push({ provider: profile.name, category, error: err });
       options.onFailover?.({
         provider: profile.name,

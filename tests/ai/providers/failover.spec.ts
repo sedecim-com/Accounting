@@ -10,6 +10,13 @@ import {
   type NamedProfile,
   type ProviderErrorCategory,
 } from '../../../src/ai/providers/failover.js';
+import OpenAI from 'openai';
+import {
+  MissingProviderCredentialError,
+  NotAProviderCredentialError,
+  ProjectFileRefusalError,
+} from '../../../src/ai/providers/config.js';
+import { CredentialHelperError } from '../../../src/ai/providers/credential-helper.js';
 
 // ─── classification table ───
 
@@ -70,9 +77,44 @@ describe('classifyProviderError', () => {
   });
 });
 
+// MNE-001-447 (#644 P7): a link with no credential here is `unconfigured`,
+// whatever raised it, and the walk moves past it. The errors are built the
+// way the code raises them; the keys and commands are invented.
+describe('classifyProviderError — unconfigured', () => {
+  const helper = new CredentialHelperError('gcloud-link', { kind: 'exit', code: 1 });
+  const cases: Array<[string, unknown]> = [
+    ['MissingProviderCredentialError', new MissingProviderCredentialError('Provider "grok" requires the environment variable XAI_API_KEY')],
+    ['CredentialHelperError, alone', helper],
+    ['CredentialHelperError of a deadline, not a timeout', new CredentialHelperError('gcloud-link', { kind: 'deadline', ms: 10_000 })],
+    ['CredentialHelperError as the cause of the openai SDK wrapper', new OpenAI.OpenAIError('Failed to get the API key', { cause: helper })],
+    [
+      "the Anthropic SDK's own no-credential error, as client.js raises it",
+      new Error(
+        'Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set. Or for the "Authorization" header to be explicitly omitted'
+      ),
+    ],
+    ['ProjectFileRefusalError, an unapproved project helper', new ProjectFileRefusalError('helper_unapproved', 'Provider "shared" runs an api_key_cmd you have not approved')],
+    ['ProjectFileRefusalError, an unapproved pair', new ProjectFileRefusalError('pair_unapproved', 'Provider "shared" would send OPENAI_API_KEY to https://other.example.test')],
+  ];
+
+  it.each(cases)('%s → unconfigured', (_label, err) => {
+    void _label;
+    expect(classifyProviderError(err)).toBe('unconfigured');
+  });
+
+  it('an installation secret named as api_key_env stays loud: not a missing credential', () => {
+    expect(classifyProviderError(new NotAProviderCredentialError('Provider "x" names DATABASE_URL in api_key_env'))).toBe('unknown');
+  });
+
+  it('a 404 or a 410 still fails loudly', () => {
+    expect(classifyProviderError({ status: 404, message: 'model: not-a-model' })).toBe('unknown');
+    expect(classifyProviderError({ status: 410, message: 'this model was retired' })).toBe('unknown');
+  });
+});
+
 describe('isFailoverEligible', () => {
-  it('allows failover only for auth/rate_limit/server/timeout/billing', () => {
-    for (const c of ['auth', 'rate_limit', 'server', 'timeout', 'billing'] as const) {
+  it('allows failover only for auth/rate_limit/server/timeout/billing/unconfigured', () => {
+    for (const c of ['auth', 'rate_limit', 'server', 'timeout', 'billing', 'unconfigured'] as const) {
       expect(isFailoverEligible(c)).toBe(true);
     }
   });
@@ -250,6 +292,22 @@ describe('runWithFailover', () => {
     const attempt = vi.fn().mockResolvedValue('ok');
     const r = await runWithFailover([profile('a'), profile('b')], attempt, { cooldowns, now });
     expect(r.profile.name).toBe('a');
+  });
+
+  it('moves past a link with no credential without cooling it down', async () => {
+    const { cooldowns, now } = harness();
+    const onFailover = vi.fn();
+    const attempt = vi.fn(async (p: NamedProfile) => {
+      if (p.name === 'a') throw new MissingProviderCredentialError('Provider "a" requires the environment variable A_KEY');
+      return `by-${p.name}`;
+    });
+    const r = await runWithFailover([profile('a'), profile('b')], attempt, { cooldowns, now, onFailover });
+    expect(r.profile.name).toBe('b');
+    expect(onFailover).toHaveBeenCalledWith({ provider: 'a', errorType: 'unconfigured', nextProvider: 'b' });
+    expect(cooldowns.isCooling('a')).toBe(false);
+    // The next call asks the head again, because nothing failed upstream.
+    await runWithFailover([profile('a'), profile('b')], attempt, { cooldowns, now });
+    expect(attempt.mock.calls.map(([p]) => p.name)).toEqual(['a', 'b', 'a', 'b']);
   });
 
   it('throws AllProvidersFailedError with per-provider categories when the chain is exhausted', async () => {
