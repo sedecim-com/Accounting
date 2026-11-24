@@ -200,7 +200,7 @@ describe('el anticipo a proveedores se reparte DESPUÉS', () => {
         [{ documentId: gasto.billId, amountApplied: '580.00' }],
         f.userId
       )
-    ).rejects.toThrow(/saldo a cuenta no alcanza/);
+    ).rejects.toThrow(/balance on account does not cover it/);
   });
 
   it('rechaza el mismo gasto dos veces en la misma aplicación', async () => {
@@ -215,7 +215,7 @@ describe('el anticipo a proveedores se reparte DESPUÉS', () => {
         ],
         f.userId
       )
-    ).rejects.toThrow(/dos veces/);
+    ).rejects.toThrow(/appears twice/);
   });
 
   it('no alcanza un pago de OTRA entidad ni conociendo su id', async () => {
@@ -285,7 +285,7 @@ describe('el descuento por pronto pago, que se rechazaba por una cuenta que sí 
         [{ documentId: gasto.billId, amountApplied: '116.00', discountAmount: '50.00' }],
         f.userId
       )
-    ).rejects.toThrow(/de efectivo \+ 50\.00 de descuento/);
+    ).rejects.toThrow(/in cash \+ 50\.00 in discount/);
   });
 });
 
@@ -668,7 +668,7 @@ describe('la cuenta del pago corto la decide el PANEL, no el código', () => {
         f.userId,
         { modo: 'residual', shortPayReason: 'Da igual el motivo: está prohibido' }
       )
-    ).rejects.toThrow(/nota de crédito/);
+    ).rejects.toThrow(/credit note/);
   });
 
   it('y `partial` sigue funcionando aunque `residual` esté prohibido', async () => {

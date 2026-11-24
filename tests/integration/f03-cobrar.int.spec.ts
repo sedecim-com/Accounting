@@ -316,7 +316,7 @@ describe('el cobro como historia: a cuenta, aplicar, desaplicar, reversar', () =
       reverseCustomerPayment(
         f.entityId, paymentId, { reason: 'x', feeAmount: '250.00' }, f.userId
       )
-    ).rejects.toThrow(/comisiones bancarias/);
+    ).rejects.toThrow(/bank-fees role/);
   });
 });
 
