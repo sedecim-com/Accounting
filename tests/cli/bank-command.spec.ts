@@ -934,6 +934,100 @@ describe('las escrituras piden lo que el catálogo promete', () => {
   });
 });
 
+// MNE-001-502 (#697, part 1) · the mark only a person sets, always with a reason.
+describe('bank account edit --foreign-bank (MNE-001-502)', () => {
+  /** F of the plan before the mark: no c_Banco code and no CLABE. */
+  const F = { sat_bank_code: null, clabe_last4: null, clabe_en_archivo: false, bank_is_foreign: false };
+  const updates = (r: { sql: Array<{ text: string; params: unknown[] }> }) =>
+    r.sql.filter((s) => /UPDATE bank_accounts/.test(s.text));
+  const audits = (r: { sql: Array<{ text: string; params: unknown[] }> }) =>
+    r.sql.filter((s) => /INSERT INTO audit_log/.test(s.text));
+  /** The family's reader, plus the row lock `edit` takes and the one row its UPDATE writes. */
+  const withRow = (row: Record<string, unknown>) => {
+    const read = lector({ cuenta: row });
+    return (text: string) =>
+      /FOR UPDATE/.test(text) ? filas([{ id: ACC }]) : /^UPDATE bank_accounts/.test(text) ? { rows: [], rowCount: 1 } : read(text);
+  };
+  const rowsOf = (out: string) => (JSON.parse(out) as { rows: Array<Record<string, unknown>> }).rows;
+
+  it.each([['--foreign-bank'], ['--no-foreign-bank']])('%s without --reason is a USAGE error (2) and reaches no UPDATE', async (flag) => {
+    const r = await run(['bank', 'account', 'edit', 'BBVA MXN', flag], withRow(F));
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/--foreign-bank/);
+    expect((r.errs[0] as Error).message).toMatch(/--reason/);
+    expect(updates(r)).toEqual([]);
+  });
+
+  it('a blank --reason is no reason', async () => {
+    const r = await run(['bank', 'account', 'edit', 'BBVA MXN', '--foreign-bank', '--reason', '  '], withRow(F));
+    expect(r.exitCode).toBe(2);
+    expect(updates(r)).toEqual([]);
+  });
+
+  it('marks F with its reason: one UPDATE, and the audit row holds the before, the after and the reason', async () => {
+    const r = await run(
+      ['bank', 'account', 'edit', 'BBVA MXN', '--foreign-bank', '--reason', 'Cuenta abierta en Nueva York', '--json'],
+      withRow(F)
+    );
+    expect(r.exitCode).toBe(0);
+    const [u] = updates(r);
+    expect(u!.text).toMatch(/bank_is_foreign = \$1/);
+    expect(u!.params[0]).toBe(true);
+    const [a] = audits(r);
+    expect(JSON.parse(a!.params[7] as string)).toEqual({ bank_is_foreign: false });
+    expect(JSON.parse(a!.params[8] as string)).toEqual({ bank_is_foreign: true });
+    expect(a!.params[9]).toBe('Cuenta abierta en Nueva York');
+    expect(rowsOf(r.out)).toEqual([{ field: 'bank_is_foreign', before: false, after: true }]);
+  });
+
+  it('removing the mark is audited the same way', async () => {
+    const r = await run(
+      ['bank', 'account', 'edit', 'BBVA MXN', '--no-foreign-bank', '--reason', 'El banco sí reside en México'],
+      withRow({ ...F, bank_is_foreign: true })
+    );
+    expect(r.exitCode).toBe(0);
+    expect(updates(r)[0]!.params[0]).toBe(false);
+    const [a] = audits(r);
+    expect(JSON.parse(a!.params[8] as string)).toEqual({ bank_is_foreign: false });
+    expect(a!.params[9]).toBe('El banco sí reside en México');
+  });
+
+  it.each([
+    ['marking an account that has a code (999 included)', ['--foreign-bank', '--reason', 'x'], { ...F, sat_bank_code: '999' }, /--sat-bank-code ""/],
+    ['marking an account that has a CLABE', ['--foreign-bank', '--reason', 'x'], { ...F, clabe_last4: '4321', clabe_en_archivo: true }, /--clabe ""/],
+    ['adding a code to a marked account', ['--sat-bank-code', '012'], { ...F, bank_is_foreign: true }, /--sat-bank-code ""/],
+    ['adding a CLABE to a marked account', ['--clabe', '012180001234567899', '--reason', 'x', '-y'], { ...F, bank_is_foreign: true }, /--clabe ""/],
+  ] as const)('%s is refused before any write, naming the datum to clear', async (_case, flags, row, datum) => {
+    const r = await run(['bank', 'account', 'edit', 'BBVA MXN', ...flags], withRow(row));
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(datum);
+    expect((r.errs[0] as Error).message).toMatch(/--no-foreign-bank/);
+    expect(updates(r)).toEqual([]);
+    expect(audits(r)).toEqual([]);
+  });
+
+  it('one edit that clears the code and sets the mark is judged on the row as it leaves it, and accepted', async () => {
+    const r = await run(
+      ['bank', 'account', 'edit', 'BBVA MXN', '--sat-bank-code', '', '--foreign-bank', '--reason', 'Cuenta abierta en Nueva York'],
+      withRow({ ...F, sat_bank_code: '012' })
+    );
+    expect(r.exitCode).toBe(0);
+    const [u] = updates(r);
+    expect(u!.text).toMatch(/sat_bank_code = \$1, bank_is_foreign = \$2/);
+    expect(u!.params.slice(0, 2)).toEqual([null, true]);
+  });
+
+  it('show --json prints foreign_bank, and the card says so only when it is marked', async () => {
+    const marked = await run(['bank', 'account', 'show', 'BBVA MXN', '--json'], withRow({ ...F, bank_is_foreign: true }));
+    expect(rowsOf(marked.out)[0]).toMatchObject({ foreign_bank: true, sat_bank_code: '' });
+    const plain = await run(['bank', 'account', 'show', 'BBVA MXN', '--json'], lector());
+    expect(rowsOf(plain.out)[0]).toMatchObject({ foreign_bank: false, sat_bank_code: '012' });
+    const card = await run(['bank', 'account', 'show', 'BBVA MXN'], withRow({ ...F, bank_is_foreign: true }));
+    expect(card.out).toMatch(/Foreign bank\s+not resident in Mexico/);
+    expect((await run(['bank', 'account', 'show', 'BBVA MXN'], lector())).out).not.toMatch(/Foreign bank/);
+  });
+});
+
 // ---- import: el cableado completo, con un CSV de verdad -------------
 
 // MNE-001-556 (T11) · a vendor payment or customer receipts; MNE-001-557 · several receipts name their credit.

@@ -8,7 +8,7 @@ import { formatearImporte, naturDe } from './balanza-invariantes.js';
 import { resolverPeriodoDeBalanza, type PeriodoDeBalanza } from './balanza-service.js';
 import { archivarArtefacto, hashDelXml, type ArtefactoArchivado } from './artefactos.js';
 import { importeAnexo24 } from './xml.js';
-import { FOREIGN_BANK_CODE } from './official-enumerations.js';
+import { EXT_MAX_CHARACTERS, FOREIGN_BANK_CODE } from './official-enumerations.js';
 import {
   construirPolizasXml,
   nombreDelArchivoDePolizas,
@@ -259,6 +259,8 @@ interface FilaDeCuentaBancaria {
   clabe_last4: string | null;
   account_number_encrypted: string | null;
   account_number_last4: string | null;
+  /** MNE-001-502 · a person recorded that the bank is not resident in Mexico (343). */
+  bank_is_foreign: boolean;
 }
 
 /**
@@ -283,7 +285,7 @@ interface FilaDeCuentaBancaria {
 async function cuentasBancarias(entityId: string): Promise<Map<string, FilaDeCuentaBancaria>> {
   const r = await query<FilaDeCuentaBancaria>(
     `SELECT id::text AS id, account_name, gl_account_id::text AS gl_account_id, sat_bank_code, bank_name,
-            clabe_encrypted, clabe_last4, account_number_encrypted, account_number_last4
+            clabe_encrypted, clabe_last4, account_number_encrypted, account_number_last4, bank_is_foreign
        FROM bank_accounts WHERE entity_id = $1`,
     [entityId]
   );
@@ -556,7 +558,14 @@ export function rastroDePago(
   const crudoCuenta = numeroDeCuenta(banco);
   const nuestraCuenta =
     crudoCuenta === undefined ? undefined : crudoCuenta.replace(/\s+/g, '') || undefined;
-  const nuestroBanco = (banco?.sat_bank_code ?? '').trim() || undefined;
+  // MNE-001-502 · An account a person marked as at a foreign bank has no
+  // c_Banco code (343's CHECK): it is declared as FOREIGN_BANK_CODE with its
+  // bank_name in our side's `*Ext`. Only the mark does it. A missing code,
+  // the name or the currency never do, and a code, if one were there, wins
+  // with no name: a code is never sent together with a name.
+  const ourCode = (banco?.sat_bank_code ?? '').trim() || undefined;
+  const ourBankIsForeign = ourCode === undefined && banco?.bank_is_foreign === true;
+  const nuestroBanco = ourCode ?? (ourBankIsForeign ? FOREIGN_BANK_CODE : undefined);
   const cuentaCapturada = (p.cuenta_destino ?? '').replace(/\s+/g, '') || undefined;
   const bancoCapturadoNal = (p.banco_destino_sat ?? '').trim() || undefined;
   const bancoCapturadoExt = (p.banco_destino_extranjero ?? '').trim() || undefined;
@@ -601,6 +610,33 @@ export function rastroDePago(
       motivo: bankGap(node, attribute, `${what} ${sentido === 'sale' ? 'sale de' : 'entra a'} ${account}, que no tiene clave c_Banco`),
       missingOnBankAccount: account,
     };
+  };
+  // MNE-001-502 · our foreign bank's name, whole or not at all. The XSD caps
+  // each `*Ext` at 150 characters, which are code points, counted on the text
+  // as the sanitizer leaves it (`limpiar`, the same step `texto()` takes).
+  // A longer or blank name leaves the node out and names the account: it is
+  // never truncated, because a cut name is a name nobody captured. `sanear`
+  // runs only once the name goes out, so it reports only what is emitted.
+  const ourForeignBank = (node: string, attribute: string, what: string): { ext?: string; gap?: RastroResuelto } => {
+    if (!ourBankIsForeign || banco === undefined) return {};
+    const blank = banco.bank_name.trim() === '';
+    const length = [...limpiar(banco.bank_name).texto].length;
+    if (blank || length > EXT_MAX_CHARACTERS) {
+      const account = namedAccount(banco);
+      return {
+        gap: {
+          motivo:
+            `${what} ${sentido === 'sale' ? 'sale de' : 'entra a'} ${account}, de banco extranjero, cuyo nombre de banco ` +
+            (blank
+              ? `está vacío; el nodo ${node} lo declara en ${attribute}`
+              : `tiene ${length} caracteres; el nodo ${node} lo declara en ${attribute}, que admite ` +
+                `${EXT_MAX_CHARACTERS}, y el nombre no se recorta`),
+          missingOnBankAccount: account,
+          bankAccountFlag: `--bank <nombre de hasta ${EXT_MAX_CHARACTERS} caracteres>`,
+        },
+      };
+    }
+    return { ext: sanear(banco.bank_name, numUnIdenPol, `${attribute} de ${namedAccount(banco)}`) };
   };
 
   // #611 · In a receipt the origin is the customer's: its bank (the issuer of
@@ -671,6 +707,8 @@ export function rastroDePago(
       };
     }
     if (banco === undefined || nuestroBanco === undefined) return ourBankGap('Cheque', 'BanEmisNal', `el cheque ${num}`);
+    const foreign = ourForeignBank('Cheque', 'BanEmisExt', `el cheque ${num}`);
+    if (foreign.gap !== undefined) return foreign.gap;
     if (nuestraCuenta === undefined) {
       const account = namedAccount(banco);
       return {
@@ -686,6 +724,7 @@ export function rastroDePago(
         clase: 'cheque',
         num,
         banEmisNal: nuestroBanco,
+        ...(foreign.ext !== undefined ? { banEmisExt: foreign.ext } : {}),
         ctaOri: nuestraCuenta,
         fecha: p.payment_date,
         benef: emittedBenef(),
@@ -707,6 +746,8 @@ export function rastroDePago(
       // fixes even a receipt already registered, and its gap survives a new one.
       const what = `el cobro ${p.payment_number}`;
       if (banco === undefined || nuestroBanco === undefined) return ourBankGap('Transferencia', 'BancoDestNal', what);
+      const foreign = ourForeignBank('Transferencia', 'BancoDestExt', what);
+      if (foreign.gap !== undefined) return foreign.gap;
       const receivingAccount = cuentaCapturada ?? nuestraCuenta;
       if (receivingAccount === undefined) {
         const account = namedAccount(banco);
@@ -725,6 +766,7 @@ export function rastroDePago(
           ...(payerForeign !== undefined ? { bancoOriExt: foreignBankName(payerForeign, 'BancoOriExt') } : {}),
           ctaDest: receivingAccount,
           bancoDestNal: nuestroBanco,
+          ...(foreign.ext !== undefined ? { bancoDestExt: foreign.ext } : {}),
           fecha: p.payment_date,
           benef: emittedBenef(),
           rfc: rfcBenef,
@@ -745,6 +787,8 @@ export function rastroDePago(
     }
     const who = `la transferencia ${p.payment_number}`;
     if (nuestroBanco === undefined) return ourBankGap('Transferencia', 'BancoOriNal', who);
+    const foreign = ourForeignBank('Transferencia', 'BancoOriExt', who);
+    if (foreign.gap !== undefined) return foreign.gap;
     if (bancoCapturadoNal === undefined && bancoCapturadoExt === undefined) {
       return {
         motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
@@ -755,6 +799,7 @@ export function rastroDePago(
       clase: 'transferencia',
       ...(nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
       bancoOriNal: nuestroBanco,
+      ...(foreign.ext !== undefined ? { bancoOriExt: foreign.ext } : {}),
       // The row stores one fact (064's CHECK): a national code, or a foreign name.
       bancoDestNal: bancoCapturadoNal ?? FOREIGN_BANK_CODE,
       ...(bancoCapturadoExt !== undefined ? { bancoDestExt: foreignBankName(bancoCapturadoExt, 'BancoDestExt') } : {}),

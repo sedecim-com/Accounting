@@ -2679,9 +2679,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.account.show.never_reconciled': 'nunca',
   'bank.account.show.status_active': 'activa',
   'bank.account.show.status_archived': 'archivada',
+  'bank.account.show.label.foreign_bank': 'Banco extranjero',
+  'bank.account.show.foreign_bank_marked': 'sin residencia en México',
+  'bank.account.foreign_bank.reason_required':
+    '--foreign-bank y --no-foreign-bank exigen --reason "<por qué>": la marca dice si el banco reside en ' +
+    'México, y el archivo de pólizas lo declara. El motivo se guarda en la bitácora, que es append-only.',
+  'bank.account.foreign_bank.keeps_sat_bank_code':
+    'Una cuenta de banco extranjero no tiene clave c_Banco del SAT, y esta edición la deja con {code}. ' +
+    'Bórrala en la misma edición con --sat-bank-code "", o quita la marca con --no-foreign-bank --reason "<por qué>".',
+  'bank.account.foreign_bank.keeps_clabe':
+    'Una cuenta de banco extranjero no tiene CLABE, que sólo emite un banco residente en México, y esta ' +
+    'edición la deja con una. Bórrala en la misma edición con --clabe "" --reason "<por qué>", o quita la ' +
+    'marca con --no-foreign-bank --reason "<por qué>".',
   'bank.account.edit.nothing_to_change':
     'Nada que cambiar. Pasa --name, --bank, --branch, --type, --currency, --clabe, ' +
-    '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift o --iban.',
+    '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift, --iban, ' +
+    '--foreign-bank o --no-foreign-bank.',
   'bank.account.edit.reason_required':
     '{fields} cambia uno de los identificadores por los que sale el dinero ({sensitive}): exige ' +
     '--reason "<por qué>". El motivo se guarda en la bitácora, que es append-only.',
@@ -4632,8 +4645,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.account.edit.option.sat_bank_code': 'clave c_Banco del SAT; un valor vacío la borra',
   'help.bank.account.edit.option.swift': 'código SWIFT/BIC; un valor vacío lo borra',
   'help.bank.account.edit.option.iban': 'código IBAN; un valor vacío lo borra',
+  'help.bank.account.edit.option.foreign_bank':
+    'el banco no reside en México: las pólizas declaran la clave c_Banco 999 y el nombre del banco; exige --reason',
+  'help.bank.account.edit.option.no_foreign_bank': 'quita la marca de banco extranjero; exige --reason',
   'help.bank.account.edit.option.reason':
-    'justificación que queda en el rastro de auditoría; obligatoria para los identificadores',
+    'justificación que queda en el rastro de auditoría; obligatoria para los identificadores y la marca de banco extranjero',
   'help.bank.account.edit.option.dry_run': 'aplica el cambio y lo deshace, mostrando lo que cambiaría',
   'help.bank.account.edit.option.json': 'salida en JSON',
   'help.bank.account.set.description':
