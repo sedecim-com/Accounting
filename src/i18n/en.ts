@@ -1853,6 +1853,21 @@ export const EN = {
   'policy.plain_receipt_unapply_iva.option.repark_same_month':
     'Re-park it when the unapply is in the month the IVA was released',
 
+  'policy.note_reversal_after_cashing_iva.question':
+    'A credit note issued while a customer cheque was held is reversed after the bank cashed the cheque: in which month does the IVA paper count the IVA the note no longer restitutes?',
+  'policy.note_reversal_after_cashing_iva.impact':
+    'Governs the IVA workpaper after `entry reverse` or `entry void` of such a note. Under either answer the ledger posts DR 2150 / CR 2120 for that IVA, dated with the reversal, or with the cashing when the reversal is dated before it. With "reversal_month" the paper counts it in the month of that entry, so every month ties out with the ledger and no month already declared moves. With "cashing_month" the paper reads the note as never issued and counts it in the month of the cashing; the tie-out names the amended return that month needs and the correction in the month of the reversal.',
+  'policy.note_reversal_after_cashing_iva.rationale':
+    'LIVA art. 1-B and decision (A) on cash kept on account: the cash the note covered was owed back to the customer, not consideration, and the cancellation is the act that makes it consideration held on account again. The ledger dates that correction with the reversal (NIF B-1), and counting it there changes no month already declared and lowers none, the conservative option of ADR-0006. Reading the cancelled CFDI as never issued (CFF art. 29-A) is also accepted, and takes an amended return of the cashing\'s month (CFF art. 32).',
+  'policy.note_reversal_after_cashing_iva.why':
+    'Some firms treat a cancelled credit note as if it had never existed and amend the month it affected; others recognise the cancellation in the month it happens. The ledger is the same either way.',
+  'policy.note_reversal_after_cashing_iva.what':
+    'With "reversal_month" I count that IVA in the month of the reversal\'s correction. With "cashing_month" I count it in the month of the cashing and name, in the tie-out, the amended return and the correction.',
+  'policy.note_reversal_after_cashing_iva.if_skipped': 'I count it in the month of the reversal.',
+  'policy.note_reversal_after_cashing_iva.option.reversal_month': 'Count it in the month of the reversal, as the ledger does',
+  'policy.note_reversal_after_cashing_iva.option.cashing_month':
+    'Count it in the month of the cashing, as if the note had never been issued',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -4038,6 +4053,112 @@ export const EN = {
   /** The receipt of `prepaid run`. */
   'ap.prepaid.run.done':
     '{count, plural, one {# accrual entry} other {# accrual entries}} posted in {period} for {total}.',
+
+  // MNE-001-228 part 1: ap reconcile, vendor and payment. Part 2 (bill) appends below.
+  /** `ap reconcile --as-of` that is not a real calendar day. */
+  'ap.reconcile.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
+  /** The table of `ap reconcile`: title, header and row labels. */
+  'ap.reconcile.title': 'AP reconciliation',
+  'ap.reconcile.header': '· control {code} {name} · as of {date}',
+  'ap.reconcile.row.subledger': 'Subledger (open bills)',
+  'ap.reconcile.row.foreign': 'of which {currency} {foreign}',
+  'ap.reconcile.row.fx_revaluation': 'of which FX revaluation',
+  'ap.reconcile.row.ledger': 'Control account (ledger)',
+  'ap.reconcile.row.difference': 'Difference',
+  'ap.reconcile.row.explained': 'Explained by items',
+  'ap.reconcile.row.unexplained': 'Unexplained',
+  /** The verdict under the rows. `owner` is `none` when part of the difference has no owner. */
+  'ap.reconcile.balanced': 'Balanced.',
+  'ap.reconcile.unbalanced':
+    'Difference {difference} — {owner, select, none {{explained} named, {unexplained} with no owner.} other {every peso of it is named below.}}',
+  /** The reconciling items: heading, the footnote under the table, and the prose heading of --explain. */
+  'ap.reconcile.items_title': 'Reconciling items',
+  'ap.reconcile.items_note':
+    'importe = what this item adds to (subledger − ledger); the named ones sum to Explained, and with the residual row to Difference.',
+  'ap.reconcile.items_rounding': 'Amounts are rounded per item; the column may differ from Explained by cents.',
+  'ap.reconcile.why_title': 'Why each item is there',
+  'ap.reconcile.no_manual_entries': 'No manual entries on the control account either.',
+  /** More items than the listing shows, per probe. */
+  'ap.reconcile.capped':
+    '{count, plural, one {# more item exists and was not listed} other {# more items exist and were not listed}}: the listing is capped per probe. The totals (explained, unexplained) do include them.',
+  /** `vendor show --include` with a part it cannot include. */
+  'ap.vendor.show.include_unknown':
+    'Cannot include "{part}". This command can include: {parts}. "compliance" needs the vendor_tax_profiles and vendor_compliance_checks tables, and "bank" needs the audited decrypt path — neither exists yet.',
+  'ap.vendor.show.disappeared': 'Vendor {ref} disappeared while reading it.',
+  /** `vendor create --tax-id`: which country's rule, said out loud. */
+  'ap.vendor.create.no_default_tax_id_type':
+    'This entity is incorporated in "{country}", which has no default tax id type. Say which one with --tax-id-type {types}.',
+  'ap.vendor.create.tax_id_type_unknown': 'Unknown --tax-id-type "{value}". Use one of: {types}.',
+  'ap.vendor.create.tax_id_type_alone': '--tax-id-type was given without --tax-id.',
+  'ap.vendor.create.terms_not_understood':
+    'Payment terms "{terms}" were not understood, so no due date could ever be computed from them. Use "Net 30", "2/10 Net 30" or "Due on receipt".',
+  'ap.vendor.create.tax_id_accepted': 'Tax id {taxId} accepted under: {rule}.',
+  'ap.vendor.create.no_tax_id':
+    'No tax id on file. A received CFDI cannot be matched to this vendor and it cannot appear in a DIOT or a 1099.',
+  'ap.vendor.edit.nothing_to_change':
+    'Nothing to change. Pass --name, --contact, --email, --phone or --notes. Payment terms are `vendor terms set`; bank details are not editable from here.',
+  'ap.vendor.edit.done': '{number} updated ({fields})',
+  'ap.vendor.terms.nothing_to_set': 'Nothing to set. Pass --terms, --currency, or both.',
+  /** How `vendor terms set` read the terms. `net` and `discount` are `none` when the terms have neither. */
+  'ap.vendor.terms.read_as':
+    'Read as: {net, select, none {no net term} other {due {days, plural, one {# day} other {# days}} after the bill date}}{discount, select, none {} other {, {pct}% off if paid within {discountDays, plural, one {# day} other {# days}}}}.',
+  /** A `payment` question with no terminal to ask it on. */
+  'ap.payment.confirm.no_terminal':
+    '{question} — there is no terminal to ask on. Re-run with --yes once you are sure, or with --dry-run to see the effect first.',
+  'ap.payment.dry_run': 'Dry run: nothing was written.',
+  /** The account `--bank` resolved to, echoed because a fragment may match another. */
+  'ap.payment.bank_account': 'Bank account: {name}',
+  /** The entry a payment posted, after its result line. */
+  'ap.payment.entry': 'entry {entry}',
+  /** A bill that cannot be paid. `reason` is `paid`, `unapproved` or another status. */
+  'ap.payment.create.not_payable':
+    'Bill {bill} is "{status}". {reason, select, paid {It is already settled.} unapproved {Approve it first: the liability has to be in the ledger before it can be paid.} other {Only {payable} bills can be paid.}}',
+  /** The confirmation of `payment create`. `bank` is `none` without --bank. */
+  'ap.payment.create.confirm':
+    'Record {amount} {currency} paid on {bill} ({before} → {after}){bank, select, none {} other { from {bankName}}} in {entity}? This posts to the ledger.',
+  /** The key was already spent: before any work, and when the race is lost while writing. */
+  'ap.payment.create.idempotency_hit':
+    '↩ Idempotency hit: the key "{key}" already completed this act ({number}). Nothing was written again; this is the recorded result.',
+  'ap.payment.create.idempotency_race':
+    '↩ Idempotency hit: the key "{key}" already spent this payment ({number}). Nothing was written again; this is the recorded result.',
+  'ap.payment.create.would_record': 'Would record {before} → {after} on {bill}',
+  /** The flags of `payment apply`, paired by position. */
+  'ap.payment.apply.bill_missing':
+    'Name the bill it applies to: --bill <ref> --amount <amount>. Repeat them to split it among several.',
+  'ap.payment.apply.pairs_mismatch':
+    '{bills, plural, one {There is # --bill} other {There are # --bill}} and {amounts} --amount: they pair up by position, so there must be as many of each.',
+  'ap.payment.apply.discounts_excess':
+    '{discounts, plural, one {There is # --discount} other {There are # --discount}} for {bills} --bill: at least one is left over.',
+  'ap.payment.apply.mode_invalid': '--mode takes "partial" or "residual"; got "{mode}".',
+  /** The reason `payment apply` does not honor --idempotency-key (`cli.risk.key_not_honored`). */
+  'ap.payment.apply.retry_reapplies': 'a retry splits the payment again and posts another entry',
+  'ap.payment.apply.not_applicable': 'Bill {bill} is "{status}"; only {payable} bills can be applied to.',
+  /** The confirmation of `payment apply`. `writeOff` is `none` when nothing is written off. */
+  'ap.payment.apply.confirm':
+    'Apply {count, plural, one {# document} other {# documents}} of {payment} in {entity}{writeOff, select, none {} other {, WRITING OFF {amount} that will stop being owed}}? This posts to the ledger.',
+  'ap.payment.apply.would': 'Would apply {payment}',
+  'ap.payment.apply.on_account': 'on account {before} → {after}',
+  /** A discount the terms did not grant, named apart from an early-payment one. */
+  'ap.payment.apply.discount_outside_terms': 'Discount taken outside the terms on {bills}',
+  'ap.payment.apply.discount_outside_terms_why': 'it is a negotiated deduction, not an agreed early-payment discount.',
+  /** The short payment, said out loud. */
+  'ap.payment.apply.written_off': '{amount} stopped being owed (short payment)',
+  'ap.payment.apply.write_off_default':
+    'That account is the declared DEFAULT; nobody has decided it yet: `mnemosine pending --verbose` shows it and `mnemosine pending define pago_corto_residual` decides it.',
+  'ap.payment.apply.iva_not_credited':
+    '{amount} of IVA left {account} WITHOUT being credited: it was the tax on the part that was not paid, and under cash basis what is not paid is not credited.',
+  /** `payment unapply`. `mode` is `dry_run` or `done`. */
+  'ap.payment.unapply.confirm':
+    'Unapply {amount} of {payment} from {bill} on {date} ({before} → {after})? The cash goes back on account.',
+  'ap.payment.unapply.idempotency_hit': '↩ Idempotency hit: key "{key}" already unapplied this; nothing was written again.',
+  'ap.payment.unapply.result': '{mode, select, dry_run {Would unapply {payment}} other {{payment} unapplied}} from {bill}',
+  'ap.payment.unapply.detail': '{before} → {after} · on account {onAccount}',
+  /** `payment reverse`. `mode` is `dry_run` or `done`. */
+  'ap.payment.reverse.confirm':
+    'Reverse {payment} on {date}? {entries, plural, one {# ledger entry gets a mirror} other {# ledger entries get a mirror}} and {bills, plural, one {# bill is owed again} other {# bills are owed again}}.',
+  'ap.payment.reverse.idempotency_hit': '↩ Idempotency hit: key "{key}" already reversed this; nothing was written again.',
+  'ap.payment.reverse.result': '{mode, select, dry_run {Would reverse {payment}} other {{payment} reversed}}',
+  'ap.payment.reverse.detail': 'on {date} · {entries}',
 
   // ==== end of I8.8 ====
 

@@ -16,6 +16,7 @@ import {
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import type { Palette } from './palette.js';
+import { t } from '../i18n/index.js';
 import { entityScope } from '../database/scope.js';
 import {
   declareRisk,
@@ -118,9 +119,9 @@ Examples:
 `,
   show: `
 Examples:
-  # Identity, terms, currency and flags.
+  # Show the identity, the terms, the currency and the flags of a vendor.
   mnemosine vendor show "Papeleria del Centro"
-  # Add the activity section.
+  # Add the activity section to what it shows.
   mnemosine vendor show "Papeleria del Centro" --include activity
 `,
   create: `
@@ -221,17 +222,13 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
       const parts = (opts.include ?? '').split(',').map((p) => p.trim()).filter(Boolean);
       for (const part of parts) {
         if (!(INCLUDABLE as readonly string[]).includes(part)) {
-          throw usageError(
-            `Cannot include "${part}". This command can include: ${INCLUDABLE.join(', ')}. ` +
-              '"compliance" needs the vendor_tax_profiles and vendor_compliance_checks tables, and ' +
-              '"bank" needs the audited decrypt path — neither exists yet.'
-          );
+          throw usageError({ key: 'ap.vendor.show.include_unknown', params: { part, parts: INCLUDABLE.join(', ') } });
         }
       }
 
       const found = await resolveVendor(ctx.entityId, ref);
       const full = await getVendorById(found.id, entityScope(ctx.tenantId, ctx.entityId), { includeActivity: parts.includes('activity') });
-      if (!full) throw notFound(`Vendor ${ref} disappeared while reading it.`);
+      if (!full) throw notFound({ key: 'ap.vendor.show.disappeared', params: { ref } });
 
       // The encrypted bank columns never leave the service; what a reader
       // gets is bank_details_on_file, which is the fact they need.
@@ -279,29 +276,29 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
         if (opts.taxId) {
           const declared = opts.taxIdType ?? taxIdTypeForCountry(ctx.country);
           if (!declared) {
-            throw usageError(
-              `This entity is incorporated in "${ctx.country}", which has no default tax id type. ` +
-                `Say which one with --tax-id-type ${TAX_ID_TYPES.join('|')}.`
-            );
+            throw usageError({
+              key: 'ap.vendor.create.no_default_tax_id_type',
+              params: { country: ctx.country, types: TAX_ID_TYPES.join('|') },
+            });
           }
           if (!(TAX_ID_TYPES as readonly string[]).includes(declared)) {
-            throw usageError(`Unknown --tax-id-type "${declared}". Use one of: ${TAX_ID_TYPES.join(', ')}.`);
+            throw usageError({
+              key: 'ap.vendor.create.tax_id_type_unknown',
+              params: { value: declared, types: TAX_ID_TYPES.join(', ') },
+            });
           }
           const checked = normalizeTaxId(opts.taxId, declared as TaxIdType);
           taxId = checked.taxId;
           taxIdType = checked.taxIdType;
           taxRule = checked.rule;
         } else if (opts.taxIdType) {
-          throw usageError('--tax-id-type was given without --tax-id.');
+          throw usageError({ key: 'ap.vendor.create.tax_id_type_alone' });
         }
 
         // ---- terms: parsed now, so a due date can be computed later ----
         const terms = parsePaymentTerms(opts.terms ?? 'Net 30');
         if (!terms.recognized) {
-          throw usageError(
-            `Payment terms "${opts.terms}" were not understood, so no due date could ever be computed ` +
-              'from them. Use "Net 30", "2/10 Net 30" or "Due on receipt".'
-          );
+          throw usageError({ key: 'ap.vendor.create.terms_not_understood', params: { terms: opts.terms ?? '' } });
         }
 
         const accountId = opts.defaultAccount
@@ -336,13 +333,11 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
             `${deps.palette.dim(`(${created.payment_terms}, ${created.currency_code})`)}\n`
         );
         if (taxRule) {
-          process.stderr.write(deps.palette.dim(`  Tax id ${taxId} accepted under: ${taxRule}.\n`));
-        } else {
           process.stderr.write(
-            deps.palette.yellow(
-              '  No tax id on file. A received CFDI cannot be matched to this vendor and it cannot appear in a DIOT or a 1099.\n'
-            )
+            deps.palette.dim(`  ${t('ap.vendor.create.tax_id_accepted', { taxId: taxId ?? '', rule: taxRule })}\n`)
           );
+        } else {
+          process.stderr.write(deps.palette.yellow(`  ${t('ap.vendor.create.no_tax_id')}\n`));
         }
       })
   );
@@ -377,10 +372,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
           ...(opts.notes !== undefined ? { notes: opts.notes } : {}),
         };
         if (Object.keys(patch).length === 0) {
-          throw usageError(
-            'Nothing to change. Pass --name, --contact, --email, --phone or --notes. ' +
-              'Payment terms are `vendor terms set`; bank details are not editable from here.'
-          );
+          throw usageError({ key: 'ap.vendor.edit.nothing_to_change' });
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
         const updated = await updateVendor(target.id, entityScope(ctx.tenantId, ctx.entityId), patch, {
@@ -389,8 +381,10 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
           reason: opts.reason,
         });
         process.stdout.write(
-          `${deps.palette.green('✔')} ${updated.vendor_number} updated ` +
-            `${deps.palette.dim(`(${Object.keys(patch).join(', ')})`)}\n`
+          `${deps.palette.green('✔')} ${t('ap.vendor.edit.done', {
+            number: String(updated.vendor_number),
+            fields: deps.palette.dim(Object.keys(patch).join(', ')),
+          })}\n`
         );
       })
   );
@@ -410,7 +404,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
       run(async () => {
         const ctx = await entityOf(opts);
         if (opts.terms === undefined && opts.currency === undefined) {
-          throw usageError('Nothing to set. Pass --terms, --currency, or both.');
+          throw usageError({ key: 'ap.vendor.terms.nothing_to_set' });
         }
         const target = await resolveVendor(ctx.entityId, ref);
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -427,11 +421,14 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
             `${deps.palette.bold(String(updated.payment_terms))} ${updated.currency_code}\n`
         );
         if (parsed) {
-          const due = parsed.netDays === null ? 'no net term' : `due ${parsed.netDays} days after the bill date`;
-          const disc = parsed.discountPct === null
-            ? ''
-            : `, ${parsed.discountPct}% off if paid within ${parsed.discountDays} days`;
-          process.stderr.write(deps.palette.dim(`  Read as: ${due}${disc}.\n`));
+          const readAs = t('ap.vendor.terms.read_as', {
+            net: parsed.netDays === null ? 'none' : 'days',
+            days: parsed.netDays ?? 0,
+            discount: parsed.discountPct === null ? 'none' : 'pct',
+            pct: parsed.discountPct ?? 0,
+            discountDays: parsed.discountDays ?? 0,
+          });
+          process.stderr.write(deps.palette.dim(`  ${readAs}\n`));
         }
       })
   );

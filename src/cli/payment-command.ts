@@ -187,10 +187,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure, ` +
-          'or with --dry-run to see the effect first.'
-      );
+      throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
@@ -258,7 +255,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     llave: { scope: 'payment create' },
     agent: false,
     writes:
-      'vendor_payments (con check_number y la cuenta destino), payment_applications, ' +
+      'vendor_payments (with check_number and the destination account), payment_applications, ' +
       'bills.amount_due, journal_entries',
   });
   create.addHelpText('after', EJEMPLOS.create);
@@ -268,14 +265,20 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const target = await resolveBill(ctx.entityId, ref);
 
       if (!PAGABLES.includes(target.status as (typeof PAGABLES)[number])) {
-        throw blockedByState(
-          `Bill ${target.bill_number} is "${target.status}". ` +
-            (target.status === BillStatus.PAID
-              ? 'It is already settled.'
-              : target.status === BillStatus.DRAFT || target.status === BillStatus.PENDING_APPROVAL
-                ? 'Approve it first: the liability has to be in the ledger before it can be paid.'
-                : `Only ${PAGABLES.join(', ')} bills can be paid.`)
-        );
+        throw blockedByState({
+          key: 'ap.payment.create.not_payable',
+          params: {
+            bill: target.bill_number,
+            status: target.status,
+            reason:
+              target.status === BillStatus.PAID
+                ? 'paid'
+                : target.status === BillStatus.DRAFT || target.status === BillStatus.PENDING_APPROVAL
+                  ? 'unapproved'
+                  : 'other',
+            payable: PAGABLES.join(', '),
+          },
+        });
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -283,7 +286,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       // reach the INSERT and surface Postgres' uuid syntax error. The name is
       // echoed because a fragment may match an account the operator did not mean.
       const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
-      if (bank) process.stderr.write(deps.palette.dim(`Bank account: ${bank.account_name}\n`));
+      if (bank) process.stderr.write(deps.palette.dim(`${t('ap.payment.bank_account', { name: bank.account_name })}\n`));
       const entrada: EntradaPago = {
         entityId: ctx.entityId,
         paymentAmount: opts.amount,
@@ -322,10 +325,16 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         etiqueta: target.bill_number,
         moneda: target.currency_code,
         pregunta: (d) =>
-          `Record ${opts.amount} ${target.currency_code} paid on ${target.bill_number} ` +
-          `(${d.saldoAnterior} → ${d.saldoNuevo})` +
-          (bank ? ` from ${bank.account_name}` : '') +
-          ` in ${ctx.entityName}? This posts to the ledger.`,
+          t('ap.payment.create.confirm', {
+            amount: opts.amount,
+            currency: target.currency_code,
+            bill: target.bill_number,
+            before: d.saldoAnterior,
+            after: d.saldoNuevo,
+            bank: bank ? 'given' : 'none',
+            bankName: bank?.account_name ?? '',
+            entity: ctx.entityName,
+          }),
         confirmOrAbort,
       });
     })
@@ -358,7 +367,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   withContext(apply);
   declareRisk(apply, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a repartir el pago y postea otro asiento' },
+    llave: { sinLlave: { key: 'ap.payment.apply.retry_reapplies' } },
     agent: false,
     writes: 'payment_applications, bills.amount_due, journal_entries',
   });
@@ -370,25 +379,21 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const bills = opts.bill ?? [];
       const amounts = opts.amount ?? [];
       if (bills.length === 0) {
-        throw usageError(
-          'Indica a qué gasto se aplica: --bill <ref> --amount <importe>. Repítelos para repartir entre varios.'
-        );
+        throw usageError({ key: 'ap.payment.apply.bill_missing' });
       }
       // El emparejamiento es POSICIONAL, así que un descuadre de longitudes no
       // se puede adivinar: aplicar 100 al gasto equivocado es peor que fallar.
       if (bills.length !== amounts.length) {
-        throw usageError(
-          `Hay ${bills.length} --bill y ${amounts.length} --amount: van emparejados por posición, ` +
-            'así que tienen que ser tantos como aquéllos.'
-        );
+        throw usageError({ key: 'ap.payment.apply.pairs_mismatch', params: { bills: bills.length, amounts: amounts.length } });
       }
       if (opts.discount && opts.discount.length > bills.length) {
-        throw usageError(
-          `Hay ${opts.discount.length} --discount para ${bills.length} --bill: sobra alguno.`
-        );
+        throw usageError({
+          key: 'ap.payment.apply.discounts_excess',
+          params: { discounts: opts.discount.length, bills: bills.length },
+        });
       }
       if (opts.mode !== 'partial' && opts.mode !== 'residual') {
-        throw usageError(`--mode admite "partial" o "residual"; llegó "${opts.mode}".`);
+        throw usageError({ key: 'ap.payment.apply.mode_invalid', params: { mode: String(opts.mode) } });
       }
       // Se traduce a la unión en vez de afirmarla con `as`.
       //
@@ -409,9 +414,10 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       for (let i = 0; i < bills.length; i++) {
         const target = await resolveBill(ctx.entityId, bills[i]);
         if (!PAGABLES.includes(target.status as (typeof PAGABLES)[number])) {
-          throw blockedByState(
-            `Bill ${target.bill_number} is "${target.status}"; only ${PAGABLES.join(', ')} bills can be applied to.`
-          );
+          throw blockedByState({
+            key: 'ap.payment.apply.not_applicable',
+            params: { bill: target.bill_number, status: target.status, payable: PAGABLES.join(', ') },
+          });
         }
         aplicaciones.push({
           documentId: target.id,
@@ -434,17 +440,19 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       });
       if (dryRun) {
         imprimirAplicacion(previo, p, true, opts.json === true);
-        process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+        process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
         return;
       }
 
       await confirmOrAbort(
         opts,
-        `Apply ${previo.documentos.length} document(s) of ${pago.payment_number} in ${ctx.entityName}` +
-          (previo.condonado !== '0.00'
-            ? `, WRITING OFF ${previo.condonado} that will stop being owed`
-            : '') +
-          '? This posts to the ledger.'
+        t('ap.payment.apply.confirm', {
+          count: previo.documentos.length,
+          payment: pago.payment_number,
+          entity: ctx.entityName,
+          writeOff: previo.condonado !== '0.00' ? 'yes' : 'none',
+          amount: previo.condonado,
+        })
       );
 
       const result = await applyVendorPayment(
@@ -506,8 +514,14 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         if (!dryRun) {
           await confirmOrAbort(
             opts,
-            `Unapply ${preview.unapplied} of ${vp.payment_number} from ${preview.document.numero} on ${preview.date} ` +
-              `(${preview.document.saldoAnterior} → ${preview.document.saldoNuevo})? The cash goes back on account.`
+            t('ap.payment.unapply.confirm', {
+              amount: preview.unapplied,
+              payment: vp.payment_number,
+              bill: preview.document.numero,
+              date: preview.date,
+              before: preview.document.saldoAnterior,
+              after: preview.document.saldoNuevo,
+            })
           );
         }
         const act = dryRun
@@ -521,7 +535,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         }
       }
       if (recorded) {
-        process.stderr.write(p.yellow(`↩ Idempotency hit: key "${opts.idempotencyKey ?? ''}" already unapplied this; nothing was written again.\n`));
+        process.stderr.write(p.yellow(`${t('ap.payment.unapply.idempotency_hit', { key: opts.idempotencyKey ?? '' })}\n`));
       }
 
       if (opts.json) {
@@ -532,14 +546,22 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
           journal_entry: dryRun ? null : result.journalEntry.entry_number, dry_run: dryRun,
         }], { json: true });
       } else {
+        const head = t('ap.payment.unapply.result', {
+          mode: dryRun ? 'dry_run' : 'done',
+          payment: p.bold(result.paymentNumber),
+          bill: p.bold(result.document.numero),
+        });
+        const detail = t('ap.payment.unapply.detail', {
+          before: result.document.saldoAnterior,
+          after: result.document.saldoNuevo,
+          onAccount: result.remainingOnAccount,
+        });
         process.stdout.write(
-          (dryRun ? p.bold(`Would unapply ${result.paymentNumber}`) : `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied`) +
-            ` from ${p.bold(result.document.numero)} ` +
-            p.dim(`${result.document.saldoAnterior} → ${result.document.saldoNuevo} · on account ${result.remainingOnAccount}` +
-              (dryRun ? '' : ` · entry ${result.journalEntry.entry_number}`)) + '\n'
+          (dryRun ? head : `${p.green('✔')} ${head}`) + ' ' +
+            p.dim(detail + (dryRun ? '' : ` · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}`)) + '\n'
         );
       }
-      if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+      if (dryRun) process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
     })
   );
 
@@ -581,14 +603,18 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       let result: VendorReverseResult;
       if (recorded) {
         result = recorded.result;
-        process.stderr.write(p.yellow(`↩ Idempotency hit: key "${opts.idempotencyKey ?? ''}" already reversed this; nothing was written again.\n`));
+        process.stderr.write(p.yellow(`${t('ap.payment.reverse.idempotency_hit', { key: opts.idempotencyKey ?? '' })}\n`));
       } else {
         const preview = await reverseVendorPayment(ctx.entityId, vp.id, args, reviewer.userId, { dryRun: true });
         if (!dryRun) {
           await confirmOrAbort(
             opts,
-            `Reverse ${vp.payment_number} on ${preview.date}? ${preview.reversals.length} ledger entry(ies) get a mirror and ` +
-              `${preview.documents.length} bill(s) are owed again.`
+            t('ap.payment.reverse.confirm', {
+              payment: vp.payment_number,
+              date: preview.date,
+              entries: preview.reversals.length,
+              bills: preview.documents.length,
+            })
           );
         }
         const act = dryRun
@@ -610,16 +636,17 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
           bills_reopened: result.documents.map((d) => d.numero).join(', '), dry_run: dryRun,
         }], { json: true });
       } else {
-        process.stdout.write(
-          (dryRun ? p.bold(`Would reverse ${result.paymentNumber}`) : `${p.green('✔')} ${p.bold(result.paymentNumber)} reversed`) +
-            p.dim(` on ${result.date} · ` +
-              result.reversals.map((r) => (dryRun ? r.of : `${r.of}→${r.entryNumber}`)).join(', ')) + '\n'
-        );
+        const head = t('ap.payment.reverse.result', { mode: dryRun ? 'dry_run' : 'done', payment: p.bold(result.paymentNumber) });
+        const detail = t('ap.payment.reverse.detail', {
+          date: result.date,
+          entries: result.reversals.map((r) => (dryRun ? r.of : `${r.of}→${r.entryNumber}`)).join(', '),
+        });
+        process.stdout.write((dryRun ? head : `${p.green('✔')} ${head}`) + p.dim(` ${detail}`) + '\n');
         for (const d of result.documents) {
           process.stdout.write(p.dim(`  ${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})\n`));
         }
       }
-      if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+      if (dryRun) process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
     })
   );
 
@@ -762,8 +789,7 @@ async function ejecutar(a: {
     if (grabado) {
       process.stderr.write(
         p.yellow(
-          `↩ Idempotency hit: la llave "${a.opts.idempotencyKey}" ya consumó este acto ` +
-            `(${grabado.pago.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+          `${t('ap.payment.create.idempotency_hit', { key: a.opts.idempotencyKey, number: grabado.pago.paymentNumber })}\n`
         )
       );
       imprimir(grabado.pago, p, a.etiqueta, false, a.opts.json === true);
@@ -777,7 +803,7 @@ async function ejecutar(a: {
   if (a.opts.dryRun) {
     imprimir(previo, p, a.etiqueta, true, a.opts.json === true);
     avisarRastroIncompleto(a.entrada, p, a.opts.json === true);
-    process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+    process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
     return;
   }
 
@@ -807,8 +833,7 @@ async function ejecutar(a: {
   if (acto.repetido) {
     process.stderr.write(
       p.yellow(
-        `↩ Idempotency hit: la llave "${a.opts.idempotencyKey ?? ''}" ya consumó este pago ` +
-          `(${result.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+        `${t('ap.payment.create.idempotency_race', { key: a.opts.idempotencyKey ?? '', number: result.paymentNumber })}\n`
       )
     );
   } else if (result.attestation) {
@@ -819,6 +844,12 @@ async function ejecutar(a: {
   // MNE-001-571 · what its voucher will lack, in the generator's own words.
   await warnUntracedPayment('vendor', a.ctx.entityId, result.paymentId, { json: a.opts.json === true, palette: p });
 }
+
+/**
+ * The account where creditable IVA waits until the bill is paid (PPD), named
+ * in the short-payment note as a parameter of the catalogue, never as text.
+ */
+const CREDITABLE_IVA_PARKING = '1135';
 
 /** Métodos que mueven dinero por un banco: sólo ellos llevan un nodo con clave de banco. */
 const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
@@ -879,10 +910,10 @@ function imprimir(
   }
   process.stdout.write(
     (ensayo
-      ? `${p.bold(`Would record ${doc.saldoAnterior} → ${doc.saldoNuevo} on ${etiqueta}`)}`
+      ? `${p.bold(t('ap.payment.create.would_record', { before: doc.saldoAnterior, after: doc.saldoNuevo, bill: etiqueta }))}`
       : `${p.green('✔')} ${p.bold(result.paymentNumber)} · ${p.bold(etiqueta)}` +
         p.dim(` ${doc.saldoAnterior} → ${doc.saldoNuevo} (${doc.estado})`)) +
-      (result.journalEntry ? p.dim(` · entry ${result.journalEntry.entry_number}`) : '') +
+      (result.journalEntry ? p.dim(` · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}`) : '') +
       '\n'
   );
   // La descripción del asiento nombra los documentos cuyo IVA se liberó: es
@@ -961,11 +992,11 @@ function imprimirAplicacion(
 
   process.stdout.write(
     (ensayo
-      ? p.bold(`Would apply ${result.paymentNumber}`)
+      ? p.bold(t('ap.payment.apply.would', { payment: result.paymentNumber }))
       : `${p.green('✔')} ${p.bold(result.paymentNumber)}`) +
       p.dim(
-        ` · on account ${result.remanenteAnterior} → ${result.remanenteNuevo}` +
-          (result.journalEntry ? ` · entry ${result.journalEntry.entry_number}` : '')
+        ` · ${t('ap.payment.apply.on_account', { before: result.remanenteAnterior, after: result.remanenteNuevo })}` +
+          (result.journalEntry ? ` · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}` : '')
       ) +
       '\n'
   );
@@ -980,9 +1011,8 @@ function imprimirAplicacion(
   if (result.descuentosFueraDeTerminos.length > 0) {
     process.stderr.write(
       p.yellow(
-        `  Descuento tomado fuera de las condiciones en ` +
-          `${result.descuentosFueraDeTerminos.join(', ')}`
-      ) + p.dim(': es una deducción negociada, no un pronto pago pactado.\n')
+        `  ${t('ap.payment.apply.discount_outside_terms', { bills: result.descuentosFueraDeTerminos.join(', ') })}`
+      ) + p.dim(`: ${t('ap.payment.apply.discount_outside_terms_why')}\n`)
     );
   }
 
@@ -990,21 +1020,14 @@ function imprimirAplicacion(
   // lo que un auditor persigue; enterrarlo en el JSON sería esconderlo.
   if (result.condonado !== '0.00') {
     process.stderr.write(
-      p.yellow(`  ${result.condonado} dejó de deberse (pago corto)`) +
+      p.yellow(`  ${t('ap.payment.apply.written_off', { amount: result.condonado })}`) +
         p.dim(` → ${result.cuentaCondonacion}\n`) +
-        (result.politicaDefinida
-          ? ''
-          : p.dim(
-              '  Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía:\n' +
-                '  `mnemosine pending --verbose` para verla y `mnemosine pending define pago_corto_residual`\n' +
-                '  para decidirla.\n'
-            ))
+        (result.politicaDefinida ? '' : p.dim(`  ${t('ap.payment.apply.write_off_default')}\n`))
     );
     if (result.ivaNoAcreditable !== '0.00') {
       process.stderr.write(
         p.dim(
-          `  ${result.ivaNoAcreditable} de IVA salió de 1135 SIN acreditarse: era el impuesto\n` +
-            '  de la parte que no se pagó, y bajo flujo de efectivo no se acredita lo no pagado.\n'
+          `  ${t('ap.payment.apply.iva_not_credited', { amount: result.ivaNoAcreditable, account: CREDITABLE_IVA_PARKING })}\n`
         )
       );
     }
