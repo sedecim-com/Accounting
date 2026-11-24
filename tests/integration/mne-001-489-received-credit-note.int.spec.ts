@@ -62,10 +62,15 @@ async function note(billUuid: string, edit: Edit = (x) => x) {
   return { uuid, pre: up.preRegistration, autoProcessed: up.autoProcessed };
 }
 
-/** The posted entries with this reference or id, each with its lines as `code debit/credit`. */
+/**
+ * The posted entries with this reference or id, each with its lines as `code debit/credit`.
+ * Lines are ordered by account code, then debit, then credit: two lines on the same
+ * account (1135 in the discount case) have no order of their own, and `ORDER BY a.code`
+ * alone let Postgres return them either way, which turned this spec red at random.
+ */
 const entriesOf = (referenceOrId: string) => rows<Entry>(
   `SELECT je.id, je.source_type, je.source_id::text, to_char(je.entry_date, 'YYYY-MM-DD') AS day,
-          (SELECT array_agg(a.code || ' ' || COALESCE(l.debit_amount, 0)::text || '/' || COALESCE(l.credit_amount, 0)::text ORDER BY a.code)
+          (SELECT array_agg(a.code || ' ' || COALESCE(l.debit_amount, 0)::text || '/' || COALESCE(l.credit_amount, 0)::text ORDER BY a.code, COALESCE(l.debit_amount, 0), COALESCE(l.credit_amount, 0))
              FROM journal_entry_lines l JOIN accounts a ON a.id = l.account_id WHERE l.journal_entry_id = je.id) AS lines
      FROM journal_entries je
     WHERE je.entity_id = $1 AND je.status = 'posted' AND $2 IN (je.reference, je.id::text)`,
