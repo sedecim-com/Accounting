@@ -2,12 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 
 import {
   resolveProfile, listProfiles, loadConfigFile, approveProjectProfile, ProjectFileRefusalError,
   MissingProviderCredentialError,
 } from '../../../src/ai/providers/config.js';
-import { projectApprovalsPath } from '../../../src/ai/providers/project-approvals.js';
+import {
+  approvalMaterial, isApproved, projectApprovalsPath, recordApprovals,
+} from '../../../src/ai/providers/project-approvals.js';
+import { createHash } from 'node:crypto';
 import { credentialState } from '../../../src/ai/providers/credential-state.js';
 
 // MNE-001-452 (#645), part A. A temporary home and a temporary project folder;
@@ -19,8 +23,15 @@ let marker: string;
 const projectFile = () => path.join(project, 'mnemosine.config.json');
 const userFile = () => path.join(home, '.mnemosine', 'config.json');
 
-/** A helper that leaves a marker, so a test sees whether it ran. */
-const helper = (token = 'tok-inventado-1') => `touch '${marker}'; printf '${token}'`;
+/**
+ * A helper that leaves a marker, so a test sees whether it ran. It is a script
+ * of the project the command names directly: a project api_key_cmd may not
+ * use shell forms (MNE-001-452 re-review).
+ */
+const helper = (token = 'tok-inventado-1') => {
+  fs.writeFileSync(path.join(project, 'key-helper.sh'), `touch '${marker}'; printf '${token}'\n`);
+  return 'sh key-helper.sh';
+};
 
 function writeProject(profile: Record<string, unknown>, extra: Record<string, unknown> = {}): void {
   fs.writeFileSync(projectFile(), JSON.stringify({
@@ -417,5 +428,146 @@ describe('review: one resolution reads the user file once', () => {
     const reads = read.mock.calls.filter(([f]) => String(f) === userFile()).length;
     read.mockRestore();
     expect(reads).toBe(1);
+  });
+});
+
+// The re-review of 24 Nov: the script binding cannot be evaded.
+describe('re-review: a project helper binds every script it can run, or is refused', () => {
+  function script(rel: string, token: string): string {
+    const target = path.join(project, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `touch '${marker}'; printf '${token}'\n`);
+    return target;
+  }
+
+  it('a symlinked project file binds the script as the helper runs it, from the folder', () => {
+    const real = fs.mkdtempSync(path.join(os.tmpdir(), 'm452-real-'));
+    try {
+      fs.writeFileSync(path.join(real, 'm.json'), JSON.stringify({
+        providers: { vault: { type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1', api_key_cmd: 'sh ./tools/key.sh' } },
+      }));
+      fs.symlinkSync(path.join(real, 'm.json'), projectFile());
+      const target = script('tools/key.sh', 'tok-1');
+      approveProjectProfile('vault', project);
+      fs.writeFileSync(target, `touch '${marker}'; printf 'tok-2'\n`);
+      expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      fs.rmSync(real, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['cd into a folder', 'cd tools && ./key.sh'],
+    ['a $( ) substitution', '$(pwd)/tools/key.sh'],
+    ['a ${ } variable', 'sh ${PWD}/tools/key.sh'],
+    ['a backtick', 'sh `pwd`/tools/key.sh'],
+    ['a ; list', 'true; ./tools/key.sh'],
+    ['an || list', 'false || ./tools/key.sh'],
+    ['a glob', 'sh tools/k*.sh'],
+    ['a redirection', 'sh < tools/key.sh'],
+    ['pushd', 'pushd tools'],
+    ['a directory of the project', 'sh tools'],
+  ])('%s is refused, naming the field, and nothing runs', (_label, command) => {
+    script('tools/key.sh', 'tok-1');
+    writeProject({ api_key_cmd: command });
+    const err = refusal(() => approveProjectProfile('vault', project));
+    expect(err).toBeInstanceOf(ProjectFileRefusalError);
+    expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    expect(err.message).toContain('providers.vault.api_key_cmd');
+    expect(err.message).toContain('point it at a script directly');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it.each([
+    ['./tools/key.sh', './tools/key.sh'],
+    ['sh tools/key.sh', 'sh tools/key.sh'],
+    ['node tools/k.js', 'node tools/key.sh'],
+  ])('the simple form %s still binds the script: an edit asks again', (_label, command) => {
+    const target = script('tools/key.sh', 'tok-1');
+    fs.chmodSync(target, 0o755);
+    writeProject({ api_key_cmd: command });
+    approveProjectProfile('vault', project);
+    fs.writeFileSync(target, `touch '${marker}'; printf 'tok-2'\n`);
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+  });
+
+  it('a PATH command with plain arguments is approved by name', () => {
+    writeProject({ api_key_cmd: "printf tok-path" });
+    approveProjectProfile('vault', project);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-path');
+  });
+
+  it('a script created after the approval asks again', () => {
+    writeProject({ api_key_cmd: 'sh tools/key.sh' });
+    approveProjectProfile('vault', project);
+    script('tools/key.sh', 'tok-tarde');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('a FIFO the command names is refused, not left unbound', () => {
+    fs.mkdirSync(path.join(project, 'tools'));
+    const fifo = path.join(project, 'tools', 'key.fifo');
+    execSync(`mkfifo '${fifo}'`);
+    writeProject({ api_key_cmd: 'sh tools/key.fifo' });
+    const err = refusal(() => approveProjectProfile('vault', project));
+    expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
+  });
+
+  it('a renewal re-checks the approval and stops once the script changed', async () => {
+    const target = script('tools/key.sh', 'tok-1');
+    writeProject({ api_key_cmd: 'sh ./tools/key.sh' });
+    approveProjectProfile('vault', project);
+    const profile = resolveProfile('vault', undefined, project);
+    expect(profile.keyRenewal).toBeDefined();
+    profile.keyRenewal!.markStale();
+    fs.writeFileSync(target, `printf 'tok-2'\n`);
+    await expect(profile.keyRenewal!.apiKey()).rejects.toBeInstanceOf(ProjectFileRefusalError);
+  });
+
+  it('a project file that is not JSON and names an auth header leaves no .rejected- copy', () => {
+    fs.writeFileSync(projectFile(), '{ "providers": { "vault": { "headers": { "Authorization": "INVENTADO" } }');
+    expect(() => loadConfigFile(project)).toThrow(/Invalid configuration/);
+    expect(fs.readdirSync(project).filter((f) => f.includes('.rejected-'))).toEqual([]);
+    fs.writeFileSync(projectFile(), '{ "providers": { "vault": { "api_key_env": "VAULT_API_KEY" } }');
+    expect(() => loadConfigFile(project)).toThrow(/rejected copy kept/);
+  });
+});
+
+type Store = { salt?: string; approvals: Record<string, unknown> };
+const readStore = (h: string): Store => JSON.parse(fs.readFileSync(projectApprovalsPath(h), 'utf-8')) as Store;
+
+describe('the store derives its keys with scrypt and a salt of its own (CodeQL js/insufficient-password-hash)', () => {
+  const material = approvalMaterial('helper', '/tmp/inventado/mnemosine.config.json', 'printf x', 'https://v.example.test');
+
+  it('the stored key is not the SHA-256 of the material, and the store keeps a 16-byte salt', () => {
+    recordApprovals([{ material, kind: 'helper', file: '/tmp/inventado/mnemosine.config.json' }], home);
+    const store = readStore(home);
+    expect(store.salt).toMatch(/^[0-9a-f]{32}$/);
+    const [key] = Object.keys(store.approvals);
+    expect(key).not.toBe(createHash('sha256').update(material).digest('hex'));
+    expect(isApproved(material, home)).toBe(true);
+  });
+
+  it('two stores with different salts give different keys', () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'm452-other-home-'));
+    try {
+      recordApprovals([{ material, kind: 'helper', file: '/tmp/inventado/mnemosine.config.json' }], home);
+      recordApprovals([{ material, kind: 'helper', file: '/tmp/inventado/mnemosine.config.json' }], other);
+      const keyOf = (h: string) => Object.keys(readStore(h).approvals)[0];
+      expect(keyOf(home)).not.toBe(keyOf(other));
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('a store without a salt reads as nothing approved, failing closed', () => {
+    recordApprovals([{ material, kind: 'helper', file: '/tmp/inventado/mnemosine.config.json' }], home);
+    const store = readStore(home);
+    delete store.salt;
+    fs.writeFileSync(projectApprovalsPath(home), JSON.stringify(store));
+    expect(isApproved(material, home)).toBe(false);
   });
 });

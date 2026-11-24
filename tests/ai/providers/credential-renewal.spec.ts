@@ -151,7 +151,10 @@ describe('a helper in your own ~/.mnemosine/config.json renews its token', () =>
 
 describe('a helper anywhere else runs once per session, as before', () => {
   it('a project file helper does not run until approved, and then renews like the person\'s own (MNE-001-452)', async () => {
-    fs.writeFileSync(path.join(project, 'mnemosine.config.json'), JSON.stringify(profileEntry(countingHelper())));
+    // A project api_key_cmd names its script directly (no shell forms): the same
+    // counting helper, as a script of the project.
+    fs.writeFileSync(path.join(project, 'count.sh'), countingHelper() + '\n');
+    fs.writeFileSync(path.join(project, 'mnemosine.config.json'), JSON.stringify(profileEntry('sh count.sh')));
     expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
     expect(runs()).toBe(0);
     approveProjectProfile('vault', project);

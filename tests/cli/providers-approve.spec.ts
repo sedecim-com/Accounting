@@ -41,7 +41,8 @@ function writeProject(profile: Record<string, unknown>): string {
 
 describe('providers approve', () => {
   it('approves the helper of a project profile, says for which file and host, and never prints the command', () => {
-    const file = writeProject({ api_key_cmd: `touch '${marker}'; printf 'tok-inventado'` });
+    fs.writeFileSync(path.join(project, 'key.sh'), `touch '${marker}'; printf 'tok-inventado'\n`);
+    const file = writeProject({ api_key_cmd: 'sh key.sh' });
     const lines = approveProfileLines('vault', plain, project);
     expect(lines).toEqual([
       `Approved for you: the api_key_cmd of providers.vault in ${file}, for https://v.example.test. A changed command or host asks again.`,

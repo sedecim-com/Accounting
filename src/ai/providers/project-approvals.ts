@@ -14,17 +14,21 @@ import { z } from 'zod';
 // .envrc, and recorded here, under THEIR home directory: never in the
 // project, never in the database.
 //
-// SECURITY: the store holds a SHA-256 of what was approved, never the
-// command itself, so nothing here can print or leak a helper's text. A
-// changed command, file or host is another hash, so it asks again. A store
-// that does not parse is never overwritten, and reading it throws by its
-// path: the gate fails closed.
+// SECURITY: the store holds a key DERIVED from what was approved, never the
+// command itself, so nothing here can print or leak a helper's text. The key
+// is scrypt (N 2^14, r 8, p 1) over the material with a random 16-byte salt
+// kept in the store, so whoever reads the store cannot confirm a guessed
+// command offline at the speed of a plain hash. A store with no salt reads as
+// nothing approved. A changed command, file or host is other material, so it
+// asks again. A store that does not parse is never overwritten, and reading it
+// throws by its path: the gate fails closed.
 // ============================================================
 
 export type ApprovalKind = 'helper' | 'pair';
 
 const fileSchema = z
   .object({
+    salt: z.string().regex(/^[0-9a-f]{32}$/).optional(),
     approvals: z.record(
       z.string(),
       z.object({ kind: z.enum(['helper', 'pair']), file: z.string(), approved_at: z.string() }).strict()
@@ -47,9 +51,14 @@ function canonical(file: string): string {
   }
 }
 
-/** The hash of one approval: the kind, the project file, and what it runs or sends where. */
-export function approvalKey(kind: ApprovalKind, file: string, what: string, host: string): string {
-  return crypto.createHash('sha256').update(JSON.stringify([kind, canonical(file), what, host])).digest('hex');
+/** What one approval binds: the kind, the project file, and what it runs or sends where. */
+export function approvalMaterial(kind: ApprovalKind, file: string, what: string, host: string): string {
+  return JSON.stringify([kind, canonical(file), what, host]);
+}
+
+/** ~30-50 ms on a laptop: run once per material per resolution, never in a loop over the store. */
+function deriveKey(material: string, saltHex: string): string {
+  return crypto.scryptSync(material, Buffer.from(saltHex, 'hex'), 32, { N: 2 ** 14, r: 8, p: 1 }).toString('hex');
 }
 
 function load(file: string): ApprovalFile {
@@ -67,20 +76,29 @@ function load(file: string): ApprovalFile {
   return parsed.data;
 }
 
-export function isApproved(key: string, home = os.homedir()): boolean {
-  return Object.prototype.hasOwnProperty.call(load(projectApprovalsPath(home)).approvals, key);
+export function isApproved(material: string, home = os.homedir()): boolean {
+  const store = load(projectApprovalsPath(home));
+  if (!store.salt || Object.keys(store.approvals).length === 0) return false;
+  return Object.prototype.hasOwnProperty.call(store.approvals, deriveKey(material, store.salt));
 }
 
 /** Records the approvals, replacing the store atomically, 0600 in a 0700 directory. */
 export function recordApprovals(
-  entries: ReadonlyArray<{ key: string; kind: ApprovalKind; file: string }>,
+  entries: ReadonlyArray<{ material: string; kind: ApprovalKind; file: string }>,
   home = os.homedir(),
   now: Date = new Date()
 ): string {
   const file = projectApprovalsPath(home);
   const content = load(file);
+  // A store without a salt approved nothing that can be checked: start anew.
+  if (!content.salt) {
+    content.salt = crypto.randomBytes(16).toString('hex');
+    content.approvals = {};
+  }
   for (const e of entries) {
-    content.approvals[e.key] = { kind: e.kind, file: canonical(e.file), approved_at: now.toISOString() };
+    content.approvals[deriveKey(e.material, content.salt)] = {
+      kind: e.kind, file: canonical(e.file), approved_at: now.toISOString(),
+    };
   }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.chmodSync(path.dirname(file), 0o700);

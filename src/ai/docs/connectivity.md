@@ -81,6 +81,12 @@ output when a connection problem is unclear.
   folder with that folder's `./.env` in its environment, that a script of
   the project it names is approved by its content (an edit asks again), and
   that a command found through PATH or npx is approved by its name only.
+  A project `api_key_cmd` that uses a shell form mnemosine cannot follow
+  (`$`, a backtick, `cd`, `pushd`, `;`, `&&`, `||`, a glob, a redirection)
+  or names a directory, a FIFO or a file it cannot read whole is refused
+  and never approved: tell them to ask whoever keeps the file to point it
+  at a script directly (`./tools/key.sh`, `sh tools/key.sh`). A renewal
+  re-checks the approval, scripts included, before each re-run.
   The approval also binds where the key goes, scheme included, as the SDK
   resolves it: an `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in `./.env`
   that moves it asks again. A project file that carries a

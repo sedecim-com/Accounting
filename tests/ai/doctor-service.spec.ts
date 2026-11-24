@@ -229,12 +229,14 @@ describe('runDoctor — model provider', () => {
       mockDb();
       delete process.env.SOME_KEY;
       marker = path.join(tmpDir, 'helper-ran');
+      // A project api_key_cmd names its script directly (MNE-001-452 re-review).
+      fs.writeFileSync(path.join(tmpDir, 'helper-script.sh'), `touch ${marker} && echo fake-helper-stderr >&2\n`);
       config({
         default_provider: 'vault',
         providers: {
           vault: {
             type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
-            api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+            api_key_env: 'SOME_KEY', api_key_cmd: 'sh helper-script.sh',
           },
         },
       });
@@ -246,7 +248,7 @@ describe('runDoctor — model provider', () => {
       expect(c.fix).toBe(
         `Read providers.vault.api_key_cmd in ${path.join(tmpDir, 'mnemosine.config.json')}; if you trust it: mnemosine providers approve vault`
       );
-      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr|helper-script/);
       expect(fs.existsSync(marker)).toBe(false);
     });
 
@@ -255,7 +257,7 @@ describe('runDoctor — model provider', () => {
       const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
       expect(c.level).toBe('ok');
       expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
-      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+      expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr|helper-script/);
       expect(fs.existsSync(marker)).toBe(false);
     });
   });

@@ -186,7 +186,7 @@ describe('api_key_cmd (credential helper)', () => {
   });
 
   it('runs the command when the env var is absent', () => {
-    writeProfile({ api_key_cmd: "printf 'oauth-token-123\n'" });
+    writeProfile({ api_key_cmd: 'echo oauth-token-123' });
     const p = resolveProfile('sub', undefined, tmpDir);
     expect(p.apiKey).toBe('oauth-token-123');
   });
