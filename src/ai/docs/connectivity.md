@@ -92,8 +92,9 @@ output when a connection problem is unclear.
   …) are refused. An interpreter under a versioned name (`python3.12`,
   `nodejs`) counts as one; `env` may not set `PATH`, `LD_*`, `BASH_ENV`,
   `NODE_OPTIONS` and other loader names, nor a value that reaches the
-  project; a PATH command found inside the project is refused; and the
-  helper runs without the folder's loader variables. A script that sources
+  project; a PATH command found inside the project, by its real path even
+  through a symlink, is refused; and the helper runs without the folder's
+  loader variables. A script that sources
   other project files is bound only by its own content. Anything else is
   refused and never approved: tell them to ask whoever keeps the file to
   rewrite it in one of those shapes. A renewal
