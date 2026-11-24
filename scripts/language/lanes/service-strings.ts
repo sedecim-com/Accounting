@@ -34,7 +34,9 @@
  * the user which panel command to run. Leaving logs out would need a list of sinks, the thing this
  * lane does not keep; turning one into English needs no key.
  *
- * ONE FILE IS LEFT OUT, by name and with its reason in `SERVICE_EXCLUDED`.
+ * TWO FILES ARE LEFT OUT, by name and with the reason in `SERVICE_EXCLUDED`.
+ * The test pins that what the recognizer still finds in the law seed is only
+ * its «…» quotes, so new Spanish prose there still shows up red.
  *
  * The lanes are disjoint: `spanish-user-strings-cli` walks `src/cli/`, this
  * one the five folders of `SERVICE_SURFACES`, and the two English CLI lanes
@@ -63,6 +65,9 @@ export const SERVICE_EXCLUDED: Readonly<Record<string, string>> = {
   'src/services/accounting/sat-agrupadores-catalogo.ts':
     'generated data: the official names of the SAT grouping code (c_CodAgrup, Anexo 24 of the RMF 2026, ' +
     'DOF 13 Jan 2026), which go to the authority as published and are never translated',
+  'src/services/jurisdiction/legal-parameters-seed.ts':
+    'each source note is English; the Spanish left is the law quoted verbatim in «…» in its official ' +
+    'language, as the evidence for the figure, and a translated quote would no longer be the law',
 };
 
 /**

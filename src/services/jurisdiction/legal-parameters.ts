@@ -242,9 +242,9 @@ export async function legalParameterAt(
         key,
         onDate,
         'never_loaded',
-        `No hay ningún parámetro legal "${key}" cargado para ${jurisdiction}: la consulta era por ` +
-          `la fecha ${onDate}. No se supone un valor por omisión — una tasa inventada cuadra igual ` +
-          `que la de la ley y nadie lo nota. Siémbrala con su fecha de entrada y su fuente oficial.`
+        `No legal parameter "${key}" is loaded for ${jurisdiction}: the lookup was for the date ` +
+          `${onDate}. No default value is assumed — an invented rate balances just like the legal ` +
+          `one and nobody notices. Seed it with its effective date and its official source.`
       );
     }
     throw new LegalParameterUnavailableError(
@@ -252,9 +252,9 @@ export async function legalParameterAt(
       key,
       onDate,
       'not_yet_in_force',
-      `El parámetro legal "${key}" de ${jurisdiction} no regía el ${onDate}: la vigencia más ` +
-        `antigua que hay empieza el ${first}. O el hecho es anterior a lo que se cargó —y falta ` +
-        `sembrar la ley que sí regía ese día—, o la fecha del hecho está mal.`
+      `The legal parameter "${key}" of ${jurisdiction} was not in force on ${onDate}: the oldest ` +
+        `version loaded starts on ${first}. Either the event predates what was loaded —and the law ` +
+        `that was in force that day still has to be seeded— or the event's date is wrong.`
     );
   }
 
@@ -264,9 +264,9 @@ export async function legalParameterAt(
       key,
       onDate,
       'repealed',
-      `El parámetro legal "${key}" de ${jurisdiction} está DEROGADO desde el ${row.effectiveFrom} ` +
-        `y la consulta era por el ${onDate}: la ley terminó sin sustituta (${row.sourceUrl}). ` +
-        `Derogado no es cero: quien haga el cálculo tiene que decidir qué pone en su lugar.`
+      `The legal parameter "${key}" of ${jurisdiction} has been REPEALED since ${row.effectiveFrom} ` +
+        `and the lookup was for ${onDate}: the law ended with no replacement (${row.sourceUrl}). ` +
+        `Repealed is not zero: whoever runs the calculation has to decide what goes in its place.`
     );
   }
 
@@ -284,10 +284,10 @@ export async function legalParameterAt(
       key,
       onDate,
       'malformed',
-      `El parámetro legal "${key}" de ${jurisdiction} vigente desde el ${row.effectiveFrom} no ` +
-        `guarda una cifra sino ${JSON.stringify(row.value)} (${row.sourceUrl}). No se convierte ni ` +
-        `se aproxima: una cadena vacía vale CERO en cuanto alguien la pasa por Number(), y un cero ` +
-        `de tasa o de importe cuadra igual que el bueno. Corrige la fila con su fuente.`
+      `The legal parameter "${key}" of ${jurisdiction} in force since ${row.effectiveFrom} does ` +
+        `not hold a figure but ${JSON.stringify(row.value)} (${row.sourceUrl}). It is not converted ` +
+        `or approximated: an empty string is ZERO as soon as someone passes it through Number(), ` +
+        `and a zero rate or amount balances just like the right one. Fix the row from its source.`
     );
   }
 
@@ -330,8 +330,8 @@ function executor(client?: pg.PoolClient) {
 function assertDate(onDate: string): void {
   if (!DATE_RE.test(onDate)) {
     throw new ValidationError(
-      `"${onDate}" no es una fecha YYYY-MM-DD. La ley se lee en la fecha DEL HECHO ` +
-        '(la del comprobante, la del pago, la del devengo), no en la de hoy.',
+      `"${onDate}" is not a YYYY-MM-DD date. The law is read on the date OF THE EVENT ` +
+        '(the voucher, the payment, the accrual), not on today\'s.',
       'onDate'
     );
   }

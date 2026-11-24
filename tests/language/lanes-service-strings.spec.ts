@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import type { Lane } from '../../scripts/language/lane.js';
 import { compare } from '../../scripts/language-status.js';
-import { userStringsUnder } from '../../scripts/language/extract.js';
+import { judgeLanguage, userStringsUnder } from '../../scripts/language/extract.js';
 import {
   SERVICE_EXCLUDED,
   SERVICE_STRINGS_PER_ENTRY_RULE,
@@ -25,6 +25,7 @@ import {
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SAT_CATALOGUE = 'src/services/accounting/sat-agrupadores-catalogo.ts';
+const LAW_SEED = 'src/services/jurisdiction/legal-parameters-seed.ts';
 
 describe('serviceUserStrings: what is counted', () => {
   it('counts Spanish prose whether it reaches the error directly or through a variable, and logs too', () => {
@@ -47,10 +48,29 @@ describe('serviceUserStrings: what is counted', () => {
     const code = "export const ROWS = [['101', 'Caja y efectivo de la entidad', 1]];";
     expect(serviceUserStrings(code, 'src/services/accounting/elsewhere.ts')).toHaveLength(1);
     expect(serviceUserStrings(code, SAT_CATALOGUE)).toEqual([]);
-    expect(Object.keys(SERVICE_EXCLUDED)).toEqual([SAT_CATALOGUE]);
+    expect(Object.keys(SERVICE_EXCLUDED)).toEqual([SAT_CATALOGUE, LAW_SEED]);
     expect(SERVICE_EXCLUDED[SAT_CATALOGUE]).toMatch(/SAT/);
     expect(userStringsUnder(SAT_CATALOGUE).length).toBeGreaterThan(0);
     expect(serviceUserStringsUnder(SAT_CATALOGUE)).toEqual([]);
+  });
+});
+
+describe('the law seed is left out only for its verbatim quotes', () => {
+  it('every string the shared recognizer finds there is English once its «…» quotes are removed', () => {
+    const hits = userStringsUnder(LAW_SEED);
+    expect(hits.length).toBeGreaterThan(0);
+    for (const hit of hits) {
+      expect(hit.text, `${hit.file}:${hit.line}`).toMatch(/«[^»]+»/);
+      const withoutQuotes = hit.text.replace(/«[^»]*»/g, ' ');
+      expect(judgeLanguage(withoutQuotes).spanish, `${hit.file}:${hit.line} ${withoutQuotes}`).toBe(false);
+    }
+    expect(serviceUserStringsUnder(LAW_SEED)).toEqual([]);
+    expect(SERVICE_EXCLUDED[LAW_SEED]).toMatch(/verbatim/);
+  });
+
+  it('would still see Spanish prose outside a quote, so the exclusion is not a blanket one', () => {
+    const prose = "LFT art. 87: «por lo menos». El mínimo es de la ley y vive en el panel del despacho.";
+    expect(judgeLanguage(prose.replace(/«[^»]*»/g, ' ')).spanish).toBe(true);
   });
 });
 
@@ -70,6 +90,7 @@ describe('serviceStringsLanes', () => {
     expect(Object.values(perFile).reduce((a, b) => a + b, 0)).toBe(lane.value);
     expect(Object.keys(perFile).every((file) => SERVICE_SURFACES.some((dir) => file.startsWith(`${dir}/`)))).toBe(true);
     expect(perFile[SAT_CATALOGUE]).toBeUndefined();
+    expect(perFile[LAW_SEED]).toBeUndefined();
     expect(lane.perEntryRule).toBe(SERVICE_STRINGS_PER_ENTRY_RULE);
   });
 
