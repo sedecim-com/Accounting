@@ -3946,6 +3946,115 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.account.map.check.gaps':
     '{gaps} de {count, plural, one {# cuenta} other {# cuentas}} sin {scheme} ({scope}): el XML de catálogo saldría incompleto',
   'ledger.account.restore.done': '{code} vuelve a estar activa.',
+  // MNE-001-230: fx.
+  'ledger.fx.list.status_unsupported':
+    '--status no aplica aquí: un tipo de cambio publicado no tiene estado de ciclo de vida. Filtra con --pair, --source, --rate-type, --since o --until.',
+  'ledger.fx.list.policy':
+    'La política fuente_tipo_cambio de este despacho es "{value}"{source, select, none {, que este lector no mapea a ninguna fuente.} other { → source \'{source}\' (columna policy: ✓).}}',
+  'ledger.fx.list.no_entity': 'Sin entidad activa resoluble: no se pudo señalar la fuente que la política del despacho usa.',
+  'ledger.fx.show.not_found':
+    'No hay tipo {from}/{to} ({type}) resoluble para {date}: ni directo, ni inverso, ni cruzado por USD. Captúralo con fx rate set.',
+  'ledger.fx.show.derived': ', derivado del inverso o cruzado',
+  'ledger.fx.show.inverse': 'inverso {pair} = {rate}',
+  'ledger.fx.show.inverse_derived': ' (derivado)',
+  'ledger.fx.show.carried':
+    '⚠ arrastrado de {date}: no hay tipo del día pedido. Si necesitas el del día, captúralo con fx rate set.',
+  'ledger.fx.set.source_required':
+    '--source es obligatoria: di quién publicó el tipo ({sources}). DOF y FIX del mismo día son números distintos y conviven desde la migración 057.',
+  'ledger.fx.set.would_set': 'Fijaría {pair} {date} = {rate}',
+  'ledger.fx.set.until': ', hasta {date}',
+  'ledger.fx.set.done': 'fijado como {rate}',
+  'ledger.fx.publisher.dof':
+    'Diario Oficial de la Federación (el fiscal del art. 20 CFF; para una operación rige el publicado el día hábil anterior)',
+  'ledger.fx.publisher.banxico_fix': 'Banxico FIX vía SIE (requiere token del API SIE)',
+  'ledger.fx.publisher.fed': 'Reserva Federal, H.10',
+  'ledger.fx.publisher.ecb': 'Banco Central Europeo, tipos de referencia',
+  'ledger.fx.download.retry_calls_again': 'un reintento vuelve a llamar al proveedor de tipos de cambio',
+  'ledger.fx.download.source_required': '--source es obligatoria: {sources}.',
+  'ledger.fx.download.source_unknown': '--source "{value}" desconocida. Usa una de: {sources}.',
+  'ledger.fx.download.range_twice': '--as-of y --since/--until son dos maneras de decir el rango; usa una.',
+  'ledger.fx.download.no_connector':
+    'No existe todavía el conector de descarga: este proyecto no habla HTTP con terceros sin una credencial gobernada, y {why, select, sie {el SIE de Banxico exige un token que ningún almacén de credenciales del sistema gobierna aún} other {no hay cliente declarado para esa fuente}}. Fabricar el tipo sería el mismo pecado que el cerrojo antisimulación de los PAC impide. Hoy los caminos honestos son: fx rate set <par> <fecha> <tasa> --source {source} con el valor publicado, o fx rate import (fase 2) desde un archivo.',
+  'ledger.fx.download.would_download': 'Descargaría de {publisher}',
+  'ledger.fx.download.dates': 'fechas: {range}',
+  'ledger.fx.download.today': '(hoy)',
+  'ledger.fx.download.target':
+    "destino: exchange_rates con source='{source}' (la 057 deja convivir DOF y FIX del mismo día)",
+  'ledger.fx.download.will_fail': '⚠ ejecutar fallará: {reason}',
+  // MNE-001-230: ledger.
+  'ledger.ledger.check.passes': '✔ el mayor pasa {checks}',
+  'ledger.ledger.check.blocking_checks': 'las verificaciones bloqueantes',
+  'ledger.ledger.check.findings':
+    '{blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}}, {warning, plural, one {# advertencia} other {# advertencias}}',
+  'ledger.ledger.stale_draft.days_unreadable': '--days ilegible: "{value}".',
+  'ledger.ledger.stale_draft.found':
+    '{count, plural, one {# borrador} other {# borradores}} con más de {days, plural, one {# día} other {# días}}. Se aplican con entry post, o se retiran.',
+  'ledger.ledger.auxiliary.heading': '{code} {name} · {period} ({status}) · inicial {beginning}{unreliable}',
+  'ledger.ledger.auxiliary.no_carry': "sin arrastre: {period} está '{status}'",
+  'ledger.ledger.auxiliary.no_previous': 'sin periodo anterior: no hay acumulado que arrastrar',
+  'ledger.ledger.auxiliary.totals': 'cargos {debits} · abonos {credits} · final {ending}',
+  'ledger.ledger.auxiliary.drift': ' (calculado {computed}: hay deriva — corre ledger check)',
+  'ledger.ledger.balance.dim_unavailable':
+    '--dim aún no está disponible: las dimensiones no tienen maestro todavía (familia dimension).',
+  // MNE-001-230: entry, its Spanish strings.
+  'ledger.entry.preview.heading': '{number} ({status}) · {period} · delta por cuenta si se aplicara:',
+  'ledger.entry.preview.no_period': 'sin periodo',
+  'ledger.entry.edit.done': '{number} editada (sigue en borrador; se aplica con entry post).',
+  'ledger.entry.export.done':
+    '{count, plural, one {# línea exportada} other {# líneas exportadas}}. XLSX aún no: usa --format csv y ábrelo en la hoja de cálculo.',
+  'ledger.entry.import.dry_run':
+    '{valid, plural, one {# póliza legible} other {# pólizas legibles}}, {invalid} con error (dry-run: nada se preparó)',
+  'ledger.entry.import.done':
+    'lote {id}: {valid, plural, one {# póliza preparada} other {# pólizas preparadas}}, {invalid} con error',
+  'ledger.entry.import.repeated': ' [repetido: lote de la primera corrida]',
+  'ledger.entry.import.not_in_ledger':
+    'El lote NO tocó el mayor: se valida y aplica con la familia batch (check/post); mientras, es inspeccionable por batch_id.',
+  // MNE-001-230: period and year.
+  'ledger.period.active_entity': '→ {entity} (entidad activa; nombra otra con --entity)',
+  'ledger.period.remedy.close_again': 'Vuelve a cerrarlo con: {close}',
+  'ledger.period.remedy.seal': '  y luego séllalo, que rehace su arrastre: {close} --hard',
+  'ledger.period.status_unknown': '--status "{value}" desconocido. Usa uno de: {statuses}.',
+  'ledger.period.year_invalid': '--year "{value}" no es un año de cuatro dígitos.',
+  'ledger.period.show.overdue': ' · vencido',
+  'ledger.period.show.position': 'periodo {number} del ejercicio {year} · {type}',
+  'ledger.period.show.soft_closed': 'cierre suave el {date}',
+  'ledger.period.show.by': ' por {email}',
+  'ledger.period.show.hard_closed': 'cierre duro el {date}',
+  'ledger.period.show.entries': 'Pólizas',
+  'ledger.period.show.entries_total': '({count} en total)',
+  'ledger.period.show.none': 'ninguna',
+  'ledger.period.show.checklist': 'Lista de verificación guardada al cerrar',
+  'ledger.period.open.would_open': 'Abriría {period}',
+  'ledger.period.open.done': '{period} está abierto',
+  'ledger.period.reopen.locked':
+    "{period} está 'locked': su información ya salió del sistema y no se reabre — ni con --force. La corrección va en el periodo abierto más próximo.",
+  'ledger.period.reopen.not_closed': "{period} está '{status}': reabrir es sólo para periodos cerrados.",
+  'ledger.period.reopen.hard_close':
+    '{period} está en hard_close: sus asientos de cierre y el arrastre de saldos quedan en pie al reabrir (el mayor no se toca). Si de verdad quieres reabrirlo, repite con --force --reason "<por qué>".',
+  'ledger.period.reopen.would_reopen': 'Reabriría {period}',
+  'ledger.period.reopen.dry_run':
+    '(dry-run: nada se escribió; la reapertura quedaría en el rastro de auditoría)',
+  'ledger.period.reopen.question': '¿Reabrir {period} ({status} → open)?',
+  'ledger.period.reopen.cancelled': 'Cancelado.',
+  'ledger.period.reopen.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya reabrió {period} (estaba {previous}). Nada se ejecutó otra vez.',
+  'ledger.period.reopen.done': '{period} está abierto otra vez',
+  'ledger.period.reopen.done_detail': '(estaba {previous}, por {email}; motivo registrado)',
+  'ledger.period.reopen.stale':
+    'Los estados financieros o declaraciones derivados de este periodo quedaron desactualizados: regéneralos después de volver a cerrarlo.',
+  'ledger.period.year.status_unknown': "--status \"{value}\" desconocido. Un ejercicio está 'open' o 'closed'.",
+  'ledger.period.year.one_status': "Un ejercicio está 'open' o 'closed': pasa un --status, o ninguno.",
+  'ledger.period.year.not_a_year': '"{value}" no es un año de cuatro dígitos.',
+  'ledger.period.year.title': 'Ejercicio {year}',
+  'ledger.period.year.calendar': ' · año calendario',
+  'ledger.period.year.exists':
+    'El ejercicio {year} ya existe para {entity} con {count, plural, one {# periodo} other {# periodos}}. No se crearía nada.',
+  'ledger.period.year.would_create': 'Crearía el ejercicio {year}',
+  'ledger.period.year.would_create_detail':
+    'con 12 periodos mensuales (año calendario) y el periodo de ajuste de fin de ejercicio (13); los meses ya pasados y el corriente abiertos, el resto future',
+  'ledger.period.year.created': 'Ejercicio {year} creado',
+  'ledger.period.year.created_detail': 'con 12 periodos mensuales y el periodo de ajuste de fin de ejercicio (13)',
+  'ledger.period.year.open_hint': '  Abre un mes futuro con: mnemosine period open <nombre>',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by

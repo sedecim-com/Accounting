@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { t } from '../i18n/index.js';
 import { bootstrapTenant } from '../ai/context.js';
 import {
   runLedgerChecks,
@@ -141,7 +142,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   check.action((opts: CommonOpts & { check?: string; account?: string; period?: string; strict?: boolean }) =>
     run(async () => {
       if (opts.check === '') {
-        process.stdout.write(`Verificaciones disponibles: ${LEDGER_CHECK_NAMES.join(', ')}\n`);
+        process.stdout.write(`${t('ledger.account.map.check.available', { checks: LEDGER_CHECK_NAMES.join(', ') })}\n`);
         return;
       }
       const nombres = opts.check?.split(',').map((c) => c.trim()).filter(Boolean);
@@ -155,8 +156,12 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
       const warning = findings.filter((f) => f.severity === 'warning').length;
       process.stderr.write(
         findings.length === 0
-          ? deps.palette.green(`✔ el mayor pasa ${nombres?.length ? nombres.join(', ') : 'las verificaciones bloqueantes'}\n`)
-          : deps.palette.yellow(`${blocking} hallazgo(s) bloqueante(s), ${warning} advertencia(s)\n`)
+          ? deps.palette.green(
+              `${t('ledger.ledger.check.passes', {
+                checks: nombres?.length ? nombres.join(', ') : t('ledger.ledger.check.blocking_checks'),
+              })}\n`
+            )
+          : deps.palette.yellow(`${t('ledger.ledger.check.findings', { blocking, warning })}\n`)
       );
       return checkExitCode({ blocking, warning }, { strict: opts.strict });
     })
@@ -180,11 +185,11 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
     run(async () => {
       const ctx = await entityOf(opts);
       const dias = parseInt(opts.days, 10);
-      if (!Number.isFinite(dias) || dias < 0) throw usageError(`--days ilegible: "${opts.days}".`);
+      if (!Number.isFinite(dias) || dias < 0) throw usageError({ key: 'ledger.ledger.stale_draft.days_unreadable', params: { value: opts.days } });
       const rows = await listStaleDrafts(ctx.entityId, { days: dias, period: opts.period });
       render(rows as unknown as Row[], { ...opts, idField: 'entry_number' });
       if (rows.length > 0) {
-        note(`${rows.length} borrador(es) con más de ${dias} días. Se aplican con entry post, o se retiran.`);
+        note(t('ledger.ledger.stale_draft.found', { count: rows.length, days: dias }));
       }
     })
   );
@@ -208,11 +213,20 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
       // fiar, y el motivo está siempre en el periodo anterior: es de ahí de
       // donde el cierre duro arrastra el acumulado.
       const sinArrastre = aux.periodo_anterior
-        ? `sin arrastre: ${aux.periodo_anterior.period_name} está '${aux.periodo_anterior.status}'`
-        : 'sin periodo anterior: no hay acumulado que arrastrar';
+        ? t('ledger.ledger.auxiliary.no_carry', {
+            period: aux.periodo_anterior.period_name,
+            status: aux.periodo_anterior.status,
+          })
+        : t('ledger.ledger.auxiliary.no_previous');
       note(
-        `${aux.account_code} ${aux.account_name} · ${aux.period_name} (${aux.period_status}) · ` +
-          `inicial ${aux.inicial}${aux.inicial_confiable ? '' : ` (${sinArrastre})`}`
+        t('ledger.ledger.auxiliary.heading', {
+          code: aux.account_code,
+          name: aux.account_name,
+          period: aux.period_name,
+          status: aux.period_status,
+          beginning: aux.inicial,
+          unreliable: aux.inicial_confiable ? '' : ` (${sinArrastre})`,
+        })
       );
       render(aux.movimientos as unknown as Row[], {
         ...opts,
@@ -220,9 +234,9 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
         idField: 'entry_number',
       });
       note(
-        `cargos ${aux.cargos} · abonos ${aux.abonos} · final ${aux.final}` +
+        t('ledger.ledger.auxiliary.totals', { debits: aux.cargos, credits: aux.abonos, ending: aux.final }) +
           (aux.final !== aux.final_calculado
-            ? deps.palette.yellow(` (calculado ${aux.final_calculado}: hay deriva — corre ledger check)`)
+            ? deps.palette.yellow(t('ledger.ledger.auxiliary.drift', { computed: aux.final_calculado }))
             : '')
       );
     })
@@ -241,7 +255,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   balShow.action((opts: CommonOpts & { account: string; asOf?: string; period?: string; dim?: string }) =>
     run(async () => {
       if (opts.dim) {
-        throw usageError('--dim aún no está disponible: las dimensiones no tienen maestro todavía (familia dimension).');
+        throw usageError({ key: 'ledger.ledger.balance.dim_unavailable' });
       }
       const ctx = await entityOf(opts);
       const cuenta = await resolveAccount(ctx.entityId, opts.account);
@@ -250,7 +264,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
         asOf: opts.asOf,
       });
       if (rows.some((r) => r.period_status === 'open' || r.period_status === 'soft_close')) {
-        note('Nota: beginning_balance solo se siembra en el cierre duro; en periodos abiertos lee la actividad, no el acumulado.');
+        note(t('ledger.account.balance.open_period_note'));
       }
       render(rows as unknown as Row[], { ...opts, idField: 'period_name' });
     })

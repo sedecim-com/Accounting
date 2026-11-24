@@ -16,6 +16,7 @@ import {
   type RenglonTipoDeCambio,
 } from '../services/fx/rate-service.js';
 import { getPolicy } from '../services/policy/policy-service.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
@@ -79,7 +80,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function exigirFecha(nombre: string, valor: string): string {
   if (!FECHA_RE.test(valor) || Number.isNaN(new Date(`${valor}T00:00:00Z`).getTime())) {
-    throw usageError(`${nombre} must be a date as YYYY-MM-DD; got "${valor}".`);
+    throw usageError({ key: 'cli.flag.error_not_date', params: { name: nombre, value: valor } });
   }
   return valor;
 }
@@ -141,17 +142,11 @@ function makeRunner(deps: FxCommandDeps) {
  * catálogo (`--source <dof|banxico-fix|fed|ecb>`), y a qué fuente del esquema
  * corresponde cada una.
  */
-const FUENTES_DE_DESCARGA: Record<string, { fuente: FuenteDeTipo; editor: string }> = {
-  dof: {
-    fuente: 'dof',
-    editor: 'Diario Oficial de la Federación (el fiscal del art. 20 CFF; para una operación rige el publicado el día hábil anterior)',
-  },
-  'banxico-fix': {
-    fuente: 'banco_mexico',
-    editor: 'Banxico FIX vía SIE (requiere token del API SIE)',
-  },
-  fed: { fuente: 'fed', editor: 'Federal Reserve H.10' },
-  ecb: { fuente: 'ecb', editor: 'Banco Central Europeo, tipos de referencia' },
+const FUENTES_DE_DESCARGA: Record<string, { fuente: FuenteDeTipo; editor: TranslationKey }> = {
+  dof: { fuente: 'dof', editor: 'ledger.fx.publisher.dof' },
+  'banxico-fix': { fuente: 'banco_mexico', editor: 'ledger.fx.publisher.banxico_fix' },
+  fed: { fuente: 'fed', editor: 'ledger.fx.publisher.fed' },
+  ecb: { fuente: 'ecb', editor: 'ledger.fx.publisher.ecb' },
 };
 
 // ============================================================
@@ -232,10 +227,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
         // de cambio publicado no tiene ciclo de vida. Rechazarlo en voz alta
         // es más honesto que una bandera declarada que se ignora.
         if (opts.status !== undefined) {
-          throw usageError(
-            '--status does not apply here: a published exchange rate has no lifecycle state. ' +
-              'Filter with --pair, --source, --rate-type, --since or --until.'
-          );
+          throw usageError({ key: 'ledger.fx.list.status_unsupported' });
         }
         // Lectura global: el tenant se arranca para la conexión, pero ninguna
         // entidad acota qué tipos se ven — ver la cabecera del módulo.
@@ -265,16 +257,12 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
           fuentePolitica = FUENTE_DE_LA_POLITICA[politica.value];
           process.stderr.write(
             deps.palette.dim(
-              `La política fuente_tipo_cambio de este despacho es "${politica.value}"` +
-                (fuentePolitica ? ` → source '${fuentePolitica}' (columna policy: ✓).` : ', que este lector no mapea a ninguna fuente.') +
-                '\n'
+              `${t('ledger.fx.list.policy', { value: politica.value, source: fuentePolitica ?? 'none' })}\n`
             )
           );
         } catch {
           process.stderr.write(
-            deps.palette.dim(
-              'Sin entidad activa resoluble: no se pudo señalar la fuente que la política del despacho usa.\n'
-            )
+            deps.palette.dim(`${t('ledger.fx.list.no_entity')}\n`)
           );
         }
 
@@ -320,10 +308,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
         const resuelto = await verTipo(par, fecha, tipo, publisher);
 
       if (resuelto.rate === null) {
-        throw notFound(
-          `No hay tipo ${par.de}/${par.a} (${tipo}) resoluble para ${fecha}: ni directo, ni ` +
-            'inverso, ni cruzado por USD. Captúralo con fx rate set.'
-        );
+        throw notFound({ key: 'ledger.fx.show.not_found', params: { from: par.de, to: par.a, type: tipo, date: fecha } });
       }
 
       // Los DIEZ decimales de DECIMAL(19,10), siempre — y el inverso: cuando
@@ -354,19 +339,19 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
       const p = deps.palette;
       process.stdout.write(
         `\n${p.bold(`${par.de}/${par.a}`)} ${fecha} = ${p.bold(tasa)} ` +
-          p.dim(`(${tipo}${resuelto.renglon ? `, ${resuelto.renglon.source}` : ', derivado del inverso o cruzado'})`) +
+          p.dim(`(${tipo}${resuelto.renglon ? `, ${resuelto.renglon.source}` : t('ledger.fx.show.derived')})`) +
           '\n'
       );
       process.stdout.write(
-        `  ${p.dim(`inverso ${par.a}/${par.de} = ${inverso}${resuelto.renglon ? '' : ' (derivado)'}`)}\n`
+        `  ${p.dim(
+          t('ledger.fx.show.inverse', { pair: `${par.a}/${par.de}`, rate: inverso }) +
+            (resuelto.renglon ? '' : t('ledger.fx.show.inverse_derived'))
+        )}\n`
       );
       if (resuelto.arrastradoDe) {
         // El arrastre que get_exchange_rate() hace en silencio, dicho fuerte.
         process.stdout.write(
-          p.yellow(
-            `  ⚠ arrastrado de ${resuelto.arrastradoDe}: no hay tipo del día pedido. ` +
-              'Si necesitas el del día, captúralo con fx rate set.\n'
-          )
+          p.yellow(`  ${t('ledger.fx.show.carried', { date: resuelto.arrastradoDe })}\n`)
         );
       }
       process.stdout.write('\n');
@@ -403,19 +388,17 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
         // día conviven como filas distintas, y un tipo sin fuente declarada
         // sería justo la ambigüedad que la migración existe para impedir.
         if (!opts.source) {
-          throw usageError(
-            `--source is required: say who published the rate (${FUENTES_DE_TIPO.join(', ')}). ` +
-              'DOF and FIX for the same day are different numbers and coexist since migration 057.'
-          );
+          throw usageError({ key: 'ledger.fx.set.source_required', params: { sources: FUENTES_DE_TIPO.join(', ') } });
         }
         const fuente = exigirFuente(opts.source);
         const hasta = opts.until ? exigirFecha('--until', opts.until) : undefined;
         const { dryRun } = gateMutation(set, opts as unknown as Record<string, unknown>);
+        const untilNote = hasta ? t('ledger.fx.set.until', { date: hasta }) : '';
 
         if (dryRun) {
           process.stdout.write(
-            `\n${deps.palette.bold(`Would set ${par.de}/${par.a} ${fecha} = ${rateArg}`)} ` +
-              `${deps.palette.dim(`(${fuente}, ${tipo}${hasta ? `, until ${hasta}` : ''})`)}\n\n`
+            `\n${deps.palette.bold(t('ledger.fx.set.would_set', { pair: `${par.de}/${par.a}`, date: fecha, rate: rateArg }))} ` +
+              `${deps.palette.dim(`(${fuente}, ${tipo}${untilNote})`)}\n\n`
           );
           return;
         }
@@ -433,7 +416,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
         // escritura falla, esta línea es exactamente lo que se intentó.
         process.stdout.write(
           `${deps.palette.bold(`${par.de}/${par.a} ${fecha} = ${rateArg}`)} ` +
-            `${deps.palette.dim(`(${fuente}, ${tipo}${hasta ? `, until ${hasta}` : ''})`)}\n`
+            `${deps.palette.dim(`(${fuente}, ${tipo}${untilNote})`)}\n`
         );
         const renglon = await fijarTipo({
           par,
@@ -445,7 +428,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
           creadoPor: reviewer.userId,
         });
         process.stdout.write(
-          `${deps.palette.green('✔')} fijado como ${deps.palette.bold(aDiezDecimales(renglon.rate))} ` +
+          `${deps.palette.green('✔')} ${t('ledger.fx.set.done', { rate: deps.palette.bold(aDiezDecimales(renglon.rate)) })} ` +
             `${deps.palette.dim(`· ${renglon.id}`)}\n`
         );
       })
@@ -478,9 +461,9 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   // compuertas de la MISMA hoja, que es justo lo que una declaración fija.
   declareRisk(download, {
     risk: 'externo',
-    llave: { sinLlave: 'un reintento vuelve a llamar al proveedor de tipos de cambio' },
+    llave: { sinLlave: { key: 'ledger.fx.download.retry_calls_again' } },
     agent: false,
-    writes: 'exchange_rates — hoy nada: falla cerrado por falta de conector',
+    writes: 'exchange_rates — nothing today: it fails closed for lack of a connector',
   });
   download.addHelpText('after', EJEMPLOS.rateDownload);
   download.action(
@@ -488,42 +471,45 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
       run(async () => {
         bootstrapTenant(opts.tenant);
         if (!opts.source) {
-          throw usageError(
-            `--source is required: ${Object.keys(FUENTES_DE_DESCARGA).join(', ')}.`
-          );
+          throw usageError({
+            key: 'ledger.fx.download.source_required',
+            params: { sources: Object.keys(FUENTES_DE_DESCARGA).join(', ') },
+          });
         }
         const elegida = FUENTES_DE_DESCARGA[opts.source];
         if (!elegida) {
-          throw usageError(
-            `Unknown --source "${opts.source}". Use one of: ${Object.keys(FUENTES_DE_DESCARGA).join(', ')}.`
-          );
+          throw usageError({
+            key: 'ledger.fx.download.source_unknown',
+            params: { value: opts.source, sources: Object.keys(FUENTES_DE_DESCARGA).join(', ') },
+          });
         }
         if (opts.asOf && (opts.since || opts.until)) {
-          throw usageError('--as-of and --since/--until are two ways of saying the range; use one.');
+          throw usageError({ key: 'ledger.fx.download.range_twice' });
         }
         const desde = opts.asOf ? exigirFecha('--as-of', opts.asOf) : opts.since ? exigirFecha('--since', opts.since) : undefined;
         const hasta = opts.asOf ? desde : opts.until ? exigirFecha('--until', opts.until) : desde;
         const { dryRun } = gateMutation(download, opts as unknown as Record<string, unknown>);
 
-        const loQueFalta =
-          `No existe todavía el conector de descarga: este proyecto no habla HTTP con terceros ` +
-          `sin una credencial gobernada, y ${opts.source === 'banxico-fix' ? 'el SIE de Banxico exige un token que ningún almacén de credenciales del sistema gobierna aún' : 'no hay cliente declarado para esa fuente'}. ` +
-          `Fabricar el tipo sería el mismo pecado que el cerrojo antisimulación de los PAC impide. ` +
-          `Hoy los caminos honestos son: fx rate set <par> <fecha> <tasa> --source ${elegida.fuente} ` +
-          `con el valor publicado, o fx rate import (fase 2) desde un archivo.`;
+        const loQueFalta = {
+          key: 'ledger.fx.download.no_connector',
+          params: { why: opts.source === 'banxico-fix' ? 'sie' : 'none', source: elegida.fuente },
+        } as const;
 
         if (dryRun) {
           const p = deps.palette;
+          const range = `${desde ?? t('ledger.fx.download.today')}${hasta && hasta !== desde ? ` → ${hasta}` : ''}`;
           process.stdout.write(
-            `\n${p.bold(`Would download from ${elegida.editor}`)}\n` +
-              `  ${p.dim(`fechas: ${desde ?? '(hoy)'}${hasta && hasta !== desde ? ` → ${hasta}` : ''}`)}\n` +
-              `  ${p.dim(`destino: exchange_rates con source='${elegida.fuente}' (la 057 deja convivir DOF y FIX del mismo día)`)}\n` +
-              `  ${p.yellow(`⚠ ejecutar fallará: ${loQueFalta}`)}\n\n`
+            `\n${p.bold(t('ledger.fx.download.would_download', { publisher: t(elegida.editor) }))}\n` +
+              `  ${p.dim(t('ledger.fx.download.dates', { range }))}\n` +
+              `  ${p.dim(t('ledger.fx.download.target', { source: elegida.fuente }))}\n` +
+              `  ${p.yellow(t('ledger.fx.download.will_fail', { reason: t(loQueFalta.key, loQueFalta.params) }))}\n\n`
           );
           return;
         }
 
-        throw blockedByState(loQueFalta, { fuente: elegida.fuente, editor: elegida.editor });
+        // The detail is English, like the error's `params`: a --json reader
+        // must not see it change with the locale.
+        throw blockedByState(loQueFalta, { fuente: elegida.fuente, editor: t(elegida.editor, {}, 'en') });
       })
   );
 }
