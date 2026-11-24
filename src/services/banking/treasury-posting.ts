@@ -1,14 +1,20 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import type { MessageParams, TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
-import { entityUsesCashBasisIva, ivaReclassificationsFor } from '../accounting/iva-cash-basis.js';
+import {
+  entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
+} from '../accounting/iva-cash-basis.js';
+import { iepsCausedByReceipt, iepsMoveLines, iepsMovedForInvoice, type IepsMove } from '../accounting/ieps-cash-basis.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
+import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
+import { advanceBackOnAccount, keptOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
 
 // ============================================================
 // LOS TRES ASIENTOS DE TESORERÍA (F05d · 055)
@@ -80,6 +86,8 @@ export const ORIGEN_INTERES = 'bank_interest';
 export const ORIGEN_COBRO_DE_CHEQUE = 'bank_check_clearing';
 /** A bank fee's VAT moved from 1135 to 1130. `source_id` = the movement, like the fee entry. */
 export const FEE_VAT_RELEASE_SOURCE = 'bank_fee_vat_release';
+/** A customer cheque's IVA moved from 2125 to 2120 on its cashing. `source_id` = the receipt. */
+export const CUSTOMER_CHECK_CASHING_SOURCE = 'customer_cheque_cashing';
 
 /**
  * Todos, juntos y exportados, porque quien escriba un informe que separe
@@ -92,6 +100,7 @@ export const ORIGENES_DE_TESORERIA = [
   ORIGEN_INTERES,
   ORIGEN_COBRO_DE_CHEQUE,
   FEE_VAT_RELEASE_SOURCE,
+  CUSTOMER_CHECK_CASHING_SOURCE,
 ] as const;
 
 /**
@@ -387,6 +396,7 @@ interface LineaDeAsiento {
   debit_amount: string | null;
   credit_amount: string | null;
   description: string;
+  tags?: Record<string, unknown>;
 }
 
 /**
@@ -1476,15 +1486,14 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * esa aritmética aquí habría dado un segundo sitio donde el IVA de un pago se
  * calcula, y el día que los dos discrepen nadie sabría cuál manda.
  *
- * EL TOPE ES TAMBIÉN LA PROTECCIÓN CONTRA EL DOBLE ACREDITAMIENTO, y hace falta
- * decirlo: hoy `postVendorPaymentEntry` ya libera el IVA en la fecha del PAGO,
- * así que para un cheque cuyo pago se contabilizó de esa manera `ivaStillParked`
- * devuelve cero y este comando reclasifica cero, informándolo. Eso NO es un
- * fallo de aquí: es la señal de que ese IVA se acreditó en el mes de la firma
- * del cheque y no en el del cobro, que es precisamente lo que la fila 1271
- * existe para corregir. Cerrarlo del todo pide que el asiento del pago con
- * cheque DEJE el IVA aparcado y espere a este comando, y eso se decide en
- * `ar-ap-posting.ts`, no aquí.
+ * THE CAP IS NOT WHAT STOPS A SECOND CREDIT (MNE-001-508). `ivaStillParked`
+ * does not see what a payment's own entry released, because that entry's
+ * `source_id` is the payment and not the bill. What stops it is the amount each
+ * application stores: see `vatHeldByVendorCheck`. A cheque in the functional
+ * currency holds its IVA in 1135 (`holdsIvaUntilCashed`, `ar-ap-posting.ts`)
+ * and this act releases it; a cheque whose own entry credited the IVA on its
+ * signing day, as all did before MNE-001-508 and as a foreign-currency one
+ * still does, records its cashing here and moves nothing.
  */
 export async function conciliarCheque(
   entityId: string,
@@ -1576,9 +1585,13 @@ export async function conciliarCheque(
     // aparcado en 1135 que liberar. Preguntar antes evita recorrer la máquina
     // de reclasificación para que devuelva cero por el motivo equivocado.
     const flujoDeEfectivo = await entityUsesCashBasisIva(client, entityId);
-    const items = flujoDeEfectivo
-      ? await ivaReclassificationsFor(client, 'received', entityId, pago.id)
-      : [];
+    // A foreign-currency cheque credited on its payment day, at that day's
+    // rate: releasing here with no rate would move its dollars as pesos.
+    const inFunctional =
+      flujoDeEfectivo && pago.currency_code === (await functionalCurrencyOf(client, entityId));
+    const { items, alreadyCredited } = inFunctional
+      ? await vatHeldByVendorCheck(client, entityId, pago.id)
+      : { items: [], alreadyCredited: flujoDeEfectivo };
     const totalIva = items.reduce((s, i) => s.plus(i.amount), new Decimal(0));
 
     if (totalIva.greaterThan(0) && periodoCerrado(periodo)) {
@@ -1647,11 +1660,14 @@ export async function conciliarCheque(
         ? `No había IVA que reclasificar, así que el cobro se registra sin asiento; ` +
           `${motivoDePeriodo(periodo, fechaDeCobro)}, y con IVA que mover esto se habría ` +
           `rechazado en vez de postearse con otra fecha.`
+        : alreadyCredited
+        ? `El asiento del pago ya lo acreditó en la fecha del cheque (${pago.payment_date}), así ` +
+          `que el cobro se registra y no acredita ese IVA otra vez. Si el cobro cae en otro mes, ` +
+          `la declaración del mes de la firma puede necesitar complementaria.`
         : flujoDeEfectivo
         ? `No quedaba IVA aparcado en 1135 para este pago, así que no hay nada que reclasificar. ` +
-          `Casi siempre significa una de dos cosas: los gastos que pagó eran PUE —su IVA ya era ` +
-          `acreditable desde la factura— o el asiento del pago ya lo liberó en la fecha del ` +
-          `cheque en vez de esperar al cobro.`
+          `Casi siempre significa que los gastos que pagó eran PUE —su IVA ya era acreditable ` +
+          `desde la factura— o que el pago sigue a cuenta, sin aplicar a ningún gasto.`
         : `La entidad no contabiliza el IVA por flujo de efectivo (no es mexicana), así que el ` +
           `cobro del cheque se registra pero no reclasifica impuesto ninguno.`;
     }
@@ -1662,14 +1678,32 @@ export async function conciliarCheque(
     // la entidad va OTRA VEZ en el WHERE aunque el SELECT de arriba ya la
     // exigió: la última fuga de este módulo entró justo por un id que se dio
     // por comprobado antes de escribir.
-    await client.query(
+    // MNE-001-508: and the state too. A cheque is cashed once, on a payment
+    // that stands: zero rows means it changed under this act, and nothing stays.
+    const cashed = await client.query(
       `UPDATE vendor_payments
           SET check_cleared_date = $1::date,
               check_cleared_tx_id = $2,
               updated_at = NOW()
-        WHERE id = $3 AND entity_id = $4`,
+        WHERE id = $3 AND entity_id = $4
+          AND check_cleared_tx_id IS NULL AND status = 'completed'`,
       [fechaDeCobro, movimiento.id, pago.id, entityId]
     );
+    if (cashed.rowCount !== 1) throw changedMeanwhile(pago);
+    // What the cashing released goes on the application, so `payment unapply`
+    // re-parks it and no later act releases it again.
+    for (const item of items) {
+      const kept = await client.query(
+        `UPDATE payment_applications pa
+            SET iva_reclass_amount = pa.iva_reclass_amount + $1
+           FROM vendor_payments vp
+          WHERE pa.id = $2 AND pa.payment_id = $3
+            AND vp.id = pa.payment_id AND vp.entity_id = $4
+            AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NOT NULL`,
+        [item.amount, item.applicationId, pago.id, entityId]
+      );
+      if (kept.rowCount !== 1) throw changedMeanwhile(pago);
+    }
 
     await registrarAuditoria(client, {
       tenantId,
@@ -1716,6 +1750,65 @@ export async function conciliarCheque(
     }
     return resultado;
   });
+}
+
+const changedMeanwhile = (payment: FilaPagoConCheque): ValidationError =>
+  new ValidationError({
+    key: 'bank.check.reconcile.changed_meanwhile',
+    params: { payment: payment.payment_number, status: payment.status },
+  });
+
+/** One bill's IVA a cheque still holds, and the application that will store its release. */
+interface VatHeldByCheck {
+  documentId: string;
+  documentNumber: string;
+  amount: string;
+  applicationId: string;
+}
+
+/**
+ * MNE-001-508 · what a vendor cheque's cashing releases, per bill: the share of
+ * the payment's live applications on the bill (`ivaReclassificationsFor`)
+ * minus what those applications already stored, kept on the oldest of them.
+ *
+ * A NULL on a live row counts as released: what it released cannot be known,
+ * and releasing again would credit the IVA twice. `alreadyCredited` says a
+ * share was left out for that reason or because it was stored in full.
+ */
+async function vatHeldByVendorCheck(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<{ items: VatHeldByCheck[]; alreadyCredited: boolean }> {
+  const items: VatHeldByCheck[] = [];
+  let alreadyCredited = false;
+  for (const share of await ivaReclassificationsFor(client, 'received', entityId, paymentId)) {
+    const live = await client.query<{ id: string; stored: string | null }>(
+      `SELECT pa.id, pa.iva_reclass_amount::text AS stored
+         FROM payment_applications pa
+         JOIN vendor_payments vp ON vp.id = pa.payment_id
+        WHERE pa.payment_id = $1 AND pa.bill_id = $2 AND vp.entity_id = $3
+          AND pa.unapplied_at IS NULL
+        ORDER BY pa.created_at, pa.id
+        FOR UPDATE OF pa`,
+      [paymentId, share.documentId, entityId]
+    );
+    const stored = live.rows.reduce((s, r) => s.plus(r.stored ?? '0'), new Decimal(0));
+    const held = live.rows.some((r) => r.stored === null)
+      ? new Decimal(0)
+      : new Decimal(share.amount).minus(stored);
+    if (live.rows.length === 0 || held.lessThanOrEqualTo(0)) {
+      alreadyCredited = true;
+      continue;
+    }
+    items.push({
+      documentId: share.documentId,
+      documentNumber: share.documentNumber,
+      amount: held.toFixed(ESCALA),
+      applicationId: live.rows[0].id,
+    });
+  }
+  return { items, alreadyCredited };
 }
 
 /**
@@ -1848,4 +1941,537 @@ function exigirMovimientoCompatible(mov: FilaMovimientoDeCobro, pago: FilaPagoCo
         `incidente, no una conciliación.`
     );
   }
+}
+
+// ============================================================
+// 4 · A CUSTOMER CHEQUE CASHED (MNE-001-506, #700)
+//
+// A price paid by cheque, and its IVA, is paid on the day the cheque is cashed
+// (LIVA art. 1-B, second paragraph). The receipt keeps the bank credit that
+// paid it and that credit's date (migration 331), and the IVA its allocations
+// have not released yet moves from 2125 to 2120 on that date. An advance by
+// cheque keeps its IVA in 2150 until then, and moves it to 2120 the same day
+// (MNE-001-558; #623, comment 6961035083).
+//
+// THE ALLOCATION'S STORED AMOUNT IS THE SWITCH. `ivaStillParked` does not see
+// what a receipt's own entry released, so the cap cannot stop a second
+// release: `payment_allocations.iva_reclass_amount` does. A NULL on a live
+// row counts as released, because what it released cannot be known and
+// releasing again would cause the IVA twice.
+// ============================================================
+
+type CashingRefusal =
+  | 'not_a_cheque' | 'not_completed' | 'already_cashed' | 'credit_used' | 'other_account'
+  | 'currency_differs' | 'amount_differs' | 'credit_before_receipt' | 'period_closed'
+  | 'transaction_needed' | 'no_credit' | 'several_credits' | 'as_of_differs'
+  | 'several_need_transaction' | 'credit_matched' | 'sum_differs';
+
+const refuseCashing = (reason: CashingRefusal, params: MessageParams): ValidationError =>
+  new ValidationError({ key: `bank.check.cashing.refused.${reason}`, params });
+
+interface CheckReceiptRow {
+  id: string;
+  payment_number: string;
+  check_number: string | null;
+  payment_method: string;
+  payment_amount: string;
+  payment_date: string;
+  currency: string;
+  functional_currency: string;
+  status: string;
+  bank_account_id: string | null;
+  check_cashed_date: string | null;
+  check_cashed_tx_id: string | null;
+  /** MNE-001-458 · the IVA of an advance, which a cheque's receipt entry left in 2150. */
+  advance_iva: string | null;
+  /** MNE-001-572 · the receipt's treatment, at which the cash an unapply put back carries its IVA. */
+  advance_factor_type: string | null;
+  advance_tax_rate: string | null;
+}
+
+interface BankCreditRow {
+  id: string;
+  date: string;
+  amount: string;
+  description: string | null;
+  bank_account_id: string;
+  currency: string;
+}
+
+export interface CustomerCheckCashing {
+  receiptId: string;
+  receiptNumber: string;
+  checkNumber: string | null;
+  transaction: { id: string; date: string; amount: string; description: string | null };
+  /** The credit's date: the bank dates the cashing, not the user. */
+  cashedOn: string;
+  period: { name: string; status: string } | null;
+  /** Total moved to 2120, from 2125 and from 2150. Zero is a legitimate result. */
+  released: string;
+  /** #699 · Total IEPS moved from the uncollected role to 2180 on the same entry. */
+  iepsReleased: string;
+  byInvoice: { invoiceId: string; invoiceNumber: string; amount: string }[];
+  /** The advance's IVA moved from 2150 to 2120; null when the receipt is no advance with IVA. */
+  advanceIva: string | null;
+  entryId: string | null;
+  entryNumber: string | null;
+  /** Why nothing was released, when nothing was. */
+  note: TranslationKey | null;
+  dryRun: boolean;
+}
+
+/**
+ * Records that the bank cashed one customer cheque with one credit, and posts
+ * the IVA release on the credit's date. With no credit named, the one of the
+ * receipt's amount from its date in its account is taken; several are listed
+ * and never picked, because two cheques of one amount are common and the wrong
+ * credit dates the IVA in the wrong month.
+ *
+ * Nothing to release is not a refusal: a cheque applied to PUE invoices, left
+ * on account, in another currency than the functional one, or whose receipt
+ * entry already released its IVA records its cashing with no entry and a note.
+ */
+export async function recordCustomerCheckCashing(
+  entityId: string,
+  receiptId: string,
+  opts: { transactionId?: string; asOf?: string; userId: string; dryRun?: boolean }
+): Promise<CustomerCheckCashing> {
+  const [cashing] = await recordCustomerChecksCashing(entityId, [receiptId], opts);
+  return cashing;
+}
+
+/**
+ * MNE-001-557 · one bank credit that cashes several customer cheques, the
+ * deposit of a day's cheques. One act: the credit is their exact sum, every
+ * receipt passes the checks of a single cashing, and each gets its own entry
+ * so a reversal finds it by its receipt. Several receipts name their credit,
+ * because a search by their sum would find the deposit of another day.
+ *
+ * A credit is used while another receipt holds it as its cashing, or while a
+ * live `reconciliation_matches` row ties it to anything but the receipts named
+ * or the bank lines of their own entries: `bank match create --book-item` ties
+ * a credit to a journal line, and refusing that would undo a correct match.
+ */
+export async function recordCustomerChecksCashing(
+  entityId: string,
+  receiptIds: readonly string[],
+  opts: { transactionId?: string; asOf?: string; userId: string; dryRun?: boolean }
+): Promise<CustomerCheckCashing[]> {
+  const named = [...new Set(receiptIds)];
+  if (named.length === 0) throw new NotFoundError('Customer Payment', '');
+  return ejecutarActo(async (client, attest) => {
+    const tenantId = await tenantDe(client, entityId);
+
+    // Locked in the order of their ids, so two acts over shared receipts
+    // cannot each hold one and wait for the other; nor can two sessions both
+    // find a cheque not cashed yet.
+    const locked = await client.query<CheckReceiptRow>(
+      `SELECT cp.id, cp.payment_number, cp.check_number, cp.payment_method,
+              cp.payment_amount::text AS payment_amount, cp.payment_date::text AS payment_date,
+              TRIM(cp.currency_code) AS currency, TRIM(e.functional_currency) AS functional_currency,
+              cp.status, cp.bank_account_id,
+              cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id,
+              cp.advance_iva_amount::text AS advance_iva,
+              cp.advance_factor_type, cp.advance_tax_rate::text AS advance_tax_rate
+         FROM customer_payments cp
+         JOIN legal_entities e ON e.id = cp.entity_id
+        WHERE cp.id = ANY($1::uuid[]) AND cp.entity_id = $2
+        ORDER BY cp.id
+        FOR UPDATE OF cp`,
+      [named, entityId]
+    );
+    const receipts = named.map((id) => {
+      const row = locked.rows.find((r) => r.id === id);
+      if (!row) throw new NotFoundError('Customer Payment', id);
+      return row;
+    });
+    const numbers = receipts.map((r) => r.payment_number).join(', ');
+
+    for (const receipt of receipts) {
+      const one = { receipt: receipt.payment_number };
+      if (receipt.payment_method !== 'check') {
+        throw refuseCashing('not_a_cheque', { ...one, method: receipt.payment_method });
+      }
+      if (receipt.status !== 'completed') {
+        throw refuseCashing('not_completed', { ...one, status: receipt.status });
+      }
+      if (receipt.check_cashed_tx_id) {
+        throw refuseCashing('already_cashed', {
+          ...one, date: receipt.check_cashed_date ?? '', transaction: receipt.check_cashed_tx_id,
+        });
+      }
+    }
+
+    let transactionId = opts.transactionId;
+    if (!transactionId) {
+      if (receipts.length > 1) throw refuseCashing('several_need_transaction', { receipt: numbers });
+      const receipt = receipts[0];
+      const one = { receipt: receipt.payment_number };
+      if (!receipt.bank_account_id) throw refuseCashing('transaction_needed', one);
+      // No end to the window: a cheque cashed months later is still this cheque.
+      const found = await client.query<{ id: string; date: string }>(
+        `SELECT bt.id, bt.transaction_date::text AS date
+           FROM bank_transactions bt
+           JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+          WHERE ba.entity_id = $1 AND bt.bank_account_id = $2
+            AND bt.transaction_date >= $3::date AND bt.amount = $4::numeric
+            AND NOT EXISTS (SELECT 1 FROM customer_payments held
+                             WHERE held.check_cashed_tx_id = bt.id AND held.entity_id = $1)
+          ORDER BY bt.transaction_date, bt.id
+          LIMIT 6`,
+        [entityId, receipt.bank_account_id, receipt.payment_date, receipt.payment_amount]
+      );
+      const search = { ...one, amount: receipt.payment_amount, date: receipt.payment_date };
+      if (found.rows.length === 0) throw refuseCashing('no_credit', search);
+      if (found.rows.length > 1) {
+        const candidates = found.rows.map((c) => `${c.id} (${c.date})`).join(', ');
+        throw refuseCashing('several_credits', { ...search, candidates });
+      }
+      transactionId = found.rows[0].id;
+    }
+
+    // `bank_transactions` has no entity: the boundary is its account's. The
+    // lock makes a second receipt wait before it asks who holds the credit,
+    // and `bank match create`, which locks the credit too, before it ties it.
+    const credits = await client.query<BankCreditRow>(
+      `SELECT bt.id, bt.transaction_date::text AS date, bt.amount::text AS amount, bt.description,
+              bt.bank_account_id, TRIM(ba.currency_code) AS currency
+         FROM bank_transactions bt
+         JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+        WHERE bt.id = $1 AND ba.entity_id = $2
+        FOR UPDATE OF bt`,
+      [transactionId, entityId]
+    );
+    if (credits.rows.length === 0) throw new NotFoundError('Bank Transaction', transactionId);
+    const credit = credits.rows[0];
+    const about = { receipt: numbers, transaction: credit.id };
+
+    const holder = await client.query<{ payment_number: string }>(
+      `SELECT payment_number FROM customer_payments
+        WHERE check_cashed_tx_id = $1 AND entity_id = $2 LIMIT 1`,
+      [credit.id, entityId]
+    );
+    if (holder.rows.length > 0) {
+      throw refuseCashing('credit_used', { ...about, holder: holder.rows[0].payment_number });
+    }
+    // A match to a named receipt, or to the bank line of its own entry, says
+    // what this cashing says; any other live match says the credit paid
+    // something else.
+    const foreign = await client.query<{ id: string; matched_entity_type: string; matched_entity_id: string }>(
+      `SELECT rm.id, rm.matched_entity_type, rm.matched_entity_id
+         FROM reconciliation_matches rm
+         JOIN bank_transactions bt ON bt.id = rm.bank_transaction_id
+         JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+        WHERE rm.bank_transaction_id = $1 AND ba.entity_id = $2 AND rm.unapplied_at IS NULL
+          AND NOT (rm.matched_entity_type = 'customer_payment' AND rm.matched_entity_id = ANY($3::uuid[]))
+          AND NOT (rm.matched_entity_type = 'journal_entry_line' AND EXISTS (
+                SELECT 1 FROM journal_entry_lines l
+                  JOIN journal_entries je ON je.id = l.journal_entry_id
+                 WHERE l.id = rm.matched_entity_id AND je.entity_id = $2
+                   AND je.source_type = 'customer_payment' AND je.source_id = ANY($3::uuid[])
+                   AND l.account_id = ba.gl_account_id))
+        ORDER BY rm.matched_at, rm.id
+        LIMIT 1`,
+      [credit.id, entityId, named]
+    );
+    if (foreign.rows.length > 0) {
+      const m = foreign.rows[0];
+      throw refuseCashing('credit_matched', {
+        ...about, match: m.id, type: m.matched_entity_type, matched: m.matched_entity_id,
+      });
+    }
+
+    for (const receipt of receipts) {
+      const one = { receipt: receipt.payment_number, transaction: credit.id };
+      // The receipt's entry debited its account's ledger account, so a credit
+      // of another account means the receipt is what needs correcting.
+      if (receipt.bank_account_id && credit.bank_account_id !== receipt.bank_account_id) {
+        throw refuseCashing('other_account', one);
+      }
+      if (credit.currency !== receipt.currency) {
+        throw refuseCashing('currency_differs', {
+          ...one, creditCurrency: credit.currency, currency: receipt.currency,
+        });
+      }
+    }
+    // Exact, on the column's four decimals: a cheque cashed for another
+    // amount is an incident, not a cashing, and a deposit is its cheques' sum.
+    const sum = receipts.reduce((s, r) => s.plus(r.payment_amount), new Decimal(0));
+    if (!new Decimal(credit.amount).equals(sum)) {
+      throw receipts.length === 1
+        ? refuseCashing('amount_differs', { ...about, creditAmount: credit.amount, amount: receipts[0].payment_amount })
+        : refuseCashing('sum_differs', { ...about, creditAmount: credit.amount, amount: sum.toFixed(ESCALA) });
+    }
+    // `--as-of` is contrasted, never imposed: the bank dates the cashing.
+    if (opts.asOf !== undefined && opts.asOf !== credit.date) {
+      throw refuseCashing('as_of_differs', { ...about, date: credit.date, asOf: opts.asOf });
+    }
+    for (const receipt of receipts) {
+      if (credit.date < receipt.payment_date) {
+        throw refuseCashing('credit_before_receipt', {
+          receipt: receipt.payment_number, transaction: credit.id, date: credit.date, receiptDate: receipt.payment_date,
+        });
+      }
+    }
+
+    const cashBasis = await entityUsesCashBasisIva(client, entityId);
+    const pending = [];
+    for (const receipt of receipts) pending.push(await pendingRelease(client, entityId, receipt, cashBasis));
+    const total = pending.reduce(
+      (s, p) => p.ieps.reduce((t, m) => t.plus(m.amount), s.plus(p.total)), new Decimal(0)
+    );
+
+    // The release belongs to the cashing's month, so it is never posted with
+    // another date; with nothing to post, a closed month refuses nothing.
+    const period = await periodoDeLaFecha(client, entityId, credit.date);
+    if (total.greaterThan(0) && periodoCerrado(period)) {
+      throw refuseCashing('period_closed', { ...about, date: credit.date });
+    }
+
+    const results: CustomerCheckCashing[] = [];
+    for (const [i, receipt] of receipts.entries()) {
+      const { functional, shares, releases, ieps, advance, total: released } = pending[i];
+      const iepsReleased = ieps.reduce((sum, m) => sum.plus(m.amount), new Decimal(0));
+      const entry = released.greaterThan(0) || iepsReleased.greaterThan(0)
+        ? await postCashing(client, entityId, receipt, credit, releases, ieps, advance, opts.userId)
+        : null;
+      if (entry) attest(tenantId, entityId, entry.id);
+
+      // Both columns together (the CHECK of migration 331), with the entity
+      // and the state the checks above read. Invariant 3.
+      const cashed = await client.query(
+        `UPDATE customer_payments
+            SET check_cashed_date = $1::date, check_cashed_tx_id = $2, updated_at = NOW()
+          WHERE id = $3 AND entity_id = $4
+            AND payment_method = 'check' AND status = 'completed' AND check_cashed_tx_id IS NULL`,
+        [credit.date, credit.id, receipt.id, entityId]
+      );
+      if (!cashed.rowCount) throw new NotFoundError('Customer Payment', receipt.id);
+
+      const checkLabel = receipt.check_number ?? receipt.payment_number;
+      await registrarAuditoria(client, {
+        tenantId,
+        legalEntityId: entityId,
+        userId: opts.userId,
+        action: 'update',
+        entityType: 'customer_payments',
+        entityId: receipt.id,
+        oldValues: { check_cashed_date: null, check_cashed_tx_id: null },
+        newValues: {
+          check_cashed_date: credit.date,
+          check_cashed_tx_id: credit.id,
+          iva_released: released.toFixed(ESCALA),
+          ...(iepsReleased.greaterThan(0) ? { ieps_released: iepsReleased.toFixed(ESCALA) } : {}),
+          ...(advance.greaterThan(0) ? { advance_iva_caused: advance.toFixed(ESCALA) } : {}),
+          journal_entry_id: entry?.id ?? null,
+          ...(receipts.length > 1 ? { cashed_with: named } : {}),
+        },
+        reason: `Cheque ${checkLabel} cashed`,
+      });
+
+      results.push({
+        receiptId: receipt.id,
+        receiptNumber: receipt.payment_number,
+        checkNumber: receipt.check_number,
+        transaction: { id: credit.id, date: credit.date, amount: credit.amount, description: credit.description },
+        cashedOn: credit.date,
+        period: period ? { name: period.period_name, status: period.status } : null,
+        released: released.toFixed(ESCALA),
+        iepsReleased: iepsReleased.toFixed(ESCALA),
+        byInvoice: releases.map(({ invoiceId, invoiceNumber, amount }) => ({ invoiceId, invoiceNumber, amount })),
+        advanceIva: advance.greaterThan(0) ? advance.toFixed(ESCALA) : null,
+        entryId: entry?.id ?? null,
+        entryNumber: entry?.entry_number ?? null,
+        note: released.greaterThan(0) || iepsReleased.greaterThan(0)
+          ? null
+          : !functional
+          ? 'bank.check.cashing.note.foreign_currency'
+          : shares > 0
+          ? 'bank.check.cashing.note.already_released'
+          : 'bank.check.cashing.note.nothing_to_release',
+        dryRun: opts.dryRun === true,
+      });
+    }
+    if (opts.dryRun) {
+      throw new EnsayoDeTesoreria(results.map((r) => ({ ...r, entryId: null, entryNumber: null })));
+    }
+    return results;
+  });
+}
+
+interface PendingRelease {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: string;
+  allocationId: string;
+}
+
+/**
+ * What each PPD invoice's share is today, minus what the receipt's live
+ * allocations to it already released, and an advance's IVA, which its
+ * receipt entry held whole in 2150. A cheque in another currency keeps
+ * releasing on its receipt: its cashing would need that day's rate.
+ *
+ * #699 · The IEPS the invoice parked is caused by the same cashing (LIEPS
+ * art. 5o.-C takes LIVA's tests of collection): its share today, minus what
+ * this receipt's tagged lines already moved, so a cheque posted before the
+ * hold, whose own entry moved it, moves nothing again.
+ */
+async function pendingRelease(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: CheckReceiptRow,
+  cashBasis: boolean
+): Promise<{
+  functional: boolean; shares: number; releases: PendingRelease[]; ieps: IepsMove[]; advance: Decimal; total: Decimal;
+}> {
+  const functional = receipt.currency === receipt.functional_currency;
+  // An advance is refused in another currency, and before MNE-001-558 one by
+  // cheque was refused whole, so a stored IVA here is one no entry caused.
+  // MNE-001-572 · so is the IVA of the cash its unapplies put back as an
+  // advance while it was held, which they left whole in 2150 too.
+  // MNE-001-586 (#792, part 3/3) · and, on a receipt with no treatment, the share's IVA its plain rows stored
+  // when an unapply put their cash back while the cheque was held (`unapply_kept_iva_amount`, read by the
+  // pool's own reader): that cash is collected today too (LIVA art. 1-B), so the cashing causes it.
+  const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
+  const back = !functional
+    ? '0'
+    : treatment !== null
+      ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva
+      : (await keptOnAccount(client, entityId, receipt.id)).iva;
+  // MNE-001-573 · less the IVA its live PPD allocations took and cancelled
+  // nothing for (`defer_to_cashing`): the share each one releases below
+  // causes it, so the advance's own leaves 2150 only for the rest.
+  const deferred = functional ? await deferredAdvanceIva(client, entityId, receipt.id) : new Decimal(0);
+  const advance = functional ? Decimal.max(new Decimal(receipt.advance_iva ?? '0').plus(back).minus(deferred), 0) : new Decimal(0);
+  const shares = functional && cashBasis ? await ivaReclassificationsFor(client, 'issued', entityId, receipt.id) : [];
+  const releases: PendingRelease[] = [];
+  for (const share of shares) {
+    const live = await client.query<{ id: string; stored: string | null }>(
+      `SELECT pa.id, pa.iva_reclass_amount::text AS stored
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id
+        WHERE cp.entity_id = $1 AND pa.payment_id = $2 AND pa.invoice_id = $3
+          AND pa.unapplied_at IS NULL
+        ORDER BY pa.created_at, pa.id
+        FOR UPDATE OF pa`,
+      [entityId, receipt.id, share.documentId]
+    );
+    if (live.rows.length === 0 || live.rows.some((row) => row.stored === null)) continue;
+    const stored = live.rows.reduce((sum, row) => sum.plus(row.stored as string), new Decimal(0));
+    const due = new Decimal(share.amount).minus(stored);
+    if (due.greaterThan(0)) {
+      releases.push({
+        invoiceId: share.documentId, invoiceNumber: share.documentNumber,
+        amount: due.toFixed(ESCALA), allocationId: live.rows[0].id,
+      });
+    }
+  }
+  const total = releases.reduce((sum, r) => sum.plus(r.amount), advance);
+  const ieps: IepsMove[] = [];
+  for (const share of functional && cashBasis ? await iepsCausedByReceipt(client, entityId, receipt.id) : []) {
+    const due = new Decimal(share.amount).minus(await iepsMovedForInvoice(client, entityId, share.invoiceId, receipt.id));
+    if (due.greaterThan(0)) ieps.push({ ...share, amount: due.toFixed(ESCALA) });
+  }
+  return { functional, shares: shares.length, releases, ieps, advance, total };
+}
+
+/**
+ * MNE-001-573 · The advance IVA a held cheque's live allocations to PPD
+ * invoices took (`advance_iva_amount`): a held cheque applied to a PPD
+ * invoice is refused unless the firm defers it (`cheque_advance_before_cashing`),
+ * and a deferred application cancels nothing, so every such row is deferred.
+ * Both ends of the bridge are scoped.
+ */
+async function deferredAdvanceIva(client: pg.PoolClient, entityId: string, receiptId: string): Promise<Decimal> {
+  const r = await client.query<{ id: string; invoice_number: string; cfdi_uuid: string | null; terms: string | null; memo: string | null; c: string }>(
+    `SELECT i.id, i.invoice_number, i.cfdi_uuid, i.terms, i.memo, SUM(pa.advance_iva_amount)::text AS c
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      WHERE pa.payment_id = $2 AND pa.unapplied_at IS NULL AND pa.advance_iva_amount > 0
+      GROUP BY i.id`,
+    [entityId, receiptId]
+  );
+  let total = new Decimal(0);
+  for (const row of r.rows) {
+    if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo === 'PPD') total = total.plus(row.c);
+  }
+  return total;
+}
+
+/** One receipt's cashing entry, DR 2125 (or 2150, an advance's) / CR 2120, and what it released stored. */
+async function postCashing(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: CheckReceiptRow,
+  credit: BankCreditRow,
+  releases: PendingRelease[],
+  ieps: IepsMove[],
+  advance: Decimal,
+  userId: string
+): Promise<{ id: string; entry_number: string }> {
+  const checkLabel = receipt.check_number ?? receipt.payment_number;
+  const { from, to } = reclassRoles('issued');
+  const roles = await roleAccounts(client, entityId, [from, to, 'anticipo_clientes']);
+  const pendingAccount = requireRole(roles, from);
+  const dueAccount = requireRole(roles, to);
+  // Both are liabilities: 2125 empties with a debit and 2120 fills with a credit.
+  const lines: LineaDeAsiento[] = releases.flatMap((r) => [
+    {
+      account_id: pendingAccount, debit_amount: r.amount, credit_amount: null,
+      description: `IVA released on cheque ${checkLabel} cashed ${credit.date} - Invoice ${r.invoiceNumber}`,
+    },
+    {
+      account_id: dueAccount, debit_amount: null, credit_amount: r.amount,
+      description: `IVA caused on cheque cashing (LIVA art. 1-B) - Invoice ${r.invoiceNumber}`,
+    },
+  ]);
+  lines.push(...(await iepsMoveLines(client, entityId, receipt.id, ieps, 'release', `cheque ${checkLabel} cashed ${credit.date}`)));
+  if (advance.greaterThan(0)) {
+    const amount = advance.toFixed(ESCALA);
+    lines.push(
+      {
+        account_id: requireRole(roles, 'anticipo_clientes'), debit_amount: amount, credit_amount: null,
+        description: `IVA of advance ${receipt.payment_number} out of customer advances, cheque cashed ${credit.date}`,
+      },
+      {
+        account_id: dueAccount, debit_amount: null, credit_amount: amount,
+        description: `IVA caused on cheque cashing (LIVA art. 1-B) - Advance ${receipt.payment_number}`,
+      }
+    );
+  }
+  const entry = await createJournalEntry(
+    entityId,
+    // The credit's day, at local midnight: see `fechaDelAsiento`.
+    fechaDelAsiento(credit.date),
+    JournalEntryType.AUTO_RECONCILIATION,
+    `Customer cheque ${checkLabel} cashed ${credit.date} - IVA caused on collection`,
+    lines,
+    userId,
+    {
+      autoPost: true, client, sourceType: CUSTOMER_CHECK_CASHING_SOURCE,
+      sourceId: receipt.id, reference: checkLabel,
+    }
+  );
+
+  // Stored on the oldest live allocation of the pair, so an unapply
+  // re-parks what the cashing released. Invariant 3.
+  for (const r of releases) {
+    const stored = await client.query(
+      `UPDATE payment_allocations pa SET iva_reclass_amount = pa.iva_reclass_amount + $1
+         FROM customer_payments cp
+        WHERE cp.id = pa.payment_id AND cp.entity_id = $2 AND pa.id = $3
+          AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NOT NULL`,
+      [r.amount, entityId, r.allocationId]
+    );
+    if (!stored.rowCount) {
+      throw new AccountingError(
+        'PAYMENT_ALLOCATION_NOT_FOUND',
+        `${receipt.payment_number}: the live allocation to invoice ${r.invoiceNumber} is gone, ` +
+          'so the IVA its cashing released cannot be recorded.'
+      );
+    }
+  }
+  return entry;
 }

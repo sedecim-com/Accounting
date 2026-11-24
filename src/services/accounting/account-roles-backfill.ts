@@ -1,8 +1,11 @@
+import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import { ensureEntityAccounting } from './entity-accounting.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
-import { NON_POSTING_ROLES, rolesPara } from '../xml-ingestion/account-roles-seed.js';
+import {
+  NON_POSTING_ROLES, cuentasRequeridasPara, rolesPara, type AccountSpec,
+} from '../xml-ingestion/account-roles-seed.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 
 // ============================================================
@@ -155,21 +158,35 @@ export async function actoresPorInquilino(
 // and bringing it back is not a backfill's call. Idempotent: the census skips
 // entities that already have the role, and the insert does nothing on
 // conflict.
+//
+// #699 · An account the seed itself creates (REQUIRED_ACCOUNTS, such as 2181
+// for `ieps_trasladado_no_cobrado`) is created here too when the chart lacks
+// it, as the seed would have, under its class header. One the chart already
+// has under that code is used only if it is the kind the seed creates (type
+// and normal balance, not a header): anything else is reported, not guessed.
 // ============================================================
+
+/** Why each role reached the seed late, for the audit row of its backfill. */
+const LATE_ROLE_ORIGIN: Partial<Record<AccountRole, string>> = {
+  efectivo: 'BAN-1 (#324)',
+  ieps_trasladado_no_cobrado: 'MNE-001-505 (#699)',
+};
 
 export interface MissingRole {
   entityId: string;
   entityName: string;
   tenantId: string;
   role: AccountRole;
-  accountId: string;
+  /** Null when the chart lacks the account and `create` says how the seed makes it. */
+  accountId: string | null;
   code: string;
+  create?: AccountSpec;
 }
 
 export interface MissingRoleCensus {
   missing: MissingRole[];
-  /** Entities whose chart lacks the account the seed would use. */
-  unmappable: Array<{ entityName: string; role: AccountRole; code: string }>;
+  /** Entities whose chart lacks the account the seed would use, or has another kind under its code. */
+  unmappable: Array<{ entityName: string; role: AccountRole; code: string; why?: string }>;
 }
 
 /** Read-only: seeded entities with no default mapping for `role`. */
@@ -200,18 +217,26 @@ export async function censusMissingRole(
     const mexican = keepsMexicanBooks(e.incorporation_country, e.accounting_standard);
     const code = rolesPara(mexican)[role];
     if (!code) continue;
-    const account = await query<{ id: string }>(
-      `SELECT id FROM accounts WHERE entity_id = $1 AND code = $2 AND is_active`,
-      [e.entity_id, code]
+    const spec = cuentasRequeridasPara(mexican).find((a) => a.code === code);
+    const base = { entityId: e.entity_id, entityName: e.entity_name, tenantId: e.tenant_id, role, code };
+    const account = await query<{ id: string; is_active: boolean; fits: boolean }>(
+      `SELECT id, is_active, (NOT is_header AND account_type = $3 AND normal_balance = $4) AS fits
+         FROM accounts WHERE entity_id = $1 AND code = $2`,
+      [e.entity_id, code, spec?.account_type ?? null, spec?.normal_balance ?? null]
     );
-    if (!account.rows[0]) {
+    const found = account.rows[0];
+    if (found?.is_active && (!spec || found.fits)) {
+      census.missing.push({ ...base, accountId: found.id });
+    } else if (!found && spec) {
+      census.missing.push({ ...base, accountId: null, create: spec });
+    } else if (found?.is_active) {
+      census.unmappable.push({
+        entityName: e.entity_name, role, code,
+        why: `${code} is not a ${spec?.account_type} account with a ${spec?.normal_balance} balance`,
+      });
+    } else {
       census.unmappable.push({ entityName: e.entity_name, role, code });
-      continue;
     }
-    census.missing.push({
-      entityId: e.entity_id, entityName: e.entity_name, tenantId: e.tenant_id,
-      role, accountId: account.rows[0].id, code,
-    });
   }
   return census;
 }
@@ -233,14 +258,17 @@ export async function addMissingRoles(
       out.failures.push(`${row.entityName}: el inquilino ${row.tenantId} no tiene ningún usuario activo que firme el cambio.`);
       continue;
     }
+    const origin = LATE_ROLE_ORIGIN[row.role] ?? 'ROLE_MAP';
     const added = await withTransaction(async (client) => {
+      const accountId = row.accountId ?? (await createSeedAccount(client, row, actor, origin));
+      if (!accountId) return false;
       const ins = await client.query<{ id: string }>(
         `INSERT INTO account_roles (tenant_id, entity_id, role, account_id)
          VALUES ($1, $2, $3, $4)
          -- No target: uniqueness lives in two partial indexes (018).
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [row.tenantId, row.entityId, row.role, row.accountId]
+        [row.tenantId, row.entityId, row.role, accountId]
       );
       if (!ins.rows[0]) return false;
       await registrarAuditoria(client, {
@@ -251,8 +279,8 @@ export async function addMissingRoles(
         entityType: 'account_role',
         entityId: ins.rows[0].id,
         oldValues: null,
-        newValues: { role: row.role, qualifier: null, account_id: row.accountId, code: row.code },
-        reason: `BAN-1 (#324): el rol ${row.role} se añadió a la semilla después del alta`,
+        newValues: { role: row.role, qualifier: null, account_id: accountId, code: row.code },
+        reason: `${origin}: el rol ${row.role} se añadió a la semilla después del alta`,
       });
       return true;
     });
@@ -260,6 +288,46 @@ export async function addMissingRoles(
     else out.failures.push(`${row.entityName}: el rol ${row.role} ya estaba mapeado; no se tocó.`);
   }
   return out;
+}
+
+/**
+ * Creates the account the seed would have created for `row`, under its class
+ * header as `seedAccountRoles` hangs it, with an audit row. Null when the code
+ * appeared since the census: the transaction then writes nothing, and the
+ * next run's census decides about the account that is there.
+ */
+async function createSeedAccount(
+  client: PoolClient, row: MissingRole, actor: string, origin: string
+): Promise<string | null> {
+  const spec = row.create;
+  if (!spec) return null;
+  const taken = await client.query(`SELECT 1 FROM accounts WHERE entity_id = $1 AND code = $2`, [row.entityId, spec.code]);
+  if (taken.rows.length > 0) return null;
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO accounts (
+       code, name, account_type, normal_balance, fs_category, description,
+       entity_id, allow_manual_entries, is_header, created_by, parent_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8,
+               (SELECT id FROM accounts WHERE entity_id = $7 AND code = $9 AND is_header))
+     RETURNING id`,
+    [
+      spec.code, spec.name, spec.account_type, spec.normal_balance, spec.fs_category ?? null,
+      spec.description, row.entityId, actor, spec.parent ?? null,
+    ]
+  );
+  const accountId = inserted.rows[0].id;
+  await registrarAuditoria(client, {
+    tenantId: row.tenantId,
+    legalEntityId: row.entityId,
+    userId: actor,
+    action: 'create',
+    entityType: 'account',
+    entityId: accountId,
+    oldValues: null,
+    newValues: { code: spec.code, name: spec.name, account_type: spec.account_type, normal_balance: spec.normal_balance },
+    reason: `${origin}: la semilla crea ${spec.code} para el rol ${row.role}, y el catálogo no la tenía`,
+  });
+  return accountId;
 }
 
 // ============================================================

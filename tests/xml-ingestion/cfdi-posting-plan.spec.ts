@@ -21,7 +21,7 @@ vi.mock('../../src/database/connection.js', () => ({
   query: (...a: unknown[]) => consultaFalsa(...a),
 }));
 
-import { planearAsiento, planContabilizable } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
+import { planearAsiento, planContabilizable, singleExpenseRole } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
 
 const ENTIDAD = '11111111-1111-1111-1111-111111111111';
 const RFC_RECEPTOR = 'XAXX010101000';
@@ -72,7 +72,8 @@ function lineaDe(plan: Awaited<ReturnType<typeof planearAsiento>>, cuenta: strin
 }
 
 describe('el método de pago decide la cuenta del IVA', () => {
-  it('PUE: el IVA se acredita al recibir la factura (1130)', async () => {
+  // MNE-001-492: la PUE recibida también espera su pago para acreditar.
+  it('PUE: el IVA queda PENDIENTE de acreditar (1135) hasta pagarla', async () => {
     const plan = await planearAsiento({
       entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE,
       renglones: RENGLONES, referencia: 'BILL-2026-00001',
@@ -80,8 +81,8 @@ describe('el método de pago decide la cuenta del IVA', () => {
     });
 
     expect(plan.clasificacion.verdict).toBe('ready');
-    expect(lineaDe(plan, idDe('1130'))?.debit_amount).toBe('160.0000');
-    expect(lineaDe(plan, idDe('1135'))).toBeUndefined();
+    expect(lineaDe(plan, idDe('1135'))?.debit_amount).toBe('160.0000');
+    expect(lineaDe(plan, idDe('1130'))).toBeUndefined();
   });
 
   it('PPD: el IVA queda PENDIENTE de acreditar (1135), no acreditado', async () => {
@@ -147,6 +148,18 @@ describe('el desglose por renglón y el clasificador se reparten el trabajo', ()
     expect(plan.desglose).toBe('generica');
     expect(plan.avisos.join(' ')).toMatch(/sin cuenta asignada/);
   });
+
+  it('a line with a suggestion and a default opens on the default (MNE-001-552)', async () => {
+    const plan = await planearAsiento({
+      entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE,
+      renglones: [{ line_number: 1, descripcion: 'Servicio', importe: 1000, suggested_account_id: 'acct-suggested' }],
+      cuentaGastoPorDefecto: 'acct-default',
+      referencia: 'BILL', vendorExists: true, periodOpen: true, satStatus: 'vigente',
+    });
+    expect(plan.desglose).toBe('abierta');
+    expect(lineaDe(plan, 'acct-default')?.debit_amount).toBe('1000.0000');
+    expect(lineaDe(plan, 'acct-suggested')).toBeUndefined();
+  });
 });
 
 describe('un plan incompleto no se contabiliza', () => {
@@ -182,5 +195,104 @@ describe('un plan incompleto no se contabiliza', () => {
     });
     expect(plan.lineas).toEqual([]);
     expect(planContabilizable(plan).ok).toBe(false);
+  });
+});
+
+// MNE-001-454: the revenue line of an issued sale opens by concept, so a
+// person's coding of each line reaches the entry. Only with `revenueLines`.
+describe('the revenue line of an issued sale opens by concept', () => {
+  const ISSUER_RFC = 'SIN060101AB1';
+  const SALE = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml'), 'utf-8');
+  const CONCEPT = 'Consultoria en procesos administrativos agosto 2026';
+  // Two concepts with their own discounts: 5,000.00 − 300.00 and 3,000.00 − 200.00.
+  const SALE_TWO = SALE.replace('SubTotal="8000.00" Total="9280.00"', 'SubTotal="8000.00" Descuento="500.00" Total="8700.00"')
+    .replace(/<cfdi:Concepto [^>]*\/>/, (c) =>
+      c.replace('ValorUnitario="8000.00" Importe="8000.00"', 'ValorUnitario="5000.00" Importe="5000.00" Descuento="300.00"') +
+      c.replace('ValorUnitario="8000.00" Importe="8000.00"', 'ValorUnitario="3000.00" Importe="3000.00" Descuento="200.00"'))
+    .replace('TotalImpuestosTrasladados="1280.00"', 'TotalImpuestosTrasladados="1200.00"')
+    .replace('Base="8000.00"', 'Base="7500.00"')
+    .replace('Importe="1280.00"', 'Importe="1200.00"');
+  const one = (extra: object = {}) => [{ line_number: 1, descripcion: CONCEPT, importe: 8000, ...extra }];
+  const two = (secondDiscount: number) => [
+    { line_number: 1, descripcion: 'First', importe: 5000, discount: 300, account_id: 'acct-4300' },
+    { line_number: 2, descripcion: 'Second', importe: 3000, discount: secondDiscount, account_id: 'acct-4400' },
+  ];
+  const plan = (xml: string, docLines: Parameters<typeof planearAsiento>[0]['renglones'], revenueLines?: object) =>
+    planearAsiento({
+      entityId: ENTIDAD, entityRfc: ISSUER_RFC, xml, renglones: docLines, referencia: 'INV',
+      periodOpen: true, satStatus: 'vigente', ...(revenueLines ? { revenueLines } : {}),
+    });
+  const credits = (p: Awaited<ReturnType<typeof planearAsiento>>) =>
+    p.lineas.filter((l) => l.credit_amount !== null).map((l) => [l.account_id, l.credit_amount]);
+
+  it('without the option: one credit of the whole revenue to the role account, as before', async () => {
+    const p = await plan(SALE, one({ account_id: 'acct-4300' }));
+    expect(credits(p)).toEqual([[idDe('4100'), '8000.0000'], [idDe('2125'), '1280.0000']]);
+    expect(p.revenueLinesMismatch).toBeUndefined();
+  });
+
+  it('with the option and nothing coded: the credit goes to the role account with the concept description', async () => {
+    const p = await plan(SALE, one(), {});
+    expect(lineaDe(p, idDe('1120'))?.debit_amount).toBe('9280.0000');
+    expect(credits(p)).toEqual([[idDe('4100'), '8000.0000'], [idDe('2125'), '1280.0000']]);
+    expect(lineaDe(p, idDe('4100'))?.description).toBe(CONCEPT);
+    expect(planContabilizable(p).ok).toBe(true);
+  });
+
+  it.each([
+    ['a coded line wins over the account passed', { account_id: 'acct-4300' }, { callerAccountId: 'acct-4200' }, 'acct-4300'],
+    ['the account passed wins over the stored one', {}, { callerAccountId: 'acct-4300', storedDefaultAccountId: 'acct-4200' }, 'acct-4300'],
+    ['the stored account wins over the role', {}, { storedDefaultAccountId: 'acct-4200' }, 'acct-4200'],
+    ['a suggestion is never read', { suggested_account_id: idDe('6100') }, {}, idDe('4100')],
+  ])('precedence: %s', async (_name, line, option, expected) => {
+    const p = await plan(SALE, one(line), option);
+    expect(credits(p)[0]).toEqual([expected, '8000.0000']);
+  });
+
+  it('two concepts with discounts: one credit each, net of its own discount, to its own account', async () => {
+    const p = await plan(SALE_TWO, two(200), {});
+    expect(lineaDe(p, idDe('1120'))?.debit_amount).toBe('8700.0000');
+    expect(credits(p)).toEqual([['acct-4300', '4700.0000'], ['acct-4400', '2800.0000'], [idDe('2125'), '1200.0000']]);
+    expect(planContabilizable(p).ok).toBe(true);
+  });
+
+  it('nets that do not add up to the revenue of the CFDI: not opened, and the plan says so', async () => {
+    const p = await plan(SALE_TWO, two(300), {});
+    expect(credits(p)).toEqual([[idDe('4100'), '7500.0000'], [idDe('2125'), '1200.0000']]);
+    expect(p.revenueLinesMismatch).toEqual({ linesTotal: '7400.00', revenueTotal: '7500.00' });
+    expect(p.avisos.join(' ')).toMatch(/7400\.00.*7500\.00/);
+  });
+
+  it('nets one cent short: opened, and the last credit carries the cent', async () => {
+    const p = await plan(SALE_TWO, two(200.01), {});
+    expect(credits(p)).toEqual([['acct-4300', '4700.0000'], ['acct-4400', '2800.0000'], [idDe('2125'), '1200.0000']]);
+    expect(p.revenueLinesMismatch).toBeUndefined();
+    expect(planContabilizable(p).ok).toBe(true);
+    expect(p.avisos.join(' ')).toMatch(/line 2.*0\.01/);
+  });
+
+  it('a received CFDI with the option present: the expense side is untouched', async () => {
+    const base = {
+      entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE, renglones: RENGLONES, referencia: 'BILL',
+      vendorExists: true, periodOpen: true, satStatus: 'vigente' as const,
+    };
+    expect(await planearAsiento({ ...base, revenueLines: { callerAccountId: 'acct-4200' } })).toEqual(await planearAsiento(base));
+  });
+});
+
+describe('singleExpenseRole · the account a line nobody coded may take (MNE-001-553)', () => {
+  const line = (role: string, accountCode: string | null) =>
+    ({ role, accountCode, accountName: null, debit: 100, credit: null, description: role }) as never;
+
+  it('one expense role with its account: that account, whatever else the entry carries', () => {
+    expect(singleExpenseRole([line('gasto', '6100'), line('iva_pendiente_acreditar', '1135'), line('cxp', '2110')]))
+      .toEqual({ role: 'gasto', accountCode: '6100' });
+  });
+
+  it('no expense line, two expense roles, or a role with no account: none, and it says why', () => {
+    const why = (r: ReturnType<typeof singleExpenseRole>): string => ('why' in r ? r.why : `chose ${r.accountCode}`);
+    expect(why(singleExpenseRole([line('cxp', '2110')]))).toContain('no expense line');
+    expect(why(singleExpenseRole([line('gasto', '6100'), line('activo_fijo', '1210')]))).toContain('gasto, activo_fijo');
+    expect(why(singleExpenseRole([line('gasto', null)]))).toContain('role gasto has no account');
   });
 });

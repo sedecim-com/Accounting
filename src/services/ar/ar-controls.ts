@@ -1,7 +1,9 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
+import type { TranslationKey } from '../../i18n/index.js';
 import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
+import { cashOnAccountSql } from '../payments/cash-on-account.js';
 import {
   FX_REVALUATION_SOURCE,
   bookAmountDueSql,
@@ -35,6 +37,7 @@ const ABIERTAS = ['pending', 'sent', 'viewed', 'partially_paid', 'overdue'] as c
 /** `source_type` values the AR engine stamps on the entries it posts itself. */
 const ENGINE_SOURCE_TYPES = [
   'invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
+  'receipt_reversal_iva',
 ] as const;
 
 /** Also not manual: the closing revaluation (and its mirror) has its own line (MNE-001-112). */
@@ -177,6 +180,8 @@ export interface ArCheckResult {
   level: ArCheckLevel;
   count: number;
   detail: string;
+  /** When set, the edge renders the detail from the catalog; `detail` is its English source (MNE-001-530). */
+  detailKey?: TranslationKey;
   sample: string[];
 }
 
@@ -185,7 +190,7 @@ interface Sonda {
   /** El nivel cuando encuentra algo; 'clean' cuando no. */
   severity: 'blocking' | 'warning';
   descripcion: string;
-  correr: (entityId: string) => Promise<{ count: number; detail: string; sample: string[] }>;
+  correr: (entityId: string) => Promise<{ count: number; detail: string; detailKey?: TranslationKey; sample: string[] }>;
 }
 
 const cuenta = async (
@@ -257,25 +262,67 @@ const SONDAS: Sonda[] = [
     },
   },
   {
+    // MNE-001-589 (#809): it also names the rows a reversal close that missed
+    // them left before MNE-001-584, with the amount the reversal reopened by.
+    // It only reads: no command closes such a row, so the detail says what to do.
     name: 'orphan-application',
     severity: 'blocking',
     descripcion: 'aplicaciones vivas de cobros anulados o reversados',
     correr: async (entityId) => {
       const { count, sample } = await cuenta(
-        `SELECT cp.payment_number, i.invoice_number, cp.status, COUNT(*) OVER()::int AS total
+        `SELECT cp.payment_number, i.invoice_number, cp.status,
+                (pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::numeric(19,2)::text AS amount,
+                COUNT(*) OVER()::int AS total
            FROM payment_allocations pa
            JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
-           JOIN invoices i ON i.id = pa.invoice_id
+           JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
           WHERE pa.unapplied_at IS NULL AND cp.status IN ('void', 'reversed', 'failed')
-          ORDER BY cp.payment_number LIMIT 5`,
+          ORDER BY cp.payment_number, i.invoice_number LIMIT 5`,
         [entityId],
-        (r) => `${String(r.payment_number)} (${String(r.status)}) → ${String(r.invoice_number)}`
+        (r) =>
+          `${String(r.payment_number)} (${String(r.status)}) → ${String(r.invoice_number)} ${String(r.amount)}`
       );
-      return {
-        count,
-        detail: count ? 'un cobro muerto sigue bajando saldo del auxiliar' : 'ninguna',
-        sample,
-      };
+      return count
+        ? {
+            count, sample, detailKey: 'ar.check.orphan_application.found',
+            detail:
+              "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
+              "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
+              'report it before collecting that invoice again',
+          }
+        : { count, sample, detailKey: 'ar.check.orphan_application.none', detail: 'none' };
+    },
+  },
+  {
+    // MNE-001-530 (#664): since MNE-001-516 apply refuses another customer's
+    // invoice; this names the rows written before. A warning: it cannot tell
+    // an error from a transfer the two customers agreed (#695).
+    name: 'cross-party-application',
+    severity: 'warning',
+    descripcion: 'live allocations whose invoice belongs to another customer than their receipt',
+    correr: async (entityId) => {
+      const { count, sample } = await cuenta(
+        `SELECT cp.payment_number, pc.customer_number AS receipt_customer,
+                i.invoice_number, ic.customer_number AS invoice_customer,
+                COUNT(*) OVER()::int AS total
+           FROM payment_allocations pa
+           JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+           JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+           JOIN customers pc ON pc.id = cp.customer_id AND pc.entity_id = $1
+           JOIN customers ic ON ic.id = i.customer_id AND ic.entity_id = $1
+          WHERE pa.unapplied_at IS NULL AND i.customer_id <> cp.customer_id
+          ORDER BY cp.payment_number, i.invoice_number LIMIT 5`,
+        [entityId],
+        (r) =>
+          `${String(r.payment_number)} (${String(r.receipt_customer)}) → ` +
+          `${String(r.invoice_number)} (${String(r.invoice_customer)})`
+      );
+      return count
+        ? {
+            count, sample, detailKey: 'ar.check.cross_party_application.found',
+            detail: "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+          }
+        : { count, sample, detailKey: 'ar.check.cross_party_application.none', detail: 'none' };
     },
   },
   {
@@ -311,13 +358,11 @@ const SONDAS: Sonda[] = [
     descripcion: 'cobros con saldo a cuenta sin aplicar por más de 30 días',
     correr: async (entityId) => {
       const { count, sample } = await cuenta(
-        `SELECT cp.payment_number, (cp.payment_amount - COALESCE(ap.s,0))::text AS remanente,
+        `SELECT cp.payment_number, ${cashOnAccountSql('cp')}::text AS remanente,
                 COUNT(*) OVER()::int AS total
            FROM customer_payments cp
-           LEFT JOIN LATERAL (SELECT SUM(amount_applied) AS s FROM payment_allocations
-                               WHERE payment_id = cp.id AND unapplied_at IS NULL) ap ON true
           WHERE cp.entity_id = $1 AND cp.status = 'completed'
-            AND cp.payment_amount - COALESCE(ap.s,0) > 0.005
+            AND ${cashOnAccountSql('cp')} > 0.005
             AND cp.payment_date < NOW() - INTERVAL '30 days'
           ORDER BY cp.payment_date LIMIT 5`,
         [entityId],
@@ -425,6 +470,7 @@ export async function runArChecks(
       level: r.count > 0 ? sonda.severity : 'clean',
       count: r.count,
       detail: r.detail,
+      ...(r.detailKey ? { detailKey: r.detailKey } : {}),
       sample: r.sample,
     });
   }

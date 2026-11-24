@@ -1,11 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import OpenAI from 'openai';
+import { createOpenAiClient } from '../../ai/providers/openai-client.js';
 import Anthropic from '@anthropic-ai/sdk';
-import { listProfiles, resolveProfile, writeConfigPatch } from '../../ai/providers/config.js';
+import {
+  BUILTIN_PROFILES, listProfiles, loadConfigFile, resolveProfile, userConfigPath, ventanaDe, writeConfigPatch,
+} from '../../ai/providers/config.js';
+import type { MnemosineConfig } from '../../ai/providers/config.js';
 import { checkModelProvider } from '../../ai/doctor-service.js';
+import { credentialState, isLoopbackUrl, KEY_URLS } from '../../ai/providers/credential-state.js';
+import { isTrialEndpoint, trialTermsLines } from '../../ai/providers/trial-endpoint.js';
+import { t } from '../../i18n/index.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
-import { resolveEnvTarget, upsertEnvVar } from './s0-infra.js';
+import { userEnvPath } from '../../config/env-file.js';
+import { readEnvVar, upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -19,21 +26,6 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 // the probe answers. On re-run, an already-persisted provider is
 // re-probed (verify/repair) and left untouched when healthy.
 // ============================================================
-
-/** Where the user gets each credential (deep-links). */
-export const KEY_URLS: Record<string, string> = {
-  ANTHROPIC_API_KEY: 'https://console.anthropic.com/settings/keys',
-  OPENAI_API_KEY: 'https://platform.openai.com/api-keys',
-  NOUS_API_KEY: 'https://portal.nousresearch.com',
-  GEMINI_API_KEY: 'https://aistudio.google.com/apikey',
-  XAI_API_KEY: 'https://console.x.ai',
-  MINIMAX_API_KEY: 'https://www.minimax.io/platform',
-  DASHSCOPE_API_KEY: 'https://dashscope.console.aliyun.com',
-  OPENROUTER_API_KEY: 'https://openrouter.ai/keys',
-  HERMES_AGENT_KEY: 'API_SERVER_KEY in ~/.hermes/.env (run: hermes gateway)',
-  OPENCLAW_GATEWAY_TOKEN: 'OpenClaw gateway token (local config)',
-  COPILOT_API_TOKEN: 'GitHub OAuth flow — requires a copilot-api style proxy',
-};
 
 export type ProbeErrorCategory = 'auth' | 'connection' | 'other';
 
@@ -73,8 +65,8 @@ export interface IaDeps {
   cwd?: string;
   /** Home directory for ~/.mnemosine/.env; default os.homedir(). */
   home?: string;
-  /** Injectable: in tests no model is ever called. */
-  probe?: (profileName: string) => Promise<ProbeResult>;
+  /** Injectable: in tests no model is ever called. `model` is the one about to be saved. */
+  probe?: (profileName: string, model?: string) => Promise<ProbeResult>;
   listOllamaModels?: () => Promise<string[]>;
 }
 
@@ -108,9 +100,10 @@ export class IaSection implements SetupSection {
     // user wants a change, so they skip this path.
     const persisted = this.persistedDefault();
     if (persisted && !ctx.flags.provider && !ctx.flags.model) {
-      const { profiles } = listProfiles(this.cwd);
+      const { profiles, source } = listProfiles(this.cwd);
       const p = profiles[persisted];
-      const ready = !!p && (!p.api_key_env || !!process.env[p.api_key_env]);
+      // A helper counts as ready: the probe below runs it, as the session does.
+      const ready = !!p && credentialState(p, { cwd: this.cwd, home: this.deps.home, source }).ready;
       if (ready) {
         ctx.print(`  Provider "${persisted}" is already configured; verifying it live…`);
         const probe = await probeFn(persisted);
@@ -128,23 +121,21 @@ export class IaSection implements SetupSection {
     let firstPass = true;
     // Bounded so a scripted/non-interactive session can never loop forever.
     for (let attempt = 0; attempt < 8; attempt++) {
-      const { profiles, defaultName } = listProfiles(this.cwd);
+      const { profiles, defaultName, source } = listProfiles(this.cwd);
 
       // State of each profile: what is ready to use NOW (env may have
-      // gained keys on a previous iteration).
-      const rows = Object.entries(profiles).map(([name, p]) => ({
-        name, profile: p,
-        ready: !p.api_key_env || !!process.env[p.api_key_env],
-        local: !p.api_key_env || (p.base_url ?? '').includes('localhost') ||
-               (p.base_url ?? '').includes('127.0.0.1'),
-      }));
+      // gained keys on a previous iteration). The same answer doctor and
+      // `mnemosine providers` give; it never runs a helper.
+      const rows = Object.entries(profiles).map(([name, p]) => {
+        const state = credentialState(p, { cwd: this.cwd, home: this.deps.home, source });
+        return { name, profile: p, state, ready: state.ready, local: isLoopbackUrl(p.base_url) };
+      });
 
       if (firstPass) {
         ctx.print('  Available providers:');
         for (const r of rows) {
           const badge = r.ready ? '✔' : '○';
-          const key = r.profile.api_key_env ? ` · ${r.profile.api_key_env}` : ' · no credential';
-          ctx.print(`    ${badge} ${r.name.padEnd(14)} ${r.profile.model}${key}`);
+          ctx.print(`    ${badge} ${r.name.padEnd(14)} ${r.profile.model} · ${r.state.label}`);
         }
       }
 
@@ -168,16 +159,26 @@ export class IaSection implements SetupSection {
         return;
       }
 
-      // Credential, if needed
-      if (row.profile.api_key_env && !process.env[row.profile.api_key_env]) {
-        const where = KEY_URLS[row.profile.api_key_env];
+      // NVIDIA's hosted trial records what it receives (MNE-001-448): its terms
+      // come first, before a key, a probe or a write. Default No, which --yes keeps.
+      if (isTrialEndpoint(row.profile.base_url)) {
+        for (const line of trialTermsLines(chosen)) ctx.print(`  ${line}`);
+        if (!(await ctx.confirm(`  ${t('providers.trial.accept_default', { profile: chosen })}`, false))) {
+          ctx.print(`  ${t('providers.trial.not_saved', { profile: chosen })}`);
+          return;
+        }
+      }
+
+      // Credential, only when it is missing: a helper is not asked for a key.
+      if (row.state.source.kind === 'missing') {
+        const variable = row.state.source.variable;
+        const where = row.state.source.where;
         if (where) ctx.print(`  Get the credential at: ${where}`);
-        const key = await ctx.askSecret(`  ${row.profile.api_key_env} (Enter to skip): `);
+        const key = await ctx.askSecret(`  ${variable} (Enter to skip): `);
         if (key) {
-          const envPath = await resolveEnvTarget(ctx, this.cwd, this.deps.home);
-          upsertEnvVar(envPath, row.profile.api_key_env, key, ctx.print);
-          process.env[row.profile.api_key_env] = key;
-          ctx.print(`  ✔ Saved ${row.profile.api_key_env} to ${envPath}`);
+          const envPath = this.saveTypedKey(ctx, variable, key);
+          process.env[variable] = key;
+          ctx.print(`  ✔ Saved ${variable} to ${envPath}`);
         } else {
           ctx.print(`  ○ Without a credential, ${chosen} cannot be used yet.`);
         }
@@ -198,7 +199,7 @@ export class IaSection implements SetupSection {
 
       // Live probe BEFORE persisting: a default that cannot answer a
       // 1-token chat is worse than no default — it fails at first use.
-      const probe = await probeFn(chosen);
+      const probe = await probeFn(chosen, model);
       if (!probe.chat) {
         this.reportFailure(ctx, chosen, probe);
         if (!(await ctx.confirm('  Try another provider?', false))) {
@@ -208,30 +209,62 @@ export class IaSection implements SetupSection {
         continue;
       }
 
-      this.writeConfig(chosen, model);
-      ctx.print(`  ✔ Default provider: ${chosen}${model ? ` · ${model}` : ''}`);
       ctx.print('  ✔ Responds to a minimal chat');
       this.reportTools(ctx, probe);
+      if (!(await this.writeConfig(ctx, chosen, model))) return;
+      ctx.print(`  ✔ Default provider: ${chosen}${model ? ` · ${model}` : ''}`);
+      const fromEnv = process.env.MNEMOSINE_PROVIDER;
+      if (fromEnv && fromEnv !== chosen) {
+        ctx.print(`  ! MNEMOSINE_PROVIDER=${fromEnv} wins over the default_provider just saved.`);
+        ctx.print(`    Empty it (in your .env or shell) to use ${chosen} by default.`);
+      }
       return;
     }
     ctx.print('  Too many failed attempts; nothing was persisted.');
   }
 
   /**
-   * The default_provider a previous run persisted in THIS project's config,
-   * or null. listProfiles() cannot be used here: it falls back to a built-in
-   * default even when nothing was ever configured, which would make a fresh
-   * install look like a re-run.
+   * The default_provider a previous run persisted in the config file that
+   * wins here (the same file writeConfig writes), or null. listProfiles()
+   * cannot be used here: it falls back to a built-in default even when nothing
+   * was ever configured, which would make a fresh install look like a re-run.
+   * An invalid file reads as null; listProfiles reports it right after.
    */
   private persistedDefault(): string | null {
-    const file = path.join(this.cwd, 'mnemosine.config.json');
-    if (!fs.existsSync(file)) return null;
     try {
-      const config = JSON.parse(fs.readFileSync(file, 'utf-8')) as { default_provider?: unknown };
-      return typeof config.default_provider === 'string' ? config.default_provider : null;
+      return loadConfigFile(this.cwd).config.default_provider ?? null;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * SECURITY: a key typed at the prompt is the person's own, so it goes to
+   * ~/.mnemosine/.env (0600, directory 0700) and never to the folder's ./.env,
+   * which serves everyone who runs mnemosine in that folder. The CLI loads
+   * ./.env first and keeps its value even when empty, so an empty definition
+   * there (as copied from .env.example) would hide the key: it is removed. A
+   * non-empty one is left alone, and the person is told it wins there.
+   */
+  private saveTypedKey(ctx: SectionContext, variable: string, key: string): string {
+    const target = userEnvPath(this.deps.home);
+    const dir = path.dirname(target);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dir, 0o700);
+    ctx.print(`  .env location: ${target} (yours; never the folder's ./.env)`);
+    upsertEnvVar(target, variable, key, ctx.print);
+
+    const local = path.join(this.cwd, '.env');
+    const value = readEnvVar(local, variable);
+    if (value === '') {
+      const lines = fs.readFileSync(local, 'utf-8').split('\n');
+      const kept = lines.filter((l) => !(l.startsWith(`${variable}=`) && l.slice(variable.length + 1).trim() === ''));
+      fs.writeFileSync(local, kept.join('\n'));
+      ctx.print(`  ✔ Removed the empty ${variable}= from ${local}, which would hide your key`);
+    } else if (value !== null) {
+      ctx.print(`  ! ${variable} in ${local} wins in ${this.cwd}: that key serves everyone who runs mnemosine here.`);
+    }
+    return target;
   }
 
   private reportTools(ctx: SectionContext, probe: ProbeResult): void {
@@ -262,21 +295,59 @@ export class IaSection implements SetupSection {
   }
 
   /**
-   * Writes the default and the model to mnemosine.config.json. Routed through
-   * writeConfigPatch so the strict-schema and no-secrets gates apply: we never
-   * persist a file the very next load would quarantine, and a raw credential
-   * pasted where a model/provider name belongs is refused instead of written.
+   * Writes the default and the model to the config file that wins here, as
+   * setLanguage does, with two differences. When no file exists it creates
+   * ~/.mnemosine/config.json, never a project file, because a project file
+   * hides every user's own file in that folder. When the file that wins is a
+   * project file it says who reads it and asks first (default No, which --yes
+   * keeps); on No it writes the user file. A built-in gets `models.<name>`, so
+   * it keeps its declared window and posture; a profile of the target file gets
+   * its own `model` changed; nothing is ever copied from one file to another.
+   * Routed through writeConfigPatch, so the strict-schema and no-secrets gates
+   * apply. Returns false when nothing was written.
    */
-  private writeConfig(provider: string, model?: string): void {
-    const patch: Record<string, unknown> = { default_provider: provider };
-    if (model) {
-      const { profiles } = listProfiles(this.cwd);
-      // A profile from the file REPLACES the built-in one, so it is copied
-      // in full before changing its model (listProfiles already prefers the
-      // file profile over the built-in of the same name).
-      patch.providers = { [provider]: { ...profiles[provider], model } };
+  private async writeConfig(ctx: SectionContext, provider: string, model?: string): Promise<boolean> {
+    // The reader (loadConfigFile) finds the user file through os.homedir(); so does this.
+    const userFile = userConfigPath();
+    const { source } = loadConfigFile(this.cwd);
+    let target = userFile;
+    if (source !== null && source !== userFile) {
+      ctx.print(`  ! everyone who runs mnemosine in ${this.cwd} reads ${source}.`);
+      if (await ctx.confirm(`  Save your choice there (No: in ${userFile})?`, false)) {
+        target = source;
+      } else {
+        ctx.print(`  ${source} still decides in ${this.cwd}; your file applies elsewhere.`);
+      }
     }
-    writeConfigPatch(patch, this.cwd);
+
+    const existing: MnemosineConfig =
+      target === source ? loadConfigFile(this.cwd).config : this.readUserConfig(userFile);
+    const inTarget = Object.prototype.hasOwnProperty.call(existing.providers ?? {}, provider);
+    if (!inTarget && !Object.prototype.hasOwnProperty.call(BUILTIN_PROFILES, provider)) {
+      ctx.print(`  ✘ "${provider}" is defined only in ${source}; it is not copied into ${target}, so nothing was saved.`);
+      return false;
+    }
+
+    const patch: Record<string, unknown> = { default_provider: provider };
+    if (model) patch[inTarget ? 'providers' : 'models'] = { [provider]: inTarget ? { model } : model };
+    if (target === userFile) fs.mkdirSync(path.dirname(userFile), { recursive: true, mode: 0o700 });
+    writeConfigPatch(patch, this.cwd, target);
+    ctx.print(`  ✔ Saved to ${target}`);
+
+    // Only built-ins declare a window, and they declare it for their own model.
+    const declaredFor = BUILTIN_PROFILES[provider]?.model;
+    const declared = ventanaDe(provider, this.cwd);
+    if (model && declaredFor && model !== declaredFor && declared?.tokens !== undefined) {
+      ctx.print(`  ! ${provider} declares a ${declared.tokens}-token context window for ${declaredFor}, not for ${model}.`);
+      ctx.print('    If yours differs, set compaction.threshold_tokens in the config file.');
+    }
+    return true;
+  }
+
+  /** The user file's content, or {} when it does not exist yet. */
+  private readUserConfig(file: string): MnemosineConfig {
+    if (!fs.existsSync(file)) return {};
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as MnemosineConfig;
   }
 }
 
@@ -298,19 +369,23 @@ async function defaultListOllama(): Promise<string[]> {
  * is the one that matters — a provider without function calling cannot query
  * the accounting, even if it chats perfectly.
  */
-async function defaultProbe(profileName: string): Promise<ProbeResult> {
+// 1 024 and not 64: a model that reasons before it answers can spend 64 tokens
+// thinking and be reported as tool-less (inferred, not measured; MNE-001-442).
+const PROBE_MAX_TOKENS = 1024;
+
+export async function defaultProbe(profileName: string, model?: string): Promise<ProbeResult> {
   const PING_TOOL = {
     name: 'ping',
     description: 'Returns pong. Use it to confirm you can call tools.',
     input_schema: { type: 'object' as const, properties: {}, additionalProperties: false },
   };
   try {
-    const profile = resolveProfile(profileName);
+    const profile = resolveProfile(profileName, model);
 
     if (profile.type === 'anthropic') {
       const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
       const res = await client.messages.create({
-        model: profile.model, max_tokens: 64,
+        model: profile.model, max_tokens: PROBE_MAX_TOKENS,
         tools: [PING_TOOL],
         messages: [{ role: 'user', content: 'Call the ping tool.' }],
       });
@@ -326,18 +401,17 @@ async function defaultProbe(profileName: string): Promise<ProbeResult> {
       return { chat: true, tools: false, detail: 'profile declared tools:false' };
     }
 
-    const client = new OpenAI({
-      baseURL: profile.base_url,
-      apiKey: profile.apiKey ?? 'not-needed',
-      defaultHeaders: profile.headers,
-    });
+    // The same client the session builds: environment OpenAI headers reach
+    // only OpenAI's own hosts (openai-client.ts, MNE-001-445).
+    const client = createOpenAiClient(profile);
     const limit =
       profile.max_tokens_param === 'max_completion_tokens'
-        ? { max_completion_tokens: 64 }
-        : { max_tokens: 64 };
+        ? { max_completion_tokens: PROBE_MAX_TOKENS }
+        : { max_tokens: PROBE_MAX_TOKENS };
     const res = await client.chat.completions.create({
       model: profile.model,
       ...limit,
+      ...(profile.reasoning_effort ? { reasoning_effort: profile.reasoning_effort } : {}),
       messages: [{ role: 'user', content: 'Call the ping tool.' }],
       tools: [{
         type: 'function',

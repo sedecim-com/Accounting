@@ -1,9 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { entityScope } from '../../../database/scope.js';
 import { corridaEnEntidad, periodoEnEntidad } from '../../../services/payroll/common/alcance-nomina.js';
@@ -41,7 +41,7 @@ import {
 } from '../../../services/payroll/usa/benefits/benefits-service.js';
 import { generateIdseBatch } from '../../../services/payroll/integrations/imss-idse-adapter.js';
 import { generateNachaFile } from '../../../services/payroll/usa/nacha-generator.js';
-import { PAY_RUN_TYPES } from '../../../database/enums.js';
+import { MINIMUM_WAGE_ZONES, PAY_RUN_TYPES } from '../../../database/enums.js';
 import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
@@ -93,6 +93,8 @@ const createEmployeeSchema = z.object({
   salary_type: z.enum(['salary', 'hourly']).optional(),
   annual_salary: z.union([z.string(), z.number()]).optional(),
   hourly_rate: z.union([z.string(), z.number()]).optional(),
+  // MNE-001-377: the worker's own minimum-wage zone, when it is not the entity's.
+  minimum_wage_zone: z.enum(MINIMUM_WAGE_ZONES).optional(),
 }).passthrough();
 
 const compensationChangeSchema = z.object({

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as legalParameters from '../../src/services/jurisdiction/legal-parameters.js';
 import { requiredParameter, requiredRates } from '../../src/services/payroll/tax-engine/tax-tables.js';
 import { MexicoImssEmployerCalculator } from '../../src/services/payroll/mx/imss-calculator.js';
 import { validFilingStatus } from '../../src/services/payroll/usa/federal/fit-calculator.js';
@@ -80,13 +81,15 @@ describe('la cuota patronal del IMSS no sale en cero por falta de su bloque (#29
     prestaciones_dinero: 0.007, gastos_medicos_pensionados: 0.01, invalidez_vida: 0.0175,
     guarderias: 0.01, riesgo_trabajo_clase_1: 0.005, riesgo_trabajo_clase_2: 0.01,
     riesgo_trabajo_clase_3: 0.025, riesgo_trabajo_clase_4: 0.045, riesgo_trabajo_clase_5: 0.075,
-    cesantia_vejez: 0.03, retiro: 0.02,
+    retiro: 0.02,
   };
   const calculate = (params: Record<string, unknown>) => {
     mxRow.params = params;
     return new MexicoImssEmployerCalculator().calculate({
       pay_frequency: 'quincenal', tax_year: 2027, taxable_wages: 0,
       sbc_daily: 500, days_in_period: 15, riesgo_puesto: '01',
+      // The old-age quota goes by the band of each dated day (#661).
+      period_start: '2027-03-01', period_end: '2027-03-15', imss_old_age_band_edge: 'above_upper_edge', imss_minimum_wage_area: { zone: 'general', rule: 'general_zone', declared: true },
     });
   };
 
@@ -102,7 +105,11 @@ describe('la cuota patronal del IMSS no sale en cero por falta de su bloque (#29
   it('con el bloque completo, el retiro es 2 % del SBC del periodo', async () => {
     // Pins every rate being read: `(er.retiro || 0)` with a present rate
     // still yields the right number, so the absent cases above are the guard.
-    const out = await calculate({ uma_daily: 100, imss_employer: EMPLOYER_RATES });
+    // SBC 500 with a UMA of 100 is the top band; its rate is mocked, not the law's.
+    const rateAt = vi.spyOn(legalParameters, 'legalParameterAt').mockResolvedValue({ value: '0.08' } as never);
+    const out = await calculate({ uma_daily: 100, salario_minimo_general_diario: 300, imss_employer: EMPLOYER_RATES });
+    expect(rateAt).toHaveBeenCalledWith('MX', 'imss.old_age.employer_rate.uma_above_4_00', '2027-03-01');
+    expect(out.breakdown?.cesantia_vejez).toBeCloseTo(500 * 0.08 * 15, 6);
     expect(out.breakdown?.retiro).toBeCloseTo(500 * 0.02 * 15, 6);
     expect(out.taxable_wages_used).toBe(7500);
   });

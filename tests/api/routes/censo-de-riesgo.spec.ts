@@ -70,6 +70,40 @@ describe('censo de riesgo de rutas', () => {
     expect(sinDeclarar.map((r) => `${r.metodo.toUpperCase()} ${r.ruta}`)).toEqual([]);
   });
 
+  it('the census of the mounted app is not empty and every route carries its real mount prefix (#295)', () => {
+    // Under Express 5 an Express 4 traversal found no stack and censused NOTHING,
+    // and "no undeclared route" was then true of an API nobody had looked at.
+    // This walks the app as src/index.ts mounts it, not each router on its own.
+    const census = censarRutas(montarApiReal());
+    // xml-ingestion and blockchain are mounted twice, so the app serves more
+    // addresses than the 87 mutating routes written in the routers.
+    expect(census.filter((r) => VERBOS_QUE_MUTAN.includes(r.metodo)).length).toBeGreaterThanOrEqual(87);
+    const prefixes = [...MONTAJES_V1.map(([suffix]) => `/v1${suffix}`), ...MONTAJES_FUERA_DE_V1.map(([path]) => path)];
+    const strays = census.filter((r) => !prefixes.some((p) => r.ruta === p || r.ruta.startsWith(`${p}/`)));
+    expect(strays.map((r) => `${r.metodo.toUpperCase()} ${r.ruta}`)).toEqual([]);
+    // One exact address per mount shape: plain, nested, the bare '' mount, outside /v1.
+    const addresses = new Set(census.map((r) => `${r.metodo} ${r.ruta}`));
+    for (const address of [
+      'post /v1/webhooks',
+      'post /v1/admin/blockchain/commit-period',
+      'post /v1/pre-registrations/bulk',
+      'post /v1/xml/pre-registrations/bulk',
+      'post /public/v1/verify/merkle-proof',
+      'post /v1/ai/webhooks/:tokenName',
+    ]) {
+      expect(addresses, address).toContain(address);
+    }
+  });
+
+  it('a mount written with a parameter is shown as non-literal, never guessed', () => {
+    const child = Router();
+    child.get('/x', (_q, res) => res.json({}));
+    const app = express();
+    app.use('/v1/:algo', child);
+    app.use('/', child);
+    expect(censarRutas(app).map((route) => route.ruta)).toEqual(['(prefijo no literal)/x', '/x']);
+  });
+
   it('las 87 rutas que mutan están declaradas, con su reparto por clase', () => {
     // Se cuenta sobre los routers DISTINTOS, no sobre la app: xml-ingestion y
     // blockchain se montan dos veces cada uno, y contar la app duplicaría sus
@@ -129,7 +163,7 @@ describe('censo de riesgo de rutas', () => {
   });
 
   it('an app without a router stack makes the census throw instead of returning an empty list', () => {
-    // Simulates a Express whose app no longer exposes `_router` / `stack`.
+    // Simulates a Express whose app no longer exposes `router` / `stack`.
     const appWithoutStack = { use: () => undefined } as unknown as Express;
     expect(() => censarRutas(appWithoutStack)).toThrow(/found no router stack/);
     expect(() => resumirCenso(appWithoutStack)).toThrow(/found no router stack/);
@@ -147,7 +181,7 @@ describe('censo de riesgo de rutas', () => {
   it('an app with only middleware, or a bare express(), censuses as empty', () => {
     expect(censarRutas(Router())).toEqual([]);
     expect(censarRutas(express().use((_q, _s, next) => next()))).toEqual([]);
-    // Express 4 creates app._router lazily: nothing mounted means nothing to census.
+    // Express 5 creates app.router on first access: nothing mounted means nothing to census.
     expect(censarRutas(express())).toEqual([]);
   });
 

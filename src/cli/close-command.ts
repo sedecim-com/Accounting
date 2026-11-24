@@ -15,7 +15,7 @@ import { declareRisk, gateMutation } from './kernel/risk.js';
 import {
   abortedByUser, exitCodeFor, notFound, resolveActiveEntity, describeCommand, optionByKey, withContext,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
@@ -117,7 +117,7 @@ export async function confirmarCierre(
   kind: string,
   destino: { hard: boolean; periodName: string }
 ): Promise<{ procede: boolean; mensaje?: string }> {
-  const veredicto = await confirmarConReintento(preguntar, c.cyan(`Proceed with ${kind}? [y/N] `));
+  const veredicto = await confirmarConReintento(preguntar, c.cyan(yesNoPrompt(`Proceed with ${kind}?`)));
   if (!veredicto.si) {
     return {
       procede: false,
@@ -190,7 +190,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
   declareRisk(close, {
     risk: 'irreversible',
     llave: { scope: 'close' },
-    writes: 'fiscal_periods; con --hard, asientos de cierre POSTEADOS y arrastre de saldos',
+    writes: 'fiscal_periods; with --hard, POSTED closing entries and the carry-forward of balances',
   });
   close.addHelpText('after', EJEMPLOS);
   close.action(async (opts: {

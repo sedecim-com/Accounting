@@ -109,8 +109,9 @@ describe('every line points to its pólizas', () => {
   });
 
   it('a captured or derived line says so and lists no entry', () => {
+    // MNE-001-386: with no return filed, the prior balance comes from the record and credits none.
     expect(line('iva', 'prior_balance_in_favor').source).toEqual({
-      kind: 'captured', accounts: [], entries: [], ref: 'prior_balance_in_favor',
+      kind: 'filed_returns', accounts: [], entries: [], ref: 'prior_balance_in_favor', returns: [],
     });
     expect(line('isr', 'tax_caused').source.kind).toBe('derived');
   });
@@ -158,7 +159,7 @@ describe('what cannot be vouched for is not settled, and nothing is filed', () =
 // A line must list ITS OWN documents. June holds, in one entity:
 //   PUE 1 000 at 16 % (160)   PUE 500 at 0 %   PUE 200 at 8 % (16)
 //   PPD 400 at 16 % (64), collected in full on the 20th
-//   PUE bill 800 at 16 % (128); PPD bill 1 500 at 16 % (240), 870 paid (120)
+//   PUE bill 800 at 16 % (128), unpaid; PPD bill 1 500 at 16 % (240), 870 paid (120)
 // plus ISR movements: a withholding of 30, an entry that applies 10 of it
 // against a tax, and a sale in a second revenue account reversed in full.
 // A sibling entity of the same tenant has its own 16 % invoice in June.
@@ -319,10 +320,12 @@ describe('a line lists the documents of its own box, not every entry of its role
     expect(entryIdsOf('iva', 'charged.tasa16.base')).toEqual(sorted(ids.inv16Entry, ids.ppdPayment));
   });
 
-  it('creditable IVA lists the PUE bill entry and the PPD bill payment entry', () => {
-    expect(juneLine('iva', 'creditable.tasa16.iva')).toMatchObject({ cents: '248.00' });
-    expect(docsOf('creditable.tasa16.iva')).toEqual(sorted(ids.billPue, ids.billPpd));
-    expect(entryIdsOf('iva', 'creditable.tasa16.iva')).toEqual(sorted(ids.billPueEntry, ids.billPpdPayment));
+  // MNE-001-492: the unpaid PUE bill's VAT waits in 1135, so June credits only what was paid.
+  it('creditable IVA lists the PPD bill payment entry, not the unpaid PUE bill', () => {
+    expect(juneLine('iva', 'creditable.tasa16.iva')).toMatchObject({ cents: '120.00' });
+    expect(docsOf('creditable.tasa16.iva')).toEqual([ids.billPpd]);
+    expect(entryIdsOf('iva', 'creditable.tasa16.iva')).toEqual([ids.billPpdPayment]);
+    expect(entryIdsOf('iva', 'creditable.tasa16.iva')).not.toContain(ids.billPueEntry);
   });
 
   it('the role-account movement is kept apart, as the section tie-out', () => {
@@ -371,7 +374,8 @@ describe('the ISR lines trace what the builder counted', () => {
   it('the IVA proration and the prior balance are explained, even when nothing was prorated', () => {
     const iva = june.sections[0];
     expect(iva.inputs.proration).toMatchObject({ method: 'monthly', applied: false });
-    expect(juneLine('iva', 'prior_balance_in_favor').source).toMatchObject({ kind: 'captured', ref: 'prior_balance_in_favor' });
+    expect(juneLine('iva', 'prior_balance_in_favor').source).toMatchObject({ kind: 'filed_returns', ref: 'prior_balance_in_favor' });
+    expect(iva.inputs.prior_balance_in_favor).toMatchObject({ origin: 'filed_returns', value: '0.0000' });
   });
 });
 

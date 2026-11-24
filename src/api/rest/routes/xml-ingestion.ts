@@ -1,10 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
@@ -153,7 +153,7 @@ const createBatchSchema = z.object({
 // invocable por el agente. Además, `irreversible` es lo que le cuelga la
 // llave de idempotencia: hasta ahora un reintento de red sobre un lote de
 // CFDI no tenía con qué deduplicarse aquí.
-router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS' }), requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note' }), requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, xml_content, xml_contents, source = 'api' } = req.body;
   const entityId = entity_id || req.entityId;
 
@@ -393,7 +393,7 @@ router.patch('/pre-registrations/:id', declararRiesgoRuta({ riesgo: 'escritura',
 }));
 
 // POST /v1/pre-registrations/:id/process
-router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo' }), requirePermission('bills:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills o vendor/customer_payments + journal_entries POSTEADOS; una nota de credito recibida, su poliza y bills.amount_due; con allow_new_vendor, tambien un vendor nuevo' }), requirePermission('bills:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   // El filtro va DENTRO del SQL. Cero filas significa a la vez «no existe» y
   // «no es de tu entidad»: la respuesta es 404 en los dos casos y no hay rama
   // donde el programa pueda distinguirlos.

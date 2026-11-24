@@ -9,8 +9,10 @@ import type { LineWithSuggestion } from './pre-registration-service.js';
 // with lines nobody assigned an account to, and `bill inbox run` refuses it
 // with «Line N: no account assigned». Until now the only way to code it was
 // the REST PATCH. This is the terminal's way: it writes the account (and the
-// cost center) on the pre-registration and nothing else. The ledger is still
-// reached through one door only, `bill inbox run` → processToAccounting.
+// cost center) on the pre-registration and nothing else. The ledger is
+// reached through two doors, neither of them here: `bill inbox run` →
+// processToAccounting for a received CFDI, and postIssuedCfdiByHand for an
+// issued one (MNE-001-417), which reads this coding as its revenue accounts.
 // ============================================================
 
 /** The states a pre-registration can be coded in: before it is posted, never while it posts. */
@@ -19,7 +21,7 @@ export const CODABLE_STATUSES = ['draft', 'ready', 'error'] as const;
 export const PRE_REGISTRATION_NOT_CODABLE = 'PRE_REGISTRATION_NOT_CODABLE';
 
 export interface PreRegistrationCoding {
-  /** The account every line without its own falls back to. */
+  /** The account every line without its own posts to, ahead of any suggestion (MNE-001-552). */
   defaultAccountId?: string;
   /** One line's own coding. */
   line?: { lineNumber: number; accountId?: string; costCenterId?: string };

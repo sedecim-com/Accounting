@@ -390,6 +390,14 @@ describe('ING-1 · PR2: the REP of an approved PPD bill', () => {
     const pendingBefore = await balanceOf('1135', period);
     const creditableBefore = await balanceOf('1130', period);
 
+    // #667: approving the bill retries nothing. The REP waits in review, with no payment, until a person runs it.
+    const [waiting] = await billsOf(uuid);
+    expect(waiting.amount_due).toBe('9280.0000');
+    expect(await paymentsOf(waiting.id)).toEqual([]);
+    expect((await query<{ status: string; validation_status: string }>(
+      `SELECT status, validation_status FROM pre_registrations WHERE id = $1`, [early.preRegId]
+    )).rows[0]).toEqual({ status: 'draft', validation_status: 'needs_review' });
+
     const program = new Command('mnemosine').exitOverride();
     let exitCode: number | undefined;
     const reported: string[] = [];

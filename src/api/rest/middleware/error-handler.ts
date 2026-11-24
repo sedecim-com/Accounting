@@ -81,3 +81,28 @@ export function errorHandler(
     },
   });
 }
+
+/**
+ * CONTRACT: a path or method no route serves is a 404 `ROUTE_NOT_FOUND` in the
+ * same envelope as every other error (MNE-001-150, #151). Without it, Express's
+ * own final handler answered with an HTML page in English («Cannot GET …»), with
+ * no code, no request id and no language.
+ *
+ * The code is its own on purpose. `RESOURCE_NOT_FOUND` says the route exists and
+ * the record does not, and a client may act on that, for example by dropping a
+ * cached copy; a typo in a URL must not read the same. The bare `NOT_FOUND` is
+ * already taken by /public/v1 for a missing attestation.
+ *
+ * It does not answer: it hands a keyed error to `errorHandler`, so the 404 takes
+ * the one rendering path, with its language headers and request id. The message
+ * names `req.path`, which never carries the query string, the place where a
+ * token or an RFC travels.
+ */
+export function routeNotFound(req: Request, _res: Response, next: NextFunction): void {
+  next(
+    new AppError(404, 'ROUTE_NOT_FOUND', {
+      key: 'error.ROUTE_NOT_FOUND',
+      params: { method: req.method, path: req.path },
+    })
+  );
+}

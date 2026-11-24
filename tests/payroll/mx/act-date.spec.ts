@@ -42,7 +42,7 @@ function params(uma: number): Record<string, unknown> {
       prestaciones_dinero: RATE, gastos_medicos_pensionados: 0, invalidez_vida: 0,
       guarderias: 0, riesgo_trabajo_clase_1: 0, riesgo_trabajo_clase_2: 0,
       riesgo_trabajo_clase_3: 0, riesgo_trabajo_clase_4: 0, riesgo_trabajo_clase_5: 0,
-      cesantia_vejez: 0, retiro: 0,
+      retiro: 0,
     },
   };
 }
@@ -78,6 +78,8 @@ beforeAll(() => {
         'uma.monthly': feb ? '3566.2200' : '3439.4600',
         'employment_subsidy.uma_monthly_rate': feb ? '0.1502' : '0.1559',
         'employment_subsidy.monthly_income_cap': '11492.6600',
+        // The employer old-age rate of the top band (#661): SBC 5,000 is above 4 UMA.
+        'imss.old_age.employer_rate.uma_above_4_00': '0.07513',
       };
       return Promise.resolve({ rows: [{ key, value: value[key], unit: 'MXN', effectiveFrom: '2026-01-01', sourceUrl: 'x' }] });
     }
@@ -127,9 +129,13 @@ describe('IMSS and INFONAVIT go by the contribution days of each month', () => {
   });
 
   it('the employer quota too', async () => {
-    const out = await new MexicoImssEmployerCalculator().calculate(straddling);
+    const out = await new MexicoImssEmployerCalculator().calculate({
+      ...straddling,
+      imss_old_age_band_edge: 'above_upper_edge', imss_minimum_wage_area: { zone: 'general', rule: 'general_zone', declared: true },
+    });
     expect(out.taxable_wages_used).toBeCloseTo(CAPPED_DAYS, 6);
     expect(out.breakdown?.prestaciones_dinero).toBeCloseTo(CAPPED_DAYS * RATE, 6);
+    expect(out.breakdown?.cesantia_vejez).toBeCloseTo(CAPPED_DAYS * 0.07513, 6);
   });
 
   it('and the INFONAVIT employer contribution', async () => {

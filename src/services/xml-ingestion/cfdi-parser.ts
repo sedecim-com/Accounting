@@ -336,13 +336,28 @@ export class CFDIParser {
       return { valid: false, errors };
     }
 
-    const conceptosTotal = cfdi.conceptos.reduce(
-      (sum, c) => sum.plus(c.importe).minus(c.descuento || 0),
-      new Decimal(0)
-    );
+    // CONTRACT: Anexo 20, as the vendored cfdv40.xsd annotates both attributes.
+    // SubTotal is the sum of the concepts' Importe BEFORE discounts, and the
+    // header Descuento is the sum of the concepts' own (absent = 0). Netting
+    // the discount here contradicted the total check below, which already
+    // reads SubTotal − Descuento, so no CFDI with a discount passed both (#729).
+    const sumOf = (pick: (c: CFDIConcepto) => number | undefined) =>
+      cfdi.conceptos.reduce((sum, c) => sum.plus(pick(c) || 0), new Decimal(0));
+    const conceptosTotal = sumOf((c) => c.importe);
+    const discounts = sumOf((c) => c.descuento);
 
     if (conceptosTotal.minus(cfdi.subTotal).abs().greaterThan('0.01')) {
-      errors.push('Conceptos total does not match SubTotal');
+      errors.push(
+        `Conceptos total ${conceptosTotal.toFixed(2)} (sum of Importe, before discounts) ` +
+          `does not match SubTotal ${new Decimal(cfdi.subTotal).toFixed(2)}`
+      );
+    }
+    if (discounts.minus(cfdi.descuento || 0).abs().greaterThan('0.01')) {
+      errors.push(
+        `Conceptos discounts ${discounts.toFixed(2)} (sum of the concepts' Descuento) do not match ` +
+          `the header Descuento ${new Decimal(cfdi.descuento || 0).toFixed(2)}` +
+          (cfdi.descuento === undefined ? ' (not declared)' : '')
+      );
     }
 
     const locales = cfdi.complementos.find((c) => c.type === 'ImpuestosLocales')?.data;

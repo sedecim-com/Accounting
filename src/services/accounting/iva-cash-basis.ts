@@ -5,19 +5,24 @@ import { logger } from '../../utils/logger.js';
 import { matchCase, type AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
 //
 // Mexico causes and credits IVA when the money MOVES, not when the
-// invoice is issued. The CFDI MetodoPago is the fact that decides:
+// invoice is issued. On the issued side the CFDI MetodoPago decides:
 //
-//   PUE (pago en una sola exhibición) — collected/paid at issuance:
-//        the IVA is due (issued) or creditable (received) right away.
-//   PPD (pago en parcialidades o diferido) — at issuance the IVA is
-//        NOT yet due nor creditable. It parks in 2125 "IVA Trasladado
-//        No Cobrado" / 1135 "IVA Pendiente de Acreditar" and MOVES to
-//        2120 / 1130 when the payment (the complemento de pago) lands.
+//   PUE (pago en una sola exhibición) — collected at issuance: the IVA
+//        is due right away (the conservative side, decided on #668).
+//   PPD (pago en parcialidades o diferido) — at issuance the IVA is NOT
+//        yet due. It parks in 2125 "IVA Trasladado No Cobrado" and MOVES
+//        to 2120 when the collection (the complemento de pago) lands.
+//
+// A RECEIVED document parks its IVA in 1135 "IVA Pendiente de Acreditar"
+// whatever its MetodoPago, and the vendor payment moves it to 1130
+// (MNE-001-492, #693): it is creditable once paid (LIVA art. 5-III), and
+// PUE is the issuer's label, not proof of payment (RMF rule 2.7.1.39).
 //
 // WHICH ROLE the IVA lands in is NOT decided here: it is read off
 // cfdi-taxonomy.ts, which already models the four cases and is the
@@ -54,18 +59,42 @@ export interface MetodoPagoDecision {
  *
  * - issued   → PUE: the output IVA is recognized NOW. Recognizing it late
  *              would defer the remittance, which is the expensive mistake.
- * - received → PPD: the input IVA waits in 1135. Crediting it now would
- *              bring the credit forward on an invoice that may never be
- *              paid, which is the audit finding the SAT actually writes up.
+ *              The basis (decided on #668): IVA is caused when the
+ *              consideration is collected (LIVA arts. 1o.-B and 11), and
+ *              MetodoPago is where the CFDI states that fact (CFF art. 29-A
+ *              fr. VII). A stamped CFDI 4.0 of type I always carries it
+ *              (Anexo 20, I.F), so its absence is a defect of the XML, not a
+ *              statement of deferred payment. With nothing stated, PUE never
+ *              recognizes the IVA later than PPD would, and late IVA bears
+ *              updating and surcharges (CFF art. 21).
+ * - received → PPD: the input IVA waits in 1135, as every received
+ *              document's does since MNE-001-492, so the default only names
+ *              the method the entry and the DIOT print.
  *
  * Both choices self-correct: the payment reclassification moves the amount
- * as soon as cash moves, so a PUE bill misread as PPD is only credited
- * later, never lost.
+ * as soon as cash moves.
  */
 export const CONSERVATIVE_METODO: Readonly<Record<DocumentSide, MetodoPago>> = Object.freeze({
   issued: 'PUE',
   received: 'PPD',
 });
+
+/**
+ * MNE-001-562 · The entry that puts back in 1135 the VAT a bill's payments
+ * released above its CFDI's VAT (accounting/vat-overcredit.ts). Its
+ * `source_id` is the bill.
+ */
+export const VAT_OVERCREDIT_CORRECTION_SOURCE = 'vat_overcredit_correction';
+
+/**
+ * MNE-001-599 · The entry that takes out of 1135, against the discount, the
+ * VAT of an early-payment discount posted before migration 341
+ * (accounting/discount-vat-correction.ts). Its `source_id` is the PAYMENT, so
+ * `payment reverse` mirrors it with the payment's own entries. It is not one
+ * of `ivaStillParked`'s sources: the application row stores the same figure
+ * (`discount_iva_amount`), and `receivedVatStillParked` nets it from there.
+ */
+export const DISCOUNT_VAT_CORRECTION_SOURCE = 'discount_vat_correction';
 
 const ISSUED_IVA_ROLES: readonly AccountRole[] = ['iva_trasladado', 'iva_trasladado_no_cobrado'];
 const RECEIVED_IVA_ROLES: readonly AccountRole[] = ['iva_acreditable', 'iva_pendiente_acreditar'];
@@ -89,10 +118,10 @@ export function parseMetodoPago(raw: unknown): MetodoPago | null {
  *   "Entrega en Cholula, Pue."  → `Pue.` is the state of Puebla, not PUE.
  *   "Ref PPD-2026-04"           → a folio, not a payment method.
  *
- * Both are word-bounded, and the first one is the expensive direction: it
- * would credit a bill's IVA on receipt with no warning and no note in the
- * entry, which is exactly the over-crediting this module exists to stop.
- * So a code glued to `.`, `-`, `/` or a digit does not count. Rejecting
+ * Both are word-bounded, and the first one was the expensive direction:
+ * until MNE-001-492 it credited a bill's IVA on receipt with no warning and
+ * no note in the entry. It still misstates the method an invoice, an entry
+ * and the DIOT carry. So a code glued to `.`, `-`, `/` or a digit does not count. Rejecting
  * falls through to the conservative default, which is logged and written
  * into the entry — the honest outcome for a signal this weak.
  */
@@ -156,13 +185,11 @@ export function describeMetodo(decision: MetodoPagoDecision): string {
  */
 export function ivaTreatmentNote(side: DocumentSide, decision: MetodoPagoDecision): string {
   const base =
-    decision.metodo === 'PPD'
-      ? side === 'issued'
+    side === 'received'
+      ? 'IVA not yet creditable — moves to IVA acreditable on payment'
+      : decision.metodo === 'PPD'
         ? 'IVA not yet due — moves to IVA trasladado on collection'
-        : 'IVA not yet creditable — moves to IVA acreditable on payment'
-      : side === 'issued'
-        ? 'IVA due on issuance'
-        : 'IVA creditable on issuance';
+        : 'IVA due on issuance';
   return decision.assumed
     ? `${base}; no CFDI MetodoPago on the document, conservative ${decision.metodo} assumed`
     : base;
@@ -239,9 +266,25 @@ export function ivaRoleFor(side: DocumentSide, metodo: MetodoPago): AccountRole 
   return line.role;
 }
 
-/** The pair a payment reclassifies: out of the pending role, into the due one. */
+/**
+ * The pair a payment reclassifies: out of the pending role, into the due one.
+ *
+ * NOTE: received, the target is the creditable role itself and not what the
+ * taxonomy says of a PUE. A received PUE parks its VAT too (MNE-001-492), so
+ * that probe answers the pending role, and a release would move 1135 to 1135.
+ */
 export function reclassRoles(side: DocumentSide): { from: AccountRole; to: AccountRole } {
-  return { from: ivaRoleFor(side, 'PPD'), to: ivaRoleFor(side, 'PUE') };
+  const from = ivaRoleFor(side, 'PPD');
+  if (side === 'issued') return { from, to: ivaRoleFor(side, 'PUE') };
+  const to: AccountRole = 'iva_acreditable';
+  if (from === to) {
+    throw new AccountingError(
+      'IVA_ROLE_UNRESOLVED',
+      `The CFDI taxonomy sends the VAT of a received PPD to ${to}: a payment would have nowhere to release it from. ` +
+        `Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.`
+    );
+  }
+  return { from, to };
 }
 
 // ============================================================
@@ -287,6 +330,49 @@ export function ivaToReclassify(input: ReclassInput): string {
 
   const released = target(prior.plus(now)).minus(target(prior));
   return (released.lessThan(0) ? new Decimal(0) : released).toFixed(SCALE);
+}
+
+export interface DiscountVatInput {
+  /** The early-payment discount this application takes, in the bill's currency. */
+  discount: Decimal.Value;
+  /** The bill's VAT and total, in its currency: the proportion of the discount that is VAT. */
+  taxAmount: Decimal.Value;
+  totalAmount: Decimal.Value;
+  /** What the bill still has in 1135 after this event's release, in the functional currency. */
+  remainder: Decimal.Value;
+  /** Whether this event leaves the bill owing nothing. */
+  closes: boolean;
+  /** The bill's historical rate, for a bill in another currency. */
+  rate?: Decimal.Value;
+}
+
+/** A gap at closing up to this is the rounding of the cumulative release, not something else parked. */
+const ROUNDING_AT_CLOSE = new Decimal('0.01');
+
+/**
+ * MNE-001-597 · The VAT of an early-payment discount, which leaves 1135
+ * without becoming creditable. A discount lowers the price and so the VAT
+ * (LIVA art. 7), and on cash basis only the VAT of what was paid is
+ * creditable (art. 5 fr. III), so the discount's share never will be.
+ *
+ * The share is the discount times the bill's VAT over its total, at four
+ * decimals (at the bill's rate when it has one), capped by what is still
+ * parked. When the event closes the bill and what is left differs from the
+ * share by a cent or less, it takes what is left: that gap is the rounding of
+ * the cumulative release. A larger gap means something else is still parked,
+ * such as a held cheque's cash share, and then only the share leaves.
+ */
+export function discountVatShare(input: DiscountVatInput): string {
+  const discount = new Decimal(input.discount);
+  const total = new Decimal(input.totalAmount);
+  const remainder = Decimal.max(new Decimal(input.remainder), 0);
+  if (discount.lessThanOrEqualTo(0) || total.lessThanOrEqualTo(0)) return new Decimal(0).toFixed(SCALE);
+  let share = discount.times(input.taxAmount).dividedBy(total).toDecimalPlaces(SCALE);
+  if (input.rate !== undefined) share = share.times(input.rate).toDecimalPlaces(SCALE);
+  if (input.closes && remainder.minus(share).abs().lessThanOrEqualTo(ROUNDING_AT_CLOSE)) {
+    return remainder.toFixed(SCALE);
+  }
+  return Decimal.max(Decimal.min(share, remainder), 0).toFixed(SCALE);
 }
 
 // ============================================================
@@ -539,13 +625,6 @@ async function billsAppliedBy(
 }
 
 /**
- * What a payment releases from the pending-IVA account, per document.
- *
- * Only PPD documents appear: a PUE document's IVA was already in the due
- * account, so its payment moves nothing. Documents whose share rounds to
- * zero are dropped so the entry stays readable.
- */
-/**
  * How much IVA is STILL PARKED in the pending account for one document.
  *
  * This is the cap on what a payment may release, and it exists because the
@@ -560,17 +639,28 @@ async function billsAppliedBy(
  * and can be released, and a document that never was simply has a zero cap.
  * Prior releases net themselves out, so a partial payment can be followed by
  * another without double-releasing.
+ *
+ * `beforeCreditNotes` leaves a received credit note's entry out: what the bill
+ * parked, whatever a note took back since. It answers whether the bill ever
+ * parked VAT, which is not a cap (MNE-001-492).
+ *
+ * MNE-001-562: the correction of the VAT a payment released above the CFDI's
+ * puts that VAT back in 1135 for the bill, so it counts here, and only while it
+ * stands: a reversal's mirror carries no source, so a reversed correction is
+ * left out instead of netted.
  */
 export async function ivaStillParked(
   client: pg.PoolClient,
   side: DocumentSide,
   entityId: string,
-  documentId: string
+  documentId: string,
+  options: { beforeCreditNotes?: boolean } = {}
 ): Promise<string> {
   const { from } = reclassRoles(side);
   const sourceTypes = side === 'issued'
     ? ['invoice', 'customer_payment', 'iva_reclass']
-    : ['bill', 'vendor_payment', 'iva_reclass'];
+    : ['bill', 'vendor_payment', 'iva_reclass', VAT_OVERCREDIT_CORRECTION_SOURCE,
+       ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
 
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all
@@ -597,6 +687,7 @@ export async function ivaStillParked(
         AND je.status = 'posted'
         AND ar.role = $2
         AND je.source_type = ANY($4::text[])
+        AND (je.source_type <> $5 OR je.reversed_by_entry_id IS NULL)
         -- Dos saltos, y hacen falta los dos. El asiento del documento apunta
         -- al documento; el de RECLASIFICACIÓN que escribe el backfill apunta
         -- al ASIENTO, no al documento (iva-ppd-reclass.ts: sourceId = entry_id),
@@ -610,7 +701,7 @@ export async function ivaStillParked(
         AND (je.source_id = $3 OR je.source_id IN (
               SELECT j2.id FROM journal_entries j2
                WHERE j2.source_id = $3 AND j2.entity_id = $1))`,
-    [entityId, from, documentId, sourceTypes]
+    [entityId, from, documentId, sourceTypes, VAT_OVERCREDIT_CORRECTION_SOURCE]
   );
   const parked = new Decimal(rows[0]?.parked ?? '0');
 
@@ -637,6 +728,186 @@ export async function ivaStillParked(
   return Decimal.max(parked, new Decimal(0)).toFixed(SCALE);
 }
 
+/**
+ * What a bill still has in the pending account, net of its payments.
+ *
+ * `ivaStillParked` does not reach a vendor payment's entry, whose source is
+ * the payment and not the bill, so on its own it reads a half-paid bill as
+ * fully parked. Each release is stored on its application, and an application
+ * undone or reversed stops being live, which puts its VAT back. A received
+ * credit note takes its pending-VAT share up to this figure (MNE-001-489).
+ *
+ * MNE-001-597: the VAT of an early-payment discount leaves 1135 in the same
+ * entry and is stored on its application too, so it is netted the same way.
+ * A row written before 341 stores NULL: its discount's VAT is still there.
+ */
+export async function receivedVatStillParked(
+  client: pg.PoolClient,
+  entityId: string,
+  billId: string
+): Promise<string> {
+  const cap = new Decimal(await ivaStillParked(client, 'received', entityId, billId));
+  const { rows } = await client.query<{ released: string }>(
+    `SELECT (COALESCE(SUM(pa.iva_reclass_amount), 0)
+             + COALESCE(SUM(pa.discount_iva_amount), 0))::text AS released
+       FROM payment_applications pa
+       JOIN bills b ON b.id = pa.bill_id
+      WHERE b.entity_id = $1 AND pa.bill_id = $2
+        AND pa.unapplied_at IS NULL`,
+    [entityId, billId]
+  );
+  return Decimal.max(cap.minus(rows[0]?.released ?? '0'), new Decimal(0)).toFixed(SCALE);
+}
+
+/**
+ * MNE-001-575 · What an issued invoice still has in 2125: what it parked,
+ * less what its live collections released and what its earlier credit notes
+ * already took back. The twin of `receivedVatStillParked`, and for the same
+ * reason: `ivaStillParked` sees only the entries whose source is the invoice,
+ * and a receipt's entry or a note's has its own document as source.
+ *
+ * A live allocation that stored no release (NULL, written before MNE-001-459)
+ * counts at its pro-rata share, the estimate an unapply makes too: counting it
+ * as zero would read a collected invoice as parked. `estimated` says so.
+ */
+export async function issuedVatStillParked(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string
+): Promise<{ parked: string; estimated: boolean }> {
+  const parked = new Decimal(await ivaStillParked(client, 'issued', entityId, invoiceId));
+  const { from } = reclassRoles('issued');
+  const { rows: [taken] } = await client.query<{
+    released: string; unknown: string; notes: string; tax: string; total: string;
+  }>(
+    `SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released,
+            COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown,
+            COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                        FROM credit_notes cn
+                        JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note'
+                                               AND je.source_id = cn.id AND je.status = 'posted'
+                                               AND je.reversed_by_entry_id IS NULL
+                        JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                        JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                                             AND ar.role = $3 AND ar.qualifier IS NULL
+                       WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+      WHERE i.id = $2 AND i.entity_id = $1`,
+    [entityId, invoiceId, from]
+  );
+  if (!taken) return { parked: new Decimal(0).toFixed(SCALE), estimated: false };
+  const estimate = new Decimal(ivaToReclassify({
+    ivaTotal: taken.tax, documentTotal: taken.total, priorApplied: '0', appliedNow: taken.unknown,
+  }));
+  const left = Decimal.max(parked.minus(taken.released).minus(estimate).minus(taken.notes), 0);
+  // MNE-001-581: after a note, an unapply or a reversal may keep part of an
+  // ended allocation's release in 2120, which the sum above reads as parked
+  // again. Only then is the open balance's IVA the cap; anywhere else the sum
+  // is exact and stays as it was.
+  const open = await issuedVatOfOpenBalance(client, entityId, invoiceId);
+  const capped = open.hasNote && open.hasEnded ? Decimal.min(left, open.target) : left;
+  return { parked: capped.toFixed(SCALE), estimated: estimate.greaterThan(0) };
+}
+
+/**
+ * MNE-001-581 · The IVA an issued invoice's open balance carries: what 2125
+ * must hold for it once a collection is unapplied or reversed (LIVA arts. 1-B
+ * and 7). The balance is the total, less the cash and withholdings still
+ * applied (`C`), less the credit notes linked to it; its IVA is the same
+ * cumulative target the collections release by, so the collections still to
+ * come release exactly it. `ending` names the allocations the caller is about
+ * to end, which no longer count in `C`. A cheque that still holds its IVA
+ * (MNE-001-556) is not collected yet: its cash stays in the balance.
+ *
+ * `hasNote` says whether a posted, unreversed note is linked to the invoice
+ * (`noteNumbers` names them), and `hasEnded` whether any of its allocations
+ * was ever unapplied or reversed.
+ */
+export async function issuedVatOfOpenBalance(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string,
+  options: { ending?: readonly string[] } = {}
+): Promise<{ target: string; hasNote: boolean; hasEnded: boolean; noteNumbers: string }> {
+  const { rows: [doc] } = await client.query<{
+    collected: string; notes: string; note_count: number; note_numbers: string | null; ended: boolean; tax: string; total: string;
+  }>(
+    `SELECT COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                        JOIN legal_entities le ON le.id = cp.entity_id
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND NOT (pa.id = ANY($3::uuid[]))
+                         AND NOT (cp.payment_method = 'check' AND cp.check_cashed_tx_id IS NULL
+                                  AND TRIM(cp.currency_code) = TRIM(le.functional_currency))), 0)::text AS collected,
+            COALESCE(SUM(cn.total_amount), 0)::text AS notes,
+            COUNT(cn.id)::int AS note_count,
+            string_agg(cn.credit_note_number, ', ' ORDER BY cn.credit_note_number) AS note_numbers,
+            EXISTS (SELECT 1 FROM payment_allocations pa
+                      JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                     WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NOT NULL) AS ended,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+       LEFT JOIN credit_notes cn ON cn.invoice_id = i.id AND cn.entity_id = $1
+            AND EXISTS (SELECT 1 FROM journal_entries je
+                         WHERE je.entity_id = $1 AND je.source_type = 'credit_note' AND je.source_id = cn.id
+                           AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL)
+      WHERE i.id = $2 AND i.entity_id = $1
+      GROUP BY i.id, i.tax_amount, i.total_amount`,
+    [entityId, invoiceId, [...(options.ending ?? [])]]
+  );
+  if (!doc) return { target: new Decimal(0).toFixed(SCALE), hasNote: false, hasEnded: false, noteNumbers: '' };
+  const open = Decimal.max(new Decimal(doc.total).minus(doc.notes).minus(doc.collected), 0);
+  const target = ivaToReclassify({
+    ivaTotal: doc.tax, documentTotal: doc.total, priorApplied: doc.collected, appliedNow: open.toFixed(SCALE),
+  });
+  return { target, hasNote: doc.note_count > 0, hasEnded: doc.ended, noteNumbers: doc.note_numbers ?? '' };
+}
+
+/**
+ * What the payment that settles a bill lowered by a credit note releases.
+ *
+ * The pro rata reads the bill's total, and such a bill is settled below it, so
+ * its last payment would leave a rounding remainder parked on a paid bill.
+ * Settled by cash and notes alone, it releases all it still has parked. NOTE:
+ * any other bill keeps `proRata`, and so does one closed with a discount or a
+ * write-off, whose VAT is not all creditable (MNE-001-555): the share of each
+ * leaves 1135 in its own entry without becoming creditable, the write-off's in
+ * `postVendorApplicationEntry` and the discount's by `discountVatShare`
+ * (MNE-001-597), so the pro rata of the cash is all the payment credits.
+ */
+export async function receivedReleaseAtSettlement(
+  client: pg.PoolClient, entityId: string, billId: string, proRata: string
+): Promise<string> {
+  const { rows } = await client.query(
+    `SELECT 1 FROM bills b
+      WHERE b.id = $2 AND b.entity_id = $1 AND b.amount_due <= 0
+        AND b.total_amount - b.amount_paid = (
+              SELECT SUM(jel.debit_amount)
+                FROM journal_entry_lines jel JOIN journal_entries je ON je.id = jel.journal_entry_id
+               WHERE je.entity_id = $1 AND je.source_type = $3 AND je.source_id = b.id AND je.status = 'posted')`,
+    [entityId, billId, VENDOR_CREDIT_NOTE_SOURCE]
+  );
+  return rows.length > 0 ? receivedVatStillParked(client, entityId, billId) : proRata;
+}
+
+/**
+ * What a payment releases from the pending-IVA account, per document.
+ *
+ * Received: where the IVA sits decides, not the method (MNE-001-491). A bill
+ * that parked IVA in the pending account releases it in proportion, capped by
+ * `ivaStillParked`; one whose IVA went to the creditable account has a cap of
+ * zero and moves nothing, whether it says PUE or PPD. Issued: only PPD
+ * invoices appear. Documents whose share rounds to zero are dropped so the
+ * entry stays readable.
+ */
 export async function ivaReclassificationsFor(
   client: pg.PoolClient,
   side: DocumentSide,
@@ -677,7 +948,10 @@ export async function ivaReclassificationsFor(
             memo: row.memo,
           });
 
-    if (metodo.metodo !== 'PPD') continue;
+    // NOTE: the method test stays on the issued side only. An invoice read as
+    // PUE with its IVA in 2125 (#668) would start releasing on collection, and
+    // the issued PUE is outside MNE-001-491; a bill is decided by the cap below.
+    if (side === 'issued' && metodo.metodo !== 'PPD') continue;
 
     const appliedNow = new Decimal(row.applied_now || '0');
     const priorApplied = Decimal.max(
@@ -720,7 +994,9 @@ export async function ivaReclassificationsFor(
           .toDecimalPlaces(SCALE);
       enFuncional = acumulado(priorApplied.plus(appliedNow)).minus(acumulado(priorApplied));
     } else {
-      enFuncional = new Decimal(amount);
+      enFuncional = new Decimal(
+        side === 'received' ? await receivedReleaseAtSettlement(client, entityId, row.document_id, amount) : amount
+      );
     }
     if (enFuncional.lessThanOrEqualTo(0)) continue;
 

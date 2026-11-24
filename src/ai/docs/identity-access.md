@@ -56,8 +56,10 @@ entity is resolved, its tenant becomes the context automatically.
   exception, on the APPEND-ONLY tables — `audit_log`,
   `fiscal_credential_access_log`, `closing_packs` (the sealed close
   dossier), `income_tax_annual_inputs` (the annual-return figures of the
-  provisional ISR) and `sat_download_packages` (the SAT packages exactly as
-  delivered, the only copy once they expire) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
+  provisional ISR), `sat_download_packages` (the SAT packages exactly as
+  delivered, the only copy once they expire) and the record of filed returns
+  — `filed_tax_returns`, `filed_tax_return_credits` and `tax_balance_uses`,
+  where an amended return is a new row linked to the one it replaces —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
   refuses them anyway, reaching the schema owner too. A correction there is a
   new row, never a rewrite. The two layers live in different places: the
   trigger is created by the table's migration and nothing re-creates it if

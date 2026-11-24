@@ -182,14 +182,94 @@ describe('runDoctor — fiscal credentials', () => {
 });
 
 describe('runDoctor — model provider', () => {
-  it('ok with a local provider without a credential', async () => {
+  function config(cfg: unknown) {
+    fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify(cfg));
+  }
+
+  it('ok with a loopback provider without a credential: only that is «local»', async () => {
     mockDb();
-    fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
-      default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
-    }));
+    config({
+      default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://127.0.0.1:9/v1' } },
+    });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/local, no credential/);
+    expect(c.detail).toBe('local · m (local, no credential)');
+  });
+
+  // MNE-001-443: this test used to expect «local, no credential» for
+  // http://x/v1. That host is not loopback: a remote endpoint with no key
+  // (a self-hosted NIM, say) has no credential configured, which may be
+  // intended, so doctor warns instead of calling it local.
+  it('warns, without calling it local, on a remote endpoint with no credential', async () => {
+    mockDb();
+    config({
+      default_provider: 'remote', providers: { remote: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toBe('remote · m (no credential configured)');
+    expect(c.detail).not.toMatch(/local/);
+    expect(c.fix).toMatch(/api_key_env or api_key_cmd/);
+  });
+
+  it('ok with a helper-only default: names its file, never runs it, never prints its command', async () => {
+    mockDb();
+    delete process.env.SOME_KEY;
+    const marker = path.join(tmpDir, 'helper-ran');
+    config({
+      default_provider: 'vault',
+      providers: {
+        vault: {
+          type: 'openai-compatible', model: 'm', base_url: 'https://v.example.test/v1',
+          api_key_env: 'SOME_KEY', api_key_cmd: `touch ${marker} && echo fake-helper-stderr >&2`,
+        },
+      },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/^vault · m \(api_key_cmd in .*mnemosine\.config\.json, a project file shared by everyone/);
+    expect(JSON.stringify(c)).not.toMatch(/touch|fake-helper-stderr/);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('FAILS when the default names an installation secret: it is not a provider credential (MNE-001-445)', async () => {
+    mockDb();
+    config({
+      default_provider: 'fuga',
+      providers: {
+        fuga: { type: 'openai-compatible', model: 'm', base_url: 'https://f.example.test/v1', api_key_env: 'JWT_SECRET' },
+      },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toBe('fuga · m (JWT_SECRET is not a provider credential)');
+    expect(c.fix).toMatch(/^Name the provider's own key variable in api_key_env/);
+    expect(c.fix).toMatch(/, or use --provider \S+$/);
+  });
+
+  it('an empty variable counts as unset', async () => {
+    mockDb();
+    process.env.SOME_KEY = '';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
+    });
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider').level).toBe('fail');
+  });
+
+  it('warns when the folder\'s ./.env holds the key: it serves everyone who runs mnemosine there', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'fake-folder-key';
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'SOME_KEY=fake-folder-key\n');
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/SOME_KEY set; .*\.env defines it, so that key serves everyone who runs mnemosine in that folder/);
+    expect(c.fix).toMatch(/~\/\.mnemosine\/\.env/);
+    expect(JSON.stringify(c)).not.toContain('fake-folder-key');
   });
 
   it('FAILS when the default requires a missing key, and suggests a viable alternative', async () => {
@@ -205,7 +285,46 @@ describe('runDoctor — model provider', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/SOME_KEY/);
-    expect(c.fix).toMatch(/--provider/);
+    expect(c.fix).toMatch(/^Set SOME_KEY in your shell or ~\/\.mnemosine\/\.env, or use --provider \S+$/);
+  });
+
+  it('the fix of a missing key names where to get it', async () => {
+    mockDb();
+    delete process.env.OPENAI_API_KEY;
+    config({ default_provider: 'openai' });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.fix).toMatch(/^Set OPENAI_API_KEY in your shell or ~\/\.mnemosine\/\.env \(get it at https:\/\/platform\.openai\.com\/api-keys\)/);
+  });
+
+  // MNE-001-448 (#644 P8): NVIDIA's hosted catalog is a trial that records what it receives.
+  it('warns while the default is on NVIDIA\'s hosted trial', async () => {
+    mockDb();
+    process.env.NVIDIA_API_KEY = 'clave-falsa-de-prueba';
+    config({ default_provider: 'nvidia' });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/^nvidia · .*NVIDIA's hosted trial \(integrate\.api\.nvidia\.com\), which records what it receives/);
+    expect(c.fix).toMatch(/another provider/);
+  });
+
+  it('warns while a link of the default\'s chain is on it, which a failover never enters', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'clave-falsa-de-prueba';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY', failover: ['nvidia'] } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/the failover chain names nvidia, on NVIDIA's hosted trial .*a failover never moves into it/);
+  });
+
+  it('a failure stays a failure: the trial warning never softens it', async () => {
+    mockDb();
+    delete process.env.NVIDIA_API_KEY;
+    config({ default_provider: 'nvidia' });
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider').level).toBe('fail');
   });
 });
 
@@ -270,7 +389,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb();
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/credenciales de ESCRITURA/);
+    expect(c.detail).toMatch(/WRITE credentials/);
     expect(c.fix).toMatch(/rol-auditor\.sql/);
   });
 
@@ -278,7 +397,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '57', totales: '57' }] });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/57 tablas aisladas/);
+    expect(c.detail).toMatch(/57 isolated tables/);
   });
 
   it('ok nombrando lo que lee sin aislamiento: la lista es lo que hace que se note si crece', async () => {
@@ -293,7 +412,7 @@ describe('runDoctor — rol de auditor', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/exchange_rates, tax_tables/);
-    expect(c.detail).toMatch(/referencia global/);
+    expect(c.detail).toMatch(/global reference/);
   });
 
   it('fail si lee una vista materializada: la RLS no la filtra y la refresca un BYPASSRLS', async () => {
@@ -308,7 +427,7 @@ describe('runDoctor — rol de auditor', () => {
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/mv_trial_balance/);
-    expect(c.detail).toMatch(/TODOS los inquilinos/);
+    expect(c.detail).toMatch(/ALL tenants/);
   });
 
   it('fail con BYPASSRLS: es PEOR que no tenerlo — un solo-lectura que atraviesa el aislamiento', async () => {
@@ -317,7 +436,7 @@ describe('runDoctor — rol de auditor', () => {
     });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
-    expect(c.detail).toMatch(/TODOS los inquilinos/);
+    expect(c.detail).toMatch(/ALL tenants/);
   });
 
   it('fail si tiene escritura sobre cualquier tabla: deja de ser lo que su nombre dice', async () => {
@@ -336,7 +455,7 @@ describe('runDoctor — rol de auditor', () => {
     });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/NOMINALES/);
+    expect(c.detail).toMatch(/NAMED/);
   });
 
   it('warn cuando faltan GRANT: una tabla nueva nace invisible para el auditor', async () => {
@@ -347,7 +466,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '50', totales: '57' }] });
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/7 tabla/);
+    expect(c.detail).toMatch(/7 tables were created/);
   });
 });
 
@@ -463,7 +582,7 @@ describe('the identity of every check', () => {
   //
   //   Tenant isolation              -> rls-enforced-on-connection
   //   Ledger integrity              -> balances-match-posted-lines
-  //   Segregacion de funciones ...  -> conflicting-permissions
+  //   Segregation of duties (...)   -> conflicting-permissions
   //   Memory conflicts              -> contradicting-precedents
   //   Memory in the prompt          -> precedents-outside-digest
   //
@@ -795,9 +914,9 @@ describe('checkExtractosCompletos', () => {
     mockDb({ formaBanco: [{ unico: true, ciego: true }], inquilinos: [{ id: 't1' }, { id: 't2' }] });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('fail');
-    expect(c.detail).toMatch(/índice de contenido es ÚNICO/);
-    expect(c.detail).toMatch(/huella se puede forjar/);
-    expect(c.detail).toMatch(/2 inquilino\(s\) revisado\(s\)/);
+    expect(c.detail).toMatch(/content index is UNIQUE/);
+    expect(c.detail).toMatch(/fingerprint can be forged/);
+    expect(c.detail).toMatch(/2 tenants checked/);
   });
 
   it('con el catálogo reparado, nombra los extractos cortos de CADA inquilino', async () => {
@@ -818,8 +937,8 @@ describe('checkExtractosCompletos', () => {
     // `insertarLineas` descartó porque su id nativo ya estaba en la cuenta —el
     // trimestral que contiene al mensual—, y ésa cuelga de otro extracto. Lo
     // que sí se afirma es la CIFRA, que es lo que WIT-02 vino a arreglar.
-    expect(c.detail).toMatch(/2 línea\(s\) declaradas y no presentes/);
-    expect(c.fix).not.toMatch(/soltar|DROP|borrar/i);
+    expect(c.detail).toMatch(/2 lines declared and not present/);
+    expect(c.fix).not.toMatch(/\bdrop\b|\bdelete\b|soltar|borrar/i);
     expect(c.detail).toMatch(/bbva\.csv/);
   });
 
@@ -836,14 +955,14 @@ describe('checkExtractosCompletos', () => {
     });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/sin poder mirarse/);
-    expect(c.detail).not.toMatch(/ningún extracto/);
+    expect(c.detail).toMatch(/could not be checked/);
+    expect(c.detail).not.toMatch(/no statement has fewer/);
   });
 
   it('sin nada que reprochar, el verde dice cuánto miró', async () => {
     mockDb({ inquilinos: [{ id: 't1' }] });
     const c = await checkExtractosCompletos();
     expect(c.level).toBe('ok');
-    expect(c.detail).toMatch(/1 inquilino\(s\) revisado\(s\)/);
+    expect(c.detail).toMatch(/1 tenant checked/);
   });
 });

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import { envFileCandidates } from '../config/env-file.js';
-import { configFilePaths, resolveProfile } from '../ai/providers/config.js';
+import { configFilePaths } from '../ai/providers/config.js';
+import { providerReadiness } from '../ai/providers/credential-state.js';
+import { missingCredentialHint } from './provider-readiness.js';
 
 // ============================================================
 // FIRST-RUN DETECTION
@@ -9,7 +11,7 @@ import { configFilePaths, resolveProfile } from '../ai/providers/config.js';
 // module answers one question cheaply and WITHOUT EVER THROWING:
 //   fresh   nothing configured yet → offer the init wizard
 //   broken  configured but not working → offer rescue/repair
-//   ready   DB up, entities exist, provider resolves → chat
+//   ready   DB up, entities exist, provider has a credential → chat
 // Each shortfall carries a human-readable reason; the entry flow
 // turns reasons into the exact next command (never dead-end).
 //
@@ -34,10 +36,34 @@ export interface DetectDeps {
   probeDb?: () => Promise<void>;
   /** Count of active legal entities; default: lazy-imported query. */
   countActiveEntities?: () => Promise<number>;
-  /** Resolves the default AI provider; default: resolveProfile(). */
-  resolveProvider?: () => { name: string } | Promise<{ name: string }>;
+  /** The profile chat was asked for (--provider); default: the configured default. */
+  provider?: string;
+  /**
+   * Judges the AI provider: its name, and `notReady`, the reason to print when
+   * it has no credential. Default: the readiness answer (credential-state),
+   * which never runs a helper, so a failed startup does not run it twice.
+   */
+  resolveProvider?: () => ProviderVerdict | Promise<ProviderVerdict>;
   /** Cap on each DB call; keeps the bare invocation snappy. */
   timeoutMs?: number;
+}
+
+export interface ProviderVerdict {
+  name: string;
+  notReady?: string;
+}
+
+/** The readiness answer for the profile chat starts on (MNE-001-444). Throws when the config does not load. */
+function readinessVerdict(deps: DetectDeps, cwd: string, env: NodeJS.ProcessEnv): ProviderVerdict {
+  const { profiles, states, defaultName } = providerReadiness({ cwd, env, home: deps.home });
+  const name = deps.provider || defaultName;
+  const profile = profiles[name];
+  const state = states[name];
+  // A --provider that names no profile is a typo, not a broken machine: the
+  // startup's own «does not exist» error, which lists the names, says more.
+  if ((!profile || !state) && deps.provider) return { name };
+  if (!profile || !state) throw new Error(`provider ${name} does not exist`);
+  return { name, notReady: missingCredentialHint(name, profile, state) ?? undefined };
 }
 
 function errorMessage(err: unknown): string {
@@ -123,11 +149,12 @@ async function detect(deps: DetectDeps): Promise<SetupState> {
     }
   }
 
-  // Provider resolution is filesystem/env only — independent of the DB.
-  const resolveProvider =
-    deps.resolveProvider ?? (() => ({ name: resolveProfile(undefined, undefined, cwd).name }));
+  // Provider readiness is filesystem/env only — independent of the DB.
+  const resolveProvider = deps.resolveProvider ?? (() => readinessVerdict(deps, cwd, env));
   try {
-    providerName = (await resolveProvider()).name;
+    const verdict = await resolveProvider();
+    if (verdict.notReady) reasons.push(verdict.notReady);
+    else providerName = verdict.name;
   } catch {
     reasons.push('AI provider not configured');
   }

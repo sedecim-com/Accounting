@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLlmSessionWithFailover } from '../../../src/ai/providers/index.js';
+import { createLlmSessionWithFailover, CooldownRegistry } from '../../../src/ai/providers/index.js';
+import { AllProvidersFailedError } from '../../../src/ai/providers/failover.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 import type { LlmSession, ResolvedProfile, SessionCallbacks } from '../../../src/ai/providers/types.js';
 
@@ -77,5 +78,59 @@ describe('createLlmSessionWithFailover label', () => {
       sessionFactory: neverCalledFactory,
     });
     expect(session.label).toBe('primary · Head-Default-Model');
+  });
+});
+
+// MNE-001-448 (#644 P8): a fallback is chosen by an error, not by the person
+// who would accept NVIDIA's trial terms, so a failover walk never moves into
+// the hosted endpoint, and the final error says why it stopped before it.
+describe('a failover walk never enters NVIDIA\'s hosted trial', () => {
+  const before = process.env.NVIDIA_API_KEY;
+  afterEach(() => {
+    if (before === undefined) delete process.env.NVIDIA_API_KEY;
+    else process.env.NVIDIA_API_KEY = before;
+  });
+
+  function cwdWithChain(failover: string[]): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-failover-trial-'));
+    dirs.push(dir);
+    // The project file below hides the user file, so no home is read.
+    process.env.NVIDIA_API_KEY = 'clave-falsa-de-prueba';
+    const link = (model: string) => ({ type: 'openai-compatible', model, base_url: 'https://example.test/v1' });
+    fs.writeFileSync(path.join(dir, 'mnemosine.config.json'), JSON.stringify({
+      providers: { primary: { ...link('Head'), failover }, backup: link('Backup') },
+    }));
+    return dir;
+  }
+
+  const unavailable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+  function factoryFailing(names: string[], tried: string[]) {
+    return async (profile: ResolvedProfile): Promise<LlmSession> => {
+      tried.push(profile.name);
+      if (names.includes(profile.name)) throw unavailable;
+      return { label: `${profile.name} · ${profile.model}`, runTurn: async () => 'ok', reset: () => {} };
+    };
+  }
+
+  it('the walk goes past it to the next link', async () => {
+    const tried: string[] = [];
+    const session = await createLlmSessionWithFailover('primary', CTX, {}, {
+      cwd: cwdWithChain(['nvidia', 'backup']), sessionFactory: factoryFailing(['primary'], tried),
+      cooldowns: new CooldownRegistry(),
+    });
+    expect(await session.runTurn('hola')).toBe('ok');
+    expect(tried).toEqual(['primary', 'backup']);
+  });
+
+  it('when the walk ends before it, AllProvidersFailedError says it was not tried and why', async () => {
+    const tried: string[] = [];
+    const session = await createLlmSessionWithFailover('primary', CTX, {}, {
+      cwd: cwdWithChain(['nvidia']), sessionFactory: factoryFailing(['primary'], tried),
+      cooldowns: new CooldownRegistry(),
+    });
+    const err = await session.runTurn('hola').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AllProvidersFailedError);
+    expect((err as Error).message).toMatch(/primary \(server\).*not tried: nvidia .*hosted trial.*never a fallback/);
+    expect(tried).toEqual(['primary']);
   });
 });

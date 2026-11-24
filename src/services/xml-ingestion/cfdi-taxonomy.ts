@@ -31,8 +31,10 @@ export type AccountRole =
   // Withholdings: as withholder (liability) or as withheld party (asset in favor)
   | 'isr_retenido_por_pagar' | 'iva_retenido_por_pagar'
   | 'isr_retenido_a_favor' | 'iva_retenido_a_favor'
-  // Other taxes
-  | 'ieps_acreditable' | 'ieps_por_pagar'
+  // Other taxes. Under PPD a sale's IEPS, like its VAT, is caused on collection
+  // (LIEPS art. 10): it waits in `ieps_trasladado_no_cobrado` (2181, grouping
+  // code 209.02) and each collection moves its share to `ieps_por_pagar` (#699).
+  | 'ieps_acreditable' | 'ieps_por_pagar' | 'ieps_trasladado_no_cobrado'
   | 'impuestos_locales_gasto' | 'impuestos_locales_por_pagar'
   // Payroll
   | 'sueldos_gasto' | 'sueldos_por_pagar' | 'isr_nomina_por_pagar' | 'imss_por_pagar'
@@ -168,7 +170,7 @@ export const CASES: CfdiCase[] = [
       { role: 'gasto', side: 'debit', amount: A.subtotalNeto, description: 'Expense/purchase' },
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
-      // The key difference vs PUE: the VAT is NOT creditable yet.
+      // As for a PUE (MNE-001-492): the VAT is NOT creditable yet.
       { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited with the REP)', omitIfZero: true },
       { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
       { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
@@ -189,7 +191,10 @@ export const CASES: CfdiCase[] = [
       { role: 'gasto', side: 'debit', amount: A.subtotalNeto, description: 'Expense/purchase' },
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
-      { role: 'iva_acreditable', side: 'debit', amount: A.ivaTrasladado, description: 'Creditable VAT', omitIfZero: true },
+      // MNE-001-492: PUE is the issuer's label, not proof of payment (RMF rule
+      // 2.7.1.39). The VAT is creditable once paid (LIVA art. 5-III), so it
+      // parks as a PPD's does and the vendor payment releases it.
+      { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited on payment)', omitIfZero: true },
       { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
       { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
       { role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },
@@ -232,14 +237,16 @@ export const CASES: CfdiCase[] = [
       { role: 'isr_retenido_a_favor', side: 'debit', amount: A.isrRet, description: 'ISR withheld by the customer', omitIfZero: true },
       { role: 'iva_retenido_a_favor', side: 'debit', amount: A.ivaRet, description: 'VAT withheld by the customer', omitIfZero: true },
       { role: 'ingreso', side: 'credit', amount: A.subtotalNeto, description: 'Sale' },
-      { role: 'ieps_por_pagar', side: 'credit', amount: A.ieps, description: 'IEPS transferred', omitIfZero: true },
+      // The IEPS is caused on collection too (LIEPS art. 10): it waits beside the VAT (#699).
+      { role: 'ieps_trasladado_no_cobrado', side: 'credit', amount: A.ieps, description: 'IEPS transferred not collected (caused on collection)', omitIfZero: true },
       // Symmetric to received PPD: the VAT is triggered on collection.
       { role: 'iva_trasladado_no_cobrado', side: 'credit', amount: A.ivaTrasladado, description: 'Output VAT not collected (triggered with the REP)', omitIfZero: true },
       { role: 'impuestos_locales_por_pagar', side: 'credit', amount: A.localesTras, description: 'Local taxes transferred', omitIfZero: true },
     ],
     notes:
       'The VAT on a PPD sale is triggered at the moment of collection. Booking it straight to ' +
-      'output VAT brings the tax remittance forward.',
+      'output VAT brings the tax remittance forward. Its IEPS likewise (LIEPS art. 10): it waits ' +
+      'in IEPS not collected and each collection moves its share to IEPS payable.',
     priority: 80,
   },
   {
@@ -302,12 +309,17 @@ export const CASES: CfdiCase[] = [
     posting: [
       { role: 'cxp', side: 'debit', amount: A.total, description: 'Vendor credit note' },
       { role: 'devolucion_compras', side: 'credit', amount: A.subtotalNeto, description: 'Return/discount on purchases' },
-      { role: 'iva_acreditable', side: 'credit', amount: A.ivaTrasladado, description: 'Reversal of creditable VAT', omitIfZero: true },
+      {
+        role: 'iva_acreditable', side: 'credit', amount: A.ivaTrasladado, omitIfZero: true,
+        description: 'Reversal of VAT: out of pending crediting up to what the bill still has there, the rest out of creditable VAT',
+      },
     ],
     requiresLinkage: true,
     notes:
-      'Reduces the balance owed to the vendor. If the original invoice was PPD and its VAT sits in ' +
-      '"pending crediting", the reversal must go against that same account.',
+      'Reduces the balance owed to the vendor on the one bill it names. Its VAT leaves "pending ' +
+      'crediting" up to what that bill still has parked there, and creditable VAT for the rest (LIVA ' +
+      'arts. 5 fr. III and 7). This case only names the roles: the posting comes from ' +
+      'received-credit-note.ts, which splits the VAT and decides the cost side.',
     priority: 70,
   },
   {

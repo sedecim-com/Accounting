@@ -150,21 +150,26 @@ function colaDe(nombre: string): number | undefined {
 }
 
 // ------------------------------------------------------------
-// 1. La tabla de fábrica: los DOCE perfiles, uno por uno
+// 1. La tabla de fábrica: los TRECE perfiles, uno por uno
 // ------------------------------------------------------------
 
 /** Ventanas declaradas, en tokens. Lo que NO está aquí dice que no lo sabe. */
 const VENTANAS_DECLARADAS: Record<string, number> = {
   anthropic: 1_000_000,
   gemini: 1_048_576,
+  // grok-4.3 serves 1 000 000, but xAI bills a prompt of 200K or more at
+  // twice the rate for all its tokens: the window stops there (MNE-001-449).
+  grok: 200_000,
   hermes: 131_072,
+  // Nemotron 3 Super's native window; the advertised 1M is not the hosted
+  // endpoint's documented limit (MNE-001-448).
+  nvidia: 262_144,
   ollama: 32_768,
 };
 
 const SIN_VENTANA = [
   'hermes-agent',
   'openai',
-  'grok',
   'minimax',
   'qwen',
   'openrouter',
@@ -173,7 +178,7 @@ const SIN_VENTANA = [
 ];
 
 describe('ventana de contexto — la tabla de fábrica', () => {
-  it('los doce perfiles declaran su ventana o confiesan no saberla', () => {
+  it('los trece perfiles declaran su ventana o confiesan no saberla', () => {
     const nombres = Object.keys(BUILTIN_PROFILES);
     // Si mañana entra un perfil nuevo, esta cuenta lo trae a esta prueba en vez
     // de dejarlo pasar de largo con la postura de otro.
@@ -216,6 +221,8 @@ describe('umbral derivado de la ventana', () => {
     expect(`hermes:${umbralDe('hermes')}`).toBe('hermes:65536');
     expect(`anthropic:${umbralDe('anthropic')}`).toBe('anthropic:500000');
     expect(`gemini:${umbralDe('gemini')}`).toBe('gemini:524288');
+    expect(`grok:${umbralDe('grok')}`).toBe('grok:100000');
+    expect(`nvidia:${umbralDe('nvidia')}`).toBe('nvidia:131072');
 
     // La fracción es la misma para todos y no es 1: compactar al 100% de la
     // ventana es reventar.

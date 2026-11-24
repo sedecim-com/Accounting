@@ -1,13 +1,18 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
-import { PAYABLE_OPEN_STATUSES } from '../reporting/report-service.js';
+import {
+  PAYABLE_OPEN_STATUSES,
+  queryAccumulatedBalances,
+  queryEntryMovementsOnAccount,
+} from '../reporting/report-service.js';
 import {
   FX_REVALUATION_SOURCE,
   bookAmountDueSql,
   revaluationOnAccount,
   type ForeignOpen,
 } from '../accounting/fx-revaluation.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // EL CUADRE DE CxP (F04)
@@ -57,7 +62,9 @@ import {
  * ruido que nadie lee. Lo mismo vale para cualquier flujo nuevo que toque el
  * 2110 (nómina y depreciación hoy no lo tocan).
  */
-const ORIGENES_CXP = ['bill', 'vendor_payment', 'vendor_application', 'vendor_unapplication'] as const;
+export const ORIGENES_CXP = [
+  'bill', 'vendor_payment', 'vendor_application', 'vendor_unapplication', VENDOR_CREDIT_NOTE_SOURCE,
+] as const;
 
 /** Los orígenes que LIQUIDAN un pasivo ya reconocido (débito al control). */
 const ORIGENES_LIQUIDACION = ['vendor_payment', 'vendor_application'] as const;
@@ -226,14 +233,27 @@ async function cuentaDeControl(entityId: string): Promise<CuentaControlAP> {
   return rol.rows[0];
 }
 
+/**
+ * The email of each entry's creator, to name who posted a manual entry. A
+ * creator who is not a user reads as their id, as `COALESCE(u.email,
+ * je.created_by::text)` did before the ledger read moved to report-service.
+ */
+async function creatorEmailsOf(ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const r = await query<{ id: string; email: string | null }>(
+    `SELECT id::text AS id, email FROM users WHERE id = ANY($1::uuid[])`,
+    [[...new Set(ids)]]
+  );
+  return new Map(r.rows.filter((u) => u.email !== null).map((u) => [u.id, u.email as string]));
+}
+
 interface FilaManual {
   entry_number: string;
   fecha: string;
   description: string | null;
   creado_por: string;
-  neto: string;
-  neto_total: string;
-  grupos: number;
+  /** Credit − debit on the control. */
+  neto: Decimal;
 }
 
 interface FilaGastoSinAsiento {
@@ -252,11 +272,14 @@ interface FilaAsientoSinGasto {
   fecha: string;
   status: string;
   proveedor: string | null;
+  journal_entry_id: string;
   entry_number: string;
   fecha_asiento: string;
-  neto: string;
-  total: string;
-  grupos: number;
+}
+
+/** A dead bill whose entry still leaves a net on the control (credit − debit). */
+interface DeadBillEntry extends FilaAsientoSinGasto {
+  neto: Decimal;
 }
 
 /**
@@ -290,19 +313,16 @@ export async function apReconcile(
   const abiertos = [...PAYABLE_OPEN_STATUSES];
   const origenes = [...ORIGENES_CXP];
 
-  const mayorQ = await query<{ saldo: string }>(
-    // Créditos − débitos: el pasivo sale POSITIVO. Se calcula sobre las
-    // líneas y no sobre `account_balances`, que sólo el cierre duro siembra
-    // y que `ledger check --check balance` audita CONTRA las líneas: no es
-    // fuente de verdad, es lo auditado.
-    `SELECT COALESCE(SUM(COALESCE(jel.credit_amount,0) - COALESCE(jel.debit_amount,0)), 0)::text AS saldo
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-      WHERE je.entity_id = $1
-        AND je.status = 'posted'
-        AND jel.account_id = $2
-        AND je.entry_date <= $3::date`,
-    [entityId, cuenta.id, asOf]
+  // Créditos − débitos: el pasivo sale POSITIVO. Se calcula sobre las
+  // líneas y no sobre `account_balances`, que sólo el cierre duro siembra
+  // y que `ledger check --check balance` audita CONTRA las líneas: no es
+  // fuente de verdad, es lo auditado. MNE-001-435: the sum is the report
+  // layer's (T14 · #101), debit-positive, so it is negated here; every posted
+  // entry up to the cut counts, closing entries included, as before.
+  const [controlBalance] = await queryAccumulatedBalances(
+    entityId,
+    { date: asOf, inclusive: true },
+    { ignoreClosingPolicy: true, accountId: cuenta.id }
   );
 
   const subdiarioQ = await query<{ currency: string | null; functional: boolean; foreign: string; book: string }>(
@@ -326,43 +346,42 @@ export async function apReconcile(
     [entityId, abiertos, asOf]
   );
 
-  const manualesQ = await query<FilaManual>(
-    // La reversión de un asiento de CxP nace con `source_type` NULO
-    // (`reverseWithinTransaction` no le pasa origen) y con `is_reversal`. Sin
-    // el NOT EXISTS, anular un gasto por el camino correcto —reversión, NIF
-    // B-1— habría producido un falso «asiento manual sobre el control» por
-    // cada anulación limpia del sistema. El espejo de CxC no lo filtra.
-    `SELECT je.entry_number,
-            to_char(je.entry_date, 'YYYY-MM-DD') AS fecha,
-            je.description,
-            COALESCE(u.email, je.created_by::text) AS creado_por,
-            SUM(COALESCE(jel.credit_amount,0) - COALESCE(jel.debit_amount,0))::text AS neto,
-            (SUM(SUM(COALESCE(jel.credit_amount,0) - COALESCE(jel.debit_amount,0))) OVER ())::text AS neto_total,
-            (COUNT(*) OVER ())::int AS grupos
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-       LEFT JOIN users u ON u.id = je.created_by
+  // MNE-001-023: an opening whose payable documents came in as bills HAS
+  // documents behind it. Listed as manual, it tied at 0 and still printed a
+  // manual entry plus a residue of the same amount. The bills are not the
+  // ledger, so this lookup stays here and the layer only gets the ids.
+  const openingsWithBills = await query<{ id: string }>(
+    `SELECT je.id
+       FROM journal_entries je
       WHERE je.entity_id = $1
-        AND je.status = 'posted'
-        AND jel.account_id = $2
-        AND je.entry_date <= $3::date
-        AND (je.source_type IS NULL OR NOT (je.source_type = ANY($4::text[])))
-        AND NOT EXISTS (
-              SELECT 1
-                FROM journal_entries orig
-               WHERE orig.id = je.reverses_entry_id
-                 AND orig.entity_id = je.entity_id
-                 AND orig.source_type = ANY($4::text[]))
-        -- MNE-001-023: an opening whose payable documents came in as bills
-        -- HAS documents behind it. Listed as manual, it tied at 0 and still
-        -- printed a manual entry plus a residue of the same amount.
-        AND NOT (je.source_type = 'opening_balance' AND EXISTS (
-              SELECT 1 FROM bills ob WHERE ob.journal_entry_id = je.id AND ob.entity_id = je.entity_id))
-      GROUP BY je.id, je.entry_number, je.entry_date, je.description, u.email, je.created_by
-      ORDER BY je.entry_date DESC, je.entry_number DESC
-      LIMIT $5`,
-    [entityId, cuenta.id, asOf, [...origenes, FX_REVALUATION_SOURCE], MAX_FILAS]
+        AND je.source_type = 'opening_balance'
+        AND EXISTS (
+              SELECT 1 FROM bills ob WHERE ob.journal_entry_id = je.id AND ob.entity_id = je.entity_id)`,
+    [entityId]
   );
+
+  // La reversión de un asiento de CxP nace con `source_type` NULO
+  // (`reverseWithinTransaction` no le pasa origen) y con `is_reversal`. Sin
+  // excluir también las reversiones, anular un gasto por el camino correcto
+  // —reversión, NIF B-1— habría producido un falso «asiento manual sobre el
+  // control» por cada anulación limpia del sistema; `excludeSourceTypes` hace
+  // las dos cosas. MNE-001-435: the net per entry, and its total and count
+  // over every entry and not over the page, are the report layer's.
+  const manualMovements = await queryEntryMovementsOnAccount(entityId, cuenta.id, {
+    excludeSourceTypes: [...origenes, FX_REVALUATION_SOURCE],
+    excludeEntryIds: openingsWithBills.rows.map((r) => r.id),
+    asOf,
+    order: 'newest',
+    limit: MAX_FILAS,
+  });
+  const creatorEmails = await creatorEmailsOf(manualMovements.map((m) => m.created_by));
+  const manualRows: FilaManual[] = manualMovements.map((m) => ({
+    entry_number: m.entry_number,
+    fecha: fechaLocal(m.entry_date),
+    description: m.description,
+    creado_por: creatorEmails.get(m.created_by) ?? m.created_by,
+    neto: dec(m.amount).negated(),
+  }));
 
   const sinAsientoQ = await query<FilaGastoSinAsiento>(
     // El gasto pesa en el subdiario y el mayor no lo tiene: ni asiento, ni
@@ -392,7 +411,7 @@ export async function apReconcile(
     [entityId, abiertos, asOf, MAX_FILAS]
   );
 
-  const sinGastoQ = await query<FilaAsientoSinGasto>(
+  const deadBillCandidatesQ = await query<FilaAsientoSinGasto>(
     // El reverso: el subdiario ya no lo cuenta y el control sigue cargando su
     // crédito. Se exige que el gasto NO tenga ninguna liquidación
     // contabilizada, y esa restricción es deliberada.
@@ -407,29 +426,24 @@ export async function apReconcile(
     // vivo, típicamente un gasto anulado cuyo asiento nadie reversó— y lo que
     // no sabe repartir se queda en `sinExplicar`, con nombre. Un residuo
     // honesto vale más que una partida inventada.
+    //
+    // MNE-001-435: this query picks the bills; what each one's entry still
+    // leaves on the control is read below from the report layer.
     `SELECT b.bill_number,
             to_char(b.bill_date, 'YYYY-MM-DD') AS fecha,
             b.status,
             v.company_name AS proveedor,
+            je.id AS journal_entry_id,
             je.entry_number,
-            to_char(je.entry_date, 'YYYY-MM-DD') AS fecha_asiento,
-            vivo.neto::text AS neto,
-            (SUM(vivo.neto) OVER ())::text AS total,
-            (COUNT(*) OVER ())::int AS grupos
+            to_char(je.entry_date, 'YYYY-MM-DD') AS fecha_asiento
        FROM bills b
        JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
        JOIN journal_entries je ON je.id = b.journal_entry_id AND je.entity_id = b.entity_id
-       JOIN LATERAL (
-              SELECT COALESCE(SUM(COALESCE(jel.credit_amount,0) - COALESCE(jel.debit_amount,0)), 0) AS neto
-                FROM journal_entry_lines jel
-               WHERE jel.journal_entry_id = je.id AND jel.account_id = $2
-            ) vivo ON true
       WHERE b.entity_id = $1
-        AND NOT (b.status = ANY($4::text[]) AND b.amount_due > 0 AND b.bill_date <= $3::date)
+        AND NOT (b.status = ANY($3::text[]) AND b.amount_due > 0 AND b.bill_date <= $2::date)
         AND je.status = 'posted'
-        AND je.entry_date <= $3::date
+        AND je.entry_date <= $2::date
         AND je.reversed_by_entry_id IS NULL
-        AND ABS(vivo.neto) > 0.005
         AND NOT EXISTS (
               SELECT 1
                 FROM payment_applications pa
@@ -440,25 +454,39 @@ export async function apReconcile(
                          FROM journal_entries jp
                         WHERE jp.entity_id = b.entity_id
                           AND jp.status = 'posted'
-                          AND jp.entry_date <= $3::date
+                          AND jp.entry_date <= $2::date
                           AND jp.source_id = vp.id
-                          AND jp.source_type = ANY($5::text[])))
-      ORDER BY b.bill_date DESC, b.bill_number
-      LIMIT $6`,
-    [entityId, cuenta.id, asOf, abiertos, [...ORIGENES_LIQUIDACION], MAX_FILAS]
+                          AND jp.source_type = ANY($4::text[])))
+      ORDER BY b.bill_date DESC, b.bill_number`,
+    [entityId, asOf, abiertos, [...ORIGENES_LIQUIDACION]]
   );
+  // Each bill's net is what its own entry left on the control, credit −
+  // debit. An entry without a line on the control is not in the result and
+  // reads as zero. Only a net above half a cent is a finding; the SQL order
+  // is kept, and the total and count are over every finding before the cap.
+  const netByEntry = new Map<string, Decimal>();
+  if (deadBillCandidatesQ.rows.length > 0) {
+    const nets = await queryEntryMovementsOnAccount(entityId, cuenta.id, {
+      // One id per entry: opening bills share theirs, and each still reads its net.
+      entryIds: [...new Set(deadBillCandidatesQ.rows.map((b) => b.journal_entry_id))],
+    });
+    for (const n of nets) netByEntry.set(n.journal_entry_id, dec(n.amount).negated());
+  }
+  const deadBills: DeadBillEntry[] = deadBillCandidatesQ.rows
+    .map((b) => ({ ...b, neto: netByEntry.get(b.journal_entry_id) ?? new Decimal(0) }))
+    .filter((b) => b.neto.abs().greaterThan('0.005'));
 
   // A liability: credit − debit, the sign of `mayor`.
   const fxRevaluation = (await revaluationOnAccount(entityId, cuenta.id, asOf)).negated();
-  const mayor = dec(mayorQ.rows[0]?.saldo);
+  const mayor = dec(controlBalance?.balance).negated();
   const subdiario = subdiarioQ.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0)).plus(fxRevaluation);
   const diferencia = subdiario.minus(mayor);
 
   // Totales sobre TODAS las filas de cada sonda (ventana), no sobre las
   // enumeradas. Un tope que recortara también la suma inflaría el residuo.
-  const netoManuales = dec(manualesQ.rows[0]?.neto_total);
+  const netoManuales = dec(manualMovements[0]?.total_amount).negated();
   const netoSinAsiento = dec(sinAsientoQ.rows[0]?.total);
-  const netoSinGasto = dec(sinGastoQ.rows[0]?.total);
+  const netoSinGasto = deadBills.reduce((sum, a) => sum.plus(a.neto), new Decimal(0));
 
   // La aportación a `subdiario − mayor`: lo que sólo engorda el mayor entra
   // con signo negativo, lo que sólo engorda el subdiario con signo positivo.
@@ -466,16 +494,16 @@ export async function apReconcile(
   const sinExplicar = diferencia.minus(explicado);
 
   const partidas: PartidaConciliatoria[] = [
-    // Los asientos manuales se listan SIEMPRE, cuadre o no cuadre. Un asiento
+    // Los asientos manualRows se listan SIEMPRE, cuadre o no cuadre. Un asiento
     // contabilizado a mano sobre la cuenta de control es un hecho reportable
     // por sí mismo: significa que alguien movió el pasivo de proveedores sin
     // pasar por un gasto ni por un pago, y que hoy cuadre sólo quiere decir
     // que algo lo compensa —muchas veces un segundo asiento manual igual de
     // opaco—. Callarlo mientras el total salga a cero convertiría este
     // comando en un semáforo verde que oculta justo lo que hay que mirar.
-    ...manualesQ.rows.map((m) => partidaManual(m, explain)),
+    ...manualRows.map((m) => partidaManual(m, explain)),
     ...sinAsientoQ.rows.map((g) => partidaGastoSinAsiento(g, explain)),
-    ...sinGastoQ.rows.map((a) => partidaAsientoSinGasto(a, explain)),
+    ...deadBills.slice(0, MAX_FILAS).map((a) => partidaAsientoSinGasto(a, explain)),
   ];
 
   if (sinExplicar.abs().greaterThanOrEqualTo(TOLERANCIA)) {
@@ -483,9 +511,9 @@ export async function apReconcile(
   }
 
   const omitidas =
-    Math.max(0, (manualesQ.rows[0]?.grupos ?? 0) - manualesQ.rows.length) +
+    Math.max(0, (manualMovements[0]?.total_entries ?? 0) - manualRows.length) +
     Math.max(0, (sinAsientoQ.rows[0]?.grupos ?? 0) - sinAsientoQ.rows.length) +
-    Math.max(0, (sinGastoQ.rows[0]?.grupos ?? 0) - sinGastoQ.rows.length);
+    Math.max(0, deadBills.length - MAX_FILAS);
 
   return {
     asOf,
@@ -522,7 +550,7 @@ function advertenciaDeCorte(asOf: string): string | null {
 }
 
 function partidaManual(m: FilaManual, explain: boolean): PartidaConciliatoria {
-  const neto = dec(m.neto);
+  const neto = m.neto;
   const aporte = neto.negated();
   const descripcion = (m.description ?? '').trim();
   const detalle = explain
@@ -565,8 +593,8 @@ function partidaGastoSinAsiento(g: FilaGastoSinAsiento, explain: boolean): Parti
   };
 }
 
-function partidaAsientoSinGasto(a: FilaAsientoSinGasto, explain: boolean): PartidaConciliatoria {
-  const neto = dec(a.neto);
+function partidaAsientoSinGasto(a: DeadBillEntry, explain: boolean): PartidaConciliatoria {
+  const neto = a.neto;
   const aporte = neto.negated();
   const proveedor = a.proveedor ?? 'proveedor sin nombre';
   const detalle = explain

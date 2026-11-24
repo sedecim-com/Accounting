@@ -787,10 +787,12 @@ describe('el banco de destino de un COBRO', () => {
     // nacional con el nuestro cuando no venía capturado
     // (`rastroDePago`, «the fill-in») y dejaba el extranjero capturado en su sitio:
     // los dos atributos salían a la vez y `exigirBancoUnico` lanzaba.
+    // The customer carries a valid synthetic RFC: since #856 it is the payee
+    // of its receipt, and without one the payee gap would hide the bank's.
     const clienteId = uuidv4();
     await query(
-      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
-       VALUES ($1,$2,$3,'Cliente del Exterior SA','MXN',$4)`,
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, currency_code, created_by)
+       VALUES ($1,$2,$3,'Cliente del Exterior SA','CEX010101AB1','MXN',$4)`,
       [clienteId, f.entityId, `C-${clienteId.slice(0, 8)}`, f.userId]
     );
     const draft = await createInvoice({

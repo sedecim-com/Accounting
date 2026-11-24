@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { withTransaction } from '../../../database/connection.js';
+import { queryTrialBalanceRows } from '../../reporting/report-service.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { entityUsesCashBasisIva } from '../../accounting/iva-cash-basis.js';
 import { getPolicy } from '../../policy/policy-service.js';
@@ -98,26 +99,34 @@ export function proportionFindings(
   return findings;
 }
 
-/** Exempt revenue (credit − debit) posted from January 1 to the end of the DIOT month. */
-async function exemptRevenueOfYear(
+/**
+ * Exempt revenue (credit − debit) posted from January 1 to the end of the DIOT
+ * month, read through report-service on the DIOT's client (MNE-001-437, #101).
+ * Closing entries are left out, as the provisional ISR leaves them out
+ * (MNE-001-059): in December the year-end close sweeps the very revenue this
+ * looks for, and with it counted the month would not block `taxed_only`. The
+ * report panel does not touch a tax figure (`ignoreClosingPolicy`).
+ */
+export async function exemptRevenueOfYear(
   client: pg.PoolClient,
   entityId: string,
   year: number,
   until: string
 ): Promise<string> {
-  const { rows } = await client.query<{ total: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0)::text AS total
-       FROM journal_entry_lines jel
-       JOIN journal_entries je
-         ON je.id = jel.journal_entry_id
-        AND je.status = 'posted'
-        AND je.entity_id = $1
-        AND je.entry_date BETWEEN $2::date AND $3::date
-       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
-      WHERE a.codigo_agrupador_sat = ANY($4::text[])`,
-    [entityId, `${String(year)}-01-01`, until, [...EXEMPT_REVENUE_GROUPING_CODES]]
+  const { rows } = await client.query<{ id: string }>(
+    `SELECT id::text AS id FROM accounts WHERE entity_id = $1 AND codigo_agrupador_sat = ANY($2::text[])`,
+    [entityId, [...EXEMPT_REVENUE_GROUPING_CODES]]
   );
-  return rows[0]?.total ?? '0';
+  const exempt = new Set(rows.map((r) => r.id));
+  const balance = await queryTrialBalanceRows(
+    entityId,
+    { sinceDate: `${String(year)}-01-01`, untilDate: until, ignoreClosingPolicy: true, excludeClosingEntries: true },
+    client
+  );
+  return balance
+    .filter((r) => exempt.has(r.account_id))
+    .reduce((sum, r) => sum.plus(r.credit_total).minus(r.debit_total), new Decimal(0))
+    .toFixed(4);
 }
 
 export interface OpcionesDiot {

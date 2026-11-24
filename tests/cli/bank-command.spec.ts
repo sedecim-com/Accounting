@@ -936,6 +936,20 @@ describe('las escrituras piden lo que el catálogo promete', () => {
 
 // ---- import: el cableado completo, con un CSV de verdad -------------
 
+// MNE-001-556 (T11) · a vendor payment or customer receipts; MNE-001-557 · several receipts name their credit.
+describe('bank check reconcile names a vendor payment or receipts', () => {
+  it.each([
+    ['a vendor payment and a receipt together', [PAGO, '--receipt', 'PMT-2026-00042'], /exactly one cheque/],
+    ['neither', [], /exactly one cheque/],
+    ['two receipts with no credit named', ['--receipt', 'PMT-2026-00042', '--receipt', 'PMT-2026-00043'], /PMT-2026-00042, PMT-2026-00043 .*--transaction/],
+  ])('%s is a usage error that reads nothing', async (_case, args, message) => {
+    const r = await run(['bank', 'check', 'reconcile', ...args, '--yes'], lector());
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(message);
+    expect(r.sql).toEqual([]);
+  });
+});
+
 describe('bank statement import', () => {
   let dir: string;
   let archivo: string;
@@ -2614,6 +2628,8 @@ const mundoDeFirma =
     if (/FROM vendor_payments/.test(text) && /FOR UPDATE/.test(text)) {
       return filas([pagoConCheque(over.pago)]);
     }
+    // MNE-001-508: the cashing's write is guarded, and one row is the answer it expects.
+    if (/UPDATE vendor_payments/.test(text)) return { rows: [], rowCount: 1 };
     if (/ya_usado_por/.test(text)) {
       return filas(
         over.movimientoDeCobro === null ? [] : [movimientoDeCobro(over.movimientoDeCobro)]

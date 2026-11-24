@@ -17,7 +17,22 @@ configuración, política guardada ni bandera futura puede subirlos.
 
 El repositorio se llama `Accounting` y el paquete `accounting-core` por su
 origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue ahí
-y es el que el agente opera, pero el producto es el CLI.
+y es el que el agente opera, pero el producto es el CLI. La API REST (`/v1`) y
+el tablero web de sólo lectura (`mnemosine web`) siguen en el árbol y pueden
+volver a ganar funciones: el dueño levantó su congelamiento el 2026-11-18
+(PRD-003, D-04 enmendada).
+
+**A dónde va.** El objetivo que fijó el dueño es un sistema contable completo,
+multijurisdicción, operado desde el CLI y nativo para IA, con núcleo contable,
+módulos de cálculo de nómina y cumplimiento de las normas NIF y NIIF. Hoy está
+más cerca de la primera línea de este archivo que de esa: México es la
+jurisdicción completa, Estados Unidos es parcial y las NIIF son conocimiento
+del agente, no comportamiento del motor. Lo que falta, medido, está en
+[`docs/SCOPE.md`](docs/SCOPE.md) («El objetivo»); el primer hito, en
+[`docs/MVP.md`](docs/MVP.md); lo planeado, en
+[PRD-003](docs/prd/PRD-003-producto-completo.md), todavía en revisión; sus
+decisiones D-01 a D-10, que este archivo cita, las respondió el dueño el
+2026-11-17 en [#603](https://github.com/sedecim-com/Accounting/issues/603).
 
 ---
 
@@ -55,18 +70,9 @@ Lo mismo con la superficie del CLI: el número de comandos lo cuenta
 [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md); la CI verifica que
 el bloque esté al día.
 
-Las cifras de abajo llevan commit a propósito. Este archivo no es un marcador —
-lo son los dos comandos— y una cifra escrita a mano caduca en cuanto alguien
-empuja. Si no coinciden con lo que responde tu árbol, gana el comando.
-
-| Al commit `29d0b35` | |
-|---|---:|
-| Paquetes con todos sus criterios en verde | **9** de 15 |
-| Comandos que el binario ejecuta | **134** en 45 familias |
-| Filas del catálogo ya invocables | **119** de 1 624 |
-| Fase 1 —el compromiso— | **108** de 379 |
-| Migraciones · tablas | **52** · 99 |
-| Pruebas unitarias | **2 205** en 143 archivos |
+Este archivo no trae cifras a propósito: una cifra escrita a mano caduca en
+cuanto alguien empuja. Las dan esos dos comandos, y lo ya entregado, con su PR
+y su fecha, está en [`docs/HISTORY.md`](docs/HISTORY.md).
 
 ### Lo que todavía no es lo que parece
 
@@ -77,43 +83,39 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   `zkverify-client.ts`): no hay transacción en ninguna red. Por eso la
   verificación pública está **apagada por omisión** —se enciende con
   `PUBLIC_VERIFICATION_ENABLED=true`— y, aun encendida, cada endpoint se niega a
-  servir una fila simulada.
-- **El timbrado con PAC es real en un solo proveedor, y ese no se puede
-  configurar.** De los cuatro adaptadores, tres (Finkok, Edicom, SW Sapien) se
-  declaran simulados y un cerrojo les impide timbrar fuera de sandbox; sólo
-  Sovos/Reachcore declara `simulado = false`. Pero
-  `src/services/integrations/index.ts:12-15` registra únicamente Stripe, Conekta,
-  SendGrid y S3: **ningún adaptador de PAC entra al registro**, así que
-  configurar cualquiera de ellos por `/v1/integrations/:provider` muere en
-  `PROVIDER_NOT_FOUND`. Contratar un PAC es una decisión de negocio; poder
-  intentarlo es un renglón que falta.
-- **La descarga masiva del SAT todavía no existe.** Ni SOAP, ni ZIP, ni
-  comando. Un despacho no puede afirmar completitud de CFDI recibidos desde
-  aquí. Entra al MVP por decisión del dueño del 2026-09-28 (#312): la e.firma
-  descarga (#439, #440, #441) y sella el Anexo 24 (#442); presentar ante el SAT
-  sigue siendo manual, en el portal.
-- **La nómina reporta ceros en 941/940.** `paycheck_taxes`,
-  `employer_tax_liabilities` y `garnishments` se leen y ningún camino las
-  escribe.
+  servir una fila simulada. No es parte del objetivo: PRD-003 (D-04) la retira,
+  junto con los adaptadores de pago simulados.
+- **El timbrado con PAC no se puede usar en producción.** De los cuatro
+  adaptadores, tres (Finkok, Edicom, SW Sapien) se declaran simulados y un
+  cerrojo les impide timbrar fuera de sandbox; sólo Sovos/Reachcore declara
+  `simulado = false`, y contratarlo es una decisión de negocio. Timbrar y
+  cancelar están fuera del MVP ([`docs/MVP.md`](docs/MVP.md) §1): los CFDI los
+  emite el cliente en su sistema y aquí se ingieren.
+- **Ante el SAT se descarga y se sella; no se presenta.** La descarga masiva de
+  CFDI con la e.firma existe (`mnemosine sat download`), y el censo se lee
+  contra lo contabilizado. Presentar la contabilidad electrónica, la DIOT y las
+  declaraciones sigue siendo manual, en el portal.
+- **Multijurisdicción todavía no es una propiedad del motor.** El código conoce
+  dos países (`JurisdictionCode = 'MX' | 'US'`) y el paquete por país de
+  [`docs/jurisdicciones.md`](docs/jurisdicciones.md) no existe como frontera.
+- **Las NIIF son conocimiento del agente, no comportamiento**, y las NIF viven
+  dentro de los motores, sin módulo propio. Lo que falta de cada una está en
+  `docs/SCOPE.md`, «El objetivo».
+- **La nómina de Estados Unidos es parcial**: hay calculadores registrados para
+  los 50 estados y el Distrito de Columbia, y sólo cinco tienen parámetros
+  sembrados (PRD-003, D-03).
 - **GraphQL se retiró** ([#101](https://github.com/sedecim-com/Accounting/issues/101)).
   Era una segunda puerta al mismo motor, apagada tras una bandera y sin un solo
-  consumidor: ningún cliente en el árbol, ningún `.graphql`, y un script de
-  generación sin binario. La única superficie HTTP es REST `/v1`.
-- De los 151 manejadores REST, **7 están retirados** y lanzan
-  `NotImplementedError` en vez de fingir que hicieron algo.
-- **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que
-  el proyecto hizo bien lo empeora: desde la migración 041 el mayor es
-  físicamente inmutable y `audit_log` es de sólo agregar, así que un error de
-  datos **no se puede reparar a mano**. Quien opere esto tiene que resolver su
-  propio respaldo de PostgreSQL mientras el proyecto no lo traiga. Es la brecha
-  abierta más grande y por eso está aquí arriba y no en una nota al pie.
-- **El sueldo bruto de la nómina cae en la cuenta equivocada.** Dos catálogos
-  semilla reclaman el código `5200`: los roles fiscales lo crean como
-  *Devoluciones y Descuentos sobre Compras*
-  (`src/services/xml-ingestion/account-roles-seed.ts:126`) y el mapeo de nómina,
-  que corre después (`src/services/accounting/entity-accounting.ts:77`), salta la
-  creación porque el código ya existe y apunta `wages_expense` a esa misma
-  cuenta. No truena: la guarda es por código y la colisión es de significado.
+  consumidor. La única API HTTP es REST `/v1`.
+- **Siete manejadores REST están retirados** y lanzan `NotImplementedError` en
+  vez de fingir que hicieron algo.
+- **No hay servidor MCP** (PRD-003, D-07). Un agente externo opera el CLI como
+  cualquier otro programa: `--json`, códigos de salida y `--dry-run`.
+- **El respaldo existe, pero programarlo es tuyo.** `mnemosine backup` crea,
+  lista, verifica ensayando la restauración y restaura. Importa más que en otro
+  sistema: desde la migración 041 el mayor es físicamente inmutable y
+  `audit_log` es de sólo agregar, así que un error de datos **no se puede
+  reparar a mano**.
 
 ---
 
@@ -126,16 +128,17 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
 git clone https://github.com/sedecim-com/Accounting.git
 cd Accounting
 npm ci
-
-cp .env.example .env
-# Como mínimo: DATABASE_URL y MIGRATION_DATABASE_URL.
-# JWT_SECRET y ENCRYPTION_KEY pueden ir vacíos en desarrollo: el arranque se
-# NIEGA a correr con los valores de desarrollo bajo NODE_ENV=production.
-
-createdb mnemosine
-npm run migrate      # 52 migraciones; reaplica rls-policies.sql al final
-npm run seed         # tenant, entidad, catálogo y periodos de demostración
+scripts/setup.sh     # .env de desarrollo, Postgres, base, roles y migraciones
+npm run seed         # opcional: tenant, entidad, catálogo y periodos de demostración
 ```
+
+`scripts/setup.sh` es idempotente y nunca reescribe un `.env` que ya exista. Usa
+el Postgres que responda en `TEST_ADMIN_DATABASE_URL`; si no hay ninguno y hay
+Docker, levanta uno con la versión de CI. El devcontainer (`.devcontainer/`) lo
+corre al crearse. Los pasos a mano, y lo que significa cada variable, están en
+[`docs/MVP.md`](docs/MVP.md) §7 y en `.env.example`. `JWT_SECRET` y
+`ENCRYPTION_KEY` pueden ir vacíos en desarrollo: el arranque se **niega** a
+correr con los valores de desarrollo bajo `NODE_ENV=production`.
 
 El binario no está instalado como comando global: se invoca por npm.
 
@@ -148,13 +151,16 @@ npm run mnemosine -- chat      # la sesión conversacional
 Con RLS activo cada comando necesita saber sobre qué inquilino trabaja: pon
 `MNEMOSINE_TENANT` en `.env` o pasa `-T <uuid>`.
 
+La ayuda y los mensajes salen en español o en inglés: `--locale es-MX|en-US`, o
+`MNEMOSINE_LOCALE`. `mnemosine --help` dice la precedencia completa.
+
 El primer ciclo real es corto:
 
 ```bash
 npm run mnemosine -- ingest facturas/*.xml   # CFDI → reglas → clasificación → BORRADORES
 npm run mnemosine -- drafts                  # qué propuso la IA
 npm run mnemosine -- review                  # aprobar (postea de verdad) o rechazar
-npm run mnemosine -- report trial-balance    # y ver el efecto
+npm run mnemosine -- report trial-balance show   # y ver el efecto
 ```
 
 La referencia exacta de comandos y banderas —generada del propio programa, nunca
@@ -167,13 +173,19 @@ a mano— está en [`src/ai/docs/cli-reference.md`](src/ai/docs/cli-reference.md
 mnemosine no está casado con un proveedor. Hay dos motores de sesión: el nativo
 de Anthropic (`MnemosineAgent`, con caché de prompt y bloques de razonamiento) y
 un adaptador OpenAI-compatible (`OpenAiCompatSession`) que sirve a todo lo demás.
-Vienen once perfiles predefinidos —anthropic, openai, gemini, grok, qwen,
-minimax, openrouter, copilot, hermes y dos pasarelas locales (`ollama` y
-`openclaw`)— y se añaden más en el archivo de configuración
-(`src/ai/providers/config.ts`).
+Los perfiles de fábrica (`BUILTIN_PROFILES`, en `src/ai/providers/config.ts`)
+son trece: anthropic, openai, gemini, grok, nvidia, qwen, minimax, openrouter,
+copilot y hermes, más tres locales: `ollama`, `hermes-agent` y `openclaw`.
+`nvidia` es la prueba alojada de NVIDIA, que registra lo que recibe: nunca para
+datos de clientes. Se añaden o se redefinen en `mnemosine.config.json`.
 
-**Funciona con modelos locales y sin API key.** El `mnemosine.config.json` del
-repositorio ya viene apuntando a Ollama:
+La credencial del proveedor es de cada usuario: la pone en su entorno. No hay
+una llave compartida, y ninguna vive en el repositorio.
+
+**Funciona con modelos locales y sin API key.** El perfil `ollama` viene de
+fábrica: basta `MNEMOSINE_PROVIDER=ollama`, o un `mnemosine.config.json` en la
+raíz (no se versiona: está en `.gitignore`) que lo deje por omisión y nombre un
+modelo que tengas instalado:
 
 ```json
 {
@@ -181,7 +193,7 @@ repositorio ya viene apuntando a Ollama:
   "providers": {
     "ollama": {
       "type": "openai-compatible",
-      "model": "gemma4:26b",
+      "model": "llama3.1",
       "base_url": "http://localhost:11434/v1"
     }
   }
@@ -227,14 +239,16 @@ Cinco capas, de fuera hacia dentro:
 4. **Servicios (`src/services/`)** — el motor: contabilidad y posteo, cierre de
    periodo, AP/AR, pagos, bancos, activos, nómina MX/USA, ingesta de CFDI,
    reportes, bóveda de credenciales fiscales, auditoría.
-5. **Base (`src/database/`)** — 52 migraciones, 99 tablas, y las políticas de RLS
-   que se reaplican después de cada migración.
+5. **Base (`src/database/`)** — las migraciones (sólo se añaden, nunca se edita
+   una aplicada) y las políticas de RLS, que se reaplican después de cada
+   migración.
 
 Todas las escrituras físicas al mayor pasan por un único módulo
 (`services/accounting/posting.ts`). El borrador aprobado no toma un atajo: crea
 el asiento por `createJournalEntry`, con todas las validaciones del motor.
 
-La API REST (`/v1`) sigue viva y auditada; el CLI y ella comparten servicios.
+La API REST (`/v1`) sigue viva y auditada, sin rutas nuevas; el CLI y ella
+comparten servicios.
 Los trabajos desatendidos —ingesta, tareas programadas— corren con una
 superficie de herramientas **nombrada**, no con la completa, y sin la red de
 seguridad conversacional: no hay nadie mirando el turno correctivo.
@@ -292,9 +306,8 @@ Es la parte que no se puede improvisar y la razón de que el motor sea propio:
 
 El sistema empieza por México y Estados Unidos y aspira a más países. Hoy la
 semántica es mexicana casi en todo y Estados Unidos tiene la nómina federal y
-estatal (FIT, FICA, FUTA, SUTA, 51 estados, 941/940/W-2) —con una semilla «2026»
-que trae cifras de 2024 y 2025— y poco más: sin catálogo fiscal propio, sin
-*sales tax*, sin 1099. El inventario verificado
+estatal (FIT, FICA, FUTA, SUTA, 941/940/W-2) —con parámetros sembrados para
+cinco estados y tablas por corregir— y poco más. El inventario verificado
 de qué motor existe para cada país —con sus huecos nombrados y su
 `archivo:línea`— está en
 [`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
@@ -314,8 +327,8 @@ del panel por jurisdicción —y por qué el de hoy no sabe de países— está 
 ```bash
 npm run typecheck        # tsc --noEmit sobre src/
 npm run typecheck:tests
-npm test                 # unitarias: 2 205 casos en 143 archivos
-npm run test:integration # contra Postgres real: 28 archivos
+npm test                 # unitarias
+npm run test:integration # contra Postgres real
 ```
 
 Todo lo que corre CI, en una sola orden: `scripts/verify.sh` (ver `AGENTS.md`, «Comandos»).
@@ -326,8 +339,9 @@ arrancar sin ella. Corre en serie a propósito: varias pruebas cuentan filas.
 
 `npm run lint` ya no es un adorno: corre ESLint 10 con información de tipos
 (`eslint.config.mjs`) sobre `src/`, `tests/` y `scripts/`, y la CI lo exige. Los
-errores rompen la compilación; las advertencias llevan trinquete
-(`--max-warnings 1239`, congelado en lo medido) para que sólo puedan bajar.
+errores rompen la compilación; las advertencias llevan trinquete (el
+`--max-warnings` del guion `lint` de `package.json`, congelado en lo medido)
+para que sólo puedan bajar.
 
 ---
 
@@ -336,19 +350,24 @@ errores rompen la compilación; las advertencias llevan trinquete
 Lee [CONTRIBUTING.md](CONTRIBUTING.md): están ahí el flujo, los invariantes de la
 casa y por qué los mensajes de commit explican el *porqué* y no el diff.
 
-En corto: un PR por idea, contra `develop`, con la CI en verde —Tipos, Lint,
-Pruebas unitarias, Integración contra Postgres, Aislamiento por inquilino y
-Estado del plan—. La regla de las ramas no pide aprobaciones; la revisión
-humana que pide cada issue la fija `docs/ROUTING.md`. Copilot revisa cada PR
-automáticamente; su comentario es insumo, no una aprobación. Si tu cambio
-cierra un paquete del plan, añádelo a la lista `--exigir` de
-`.github/workflows/ci.yml` en el mismo commit; si lo reabre, quítalo ahí mismo
-y di por qué.
+En corto: un PR por idea, desde una rama propia y contra `develop` (el flujo es
+`feature → develop → release → main`,
+[ADR-0008](docs/adr/0008-develop-release-branches.md)), con la CI en verde:
+Tipos, Pruebas unitarias, Integración contra Postgres, Aislamiento por
+inquilino, Estado del plan y Commit subjects. La puerta es la CI: no hay
+aprobaciones obligatorias ni revisión obligatoria de otro modelo (Witness dejó
+de ser requisito el 2026-11-15); la revisión humana que pide cada issue la fija
+`docs/ROUTING.md`. El ciclo completo —plan, issue, PR, CI— está en
+[`docs/PROCESS.md`](docs/PROCESS.md). Si tu cambio cierra un paquete del plan,
+añádelo a la lista `--exigir` de `.github/workflows/ci.yml` en el mismo commit;
+si lo reabre, quítalo ahí mismo y di por qué.
 
-Los comentarios y la documentación **nacen en inglés** (epic
-[#141](https://github.com/sedecim-com/Accounting/issues/141)); la superficie que
-lee el contador habla su idioma, y el español va primero. Nada de emoji, nada de
-`feat:` ni `chore:`.
+El código, los comentarios y los mensajes de commit **nacen en inglés** (epic
+[#141](https://github.com/sedecim-com/Accounting/issues/141)). Lo que lee el
+usuario —la ayuda del CLI, los mensajes, la documentación— va en inglés primero
+y en español, u otro idioma, después (decisión del dueño del 2026-11-15); la
+regla y lo que falta por traducir están en [`docs/language.md`](docs/language.md).
+Nada de emoji, nada de `feat:` ni `chore:`.
 
 ## Seguridad
 
@@ -373,7 +392,8 @@ solución de problemas—. Su fuente vive en
 
 Dentro del repositorio:
 
-- **Las puertas del framework:** [`AGENTS.md`](AGENTS.md) para agentes, [`docs/SCOPE.md`](docs/SCOPE.md),
+- **Las puertas del framework:** [`AGENTS.md`](AGENTS.md) para agentes, [`docs/SCOPE.md`](docs/SCOPE.md), [`docs/MVP.md`](docs/MVP.md),
+  [`docs/REPO_MAP.md`](docs/REPO_MAP.md),
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/RUNBOOK.md`](docs/RUNBOOK.md), las decisiones en
   [`docs/adr/`](docs/adr/README.md) y el ciclo de un desarrollo nuevo en [`docs/prd/`](docs/prd/README.md).
 - [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md) — la superficie de

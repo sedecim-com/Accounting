@@ -1,6 +1,6 @@
 import * as readline from 'node:readline/promises';
 import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
-import { getLanguage } from '../i18n/index.js';
+import { getLanguage, t } from '../i18n/index.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
@@ -29,6 +29,7 @@ import {
 } from '../services/ap/bill-service.js';
 import { resolveVendor, dueDateFrom } from '../services/ap/vendor-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
+import { eligibleSuggestions, uncodedLines, type CodableLine } from '../services/xml-ingestion/expense-line-account.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolvePeriodRange } from '../services/reporting/report-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -56,7 +57,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import {
   LEGACY_COMMA_WARNING,
   LEGACY_LINE_FORMS_RETIRE_IN,
@@ -428,7 +429,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.
@@ -966,7 +967,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
   // ---- bill inbox edit ---------------------------------------------
   // ING-2 (#319): the way to code a CFDI the model never classified. It only
-  // writes the pre-registration; the ledger is reached by `bill inbox run`.
+  // writes the pre-registration; the ledger is reached by `bill inbox run`, or
+  // by `cfdi post` for a CFDI the entity issued (MNE-001-418).
   const inboxEdit = describeCommand(inbox.command('edit').alias('editar'), 'help.bill.inbox.edit.description');
   argumentByKey(inboxEdit, '<id>', 'help.bill.inbox.edit.argument.id');
   withContext(inboxEdit);
@@ -1017,17 +1019,21 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           throw err;
         }
 
-        const lines = (coded.lines ?? []) as Array<{ account_id?: string; suggested_account_id?: string | null }>;
-        const uncoded = coded.default_account_id
-          ? 0
-          : lines.filter((l) => !l.account_id && !l.suggested_account_id).length;
+        // Counted as `bill inbox run` will pick: a suggestion that may not post is not an account.
+        const lines = (coded.lines ?? []) as CodableLine[];
+        const uncoded = uncodedLines(
+          lines, coded.default_account_id as string | null, await eligibleSuggestions({ query }, ctx.entityId, lines)
+        ).length;
         process.stdout.write(
           `${deps.palette.green('✔')} ${idArg.trim().slice(0, 8)} ` +
             (lineNumber === undefined ? 'default account set' : `line ${lineNumber} coded`) +
             deps.palette.dim(` · ${uncoded} line(s) still without an account`) +
             '\n'
         );
-        if (uncoded === 0) {
+        const uuid = coded.document_type === 'invoice' ? await issuedCfdiUuid(ctx.entityId, coded.xml_document_id) : null;
+        if (uuid) {
+          process.stderr.write(deps.palette.dim(`  ${t('bill.inbox.edit.issued_post_with', { uuid })}\n`));
+        } else if (uncoded === 0) {
           process.stderr.write(
             deps.palette.dim(`  Post it with \`mnemosine bill inbox run ${idArg.trim()}\`.\n`)
           );
@@ -1611,6 +1617,15 @@ async function ejecutarBandeja(orden: {
   return { action: orden.accion, total: orden.filas.length, ok, skipped, failed, needsHuman, results };
 }
 
+/** The UUID `cfdi post` takes for an issued pre-registration, read by its XML within the entity. */
+async function issuedCfdiUuid(entityId: string, xmlDocumentId: unknown): Promise<string | null> {
+  const found = await query<{ cfdi_uuid: string | null }>(
+    `SELECT cfdi_uuid FROM xml_documents WHERE id = $1 AND entity_id = $2`,
+    [xmlDocumentId, entityId]
+  );
+  return found.rows[0]?.cfdi_uuid ?? null;
+}
+
 /** Una sola fila, una sola acción. Todo UPDATE lleva su `entity_id` dentro. */
 async function unActoDeBandeja(
   orden: {
@@ -1649,12 +1664,17 @@ async function unActoDeBandeja(
       //
       // Se rechaza en voz alta en vez de filtrarse en silencio: un documento
       // que el operador seleccionó y no se contabiliza tiene que decir por qué.
-      if (cruda.document_type !== 'bill') {
+      const uuid = cruda.document_type === 'invoice' ? await issuedCfdiUuid(orden.entityId, cruda.xml_document_id) : null;
+      if (uuid) throw blockedByState({ key: 'bill.inbox.run.issued_not_a_bill', params: { uuid } });
+      //
+      // MNE-001-555: a vendor's credit note goes through too. It lowers the
+      // bill it names, or waits with its reason (received-credit-note.ts).
+      if (cruda.document_type !== 'bill' && cruda.document_type !== 'credit_note') {
         throw blockedByState(
           `es un pre-registro de tipo "${textoDe(cruda.document_type, 'desconocido')}", ` +
-            'no una factura de proveedor. ' +
-            '`bill inbox run` sólo contabiliza gastos; un complemento de pago emitido registraría ' +
-            'COBROS DE CLIENTES, que no es lo que este comando dice hacer.'
+            'no una factura de proveedor ni su nota de crédito. ' +
+            '`bill inbox run` sólo contabiliza gastos y las notas que los bajan; un complemento de pago ' +
+            'emitido registraría COBROS DE CLIENTES, que no es lo que este comando dice hacer.'
         );
       }
 

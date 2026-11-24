@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { runDoctor, type DoctorReport, type CheckLevel } from '../ai/doctor-service.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine doctor
@@ -15,7 +16,7 @@ export interface DoctorCliDeps {
 const MARK: Record<CheckLevel, string> = { ok: '✔', warn: '⚠', fail: '✘' };
 
 export function renderDoctor(report: DoctorReport, c: DoctorCliDeps['palette']): string[] {
-  const out: string[] = ['', c.bold('Mnemosine health check'), ''];
+  const out: string[] = ['', c.bold(t('doctor.summary.title')), ''];
   const pad = Math.max(...report.checks.map((ch) => ch.name.length));
 
   for (const ch of report.checks) {
@@ -28,21 +29,20 @@ export function renderDoctor(report: DoctorReport, c: DoctorCliDeps['palette']):
 
   out.push('');
   if (report.worst === 'fail') {
-    out.push(c.red('  There are failures that prevent operation. Resolve them in the order shown.'));
+    out.push(c.red(`  ${t('doctor.summary.fail')}`));
   } else if (report.worst === 'warn') {
-    out.push('  Operational with warnings.');
+    out.push(`  ${t('doctor.summary.warn')}`);
   } else {
-    out.push('  All good.');
+    out.push(`  ${t('doctor.summary.ok')}`);
   }
   out.push('');
   return out;
 }
 
 export function registerDoctorCommand(program: Command, deps: DoctorCliDeps): void {
-  program
-    .command('doctor')
-    .description('Diagnoses system health: DB, migrations, provider, credentials, isolation')
-    .option('--json', 'JSON output for scripts')
+  const doctor = describeCommand(program.command('doctor'), 'help.doctor.description');
+  optionByKey(doctor, '--json', 'help.doctor.option.json');
+  doctor
     .action(async (opts: { json?: boolean }) => {
       try {
         const report = await runDoctor();

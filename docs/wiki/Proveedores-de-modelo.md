@@ -18,8 +18,9 @@ mnemosine providers
 |---|---|---|---|---|
 | `anthropic` | nativo | `claude-opus-5` | `ANTHROPIC_API_KEY` | El proveedor por omisión |
 | `openai` | OpenAI-compatible | `gpt-5.1` | `OPENAI_API_KEY` | Usa `max_completion_tokens` |
-| `gemini` | OpenAI-compatible | `gemini-2.5-pro` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio (capa aún en beta; ver deriva) |
-| `grok` | OpenAI-compatible | `grok-4` | `XAI_API_KEY` | Modelo derivado; ver abajo |
+| `gemini` | OpenAI-compatible | `gemini-3.8-flash` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio; esfuerzo `low`. Sin verificar en vivo: [su ficha](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), leída el 20-nov-2026 |
+| `grok` | OpenAI-compatible | `grok-4.3` | `XAI_API_KEY` | Esfuerzo `low`; ventana declarada de 200 000, el escalón donde xAI dobla el precio. Sin verificar en vivo: [su ficha](https://docs.x.ai/developers/models/grok-4.3), leída el 20-nov-2026 |
+| `nvidia` | OpenAI-compatible | `nvidia/nemotron-3-super-120b-a12b` | `NVIDIA_API_KEY` | El catálogo alojado de NVIDIA, **una prueba que registra lo que recibe: nunca datos de clientes**. Esfuerzo `low`; ventana declarada de 262 144. Sin verificar en vivo: [su ficha](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b), leída por extracto de búsqueda el 23-nov-2026. Ver «La prueba alojada de NVIDIA» |
 | `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible; URL en ruta de deprecación (ver deriva) |
 | `minimax` | OpenAI-compatible | `MiniMax-M2` | `MINIMAX_API_KEY` | Endpoint global; para China se cambia `base_url` |
 | `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos. El alias `auto` es deriva garantizada por diseño |
@@ -29,7 +30,18 @@ mnemosine providers
 | `ollama` | OpenAI-compatible | `llama3.1` | ninguna | Local, sin llave |
 | `openclaw` | OpenAI-compatible | `openclaw:main` | `OPENCLAW_GATEWAY_TOKEN` | Pasarela local. **`tools: false`** |
 
-El catálogo no se cuenta a mano: `mnemosine providers` imprime la lista efectiva —predefinidos más los del archivo— con el modelo, el endpoint, si el perfil lleva herramientas y si la variable de entorno que nombra está puesta. (El README enumera once porque agrupa `hermes` y `hermes-agent`; el archivo define los dos por separado, y son cosas distintas, como se explica más abajo.)
+### La prueba alojada de NVIDIA
+
+`integrate.api.nvidia.com` es una prueba para desarrollo y evaluación: los términos de servicio de la prueba de la API de NVIDIA le permiten registrar lo que se le envía y piden no mandar datos personales. Por eso mnemosine la cerca, la haya elegido quien la haya elegido (`--provider`, `MNEMOSINE_PROVIDER` o un `default_provider` en cualquier archivo):
+
+- `mnemosine init` imprime los términos y pregunta antes de guardarla como proveedor por omisión. La respuesta por omisión es No, y `--yes` no los acepta.
+- `chat` y `ask` imprimen los términos y piden un sí una vez por sesión; sin terminal se niegan.
+- `ingest`, `jobs run-due` y la importación de `init` se niegan siempre: son las corridas que mandan documentos de clientes.
+- Una cadena de failover nunca entra en ella, y `doctor` avisa mientras el perfil por omisión o un eslabón de su cadena la usa.
+
+NVIDIA NIM en un servidor propio no es ese host y no lleva estas guardas: se declara como perfil propio, con su `base_url`, la ventana del `--max-model-len` con que se arrancó y `--enable-auto-tool-choice` con un analizador de llamadas para que funcionen las herramientas contables.
+
+El catálogo no se cuenta a mano: `mnemosine providers` imprime la lista efectiva —predefinidos más los del archivo— con el modelo, el endpoint, si el perfil lleva herramientas y si la variable de entorno que nombra está puesta.
 
 ---
 
@@ -56,15 +68,18 @@ Se busca en dos lugares, y **gana el primero que exista**:
 
 No se fusionan: el archivo del proyecto, si existe, es el que manda entero.
 
+`mnemosine init --section ai --provider <p> --model <m>` prueba ese modelo y guarda `default_provider` y `models.<p>` en el archivo que gana. Si no hay ninguno, crea `~/.mnemosine/config.json`, nunca uno de proyecto. Si gana uno de proyecto, avisa que lo lee todo el que corre mnemosine en esa carpeta y pregunta antes de escribirlo (por omisión No, y `--yes` mantiene No); con No escribe tu archivo de usuario, y en esa carpeta sigue mandando el del proyecto.
+
 Un perfil del archivo con el mismo nombre que uno predefinido lo **reemplaza**, no lo fusiona. La razón está escrita junto al código: heredar campos invisibles como `api_key_env` o `tools: false` produciría comportamientos imposibles de desactivar desde la configuración.
 
 Las secciones que el archivo admite:
 
 | Sección | Para qué |
 |---|---|
-| `language` | Idioma en que responde el **agente** (`en` \| `es`, por omisión `es`). La interfaz del CLI es inglés siempre; los alias en español de los comandos existen de todos modos. |
+| `locale` | Tu idioma, el del CLI y el de las respuestas del agente (`es-MX` \| `en-US`, o `es` \| `en`; por omisión `es-MX`). Lo escribe `mnemosine lang`, en `~/.mnemosine/config.json`, y `mnemosine lang --unset` lo quita. La clave antigua `language` se sigue leyendo; los alias en español de los comandos existen de todos modos. |
 | `default_provider` | El perfil por omisión. |
 | `providers` | Perfiles propios, o reemplazos de los predefinidos. |
+| `models` | El modelo que eliges para un perfil, por su nombre: `{ "gemini": "<id del modelo>" }`. El perfil predefinido conserva su ventana y su postura; `--model` sigue ganando. Un nombre que no es perfil se rechaza con la lista de los que hay. |
 | `ingest` | `auto_post`, `auto_post_min_confidence`, `auto_post_max_amount`. Ver [[El-agente-y-sus-limites]] para la precedencia completa con el panel de políticas. |
 | `budget` | `daily_usd`, `monthly_usd`, `on_exceed`. Sin esta sección no se consulta gasto alguno. |
 | `compaction` | `threshold_tokens` (0 = apagar), `keep_recent_tokens`, `identifier_policy`. La compactación automática está **encendida por omisión**. |
@@ -79,6 +94,7 @@ Y los campos de un perfil:
 | `api_key_env` | **Nombre** de la variable de entorno con la credencial. |
 | `api_key_cmd` | Comando que **imprime** la credencial. |
 | `max_tokens_param` | `max_tokens` o `max_completion_tokens`, según lo que acepte el endpoint. |
+| `reasoning_effort` | Cuánto razona el modelo antes de responder: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` o `max` (los valores del SDK de `openai`; cuáles acepta cada modelo lo decide el proveedor). Sólo se envía si el perfil lo declara, en cada turno, en los resúmenes de compactación y en la sonda de `init`. Si un turno gasta todo el tope de 8 192 tokens de salida sin escribir nada, el error lo dice y sugiere bajarlo. |
 | `stream_usage` | `false` para no mandar `stream_options` a servidores viejos que responden 400 ante el campo desconocido. |
 | `stream` | Si la respuesta se transmite en flujo. |
 | `headers` | Cabeceras extra, para proxies. |
@@ -94,15 +110,38 @@ Y los campos de un perfil:
 
 Ésta es la regla dura de la página, y está aplicada en tres lugares distintos.
 
-**El perfil sólo nombra de dónde sale la llave.** `api_key_env` lleva el *nombre* de una variable de entorno (`"NOUS_API_KEY"`), no su valor. `api_key_cmd` lleva un comando que imprime la credencial: un gestor de secretos, una bóveda, o el token de una suscripción ya autenticada. `api_key_cmd` se intenta **sólo si el entorno no resolvió**, corre con un tiempo límite de diez segundos, y si no imprime nada, falla ruidosamente en vez de seguir sin credencial. Una limitación conocida: el comando se ejecuta **una vez por resolución** —en la práctica, una vez por corrida del CLI— sin noción de caducidad; para tokens que expiran en una hora (el caso de Google Cloud, abajo) una sesión muy larga puede sobrevivir a su token. Suficiente hoy; documentado para que no sorprenda.
+**El perfil sólo nombra de dónde sale la llave.** `api_key_env` lleva el *nombre* de una variable de entorno (`"NOUS_API_KEY"`), no su valor. `api_key_cmd` lleva un comando que imprime la credencial: un gestor de secretos, una bóveda, o un token corto de **tu propio** inicio de sesión (`gcloud auth print-access-token`). `api_key_cmd` se intenta **sólo si el entorno no resolvió** y corre con un tiempo límite de diez segundos. La primera vez corre antes de abrir la sesión, así que un helper roto falla al arrancar.
 
-**El escritor de configuración se niega a guardar secretos.** `writeConfigPatch` pasa todo por `assertNoSecrets` antes de tocar el disco, y rechaza dos formas: un valor que **parece** credencial por su prefijo (`sk-`, `ghp_`, `xoxb-`, `AKIA`, `eyJ`), y una llave con nombre de credencial (`key`, `token`, `secret`, `password`) cuyo valor no tiene forma de nombre de variable de entorno. La excepción son las llaves `*_cmd`, que legítimamente llevan comandos — aunque a esas les sigue aplicando la revisión por prefijo, por si alguien pegó ahí la llave de verdad. El mensaje de error dice el porqué: los archivos de configuración se comparten y acaban en git.
+- **En tu `~/.mnemosine/config.json`, un perfil compatible con OpenAI renueva su token.** El helper se le entrega al SDK de `openai` como su `apiKey` asíncrono: el token se reutiliza cinco minutos y luego el helper vuelve a correr, y tras un 401 la siguiente petición lleva un token nuevo (el turno que falló sigue mostrando el 401). Así un token de Google Cloud de una hora no caduca a media conversación.
+- **En un archivo de proyecto corre una vez por sesión**, como antes, porque lo correría todo el que use mnemosine en esa carpeta. Un perfil `anthropic` con helper también manda su salida una sola vez, como llave.
+- **Un helper que falla o no imprime nada se detiene con un mensaje fijo**: el perfil y su código de salida o el tope de diez segundos, y «corre el helper tú mismo para ver por qué». Nunca imprime el comando ni lo que el helper escribió en stderr, y su salida no se registra. Es un error propio (`CredentialHelperError`), no «falta la credencial»: `ingest` falla en voz alta al arrancar en vez de quedarse sólo con la capa determinista, y una renovación que falla a media tanda deja el resto de los CFDI para codificar sin volver a preguntar al modelo.
+- **Los perfiles con helper van en tu archivo de usuario, nunca en un archivo de proyecto compartido**, y antes de correr mnemosine en una carpeta ajena conviene leer su `mnemosine.config.json`: decide qué perfiles existen ahí, y un helper suyo corre en tu máquina con tus permisos.
+
+**El escritor de configuración se niega a guardar secretos.** `writeConfigPatch` pasa todo por `assertNoSecrets` antes de tocar el disco, y rechaza tres formas: un valor que **parece** credencial por su prefijo (`sk-`, `ghp_`, `xoxb-`, `AKIA`, `eyJ`, y también `nvapi-`, `xai-` y `AIza`, salvo donde el valor es el nombre de un perfil, como `default_provider: "xai-vertex"` o una entrada de `failover`), un encabezado con la forma `Bearer <token>`, y una llave con nombre de credencial (`key`, `token`, `secret`, `password`) cuyo valor no tiene forma de nombre de variable de entorno. La excepción son las llaves `*_cmd`, que legítimamente llevan comandos — aunque a esas les sigue aplicando la revisión por prefijo, por si alguien pegó ahí la llave de verdad. El mensaje de error dice el porqué: los archivos de configuración se comparten y acaban en git; la llave va en tu shell o en `~/.mnemosine/.env`.
+
+**Ningún perfil envía un secreto de la instalación.** Un perfil cuyo `api_key_env` nombra `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `ENCRYPTION_KEY`, `JWT_SECRET` u otro secreto propio de la instalación se rechaza antes de leer la variable o correr un helper, y `doctor` y `mnemosine providers` lo muestran como «not a provider credential». Tampoco viajan a otro proveedor `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` ni las líneas de `OPENAI_CUSTOM_HEADERS`: el SDK de `openai` los lee solo, y mnemosine los manda únicamente a los hosts de OpenAI (`api.openai.com` y sus regionales, como `eu.api.openai.com`). Un encabezado para otro host va en los `headers` del perfil.
 
 **El esquema es estricto: `.strict()` en todos los niveles.** Una llave desconocida es *siempre* un error. Un `api_key_evn` mal tecleado, si el esquema fuera permisivo, se ignoraría en silencio y el sistema caería a los valores por omisión — el peor modo de fallo posible para un archivo que gobierna credenciales. Aquí truena.
 
 Y cuando truena, no se pierde la evidencia: `quarantineInvalidConfig` copia el archivo rechazado a `<archivo>.rejected-<hash>` antes de lanzar la excepción. El nombre lleva el hash del contenido, así que reintentar es idempotente —el mismo archivo inválido produce siempre el mismo respaldo, sin basura por corrida— y un archivo roto de otra manera obtiene su propia copia. Un archivo que **existe** pero es inválido nunca se reemplaza en silencio por valores por omisión.
 
 Más sobre credenciales del sistema (las fiscales, que son otra cosa) en [[Seguridad-y-credenciales]].
+
+---
+
+## Qué permite cada proveedor
+
+Cada credencial es **de cada persona**: su shell, su `~/.mnemosine/.env`, su helper, su inicio de sesión. Ninguna es secreto del repositorio ni de la CI, y la llave de una persona nunca le sirve a otra. Esto es lo que cada proveedor permite oficialmente, leído el 15 de noviembre de 2026; sólo las páginas de Anthropic se leyeron directamente, las demás salen de extractos de búsqueda de las páginas oficiales que se citan, y nada se verificó en vivo.
+
+| Proveedor | Llave | Inicio de sesión o token corto | Lo que usa mnemosine |
+|---|---|---|---|
+| Anthropic | `ANTHROPIC_API_KEY`, de platform.claude.com/settings/keys | `ant auth login` (desarrollo local en tu propia máquina, con cargo a la organización de la Console), `ANTHROPIC_AUTH_TOKEN` y la federación de identidad para CI y servidores. Los planes de consumo (Free, Pro, Max, Team, Enterprise) no son para aplicaciones de terceros | La llave, o las fuentes propias del SDK (tu `ant auth login`), que se renuevan solas. La federación es credencial de una carga de trabajo, no de una persona: aquí no se usa |
+| OpenAI | `OPENAI_API_KEY`, una llave de proyecto | Federación de identidad, para cargas de trabajo. «Sign in with ChatGPT» sólo funciona en la Responses API, se cobra a tu plan de ChatGPT y requiere que OpenAI apruebe la aplicación de terceros. Un inicio de sesión de Codex **no** vale para la API pública | La llave. **«Sign in with ChatGPT» queda fuera**: tendrá su propia issue cuando OpenAI confirme que este proyecto es elegible |
+| xAI (Grok) | `XAI_API_KEY` | Ninguno para aplicaciones de terceros en `api.x.ai`. Los modelos Grok de socio en Google Cloud aceptan un token de `gcloud` | La llave, o la receta de Google Cloud con tu propio `gcloud` |
+| Google (Gemini) | `GEMINI_API_KEY`, de AI Studio | Gemini Enterprise Agent Platform (antes Vertex AI): su endpoint compatible con OpenAI acepta un token de `gcloud` de una hora e ids `google/<id>`, y su URL lleva tu proyecto y región | La llave, o la receta de Agent Platform con tu propio `gcloud`, no la cuenta de servicio de una máquina |
+| NVIDIA | `NVIDIA_API_KEY` (empieza con `nvapi-`), de build.nvidia.com | Ninguno documentado para `integrate.api.nvidia.com`. El catálogo alojado es una prueba que registra entradas y salidas: nunca libros reales de un cliente | La llave, en un perfil tuyo hasta que llegue el perfil `nvidia` predefinido (MNE-001-448). Un NIM propio no pide llave de cliente |
+
+Las recetas con `gcloud` son un perfil en tu `~/.mnemosine/config.json` con `"api_key_cmd": "gcloud auth print-access-token"` y la URL que da la página de Google; el ejemplo completo está en `src/cli/README.md`. Fuentes: platform.claude.com/docs/en/manage-claude/authentication; …/manage-claude/workload-identity-federation; developers.openai.com/api/docs/guides/workload-identity-federation; developers.openai.com/siwc/token-sharing-open-source; developers.openai.com/codex/auth; docs.x.ai/developers/quickstart; docs.x.ai/developers/community/google-cloud-vertex-ai; ai.google.dev/gemini-api/docs/openai; docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/openai; docs.api.nvidia.com/nim/docs/api-quickstart.
 
 ---
 
@@ -124,8 +163,8 @@ Los defaults de un catálogo estático envejecen. La verificación con fuentes v
 
 | Perfil | Lo cableado | Lo encontrado |
 |---|---|---|
-| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. |
-| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. |
+| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. **Resuelto el 20-nov-2026** (MNE-001-449): xAI retiró el slug el 15-may-2026 y lo sirve con `grok-4.3`, el nuevo default. |
+| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. **Resuelto el 20-nov-2026** (MNE-001-449): Google ya no sirve `gemini-2.5-pro` a proyectos nuevos; el default es `gemini-3.8-flash`. |
 | `minimax` | `MiniMax-M2` | Sigue listado, pero el vigente es M3; la [doc de MiniMax](https://platform.minimax.io/docs/guides/text-generation) además recomienda ya su endpoint Anthropic-compatible (irrelevante mientras el perfil sea OpenAI-compatible). Letra chica verificada del modo compatible: `n` solo 1, penalizaciones ignoradas ([referencia](https://platform.minimax.io/docs/api-reference/text-openai-api)). |
 | `qwen` | `dashscope-intl.aliyuncs.com/compatible-mode/v1` | **La deriva más seria.** La [doc oficial de Model Studio](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) ya empuja URLs por región y por *workspace*; la URL cableada sigue funcionando según terceros activos, pero está en ruta de deprecación. La misma doc acota el *function calling* a ciertos modelos. Existen snapshots fechados (`qwen3-max-2026-01-23`) útiles para fijar la deriva. |
 | `anthropic` | — | El endpoint no cambió, pero la documentación se mudó: docs.anthropic.com redirige a [platform.claude.com](https://platform.claude.com/docs/en/api/overview). Referencias internas por actualizar. |
@@ -152,7 +191,7 @@ La misma investigación verificó, en documentación oficial, seis proveedores O
 | Cerebras | `https://api.cerebras.ai/v1` | `CEREBRAS_API_KEY` | Tools soportado ([doc](https://inference-docs.cerebras.ai/resources/openai)), con un caveat que no nos toca |
 | Azure OpenAI | `https://{RECURSO}.openai.azure.com/openai/v1/` | llave o token Entra | [API v1 GA desde ago-2025](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle), cliente OpenAI plano sin `api-version`. No precargable con URL fija: irá como **plantilla del init** que pregunta el recurso |
 | AWS Bedrock | `https://bedrock-runtime.{region}.amazonaws.com/openai/v1` | `AWS_BEARER_TOKEN_BEDROCK` | [Chat completions compatibles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html); tool calling por esa capa **no verificado** — exactamente el caso para el que la sonda existe. Plantilla del init con región |
-| Vertex AI | patrón por proyecto/región, verificado solo en terceros | token de `gcloud` (~1 h) vía `api_key_cmd` | El peor ajuste para un contador: token que expira contra un `api_key_cmd` sin TTL. Irá como **receta documentada, no como perfil precargado** |
+| Vertex AI | patrón por proyecto/región, verificado solo en terceros | token de `gcloud` (~1 h) vía `api_key_cmd` | Token que expira: desde MNE-001-446 el helper de tu archivo de usuario se renueva cada cinco minutos y tras un 401. Va como **receta documentada, no como perfil precargado** (ver «Qué permite cada proveedor») |
 
 ---
 
@@ -170,7 +209,7 @@ Y la pieza contra la deriva silenciosa, también plan: una **instantánea fechad
 
 ## Modelos locales, sin API key
 
-El perfil `ollama` no declara `api_key_env`: no hay credencial que resolver. El SDK de OpenAI exige una cadena de todos modos, así que se le pasa un marcador de posición. `mnemosine providers` lo muestra como `no key`.
+El perfil `ollama` no declara `api_key_env`: no hay credencial que resolver. El SDK de OpenAI exige una cadena de todos modos, así que se le pasa un marcador de posición. `mnemosine providers` lo muestra como `local, no credential`: «local» sólo se dice de un `base_url` de loopback (`localhost`, `127.x.x.x`, `::1`); un endpoint remoto sin llave, como un NIM propio en otro host, sale como `no credential configured`, y `doctor` lo advierte.
 
 Un archivo mínimo apuntando a un modelo local:
 
@@ -232,7 +271,17 @@ La atribución del modelo es correcta por construcción: la retrollamada del int
 
 Dos comandos, con propósitos distintos.
 
-**`mnemosine providers`** es el inventario: qué perfiles hay, cuál es el por omisión, qué modelo y endpoint lleva cada uno, si trae herramientas, y si la variable de entorno que nombra está puesta o falta. Al final imprime la ruta del archivo de configuración en uso — o, si no hay ninguno, cómo crear uno.
+**`mnemosine providers`** es el inventario: qué perfiles hay, cuál es el por omisión, qué modelo y endpoint lleva cada uno, si trae herramientas, y de dónde sale su credencial. Al final imprime la ruta del archivo de configuración en uso — o, si no hay ninguno, cómo crear uno.
+
+La credencial se contesta igual en `doctor`, `mnemosine providers`, `mnemosine status`, el asistente de `init` y `mnemosine jobs run-due` ([`credential-state.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/ai/providers/credential-state.ts)), con una de estas respuestas:
+
+- `<VARIABLE> set`: la variable del perfil está definida (una variable vacía cuenta como no definida);
+- `api_key_cmd in <archivo>`: hay un helper, nombrado con el archivo de donde se leyó; si es un archivo de proyecto se marca como compartido, porque lo lee todo el que corre mnemosine en esa carpeta;
+- `local, no credential` o `no credential configured`: el perfil no pide credencial, y sólo un `base_url` de loopback se llama local;
+- para un perfil `anthropic` sin variable ni helper, la fuente que el SDK de Anthropic lee por su cuenta, en su orden: `ANTHROPIC_API_KEY` (también cuando el perfil nombra otra variable), `ANTHROPIC_AUTH_TOKEN`, una línea `x-api-key` o `Authorization` de `ANTHROPIC_CUSTOM_HEADERS`, la sesión de `ant auth login` (`configs/<perfil>.json` bajo `ANTHROPIC_CONFIG_DIR`, `$XDG_CONFIG_HOME/anthropic` o `~/.config/anthropic`, y en Windows bajo `APPDATA`; el perfil es el de `ANTHROPIC_PROFILE` o el de `active_config`), y la federación de identidad, que sólo cuenta con sus tres entradas y una raíz de configuración. Se mira que el archivo exista, sin abrirlo, y nunca se abre `credentials/<perfil>.json`. El espejo es de `@anthropic-ai/sdk` 0.128.0: al subir el SDK se revisa;
+- `<VARIABLE> missing (get it at …)`: falta, con dónde obtenerla.
+
+Si el `./.env` de la carpeta define la variable, la respuesta lo añade: esa llave sirve a todo el que corre mnemosine ahí. La respuesta es orientativa —nada se niega a correr por ella, salvo el cambio de `/provider`, que no cambia a un perfil sin credencial— y **nunca corre el helper** ni imprime su comando o su salida; `status` y la sonda de `init` sí lo corren, como antes, para su llamada en vivo. El asistente no pide llave si hay helper o si ya iniciaste sesión con Anthropic; `/provider` en el chat dice qué falta y se queda en la sesión actual cuando el perfil no tiene credencial; el chat y `ask` que no arrancan por falta de credencial nombran el perfil, su variable, dónde obtenerla, la alternativa y `mnemosine init --section ai`; y `jobs run-due` dice en su primera línea qué perfil usa y de dónde sale su credencial, que es la de quien corre el tic.
 
 ```bash
 mnemosine providers
@@ -263,7 +312,7 @@ Si algo no responde, el diagnóstico paso a paso está en [[Solucion-de-problema
 
 > **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
 
-- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` a `console.anthropic.com/settings/keys` hace 301 a `platform.claude.com/settings/keys`.
+- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` apuntaba a `console.anthropic.com/settings/keys`, que hace 301; desde MNE-001-444 apunta a `platform.claude.com/settings/keys`.
 - **Todos los proveedores relevantes exponen listado de modelos** (`GET /v1/models` o equivalente): la puerta `providers models` que la sonda del init podría usar para no adivinar el id sigue sin existir, y con ella la instantánea de deriva y una política `ia_deriva_modelo`.
 - **Siguen sin perfil** Mistral, Groq, Together, DeepSeek, Cerebras y Fireworks, y sin plantilla Azure OpenAI ni AWS Bedrock; `api_key_cmd` no tiene TTL (`config.ts:712-727`); el PKCE de OpenRouter no está en el init. La nota del perfil `openclaw` está incompleta: su endpoint sí acepta herramientas (`config.ts:473`).
 

@@ -12,6 +12,7 @@ import {
 import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
 import { query } from '../database/connection.js';
 import { ValidationError } from '../utils/errors.js';
+import { t } from '../i18n/index.js';
 import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
 import {
   approveDraft,
@@ -27,7 +28,8 @@ import { wouldMatchApproval } from './approval-policy.js';
 import { registrarVeredictoSombra } from './shadow-verdicts.js';
 import type { AgentContext } from './context.js';
 import type { LlmSession } from './providers/types.js';
-import type { IngestThresholds } from './providers/config.js';
+import { MissingProviderCredentialError, type IngestThresholds } from './providers/config.js';
+import { CredentialHelperError } from './providers/credential-helper.js';
 import type { DraftCreatedInfo } from './tools/observer.js';
 import { classifyProviderError } from './providers/failover.js';
 
@@ -79,6 +81,13 @@ export interface IngestFileResult {
    * for someone to code it; status is 'blocked', never 'error'.
    */
   toCode?: boolean;
+  /** MNE-001-418: a CFDI left to code that the entity issued; `cfdi post` books it, not the bill inbox. */
+  issued?: boolean;
+  /**
+   * #692: a received credit note. No model drafts it and there is nothing to
+   * code: `bill inbox run` posts it against its bill. Status is 'blocked'.
+   */
+  toInbox?: boolean;
 }
 
 export interface IngestReport {
@@ -86,6 +95,22 @@ export interface IngestReport {
   counts: Record<IngestStatus, number>;
   /** ING-2 (#319): how many CFDI were left in the inbox to code by hand. */
   toCode: number;
+  /** MNE-001-418: how many of `toCode` the entity issued. */
+  issuedToCode: number;
+  /** #692: how many received credit notes wait for `bill inbox run`; they carry no question. */
+  toInbox: number;
+}
+
+/** The summary line of what was left to code: the received go to the bill inbox, the issued to `cfdi post`. */
+export function leftToCodeSummary(report: Pick<IngestReport, 'toCode' | 'issuedToCode'>): string | null {
+  if (report.toCode === 0) return null;
+  return (
+    `${report.toCode} left to code: the model was not consulted.` +
+    (report.toCode > report.issuedToCode
+      ? ' See them with `mnemosine bill inbox list`, code them with `mnemosine bill inbox edit`.'
+      : '') +
+    (report.issuedToCode > 0 ? ` ${t('ingest.summary.issued_to_post', { count: report.issuedToCode })}` : '')
+  );
 }
 
 /** Mutable holder the CLI wires into SessionCallbacks.onDraftCreated. */
@@ -122,9 +147,31 @@ export interface IngestDeps {
  * again for each remaining CFDI only repeats the failure file by file.
  */
 export function isProviderUnavailable(err: unknown): boolean {
+  // A helper renewal that failed mid-batch arrives as the openai SDK's
+  // OpenAIError with the CredentialHelperError as its `cause` (MNE-001-446):
+  // the next file would run the same helper and fail the same way.
+  if (err instanceof CredentialHelperError || (err as { cause?: unknown })?.cause instanceof CredentialHelperError) {
+    return true;
+  }
   const category = classifyProviderError(err);
   if (category === 'auth' || category === 'billing') return true;
   return /could not resolve authentication method/i.test(String((err as Error)?.message ?? err));
+}
+
+/**
+ * ING-2 (#319): the profile `ingest` runs with, or null for «no model
+ * provider». Only a missing credential degrades to the deterministic layer;
+ * anything else, a failing helper (CredentialHelperError) included, is thrown
+ * so the run fails loudly at start instead of leaving every file to code
+ * (MNE-001-446).
+ */
+export function resolveIngestProfile<T>(resolve: () => T): { profile: T | null; warning?: string } {
+  try {
+    return { profile: resolve() };
+  } catch (err) {
+    if (!(err instanceof MissingProviderCredentialError)) throw err;
+    return { profile: null, warning: err.message };
+  }
 }
 
 const defaultService = new PreRegistrationService();
@@ -169,7 +216,12 @@ export async function ingestCfdiFiles(opts: {
     rules: 0, auto_post: 0, draft: 0, blocked: 0, duplicate: 0, invalid: 0, error: 0,
   };
   for (const r of results) counts[r.status]++;
-  return { results, counts, toCode: results.filter((r) => r.toCode).length };
+  return {
+    results, counts,
+    toCode: results.filter((r) => r.toCode).length,
+    issuedToCode: results.filter((r) => r.toCode && r.issued).length,
+    toInbox: results.filter((r) => r.toInbox).length,
+  };
 
   async function ingestOne(file: string, name: string): Promise<IngestFileResult> {
     let xml: string;
@@ -235,7 +287,11 @@ export async function ingestCfdiFiles(opts: {
     return names.length > 0 ? `: ${names.map((n) => `«${n}»`).join(', ')}` : '';
   }
 
-  function leftToCode(name: string): IngestFileResult {
+  function leftToCode(name: string, upload: UploadOutcome): IngestFileResult {
+    if (upload.direction === 'issued' && upload.preRegistration.document_type === 'invoice') {
+      const params = { reason: String(modelUnavailable), uuid: String(upload.xmlDocument.cfdi_uuid) };
+      return { file: name, status: 'blocked', toCode: true, issued: true, detail: t('ingest.issued_left_to_code', params) };
+    }
     return {
       file: name, status: 'blocked', toCode: true,
       detail: `Left in the inbox to code (${modelUnavailable}): see \`mnemosine bill inbox list\`; ` +
@@ -289,10 +345,19 @@ export async function ingestCfdiFiles(opts: {
       }
     }
 
+    // A received credit note is not drafted either (#692): its entry is the
+    // mirror of its bill's, VAT split between 1135 and 1130 by what the ledger
+    // still parks, and `bill inbox run` posts it or names why it waits. With
+    // or without a provider. Types N and T share the document type and get
+    // their reason at that door. A test double carries no direction.
+    if (upload.preRegistration.document_type === 'credit_note' && upload.direction !== 'issued') {
+      return { file: name, status: 'blocked', toInbox: true, detail: t('ingest.received_credit_note_to_inbox') };
+    }
+
     // ING-3 (#320): an issued CFDI (its REP aside, handled above) reaches the
     // model as the entity's SALE: its pre-registration says 'invoice', so the
     // approval of the draft creates the customer invoice, never a vendor bill.
-    if (session === null || modelUnavailable !== null) return leftToCode(name);
+    if (session === null || modelUnavailable !== null) return leftToCode(name, upload);
 
     // Layer 2: the AI classifies and creates the draft
     capture.drafts = [];
@@ -309,7 +374,7 @@ export async function ingestCfdiFiles(opts: {
     } catch (err) {
       if (isProviderUnavailable(err)) {
         modelUnavailable = `the model provider is unavailable: ${(err as Error).message}`;
-        return leftToCode(name);
+        return leftToCode(name, upload);
       }
       return { file: name, status: 'error', detail: `Model failure: ${(err as Error).message}` };
     } finally {
@@ -724,8 +789,12 @@ const ISSUED_VAT_STEP = `3. Verify the accounts in the chart of accounts (search
    - PPD (on credit): debit 1120 accounts receivable for the total + credit revenue for the
      subtotal + credit "IVA Trasladado No Cobrado" (2125). The customer's payment receipt (REP)
      later moves it to 2120; the approval refuses a PPD whose VAT is not in 2125.
+   - IEPS transferred (Impuesto 003) is never revenue: a PUE's goes to "IEPS por Pagar" (2180); a
+     PPD's to "IEPS Trasladado No Cobrado" (2181), because it is caused on collection (LIEPS art. 10)
+     and each collection moves its share to 2180. The approval refuses it anywhere else.
    - Withholdings by the customer: debit 1145 (ISR) / 1146 (VAT) and reduce the receivable.
-   - No Method declared: treat it as PPD.`;
+   - No Method declared: treat it as PUE, VAT in "IVA Trasladado" (2120). A stamped CFDI 4.0 always
+     declares it, and the approval refuses this VAT in 2125: no collection would release it.`;
 
 /** Structured CFDI summary for the agent's turn. */
 export function buildCfdiPrompt(upload: UploadOutcome): string {
@@ -766,7 +835,7 @@ CFDI:
 - Date: ${toCalendarDate(d.cfdi_fecha as Date | string)}
 - Issuer: ${wrapUntrusted(d.emisor_nombre)} (${d.emisor_rfc})${issued ? `\n- Receiver (the customer): ${wrapUntrusted(d.receptor_nombre)} (${typeof d.receptor_rfc === 'string' ? d.receptor_rfc : ''})` : ''}
 - Subtotal: ${d.subtotal} · Transferred VAT: ${d.total_impuestos_trasladados} · Total: ${d.total} ${d.moneda}
-- Payment form: ${d.forma_pago ?? 'n/a'} · Method: ${d.metodo_pago ?? 'n/a'} (PUE = paid, PPD = on credit → account ${issued ? 'receivable' : 'payable'})
+- Payment form: ${d.forma_pago ?? 'n/a'} · Method: ${d.metodo_pago ?? 'n/a'} ${issued ? '(PUE = paid, PPD = on credit → account receivable)' : '(PUE or PPD: owed to the vendor until its payment is recorded → account payable)'}
 ${issued ? '- The customer must already be registered: approving the draft creates the customer invoice for this RFC' : `- ${vendorInfo}`}
 - Line items:
 ${conceptos || '  (no lines)'}
@@ -786,14 +855,16 @@ Instructions:
    would post the system's stopgap as if the firm had decided it. If every admissible answer yields
    the same entry, the policy does not block you and you proceed without asking.
 ${issued ? ISSUED_VAT_STEP : `3. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
-   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
-   Method above decides which VAT account the entry hits.
-   - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
-     + credit banks.
+   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, and PUE is
+   the issuer's label, not proof of payment (RMF rule 2.7.1.39). So PUE and PPD draft alike:
+   - PUE: debit expense for the subtotal + debit "IVA Pendiente de Acreditar" (1135)
+     + credit vendors for the total.
    - PPD (on credit): debit expense for the subtotal + debit "IVA Pendiente de Acreditar"
      (1135) + credit vendors. Do NOT debit IVA Acreditable: nothing has been paid yet, and
      crediting VAT that was never paid is the finding the SAT actually writes up. The
-     payment entry is what later moves it from 1135 to 1130.
+     payment entry is what later moves it from 1135 to 1130. Do NOT credit a bank either:
+     that payment entry books the outflow, and the approval refuses a draft against vendors
+     whose VAT is not in 1135.
    - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
      credit, and it self-corrects when the payment is recorded.`}
 4. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
@@ -825,6 +896,19 @@ export interface IngestPreviewRow {
   total?: string;
   route?: string;
   detail?: string;
+}
+
+/** Where the real run would send a CFDI of this type and direction; the same order as `classify`. */
+export function previewRoute(cfdiType: string, direction: CfdiDirection, thresholds: IngestThresholds): string {
+  if (cfdiType === 'P') return 'REP: would link to its payment deterministically (procesarREP)';
+  if (direction === 'issued') {
+    return 'issued by this entity: AI classification → sale draft; approving it creates the customer invoice (AR), never a vendor bill';
+  }
+  // Every received type but I and P is a `credit_note` pre-registration (tipoDocumentoDe).
+  if (cfdiType !== 'I') return t('ingest.preview.route.received_credit_note');
+  return thresholds.autoPost
+    ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${thresholds.minConfidence}, amount ≤ ${thresholds.maxAmount})`
+    : 'firm rules → AI classification → draft for `mnemosine review`';
 }
 
 export async function previewCfdiFiles(opts: {
@@ -878,17 +962,9 @@ export async function previewCfdiFiles(opts: {
         continue;
       }
       const tipo = parsed.tipoDeComprobante;
-      const route =
-        tipo === 'P'
-          ? 'REP: would link to its payment deterministically (procesarREP)'
-          : direction === 'issued'
-            ? 'issued by this entity: AI classification → sale draft; approving it creates the customer invoice (AR), never a vendor bill'
-            : opts.thresholds.autoPost
-            ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${opts.thresholds.minConfidence}, amount ≤ ${opts.thresholds.maxAmount})`
-            : 'firm rules → AI classification → draft for `mnemosine review`';
       rows.push({
         file: name, verdict: 'would_process', tipo, direction, uuid,
-        total: `${parsed.total} ${parsed.moneda}`, route,
+        total: `${parsed.total} ${parsed.moneda}`, route: previewRoute(tipo, direction, opts.thresholds),
       });
     } catch (err) {
       rows.push({ file: name, verdict: 'error', detail: (err as Error).message });

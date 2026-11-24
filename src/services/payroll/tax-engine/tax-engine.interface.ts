@@ -1,4 +1,5 @@
 import type { EmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
+import type { OldAgeBandEdge, OldAgeMinimumWageArea } from '../mx/old-age-band.js';
 
 // ============================================================
 // TAX ENGINE INTERFACES
@@ -50,6 +51,12 @@ export interface TaxInput {
   // How the employment subsidy is rounded: a policy of the entity, read by
   // the caller (`readEmploymentSubsidyRounding`), never chosen by the engine.
   employment_subsidy_rounding?: EmploymentSubsidyRounding;
+  // How an SBC meets the edge of a band of the employer old-age quota: a
+  // policy of the entity too, read by the caller (`readOldAgeBandEdge`).
+  imss_old_age_band_edge?: OldAgeBandEdge;
+  // Which minimum wage measures the «1.00 SM» band: the area of the employer
+  // registration or the general zone, read by the caller (`readOldAgeMinimumWageArea`).
+  imss_minimum_wage_area?: OldAgeMinimumWageArea;
 
   // Employer experience rate overrides (SUTA etc.)
   experience_rate?: number;

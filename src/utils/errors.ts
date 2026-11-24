@@ -53,6 +53,74 @@ export class ValidationError extends AppError {
   }
 }
 
+/** Where a 422 of the REST middleware was found: the body, or one query parameter. */
+export type RequestPart = { readonly kind: 'body' } | { readonly kind: 'query'; readonly name: string };
+
+/**
+ * One issue of that 422: the dotted field path ('' at the root), the message
+ * in English, and the catalog key it was rendered from when it was. A message
+ * a schema set itself has no key and reads the same in every language.
+ */
+export interface RequestIssue {
+  readonly path: string;
+  readonly message: string;
+  readonly key?: ErrorMessageKey;
+}
+
+/**
+ * The issue list of the 422 in `language`: `<path>: <message>` for a body
+ * (`<root>` at the root), the message alone for a query parameter, joined with
+ * '; '. The path and the separators are the same in every language. Each
+ * distinct key is rendered once: a body can carry millions of issues.
+ */
+function issueList(where: RequestPart, issues: readonly RequestIssue[], language: Language | undefined): string {
+  const rendered = new Map<ErrorMessageKey, string>();
+  const textOf = (issue: RequestIssue): string => {
+    if (issue.key === undefined || language === 'en') return issue.message;
+    let text = rendered.get(issue.key);
+    if (text === undefined) {
+      text = t(issue.key.key, issue.key.params ?? {}, language);
+      rendered.set(issue.key, text);
+    }
+    return text;
+  };
+  const line = where.kind === 'body' ? (i: RequestIssue) => `${i.path || '<root>'}: ${textOf(i)}` : textOf;
+  return issues.map(line).join('; ');
+}
+
+/**
+ * The 422 of `validateBody` and `validateQuery` (MNE-001-152, #151): a
+ * `ValidationError` written by catalog key, whose issues are keys too.
+ *
+ * `message` is the zod 3 English of every 422 so far, byte for byte, as every
+ * `AppError` keeps its message in English. `localized(language)` renders the
+ * frame AND each keyed issue in `language`. `messageKey.params.issues` holds
+ * the ENGLISH list, because a param is a flat string: render this error
+ * through `localized()`, never by copying `messageKey` elsewhere. It is born
+ * only in the REST middleware, so the CLI readers of `messageKey`
+ * (entry-command.ts, cfdi-command.ts) never receive it.
+ */
+export class RequestValidationError extends ValidationError {
+  constructor(
+    public readonly where: RequestPart,
+    public readonly issues: readonly RequestIssue[]
+  ) {
+    const english = issueList(where, issues, 'en');
+    super(
+      where.kind === 'body'
+        ? { key: 'error.VALIDATION_ERROR.body', params: { issues: english } }
+        : { key: 'error.VALIDATION_ERROR.query', params: { name: where.name, issues: english } },
+      where.kind === 'query' ? where.name : undefined
+    );
+  }
+
+  override localized(language?: Language): string {
+    if (language === 'en' || this.messageKey === undefined) return this.message;
+    const issues = issueList(this.where, this.issues, language);
+    return t(this.messageKey.key, { ...this.messageKey.params, issues }, language);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(resource: string, id?: string) {
     super(404, 'RESOURCE_NOT_FOUND', `${resource}${id ? ` with id ${id}` : ''} not found`);
@@ -61,7 +129,7 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string) {
+  constructor(message: string | ErrorMessageKey) {
     super(409, 'RESOURCE_ALREADY_EXISTS', message);
     this.name = 'ConflictError';
   }

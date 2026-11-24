@@ -84,6 +84,18 @@ export const E1_2: Criterio[] = [
         a: "SET status = 'void', reversed_at = NOW()",
         porque: "«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor",
       },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2',
+        a: 'UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2',
+        porque: 'the later application stores its IVA on the vendor table: the vendor store alone used to satisfy the check',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept',
+        a: 'SET unapplied_at = NOW(), unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept',
+        porque: 'receipt unapply closes on the run day again (MNE-001-460): its entry carries --date and the closure another day',
+      },
     ],
     evaluar: () => {
       // F03: tres propiedades que mantienen el IVA de flujo de efectivo
@@ -92,7 +104,7 @@ export const E1_2: Criterio[] = [
       //    contando re-liberaría el IVA que su desaplicación ya re-aparcó;
       // 2. el IVA liberado se guarda POR APLICACIÓN, para desaplicar el
       //    importe EXACTO y no re-derivarlo bajo otro contexto;
-      // 3. la reversa NSF refleja CADA asiento del cobro (espejo NIF B-1) y
+      // 3. la reversa refleja CADA asiento del cobro (espejo NIF B-1) y
       //    el estado queda 'reversed' — ocurrió y rebotó, no 'void'.
       const iva = codigoDe('src/services/accounting/iva-cash-basis.ts');
       // Los DOS filtros de vida (pa y pa2): mutar uno deja al otro.
@@ -106,7 +118,9 @@ export const E1_2: Criterio[] = [
       const pagosSvc = codigoDe('src/services/payments/payment-service.ts');
       if (
         !/SET iva_reclass_amount = \$1/.test(posting) ||
-        !/SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
+        // Narrowed to the customer table (MNE-001-459): the vendor side
+        // stores with the same text on payment_applications.
+        !/UPDATE payment_allocations SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
       ) {
         return falla('el IVA por aplicación dejó de persistirse en las DOS vías (registro y aplicación posterior): desaplicar volvería a adivinar');
       }
@@ -118,17 +132,40 @@ export const E1_2: Criterio[] = [
         return falla('el remanente a cuenta perdió una de sus tres vías: lo no aplicado volvería a colgar de la cuenta de control');
       }
       const pagos = pagosSvc;
-      if (!/voidJournalEntryInTx\(client, je\.id, userId, `NSF: /.test(pagos)) {
-        return falla('la reversa NSF dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
+      if (!/voidJournalEntryInTx\(client, je\.id, userId, note\)/.test(pagos)) {
+        return falla('la reversa del cobro dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
       }
       if (!/SET status = 'reversed', reversed_at = NOW\(\)/.test(pagos)) {
         return falla("el cobro devuelto dejó de quedar 'reversed': se confundiría con 'void', que es otra afirmación ante un auditor");
       }
-      // Conteo ×2: la clausura con motivo vive en DOS vías (desaplicar y
-      // reversa NSF); mutar una deja la otra y la presencia lo bendice.
-      return (pagos.match(/SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/g) ?? []).length >= 2
-        ? ok('aplicaciones con clausura (nunca DELETE), IVA exacto por fila, remanente en anticipos y reversa por espejos')
-        : falla('la desaplicación dejó de clausurar con rastro: borraría historia en lugar de cerrarla');
+      // The closure with its reason lives in TWO paths (unapply and the
+      // receipt's reversal), each measured INSIDE its own function: a count
+      // over the file would let one path's text stand in for the other's.
+      // MNE-001-460: the unapply's closure carries the unapply's date, the
+      // one its entry carries, so an "as of" balance sees both move on the
+      // same day; NOW() is accepted only in the reversal, which takes no date.
+      const fn = (name: string): string => {
+        const from = pagos.indexOf(`export async function ${name}(`);
+        if (from < 0) return '';
+        const next = pagos.indexOf('\nexport ', from + 1);
+        return pagos.slice(from, next < 0 ? undefined : next);
+      };
+      const unapply = fn('unapplyCustomerPayment');
+      const reverse = fn('reverseCustomerPayment');
+      const nowClosure = /SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/g;
+      if (!/SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/.test(reverse)) {
+        return falla('la reversa del cobro dejó de clausurar sus aplicaciones con rastro: borraría historia en lugar de cerrarla');
+      }
+      if (
+        !/SET unapplied_at = \$1::date, unapplied_by = \$2, unapply_reason = \$3/.test(unapply) ||
+        /unapplied_at = NOW\(\)/.test(unapply)
+      ) {
+        return falla('receipt unapply dejó de fechar su clausura con el día de su asiento: el saldo a una fecha la vería cerrar otro día');
+      }
+      if ((pagos.match(nowClosure) ?? []).length !== (reverse.match(nowClosure) ?? []).length) {
+        return falla('una clausura de aplicación de cliente fuera de la reversa usa NOW(): no lleva la fecha del evento que la cierra');
+      }
+      return ok('aplicaciones con clausura fechada (nunca DELETE), IVA exacto por fila, remanente en anticipos y reversa por espejos');
     },
   },
 
@@ -1121,8 +1158,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/ar-ap-posting.ts',
-        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
-        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    taxNote.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    taxNote.length',
         porque: 'the customer receipt entry lands a day before its receipt, and a receipt dated January 1st is refused',
       },
       {

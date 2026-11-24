@@ -34,7 +34,17 @@
 
 El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pierde datos. Todo lo pendiente queda en las colas `ai_drafts` y `ai_external_ops`.
 
-- **En una instalación:** quitar la llave del proveedor de modelo (variables en `.env.example`). El trabajo sigue por el camino manual (#319).
+- **En una instalación:** quitar cada credencial del proveedor de modelo que el agente puede usar. El trabajo sigue por el camino manual (#319): sin credencial, `ingest` corre sólo la capa determinista y deja el resto en la bandeja. Las fuentes, una por una, y cómo apagar cada una:
+  - **La variable del perfil** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … la que nombra su `api_key_env`): borrarla o vaciarla donde viva, sea tu shell, el `./.env` de la carpeta o `~/.mnemosine/.env`. Recuerda que `./.env` gana sobre `~/.mnemosine/.env`, y que una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta.
+  - **`api_key_cmd`** del perfil, en `~/.mnemosine/config.json` o en el `mnemosine.config.json` de la carpeta: quitar la clave, o el perfil.
+  - Para un perfil `anthropic`, además, lo que el SDK de Anthropic lee por su cuenta (el espejo es de `@anthropic-ai/sdk` 0.128.0):
+    - `ANTHROPIC_API_KEY`, aunque el perfil nombre otra variable;
+    - `ANTHROPIC_AUTH_TOKEN`: borrarla;
+    - una línea `x-api-key` o `Authorization` en `ANTHROPIC_CUSTOM_HEADERS`: quitar esa línea, o la variable;
+    - la sesión de `ant auth login`: el perfil activo (el de `ANTHROPIC_PROFILE`, si no el de `active_config`, si no `default`) es `configs/<perfil>.json` bajo `ANTHROPIC_CONFIG_DIR`, si no `$XDG_CONFIG_HOME/anthropic`, si no `~/.config/anthropic` (en Windows, `%APPDATA%\Anthropic`). Para cerrarla, borrar ese archivo y `credentials/<perfil>.json`;
+    - la federación de identidad de cargas de trabajo: borrar `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN` y `ANTHROPIC_IDENTITY_TOKEN_FILE`; con una sola de las tres entradas fuera ya no cuenta.
+  - **Un perfil por omisión que no pide llave** (`ollama`, un `base_url` de loopback, un NIM propio): cambiar `default_provider` (o `MNEMOSINE_PROVIDER`) a uno sin credencial, o detener el servidor local.
+  - Después, `mnemosine doctor` y `mnemosine providers` nombran cualquier fuente que quede: la respuesta es la misma en los dos, y ninguno corre un helper ni imprime una llave.
 - **Kill switch de los agentes que desarrollan el repo:** **pendiente** (#332).
 
 ## Secretos
@@ -46,6 +56,18 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 ## Dónde vive el `.env`
 
 El CLI carga `./.env` y, después, `~/.mnemosine/.env` (`src/config/env-file.ts`); **`./.env` gana** si ambos definen la variable. `mnemosine init` (cualquier sección que escriba: infraestructura, identidad o IA) usa el que ya exista; si no hay ninguno, pregunta (por omisión `./.env` dentro de un checkout, `~/.mnemosine/.env` fuera de uno), y sin terminal aplica esa misma regla y dice cuál eligió. El archivo queda en modo 600 y `~/.mnemosine/` en 700, aunque ya existieran más abiertos.
+
+La llave de un proveedor que tecleas en `mnemosine init --section ai` es tuya y va siempre a `~/.mnemosine/.env`, aunque exista `./.env`: una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta. Si `./.env` define esa variable vacía (como la trae `.env.example`), init borra esa línea, porque taparía tu llave; si la define con valor, la deja y te avisa que en esa carpeta gana.
+
+## Trabajos programados
+
+`mnemosine jobs run-due`, el tic que corre cron o launchd, gasta la credencial de modelo de **quien lo corre** (#646). Qué trabajos vencidos de la entidad corre lo elige cada operador en su propio `~/.mnemosine/config.json`, con `"jobs": { "run_due": "adopted" }` o `"all"`:
+
+- **`adopted`**: sólo los que ese operador adoptó. Cada vencido que salta sale con su id y `mnemosine jobs adopt <id>`; queda vencido para quien sí lo adoptó.
+- **`all`**: todos, como antes; la primera línea dice que corre con su credencial trabajos que crearon otras personas.
+- **Sin definir**: igual que `all`, sin cambiar ningún horario, y stderr nombra los trabajos que corrió sin que su operador los adoptara. Elegir cualquiera de los dos valores calla el aviso.
+
+La adopción vive en `~/.mnemosine/adopted-jobs.json` (0600), por usuario del sistema: dos personas que comparten una cuenta del sistema comparten la lista, como ya comparten la credencial. `jobs create` adopta el trabajo para quien lo crea; `jobs adopt --list` muestra las adoptadas y `jobs unadopt <id>` quita una. Nada de esto va a la base ni a un archivo de proyecto, y la clave en un `mnemosine.config.json` de proyecto no se lee (el tic lo avisa). Un `adopted-jobs.json` que no se lee detiene el tic con `adopted` y sólo avisa sin definir o con `all`.
 
 ## Identidad con Cognito
 

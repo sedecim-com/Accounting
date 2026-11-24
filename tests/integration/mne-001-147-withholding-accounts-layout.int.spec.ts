@@ -236,7 +236,7 @@ describe('withholding_accounts_layout: fees and lease withholdings land on the a
   it('by_concept: approving a lease draft checks the ISR on 2144 and 2145 apart from the VAT on 2142', async () => {
     const e = byLayout.get('by_concept') as Fixture;
     const lines = (isr: string, vat: string): ApprovedLine[] => [
-      { account_code: '6100', debit: 8000 }, { account_code: '1130', debit: 1280 },
+      { account_code: '6100', debit: 8000 }, { account_code: '1135', debit: 1280 },
       { account_code: isr, credit: 800 }, { account_code: vat, credit: 853.33 },
       { account_code: '2110', credit: 7626.67 },
     ];

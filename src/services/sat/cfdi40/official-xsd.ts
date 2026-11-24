@@ -24,7 +24,24 @@ export const CFDI40_SCHEMA = path.join(CFDI40_XSD_ROOT, 'cfd', '4', 'cfdv40.xsd'
 export type Cfdi40Verdict = XsdVerdict;
 
 export function validateAgainstCfdi40Xsd(xml: string): Cfdi40Verdict {
-  const run = spawnSync('xmllint', ['--nonet', '--noout', '--schema', CFDI40_SCHEMA, '-'], {
+  return runXmllint(CFDI40_SCHEMA, xml, 'the CFDI');
+}
+
+/**
+ * The payroll complement 1.2 (nomina12.xsd, with its catalog catNomina.xsd),
+ * vendored in the same tree and resolved by the same catalog (#600,
+ * MNE-001-551). It judges a `nomina12:Nomina` element given as the document
+ * root: cfdv40.xsd takes the complement as xs:any, so the CFDI schema alone
+ * says nothing about what is inside it.
+ */
+export const PAYROLL_COMPLEMENT_SCHEMA = path.join(CFDI40_XSD_ROOT, 'cfd', 'nomina', 'nomina12.xsd');
+
+export function validateAgainstPayrollComplementXsd(xml: string): XsdVerdict {
+  return runXmllint(PAYROLL_COMPLEMENT_SCHEMA, xml, 'the payroll complement');
+}
+
+function runXmllint(schema: string, xml: string, what: string): XsdVerdict {
+  const run = spawnSync('xmllint', ['--nonet', '--noout', '--schema', schema, '-'], {
     input: xml,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -33,7 +50,7 @@ export function validateAgainstCfdi40Xsd(xml: string): Cfdi40Verdict {
   if (run.error) {
     throw new Error(
       `xmllint did not run (${run.error.message}). Install libxml2-utils (apt) or libxml2 ` +
-        `(Homebrew): the CFDI is checked against the SAT's official XSD.`
+        `(Homebrew): ${what} is checked against the SAT's official XSD.`
     );
   }
   return xsdVerdictOf(run);

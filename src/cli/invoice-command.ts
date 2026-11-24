@@ -45,7 +45,7 @@ import {
   optionByKey,
   argumentByKey,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
 import { todayFor, zoneFor } from '../services/policy/today.js';
 import {
@@ -379,7 +379,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(
@@ -669,7 +669,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // and --idempotency-key, and refuses to let the agent near this command.
   declareRisk(issue, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez' },
+    llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },
     writes: 'journal_entries + account_balances + invoices.status',
   });
   issue.addHelpText('after', EJEMPLOS.issue);
@@ -765,7 +765,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
   declareRisk(voidCmd, {
     risk: 'irreversible',
-    llave: { sinLlave: 'un reintento vuelve a postear el espejo de la anulación' },
+    llave: { sinLlave: { key: 'ar.invoice.retry_void_mirror' } },
     writes: 'invoices.status + a reversing journal_entry',
   });
   voidCmd.addHelpText('after', EJEMPLOS.void);
@@ -904,7 +904,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // --reason obligatorio (verbo de deshacer) y jamás del agente.
   declareRisk(del, {
     risk: 'irreversible',
-    llave: { sinLlave: 'el borrado sólo es irrepetible por estado del borrador, no por llave' },
+    llave: { sinLlave: { key: 'ar.invoice.delete_by_state' } },
     writes: 'invoices + invoice_lines (hard delete, audit-logged)',
   });
   del.addHelpText('after', EJEMPLOS.delete);

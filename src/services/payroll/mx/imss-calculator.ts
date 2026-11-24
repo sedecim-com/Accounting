@@ -1,4 +1,14 @@
+import Decimal from 'decimal.js';
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../tax-engine/tax-engine.interface.js';
+import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
+import {
+  OLD_AGE_BAND_EDGE_POLICY,
+  OLD_AGE_EMPLOYER_RATE_PREFIX,
+  OLD_AGE_MINIMUM_WAGE_AREA_POLICY,
+  describeMinimumWageArea,
+  placeOldAgeBand,
+} from './old-age-band.js';
+import { MINIMUM_WAGE_PARAMETER_OF } from './minimum-wage-zone.js';
 import { contributionMonths, getTaxParameters, requiredParameter, requiredRates } from '../tax-engine/tax-tables.js';
 
 // ============================================================
@@ -7,6 +17,13 @@ import { contributionMonths, getTaxParameters, requiredParameter, requiredRates 
 // Cap (tope): 25 daily UMA. Excedente (excess): quota on the amount > 3 UMA.
 // Employee (obrero) pays some ramos; employer (patronal) pays more.
 // Reference: Ley del Seguro Social Arts. 25, 71, 106, 107, 146, 147, 168.
+//
+// The EMPLOYER quota for cesantía en edad avanzada y vejez is not one rate
+// (#661): LSS art. 168 fr. II a) sets it by SBC band and year. Each
+// contribution day pays the rate of its band, read from `legal_parameters` on
+// its date (migration 330); the band is placed by `old-age-band.ts`. The flat
+// `imss_employer.cesantia_vejez` of `tax_parameters` is the 2022 rate and has
+// no reader. The employee's 1.125 % is one rate and stays in its block.
 // ============================================================
 
 interface ImssEmployerRates {
@@ -21,7 +38,6 @@ interface ImssEmployerRates {
   riesgo_trabajo_clase_3: number;
   riesgo_trabajo_clase_4: number;
   riesgo_trabajo_clase_5: number;
-  cesantia_vejez: number;
   retiro: number;
 }
 
@@ -127,7 +143,6 @@ const EMPLOYER_RATE_KEYS = [
   'riesgo_trabajo_clase_3',
   'riesgo_trabajo_clase_4',
   'riesgo_trabajo_clase_5',
-  'cesantia_vejez',
   'retiro',
 ] as const satisfies readonly (keyof ImssEmployerRates)[];
 
@@ -144,6 +159,7 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
     const breakdown: Record<string, number> = {};
     const add = (k: string, v: number): void => { breakdown[k] = (breakdown[k] ?? 0) + v; };
     let taxableUsed = 0;
+    const notes = [`Work risk class ${riesgo_puesto || '01'}`];
 
     // Each month's days with that month's UMA (#242): see `contributionMonths`.
     for (const { tax_year, date, days } of contributionMonths(input, 15)) {
@@ -171,8 +187,40 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
       add('guarderias', sbcCapped * er.guarderias * days);
       // Work risk (riesgo de trabajo)
       add('riesgo_trabajo', sbcCapped * riesgoRate(er, riesgo_puesto) * days);
-      // Severance and old age (cesantia y vejez)
-      add('cesantia_vejez', sbcCapped * er.cesantia_vejez * days);
+      // Severance and old age (cesantia y vejez): the rate of the SBC band, on
+      // the date of the stretch (#661). Nothing here falls back to a figure: a
+      // missing rule, date, minimum wage or table row is named.
+      const edge = input.imss_old_age_band_edge;
+      if (!edge) {
+        throw new Error(
+          `The employer old-age quota needs the policy ${OLD_AGE_BAND_EDGE_POLICY}: LSS art. 168 writes its ` +
+            'bands to two decimals with no rounding rule, so the entity decides how an SBC meets an edge, ' +
+            'not this calculator. Read it with readOldAgeBandEdge and pass it in the input.'
+        );
+      }
+      if (!date) {
+        throw new Error(
+          'The employer old-age quota needs period_start and period_end: its rate depends on the SBC band ' +
+            'and on the year of each contribution day (LSS art. 168 fr. II a), and the year cannot be taken from today.'
+        );
+      }
+      const area = input.imss_minimum_wage_area;
+      if (!area) {
+        throw new Error(
+          `The employer old-age quota needs the policy ${OLD_AGE_MINIMUM_WAGE_AREA_POLICY}: the «1.00 SM» band is ` +
+            'measured with the minimum wage of an area, and the entity decides which. Read it with ' +
+            'readOldAgeMinimumWageArea and pass it in the input.'
+        );
+      }
+      const minimumWage = requiredParameter(params, MINIMUM_WAGE_PARAMETER_OF[area.zone], 'MX', tax_year);
+      const band = placeOldAgeBand({ sbc: sbcCapped, uma, minimumWage, edge });
+      const oldAge = await legalParameterAt('MX', OLD_AGE_EMPLOYER_RATE_PREFIX + band.suffix, date);
+      add('cesantia_vejez', new Decimal(sbcCapped).times(oldAge.value).times(days).toNumber());
+      notes.push(
+        `Old age (cesantía y vejez) from ${date}, ${days} days: band «${band.asPrinted}» at ` +
+          `${new Decimal(oldAge.value).times(100).toFixed(3)} %, UMA ${uma.toFixed(2)}, ` +
+          `minimum wage ${minimumWage.toFixed(2)} (${describeMinimumWageArea(area)}), edge rule ${edge}`
+      );
       // Retirement (SAR) — 2% paid directly to the AFORE
       add('retiro', sbcCapped * er.retiro * days);
 
@@ -187,7 +235,7 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
       tax_amount: Math.round(total * 100) / 100,
       taxable_wages_used: taxableUsed,
       breakdown,
-      notes: `Work risk class ${riesgo_puesto || '01'}`,
+      notes: notes.join('; '),
     };
   }
 }

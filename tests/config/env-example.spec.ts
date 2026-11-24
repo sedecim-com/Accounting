@@ -52,6 +52,13 @@ const PROVISTAS_POR_EL_ENTORNO = new Set([
   'PR_TITLE',
   'PR_AUTHOR',
   'PR_CREATED_AT',
+  // Las lee credential-state (MNE-001-444) para hallar la raíz de configuración
+  // del SDK de Anthropic, como la halla el propio SDK: las pone el sistema
+  // operativo o la sesión del usuario, no quien despliega.
+  'HOME',
+  'XDG_CONFIG_HOME',
+  'APPDATA', // Windows
+  'USERPROFILE', // Windows
 ]);
 
 /** Directorios que se recorren buscando lecturas del entorno. */
@@ -235,6 +242,12 @@ describe('.env.example es el censo, no una lista escrita a mano', () => {
         'tests/ las lee. Una variable documentada que no tiene efecto manda a ' +
         'configurar algo que no existe: bórrala del ejemplo.'
     ).toEqual([]);
+  });
+
+  it('MNEMOSINE_PROVIDER va vacío: un .env copiado no tapa el default_provider que guarda init', () => {
+    const m = /^MNEMOSINE_PROVIDER=(.*)$/m.exec(ejemplo);
+    expect(m, 'MNEMOSINE_PROVIDER debe estar declarado en .env.example').not.toBeNull();
+    expect(m?.[1].trim()).toBe('');
   });
 
   it('ningún valor de ejemplo parece un secreto de verdad', () => {

@@ -77,7 +77,7 @@ La configuración es [`eslint.config.mjs`](https://github.com/sedecim-com/Accoun
 | Nivel | Qué contiene | Ejemplo |
 |---|---|---|
 | `error` | Clases de defecto que se encontraron, se arreglaron y ahora bloquean la CI | `no-unused-vars` con la convención del guion bajo bajo; `no-namespace` permitiendo declaraciones, porque aumentar el tipo `Request` de Express es la única forma soportada |
-| `warn` | Insensatez que entra por **tipos de terceros** | Express 4 tipa `Request.body` como `any` y `fast-xml-parser` devuelve `any`, así que cada lectura de cuerpo y cada nodo de CFDI parseado es inseguro por construcción |
+| `warn` | Insensatez que entra por **tipos de terceros** | Express tipa `Request.body` como `any` y `fast-xml-parser` devuelve `any`, así que cada lectura de cuerpo y cada nodo de CFDI parseado es inseguro por construcción |
 | `off` | Reglas que pelean con una decisión de diseño **de aquí** | `require-await`: el sistema se apoya en interfaces que devuelven promesas cuyas implementaciones a veces son síncronas a propósito — la bóveda de desarrollo local, los adaptadores de PAC, la jerarquía de validadores |
 
 Se eligió el conjunto **con tipos** y no el barato precisamente porque `no-floating-promises` y `no-misused-promises` son las reglas que encontraron los errores reales de este repositorio. Y esas dos siguen **encendidas en `tests/`**: una prueba que olvida un `await` es una prueba que pasa por la razón equivocada.

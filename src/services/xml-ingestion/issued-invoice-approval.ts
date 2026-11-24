@@ -4,8 +4,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
-import type { CFDIParsed } from './cfdi-parser.js';
-import { money, sumTax, type ApprovedLine } from './pre-registration-service.js';
+import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
+import { identityRfc } from '../ar/opening-invoices.js';
+import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
+import { extractImpuestosLocales } from './cfdi-facts.js';
+import { money, sumTax } from './cfdi-amounts.js';
+import type { ApprovedLine } from './pre-registration-service.js';
 
 /** What approveDraftInternal needs back: the document the entry posts as, and how to close it. */
 export interface ApprovedDraftInvoice {
@@ -14,9 +19,23 @@ export interface ApprovedDraftInvoice {
   close(journalEntryId: string): Promise<void>;
 }
 
+/** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
+  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, 'impuestos_locales_por_pagar',
 ];
+
+/**
+ * The refusal of a PPD sale with IEPS on an entity with no account for the
+ * role where that IEPS waits: one seeded before MNE-001-505, until the
+ * backfill gives it 2181. Both doors say the same.
+ */
+export function ppdIepsWithoutRole(uuid: string, ieps: Decimal.Value): ValidationError {
+  return new ValidationError({
+    key: 'error.ISSUED_CFDI_PPD_IEPS',
+    params: { uuid, ieps: new Decimal(ieps).toFixed(2), role: IEPS_UNCOLLECTED_ROLE },
+  });
+}
 
 /** `customer create` as printed in the refusal, runnable: both values come from the XML. */
 export function customerCreateCommand(name: string, rfc: string): string {
@@ -24,39 +43,141 @@ export function customerCreateCommand(name: string, rfc: string): string {
   return `mnemosine customer create --name ${q(name)} --tax-id ${q(rfc)}`;
 }
 
+/** A customer of the entity that carries the receiver's RFC; `name` is its company name, or first plus last name. */
+export interface CustomerCandidate {
+  id: string;
+  customer_number: string;
+  is_active: boolean;
+  name: string | null;
+}
+
+export type CustomerChoice =
+  | { customer: CustomerCandidate }
+  | { none: 'no-match' | 'unnamed'; sameRfc: string[] }
+  | { several: CustomerCandidate[] };
+
+// NOTE: accents and punctuation are not folded. A miss only refuses; a fold would make «Peña» and
+// «Pena» one customer, and where both exist every sale to either would be an ambiguity with no way out.
+const comparableName = (name: string | null): string => (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 /**
- * THE CUSTOMER INVOICE BORN FROM AN APPROVED AI DRAFT (ING-3 · #320, S3).
+ * Whose receivable the CFDI is, among `rows`: every customer of the entity with
+ * the receiver's RFC, oldest first (MNE-001-523 · #671). A generic RFC
+ * identifies nobody, so the CFDI's name narrows the rows first; `unnamed` is
+ * that RFC with no name to match. Then active customers come before archived
+ * ones, and only exactly one is an answer: two are never settled by age.
+ * `sameRfc` carries up to five customer numbers under the RFC when none matches.
+ */
+export function chooseCustomer(rows: CustomerCandidate[], rfc: string, name: string): CustomerChoice {
+  let matching = rows;
+  if (identityRfc(rfc.trim().toUpperCase()) === null) {
+    const wanted = comparableName(name);
+    if (wanted === '') return { none: 'unnamed', sameRfc: [] };
+    matching = rows.filter((r) => comparableName(r.name) === wanted);
+  }
+  const active = matching.filter((r) => r.is_active);
+  const candidates = active.length > 0 ? active : matching;
+  if (candidates.length === 1) return { customer: candidates[0] };
+  if (candidates.length > 1) return { several: candidates };
+  return { none: 'no-match', sameRfc: rows.slice(0, 5).map((r) => r.customer_number) };
+}
+
+/** One entry line as the core reads it: the account already resolved to its id. */
+export interface IssuedInvoiceLine {
+  accountId: string;
+  debit?: number | string | null;
+  credit?: number | string | null;
+  description?: string;
+}
+
+/** Who is registering: the approval of an AI draft, or a person coding the CFDI by hand. */
+export type IssuedInvoiceDoor = 'draft' | 'manual';
+
+/** What each door is told. The draft's sentences are matched by its callers' tests: do not reword them. */
+const WORDING: Record<IssuedInvoiceDoor, {
+  notOpen: (preRegistrationId: string) => string;
+  afterCustomer: string;
+  entry: string;
+  afterMismatch: string;
+  changed: string;
+}> = {
+  draft: {
+    notOpen: (id) =>
+      `The CFDI behind this draft (pre-registration ${id}) is no longer open: it was already ` +
+      'turned into a customer invoice. Nothing was posted; reject this draft.',
+    afterCustomer: 'and approve again; the draft stays pending and nothing was posted.',
+    entry: 'The approved entry',
+    afterMismatch: 'Nothing was posted; correct the draft and approve again.',
+    changed: 'changed while the draft was being approved; everything was rolled back.',
+  },
+  manual: {
+    notOpen: (id) =>
+      `The CFDI of pre-registration ${id} is no longer open: it was already turned into a customer invoice. ` +
+      'Nothing was posted.',
+    afterCustomer: 'and run the command again; nothing was posted.',
+    entry: 'The entry',
+    afterMismatch: 'Nothing was posted; correct the lines and run the command again.',
+    changed: 'changed while it was being registered; everything was rolled back.',
+  },
+};
+
+/**
+ * THE CUSTOMER INVOICE OF AN ISSUED CFDI (ING-3 · #320, S3; MNE-001-454).
  *
- * The receivables mirror of registrarFacturaDeBorradorAprobado: called inside
- * the approval's transaction, before the approved entry posts with
- * `sourceType: 'invoice'`, so any throw rolls the whole approval back and the
- * draft stays pending. It guarantees:
+ * The receivables mirror of registrarFacturaDeBorradorAprobado, shared by the
+ * two doors: the approval of an AI draft (registerInvoiceFromApprovedDraft
+ * below) and a person coding the CFDI by hand. Called inside the caller's
+ * transaction, before the entry posts with `sourceType: 'invoice'`, so any
+ * throw rolls the whole operation back; a draft stays pending. It guarantees:
  *   - the pre-registration is an open 'invoice' whose CFDI the entity itself
  *     issued, locked and entity-scoped; a second draft of it finds nothing;
- *   - the receiver is already in the customer catalog (never created here);
+ *   - the receiver is already in the customer catalog (never created or
+ *     renamed here: the XML's name only selects among existing customers), and
+ *     it is exactly one customer (chooseCustomer): by RFC, or by name under a
+ *     generic RFC. Two that match stop the posting;
+ *   - one CFDI gives one invoice, whichever door or import wrote the first:
+ *     a UUID already on an invoice of the entity that is not void or
+ *     cancelled is refused, in any letter case, naming that invoice. It is a
+ *     read, not a constraint: a writer that does not take this
+ *     pre-registration's lock is not serialised by it;
  *   - the entry matches the CFDI figure by figure within
  *     `cfdi_tolerancia_cuadre`. The VAT must sit in the role the MetodoPago
  *     selects: a PPD parks it in iva_trasladado_no_cobrado, which is the
  *     balance the issued REP releases through the payments gate
- *     (rep-linkage.ts resolves the invoice by its cfdi_uuid).
+ *     (rep-linkage.ts resolves the invoice by its cfdi_uuid). A CFDI with no
+ *     MetodoPago is a PUE sale, VAT in iva_trasladado: that is how the
+ *     collection, the credit note and the IVA working paper will read the
+ *     invoice, so VAT parked for it would never be released (#668);
+ *   - IEPS and local taxes each sit on their own role and are checked like
+ *     the VAT on every CFDI: neither is revenue, an invoice line, or part of
+ *     `tax_amount`, which stays the VAT alone because the VAT release
+ *     prorates it. Local taxes sit on impuestos_locales_por_pagar, read from
+ *     the stored XML: they live in their own complement, outside the tax
+ *     breakdown (MNE-001-521, #669);
+ *   - the IEPS sits where the MetodoPago says, as the VAT does: a PUE's on
+ *     ieps_por_pagar (2180), a PPD's on ieps_trasladado_no_cobrado (2181),
+ *     because it is caused on collection (LIEPS art. 10) and each collection
+ *     moves its share to 2180 (ieps-cash-basis.ts). An entity with no account
+ *     for that role refuses a PPD with IEPS, naming the backfill (#699).
  */
-export async function registerInvoiceFromApprovedDraft(
+export async function registerIssuedInvoice(
   client: pg.PoolClient,
   opts: {
     tenantId: string;
     entityId: string;
     preRegistrationId: string;
-    approvedLines: ApprovedLine[];
-    approvedDescription: string;
-    accountIdByCode: Map<string, string>;
     userId: string;
+    description: string;
+    lines: IssuedInvoiceLine[];
+    door: IssuedInvoiceDoor;
   }
 ): Promise<ApprovedDraftInvoice> {
   const { entityId, preRegistrationId, userId } = opts;
+  const wording = WORDING[opts.door];
   const locked = await client.query<Record<string, unknown>>(
     `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal, COALESCE(x.descuento, 0) AS x_descuento,
             x.total AS x_total, x.metodo_pago AS x_metodo_pago, x.receptor_rfc AS x_receptor_rfc,
-            x.receptor_nombre AS x_receptor_nombre
+            x.receptor_nombre AS x_receptor_nombre, x.xml_content AS x_xml_content
        FROM pre_registrations p
        JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
        JOIN legal_entities le ON le.id = p.entity_id AND UPPER(TRIM(le.tax_id)) = UPPER(TRIM(x.emisor_rfc))
@@ -69,25 +190,66 @@ export async function registerInvoiceFromApprovedDraft(
   if (!preReg) {
     throw new AccountingError(
       'CFDI_ALREADY_INVOICED',
-      `The CFDI behind this draft (pre-registration ${preRegistrationId}) is no longer open: it was already ` +
-        'turned into a customer invoice. Nothing was posted; reject this draft.'
+      wording.notOpen(preRegistrationId)
     );
   }
   const uuid = String(preReg.x_cfdi_uuid);
   const receiverRfc = String(preReg.x_receptor_rfc);
 
-  const customer = await client.query<{ id: string }>(
-    `SELECT id FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
-      ORDER BY is_active DESC, created_at LIMIT 1`,
+  const receiverName = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const sameRfc = await client.query<CustomerCandidate>(
+    `SELECT id, customer_number, is_active,
+            COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+       FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
+      ORDER BY created_at, customer_number`,
     [entityId, receiverRfc]
   );
-  if (customer.rows.length === 0) {
-    const name = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const choice = chooseCustomer(sameRfc.rows, receiverRfc, receiverName);
+  if ('several' in choice) {
+    const active = choice.several[0].is_active;
     throw new ValidationError(
-      `CFDI ${uuid} is issued to "${name}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
-        `Register it with \`${customerCreateCommand(name, receiverRfc)}\` and approve again; the draft stays ` +
-        'pending and nothing was posted.',
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), and ${choice.several.length} ` +
+        `${active ? 'active' : 'archived'} customers of this entity match it: ` +
+        `${choice.several.map((c) => c.customer_number).join(', ')}. ` +
+        (active
+          ? "Archive the duplicate with `mnemosine customer archive <number> --reason '<why>'` "
+          : 'Restore the one it belongs to with `mnemosine customer restore <number>` ') +
+        wording.afterCustomer,
       'customer_id'
+    );
+  }
+  if ('none' in choice) {
+    if (choice.none === 'unnamed') {
+      throw new ValidationError(
+        `CFDI ${uuid} is issued to the generic RFC ${receiverRfc} with no receiver name. A generic RFC identifies ` +
+          'nobody, so the customer is matched by name, and this CFDI names nobody. Nothing was posted.',
+        'customer_id'
+      );
+    }
+    // Only a generic RFC leaves customers behind here: under a real one, any row is a candidate.
+    const others = choice.sameRfc.length === 0
+      ? ''
+      : ` The generic RFC ${receiverRfc} identifies nobody, so the customer is matched by name; ` +
+        `under that RFC and another name there are: ${choice.sameRfc.join(', ')}.`;
+    throw new ValidationError(
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
+        `Register it with \`${customerCreateCommand(receiverName, receiverRfc)}\` ${wording.afterCustomer}${others}`,
+      'customer_id'
+    );
+  }
+
+  const existing = await client.query<{ invoice_number: string; status: string }>(
+    `SELECT invoice_number, status FROM invoices
+      WHERE entity_id = $1 AND lower(cfdi_uuid) = lower($2) AND status NOT IN ('void', 'cancelled')
+      ORDER BY created_at LIMIT 1`,
+    [entityId, uuid]
+  );
+  if (existing.rows.length > 0) {
+    const { invoice_number: number, status } = existing.rows[0];
+    throw new AccountingError(
+      'CFDI_ALREADY_INVOICED',
+      `CFDI ${uuid} is already customer invoice ${number} (${status}). Nothing was posted.`,
+      { cfdi_uuid: uuid, invoice_number: number }
     );
   }
 
@@ -103,10 +265,15 @@ export async function registerInvoiceFromApprovedDraft(
   const accountsOf = (...names: string[]) =>
     new Set(roles.rows.filter((r) => names.includes(r.role)).map((r) => r.account_id));
   const withRole = accountsOf(...AR_ROLES);
-  // No MetodoPago is treated as PPD, as the prompt tells the agent: it never overstates the VAT due.
-  const pue = preReg.x_metodo_pago === 'PUE';
-  const lines = opts.approvedLines.map((l) => ({
-    accountId: opts.accountIdByCode.get(l.account_code) as string,
+  // The ledger's one rule, not a copy of it. Only the CFDI is passed: the invoice born here has
+  // no terms and no memo, so it is the only signal a later reader of that invoice will have.
+  const method = decideMetodoPago('issued', { cfdiMetodoPago: preReg.x_metodo_pago });
+  const pue = method.metodo === 'PUE';
+  const vatRole = !pue
+    ? 'iva_trasladado_no_cobrado, parked until the REP'
+    : method.assumed ? 'iva_trasladado; no MetodoPago, read as PUE' : 'iva_trasladado';
+  const lines = opts.lines.map((l) => ({
+    accountId: l.accountId,
     description: l.description,
     dr: money(l.debit),
     cr: money(l.credit),
@@ -121,6 +288,10 @@ export async function registerInvoiceFromApprovedDraft(
   const toAr = net(accountsOf('cxc'), 'debit');
   const paid = toAr.isZero() && pue && net(accountsOf('banco'), 'debit').gt(0);
   const vat = sumTax(summary.traslados, '002');
+  const ieps = sumTax(summary.traslados, '003');
+  const iepsRole = pue ? 'ieps_por_pagar' : IEPS_UNCOLLECTED_ROLE;
+  if (!pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
+  const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
   const figures = [
     {
       figure: paid ? 'total (debit to bank, collected PUE)' : 'total (debit to accounts receivable)',
@@ -128,9 +299,19 @@ export async function registerInvoiceFromApprovedDraft(
       cfdi: money(preReg.x_total),
     },
     {
-      figure: `transferred VAT (${pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado, parked until the REP'})`,
+      figure: `transferred VAT (${vatRole})`,
       entry: net(accountsOf(pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'), 'credit'),
       cfdi: vat,
+    },
+    {
+      figure: `transferred IEPS (${iepsRole})`,
+      entry: net(accountsOf(iepsRole), 'credit'),
+      cfdi: ieps,
+    },
+    {
+      figure: 'transferred local taxes (impuestos_locales_por_pagar)',
+      entry: net(accountsOf('impuestos_locales_por_pagar'), 'credit'),
+      cfdi: money(localTaxes),
     },
     {
       figure: 'withholdings by the customer (ISR + VAT)',
@@ -147,9 +328,9 @@ export async function registerInvoiceFromApprovedDraft(
   if (mismatches.length > 0) {
     throw new AccountingError(
       'CFDI_RECONCILIATION_FAILED',
-      `The approved entry does not match CFDI ${uuid}: ` +
+      `${wording.entry} does not match CFDI ${uuid}: ` +
         mismatches.map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI`).join('; ') +
-        `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
+        `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). ${wording.afterMismatch}`,
       { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }
     );
   }
@@ -164,12 +345,12 @@ export async function registerInvoiceFromApprovedDraft(
        status, cfdi_uuid, cfdi_status, description, created_by
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'stamped',$16,$17)`,
     [
-      invoiceId, entityId, invoiceNumber, customer.rows[0].id,
+      invoiceId, entityId, invoiceNumber, choice.customer.id,
       money(preReg.x_subtotal).toFixed(2), vat.toFixed(2), total.toFixed(2),
       paid ? '0.00' : total.toFixed(2), paid ? total.toFixed(2) : '0.00',
       preReg.currency_code ?? 'MXN', preReg.exchange_rate ?? 1,
       preReg.document_date, preReg.due_date ?? preReg.document_date,
-      paid ? 'paid' : 'sent', uuid, opts.approvedDescription, userId,
+      paid ? 'paid' : 'sent', uuid, opts.description, userId,
     ]
   );
   for (const [i, l] of revenue.entries()) {
@@ -177,7 +358,7 @@ export async function registerInvoiceFromApprovedDraft(
       `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
          revenue_account_id, line_amount, total_amount)
        VALUES ($1, $2, $3, $4, 1, $5, $6, $5, $5)`,
-      [uuidv4(), invoiceId, i + 1, l.description ?? opts.approvedDescription, l.cr.toFixed(2), l.accountId]
+      [uuidv4(), invoiceId, i + 1, l.description ?? opts.description, l.cr.toFixed(2), l.accountId]
     );
   }
 
@@ -208,9 +389,41 @@ export async function registerInvoiceFromApprovedDraft(
       if (linked.rowCount !== 1 || closed.rowCount !== 1 || processed.rowCount !== 1) {
         throw new AccountingError(
           'CFDI_ALREADY_INVOICED',
-          `CFDI ${uuid} changed while the draft was being approved; everything was rolled back.`
+          `CFDI ${uuid} ${wording.changed}`
         );
       }
     },
   };
+}
+
+/**
+ * The draft door of registerIssuedInvoice: the approval of an AI draft, whose
+ * lines name their accounts by code.
+ */
+export function registerInvoiceFromApprovedDraft(
+  client: pg.PoolClient,
+  opts: {
+    tenantId: string;
+    entityId: string;
+    preRegistrationId: string;
+    approvedLines: ApprovedLine[];
+    approvedDescription: string;
+    accountIdByCode: Map<string, string>;
+    userId: string;
+  }
+): Promise<ApprovedDraftInvoice> {
+  return registerIssuedInvoice(client, {
+    tenantId: opts.tenantId,
+    entityId: opts.entityId,
+    preRegistrationId: opts.preRegistrationId,
+    userId: opts.userId,
+    description: opts.approvedDescription,
+    lines: opts.approvedLines.map((l) => ({
+      accountId: opts.accountIdByCode.get(l.account_code) as string,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+    })),
+    door: 'draft',
+  });
 }

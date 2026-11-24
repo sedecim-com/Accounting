@@ -38,6 +38,9 @@ beforeAll(async () => {
   app.get('/ok', (_req, res) => {
     res.json({ language: res.locals.language as unknown, locale: res.locals.locale as unknown });
   });
+  app.get('/requested', (_req, res) => {
+    res.json({ requested: res.locals.languageRequested as unknown });
+  });
   // The real `authenticate` and error handler: a request with no token is
   // rejected with a 401 before any route, which is the case the mount order
   // in src/index.ts exists for.
@@ -59,7 +62,7 @@ beforeAll(async () => {
   app.use(errorHandler);
 
   await new Promise<void>((resolve) => {
-    server = app.listen(0, '127.0.0.1', resolve);
+    server = app.listen(0, '127.0.0.1', () => resolve());
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -155,6 +158,25 @@ describe('negotiateLocale on the wire', () => {
     const body = r.body as { errors: Array<{ code: string }>; meta: Record<string, unknown> };
     expect(body.errors[0]?.code).toBe('UNAUTHORIZED');
     expect(body.meta.language).toBeUndefined();
+  });
+});
+
+describe('negotiateLocale records whether the request named the language it got (MNE-001-152)', () => {
+  // The 422 of validateBody and validateQuery answers in English unless the
+  // request named a supported language itself (#151, the coordinator's
+  // decision 1 on MNE-001-152): the flag is how it knows.
+  it.each([
+    ['no header', undefined, false],
+    ['the wildcard, what Node fetch sends', '*', false],
+    ['only unsupported languages', 'fr', false],
+    ['an unsupported language, then the wildcard', 'fr, *;q=0.1', false],
+    ['Spanish', 'es', true],
+    ['a region of Spanish', 'es-AR', true],
+    ['English through a region', 'en-GB', true],
+    ['English after an unsupported first choice', 'fr, en;q=0.5', true],
+  ] as Array<[string, string | undefined, boolean]>)('%s', async (_label, header, requested) => {
+    const r = await get('/requested', header);
+    expect(r.body).toEqual({ requested });
   });
 });
 

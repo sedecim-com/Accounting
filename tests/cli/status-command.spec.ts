@@ -25,6 +25,7 @@ import {
   type StatusReport,
 } from '../../src/cli/status-command.js';
 import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 const mockQuery = query as unknown as Mock;
 
@@ -335,6 +336,62 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
   });
 });
 
+describe('formatStatus — the readiness answer every surface gives (MNE-001-443)', () => {
+  // The credential label is the catalog's (MNE-001-444) and this file runs on
+  // the default locale; these cases read its English text.
+  beforeEach(() => setLanguage('en'));
+  afterEach(() => resetLanguage());
+  it('a helper\'s credential reads as its api_key_cmd and file, not as «<VAR> set», and its command never prints', async () => {
+    writeConfig({
+      default_provider: 'vaulted',
+      providers: {
+        vaulted: {
+          type: 'openai-compatible', model: 'vault-model', base_url: 'https://vault.example/v1',
+          api_key_env: 'VAULT_FAKE_KEY', api_key_cmd: 'security find-generic-password -w -s vault-key',
+        },
+      },
+    });
+    mockDbUp();
+    const resolveProfileFn = vi.fn().mockReturnValue({
+      name: 'vaulted', type: 'openai-compatible', model: 'vault-model',
+      base_url: 'https://vault.example/v1', apiKey: 'sk-fake-helper-token',
+    });
+    const r = await buildStatusReport({ cwd: tmpDir, env: {}, probeOptions: { fetchImpl: okFetch() }, resolveProfileFn });
+    const row = r.providers[0];
+    expect(row.credential).toBe(
+      `api_key_cmd in ${path.join(tmpDir, 'mnemosine.config.json')}, a project file shared by everyone who runs mnemosine in that folder`
+    );
+    // The live probe still runs the helper, as today.
+    expect(resolveProfileFn).toHaveBeenCalledTimes(1);
+    expect(row.probe?.ok).toBe(true);
+    const out = formatStatus(r, plainPalette).join('\n');
+    expect(out).toContain(row.credential);
+    expect(out).not.toMatch(/VAULT_FAKE_KEY set/);
+    expect(out + JSON.stringify(r)).not.toMatch(/find-generic-password|sk-fake-helper-token/);
+  });
+
+  it('a remote profile with no key reads «no credential configured», not «no credential required»', async () => {
+    writeConfig({
+      default_provider: 'nim',
+      providers: { nim: { type: 'openai-compatible', model: 'n', base_url: 'https://nim.example/v1' } },
+    });
+    mockDbUp();
+    const r = await buildStatusReport({ cwd: tmpDir, env: {}, probeOptions: { fetchImpl: okFetch() } });
+    const out = formatStatus(r, plainPalette).join('\n');
+    expect(r.providers[0].credential).toBe('no credential configured');
+    expect(out).toMatch(/nim\s+n\s+no credential configured/);
+    expect(out).not.toMatch(/no credential required/);
+  });
+
+  it('a set variable and a missing one keep their names, never their values', async () => {
+    writeConfig();
+    mockDbUp();
+    const r = await buildStatusReport({ cwd: tmpDir, env, probeOptions: { fetchImpl: okFetch() } });
+    expect(r.providers.map((p) => p.credential)).toEqual(['FAKE_STATUS_KEY set', 'BACKUP_KEY missing']);
+    expect(formatStatus(r, plainPalette).join('\n')).not.toContain(FAKE_KEY);
+  });
+});
+
 describe('statusExitCode — DB is the primary gate; --strict adds probe failures', () => {
   const base = (over: Partial<StatusReport> = {}): StatusReport => ({
     config: {
@@ -349,7 +406,7 @@ describe('statusExitCode — DB is the primary gate; --strict adds probe failure
     providers: [],
     ...over,
   });
-  const okRow = { name: 'p', type: 'openai-compatible', model: 'm', keyEnv: null, keySet: false };
+  const okRow = { name: 'p', type: 'openai-compatible', model: 'm', keyEnv: null, keySet: false, credential: 'local, no credential' };
 
   it('an unreachable database exits 1 with or without --strict', () => {
     const r = base({ database: { ok: false, detail: 'unreachable (ECONNREFUSED)' } });
@@ -384,6 +441,10 @@ describe('statusExitCode — DB is the primary gate; --strict adds probe failure
 });
 
 describe('redaction — the whole output is shareable in a support ticket', () => {
+  // The credential label is the catalog's (MNE-001-444) and this file runs on
+  // the default locale; these cases read its English text.
+  beforeEach(() => setLanguage('en'));
+  afterEach(() => resetLanguage());
   async function reportWithEchoingProvider(): Promise<StatusReport> {
     writeConfig();
     mockDbUp();

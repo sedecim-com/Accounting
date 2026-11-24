@@ -50,6 +50,8 @@ interface FakeState {
   bankGl?: string | null;
   /** rowCount of the guarded UPDATEs of a collection (1 by default). */
   updateRows?: number;
+  /** Live allocations of the collection still waiting for their released IVA. */
+  unreleased?: string[];
 }
 
 let state: FakeState;
@@ -95,6 +97,11 @@ function fakeClient(): pg.PoolClient {
           .map((role) => ({ role, account_id: `acct:${role}` })),
       };
     }
+    if (sql.includes('FOR UPDATE OF pa')) return { rows: (state.unreleased ?? []).map((id) => ({ id })) };
+    // MNE-001-597 · no application here takes an early-payment discount: the
+    // rows that store the discount's VAT read as none. Checked BEFORE the
+    // generic branch, whose rows have another shape.
+    if (sql.includes('AS taken')) return { rows: [] };
     if (sql.includes('FROM payment_allocations pa') || sql.includes('FROM payment_applications pa')) {
       return { rows: state.applied };
     }
@@ -200,15 +207,17 @@ describe('the four issuance cases land in the four accounts', () => {
     expect(lineFor('acct:iva_trasladado')).toBeUndefined();
   });
 
-  it('bill PUE → DR iva_acreditable 80', async () => {
+  // MNE-001-492: PUE is the issuer's label, not proof of payment; the VAT waits for the payment.
+  it('bill PUE → DR iva_pendiente_acreditar 80, nothing creditable yet', async () => {
     state.cfdiMetodo = { 'bill-1': 'PUE' };
     await postBillEntry(fakeClient(), bill(), billLines(), USER);
 
-    const iva = lineFor('acct:iva_acreditable');
+    const iva = lineFor('acct:iva_pendiente_acreditar');
     expect(iva).toBeDefined();
     expect(iva!.debit_amount).toBe('80.0000');
     expect(iva!.credit_amount).toBeNull();
-    expect(lineFor('acct:iva_pendiente_acreditar')).toBeUndefined();
+    expect(iva!.description).toMatch(/IVA PUE - Bill BILL-001 · IVA not yet creditable — moves to IVA acreditable on payment/);
+    expect(lineFor('acct:iva_acreditable')).toBeUndefined();
   });
 
   it('bill PPD → DR iva_pendiente_acreditar 80, nothing creditable yet', async () => {
@@ -259,7 +268,7 @@ describe('a document with no MetodoPago', () => {
   it('reads an explicit code out of the terms rather than assuming', async () => {
     await postBillEntry(fakeClient(), bill({ terms: 'PUE - pagado al contado' }), billLines(), USER);
 
-    expect(lineFor('acct:iva_acreditable')!.debit_amount).toBe('80.0000');
+    expect(lineFor('acct:iva_pendiente_acreditar')!.description).toMatch(/^IVA PUE - Bill/);
     expect(entryDescription()).toBe('Bill BILL-001');
     expect(mockWarn).not.toHaveBeenCalled();
   });
@@ -383,9 +392,27 @@ describe('customer payment applied to a PPD invoice', () => {
     expect(update).toMatch(/iva_reclass_amount IS NULL/);
   });
 
+  // MNE-001-459: what released nothing stores 0, so NULL keeps meaning "never stored".
+  it('stores 0 on the live allocations that released nothing, and is loud when one is missed (invariant 3)', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PUE' };
+    state.applied = [appliedInvoice()];
+    state.unreleased = ['alloc-1'];
+
+    await postCustomerPaymentEntry(fakeClient(), payment(), USER);
+    const zero = sqlLog.find((q) => q.includes('SET iva_reclass_amount = 0'));
+    expect(zero).toMatch(/cp\.entity_id = \$2/);
+    expect(zero).toMatch(/pa\.unapplied_at IS NULL AND pa\.iva_reclass_amount IS NULL/);
+
+    state.updateRows = 0;
+    await expect(postCustomerPaymentEntry(fakeClient(), payment(), USER)).rejects.toThrow(/1 live allocations released no IVA and 0 recorded it/);
+  });
+
+  // MNE-001-491 keeps the method test on the issued side: even with its IVA
+  // sitting in 2125 (#668), an invoice read as PUE releases nothing.
   it('moves nothing for a PUE invoice: its IVA was already due', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PUE' };
     state.applied = [appliedInvoice()];
+    state.parked = { 'inv-1': '160.0000' };
 
     await postCustomerPaymentEntry(fakeClient(), payment(), USER);
 
@@ -417,12 +444,24 @@ describe('vendor payment applied to a PPD bill', () => {
     expect(entryDescription()).toBe('Vendor payment VPMT-001 · IVA creditable on payment: BILL-001');
   });
 
-  it('moves nothing for a PUE bill', async () => {
+  it('moves nothing for a PUE bill that parked nothing: its IVA went to the creditable account', async () => {
     state.cfdiMetodo = { 'bill-1': 'PUE' };
     state.applied = [appliedBill()];
+    state.parked = { 'bill-1': '0' };
 
     await postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '580.0000' }), USER);
     expect(lines()).toHaveLength(2);
+  });
+
+  // MNE-001-491: where the IVA sits decides the release, not the method.
+  it('releases the parked IVA of a PUE bill on payment', async () => {
+    state.cfdiMetodo = { 'bill-1': 'PUE' };
+    state.applied = [appliedBill()];
+    state.parked = { 'bill-1': '80.0000' };
+
+    await postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '580.0000' }), USER);
+    expect(lineFor('acct:iva_acreditable')).toMatchObject({ debit_amount: '80.0000', credit_amount: null });
+    expect(lineFor('acct:iva_pendiente_acreditar')).toMatchObject({ debit_amount: null, credit_amount: '80.0000' });
   });
 
   it('does not touch the IVA of a US entity even when a bill was applied', async () => {

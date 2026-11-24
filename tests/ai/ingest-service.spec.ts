@@ -34,11 +34,16 @@ const { registrarSombraMock, wouldMatchMock, getDraftMock } = vi.hoisted(() => (
 }));
 
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   ingestCfdiFiles,
   buildCfdiPrompt,
   scanImportedText,
   isProviderUnavailable,
+  leftToCodeSummary,
+  resolveIngestProfile,
+  previewRoute,
   UNTRUSTED_OPEN,
   UNTRUSTED_CLOSE,
   type DraftCapture,
@@ -49,7 +54,9 @@ import { ValidationError } from '../../src/utils/errors.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { LlmSession } from '../../src/ai/providers/types.js';
 import { NoMatchingApprovalPolicyError } from '../../src/ai/draft-service.js';
-import type { IngestThresholds } from '../../src/ai/providers/config.js';
+import { MissingProviderCredentialError, type IngestThresholds } from '../../src/ai/providers/config.js';
+import { CredentialHelperError } from '../../src/ai/providers/credential-helper.js';
+import { OpenAIError } from 'openai';
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -78,7 +85,7 @@ function makeUpload(overrides: Record<string, unknown> = {}, preReg: Record<stri
   };
 }
 
-type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double' | 'no-key';
+type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double' | 'no-key' | 'helper-fails';
 
 /** Fake session: each runTurn "creates" the draft via the harness capture. */
 function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
@@ -91,6 +98,11 @@ function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
       if (step === 'throw') throw new Error('model down');
       // What the Anthropic SDK throws when no credential resolves at all.
       if (step === 'no-key') throw new Error('Could not resolve authentication method. Expected one of apiKey, authToken');
+      // What the openai SDK throws when the async apiKey (a renewing helper) fails (MNE-001-446).
+      if (step === 'helper-fails') {
+        const cause = new CredentialHelperError('vault', { kind: 'exit', code: 4 });
+        throw new OpenAIError(`Failed to get token from 'apiKey' function: ${cause.message}`, { cause });
+      }
       if (step === 'question') return 'asked a question'; // no draft created
       if (step === 'double') {
         capture.drafts.push(
@@ -428,6 +440,30 @@ describe('buildCfdiPrompt', () => {
     expect(prompt).toMatch(/No Method declared[\s\S]*treat it as PPD/);
   });
 
+  // MNE-001-493: since MNE-001-492 a received PUE parks its VAT in 1135 at
+  // every door, and the draft door refuses one owed to vendors with its VAT on
+  // 1130. The prompt and the manual the agent reads must draft it that way.
+  it('a received PUE is drafted against vendors with its VAT in 1135, never against banks (MNE-001-493)', () => {
+    const prompt = buildCfdiPrompt({ ...makeUpload({ metodo_pago: 'PUE' }), direction: 'received' });
+    const pue = prompt.slice(prompt.indexOf('   - PUE'), prompt.indexOf('   - PPD'));
+    expect(pue).toMatch(/debit "IVA Pendiente de Acreditar"\s+\(1135\)\s+\+\s+credit vendors/);
+    expect(pue).not.toMatch(/1130|banks/);
+    expect(prompt).toMatch(/moves it from 1135 to 1130/);
+    expect(prompt).not.toMatch(/credit banks/);
+    expect(prompt).not.toMatch(/PUE = paid/);
+    expect(prompt).not.toMatch(/debit "IVA Acreditable" \(1130\)/);
+  });
+
+  it('the manual the agent reads drafts a received PUE as the prompt does (MNE-001-493)', () => {
+    const manual = fs.readFileSync(path.resolve(__dirname, '../../src/ai/docs/mexico-cfdi.md'), 'utf8');
+    const ingestion = manual.slice(manual.indexOf('## Ingestion of received CFDIs'));
+    const layer2 = ingestion.slice(ingestion.indexOf('2. YOU classify'), ingestion.indexOf('3. Auto-post gates'));
+    expect(layer2).toMatch(/against VENDORS — never banks — with the VAT in 1135/);
+    expect(layer2).not.toMatch(/chosen by PUE\/PPD/);
+    expect(layer2).not.toMatch(/to bank for a paid PUE/);
+    expect(manual).not.toMatch(/credit banks|PUE = paid/);
+  });
+
   it('flags an unregistered vendor and tolerates malformed lines', () => {
     const prompt = buildCfdiPrompt(
       makeUpload({}, { vendor_id: null, lines: '{not json' })
@@ -683,6 +719,19 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
     expect(prompt).not.toMatch(/Vendor NOT registered|IVA Pendiente de Acreditar/);
   });
 
+  it('an issued CFDI with no method is a PUE sale, VAT in 2120; only a purchase waits as PPD (MNE-001-520)', () => {
+    const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
+    expect(issued).toMatch(/No Method declared: treat it as PUE[\s\S]*2120/);
+    expect(issued).not.toMatch(/treat it as PPD/);
+  });
+
+  it('an issued CFDI sends a PPD\'s IEPS to the uncollected role (2181) and a PUE\'s to 2180 (MNE-001-505, #699)', () => {
+    const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
+    expect(issued).toMatch(/a PUE's goes to "IEPS por Pagar" \(2180\)/);
+    expect(issued).toMatch(/PPD's to "IEPS Trasladado No Cobrado" \(2181\), because it is caused on collection \(LIEPS art\. 10\)/);
+    expect(buildCfdiPrompt({ ...makeUpload(), direction: 'received' })).not.toMatch(/2181/);
+  });
+
   it('the prompt states the direction instead of assuming a received CFDI', () => {
     const received = buildCfdiPrompt({ ...makeUpload(), direction: 'received' });
     expect(received).toMatch(/- Direction: received \(the entity is the receiver/);
@@ -725,6 +774,25 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(session.runTurn).not.toHaveBeenCalled();
   });
 
+  it('an issued CFDI left to code is sent to cfdi post, never to the bill inbox (MNE-001-418)', async () => {
+    const issued = { ...makeUpload({ cfdi_uuid: 'UUID-2' }, { document_type: 'invoice' }), direction: 'issued' as const };
+    const { report } = run({ noModel: true, plan: [], files: ['/tmp/a.xml', '/tmp/b.xml'], uploads: [makeUpload(), issued] });
+    const r = await report;
+    expect(r.results[0].detail).toMatch(/bill inbox list/);
+    expect(r.results[1]).toMatchObject({ status: 'blocked', toCode: true });
+    expect(r.results[1].detail).toMatch(/mnemosine cfdi post UUID-2/);
+    expect(r.results[1].detail).toMatch(/cfdi list --direction emitido --type cfdi_ingreso --status pending/);
+    expect(r.results[1].detail).not.toMatch(/bill inbox/);
+    expect(r).toMatchObject({ toCode: 2, issuedToCode: 1 });
+    expect(r.counts.blocked).toBe(r.toCode);
+    const summary = leftToCodeSummary(r)!;
+    expect(summary).toMatch(/^2 left to code/);
+    expect(summary).toMatch(/bill inbox edit/);
+    expect(summary).toMatch(/1 .*mnemosine cfdi post <uuid>/);
+    expect(leftToCodeSummary({ ...r, toCode: 1, issuedToCode: 1 })).not.toMatch(/bill inbox/);
+    expect(leftToCodeSummary({ ...r, toCode: 0, issuedToCode: 0 })).toBeNull();
+  });
+
   it('a missing credential is asked once, not file by file: the batch falls back to the deterministic layer', async () => {
     const { report, session } = run({
       plan: ['no-key', { confidence: 0.99 }],
@@ -738,10 +806,49 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(session.runTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('a helper renewal that fails mid-batch stops asking the model for the rest (MNE-001-446)', async () => {
+    const { report, session } = run({
+      plan: [{ confidence: 0.99 }, 'helper-fails', { confidence: 0.99 }],
+      thresholds: CLOSED,
+      files: ['/tmp/a.xml', '/tmp/b.xml', '/tmp/c.xml'],
+      uploads: [makeUpload(), makeUpload({ cfdi_uuid: 'UUID-2' }), makeUpload({ cfdi_uuid: 'UUID-3' })],
+    });
+    const r = await report;
+    expect(r.results.map((x) => x.status)).toEqual(['draft', 'blocked', 'blocked']);
+    expect(r.counts.error).toBe(0);
+    expect(r.toCode).toBe(2);
+    expect(session.runTurn).toHaveBeenCalledTimes(2);
+    expect(r.results[2].detail).toMatch(/Provider "vault": its api_key_cmd exited with code 4/);
+  });
+
+  it('a failing helper at start fails ingest loudly; only a missing credential means «no model» (MNE-001-446)', () => {
+    const helperError = new CredentialHelperError('vault', { kind: 'empty' });
+    expect(() =>
+      resolveIngestProfile(() => {
+        throw helperError;
+      })
+    ).toThrow(helperError);
+    const missing = resolveIngestProfile(() => {
+      throw new MissingProviderCredentialError('Provider "openai" requires the environment variable OPENAI_API_KEY');
+    });
+    expect(missing.profile).toBeNull();
+    expect(missing.warning).toMatch(/OPENAI_API_KEY/);
+    expect(resolveIngestProfile(() => 'a profile')).toEqual({ profile: 'a profile' });
+    expect(() =>
+      resolveIngestProfile(() => {
+        throw new Error('Provider "x" does not exist');
+      })
+    ).toThrow(/does not exist/);
+  });
+
   it('isProviderUnavailable: credential and billing errors yes, a transient failure no', () => {
     expect(isProviderUnavailable(new Error('Could not resolve authentication method.'))).toBe(true);
     expect(isProviderUnavailable({ name: 'AuthenticationError', message: 'invalid x-api-key' })).toBe(true);
     expect(isProviderUnavailable(new Error('model down'))).toBe(false);
+    const helper = new CredentialHelperError('vault', { kind: 'deadline', ms: 10_000 });
+    expect(isProviderUnavailable(helper)).toBe(true);
+    expect(isProviderUnavailable(new OpenAIError('wrapped', { cause: helper }))).toBe(true);
+    expect(isProviderUnavailable(new OpenAIError('wrapped', { cause: new Error('model down') }))).toBe(false);
   });
 
   it('without --retry an already registered CFDI stays a duplicate, and the detail says how to reprocess it', async () => {
@@ -778,5 +885,50 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(r.status).toBe('duplicate');
     expect(r.detail).toMatch(/not reprocessable/);
     expect(session.runTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('MNE-001-490 · #692 — a received credit note is not drafted', () => {
+  const received = () => ({
+    ...makeUpload({ cfdi_uuid: 'UUID-E' }, { document_type: 'credit_note' }), direction: 'received' as const,
+  });
+
+  it('I1 · with a live session the model is not called: blocked, to the inbox, nothing to code', async () => {
+    const { report, session } = run({ plan: [{ confidence: 0.99 }], files: ['/tmp/e.xml', '/tmp/q.xml'], uploads: [received(), makeUpload()] });
+    const r = await report;
+    expect(session.runTurn).toHaveBeenCalledTimes(1);
+    expect(r.results[0]).toMatchObject({ status: 'blocked', toInbox: true });
+    expect(r.results[0].toCode).toBeUndefined();
+    expect(r.results[0].detail).toMatch(/mnemosine bill inbox run/);
+    expect(r.results[0].detail).toMatch(/bill inbox list/);
+    expect(r).toMatchObject({ toCode: 0, toInbox: 1 });
+    expect(leftToCodeSummary(r)).toBeNull();
+  });
+
+  it('I2 · with no provider it is the same row, and it is not counted as left to code', async () => {
+    const { report } = run({ noModel: true, plan: [], files: ['/tmp/e.xml', '/tmp/b.xml'], uploads: [received(), makeUpload()] });
+    const r = await report;
+    expect(r.results[0]).toMatchObject({ status: 'blocked', toInbox: true });
+    expect(r.results[0].detail).toMatch(/mnemosine bill inbox run/);
+    expect(r.results[0].detail).not.toMatch(/no model provider/);
+    expect(r).toMatchObject({ toCode: 1, toInbox: 1 });
+  });
+
+  it('I3 · an issued type E is not taken by the branch: it still reaches the model', async () => {
+    const issued = { ...received(), direction: 'issued' as const };
+    const { report, session } = run({ plan: [{ confidence: 0.99 }], thresholds: CLOSED, uploads: [issued] });
+    const r = (await report).results[0];
+    expect(session.runTurn).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('draft');
+    expect(r.toInbox).toBeUndefined();
+  });
+
+  it('I4 · the dry run promises a received type E the inbox, not a draft', () => {
+    expect(previewRoute('E', 'received', CLOSED)).toMatch(/mnemosine bill inbox run/);
+    expect(previewRoute('E', 'received', OPEN)).not.toMatch(/AI classification/);
+    expect(previewRoute('E', 'issued', CLOSED)).toMatch(/sale draft/);
+    expect(previewRoute('I', 'received', CLOSED)).toMatch(/AI classification → draft for `mnemosine review`/);
+    expect(previewRoute('I', 'received', OPEN)).toMatch(/auto-posted only if every gate passes/);
+    expect(previewRoute('P', 'received', CLOSED)).toMatch(/^REP/);
   });
 });

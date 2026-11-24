@@ -56,6 +56,10 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('INVOICE_CHANGED')`: a collection's invoice UPDATE matched no row (MNE-001-580). */
+  'error.INVOICE_CHANGED': '{invoice} changed under this collection; nothing was written.',
+  /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
+  'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
   'error.FX_REVALUATION_PLAN_CHANGED':
     'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
@@ -68,6 +72,89 @@ export const EN = {
   /** `AccountingError('FX_RATE_MISSING')` when the source was chosen by a panel key other than fuente_tipo_cambio (the closing revaluation). */
   'error.FX_RATE_MISSING':
     'There is no {from}→{to} rate from the source {source} for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} RATE --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the source was chosen on the policy panel, and it is a criterion of the firm.',
+
+  // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
+  /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
+  'error.ISSUED_CFDI_NOT_SUPPORTED':
+    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+  /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection, and this entity has no account for the role it waits in (MNE-001-505, #699). */
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS is caused on collection (LIEPS art. 10) and waits in the role {role} (2181), which has no account on this entity. Add it with: npm run backfill:account-roles -- --aplicar. Nothing was posted.',
+  /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
+  'error.ISSUED_CFDI_NOT_OPEN':
+    'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',
+  /** `AccountingError('ISSUED_CFDI_DRAFT_IN_REVIEW')`: an AI draft of the same CFDI would book the sale twice. */
+  'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
+    'CFDI {uuid} has an AI draft in review or approved: approve or reject it with: mnemosine review. Nothing was posted.',
+  /** `AccountingError('CFDI_REQUIERE_DECISION')` at the hand door: `reason` is the classifier's, `commands` the panel keys that answer it. */
+  'error.ISSUED_CFDI_HELD':
+    'CFDI {uuid} is held and nothing was posted: {reason}{commands, select, none {} other {. Answer it with: {commands}, and run the command again}}',
+  /** `AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE')`: TipoRelacion 04 whose original is a live invoice. */
+  'error.ISSUED_CFDI_SUBSTITUTES_INVOICE':
+    'CFDI {uuid} substitutes a CFDI that is still customer invoice {invoice} ({status}): void that invoice first. Nothing was posted.',
+  /** `ValidationError`: the concepts do not add up to the revenue of the CFDI. */
+  'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH':
+    'The concepts of CFDI {uuid} add up to {lines} net of their discounts, and its SubTotal − Descuento is {revenue}: the revenue cannot be split by concept. Nothing was posted.',
+  /** `ValidationError`: a revenue line coded to an account that is not a postable revenue account with a credit balance. */
+  'error.ISSUED_CFDI_REVENUE_ACCOUNT':
+    'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
+
+  // ---- MNE-001-152 · the 422 of validateBody and validateQuery, one key per Zod issue (issue #151) ----
+  // The English is the zod 3.25.76 wording the 422 has always had, byte for
+  // byte (tests/api/golden/rest-body.golden.json pins it): `(s)` stays, because
+  // it is the contract. Paths, enum values, bounds, formats, keys and the JSON
+  // type names are interpolated raw and are never translated.
+  /** `RequestValidationError` of `validateBody`: `issues` is the `<path>: <message>` list, joined with '; '. */
+  'error.VALIDATION_ERROR.body': 'Invalid request body: {issues}',
+  /** `RequestValidationError` of `validateQuery`: `name` is the parameter, `issues` its messages joined with '; '. */
+  'error.VALIDATION_ERROR.query': 'Invalid query parameter: {name}: {issues}',
+  /** `legacyIssueKey`, `invalid_type` or `invalid_value` with no input. */
+  'error.VALIDATION_ERROR.issue.required': 'Required',
+  /** `legacyIssueKey`, `invalid_type`: a number `.int()` refused, ±Infinity included. */
+  'error.VALIDATION_ERROR.issue.integer_received_float': 'Expected integer, received float',
+  /** `legacyIssueKey`, `invalid_type`: ±Infinity where zod 3 accepted a number (T1). */
+  'error.VALIDATION_ERROR.issue.not_finite': 'Number must be finite',
+  /** `legacyIssueKey`, `invalid_type`, and `invalid_value` given a non-string: `expected` and `received` are JSON type names or quoted enum values. */
+  'error.VALIDATION_ERROR.issue.invalid_type': 'Expected {expected}, received {received}',
+  /** `legacyIssueKey`, `invalid_value` of a literal: `expected` is the literal as JSON. */
+  'error.VALIDATION_ERROR.issue.invalid_literal': 'Invalid literal value, expected {expected}',
+  /** `legacyIssueKey`, `invalid_value` of an enum given a string. */
+  'error.VALIDATION_ERROR.issue.invalid_enum_value': "Invalid enum value. Expected {expected}, received '{received}'",
+  /** `legacyIssueKey`, `invalid_format`: `format` is `regex` or zod 3's name of the format. */
+  'error.VALIDATION_ERROR.issue.invalid_format': '{format, select, regex {Invalid} other {Invalid {format}}}',
+  /** `legacyIssueKey`, `invalid_format` of `starts_with`, `ends_with` or `includes`. */
+  'error.VALIDATION_ERROR.issue.invalid_affix':
+    'Invalid input: must {affix, select, starts_with {start with} ends_with {end with} other {include}} "{value}"',
+  /** `legacyIssueKey`, `too_small` of an array: `bound` is exact, inclusive or exclusive. */
+  'error.VALIDATION_ERROR.issue.too_small.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at least} other {more than}} {minimum} element(s)',
+  /** `legacyIssueKey`, `too_small` of a string. */
+  'error.VALIDATION_ERROR.issue.too_small.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at least} other {over}} {minimum} character(s)',
+  /** `legacyIssueKey`, `too_small` of a number, an integer or a bigint. */
+  'error.VALIDATION_ERROR.issue.too_small.number':
+    'Number must be {bound, select, exact {exactly equal to} inclusive {greater than or equal to} other {greater than}} {minimum}',
+  /** `legacyIssueKey`, `too_big` of an array. */
+  'error.VALIDATION_ERROR.issue.too_big.array':
+    'Array must contain {bound, select, exact {exactly} inclusive {at most} other {less than}} {maximum} element(s)',
+  /** `legacyIssueKey`, `too_big` of a string. */
+  'error.VALIDATION_ERROR.issue.too_big.string':
+    'String must contain {bound, select, exact {exactly} inclusive {at most} other {under}} {maximum} character(s)',
+  /** `legacyIssueKey`, `too_big` of a number or an integer. */
+  'error.VALIDATION_ERROR.issue.too_big.number':
+    'Number must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `too_big` of a bigint. */
+  'error.VALIDATION_ERROR.issue.too_big.bigint':
+    'BigInt must be {bound, select, exact {exactly} inclusive {less than or equal to} other {less than}} {maximum}',
+  /** `legacyIssueKey`, `not_multiple_of`. */
+  'error.VALIDATION_ERROR.issue.not_multiple_of': 'Number must be a multiple of {divisor}',
+  /** `legacyIssueKey`, `unrecognized_keys`: `keys` are quoted and joined with ', '. */
+  'error.VALIDATION_ERROR.issue.unrecognized_keys': 'Unrecognized key(s) in object: {keys}',
+  /** `legacyIssueKey`, `invalid_union` and `custom` (a refine with no message of its own). */
+  'error.VALIDATION_ERROR.issue.invalid_input': 'Invalid input',
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
 
   // ==== end of error.* ================================================
 
@@ -368,21 +455,38 @@ export const EN = {
   'policy.rep_unknown_document.question':
     'The receipt names an invoice the system does not have: what happens to that VAT?',
   'policy.rep_unknown_document.impact':
-    'Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the tax waits, is skipped with a warning, or is asked about.',
+    "Without the original invoice there is no base to prorate the VAT of that instalment. Decides whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice is in the system, or the documents it knows go on as usual and the unknown one's share and VAT are never recorded from this receipt.",
   'policy.rep_unknown_document.rationale':
     'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III wants it until a document supports it. When the receipt DOES carry ImpuestosDR, that figure is checked against the proration over the original invoice: if they diverge beyond the tolerance, the receipt goes to review instead of releasing either figure silently.',
   'policy.rep_unknown_document.why':
     'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
   'policy.rep_unknown_document.what':
-    'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the system, running mnemosine rep reconcile links it.',
   'policy.rep_unknown_document.if_skipped':
     'I wait. Nothing is lost — the tax stays where it was.',
   'policy.rep_unknown_document.option.esperar':
-    'Wait: record the pending link and transfer no VAT for that document',
+    'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, and none of its VAT is transferred',
   'policy.rep_unknown_document.option.postear_sin_iva':
     'Match the cash and leave the VAT untransferred, with a warning',
   'policy.rep_unknown_document.option.preguntar':
-    'Ask for the VAT amount',
+    'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+
+  'policy.rep_voided_document.question':
+    'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+  'policy.rep_voided_document.impact':
+    'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+  'policy.rep_voided_document.rationale':
+    'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+  'policy.rep_voided_document.why':
+    'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+  'policy.rep_voided_document.what':
+    'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+  'policy.rep_voided_document.if_skipped':
+    'The whole payment goes to review, naming the annulled invoice.',
+  'policy.rep_voided_document.option.review':
+    'Review: hold the whole payment and name the annulled invoice',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Post the live invoices and leave the annulled one unbooked, with a warning',
 
   'policy.rep_match_window_days.question':
     'How many days apart can the receipt date and the recorded payment be and still be the same event?',
@@ -544,6 +648,57 @@ export const EN = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+  'policy.usmo_isr_subsidy.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
+  'policy.usmo_isr_subsidy.rationale':
+    'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+  'policy.usmo_isr_subsidy.why':
+    'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+  'policy.usmo_isr_subsidy.what':
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'I take it gross of the tariff, without subtracting the subsidy.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get',
+
+  'policy.usmo_days_per_month.question':
+    'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+  'policy.usmo_days_per_month.why':
+    'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+  'policy.usmo_days_per_month.what':
+    'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
+  'policy.usmo_days_per_month.if_skipped':
+    'I use 30 days.',
+  'policy.usmo_days_per_month.option.30':
+    'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Daily wage × 30.4 (the month of the monthly tariff)',
+
+  'policy.separation_isr_usmo_comparison.question':
+    'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+  'policy.separation_isr_usmo_comparison.impact':
+    'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+  'policy.separation_isr_usmo_comparison.rationale':
+    'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+  'policy.separation_isr_usmo_comparison.why':
+    'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+  'policy.separation_isr_usmo_comparison.what':
+    'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+  'policy.separation_isr_usmo_comparison.if_skipped':
+    'I compare the total paid.',
+  'policy.separation_isr_usmo_comparison.option.total_payments':
+    'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)',
+  'policy.separation_isr_usmo_comparison.option.taxable_payments':
+    'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -926,6 +1081,61 @@ export const EN = {
     'Stop the load until each vendor document says its IVA rate',
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
+
+  'policy.received_line_without_account.question':
+    'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+  'policy.received_line_without_account.impact':
+    'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+  'policy.received_line_without_account.rationale':
+    'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+  'policy.received_line_without_account.why':
+    'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+  'policy.received_line_without_account.what':
+    'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+  'policy.received_line_without_account.if_skipped':
+    'I post nothing until every line has an account.',
+  'policy.received_line_without_account.option.refuse':
+    'Post nothing until someone gives the line an account',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Post the line to the generic account of its expense role',
+
+  'policy.vat_overcredit_correction_period.question':
+    'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+  'policy.vat_overcredit_correction_period.impact':
+    'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+  'policy.vat_overcredit_correction_period.rationale':
+    'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.vat_overcredit_correction_period.why':
+    'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+  'policy.vat_overcredit_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+  'policy.vat_overcredit_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.vat_overcredit_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.vat_overcredit_correction_period.option.current_period':
+    'Post one correction per bill, dated today in the open period',
+  'policy.vat_overcredit_correction_period.option.payment_month':
+    'Post one correction per bill and month, in each payment\'s month',
+
+  'policy.discount_vat_correction_period.question':
+    'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+  'policy.discount_vat_correction_period.impact':
+    'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+  'policy.discount_vat_correction_period.rationale':
+    'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.discount_vat_correction_period.why':
+    'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+  'policy.discount_vat_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+  'policy.discount_vat_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.discount_vat_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.discount_vat_correction_period.option.current_period':
+    'Post one correction per bill and payment, dated today in the open period',
+  'policy.discount_vat_correction_period.option.payment_month':
+    'Post one correction per bill and payment, in the month the discount was posted',
 
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
@@ -1314,16 +1524,25 @@ export const EN = {
   'policy.short_payment_residual.option.prohibir':
     'Refuse: no bill closes short — demand the vendor credit note',
 
+  'policy.received_credit_note_cost.question': 'When a vendor sends a credit note for a bill, which account takes the cost it lowers?',
+  'policy.received_credit_note_cost.impact': 'Governs the entry of a received credit note posted from the inbox (`bill inbox run`). With "bill_accounts" the cost goes back to the expense accounts the bill debited, in proportion to its lines. With "purchase_returns" it goes to purchase returns and discounts (5200), whatever the bill debited. The payable and the VAT move the same either way.',
+  'policy.received_credit_note_cost.rationale': 'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+  'policy.received_credit_note_cost.why': 'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
+  'policy.received_credit_note_cost.what': 'When you run a vendor credit note from the inbox, I debit accounts payable for its total, take its VAT out of where the VAT of its bill is, and credit the cost to the account you choose here.',
+  'policy.received_credit_note_cost.if_skipped': 'The cost goes back to the expense accounts of the bill.',
+  'policy.received_credit_note_cost.option.bill_accounts': 'The accounts the bill debited: the note reverses what was booked',
+  'policy.received_credit_note_cost.option.purchase_returns': 'Purchase returns and discounts (5200): what vendors give back is shown apart',
+
   'policy.employment_subsidy_paid_treatment.question':
-    'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+    'The employment subsidy over the ISR that was handed to the worker in cash (the rule before 1 May 2024): a receivable from the tax authority or an expense of the firm?',
   'policy.employment_subsidy_paid_treatment.impact':
     'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'It is what the law allows and what the money actually is: the employer advances cash that the authority repays by way of credit. Expensing it is a decision to give up that credit, which some firms make deliberately when the amounts are small and the paperwork is not worth it — but it should be a decision, not the consequence of a default.',
   'policy.employment_subsidy_paid_treatment.why':
-    'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+    'Until 30 April 2024, when the subsidy was larger than the ISR of the period the employer had to hand the difference to the worker in cash. That money left the firm and comes back only if you credit it, so where you book it changes both your payroll expense and what you owe the SAT. A paycheck paid from 1 May 2024 hands over nothing (decree DOF 01-05-2024): that is law, and this decision does not apply to it. It still applies to a paycheck already calculated with that cash.',
   'policy.employment_subsidy_paid_treatment.what':
-    'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+    'For a paycheck that handed cash over, I post that cash to the account this policy names; with "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports. For a paycheck paid from 1 May 2024 I withhold no ISR, hand over nothing and post nothing for the excess, whatever this policy says.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':
@@ -1364,6 +1583,40 @@ export const EN = {
     'Recompute it once on the income of both paychecks, and credit on the second only the difference',
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
+
+  'policy.imss_old_age_band_edge.question':
+    'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+  'policy.imss_old_age_band_edge.impact':
+    'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+  'policy.imss_old_age_band_edge.why':
+    'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+  'policy.imss_old_age_band_edge.what':
+    'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'An SBC above an upper edge pays the next band.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'An SBC above a band\'s upper edge, by any amount, pays the next band',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
+
+  'policy.imss_old_age_minimum_wage_area.question':
+    'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'The general minimum of the area of the employer registration (the entity\'s declared zone)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'The general-zone minimum for every worker, whatever the registration\'s area',
 
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
@@ -1570,6 +1823,36 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cheque_advance_before_cashing.question':
+    'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+  'policy.cheque_advance_before_cashing.impact':
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. A PUE invoice at the receipt\'s own treatment is applied either way.',
+  'policy.cheque_advance_before_cashing.rationale':
+    'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
+  'policy.cheque_advance_before_cashing.why':
+    'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+  'policy.cheque_advance_before_cashing.what':
+    'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
+  'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
+  'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
+  'policy.cheque_advance_before_cashing.option.defer_to_cashing':
+    'Apply it to a PPD invoice now and net its IVA on the cashing day',
+
+  'policy.plain_receipt_unapply_iva.question':
+    'A receipt with no advance treatment is unapplied from a PPD invoice: does the IVA its collection caused stay caused, or go back to uncollected?',
+  'policy.plain_receipt_unapply_iva.impact':
+    'Governs `receipt unapply` of a receipt with no advance treatment on a PPD invoice whose collection released its IVA. With "keep_caused" the IVA stays in 2120 and the cash goes back to 2150 for its base, carrying that IVA, so applying it again nets it instead of causing it twice. With "repark_same_month" each allocation whose IVA was released in the calendar month of the unapply goes back to 2125, with the IEPS it moved; one released in an earlier month stays caused, and so does a cheque the bank has not cashed. The IVA workpaper keeps the IVA caused under either answer, and its tie-out names a re-park.',
+  'policy.plain_receipt_unapply_iva.rationale':
+    'LIVA art. 1-B, first paragraph: a price is collected when it is received, even as an advance, and an unapply returns no money. LIVA art. 7: only a documented return, discount or bonus takes the IVA back. Keeping it caused never lowers a month without a refund, the conservative option of ADR-0006. Re-parking in a later month would lower a month already declared, which takes an amended return (CFF art. 32), so neither answer does it.',
+  'policy.plain_receipt_unapply_iva.why':
+    'Some firms treat an unapply in the same month as the correction of a mistake, and want the invoice\'s IVA back as uncollected until the cash is applied again. Keeping it caused follows the law and nets when the cash is applied again.',
+  'policy.plain_receipt_unapply_iva.what':
+    'With "keep_caused" I leave the IVA in 2120 and record on the allocation what it kept. With "repark_same_month" I move back to 2125 the IVA of each allocation released in the month of the unapply, keep the rest caused, and the dry run says why.',
+  'policy.plain_receipt_unapply_iva.if_skipped': 'I keep the IVA caused.',
+  'policy.plain_receipt_unapply_iva.option.keep_caused': 'Keep the IVA caused and carry it on the cash back on account',
+  'policy.plain_receipt_unapply_iva.option.repark_same_month':
+    'Re-park it when the unapply is in the month the IVA was released',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -1636,6 +1919,8 @@ export const EN = {
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
     '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.minimum_wage_zone':
+    'the minimum wage zone is not declared: {count, plural, one {# worker is} other {# workers are}} computed with the general minimum',
   'pending.board.period_example':
     '{period} (ended {date})',
   'pending.policies.none':
@@ -1737,6 +2022,13 @@ export const EN = {
    *  es una gramática de DOS idiomas a la vez; en inglés sobra la mitad. */
   confirm_answer_not_understood:
     'did not understand “{answer}”: answer y or yes for yes, n or no for no',
+
+  /** `src/cli/kernel/confirmacion.ts` (`yesNoPrompt`): the suffix of every yes/no
+   *  prompt whose default is no. Written here once; no leaf writes it (#262). */
+  confirm_yes_no_suffix: '[y/N]',
+
+  /** The default-yes form (`yesNoPrompt(q, 'yes')`): the first-run prompt (#264). */
+  confirm_yes_no_suffix_default_yes: '[Y/n]',
 
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
@@ -2011,7 +2303,7 @@ export const EN = {
   'review.draft.invoice_to_be_born':
     'Approving creates the customer invoice of issued CFDI {uuid} · customer {customer} ({rfc}) · method {method} · total {total}',
   /** `src/cli/mnemosine.ts` review: `proveedor_desconocido_al_aprobar = preguntar` (#318). The name comes from the XML. */
-  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
+  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})?',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
   'help.ingest.argument.files':
@@ -2187,11 +2479,22 @@ export const EN = {
   'ingest.census.more_invalid': '… and {count} more',
   'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
   'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
+  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice;
+  // MNE-001-431 (#643): and the bill.
+  'ingest.census.marks':
+    'Cancelled by the SAT: {mirror, plural, one {# CFDI} other {# CFDI}} marked in the mirror, ' +
+    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled, ' +
+    '{bills, plural, one {# bill} other {# bills}} marked.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) carries CFDI {uuid}, which the SAT reports cancelled. Nothing was reversed: ' +
+    'its status, entry and balance stay until the accountant decides.',
+  'ingest.census.document.invoice': 'Invoice {number}',
+  'ingest.census.document.credit_note': 'Credit note {number}',
+  'ingest.census.document.bill': 'Bill {number}',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
-    "Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command " +
-    'aliases always work)',
+    "Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)",
   'help.onboard.description':
     "Imports a client's accounting from an external system (chart of accounts + opening balances)",
   'help.outbox.description':
@@ -2248,6 +2551,182 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
+  'receipt.apply.cheque_advance_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_ppd_only':
+    'The panel key {key} says defer_to_cashing, which nets the advance\'s IVA against the share a PPD invoice releases on the cashing day. {invoice} is a PUE invoice at another treatment than the receipt {receipt}: it releases no share, and applying it now would cancel {iva} of IVA nobody has caused (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it. Nothing was written.',
+  'receipt.unapply.iva_at_cashing':
+    'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
+  // MNE-001-574 (#792): a plain receipt's unapply keeps the IVA its collection caused.
+  'receipt.unapply.iva_kept': 'IVA kept caused {iva} (LIVA art. 1-B)',
+  // MNE-001-585 (#792): under repark_same_month a row released in an earlier month keeps its IVA caused.
+  'receipt.unapply.iva_kept_later_month':
+    'IVA kept caused {iva} (LIVA art. 1-B): {key} re-parks only in the month the IVA was released, and it was released before {month}, in a month that may already be declared',
+  'receipt.apply.other_customer':
+    '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
+  // MNE-001-460 (#623): an application and an unapply are dated.
+  'receipt.apply.date_future':
+    '{receipt} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
+  'receipt.unapply.date_future':
+    '{receipt} cannot be unapplied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was unapplied.',
+  'receipt.apply.date_before_last_event':
+    '{receipt} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  'receipt.unapply.date_before_last_event':
+    '{receipt} was last posted on {since}: an unapply dated {date} would undo it before it happened. Date it {since} or later. Nothing was unapplied.',
+  'receipt.apply.date_before_invoice':
+    '{invoice} is dated {invoiceDate}: cash applied on {date} would settle it before the sale existed. Date the application {invoiceDate} or later. Nothing was applied.',
+  'credit_note.advance.exceeds_invoiced_advance':
+    'Credit note {note} applies an advance of {requested}, and customer {customer} has {available} in advance invoices not yet applied. Nothing was posted. Cash on account is applied with `receipt apply`; an advance booked by a journal entry is applied by a journal entry.',
+  // MNE-001-489 (#692): why a received credit note waits for a person.
+  'credit_note.received.refusal.not_received': 'CFDI {note} is from {issuer} to {receiver}: the entity is not its receiver. Only a credit note a vendor issued to the entity is posted against a bill.',
+  'credit_note.received.refusal.not_credit_note': 'CFDI {note} is type {type} with TipoRelacion {relation}. Only a type E with TipoRelacion 01 (credit note) or 03 (return) is posted against a bill.',
+  'credit_note.received.refusal.note_foreign_currency': 'Credit note {note} is in {currency}. A received credit note is posted only when it and its bill are in the entity\'s currency; this one waits for a person.',
+  'credit_note.received.refusal.other_taxes': 'Credit note {note} carries a tax other than transferred VAT (IEPS, a local tax or a withholding). It waits for a person.',
+  'credit_note.received.refusal.related_bills': 'Credit note {note} has to name exactly one bill of this entity among its related CFDI, and it names {count}.',
+  'credit_note.received.refusal.bill_foreign_currency': 'Bill {bill} is in {currency}. Credit note {note} is posted only when it and its bill are in the entity\'s currency; it waits for a person.',
+  'credit_note.received.refusal.other_vendor': 'Credit note {note} was issued by {issuer}, and bill {bill} belongs to vendor {vendor}. A credit note lowers only a bill of its own issuer.',
+  'credit_note.received.refusal.bill_not_payable': 'Bill {bill} is "{status}". Credit note {note} is posted only against a bill that is {payable}.',
+  'credit_note.received.refusal.release_not_recorded': 'A payment applied to bill {bill} did not record the VAT it released, so what the bill still has in pending VAT cannot be known. Credit note {note} waits for a person.',
+  'credit_note.received.refusal.exceeds_balance': 'Credit note {note} is for {total} and bill {bill} owes {due}. A credit note larger than the balance of its bill is not posted.',
+  'credit_note.received.refusal.vat_out_of_proportion': 'Credit note {note} carries {vat} of VAT, and in the proportion of bill {bill} it would carry {expected}. A bill with more than one VAT rate does not say which part the note lowers; it waits for a person.',
+  'credit_note.received.refusal.capitalised_line': 'Bill {bill} has a line on an account with the role {role}. Credit note {note} would lower an asset and not an expense; it waits for a person.',
+  'credit_note.received.closed_period': 'Credit note {note} is dated {date}, in a period that is closed. It waits until the closed-period policy is answered: mnemosine pending define cfdi_periodo_cerrado periodo_actual',
+  'payment.apply.other_vendor':
+    '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
+  // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
+  'receipt.advance.treatment_unknown':
+    'The IVA treatment "{value}" of an advance is not known: state one of {allowed}.',
+  // MNE-001-462 (#623): the excess of a collection left on account is an advance.
+  'receipt.advance.tax_rate_needs_on_account':
+    'With an invoice, --tax-rate states the treatment of the excess a collection leaves on account, so it goes with --on-account. Without it the cash only settles the invoice. Nothing was recorded.',
+  'receipt.advance.nothing_on_account':
+    'A treatment was stated for the cash this receipt of {amount} leaves on account, and it leaves none: it applies all of it to invoices. Drop --tax-rate, or record the amount that exceeds what they owe. Nothing was recorded.',
+  'receipt.excess.from': 'rate of {invoices}',
+  'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
+  'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
+  'receipt.advance.not_mexican_books':
+    'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
+  'receipt.advance.cheque_held':
+    'Received by cheque, its IVA of {iva} is caused the day the bank cashes it (LIVA art. 1-B, second paragraph): until then the whole amount waits in customer advances, and recording the cashing with bank check reconcile --receipt moves the IVA to IVA charged on that day.',
+  // MNE-001-421 (#623): the advance from the terminal.
+  'receipt.advance.needs_customer':
+    'Name the invoice this cash settles, or the customer who paid it with --customer: with no invoice it is recorded as an advance.',
+  'receipt.advance.rate_required':
+    'An advance with no invoice causes its IVA when it is collected (LIVA art. 1-B), and the rate of a sale that has not happened is a fact you state, never a default: add --tax-rate 16, 8, 0, exempt or not-subject. Nothing was recorded.',
+  'receipt.advance.figures': 'base {base}, IVA {iva}, rate {rate}',
+  'receipt.advance.label': 'Advance',
+  'receipt.cheque.cashed_label': 'Cheque cashed',
+  'receipt.cheque.cashed': '{date} · bank transaction {transaction}',
+  'receipt.cheque.not_cashed': 'not recorded yet (`bank check reconcile --receipt`)',
+  'receipt.advance.confirm':
+    'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
+  // MNE-001-509 (#701): a reversed receipt says what happened to the money.
+  'receipt.reverse.cause_unknown':
+    'The cause "{value}" of a reversal is not known: state not_collected (the money never became yours) or taken_back (it arrived and was taken back). Nothing was written.',
+  'receipt.reverse.warning.card_not_collected':
+    'This receipt was paid by card, and a card is paid when it is accepted (LIVA art. 1-B): not_collected says the money never became yours. If it arrived and the bank took it back, as in a chargeback, the cause is taken_back.',
+  'receipt.reverse.warning.cause_not_stated':
+    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back) with `receipt cause record`.',
+  'receipt.reverse.cause.stated': 'cause {cause}',
+  'receipt.reverse.cause.defaulted':
+    'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
+  'receipt.reverse.cause.none': 'no cause stated',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.already_stated':
+    'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
+  'receipt.cause.reason_required':
+    'Stating the cause of a reversal requires --reason "<why>": it is written to the audit trail.',
+  'receipt.cause.would_state': 'Would state the cause {cause} for the reversal of {number}',
+  'receipt.cause.confirm':
+    'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
+  'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-498 (#695): a customer's cash on account, transferred to another customer.
+  'receipt.transfer.reason_required':
+    'Transferring a customer\'s credit requires --reason "<the agreement>": it is written to the audit trail and on the transfer. Nothing was written.',
+  'receipt.transfer.amount_invalid':
+    'The amount "{amount}" of a transfer must be greater than zero, with at most 4 decimals. Nothing was written.',
+  'receipt.transfer.not_mexican_books':
+    'This entity does not keep Mexican books: a transfer of customer credit is built for them (its IVA is caused when the credit settles an invoice, LIVA art. 1o.-B). Nothing was written.',
+  'receipt.transfer.not_completed':
+    'The receipt {receipt} is "{status}": only a completed receipt has cash on account to transfer. Nothing was written.',
+  'receipt.transfer.not_functional_currency':
+    'The receipt {receipt} is in {currency}: only cash on account in {functional} is transferred, because the transfer moves its amount in customer advances as it stands. Nothing was written.',
+  'receipt.transfer.source_is_transfer':
+    'The receipt {receipt} is itself a transfer of customer credit: passing it on to a third customer waits for part 2 (MNE-001-499), which defines how such a chain is undone. Nothing was written.',
+  'receipt.transfer.advance_in_499':
+    'The cash on account of {receipt} is an advance whose IVA was caused when it was collected (its base in customer advances, its IVA in IVA charged): transferring it splits base and IVA, which arrives with MNE-001-499. Nothing was written.',
+  'receipt.transfer.cheque_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed: it is not collected until it is cashed (LIVA art. 1-B), and a bounce would have to undo a credit the other customer relies on. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`. Nothing was written.',
+  'receipt.transfer.same_customer':
+    'The receipt {receipt} already belongs to {customer}: a transfer moves cash on account to another customer. Nothing was written.',
+  'receipt.transfer.exceeds_on_account':
+    'The receipt {receipt} has {onAccount} on account and {amount} would be transferred: the cash on account does not reach. Nothing was written.',
+  'receipt.transfer.date_future':
+    '{receipt} cannot be transferred on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was written.',
+  'receipt.transfer.date_before_last_event':
+    '{receipt} was last posted on {since}: a transfer dated {date} would give away its cash before that happened. Date it {since} or later. Nothing was written.',
+  'receipt.transfer.events_in_499':
+    'The receipt {receipt} is a transfer of customer credit: applying it to invoices, unapplying it and reversing it arrive with part 2 (MNE-001-499), which dates its IVA and mirrors its entry. Until then a wrong transfer is corrected with a transfer back. Nothing was written.',
+  'receipt.reverse.has_transfer':
+    'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Undo the transfer first (MNE-001-499). Nothing was written.',
+  'receipt.transfer.would_transfer': 'Would transfer {amount} of {source} from {from} to {to} on {date}',
+  'receipt.transfer.on_account': '{party} on account: {before} → {after}',
+  'receipt.transfer.confirm':
+    'Transfer {amount} of the cash on account of {source} from {from} to {to} on {date} in {entity}? This posts to the ledger.',
+  'receipt.transfer.recorded': '{number}: {amount} of {source} transferred from {from} to {to} on {date} · entry {entry}',
+  // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
+  'payment.trace.nothing_given':
+    'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
+  'payment.trace.reason_required':
+    'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
+  'payment.trace.too_long':
+    '{flag} admits up to {max} characters in the payment node of the SAT journal file, and {length} were given. Nothing was written.',
+  'payment.trace.not_completable':
+    'The payment {number} is "{status}": only a completed or reversed payment has a posted entry whose voucher declares its trace. Nothing was written.',
+  'payment.trace.already_captured':
+    'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
+  'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-571 (#612): the capture warning is the generator's finding for that voucher.
+  'payment.capture.untraced_voucher':
+    'When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate` will name voucher {entry} of {number}:',
+  // MNE-001-401 (#532): 999 is "N/A" in c_Banco; alone it names no bank.
+  'payment.capture.foreign_code_without_name':
+    '--to-bank 999 is "N/A" in the SAT c_Banco catalogue and names no bank. For a foreign bank, give its name with --to-foreign-bank instead (the voucher adds 999); for a national one, its own code. The voucher will carry a warning.',
+  // MNE-001-570 (#612): the trace of a registered receipt.
+  'receipt.trace.nothing_given':
+    'Say what to complete: --check-number, --payer-bank, --payer-account, --payer-foreign-bank or --bank. Nothing was written.',
+  // MNE-001-594 (#695): a transfer of customer credit moved no money, so it has no trace.
+  'receipt.trace.balance_transfer':
+    '{number} is a transfer of customer credit from {source}: no money moved, so it has no cheque, payer bank or bank account to complete, and no voucher declares one. The trace belongs on {source}, the receipt that collected the money. Nothing was written.',
+  // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
+  'payment.trace.bank_no_entry':
+    'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
+  'payment.trace.bank_not_in_entry':
+    'The entry {entry} of payment {number} moved {moved}; "{account}" posts to {candidate}. Linking it would make the voucher declare a bank the ledger did not move. Nothing was written.',
+  'payment.trace.would_complete': 'Would complete {number}: {fields}',
+  'payment.trace.confirm':
+    'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
+  'payment.trace.completed': '{number}: {fields} completed; nothing was posted',
+  'payment.trace.unchanged': '{number}: {fields} already held that value; nothing was written for it',
+  'payment.trace.period_not_open':
+    'The period {period} is in {status}: no ledger figure changes; a journal file generated now will declare this datum.',
+  'payment.trace.archived_files':
+    '{count, plural, one {# journal file} other {# journal files}} of {period} were archived before this completion: they are kept as they are, and one generated now will differ from them.',
+  'receipt.advance.cfdi_owed':
+    'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
+  'receipt.advance.invoice_already_booked':
+    '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
+  // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
+  'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
+  'receipt.advance.iva_restored': 'advance IVA restored {iva}',
+  // MNE-001-573 (#789): a PUE invoice of a month before its cheque advance was cashed.
+  'receipt.advance.iva_before_cashing':
+    'The advance\'s IVA of {iva} cancelled on {invoice} is caused on {cashed}, the day the bank cashed the cheque (LIVA art. 1-B, second paragraph), and {invoice}, a PUE, already caused it in {month}: that month\'s IVA charged carries what the cashing day should, and this application cancels the advance\'s in its own month. Review the return of {month}.',
+  'receipt.advance.iva_caused_twice':
+    'The advance\'s IVA of {iva} cancelled on {invoice} was also caused in {month} by that invoice, a PUE issued on or before the advance (LIVA art. 1-B): that month\'s IVA charged carried it twice, and this application cancels it in its own month. Review the return of {month}.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2732,16 +3211,838 @@ export const EN = {
     '{amount} of VAT in period {period}. The ledger is immutable: this is only corrected by ' +
     'reversal. Continue?',
   'bank.check.reconcile.already_cleared': 'check cleared on {date}',
+  'bank.check.reconcile.changed_meanwhile':
+    'Payment {payment} ("{status}") changed while the cashing of its cheque was being recorded, or it is not a completed payment. Nothing was written.',
   'bank.check.reconcile.summary':
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
     'Dry run: the clearing really was recorded, and then rolled back.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'Receipt {receipt} was paid by "{method}", not by cheque: only a cheque is cashed on a later day.',
+  'bank.check.cashing.refused.not_completed':
+    'Receipt {receipt} is in "{status}": a cashing is recorded on a completed receipt only.',
+  'bank.check.cashing.refused.already_cashed':
+    'The cheque of receipt {receipt} is already cashed on {date} with bank transaction {transaction}. A cheque is cashed once.',
+  'bank.check.cashing.refused.credit_used':
+    'Bank transaction {transaction} is already the cashing of receipt {holder}, so it cannot pay receipt {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'Bank transaction {transaction} is in another bank account than receipt {receipt}. If the cheque was deposited there, correct the receipt.',
+  'bank.check.cashing.refused.currency_differs':
+    'Bank transaction {transaction} is in {creditCurrency} and receipt {receipt} in {currency}. Nothing is converted here.',
+  'bank.check.cashing.refused.amount_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipt {receipt} needs a credit of exactly {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'Bank transaction {transaction} is dated {date} and receipt {receipt} {receiptDate}: a cheque is not cashed before it is received.',
+  'bank.check.cashing.refused.period_closed':
+    'The cashing of receipt {receipt} is dated {date}, and no open period holds that date. Its VAT belongs to that month and is not posted with another date: reopen the period first.',
+  'bank.check.cashing.note.already_released':
+    'No entry: the receipt had already released this VAT on its own date.',
+  'bank.check.cashing.note.nothing_to_release':
+    'No entry: this receipt holds no VAT pending collection.',
+  'bank.check.cashing.note.foreign_currency':
+    'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
+  'bank.check.cashing.refused.transaction_needed':
+    'Receipt {receipt} names no bank account, so there is nowhere to look for its credit. Name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No unused credit of {amount} from {date} is in the bank account of receipt {receipt}. Either the cheque is not cashed yet or the bank credited another amount: name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Receipts {receipt} are cashed together by one bank credit: name it with `--transaction`. It is not searched by their sum, which the deposit of another day can match.',
+  'bank.check.cashing.refused.sum_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipts {receipt} add up to {amount}: one credit cashes several cheques only when it is their exact sum.',
+  'bank.check.cashing.refused.credit_matched':
+    'Bank transaction {transaction} is tied by the live match {match} to {type} {matched}, which is not among receipts {receipt} nor a bank line of their entries: the credit paid something else. If that match is wrong, undo it with `bank match unapply {match}`.',
+  'bank.check.cashing.check_value': '{check} · receipt {payment}',
+  'bank.check.cashing.why':
+    'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
+    'the day it was received, so the VAT of this receipt is caused in that month.',
+  'bank.check.reconcile.one_of':
+    'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
     '{matches, plural, one {# match} other {# matches}} · ' +
     '{sealed, plural, one {# item sealed} other {# items sealed}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Seeded empty so the nine family PRs (MNE-001-218 to 230) each write inside
+  // their own block and git merges them. Keep each family's keys between its
+  // two markers; tests/i18n/sync.spec.ts checks they stay, once each, in order.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  // MNE-001-218: `src/cli/cashflow-command.ts` and `src/cli/cashflow-reconcile-command.ts`.
+  /** src/cli/cashflow-command.ts: `--gross` is refused, saying what is missing. */
+  'report.cashflow.gross_unavailable':
+    'The statement in GROSS terms (NIF B-2 §40 / ASC 230-10-45-7) cannot be built from these data, and the net is not returned labelled as gross. Gross needs receipts and payments kept apart, and that is a datum of the TRANSACTION, not of the account: the engine publishes a net per account, and splitting it into its debit and its credit does not give flows — disposing of an asset credits book value while the cash collected is another amount. The default output already shows every account of every section, which is the detail these books do support. Run it again without --gross.',
+  /** `concept` of the `derivado` contrast row. */
+  'report.cashflow_reconcile.derived_concept': 'Cash flow statement, net ({method} method)',
+  /** `concept` of the `real` contrast row. */
+  'report.cashflow_reconcile.ledger_concept': 'Cash and banks, change in the ledger',
+  /** `concept` of the `residuo` contrast row. */
+  'report.cashflow_reconcile.residue_concept': 'Residue (derived − actual)',
+  /** The cash note: the accounts, the criterion (and whether it was answered) and the two balances. */
+  'report.cashflow_reconcile.cash_accounts':
+    'Cash: {accounts} ({defaulted, select, yes {criterion "{criterion}", by default} other {criterion "{criterion}"}}) · {opening} → {closing}',
+  /** The statement ties to the real movement of cash. */
+  'report.cashflow_reconcile.ties':
+    'Ties: the cash flow statement equals the actual movement of cash.',
+  /** The suspects offered with `--show-candidates`. */
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# suspect} other {# suspects}} — this is a LIST OF SUSPECTS, not a verdict: cash movements that no section of the statement seems to claim, or that it may be counting twice. Check them before touching anything.',
+  /** How much of the residue the suspects explain. */
+  'report.cashflow_reconcile.coverage':
+    'They explain {explained} of the residue {amount}; {unexplained} remain that none of them explains.',
+  /** A residue with no suspects to offer. */
+  'report.cashflow_reconcile.no_suspects':
+    'No suspects to offer: every cash movement of the period falls in a section of the statement, so the residue is in HOW they are added up, not in what was left out.',
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  // MNE-001-219: `src/cli/mnemosine.ts` and `src/cli/close-command.ts`.
+  /** `ingest`: the auto-post a flag or mnemosine.config.json asked for, and the panel does not authorize. */
+  'root.ingest.auto_post_ignored':
+    'Warning: the auto-post asked for by flag or by mnemosine.config.json is IGNORED: the firm\'s panel does not authorize it.',
+  /** `ingest`: the second line of that warning, where turning it on belongs. */
+  'root.ingest.auto_post_turn_on':
+    'Turning it on belongs to the panel (`mnemosine pending`), and it requires the shadow evidence. Turning it off can be local.',
+  /** `lang`: a language that is not one of the accepted spellings. */
+  'root.lang.unsupported': 'Unsupported language "{language}". Options: {options}, or {languages}',
+  /** The first-run prompt, asked with `yesNoPrompt(q, 'yes')`. */
+  'root.setup.run_now': 'Run setup now?',
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  // MNE-001-220: receipt, invoice, customer and credit-note.
+  /** `receipt apply` with no `--invoice`. */
+  'ar.receipt.invoice_missing':
+    'Name the invoice or invoices: --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>.',
+  /** `receipt apply`: a bare invoice where its amount cannot come from --amount. */
+  'ar.receipt.invoice_without_amount':
+    'The invoice "{spec}" carries no amount. With several invoices each one carries its own ("number:amount"); with only one it can go in --amount.',
+  /** `receipt record`: the key was already spent, and this is the recorded result. */
+  'ar.receipt.idempotency_hit':
+    '↩ Idempotency hit: the key "{key}" already spent this receipt ({number}). Nothing was written again; this is the recorded result.',
+  /** `receipt show`: the REP of a receipt that has none. */
+  'ar.receipt.no_rep': 'no REP — a tax obligation of its own, with a SAT deadline',
+  /** The reason `receipt apply` does not honor --idempotency-key (`cli.risk.key_not_honored`). */
+  'ar.receipt.retry_reallocates':
+    'a retry allocates the on-account balance again and posts another entry',
+  /** The reason `receipt unapply` does not honor --idempotency-key. */
+  'ar.receipt.retry_unapplies': 'a retry unapplies again and posts another mirror',
+  /** The reason `receipt reverse` does not honor --idempotency-key. */
+  'ar.receipt.retry_reverses': 'a retry posts the mirrors of the reversal again',
+  /** The reason `invoice issue` does not honor --idempotency-key. */
+  'ar.invoice.retry_reissues': 'a retry issues again and posts the revenue a second time',
+  /** The reason `invoice void` does not honor --idempotency-key. */
+  'ar.invoice.retry_void_mirror': 'a retry posts the mirror of the void again',
+  /** The reason `invoice delete` does not honor --idempotency-key. */
+  'ar.invoice.delete_by_state':
+    'the delete is unrepeatable only through the state of the draft, not through the key',
+  /** The reason `credit-note issue` does not honor --idempotency-key. */
+  'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+
+  // MNE-001-221: payroll accrue and the ISN leaves of payroll-isn.
+  /** `payroll accrue` with no --period. */
+  'payroll.accrue.period_required':
+    '--period is missing. The benefit accrual belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would accrue the month that has just begun, and the entry cannot be deleted afterwards (mnemosine period list lists the entity\'s periods).',
+  /** The reason of a skipped worker in the schedule. Stored English in the row; the table renders it. */
+  'payroll.accrue.skip_already_accrued': 'already has a live row for this month',
+  /** The other reason of a skipped worker. */
+  'payroll.accrue.skip_zero_month': 'its accrual for the month is zero',
+  /** The first line of a run: the period, the entry date, who accrues and the totals. */
+  'payroll.accrue.summary':
+    '{period} ({start}..{end}) · entry dated {entryDate} · {accruing, plural, one {# worker accrues} other {# workers accrue}}, {skipped, plural, one {# is skipped} other {# are skipped}} · aguinaldo {aguinaldo} · vacation {vacation} · premium {premium} · total {total}',
+  /** The panel that governed the amounts, and which of it is a default. */
+  'payroll.accrue.criteria':
+    'salary base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · vacation {vacationDefaulted, select, yes {{vacation} (default)} other {{vacation}}} · aguinaldo {days, plural, one {# day} other {# days}} · premium {premium}',
+  /** When a declared default, not the firm, governs the amounts. */
+  'payroll.accrue.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm: between `nominal` and `integrado` there is a 20 % difference in the amount of every month. Answer it with `mnemosine pending define provision_base_salarial` / `devengo_vacaciones`.',
+  /** The heading over the entry the run would post. */
+  'payroll.accrue.entry_heading':
+    'The run\'s single entry, {lines, plural, one {# line} other {# lines}}:',
+  /** A spent key whose recorded entry was reversed afterwards. */
+  'payroll.accrue.key_entry_reversed':
+    'The key "{key}" recorded entry {entry}, which was reversed afterwards. Returning that result would say the month is accrued when it is not. Run again with a new key (it is another run, not a retry) or without --idempotency-key.',
+  /** A spent key: the recorded result is what is shown (two sites). */
+  'payroll.accrue.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was accrued again.',
+  /** A month with nobody to accrue. */
+  'payroll.accrue.nothing_to_accrue':
+    'Nothing to accrue in {period}: the ledger was not touched and no schedule row was written.',
+  /** The dry run, which writes nothing. */
+  'payroll.accrue.dry_run': 'Dry run: the ledger was not touched and no schedule row was written.',
+  /** The confirmation question; the kernel adds the [y/N] suffix. */
+  'payroll.accrue.confirm':
+    'Accrue {amount} MXN for {count, plural, one {# worker} other {# workers}} in {period}? The ledger does not allow undoing it.',
+  /** The person said no. */
+  'payroll.accrue.aborted': 'Nothing changed: the ledger was not touched.',
+  /** No terminal to ask on. */
+  'payroll.accrue.aborted_no_terminal':
+    'Nothing changed: there is no terminal to confirm on. Add -y to accrue without asking, or --dry-run to see the whole schedule without writing anything.',
+  /** The run accrued another number of workers than the preview showed. */
+  'payroll.accrue.preview_count_mismatch':
+    'The preview showed {previewed, plural, one {# worker} other {# workers}} and the run accrued {processed}. Something changed between looking and posting: check the schedule before taking the month as closed.',
+  /** The run accrued another total than the preview added up to. */
+  'payroll.accrue.preview_total_mismatch':
+    'The preview added up to {previewed} and the run accrued {posted}.',
+  /** The done line, with the entry when there is one. */
+  'payroll.accrue.done':
+    '{count, plural, one {# worker accrued} other {# workers accrued}} in {period} {hasEntry, select, yes {for {total} · entry {entry}} other {for {total}}}.',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.state': 'state',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.rate': 'rate',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.regime': 'regime',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.monthly_exemption': 'monthly exemption',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.in_force': 'in force',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.legal_basis': 'legal basis',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.table': 'table',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.criterion': 'criterion',
+  /** A label of the ISN capture preview. */
+  'payroll.isn_rate_set.reaches': 'reaches',
+  /** A rate captured with no end date. */
+  'payroll.isn_rate_set.open_ended': '(no end: still in force)',
+  /** What the ISN rate table is. */
+  'payroll.isn_rate_set.table_note':
+    '(catalogue, no tenant_id: the law is the same for every firm)',
+  /** A policy nobody answered, read at its default (`policyPair`). */
+  'payroll.isn.policy_default': '{value} (default, nobody answered)',
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+
+  // MNE-001-222: depreciation run/post and asset create.
+  /** `depreciation run --by` with a dimension that does not exist. */
+  'assets.depreciation.by_unknown':
+    '--by "{value}" does not exist. The four dimensions are: {dimensions} (asset is the asset-by-asset detail; class and account are the summaries by class and by expense destination the catalogue asks for).',
+  /** `depreciation run`/`post` with no --period. */
+  'assets.depreciation.period_required':
+    '--period is missing. Depreciation belongs to one specific month and is not guessed from the clock: running "the current period" on the 1st at 00:05 would depreciate the month that has just begun.',
+  /** The group of the assets with no class in `--by class`. Stored English in the row; the table renders it. */
+  'assets.depreciation.no_class': '(no class)',
+  /** The first line of a plan: the period, the book, the entry date and the fingerprint. */
+  'assets.depreciation.header':
+    '{period} ({start}..{end}) · {book} book · entries dated {entryDate} · fingerprint {fingerprint}',
+  /** The criteria of a plan, which of them is a default, and who enters. */
+  'assets.depreciation.criteria':
+    'base {baseDefaulted, select, yes {{base} (default)} other {{base}}} · convention {conventionDefaulted, select, yes {{convention} (default)} other {{convention}}} · {entering, plural, one {# asset enters} other {# assets enter}}, {skipped, plural, one {# is skipped} other {# are skipped}}, total {total}',
+  /** The warning when a declared default and not a choice of the firm governs the plan. */
+  'assets.depreciation.default_criteria_warning':
+    'At least one declared default governs here, not a choice of the firm. Answer it with `mnemosine pending define base_depreciacion` / `convencion_primer_mes`.',
+  /** The heading of the skipped assets in the readable output. */
+  'assets.depreciation.skipped_heading': 'Skipped ({count}):',
+  /** The warning when assets are left owing their row for the period. */
+  'assets.depreciation.missing_rows_warning':
+    '{pending, plural, one {# asset is} other {# assets are}} left without a row for {period}, and the month should recognise it. The policy `depreciacion_faltante_al_cierre` is {defaulted, select, yes {"{policy}" (declared default)} other {"{policy}"}}.',
+  /** `depreciation run` blocked by --strict or by the policy. */
+  'assets.depreciation.run_blocked':
+    '{pending, plural, one {# asset} other {# assets}} without a row for {period}. {cause, select, strict {--strict turns the warning into a block.} other {The policy `depreciacion_faltante_al_cierre` is set to "bloquear".}} `depreciation post` will refuse to post until they are resolved.',
+  /** `depreciation run` with nothing that enters. */
+  'assets.depreciation.nothing_this_book': 'Nothing to post in this period with this book.',
+  /** `depreciation post --file` when the approved plan no longer matches. */
+  'assets.depreciation.plan_changed':
+    'The plan approved in {file} no longer matches what the run would do today, so nothing is posted: {differences}. Run `depreciation run` again, review the new plan and post against that one.',
+  /** `depreciation post` refused by the policy while assets owe their row. */
+  'assets.depreciation.post_blocked':
+    'Nothing is posted: {pending, plural, one {# asset is} other {# assets are}} left without a row for {period} and the policy `depreciacion_faltante_al_cierre` is set to "bloquear". Resolve them (capture the period\'s production, correct the asset record) or change the policy with {hint}.',
+  /** `depreciation post` with nothing that enters. */
+  'assets.depreciation.nothing_to_post': 'Nothing to post in {period}: the ledger was not touched.',
+  /** The note under the entry preview: N entries, N reversals. */
+  'assets.depreciation.entries_note':
+    '{count, plural, one {# two-line entry} other {# two-line entries}}, one per asset, not a single one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** The confirmation of `depreciation post`. */
+  'assets.depreciation.confirm':
+    'Post {total} in {count, plural, one {# entry} other {# entries}} of the {book} book for {period}? The ledger does not allow undoing it.',
+  /** A replayed idempotency key. */
+  'assets.depreciation.idempotency_hit':
+    'Idempotency key already spent: the recorded result is returned and nothing was posted again.',
+  /** The run made a different number of entries than the plan showed. */
+  'assets.depreciation.plan_count_mismatch':
+    'The plan showed {planned, plural, one {# entry} other {# entries}} and the run made {processed}. The plan and the engine did not agree: check the errors before taking the month as closed.',
+  /** The done line of `depreciation post`. */
+  'assets.depreciation.done':
+    '{count, plural, one {# entry posted} other {# entries posted}} in {period} ({book} book).',
+  /** `asset create` with an amount that is not an unsigned decimal. */
+  'assets.asset.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `asset create` with a depreciation method that does not exist. */
+  'assets.asset.method_unknown': '{flag} "{value}" does not exist. The six methods are: {methods}.',
+  /** `asset create --capitalized` with a value it cannot read. */
+  'assets.asset.capitalized_unknown':
+    '--capitalized "{value}" is not understood: it is yes when the cost is ALREADY charged to the asset account in the ledger (the CFDI that was capitalised), and no when the record only registers the asset and the entry is pending. It has no default: assuming one doubles the asset or leaves it out of the ledger.',
+  /** `asset create` without its required flags. */
+  'assets.asset.create_missing':
+    '{missing} missing. An asset with no class, no cost, no acquisition date or no statement of where its cost already is is not an incomplete record: it is a record that can be neither depreciated nor reconciled with the ledger.',
+  /** `asset create --source-entry` together with `--capitalized no`. */
+  'assets.asset.source_entry_contradiction':
+    '--source-entry names the entry where the cost ALREADY is, so it cannot be passed with `--capitalized no`, which says the opposite. Decide which of the two is true.',
+
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+
+  // MNE-001-223: the backup leaves (create, export, list, verify, restore).
+  /** A backup or export with no manifest beside it. Stored English in `backup list`'s row; the table renders it. */
+  'platform.backup.no_manifest': '(no manifest)',
+  /** The schema a backup was taken at. */
+  'platform.backup.schema_of': 'schema {schema}',
+  /** The manifest beside a backup or an export. */
+  'platform.backup.manifest_line': 'manifest: {file}',
+  /** `backup create` with --tenant or --entity. */
+  'platform.backup.create.not_scoped':
+    '`backup create` dumps the WHOLE installation with pg_dump, which does not filter rows: narrowing it to one tenant or one entity is impossible by construction, and until now the flag was accepted and silently ignored.\nFor the archive of ONE firm: `mnemosine backup export --tenant <id>` (with `--entity <id|name>` for a single company).\nFor disaster recovery of the whole installation: `backup create` with no flags.',
+  /** Whose data a whole-installation dump carries. */
+  'platform.backup.create.unredacted':
+    'It holds the UNREDACTED data of {tenants, plural, one {# tenant} other {# tenants}}: it is the whole installation, not one firm.',
+  /** Where the archive of one firm comes from. */
+  'platform.backup.create.one_tenant_hint': 'For the archive of one only: `mnemosine backup export --tenant <id>`.',
+  /** The heading of what a dump does not carry. */
+  'platform.backup.create.no_crypto': 'And it does NOT include the cryptographic material:',
+  /** Why the vault key and ENCRYPTION_KEY are backed up separately. */
+  'platform.backup.create.crypto_detail':
+    'the vault key and ENCRYPTION_KEY live outside the database. Without them, after a restore the fiscal credentials and the bank data are unreadable. Back them up separately.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.create.untested_hint':
+    'And an untested backup is not a backup: `mnemosine backup verify <file> --restore`.',
+  /** `backup export` with no tenant. */
+  'platform.backup.export.tenant_required':
+    'There is no tenant to export. Name it with `--tenant <uuid>` or set MNEMOSINE_TENANT.\nA file that does not say whose it is cannot be kept in custody, so this is not guessed.',
+  /** The owner of an entity-scoped export. */
+  'platform.backup.export.entity_of': '{entity} (entity of {tenant})',
+  /** The size of an export. */
+  'platform.backup.export.size':
+    '({mb} MB · {rows, plural, one {# row} other {# rows}} · {tables, plural, one {# table} other {# tables}})',
+  /** The scope of an export and whose it is. */
+  'platform.backup.export.scope_line': 'scope: {scope} — {owner}',
+  /** How an export was read. */
+  'platform.backup.export.read_as': 'read as {role}, subject to RLS, in a single REPEATABLE READ snapshot',
+  /** Why an export is not a backup. */
+  'platform.backup.export.not_a_backup': 'This is an EXPORT, not a backup: there is no tested way back.',
+  /** Where disaster recovery comes from. */
+  'platform.backup.export.disaster_hint': 'For disaster recovery: `mnemosine backup create` + `backup restore`.',
+  /** The scoped tables an export leaves out. */
+  'platform.backup.export.out_of_scope':
+    '{count, plural, one {# scoped table is} other {# scoped tables are}} left outside this scope; the manifest names them one by one.',
+  /** What an export carries. */
+  'platform.backup.export.unredacted':
+    "It carries the firm's unredacted data, third-party RFCs included: treat it as such.",
+  /** `backup list --status`. */
+  'platform.backup.list.no_status':
+    '`backup list` has no status to filter: a backup is a file, not a document with a lifecycle.',
+  /** `backup list` with --tenant or --entity. */
+  'platform.backup.list.not_scoped':
+    '`backup list` inventories a DIRECTORY, and it does not filter by scope yet: the flag was accepted and ignored.\nThe «scope» column of the output already says whose each file is (tenant, entity or whole installation), so for now the filter is done by reading it.',
+  /** The scope of a whole-installation dump. Stored English in the row; the table renders it. */
+  'platform.backup.list.scope_installation':
+    'installation ({tenants, plural, one {# tenant} other {# tenants}})',
+  /** The same, when an old manifest does not say how many tenants. */
+  'platform.backup.list.scope_installation_unknown': 'installation (unknown tenants)',
+  /** A backup whose hash still matches. Stored English in the row; the table renders it. */
+  'platform.backup.list.intact_yes': 'yes',
+  /** A backup whose restore was never rehearsed. Stored English in the row; the table renders it. */
+  'platform.backup.list.never_verified': 'never',
+  /** When the restore was last rehearsed, and its findings. Stored English in the row; the table renders it. */
+  'platform.backup.list.verified_on': '{date} ({findings, plural, one {# finding} other {# findings}})',
+  /** An export has no restore to rehearse. Stored English in the row; the table renders it. */
+  'platform.backup.list.export_not_verified': 'n/a (export, not restorable)',
+  /** `backup verify` of a file that is not there. */
+  'platform.backup.verify.not_found': 'The backup {file} was not found',
+  /** The cheap verify, when the hash matches. */
+  'platform.backup.verify.hash_ok': 'hash and manifest match',
+  /** The hash does not match the manifest. */
+  'platform.backup.verify.hash_mismatch': 'the hash does NOT match the manifest',
+  /** What the cheap verify does not prove. */
+  'platform.backup.verify.not_proof': 'This does NOT prove the backup restores.',
+  /** The reminder to rehearse the restore. */
+  'platform.backup.verify.repeat_with_restore': 'An untested backup is not a backup: run it again with --restore.',
+  /** The rehearsed restore worked. */
+  'platform.backup.verify.restored': 'restored into a throwaway database',
+  /** The rehearsed restore failed. */
+  'platform.backup.verify.not_restored': 'did NOT restore',
+  /** What the rehearsed restore checked. */
+  'platform.backup.verify.counts':
+    '{entities, plural, one {# entity checked} other {# entities checked}} · {findings, plural, one {# finding} other {# findings}}',
+  /** Why `backup restore` does not honour an idempotency key. */
+  'platform.backup.restore.retry_restores': 'a retry restores again over what was already restored',
+  /** The dry run of `backup restore`. */
+  'platform.backup.restore.would_restore': 'Would restore {file} into a NEW database "{database}"',
+  /** The dry run writes nothing. */
+  'platform.backup.restore.nothing_written': 'Nothing is written, and no existing database is ever touched.',
+  /** The confirmation of `backup restore`. */
+  'platform.backup.restore.confirm': 'Create database "{database}" and restore {file} into it?',
+  /** `backup restore` with no terminal to confirm on. */
+  'platform.backup.restore.no_terminal':
+    '{question} — there is no terminal to ask on. Re-run with --yes once you are sure.',
+  /** The done line of `backup restore`. */
+  'platform.backup.restore.done': 'restored into the database {database}',
+  /** The previous database is untouched. */
+  'platform.backup.restore.previous_intact':
+    'The previous database is still intact: pointing the application at the new one is a separate act.',
+  /** The reminder to verify the restored database. */
+  'platform.backup.restore.check_first': 'Check it first: mnemosine backup verify {file} --restore',
+
+
+  // MNE-001-224: audit, ai stats and jobs run-due.
+  /** `audit list --user` with an email that is not in the tenant. */
+  'platform.audit.user_not_found':
+    'User "{email}" in this tenant. The trail was not filtered: an email that does not exist would return zero rows and read as if that person did nothing.',
+  /** `audit list --limit` with a value that is not a positive whole number. */
+  'platform.audit.list.limit_invalid': '--limit must be a positive whole number; got "{value}".',
+  /** `audit list --action` with an action outside the CHECK of audit_log. */
+  'platform.audit.list.action_unknown':
+    'Unknown action "{action}". The vocabulary is fixed by the CHECK of audit_log (migration 001): {actions}.',
+  /** `audit list --actor agent`: the trail has no actor column yet. */
+  'platform.audit.list.actor_agent_unsupported':
+    'The trail does not tell the agent apart yet: `audit_log` has no actor column and each row is attributed to a human `user_id`. Filtering by "{actor}" would return zero rows, which would read as if the agent did nothing. The `actor` column (and `agent_session_id`) is missing, and the agent\'s bridge has to write it; until then, `--actor human` or no flag is all there is.',
+  /** `audit list --actor` with any other value. */
+  'platform.audit.list.actor_invalid': '--actor only accepts "human", "agent" or "agent:<session>"; got "{actor}".',
+  /** `audit list --object` with an unknown family. */
+  'platform.audit.list.object_unknown':
+    'Unknown object family "{object}". Known: {families}. For an exact value of the column use --entity-type.',
+  /** `audit list --object` and `--entity-type` that do not intersect. */
+  'platform.audit.list.object_type_disjoint':
+    '--object "{object}" and --entity-type "{type}" do not intersect: the family does not contain that type. Give one of the two.',
+  /** The actor of a row whose user no longer exists. Stored English in the row; the table renders it. */
+  'platform.audit.list.user_removed': '(user removed)',
+  /** `audit list` with no rows. */
+  'platform.audit.list.no_rows':
+    'No rows. The trail belongs to the TENANT: `audit_log` has no legal-entity column, so --entity only chose which tenant to look at.',
+  /** A label of `audit show`. */
+  'platform.audit.show.when': 'when',
+  /** A label of `audit show`. */
+  'platform.audit.show.who': 'who',
+  /** A label of `audit show`. */
+  'platform.audit.show.why': 'why',
+  /** `audit show` of a row whose user no longer exists. */
+  'platform.audit.show.user_unknown': "(unknown user: the log is append-only and outlives the user's record)",
+  /** `audit show` of a row with no reason. */
+  'platform.audit.show.no_reason': '(no reason recorded)',
+  /** `audit show` of a row with no values. */
+  'platform.audit.show.no_values': 'no values: the row records the act, not the before and the after',
+  /** The first line of `ai stats`. */
+  'platform.ai.stats.header':
+    'ai stats · {entity} · {drafts, plural, one {# draft} other {# drafts}}, {decided, plural, one {# decided} other {# decided}}',
+  /** How much still goes through a person. */
+  'platform.ai.stats.human_intervention':
+    'human intervention {rate} ({human} approved + {rejected} rejected of {decided} decided; {policy} by policy, {auto} auto-posted)',
+  /** The ingest runs and their cost, when the model has a price. */
+  'platform.ai.stats.ingest':
+    'ingest: {runs, plural, one {# run} other {# runs}}, {drafts, plural, one {# draft} other {# drafts}}{priced, select, yes {, ~${perDraft} USD per draft (total ${total})} other {, cost not estimable (model without a price)}}',
+  /** The model's latency. */
+  'platform.ai.stats.latency':
+    'model latency: {average} ms average, {p95} ms p95 ({calls, plural, one {# call measured} other {# calls measured}})',
+  /** The agent's events. */
+  'platform.ai.stats.events':
+    'events: {suspicions, plural, one {# injection suspicion} other {# injection suspicions}}, {nudges, plural, one {# grounding nudge} other {# grounding nudges}}, {failovers, plural, one {# failover} other {# failovers}}',
+  /** The shadow history, and the floors `on` requires (src/ai/floor.ts). */
+  'platform.ai.stats.shadow':
+    'shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided, plural, one {# decided} other {# decided}} by a person, agreement {agreement} (turning "on" requires ≥{minDays} days, ≥{minDecided} decided and ≥{minAgreement})',
+  /** Why `jobs run-due` does not honour an idempotency key. */
+  'platform.jobs.run_due.retry_reruns': 'a retry runs the due jobs again',
+
+  // MNE-001-453 (#646): which due jobs `jobs run-due` runs on its operator's credential.
+  /** The first line of a tick under `jobs.run_due = all`. */
+  'platform.jobs.run_due.all_first_line':
+    'jobs.run_due is "all": this tick runs every due job of the entity on your credential, including jobs that other people created.',
+  /** A due job a tick under `jobs.run_due = adopted` did not run. */
+  'platform.jobs.run_due.skipped': '  not adopted, not run: {name}  {id} · adopt it: mnemosine jobs adopt {id}',
+  /** A tick under `jobs.run_due = adopted` that found due jobs, none of them adopted. */
+  'platform.jobs.run_due.no_adopted_due': 'No adopted job due.',
+  /** The notice of an unset tick: the jobs it ran that its operator has not adopted. */
+  'platform.jobs.run_due.hint.header':
+    '{count, plural, one {This tick ran # job you have not adopted, on your credential:} other {This tick ran # jobs you have not adopted, on your credential:}}',
+  /** The notice of an unset tick: the key and its two values. */
+  'platform.jobs.run_due.hint.choose':
+    'Set jobs.run_due in ~/.mnemosine/config.json to "adopted" to run only the jobs you adopted (mnemosine jobs adopt <id>), or to "all" to run every due job without this notice.',
+  /** A project file that sets `jobs.run_due`, which is not read there. */
+  'platform.jobs.run_due.project_key_ignored':
+    '{file} sets jobs.run_due, which is not read there: whose credential a tick spends is each operator\'s choice, in ~/.mnemosine/config.json.',
+  /** An unset tick whose list of adopted jobs does not read. */
+  'platform.jobs.run_due.adoptions_unreadable': '{error} This tick runs every due job, as it does with jobs.run_due unset.',
+  /** `jobs adopt` of a job. */
+  'platform.jobs.adopt.done':
+    'Job "{name}" adopted. With jobs.run_due set to "adopted", jobs run-due runs it on your credential. Recorded in {file}.',
+  /** `jobs adopt` of a job already adopted. */
+  'platform.jobs.adopt.already': 'Job "{name}" was already adopted ({file}).',
+  /** `jobs adopt` of an id that is not a job of this entity. */
+  'platform.jobs.adopt.not_found': 'Job {id} does not exist in this entity; nothing was adopted.',
+  /** `jobs adopt` with both a job id and --list, or with neither. */
+  'platform.jobs.adopt.id_xor_list': 'Give either a job id to adopt, or --list to see the jobs you adopted.',
+  /** The header of `jobs adopt --list`. */
+  'platform.jobs.adopt.list.header': 'Jobs you adopted in this entity ({file}):',
+  /** `jobs adopt --list` with nothing adopted in this entity. */
+  'platform.jobs.adopt.list.none': 'You have adopted no job of this entity. Adopt one with: mnemosine jobs adopt <id>',
+  /** An adopted id that is no longer a job of this entity. */
+  'platform.jobs.adopt.list.gone': '(no longer a job of this entity)',
+  /** The last line of `jobs adopt --list`: the value of the key. */
+  'platform.jobs.adopt.list.scope':
+    'jobs.run_due in {file}: {scope, select, adopted {"adopted", so jobs run-due runs only these} all {"all", so jobs run-due runs every due job} other {unset, so jobs run-due runs every due job and names the ones you have not adopted}}',
+  /** `jobs unadopt` of an adopted job. */
+  'platform.jobs.unadopt.done': 'Job {id} is no longer adopted ({file}).',
+  /** `jobs unadopt` of a job that was not adopted. */
+  'platform.jobs.unadopt.not_adopted': 'Job {id} was not adopted; nothing changed.',
+  /** `jobs create`: the new job is adopted for its creator. */
+  'platform.jobs.create.adopted': '  Adopted for you: with jobs.run_due set to "adopted", your tick runs it.',
+  /** `jobs create` whose adoption could not be written. */
+  'platform.jobs.create.adopt_failed':
+    'The job was created, but it could not be adopted for you ({error}). Adopt it with: mnemosine jobs adopt {id}',
+  /** Help of `jobs adopt`. */
+  'help.jobs.adopt.description':
+    'Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json, jobs run-due runs only the jobs you adopted',
+  /** Help of the job id of `jobs adopt`. */
+  'help.jobs.adopt.argument.job_id': 'Job id (omit it with --list)',
+  /** Help of `jobs adopt --list`. */
+  'help.jobs.adopt.option.list': 'List the jobs you adopted in this entity, and the value of jobs.run_due',
+  /** Help of `jobs unadopt`. */
+  'help.jobs.unadopt.description': 'Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer runs it',
+  /** Help of the job id of `jobs unadopt`. */
+  'help.jobs.unadopt.argument.job_id': 'Job id',
+
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+
+  // MNE-001-225: e-accounting (catalog and balance: generate, check, the -o overwrite).
+  /** The warning of every generate leaf: the file is not sealed and nothing was filed. */
+  'fiscal_mx.e_accounting.unsealed.headline': 'THIS FILE IS NOT SEALED AND NOTHING WAS FILED WITH THE SAT.',
+  /** Under the headline: building and signing are not the same act. */
+  'fiscal_mx.e_accounting.unsealed.two_hands': 'Building the file and signing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.e_accounting.unsealed.step_review':
+    'Review the XML: it is the document you are going to file, and once it is sealed it is not touched again.',
+  /** Step 2: the seal, outside the system or under sellar_con_custodia. */
+  'fiscal_mx.e_accounting.unsealed.step_seal':
+    'Seal it with the taxpayer\'s e.firma: outside this system or, if the firm declared sellar_con_custodia, with this family\'s seal leaf. No one will ask you for the e.firma by chat.',
+  /** Step 3: the upload, which no command does. */
+  'fiscal_mx.e_accounting.unsealed.step_upload':
+    'Compress it and upload it yourself through the Buzón Tributario (Contabilidad electrónica).',
+  /** Step 4: the acknowledgements, the only proof of filing. */
+  'fiscal_mx.e_accounting.unsealed.step_acknowledgements':
+    'Keep the acknowledgement of receipt and, later, the one of acceptance or rejection: it is the only proof that it was filed.',
+  /** `catalog generate`/`seal` with no --period. */
+  'fiscal_mx.e_accounting.catalog.period_missing':
+    'The chart of accounts is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no Mes or Anio to declare in the header.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.e_accounting.catalog.period_not_month':
+    '--period "{value}" is not a month. The CtaCatalogo declares ONE month of ONE fiscal year, so only the form YYYY-MM (2026-02) is valid here. A quarter, a fiscal year or a range has nowhere to go in the file.',
+  /** A month outside 01..12; 13 belongs to the closing balance. */
+  'fiscal_mx.e_accounting.catalog.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance (`balance generate --closing`), not to the chart of accounts.',
+  /** The line beside the CtaCatalogo title. */
+  'fiscal_mx.e_accounting.catalog.summary':
+    'RFC {rfc} · {accounts, plural, one {# account} other {# accounts}} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** The three panel criteria the catalog was built with (their values are not translated). */
+  'fiscal_mx.e_accounting.catalog.policies': 'levels {levels} · without grouping code {ungrouped} · sealing {sealing}',
+  /** Accounts the levels criterion left out of the file. */
+  'fiscal_mx.e_accounting.catalog.omitted':
+    '{count, plural, one {# account left} other {# accounts left}} out of the file',
+  /** No file: accounts without a grouping code under the blocking policy, or blocking findings. */
+  'fiscal_mx.e_accounting.catalog.not_deliverable':
+    'No deliverable file was produced. {reason, select, ungrouped {{count, plural, one {# account in scope has no grouping code} other {# accounts in scope have no grouping code}} and the policy `{policy}` is set to \'{value}\'. {count, plural, one {Assign it} other {Assign them}}, or change the policy with {hint}.} other {Resolve the blocking findings above and generate again.}}',
+  /** A --type other than N or C. */
+  'fiscal_mx.e_accounting.balance.type_unknown':
+    '--type "{value}" does not exist: N is the normal balance and C the amended one. The year-end balance is not a type, it is --closing (filed as Mes 13).',
+  /** `--check` names a check that does not exist. */
+  'fiscal_mx.e_accounting.balance.check_unknown':
+    '{count, plural, one {Unknown check} other {Unknown checks}}: {unknown}. The available ones are: {available}.',
+  /** `--check` with only commas. */
+  'fiscal_mx.e_accounting.balance.check_empty': '--check named no check. The available ones are: {available}.',
+  /** The title of the balance header. */
+  'fiscal_mx.e_accounting.balance.title': 'Trial balance {month}/{year}',
+  /** The line beside the balance title. */
+  'fiscal_mx.e_accounting.balance.header':
+    'RFC {rfc} · {closing, select, yes {TipoEnvio {type} · closing (Mes 13)} other {TipoEnvio {type}}} · {period} {from} → {to} · {accounts, plural, one {# account} other {# accounts}}',
+  /** The criteria of the balance, and whether its SaldoIni can still change. */
+  'fiscal_mx.e_accounting.balance.header_policies':
+    'levels {levels} · sealing {sealing} · SaldoIni from {origin}, {firm, select, yes {firm} other {MAY STILL CHANGE (the previous period is still open)}}',
+  /** The SAT file name of the balance. */
+  'fiscal_mx.e_accounting.balance.suggested_file':
+    'suggested file {file} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** After `e_accounting.sealing.declared` in `balance generate`: where the seal is. */
+  'fiscal_mx.e_accounting.balance.seal_hint': 'Review it and seal it with {command}.',
+  /** The envelope of `balance check --json`, on stderr. */
+  'fiscal_mx.e_accounting.balance.check_envelope':
+    '{rfc} · trial balance {month}/{year} · {period} · {accounts, plural, one {# account} other {# accounts}} · checks: {checks}',
+  /** The catalog the balance was checked against, if any. */
+  'fiscal_mx.e_accounting.balance.check_catalog': 'matching catalog: {found, select, yes {{source}} other {none}}',
+  /** The checks `balance check` ran. */
+  'fiscal_mx.e_accounting.balance.checks_run': 'checks: {checks}',
+  /** `balance check` with no findings. */
+  'fiscal_mx.e_accounting.balance.check_clean':
+    'no findings: the trial balance passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `balance check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.e_accounting.balance.check_summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the file from being generated.',
+  /** `-o` names a file that exists: it may be the sealed one. */
+  'fiscal_mx.e_accounting.output.overwrite_question':
+    '{target} already exists. If that file is already sealed, overwriting it leaves it without its seal. Replace it?',
+  /** The overwrite was declined. */
+  'fiscal_mx.e_accounting.output.kept':
+    'Nothing was written: {target} is kept as it was. Use another path, or --yes if you really want to replace it.',
+
+  // MNE-001-226: diot (generate, check, export: the not-filed block, the header and totals, the verdicts).
+  /** The warning of every diot leaf: the DIOT was not filed, and the output is not the return. */
+  'fiscal_mx.diot.unfiled.headline': 'THIS DIOT WAS NOT FILED AND THIS FILE IS NOT THE RETURN.',
+  /** Under the headline: building the return and filing it are not the same act. */
+  'fiscal_mx.diot.unfiled.two_hands': 'Building the return and filing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.diot.unfiled.step_tie_out':
+    'Tie the working paper out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture — "almost matches" is a request from the SAT within a year.',
+  /** Step 2: the capture in the portal, which no command does. */
+  'fiscal_mx.diot.unfiled.step_capture':
+    'Capture or upload the return YOURSELF in the SAT portal. This binary does not enter the portal, does not load the e.firma and files nothing.',
+  /** Step 3: the acknowledgement, the only proof of filing. */
+  'fiscal_mx.diot.unfiled.step_acknowledgement':
+    'Keep the acknowledgement with its operation number: it is the only proof that it was filed.',
+  /** Step 4: recording the acknowledgement, which has no command yet. */
+  'fiscal_mx.diot.unfiled.step_record':
+    'Record the acknowledgement in the month\'s file. That record has NO command YET (`diot record` is not built).',
+  /** `diot` with no --period. */
+  'fiscal_mx.diot.period.missing':
+    'The DIOT is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no period to declare.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.diot.period.not_month':
+    '--period "{value}" is not a month. The DIOT is monthly (LIVA art. 32 fr. VIII), so only the form YYYY-MM (2026-02) is valid here. A quarter or a fiscal year is not declared.',
+  /** A month outside 01..12; 13 belongs to the year-end balance of Anexo 24. */
+  'fiscal_mx.diot.period.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance of Anexo 24 (`e-accounting balance generate --closing`); an informative return has no month 13.',
+  /** What `--check hecho-pagado` verifies. Stored English in the `detalle` column; the table renders it. */
+  'fiscal_mx.diot.check.paid_event':
+    'the event the DIOT declares exists in the ledger and releases no more IVA than is parked',
+  /** What `--check desglose-por-tasa` verifies. */
+  'fiscal_mx.diot.check.rate_breakdown':
+    'each expense is split by rate (16/8/0/exempt) and the sum reproduces the IVA of the header',
+  /** What `--check base-de-lo-exento` verifies. */
+  'fiscal_mx.diot.check.exempt_base':
+    'exempt acts declare their base, which is what the DIOT reports even when there is no tax',
+  /** What `--check tercero-identificado` verifies. */
+  'fiscal_mx.diot.check.third_party_identified':
+    'each third party arrives with a usable RFC, or with tax ID, country and nationality if foreign',
+  /** What `--check tipo-de-operacion` verifies. */
+  'fiscal_mx.diot.check.operation_type':
+    'each third party carries a captured operation type that the 2025 catalogue allows for its type of third party, not an assumed one',
+  /** What `--check creditable-iva-proportion` verifies (LIVA art. 5 frac. V). */
+  'fiscal_mx.diot.check.creditable_iva_proportion':
+    'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue in the fiscal year',
+  /** What `--check politica-en-catalogo` verifies. */
+  'fiscal_mx.diot.check.catalog_policy': 'the DIOT policies hold a value their own catalogue allows',
+  /** The envelope of `diot check --json`, on stderr. */
+  'fiscal_mx.diot.check.envelope':
+    '{rfc} · DIOT {month}/{year} · {parties, plural, one {# third party} other {# third parties}} · creditable IVA paid {amount} · checks: {checks}',
+  /** `diot check` with no findings. */
+  'fiscal_mx.diot.check.clean':
+    'no findings: the DIOT passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `diot check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.diot.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the return from being captured.',
+  /** The line beside the DIOT title. */
+  'fiscal_mx.diot.header.summary':
+    'RFC {rfc} — {name} · {from} → {to} · {parties, plural, one {# third party} other {# third parties}} · {documents, plural, one {# document} other {# documents}}',
+  /** The basis of the DIOT: paid, not accrued. */
+  'fiscal_mx.diot.header.basis': 'basis: PAID transactions (LIVA art. 5 frac. III), not accrued',
+  /** After a panel criterion nobody answered: its value is the default. */
+  'fiscal_mx.diot.header.by_default': '(default)',
+  /** The 8 % rate row of the totals. */
+  'fiscal_mx.diot.totals.rate_8': '8 % (border zone)',
+  /** The exempt row of the totals. */
+  'fiscal_mx.diot.totals.exempt': 'exempt',
+  /** A row for any other rate, with its label. */
+  'fiscal_mx.diot.totals.other': 'other ({label})',
+  /** The creditable IVA paid in the month; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.creditable_paid': 'Creditable IVA paid in the month',
+  /** The IVA withheld from third parties; the amount is padded after it at the call site. */
+  'fiscal_mx.diot.totals.withheld': 'IVA withheld from third parties',
+  /** Under the totals: tie them out before capturing. */
+  'fiscal_mx.diot.totals.tie_out':
+    'Tie it out against the month\'s movement of the creditable IVA account: if it does not match to the cent, do not capture.',
+  /** `diot generate` with blocking findings. */
+  'fiscal_mx.diot.generate.not_capturable':
+    '{count, plural, one {# finding stops} other {# findings stop}} this DIOT from being captured as it is. {count, plural, one {Fix it} other {Fix them}} and build it again; `diot check --check` lists the checks by name so you can tackle them one at a time.',
+  /** A --layout that does not exist. */
+  'fiscal_mx.diot.export.layout_unknown':
+    '--layout "{value}" does not exist. The layouts are: {layouts} (working-paper is the reconciliation by third party that is tied out before capturing; sat is the authority\'s batch file).',
+  /** A period with no grounded batch layout: what to do meanwhile. `message` is the service's. */
+  'fiscal_mx.diot.export.meanwhile':
+    '{message}\n\nMeanwhile: `{command}` produces the reconciliation by third party to capture in the portal.',
+  /** The working paper is not the file that is uploaded. */
+  'fiscal_mx.diot.export.working_paper':
+    'Layout "{layout}": this is a WORKING PAPER. It is not uploaded to the SAT portal.',
+  /** The line of `diot export -o`: layout, size and where it went. */
+  'fiscal_mx.diot.export.written':
+    'layout {layout} · {bytes, plural, one {# byte} other {# bytes}} · target {target}',
+  /** `diot export` wrote the file, but blocking findings stop the capture. */
+  'fiscal_mx.diot.export.written_not_capturable':
+    'The file was written, but {count, plural, one {# finding stops} other {# findings stop}} the return from being captured as it is.',
+  /** `-o` names a file that exists, without --yes. */
+  'fiscal_mx.diot.export.exists':
+    '{target} already exists and is not overwritten unless asked: use another path, or --yes. A working paper reviewed and annotated by hand is not replaced silently.',
+
+  // MNE-001-226: cfdi (show, status show, status sync, explain) and rep (missing list, reconcile).
+  /** Above the line items of `cfdi show`. */
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# line item:} other {# line items:}}',
+  /** `cfdi status show` for a UUID the mirror does not have. */
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} is not in the mirror of this entity.',
+  /** `cfdi status show` of a CFDI never consulted with the SAT. */
+  'fiscal_mx.cfdi.status.never_checked': 'Never consulted: run with --refresh to ask the SAT now.',
+  /** `cfdi status sync` without --live: how many it would consult. */
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDIs}} to consult with the SAT{mode, select, dry_run { (dry-run: nothing was consulted)} other {. Run with --live to really consult {count, plural, one {it} other {them}}.}}',
+  /** The tally of `cfdi status sync --live`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consulted} other {# consulted}}: {valid, plural, one {# valid} other {# valid}}, {cancelled, plural, one {# cancelled} other {# cancelled}}, {not_found, plural, one {# not found} other {# not found}}, {errors, plural, one {# error} other {# errors}}',
+  /** After the tally: CFDIs the issuer cancelled. */
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelled by its issuer: review its accounting effect} other {# CFDIs cancelled by their issuers: review their accounting effect}} with cfdi list --json',
+  /** The header of `cfdi explain`. Direction and status are the mirror's values. */
+  'fiscal_mx.cfdi.explain.header': '{uuid} · type {type} · {direction} · case {case} · {status}',
+  /** After the header, when the CFDI has a journal entry. */
+  'fiscal_mx.cfdi.explain.entry': 'entry {entry}',
+  /** `cfdi explain` with no pending decision. */
+  'fiscal_mx.cfdi.explain.no_decisions': 'No pending decisions: the case was resolved by the panel policies alone.',
+  /** `rep missing list --direction issued`: our collections without a REP. */
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# collection} other {# collections}} without an issued REP: our own tax obligation, with a SAT deadline.',
+  /** `rep missing list` (received): paid PPD bills without the supplier REP. */
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# payment} other {# payments}} without the supplier REP: the receipt that supports crediting the IVA of {count, plural, one {that payment} other {those payments}} is missing.',
+  /** Rows whose CFDI is not in the mirror, so their payment method is unknown. */
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated it as {method}; it is listed} other {# with an unknown payment method (the CFDI is not in the mirror): the ledger treated them as {method}; they are listed}} with the doubt stated — a PUE needs no REP.',
+  /** A --min-amount that is not a number. */
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount is unreadable: "{value}".',
+  /** `rep reconcile --dry-run`: how many parked REPs it would retry. */
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# parked REP would be retried} other {# parked REPs would be retried}} (dry-run: nothing was touched).',
+  /** The tally of `rep reconcile`. Plurals in both catalogues, some with equal English branches. */
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# retried} other {# retried}}: {linked, plural, one {# linked} other {# linked}}, {parked, plural, one {# still parked} other {# still parked}}, {errors, plural, one {# error} other {# errors}}',
+
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // MNE-001-227: prepaid. The currency is the parameter {currency}, never text.
+  /** A date flag that is not a real calendar day. */
+  'ap.prepaid.flag.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
+  /** An amount flag that is not an unsigned decimal. */
+  'ap.prepaid.flag.amount_invalid':
+    '{flag} must be an unsigned decimal amount; got "{value}". The point separates the decimals and the comma is ignored: 1,250,000.50 and 1250000.50 are the same.',
+  /** `prepaid run` without --period. */
+  'ap.prepaid.run.period_missing':
+    'Missing --period. The amortization is of one specific month and is not guessed from the clock: running «the current period» on day 1 at 00:05 would accrue the month that has just begun.',
+  /** `prepaid create` without --origin. */
+  'ap.prepaid.create.origin_missing':
+    'Missing --origin. The three origins are: {origins} — the CFDI that was classified as prepaid (needs --source-entry), the balance that was already in account 1160 with no schedule, and the payment that was posted by hand. It has no default: assuming it leaves the trail pointing at an entry that is not the one.',
+  /** An --origin outside the three. */
+  'ap.prepaid.create.origin_unknown': '--origin "{value}" does not exist. The three are: {origins}.',
+  /** A --convention outside the two. */
+  'ap.prepaid.create.convention_unknown':
+    '--convention "{value}" does not exist: the two conventions are {days} and {months} (the days each month covers, or the whole month).',
+  /** A --convention that contradicts the panel. `source` is `answered` when someone answered the key. */
+  'ap.prepaid.create.convention_contradicts_panel':
+    '--convention {requested} contradicts the panel: `amortizacion_anticipados_convencion` is "{panel}"{source, select, answered {} other { (declared default, nobody has answered)}}, and that is what is frozen in the schedule. This flag declares which convention you believe you are creating with, it does not choose it: it is changed with {hint}.',
+  /** The four required flags of `prepaid create`, named together. */
+  'ap.prepaid.create.flags_missing':
+    '{count, plural, one {Missing {flags}} other {Missing {flags}}}. A schedule with no amount, no coverage window or no word on where the charge came from is not an incomplete record: it is a record that cannot be accrued nor tied out against the account.',
+  /** `--origin cfdi` without `--source-entry`. */
+  'ap.prepaid.create.cfdi_needs_source_entry':
+    '`--origin cfdi` needs `--source-entry <id>`: if the schedule is born from a bill already posted, the entry that charged the account is known, and not recording it loses it for good.',
+  /** The reasons a schedule does not enter the month's run (`prepaid run`). */
+  'ap.prepaid.skip.unknown_convention': 'unknown stored convention ("{convention}")',
+  'ap.prepaid.skip.not_started': 'the coverage has not started yet',
+  'ap.prepaid.skip.ended': 'the coverage has already ended',
+  'ap.prepaid.skip.zero_row': 'the row of the month is zero',
+  'ap.prepaid.skip.nothing_left': 'no balance is left to accrue',
+  /** The posted balance of the prepaid account that no schedule will accrue. */
+  'ap.prepaid.gap.warning':
+    '{amount} {currency} posted to the prepaid expenses account that no schedule will accrue, in {count, plural, one {# entry} other {# entries}}. That expense will never reach the income statement. Each entry is adopted with `mnemosine prepaid create --origin saldo_preexistente --source-entry <id> --start <date> --end <date>`, with the coverage window the document states — it is not guessed: it lives in the journal entry, not in the CFDI.',
+  /** The panel criteria above `create`. Each `*_source` is `answered` when someone answered the key. */
+  'ap.prepaid.criteria.header':
+    'convention {convention}{convention_source, select, answered {} other { (default)}} · threshold {threshold} {currency}{threshold_source, select, answered {} other { (default)}}',
+  /** When a declared default rules instead of a choice of the firm. */
+  'ap.prepaid.criteria.default_rules':
+    'At least one declared default rules, not a choice of the firm. It is answered with `mnemosine pending define amortizacion_anticipados_convencion` / `umbral_anticipado_mxn`.',
+  /** `create --dry-run` below the materiality threshold. */
+  'ap.prepaid.create.below_threshold':
+    '{amount} is below the threshold of {threshold} {currency} (`umbral_anticipado_mxn`): the real creation would stop for materiality (NIF A-4). With --force and --reason it is created anyway and the reason is written in the row.',
+  /** `create --dry-run`: what it computed. */
+  'ap.prepaid.create.dry_run_done':
+    'Dry run: no row was written. {count, plural, one {# row} other {# rows}} for {amount} {currency}, convention {convention}.',
+  /** `create --dry-run` does not check the backing in the account. */
+  'ap.prepaid.create.dry_run_no_backing':
+    'The dry run does NOT check the backing in the account —how much posted balance is left with no schedule—: that guard lives inside the creation and needs the ledger. The real creation may refuse for that reason.',
+  /** The receipt of `prepaid create`. */
+  'ap.prepaid.create.done':
+    'Schedule of {count, plural, one {# row} other {# rows}} created. The ledger was not touched: the charge was already there. It is accrued with `mnemosine prepaid run --period <month>`.',
+  /** `prepaid list -a` with nothing alive. */
+  'ap.prepaid.list.none_alive': 'There is no live schedule in this entity.',
+  /** `prepaid list` with no schedule covering the date. */
+  'ap.prepaid.list.none_on_date': 'No schedule covers {date}. With -a all of them are listed.',
+  /** `prepaid show` of a schedule whose stored convention is none of the declared ones. */
+  'ap.prepaid.show.unknown_convention':
+    'The schedule "{description}" stores the convention "{convention}", which is none of the declared ones ({conventions}). No amount can be computed with it.',
+  /** The summary line under the `prepaid show` table. */
+  'ap.prepaid.show.summary':
+    '{description} · {total} {currency} · {convention} · origin {origin} · accrued {accrued}, {remaining} left',
+  /** Why the `prepaid show` table is not a statement of what was posted. */
+  'ap.prepaid.show.rows_are_schedule':
+    'The rows are the schedule the run will follow, not what was already posted: what was posted is the accrued figure of the line above.',
+  /** `prepaid show` with a reference that matches no schedule. */
+  'ap.prepaid.show.not_found':
+    'No live schedule matches "{ref}" in this entity. `mnemosine prepaid list -a` lists them all.',
+  /** `prepaid show` with a reference that matches several. */
+  'ap.prepaid.show.ambiguous':
+    '"{ref}" matches {count} live schedules: {candidates}. Name the id, or a piece of the description that matches only one.',
+  /** The header of `prepaid run`. */
+  'ap.prepaid.run.header':
+    '{period} ({from}..{to}) · entries dated {date} · {entering, plural, one {# schedule enters} other {# schedules enter}}, {skipped} skipped, {already} already have a row this month · total {total}',
+  /** `prepaid run` with nothing to accrue. */
+  'ap.prepaid.run.nothing': 'Nothing to accrue in {period}: the ledger was not touched.',
+  /** A schedule that does not enter the run, and why. */
+  'ap.prepaid.run.skipped_line': '{description} skipped: {reason}',
+  /** A row capped against what is left to accrue. */
+  'ap.prepaid.run.capped':
+    '{description}: the theoretical row is {theoretical} and is capped at {amount} against what is left to accrue.',
+  /** The run posts one entry per schedule, not one. */
+  'ap.prepaid.run.entries_note':
+    '{count, plural, one {# two-line adjusting entry} other {# two-line adjusting entries}}, one per schedule — not one for the run. Reversing this run takes {count, plural, one {# reversal} other {# reversals}}.',
+  /** `prepaid run --dry-run`. */
+  'ap.prepaid.run.dry_run_done': 'Dry run: the ledger was not touched and no row was written.',
+  /** The confirmation of `prepaid run`. */
+  'ap.prepaid.run.confirm':
+    'Accrue {total} {currency} in {count, plural, one {# entry} other {# entries}} of {period}? The ledger cannot be undone.',
+  /** `prepaid run` answered no. */
+  'ap.prepaid.run.aborted': 'No changes: the ledger was not touched.',
+  /** `prepaid run` with no terminal to confirm in. */
+  'ap.prepaid.run.aborted_no_tty':
+    'No changes: there is no terminal to confirm in. Add -y to accrue without asking, or --dry-run to see the full entries without writing anything.',
+  /** The engine posted another number of entries than the preview showed. */
+  'ap.prepaid.run.count_mismatch':
+    'The preview showed {previewed, plural, one {# entry} other {# entries}} and the run made {processed}. The preview and the engine did not agree: review the errors before calling the month closed.',
+  /** The engine accrued another total than the preview added. */
+  'ap.prepaid.run.total_mismatch': 'The preview added up to {previewed} and the run accrued {accrued}.',
+  /** The receipt of `prepaid run`. */
+  'ap.prepaid.run.done':
+    '{count, plural, one {# accrual entry} other {# accrual entries}} posted in {period} for {total}.',
+
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is
@@ -2818,6 +4119,45 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'The --chart catalog belongs to RFC {fileRfc} and the entity is {entityRfc}. It is not used: the catalog of ' +
+    'another taxpayer cannot say which accounts of this entity are memorandum accounts.',
+  'migration.chart_option.not_importable':
+    'The --chart catalog is one that chart import would not take, so it cannot say which accounts are ' +
+    'memorandum accounts: {findings}. Fix the file at the source and export it again.',
+  'migration.chart_option.hierarchy_cycle':
+    'The hierarchy of the --chart catalog bites its own tail: {rows}. chart import refuses this file and so does ' +
+    'the opening: fix the SubCtaDe at the source.',
+  'migration.check.memorandum_inside_account':
+    'The source hangs memorandum (8xx) money inside a ledger account, so the figure that account declares ' +
+    'includes money that stays off the balance: {detail}. Each account is followed by its memorandum rows, with ' +
+    'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
+    'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
+    'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and the source ' +
+    'declares {amount} for it. It gets no line in the opening entry and stays out of the ledger: keep this ' +
+    'figure with the working papers of the migration; see {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and it already ' +
+    'exists in this entity as {type}. It gets no line in the opening entry (the source declares {amount}), but ' +
+    'by the doctrine ({doctrine}) it should not be in the ledger: review it by hand.',
+  'migration.opening.memorandum_inside_account':
+    'The figure "{account}" declares includes memorandum (8xx) money that hangs inside it and does not net to ' +
+    'zero there: {rows}, net {net} with debit positive. Nothing is loaded: posting that figure would put ' +
+    'memorandum money on the balance sheet, and posting less would fail opening-balance check. Fix the ' +
+    'hierarchy in the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  'migration.opening.memorandum_document':
+    'The document "{document}" hangs from "{account}", which is a memorandum account (8xx) and gets no line in ' +
+    'the opening entry. A memorandum account has no receivable or payable behind it: take the document out of ' +
+    'the --subledger file, or fix the account at the source; see {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'If it is a memorandum account (8xx), pass the catalog of the same migration with --chart <file>: the ' +
+    'load leaves it out of the entry and names it ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -2859,8 +4199,80 @@ export const EN = {
   'cli.rls_bypass.notice': 'Warning: role "{role}" bypasses row level security ({reason}); isolation between firms depends on the code alone in this session. Connect as mnemosine_app (scripts/provision-roles.sql).',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  // MNE-001-421 (#623): `receipt record` with no invoice records a customer advance.
+  'help.receipt.record.description':
+    'Record cash received: against an invoice, releasing the IVA it was holding, or with no invoice as a customer advance',
+  'help.receipt.record.argument.invoice':
+    'invoice number or id; without it the cash is an advance, and --customer names who paid it',
+  'help.receipt.record.option.customer':
+    'the customer who paid (number, name or id); required with no invoice, and with one it must be the invoice\'s own',
+  'help.receipt.record.option.tax_rate':
+    'IVA treatment of an advance: 16, 8, 0, exempt (exento) or not-subject (no-objeto); with no invoice it is required, and with one it states the treatment of the excess --on-account leaves; the IVA is caused on collection',
+  'help.receipt.record.option.on_account':
+    'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'number of the customer\'s cheque (with --method check); the vouchers file declares it in the Cheque node',
+  'help.receipt.record.option.payer_bank':
+    'c_Banco code (3 digits) of the bank the customer paid from; checked against the SAT list',
+  'help.receipt.record.option.payer_account':
+    'account the customer paid from (for a cheque, the account it is drawn on); needs --payer-bank or --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'full name of the customer\'s bank when it is foreign, instead of --payer-bank',
+  // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
+  'help.receipt.apply.description':
+    'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.receipt.apply.option.date':
+    'day of the application (YYYY-MM-DD), which dates its entry, the allocation and the invoice\'s last payment; defaults to today in the entity\'s time zone',
+  'help.receipt.unapply.option.date':
+    'day of the unapply (YYYY-MM-DD), which dates its entry and the closed allocation; defaults to today in the entity\'s time zone',
+  // MNE-001-509 (#701): the reversal states what happened to the money.
+  'help.receipt.reverse.description':
+    'Reverse a collection whose money did not stay, saying why: mirrors every entry, reopens invoices, re-parks IVA',
+  'help.receipt.reverse.option.cause':
+    'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback); with none, a cheque takes not_collected and any other method keeps no cause',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'The cause of a reversed collection: what happened to its money',
+  'help.receipt.cause.record.description':
+    'State the cause of a collection that was reversed with none: written once, audited, posts nothing',
+  'help.receipt.cause.record.argument.ref': 'payment number or id',
+  'help.receipt.cause.record.option.cause':
+    'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
+  'help.receipt.cause.record.option.json': 'JSON output',
+  // MNE-001-568 (#612): the trace of a registered payment, completed afterwards.
+  'help.payment.trace.description': 'The payment trace of a registered payment: its cheque, and the account and bank the money went to',
+  'help.payment.trace.record.description':
+    'Complete the empty trace fields of a registered payment from its evidence: only empty fields, audited, posts nothing',
+  'help.payment.trace.record.argument.payment': 'payment number or id',
+  'help.payment.trace.record.option.check_number': 'cheque number; only for a payment made by cheque',
+  'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
+  'help.payment.trace.record.option.json': 'JSON output',
+  // MNE-001-570 (#612): the trace of a registered receipt, completed afterwards.
+  'help.receipt.trace.description': "The payment trace of a registered receipt: the customer's bank and account, its cheque, and our bank account",
+  'help.receipt.trace.record.description':
+    'Complete the empty trace fields of a registered receipt from its evidence: only empty fields, audited, posts nothing',
+  'help.receipt.trace.record.argument.receipt': 'receipt number or id',
+  'help.receipt.trace.record.option.check_number': "cheque number; only for a receipt by the customer's cheque",
+  'help.receipt.trace.record.option.payer_bank': 'c_Banco code (3 digits) of the bank the customer paid from, or that issued its cheque',
+  'help.receipt.trace.record.option.payer_account': 'account the customer paid from, or the one its cheque is drawn on',
+  'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
+  'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
+  'help.receipt.trace.record.option.json': 'JSON output',
+  // MNE-001-498 (#695): the transfer of a customer's cash on account.
+  'help.receipt.transfer.description': "A transfer of a customer's cash on account to another customer",
+  'help.receipt.transfer.record.description':
+    "Transfer a customer's cash on account to another customer, as agreed: audited, posts DR/CR customer advances, no bank, revenue or IVA",
+  'help.receipt.transfer.record.argument.ref': 'payment number or id of the receipt whose cash on account is transferred',
+  'help.receipt.transfer.record.option.customer': 'the customer who receives the credit (number, name or id)',
+  'help.receipt.transfer.record.option.amount': 'amount to transfer, at most the cash on account of the receipt',
+  'help.receipt.transfer.record.option.date':
+    'the agreed day of the transfer (YYYY-MM-DD), which dates its entry; defaults to today in the entity\'s time zone',
+  'help.receipt.transfer.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
@@ -3018,23 +4430,56 @@ export const EN = {
     'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
   'help.opening_balance.import.option.subledger':
     'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry ' +
+    'and named with the source figure',
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.opening_balance.check.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing ' +
+    'and named with the source figure',
   'help.ar.description':
     'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
   'help.ar.reconcile.description':
     'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
   'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  /** `ar check`, probe cross-party-application (MNE-001-530). */
+  'ar.check.cross_party_application.found':
+    "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+  'ar.check.cross_party_application.none': 'none',
+  'ar.check.orphan_application.found':
+    "a dead receipt's allocation still counts as collected, so its invoice's next collection releases none of its IVA; " +
+    "the reversal already reopened the invoice, so only the row's close is missing and no command writes it: " +
+    'report it before collecting that invoice again',
+  'ar.check.orphan_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
   'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
-  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.description':
+    'Payables controls: reconcile the vendor subledger against the control account, and run the named checks',
   'help.ap.reconcile.description':
     'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
   'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
   'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.ap.check.description':
+    'Named payables checks; `--check` with no value lists them, `--check a,b` selects',
+  'help.ap.check.option.check': 'comma-separated checks to run; bare --check lists the battery',
+  'ap.check.title': 'AP checks',
+  'ap.check.cancelled_cfdi_open.found':
+    'open bills whose received CFDI the SAT reports cancelled: hold the payment until the vendor sends the CFDI that replaces it; ' +
+    'what it means for the deduction and the VAT is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_open.none': 'none',
+  'ap.check.bill_line': '{bill} · {vendor} · {uuid} · owes {amount} {currency} · noted {noted}',
+  /** MNE-001-610: the second probe of `ap check`, the paid bills with the mark. */
+  'ap.check.cancelled_cfdi_paid.found':
+    'paid bills whose received CFDI the SAT reports cancelled: their deduction and creditable VAT rest on a CFDI that no longer stands; ' +
+    'ask the vendor for the CFDI that replaces it; whether to correct what was already declared is the accountant\'s call, and nothing was reversed',
+  'ap.check.cancelled_cfdi_paid.none': 'none',
+  'ap.check.paid_bill_line': '{bill} · {vendor} · {uuid} · paid {amount} {currency} · noted {noted}',
+  'ap.check.summary':
+    '{blocking, plural, one {# blocking} other {# blocking}} · {warnings, plural, one {# warning} other {# warnings}}',
   'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
   'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
   'help.cashflow.generate.option.method':
@@ -3056,7 +4501,7 @@ export const EN = {
   'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
   'help.depreciation.post.option.file':
     'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
-  'help.filing.description': 'Tax returns of the entity: the working papers behind them',
+  'help.filing.description': 'Tax returns of the entity: the working papers behind them, and the record of those filed',
   'help.filing.workpaper.description': 'The auditable working paper of the month, line by line',
   'help.filing.workpaper.generate.description':
     'Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the entries behind each line',
@@ -3065,6 +4510,9 @@ export const EN = {
   'help.filing.workpaper.generate.option.ptu_paid': 'PTU paid in the year (ISR), captured by a person',
   'help.filing.workpaper.generate.option.prior_provisional':
     'provisional ISR already paid this year (ISR), captured by a person',
+  'help.filing.workpaper.generate.option.prior_balance':
+    'prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason',
+  'help.filing.workpaper.generate.option.prior_balance_reason': 'why the prior balance is overridden, shown on its line',
   'help.filing.workpaper.generate.footer':
     'This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' +
     '\nExamples:\n' +
@@ -3073,13 +4521,114 @@ export const EN = {
     '  Only the IVA, the whole paper (with the entries) as JSON to a file:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
     '  The ISR with the PTU paid in the year and the provisional payments already made:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
+    '  The IVA with a prior balance a person gives instead of the one the filed returns give:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"',
   'filing.workpaper.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" is not known: use iva, isr or all.',
   'filing.workpaper.label_blocks': 'BLOCKS',
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  'filing.workpaper.prior_balance_override_incomplete':
+    'An override of the prior balance in favour gives the amount and the reason for it, both (--prior-balance and --prior-balance-reason).',
+  // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
+  'help.filing.record.description':
+    'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',
+  'help.filing.record.option.form': 'which return it is: {forms} (the monthly IVA)',
+  'help.filing.record.option.period': 'month the return covers',
+  'help.filing.record.option.filed_on': 'day the return was filed (YYYY-MM-DD), after its month ends',
+  'help.filing.record.option.acuse': 'operation number of the acknowledgement («acuse»): how the record names this return',
+  'help.filing.record.option.capture_line': 'payment reference the SAT gave with the filing (the capture line), when the return has something to pay',
+  'help.filing.record.option.payable': 'amount payable the return left, up to two decimals (use 0 for a return at zero)',
+  'help.filing.record.option.in_favor': 'balance in favour the return left, up to two decimals; never together with --payable',
+  'help.filing.record.option.paid': 'what was paid with the capture line; goes with --paid-on',
+  'help.filing.record.option.paid_on': 'day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid',
+  'help.filing.record.option.credit':
+    'an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each',
+  'help.filing.record.footer':
+    'This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.\n' +
+    'An amended return («complementaria») is not recorded here.\n' +
+    '\nExamples:\n' +
+    '  See the row the July return would leave, with its balance in favour, writing nothing:\n' +
+    '    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run\n' +
+    '  August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:\n' +
+    '    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json',
+  'filing.record.form_invalid': '--form "{value}" is not a return this command records: use {forms}. The provisional ISR is not recorded yet. Nothing was written.',
+  'filing.record.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-08). Nothing was written.',
+  'filing.record.date_invalid': '{flag} "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filing.record.acuse_required': 'Missing --acuse: the operation number of the acknowledgement is how the record names a return. Nothing was written.',
+  'filing.record.capture_line_blank': '--capture-line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filing.record.result_required': 'Say what the return left: --payable <amount> or --in-favor <amount> (--payable 0 for a return at zero). Nothing was written.',
+  'filing.record.result_both': 'A return leaves an amount payable or a balance in favour, never both: give --payable or --in-favor, not the two. Nothing was written.',
+  'filing.record.amount_invalid': '{flag} "{value}" is not an amount: use zero or more, with at most two decimals and no thousands separator (for example 5000.00). Nothing was written.',
+  'filing.record.payment_incomplete': 'Missing {missing}: a payment states both what was paid (--paid) and the day (--paid-on). Nothing was written.',
+  'filing.record.credit_invalid': '--credit "{value}" is not valid: use <acuse>:<amount>, the acuse of the earlier return and the amount credited (for example OP-0701:3000.00). Nothing was written.',
+  'filing.record.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'filing.record.paid_on_in_future': '--paid-on {value} is after today ({today}): only a payment already made is recorded. Nothing was written.',
+  'filing.record.dry_run': 'Dry run: the return is valid and was rolled back; nothing was written.',
+  'filing.record.recorded': 'Recorded: {acuse} is the {period} return in force. Nothing was sent to the SAT.',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
+  'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
+  'help.annual.figure.record.description': 'Record a figure of a filed annual return, with that return as its source and who captured it',
+  'help.annual.figure.record.option.kind': 'which figure it is: {kinds}',
+  'help.annual.figure.record.option.value': 'the figure as the return states it: zero or more, up to four decimals',
+  'help.annual.figure.record.option.year': 'fiscal year of the annual return',
+  'help.annual.figure.record.option.filed_on': 'day the return, or its amendment, was filed (YYYY-MM-DD)',
+  'help.annual.figure.record.option.source': 'how you identify that return: its operation number',
+  'help.annual.figure.record.option.updated_through': 'pending tax losses only: the INPC month they are already updated through (YYYY-MM, LISR art. 57)',
+  'help.annual.figure.record.footer':
+    'This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.\n' +
+    'A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).\n' +
+    '\nExamples:\n' +
+    '  See the row the profit coefficient of the 2025 return would leave, writing nothing:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run\n' +
+    '  Its amendment, filed later: a new capture that takes over, and the earlier one stays:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json\n' +
+    '  The pending tax losses of that return, updated through December 2025; zero is captured too:\n' +
+    '    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"',
+  'annual.figure.kind_invalid': '--kind "{value}" is not a figure this command records: use {kinds}. Nothing was written.',
+  'annual.figure.value_invalid': '--value "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals (for example 0.0875). Nothing was written.',
+  'annual.figure.year_invalid': '--year "{value}" is not valid: use the four digits of the return\'s fiscal year, from {min} to {max}. Nothing was written.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" is not a real day: use YYYY-MM-DD (for example 2026-03-20). Nothing was written.',
+  'annual.figure.source_required': 'Missing --source: say which return the figure was read from (its operation number). Nothing was written.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} cannot be the filing date of the {year} return: an annual return is filed after its year ends. Nothing was written.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'annual.figure.updated_through_required': 'Missing --updated-through: pending tax losses say the INPC month they are updated through (YYYY-MM, for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_not_allowed': '--updated-through does not go with --kind {kind}: only the pending tax losses carry an update month. Nothing was written.',
+  'annual.figure.updated_through_invalid': '--updated-through "{value}" is not a month: use YYYY-MM (for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_after_target': '--updated-through {value} is after {target}: the losses of the {year} return are applied by the next year\'s payments, which update them to that June at most (LISR art. 57). Nothing was written.',
+  'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
+  'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
+  'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
+  'filed_return.obligation_not_written': 'Only the monthly IVA return is recorded for now: "{value}" is not. Nothing was written.',
+  'filed_return.obligation_invalid': '"{value}" is not an obligation of the record of filed returns: use {obligations}.',
+  'filed_return.period_invalid': '"{value}" is not a month: use YYYY-MM (for example 2026-08).',
+  'filed_return.filed_on_not_a_day': 'The filing date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-15). Nothing was written.',
+  'filed_return.filed_before_period_ends': 'The return for {period} is filed once its month ends, on {earliest} or later: {value} cannot be its filing date. Nothing was written.',
+  'filed_return.paid_on_not_a_day': 'The payment date "{value}" is not a real day: use YYYY-MM-DD (for example 2026-09-16). Nothing was written.',
+  'filed_return.paid_before_filed': 'The payment on {paidOn} comes before the filing on {filedOn}: a return is paid with the capture line its filing gives, that day or later. Nothing was written.',
+  'filed_return.payment_incomplete': 'A payment states both what was paid and the day it was paid. Nothing was written.',
+  'filed_return.payable_and_in_favor': 'A return leaves an amount payable or a balance in favour, never both: {payable} payable and {inFavor} in favour. Nothing was written.',
+  'filed_return.amount_invalid': '"{value}" is not an amount of a return: use zero or more, with at most two decimals and seventeen digits before the point (for example 5000.00). Nothing was written.',
+  'filed_return.credit_amount_not_positive': 'A credited balance is above zero: leave out a credit of nothing. Nothing was written.',
+  'filed_return.acknowledgement_required': 'Missing the operation number of the acknowledgement («acuse»): it is how the record names a return. Nothing was written.',
+  'filed_return.capture_line_blank': 'The capture line is blank: give it, or leave it out when the return has nothing to pay. Nothing was written.',
+  'filed_return.credit_repeated': 'The balance of return {acknowledgement} is credited twice in this return: put both amounts in one credit. Nothing was written.',
+  'filed_return.credit_source_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: record that return first, then the one that credits its balance. Nothing was written.',
+  'filed_return.credit_source_not_earlier': 'Return {acknowledgement} covers {sourcePeriod}: a return for {period} credits balances of earlier months only (LIVA art. 6). Nothing was written.',
+  'filed_return.credit_source_no_balance': 'Return {acknowledgement} left no balance in favour: there is nothing of it to credit. Nothing was written.',
+  'filed_return.credit_above_available': 'Return {acknowledgement} ({sourcePeriod}) has {available} of its balance in favour left to credit, after what the returns in force of other months credited, what was compensated and any refund request: {requested} cannot be credited from it (LIVA art. 6). Nothing was written.',
+  'filed_return.amended_below_used': 'The amended return leaves {balance} in favour for {period}, but {used} of that balance is already used: {credited} credited by the returns in force {returns}, and {compensated} compensated. Amend those returns first, then record this one (LIVA art. 6, CFF art. 32). Nothing was written.',
+  'filed_return.replaced_unknown': 'No return with operation number {acknowledgement} is recorded for this entity and tax: an amended return replaces one already recorded. Nothing was written.',
+  'filed_return.replaced_other_period': 'Return {acknowledgement} covers {replacedPeriod}: an amended return for {period} replaces a return of the same month. Nothing was written.',
+  'filed_return.amended_before_replaced': 'The amended return is filed on {filedOn}, before return {acknowledgement}, which it replaces, was filed on {replacedFiledOn}: an amendment comes after (CFF art. 32). Nothing was written.',
+  'filed_return.acknowledgement_taken': 'The operation number {acknowledgement} is already recorded for this entity: each acknowledgement is one return. Nothing was written.',
+  'filed_return.original_exists': 'The {period} return of this tax is already recorded: another return for that month is an amendment, which names the return in force it replaces. Nothing was written.',
+  'filed_return.already_replaced': 'Return {acknowledgement} was already replaced by another amended return: an amendment replaces the return in force of {period}, the last one filed. Nothing was written.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':
@@ -3114,6 +4663,7 @@ export const EN = {
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
   'help.account.list.option.type': 'account type: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: minimum-wage area of the workplace, which caps the seniority premium (LFT art. 486)',
   'help.account.list.option.parent': 'only children of this account code',
   'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
   'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',
@@ -3211,6 +4761,87 @@ export const EN = {
   'help.ledger.balance.show.option.period': 'only this period: 2026-07, its id, or part of its name',
   'help.ledger.balance.show.option.dim':
     'per-dimension breakdown (not available: the dimension family does not exist yet)',
+  // ==== MNE-001-241 · help by key, employee, garnishment, isn and payroll (issue #314) ====
+  //
+  // The payroll task: the four families whole, roots included, English as
+  // shown (`tax-deposit` shares payroll-isn-command.ts but is MNE-001-239's).
+  // Every generic flag a leaf declares keeps a key of its own: the three
+  // --dry-run say what each rehearsal shows, `isn rate set` declares its -y
+  // before declareRisk, and `isn rate list` declares -n, --offset and -a by
+  // hand, with its own parser, instead of withSelection.
+  'help.employee.description': 'The payroll roll: register an employee, see one record, list the roll',
+  'help.employee.create.description': 'Register one employee from a JSON file with their tax identifiers',
+  'help.employee.create.option.file': 'JSON object with the employee record (required)',
+  'help.employee.create.option.country': 'the country whose payroll applies; overrides the file',
+  'help.employee.create.option.hire_date': 'hire date (YYYY-MM-DD); overrides the file',
+  'help.employee.create.option.pay_schedule': 'a pay schedule of this entity; overrides the file',
+  'help.employee.create.option.dry_run': 'run the real writer and roll it back: nothing is saved',
+  'help.employee.show.description': 'Show one employee record with tax identifiers masked',
+  'help.employee.show.argument.employee': 'employee number or id',
+  'help.employee.show.option.redacted': 'hide identifiers, e-mail and phone entirely, for a shared screen',
+  'help.employee.list.description': 'List the employees of the entity, active by default, with no tax identifiers',
+  'help.employee.list.option.country': 'only employees of this country',
+  'help.garnishment.description': 'Court-ordered wage withholding: file an order, see the cascade, stop it',
+  'help.garnishment.record.description':
+    'File a court order already dictated, with its basis, its authority and its caps',
+  'help.garnishment.record.argument.employee': 'employee number or id the order is against',
+  'help.garnishment.record.option.type': 'the order type, in the vocabulary the column stores',
+  'help.garnishment.record.option.amount': 'a fixed amount per period',
+  'help.garnishment.record.option.percent_disposable':
+    'a percentage of DISPOSABLE earnings (gross minus employee taxes)',
+  'help.garnishment.record.option.percent_gross':
+    'a percentage of GROSS wages — different money from --percent-disposable',
+  'help.garnishment.record.option.priority': 'tie-breaker WITHIN a statutory rank; it does not decide the rank',
+  'help.garnishment.record.option.case': 'the court file number, unique per worker while the order is live',
+  'help.garnishment.record.option.court': 'the authority that issued the order (required)',
+  'help.garnishment.record.option.payee': 'who the withholding is remitted to',
+  'help.garnishment.record.option.start':
+    'the date the order bears (YYYY-MM-DD); withholding starts when it is ACTIVE',
+  'help.garnishment.record.option.exempt_amount':
+    'IRS Pub 1494 exempt amount; required on a tax levy, read by nothing else',
+  'help.garnishment.record.option.supports_second_family':
+    'does this worker support another family? decides a 50 % or 60 % CCPA cap — no default',
+  'help.garnishment.record.option.arrears_12wk':
+    'are arrears more than twelve weeks old? adds five points to the cap — no default',
+  'help.garnishment.record.option.dry_run':
+    'run the real path and undo it: shows the order and the cascade it would join',
+  'help.garnishment.list.description':
+    'List orders in the sequence money is taken: statutory rank, then priority, then date',
+  'help.garnishment.list.argument.employee': 'narrow to one worker, by employee number or id',
+  'help.garnishment.list.option.type': 'only orders of this type',
+  'help.garnishment.archive.description':
+    'Stop the withholding by clearing is_active, keeping the order and its history',
+  'help.garnishment.archive.argument.id': 'the order id, as `garnishment list` prints it',
+  'help.garnishment.archive.option.as_of':
+    'the date the order ceased (YYYY-MM-DD), recorded in end_date alongside the halt',
+  'help.isn.description':
+    'Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes',
+  'help.isn.rate.description': 'State ISN rates, by state and by vigencia',
+  'help.isn.rate.set.description': 'Capture one state rate with its vigencia and the law behind it',
+  'help.isn.rate.set.argument.state': 'SAT c_Estado key, as it is written on your workers (JAL, NLE)',
+  'help.isn.rate.set.argument.rate': 'the rate, as a fraction (0.03) or a percentage (3%)',
+  'help.isn.rate.set.option.effective_from': 'first day this rate applies (YYYY-MM-DD)',
+  'help.isn.rate.set.option.superseded_on':
+    'day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one',
+  'help.isn.rate.set.option.legal_basis': 'the law and article the rate comes from (required)',
+  'help.isn.rate.set.option.regime': 'how the state charges it; the engine only computes tasa_plana',
+  'help.isn.rate.set.option.exemption': 'monthly amount exempted; only with --regime con_exencion',
+  'help.isn.rate.set.option.dry_run': 'show exactly what would be written, and who it reaches; write nothing',
+  'help.isn.rate.set.option.yes': 'skip the confirmation prompt',
+  'help.isn.rate.list.description': 'The captured state rates, with the one in force on a given date marked',
+  'help.isn.rate.list.option.limit': 'maximum rows to return',
+  'help.isn.rate.list.option.offset': 'skip this many rows',
+  'help.isn.rate.list.option.all': 'every vigencia ever captured, not only the one in force',
+  'help.isn.rate.list.option.state': 'only this state (SAT c_Estado key)',
+  'help.isn.rate.list.option.as_of': 'which rate was in force on this date (YYYY-MM-DD; default today)',
+  'help.isn.calculate.description':
+    "One pay run's ISN, one row per state, naming every rate that is missing instead of computing zero",
+  'help.isn.calculate.option.run': 'the pay run to compute (required)',
+  'help.isn.calculate.option.state': 'narrow the rows to one state; findings are never hidden',
+  'help.payroll.description': 'Payroll accounting: the benefit liability that is born on the day worked',
+  'help.payroll.accrue.description':
+    'Post the month benefit accrual -- aguinaldo, vacation and vacation premium, one adjusting entry, irreversible',
+  'help.payroll.accrue.option.period': 'period to accrue: 2026-03, or any unambiguous part of its name',
   // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
   //
   // Same format as `period`. The bank family is keyed by subcommand group in
@@ -3438,9 +5069,13 @@ export const EN = {
     'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
     'is when the payment counts',
   'help.bank.check.reconcile.description':
-    'Prove the check against the bank movement that cleared it and post the VAT ' +
-    'reclassification from pending to creditable IN THE MONTH IT CLEARED',
-  'help.bank.check.reconcile.argument.id': 'vendor payment made by check',
+    'Prove the check against the bank movement that cleared it and post its VAT IN THE MONTH IT CLEARED: ' +
+    'from pending to creditable for a vendor payment, from pending collection to charged for a customer receipt',
+  'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
+    '--transaction the credit of its amount is searched in its bank account from its date. Repeat it for ' +
+    'a deposit of several cheques: one credit of their exact sum, named with --transaction',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':
@@ -3691,6 +5326,85 @@ export const EN = {
   'help.customer.tax.list.description':
     'The pre-billing control: customers whose fiscal profile is incomplete or malformed',
   'help.customer.tax.list.option.missing': 'only customers that could NOT be stamped today',
+  // ==== MNE-001-237 · help by key, receipt, credit-note and rep (issue #314) ====
+  //
+  // The second receivables task: the descriptions of these three families that
+  // earlier tasks had not keyed, roots included, with the English they already
+  // showed. Every generic flag a leaf declares is worded for it and keeps its
+  // own key; what the kernel injects stays on cli.flag.*. The credit note types
+  // travel as {types}.
+  'help.receipt.description':
+    'Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks',
+  'help.receipt.record.option.amount': 'amount, in the document currency',
+  'help.receipt.record.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.receipt.record.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.receipt.record.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.receipt.record.option.reference': 'bank reference or transfer number',
+  'help.receipt.record.option.json': 'JSON output',
+  'help.receipt.show.description':
+    'Show one collection: its applications (live and history), REP status and ledger entry',
+  'help.receipt.show.argument.ref': 'payment number (PMT-2026-00042) or id',
+  'help.receipt.list.description': 'List collections by customer, date, application state or missing REP',
+  'help.receipt.list.option.customer': 'only this customer (number, name or id)',
+  'help.receipt.list.option.unapplied': 'only collections with an on-account remainder',
+  'help.receipt.list.option.needs_rep': 'only completed collections with no REP linked',
+  'help.receipt.apply.argument.ref': 'payment number or id',
+  'help.receipt.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.receipt.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.receipt.apply.option.json': 'JSON output',
+  'help.receipt.unapply.description':
+    'Unapply a collection from an invoice as a NEW event: reopens it and puts the cash back on account',
+  'help.receipt.unapply.argument.ref': 'payment number or id',
+  'help.receipt.unapply.option.invoice': 'the invoice to unapply from',
+  'help.receipt.unapply.option.reason': 'why: it lands in the audit trail and the ledger description',
+  'help.receipt.unapply.option.json': 'JSON output',
+  'help.receipt.reverse.argument.ref': 'payment number or id',
+  'help.receipt.reverse.option.fee':
+    'bank fee charged for the return (not yet supported: needs a fee role account)',
+  'help.receipt.reverse.option.json': 'JSON output',
+  'help.credit_note.description':
+    'Credit notes: returns, discounts and corrections against the receivable (never stamped here)',
+  'help.credit_note.create.description':
+    'Create a DRAFT credit note, linked to its invoice (fiscal tie) or standalone with an explicit customer',
+  'help.credit_note.create.option.type': 'one of: {types}',
+  'help.credit_note.create.option.amount': 'subtotal of the credit, before tax',
+  'help.credit_note.create.option.tax': 'tax (IVA) portion of the credit',
+  'help.credit_note.create.option.invoice': 'the invoice this note credits (recommended: it drives the IVA side)',
+  'help.credit_note.create.option.customer': 'customer, when there is no linked invoice',
+  'help.credit_note.create.option.relates_to': 'UUID of the original CFDI, when the invoice is not in the system',
+  'help.credit_note.create.option.date':
+    'credit date (YYYY-MM-DD); defaults to today in the zona_horaria policy zone',
+  'help.credit_note.create.option.memo': 'memo',
+  'help.credit_note.create.option.json': 'JSON output',
+  'help.credit_note.show.description':
+    'Show one credit note with its applications, available balance and ledger entry',
+  'help.credit_note.show.argument.ref': 'credit note number (CN-2026-00042) or id',
+  'help.credit_note.list.description': 'List credit notes by customer, type, state or unapplied balance',
+  'help.credit_note.list.option.customer': 'only this customer (number, name or id)',
+  'help.credit_note.list.option.type': 'only this type: {types}',
+  'help.credit_note.list.option.open': 'only issued notes with balance left to apply (the live customer credit)',
+  'help.credit_note.issue.description': 'Issue the note: post DR returns + DR VAT / CR receivable. Does not stamp',
+  'help.credit_note.issue.argument.ref': 'credit note number or id',
+  'help.credit_note.issue.option.json': 'JSON output',
+  'help.credit_note.apply.description':
+    'Apply an issued note to invoices; what is not applied stays as customer credit',
+  'help.credit_note.apply.argument.ref': 'credit note number or id',
+  'help.credit_note.apply.option.invoice':
+    'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount',
+  'help.credit_note.apply.option.amount': 'amount for a single --invoice without an inline amount',
+  'help.credit_note.apply.option.dry_run': 'run the real path and roll back',
+  'help.credit_note.apply.option.json': 'JSON output',
+  'help.rep.description': 'Payment receipts (REP): what is missing one, and the parked ones to retry',
+  'help.rep.missing.description': 'Payments and collections whose REP has not arrived or been issued',
+  'help.rep.missing.list.description':
+    'received: paid PPD bills without the supplier REP (the REP supports the VAT credit); issued: our collections without a REP',
+  'help.rep.missing.list.option.direction': 'received (default) or issued',
+  'help.rep.missing.list.option.min_amount': 'only payments at or above this amount',
+  'help.rep.reconcile.description':
+    'Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped',
+  'help.rep.reconcile.option.limit': 'maximum parked REPs to retry',
+  'help.rep.reconcile.option.dry_run': 'list what would be retried, retry nothing',
   // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
   //
   // The first payables task: both families whole, roots included, English as
@@ -3746,7 +5460,8 @@ export const EN = {
   'help.bill.inbox.edit.argument.id': 'one pre-registration, by id',
   'help.bill.inbox.edit.option.line':
     'line number to code; without it, --account is the default for every line with none',
-  'help.bill.inbox.edit.option.account': 'expense account, by code or id',
+  'help.bill.inbox.edit.option.account':
+    'expense account, by code or id; for a CFDI this entity issued, the revenue account',
   'help.bill.inbox.edit.option.cost_center': 'cost center id of the --line',
   'help.bill.inbox.run.description':
     'Turn pre-registrations into vendor bills, or approve, reject and schedule them in bulk',
@@ -3798,6 +5513,552 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
+  //
+  // The second payables task: the three families whole, roots included,
+  // English as shown (`payment trace` was keyed before). Every generic flag
+  // keeps a key of its own: none of these leaves has a --format, their --reason
+  // is not cli.flag.reason's text, and `prepaid list` declares -n and --offset
+  // by hand. The two withSelection flags `tax-deposit list` rewords go through
+  // describeOption. Lists travel as {conventions} and {states}.
+  'help.payment.description': 'Vendor payments: record cash that already left the bank and settle the bill it pays',
+  'help.payment.create.description': 'Record a payment made against a bill and recognize the IVA it was holding',
+  'help.payment.create.argument.bill': 'bill number, vendor invoice number or id',
+  'help.payment.create.option.amount': 'amount, in the document currency',
+  'help.payment.create.option.date': 'value date (YYYY-MM-DD); defaults to today',
+  'help.payment.create.option.method': 'cash, check, ach, wire, spei, credit_card or other',
+  'help.payment.create.option.bank': "bank account name or id; without it the entity's `banco` role is used",
+  'help.payment.create.option.json': 'JSON output',
+  'help.payment.create.option.check_number': 'cheque number; only valid with --method check',
+  'help.payment.create.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
+  'help.payment.create.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
+  'help.payment.create.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.create.option.discount': 'early-payment discount taken',
+  'help.payment.create.option.memo': 'note stored with the payment',
+  'help.payment.apply.description':
+    'Apply an existing payment to specific bills: partial, with discount, or short-paid',
+  'help.payment.apply.argument.payment': 'payment number or id whose on-account balance is to be applied',
+  'help.payment.apply.option.bill': 'bill to apply to; repeat it, paired in order with --amount',
+  'help.payment.apply.option.amount': 'amount applied to the bill in the same position',
+  'help.payment.apply.option.discount': 'early-payment discount for the bill in the same position',
+  'help.payment.apply.option.mode': 'partial (leave the rest open) or residual (close it short)',
+  'help.payment.apply.option.short_pay_reason':
+    'why the unpaid balance is being written off; required by --mode residual',
+  'help.payment.apply.option.json': 'JSON output',
+  'help.payment.unapply.description':
+    'Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account',
+  'help.payment.unapply.argument.payment': 'payment number or id',
+  'help.payment.unapply.option.bill': 'the bill to unapply from',
+  'help.payment.unapply.option.reason': 'why: it lands in the audit trail',
+  'help.payment.unapply.option.date':
+    'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today',
+  'help.payment.unapply.option.json': 'JSON output',
+  'help.payment.reverse.description':
+    'Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again',
+  'help.payment.reverse.argument.payment': 'payment number or id',
+  'help.payment.reverse.option.reason': 'why: it lands in the audit trail',
+  'help.payment.reverse.option.date':
+    'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today',
+  'help.payment.reverse.option.json': 'JSON output',
+  'help.prepaid.description': 'Prepaid expenses: the schedule that takes them out of 1160, month by month',
+  'help.prepaid.create.description':
+    'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing',
+  'help.prepaid.create.argument.description': 'what the prepayment covers, as it will read in the entries',
+  'help.prepaid.create.option.amount': 'amount to accrue, as a decimal',
+  'help.prepaid.create.option.start': 'first day the coverage runs (YYYY-MM-DD)',
+  'help.prepaid.create.option.end': 'last day the coverage runs, inclusive (YYYY-MM-DD)',
+  'help.prepaid.create.option.origin': 'where the charge already in the account came from — no default',
+  'help.prepaid.create.option.source_entry':
+    'the journal entry that charged the account; required with --origin cfdi',
+  'help.prepaid.create.option.cfdi_uuid': 'the CFDI this prepayment came in on, for the trail',
+  'help.prepaid.create.option.vendor': 'vendor name kept on the schedule',
+  'help.prepaid.create.option.reference': 'the document this points at: policy number, contract, order',
+  'help.prepaid.create.option.convention':
+    'the convention you believe you are registering ({conventions}); checked against the panel',
+  'help.prepaid.create.option.prepaid_account':
+    'prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)',
+  'help.prepaid.create.option.expense_account':
+    'account the accrual will charge each month (defaults to the `gasto` role)',
+  'help.prepaid.create.option.reason': 'why the threshold is being overridden; required with --force',
+  'help.prepaid.create.option.dry_run': 'show the schedule that would be registered; write nothing',
+  'help.prepaid.list.description': 'Live schedules with their remaining balance and how many periods are left',
+  'help.prepaid.list.option.limit': 'maximum rows to return',
+  'help.prepaid.list.option.offset': 'skip this many rows',
+  'help.prepaid.list.option.all': 'every live schedule, including those not started yet and already ended',
+  'help.prepaid.list.option.as_of':
+    'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)',
+  'help.prepaid.show.description': 'One schedule with its period-by-period table',
+  'help.prepaid.show.argument.id_or_description':
+    'the schedule: its id, or enough of its description to be unambiguous',
+  'help.prepaid.run.description': 'Post the month accrual — one adjusting entry per schedule, irreversible',
+  'help.prepaid.run.option.period': 'period to accrue: 2026-08, or any unambiguous part of its name',
+  'help.tax_deposit.description': 'Employer tax liabilities: what is owed, to whom, and by when',
+  'help.tax_deposit.list.description':
+    'Accrued employer liabilities with their due date and status, soonest due first',
+  'help.tax_deposit.list.option.status': 'filter by liability status ({states}); repeatable',
+  'help.tax_deposit.list.option.all': 'include what is already settled: deposited and waived rows too',
+  'help.tax_deposit.list.option.period': 'only liabilities whose period touches this month',
+  'help.tax_deposit.list.option.until': 'only what falls due on or before this date (YYYY-MM-DD)',
+  'help.tax_deposit.list.option.all_entities': 'every entity of the tenant, not just the active one',
+  // ==== MNE-001-240 · help by key, cfdi, e-accounting and sat (issue #314) ====
+  //
+  // Fiscal 1/2: the three families whole, roots included, English as shown
+  // (the leaves keyed before, such as `cfdi post`, the seal leaves and `sat
+  // download`, keep their keys). The author prose in Castilian of `cfdi list
+  // --direction` and `cfdi status show --refresh` already got its English with
+  // MNE-001-226 (#871). Every generic flag keeps a key of its own: `-o` of the
+  // two generate leaves names the XML (withOutput's flag, reworded through
+  // describeOption), their `--dry-run` and `-y` are the leaf's own, and the
+  // `-e`, `-u` and `-n` of `sat cred` and `cfdi status sync` say other things
+  // than cli.flag.*.
+  'help.cfdi.description':
+    'The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI',
+  'help.cfdi.list.description': 'The mirror, filtered by direction, type, status and date',
+  'help.cfdi.list.option.direction': 'emitido, recibido or ajeno (derived against the RFC of the entity)',
+  'help.cfdi.list.option.type': 'filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago',
+  'help.cfdi.show.description': 'One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes',
+  'help.cfdi.show.argument.uuid': 'CFDI UUID (timbre fiscal)',
+  'help.cfdi.status.description': 'SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)',
+  'help.cfdi.status.show.description': 'Estado, EsCancelable and EstatusCancelacion as the SAT last answered',
+  'help.cfdi.status.show.argument.uuid': 'CFDI UUID',
+  'help.cfdi.status.show.option.refresh': 'ask the SAT now and update the sat_* cache of the document',
+  'help.cfdi.status.sync.description': 'Re-check the whole mirror against the SAT: stale or never-consulted first',
+  'help.cfdi.status.sync.option.limit': 'maximum CFDIs to consult in this run',
+  'help.cfdi.status.sync.option.stale_hours': 'a consultation older than this is stale',
+  'help.cfdi.explain.description': 'WHY it was recorded the way it was: case, facts and decisions the classifier left',
+  'help.cfdi.explain.argument.uuid': 'CFDI UUID',
+  'help.e_accounting.description': 'Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it',
+  'help.e_accounting.catalog.description': 'The chart of accounts as the SAT wants it: CtaCatalogo 1.3',
+  'help.e_accounting.catalog.generate.description':
+    'Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its hash',
+  'help.e_accounting.catalog.generate.option.output':
+    'write the CtaCatalogo XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.catalog.generate.option.period': 'month the catalog declares (Mes and Anio of its header)',
+  'help.e_accounting.catalog.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.catalog.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.description': 'The trial balance the SAT expects: BCE 1.3, normal, amended or year-end',
+  'help.e_accounting.balance.generate.description':
+    "Build and archive the period's trial balance XML (SaldoIni, Debe, Haber, SaldoFin) with its hash",
+  'help.e_accounting.balance.generate.option.output':
+    'write the Balanza XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.balance.generate.option.period': 'period to declare: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.generate.option.type': 'envelope type: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.generate.option.closing': 'the year-end balance, filed as month 13 — not December again',
+  'help.e_accounting.balance.generate.option.modified':
+    'date the balance being amended was modified (FechaModBal); required with --type C',
+  'help.e_accounting.balance.generate.option.dry_run':
+    'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.balance.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.e_accounting.balance.check.description':
+    'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, and every account in the catalog',
+  'help.e_accounting.balance.check.option.period': 'period to check: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.balance.check.option.closing': 'check the year-end balance (month 13) instead of a month',
+  'help.e_accounting.balance.check.option.check':
+    'comma-separated check names; with no value, prints the available ones',
+  'help.sat.description': 'SAT services (e.firma credentials and the CFDI bulk download)',
+  'help.sat.cred.description': 'Fiscal credentials (e.firma)',
+  'help.sat.cred.add.description':
+    'Registers the e.firma of an entity (validates locally; storing in the vault requires --live)',
+  'help.sat.cred.add.option.cer': 'SAT .cer certificate (DER)',
+  'help.sat.cred.add.option.key': 'SAT .key private key (DER)',
+  'help.sat.cred.add.option.entity': 'Legal entity',
+  'help.sat.cred.add.option.user': 'Who grants the consent',
+  'help.sat.cred.add.option.no_unattended': 'Forbid use without an operator present',
+  'help.sat.cred.add.option.max_diario': 'Access limit per 24 h',
+  'help.sat.cred.status.description': 'Shows the entity credentials and their validity',
+  'help.sat.cred.status.option.entity': 'Legal entity',
+  'help.sat.cred.audit.description': 'Credential access history (who used it, when and what for)',
+  'help.sat.cred.audit.option.entity': 'Legal entity',
+  'help.sat.cred.audit.option.limit': 'How many events to show',
+  'help.sat.cred.revoke.description': 'Revokes the credential and deletes the material from the vault (irreversible)',
+  'help.sat.cred.revoke.option.entity': 'Legal entity',
+  'help.sat.cred.revoke.option.user': 'Who revokes',
+  // ==== MNE-001-427 · help by key, report and asset (issue #314) ====
+  //
+  // Fiscal and reports 2/2: the two families whole, roots included, English as
+  // shown. The two aging groups come from one function and keep a key each.
+  // The lists in `report view sync --view` and in `asset create --method` and
+  // `--tax-method` are parameters: machine values, not translated. Every
+  // generic flag a leaf declares keeps a key of its own: `asset create
+  // --dry-run` says what the rehearsal shows.
+  'help.report.description': 'Financial statements, trial balance, general ledger and ageing',
+  'help.report.trial_balance.description': 'Trial balance',
+  'help.report.trial_balance.show.description': 'Debits, credits and ending balance by account, with the footing',
+  'help.report.trial_balance.show.option.level': 'roll up to at most this account level (default: every level)',
+  'help.report.trial_balance.show.option.exclude_zero': 'omit accounts whose ending balance is exactly zero',
+  'help.report.balance_sheet.description': 'Balance sheet',
+  'help.report.balance_sheet.show.description': 'Assets, liabilities and equity at a cutoff date, in natural sign',
+  'help.report.income_statement.description': 'Income statement',
+  'help.report.income_statement.show.description': 'Revenue, expenses and net income for a period',
+  'help.report.general_ledger.description': 'General ledger detail',
+  'help.report.general_ledger.show.description': 'Posted movements line by line, filterable by account and date',
+  'help.report.general_ledger.show.option.account': 'restrict to one account (code or id)',
+  'help.report.aged_receivable.description': 'Aged receivables',
+  'help.report.aged_receivable.show.description': 'Open customer invoices by age bucket, with the amount still due',
+  'help.report.aged_payable.description': 'Aged payables',
+  'help.report.aged_payable.show.description': 'Open vendor bills by age bucket, with the amount still due',
+  'help.report.view.description': 'The reporting materialized views (mv_trial_balance, mv_account_balance_summary)',
+  'help.report.view.show.description': 'Whether each reporting view still agrees with the ledger, and by how much',
+  'help.report.view.sync.description': 'Rebuild the reporting materialized views from the ledger (firm-wide)',
+  'help.report.view.sync.option.view': 'which views to rebuild (default: all of {views})',
+  'help.report.view.sync.option.no_concurrently': 'rebuild with an exclusive lock; needed only for a never-populated view',
+  'help.asset.description': 'Fixed asset register: the ledger of what the company owns and depreciates',
+  'help.asset.create.description':
+    'Register a fixed asset with its class, dates, cost and accounts — writes no journal entry',
+  'help.asset.create.argument.name': 'what the asset is called in the register',
+  'help.asset.create.option.category': 'asset class: its id, or enough of its name to be unambiguous',
+  'help.asset.create.option.cost': 'original cost of the investment (MOI), as a decimal',
+  'help.asset.create.option.acquired': 'acquisition date (YYYY-MM-DD)',
+  'help.asset.create.option.in_service':
+    'date depreciation starts (YYYY-MM-DD); defaults from the first-month convention on the panel',
+  'help.asset.create.option.book': 'the depreciation book you believe you are working on; checked against the panel',
+  'help.asset.create.option.capitalized':
+    'whether the cost is ALREADY charged to the asset account in the ledger — no default',
+  'help.asset.create.option.source_entry': 'the journal entry the cost already sits in, when it is known',
+  'help.asset.create.option.salvage': 'residual value at the end of its life (default 0)',
+  'help.asset.create.option.life_years': 'useful life in years',
+  'help.asset.create.option.life_months': 'useful life in months; years are the ceiling of months over twelve',
+  'help.asset.create.option.method': 'BOOK depreciation method: {methods}',
+  'help.asset.create.option.tax_method': 'TAX depreciation method: {methods}',
+  'help.asset.create.option.asset_account': 'GL account the cost sits in (defaults from the class)',
+  'help.asset.create.option.accum_account': 'accumulated depreciation account (defaults from the class)',
+  'help.asset.create.option.expense_account': 'depreciation expense account (defaults from the class)',
+  'help.asset.create.option.number': 'asset number; generated from the entity series when omitted',
+  'help.asset.create.option.description': 'what the asset is',
+  'help.asset.create.option.vendor': 'vendor it was bought from',
+  'help.asset.create.option.serial': 'serial number, so the register can find the physical thing',
+  'help.asset.create.option.location': 'where it is',
+  'help.asset.create.option.dry_run': 'run the real path and undo it: shows the asset that would be created',
+  'help.asset.category.description': 'Asset classes: useful life, LISR rate and the three default accounts',
+  'help.asset.category.seed.description':
+    'Create the missing Mexican asset classes, with their LISR art. 34/35 maximum rate',
+  // ==== MNE-001-242 · help by key, approvals, memory, pending, skills, ingest and question (issue #314) ====
+  //
+  // The first agent task: the six families whole, English as shown (the roots
+  // of ingest and question, `ingest <files...>`, `--kind` and `question list`
+  // were keyed before). Every generic flag keeps a key of its own: «Legal
+  // entity», «Tenant» and «JSON output» are not the kernel's words, and none of
+  // these leaves has a --format. Lists travel as {scopes} and {modes}.
+  'help.approvals.description': 'Graduated approval policies for staged writes (once / session / always)',
+  'help.approvals.list.description': 'List approval policies of the entity',
+  'help.approvals.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.list.option.tenant': 'Tenant',
+  'help.approvals.list.option.scope': 'Filter by scope ({scopes})',
+  'help.approvals.list.option.all': 'Include revoked policies',
+  'help.approvals.list.option.json': 'JSON output',
+  'help.approvals.grant.description':
+    'Grant a pattern-based approval policy (conservative matching; the floor always wins)',
+  'help.approvals.grant.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.grant.option.tenant': 'Tenant',
+  'help.approvals.grant.option.scope': 'Scope of the policy ({scopes})',
+  'help.approvals.grant.option.mode': 'Policy mode ({modes})',
+  'help.approvals.grant.option.kind':
+    "Match field: candidate kind. For drafts this is the draft payload's " +
+    '"kind" (or "entry_type") field, falling back to "journal_entry" when ' +
+    'absent — kinds in use today: journal_entry (default), payroll',
+  'help.approvals.grant.option.max_amount': 'Match field: maximum amount authorized (numeric string)',
+  'help.approvals.grant.option.provider': 'Match field: external provider (e.g. contalink)',
+  'help.approvals.grant.option.operation': 'Match field: external operation (e.g. create_policy)',
+  'help.approvals.grant.option.session': 'Granting session id (required for --mode session)',
+  'help.approvals.grant.option.user': 'Granting user (required when the tenant has several active users)',
+  'help.approvals.revoke.description': 'Revoke an active approval policy',
+  'help.approvals.revoke.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.approvals.revoke.option.tenant': 'Tenant',
+  'help.memory.description': 'Firm precedents: what the AI learned and you control',
+  'help.memory.option.entity': 'Legal entity',
+  'help.memory.option.tenant': 'Tenant',
+  'help.memory.option.search': 'Filter by text',
+  'help.memory.option.all': 'Include retired ones',
+  'help.memory.option.conflicts': 'Only the precedents that contradict each other, and how to resolve them',
+  'help.memory.option.json': 'JSON output',
+  'help.memory.teach.description': 'Seeds a firm criterion without waiting for the AI to ask',
+  'help.memory.teach.argument.rule': 'The situation, e.g. "Telmex invoices"',
+  'help.memory.teach.argument.criterion': 'What to do, e.g. "they go to 6130 Utilities"',
+  'help.memory.teach.option.user': 'Who teaches it',
+  'help.memory.teach.option.topic': 'Topic for grouping precedents',
+  'help.memory.correct.description': 'Changes the answer of a precedent (the previous one stays in the history)',
+  'help.memory.correct.argument.id': 'Precedent id',
+  'help.memory.correct.argument.answer': 'The correct answer',
+  'help.memory.correct.option.user': 'Who corrects',
+  'help.memory.retire.description': 'The AI stops using this precedent (not deleted: the history remains)',
+  'help.memory.retire.argument.id': 'Precedent id',
+  'help.memory.retire.option.user': 'Who retires it',
+  'help.memory.retire.option.reason': 'Why it no longer applies (kept in the precedent history)',
+  'help.memory.restore.description': 'Reactivates a retired precedent',
+  'help.memory.restore.argument.id': 'Precedent id',
+  'help.pending.description': 'What you need to do: work to resolve and policy decisions to define',
+  'help.pending.option.entity': 'Legal entity',
+  'help.pending.option.verbose':
+    'Explain each decision: why I ask, what I do, what skipping costs, and what your own data says',
+  'help.pending.option.all': 'Include definitions already resolved and dismissed',
+  'help.pending.define.description': 'Defines a pending decision (the value takes effect immediately)',
+  'help.pending.define.argument.key': 'Decision key (see: mnemosine pending)',
+  'help.pending.define.argument.value': 'Chosen value; if omitted, asked interactively',
+  'help.pending.define.option.entity': 'Legal entity',
+  'help.pending.define.option.user': 'Who defines it',
+  'help.pending.define.option.note': 'Note or rationale',
+  'help.pending.dismiss.description': 'Marks a definition as not applicable (leaves the agenda)',
+  'help.pending.dismiss.option.entity': 'Legal entity',
+  'help.pending.dismiss.option.user': 'Who dismisses it',
+  'help.pending.dismiss.option.note': 'Why it does not apply',
+  'help.pending.reopen.description': 'Reopens an already resolved definition (the policy changed)',
+  'help.pending.reopen.option.entity': 'Legal entity',
+  'help.skills.description': 'Firm skills: list, review staged changes, view content',
+  'help.skills.list.description': 'Visible skills and how many staged changes await review',
+  'help.skills.list.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.skills.list.option.tenant': 'Tenant',
+  'help.skills.list.option.json': 'JSON output',
+  'help.skills.drafts.description': 'Review staged skill changes: diff + trust-scan report, approve or reject',
+  'help.skills.drafts.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.skills.drafts.option.tenant': 'Tenant',
+  'help.skills.drafts.option.user': 'Reviewer',
+  'help.skills.drafts.option.accept_risk':
+    'Allow approving drafts the trust scanner flagged (recorded in the audit trail)',
+  'help.skills.drafts.option.override_drift':
+    'Approve even if the skill file drifted from the draft diff base (recorded in the audit trail)',
+  'help.skills.drafts.option.json': 'List pending drafts as JSON (no interactive review)',
+  'help.skills.view.description': "Print one skill's SKILL.md",
+  'help.skills.view.argument.name': 'Skill name',
+  'help.ingest.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.ingest.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.ingest.option.model': 'Override the profile model',
+  'help.ingest.option.user': 'User the ingestion is attributed to (default: sole active user)',
+  'help.ingest.option.auto_post': 'Enables threshold-based auto-posting (default: everything stays as draft)',
+  'help.ingest.option.no_auto_post': 'Disables auto-posting even if the config has it turned on',
+  'help.ingest.option.min_confidence': 'Minimum confidence for auto-post (0-1)',
+  'help.ingest.option.max_amount': 'Maximum auto-postable amount',
+  'help.ingest.option.retry':
+    'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates',
+  'help.question.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.question.option.user': 'Who answers (default: sole active user of the tenant)',
+  'help.question.option.list': 'Only list, without answering (deprecated: use `question list`)',
+  'help.question.answer.argument.id': 'question id; omit to answer the pending queue interactively',
+  'help.question.answer.argument.answer': 'the answer text, or the number of an option (requires <id>)',
+  'help.question.answer.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.question.answer.option.user': 'Who answers (default: sole active user of the tenant)',
+  // ==== MNE-001-235 · help by key, entry (issue #314) ====
+  //
+  // The second ledger task: the `entry` family whole, root included, English as
+  // shown (`batch` and `fx` are MNE-001-426). Every generic flag a leaf declares
+  // is worded for it and keeps its own key; what withContext, withOutput,
+  // withSelection, withTime, withStrict and declareRisk add stays on cli.flag.*.
+  // The lists travel as {types} and {layouts}. The English of `entry import
+  // --layout` was Spanish author prose on develop ("aún sin parser"); the owner
+  // chose on #314 (15 Nov 2026) to give those nodes real English, so it is the
+  // one English text this task changes.
+  'help.entry.description': 'Journal entries: draft, inspect, validate, post, reverse and void',
+  'help.entry.list.description': 'Search journal entries by text, account, date, amount, state, type or source',
+  'help.entry.list.argument.search': 'text to match in the description or reference',
+  'help.entry.list.option.type': 'entry type (repeatable)',
+  'help.entry.list.option.source': 'origin subledger: invoice, bill, payroll, manual…',
+  'help.entry.list.option.account': 'only entries with a line on this account',
+  'help.entry.list.option.min_amount': 'minimum total debits',
+  'help.entry.list.option.max_amount': 'maximum total debits',
+  'help.entry.show.description': 'Show one entry with its lines, totals, period and linked reversal',
+  'help.entry.show.argument.number': 'entry number (JE-2026-00042) or id',
+  'help.entry.show.option.no_lines': 'header only, without the lines',
+  'help.entry.create.description': 'Create a journal entry — ALWAYS a draft; posting is a separate human step',
+  'help.entry.create.option.line':
+    'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below',
+  'help.entry.create.option.file': 'JSON document with date, type, description and lines',
+  'help.entry.create.option.date': 'entry date (YYYY-MM-DD); defaults to today',
+  'help.entry.create.option.type': 'entry type: {types} (default: standard)',
+  'help.entry.create.option.description': 'what the entry records',
+  'help.entry.create.option.reference': 'external reference (document, folio, memo)',
+  'help.entry.create.option.dry_run': 'validate and show the entry that would be drafted; write nothing',
+  'help.entry.create.option.json': 'JSON output',
+  'help.entry.check.description': 'Run the seven NIF validation rules over an entry or a document; writes nothing',
+  'help.entry.check.option.entry': 'an existing entry, by number or id',
+  'help.entry.check.option.file': 'a JSON entry document that does not exist yet',
+  'help.entry.line.description': 'Ledger lines: from an account balance down to the entries behind it',
+  'help.entry.line.list.description': 'Posted lines of one account, each with the entry it belongs to',
+  'help.entry.line.list.argument.code': 'account code',
+  'help.entry.preview.description':
+    'The exact account_balances delta this entry would produce, without touching anything',
+  'help.entry.preview.argument.number': 'entry number or id',
+  'help.entry.edit.description': 'Edit a DRAFT entry: description, reference, note, date or full line replacement',
+  'help.entry.edit.argument.number': 'entry number or id',
+  'help.entry.edit.option.description': 'new description',
+  'help.entry.edit.option.reference': 'new external reference',
+  'help.entry.edit.option.note': 'new note',
+  'help.entry.edit.option.date': 'new entry date (YYYY-MM-DD)',
+  'help.entry.edit.option.line':
+    'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)',
+  'help.entry.edit.option.file': 'JSON document whose date/description/reference/lines replace the draft',
+  'help.entry.export.description': 'Entries WITH their lines, flat, for audit or migration — no page cap',
+  'help.entry.import.description':
+    'Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger',
+  'help.entry.import.argument.file': 'file of journal entries to stage',
+  'help.entry.import.option.layout': 'file layout: {layouts} (contpaqi/aspel/iif/sat-polizas: no parser yet)',
+  'help.entry.import.option.dry_run': 'parse and report, stage nothing',
+  'help.entry.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first batch',
+  'help.entry.post.description': 'Post ONE entry to the ledger: validates the seven rules, then moves balances',
+  'help.entry.post.argument.number': 'entry number or id',
+  'help.entry.post.option.json': 'JSON output',
+  'help.entry.reverse.description': 'Create the linked posted mirror of an entry (NIF B-1: correct by reversal)',
+  'help.entry.reverse.argument.number': 'the POSTED entry to reverse',
+  'help.entry.reverse.option.date': 'date of the mirror entry (YYYY-MM-DD); defaults to today',
+  'help.entry.void.description': 'Annul an entry: a draft is marked void, a posted one gets its linked mirror',
+  'help.entry.void.argument.number': 'entry number or id',
+
+  // ==== MNE-001-426 · help by key, batch and fx (issue #314) ====
+  //
+  // The last ledger task, split from 235 by answer 2: both families whole,
+  // roots and the `fx rate` group included, with the English these commands
+  // already showed. Every generic flag a leaf declares keeps its own key: the
+  // `--json` of `batch post` and `batch reverse` (no --format there), and the
+  // `--since`/`--until` of `fx rate list`, whose words are the kernel's but
+  // which parse no date. Lists travel as {kinds} and {categories}. The
+  // categories of `batch check --check` are values the user types (`cuenta`
+  // among them): they move as they are in both languages, left for I23
+  // (MNE-001-200), so ux-status keeps counting that node.
+  'help.batch.description': 'Staged entry batches: list, inspect, check, post transactionally and reverse as a unit',
+  'help.batch.list.description': 'List batches with their state, row counts, posted entries and content hash',
+  'help.batch.list.option.kind': 'batch class (available: {kinds})',
+  'help.batch.show.description':
+    'One batch in full: rows with their generated entries, stored parse errors by category, and the file hash',
+  'help.batch.show.argument.id': 'batch id',
+  'help.batch.show.option.errors_only': 'only the rows whose parser rejected them',
+  'help.batch.check.description':
+    'Run the posting validations over every row and report each finding; exits 4 when any blocks',
+  'help.batch.check.argument.id': 'batch id',
+  'help.batch.check.option.check':
+    'finding categories to display, comma-separated (available: {categories}); the full battery always runs',
+  'help.batch.post.description':
+    'Post the whole batch in one transaction; --partial applies the valid rows and leaves the rest staged',
+  'help.batch.post.argument.id': 'batch id',
+  'help.batch.post.option.partial':
+    'apply the valid rows and leave the invalid ones in staging (accepts an unchecked batch)',
+  'help.batch.post.option.json': 'JSON output',
+  'help.batch.reverse.description':
+    'Mirror every entry the batch posted, as one unit in one transaction — import errors are batch-shaped, not ' +
+    'entry-shaped',
+  'help.batch.reverse.argument.id': 'batch id',
+  'help.batch.reverse.option.as_of': 'date for every mirror entry (YYYY-MM-DD); defaults to today',
+  'help.batch.reverse.option.json': 'JSON output',
+  'help.fx.description': 'Exchange rates: the origin every foreign-currency amount converts from',
+  'help.fx.rate.description': 'Published exchange rates by pair, date, type and source',
+  'help.fx.rate.list.description': 'List stored exchange rates by pair, date, type and source',
+  'help.fx.rate.list.option.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.list.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  'help.fx.rate.list.option.rate_type': 'only rates of this type',
+  'help.fx.rate.list.option.source': 'only rates from this source',
+  'help.fx.rate.show.description': 'Resolve the applicable rate: direct, then inverse, then crossed through USD',
+  'help.fx.rate.show.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.show.argument.date': 'date the rate applies to (YYYY-MM-DD)',
+  'help.fx.rate.show.option.rate_type': 'rate type to resolve',
+  'help.fx.rate.show.option.source': 'resolve using only this publisher',
+  'help.fx.rate.set.description': 'Record an exchange rate, naming its source',
+  'help.fx.rate.set.argument.pair': 'currency pair, e.g. USD/MXN',
+  'help.fx.rate.set.argument.date': 'effective date (YYYY-MM-DD)',
+  'help.fx.rate.set.argument.rate': 'the rate, up to 10 decimals',
+  'help.fx.rate.set.option.source': 'who published the rate (required)',
+  'help.fx.rate.set.option.rate_type': 'rate type',
+  'help.fx.rate.set.option.until': 'last date the rate remains effective (YYYY-MM-DD)',
+  'help.fx.rate.set.option.dry_run': 'show what would be recorded without writing',
+  'help.fx.rate.download.description':
+    'Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)',
+  'help.fx.rate.download.option.source': 'which publisher to download from (required)',
+  'help.fx.rate.download.option.as_of': 'single date to download (YYYY-MM-DD)',
+  'help.fx.rate.download.option.since': 'inclusive lower bound (YYYY-MM-DD)',
+  'help.fx.rate.download.option.until': 'inclusive upper bound (YYYY-MM-DD)',
+  // ==== MNE-001-243 · help by key, entity, init, onboard, lang, login, ask, chat, compact, drafts, review, sessions, prompt-size, ai, doctor and usage (issue #314) ====
+  //
+  // The setup and session families whole, English as shown (the roots of ask,
+  // chat, sessions, drafts, review, lang, onboard and login, and entity's
+  // --minimum-wage-zone, were keyed before; ai's prose got its English in
+  // #844). `lang` is whole in MNE-001-469's block (#889): its argument key is
+  // that one's. Every generic flag keeps a key of its own: none of these texts
+  // is the kernel's, and none of these leaves has an output --format. The usage
+  // groupings travel as {choices}.
+  'help.entity.description': 'Select and inspect the legal entity commands operate on',
+  'help.entity.list.description': 'List the active legal entities',
+  'help.entity.show.description': 'Show one entity — with no argument, the one commands would use, and why',
+  'help.entity.show.argument.id_or_name': 'entity to describe; omit for the active one',
+  'help.entity.use.description': 'Pin the entity that later commands operate on',
+  'help.entity.use.argument.id_or_name': 'entity id, tax id, or a fragment of the name',
+  'help.entity.create.description': 'Create a legal entity with its chart of accounts, roles and payroll mapping',
+  'help.entity.create.argument.name': 'legal name of the company',
+  'help.entity.create.option.tax_id': 'RFC (Mexico) or EIN (USA)',
+  'help.entity.create.option.country': 'MX or USA',
+  'help.entity.create.option.currency': "functional currency (defaults to the country's)",
+  'help.entity.create.option.chart': 'auto | siempre | nunca — whether to seed the base chart',
+  'help.entity.create.option.tax_regime': 'c_RegimenFiscal code: 601, 612, 626…',
+  'help.entity.create.option.tax_postal_code': 'fiscal address postal code (5 digits)',
+  'help.entity.create.option.json': 'JSON output',
+  'help.entity.edit.description': 'Set the tax regime, fiscal postal code or minimum-wage zone of an entity',
+  'help.entity.edit.argument.id_or_name': 'entity id, tax id, or a fragment of the name',
+  'help.entity.edit.option.tax_regime': 'c_RegimenFiscal code: 601, 612, 626…',
+  'help.entity.edit.option.tax_postal_code': 'fiscal address postal code (5 digits)',
+  'help.entity.edit.option.reason': 'justification recorded in the audit trail',
+  'help.entity.edit.option.json': 'JSON output',
+  'help.entity.archive.description': 'Archive an entity (never deletes: its ledger has to survive)',
+  'help.entity.archive.argument.id_or_name': 'entity to archive',
+  'help.entity.unset.description': 'Clear the pinned entity; commands go back to requiring --entity',
+  'help.init.description': 'Guided setup: infrastructure, entity, users, AI provider, and your books',
+  'help.init.option.status': 'Only show the status, configure nothing',
+  'help.init.option.section': 'Configure a single section (infra|identity|users|ai|policies|import)',
+  'help.init.option.yes': 'Non-interactive: use defaults and flags, ask nothing',
+  'help.init.option.tenant': 'Tenant',
+  'help.init.option.entity': 'Name of the legal entity to create',
+  'help.init.option.rfc': 'RFC/EIN of the entity',
+  'help.init.option.country': 'MX | USA',
+  'help.init.option.currency': 'Functional currency',
+  'help.init.option.provider': 'Default AI provider',
+  'help.init.option.model': 'Provider model',
+  'help.init.option.user': 'Email of the user to create',
+  'help.onboard.option.provider': 'External system, e.g. contalink',
+  'help.onboard.option.cutoff': 'Cutoff date: opening balances are taken as of this date',
+  'help.onboard.option.from':
+    'Start of the remote trial balance period (default: January 1st of the cutoff year)',
+  'help.onboard.option.entity': 'Target legal entity (id, RFC or name fragment)',
+  'help.onboard.option.user': 'Who runs it (default: sole active user of the tenant)',
+  'help.onboard.option.balance_account':
+    'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)',
+  'help.onboard.option.post':
+    'Post the opening balance immediately (default: stays as a draft for mnemosine review)',
+  'help.onboard.option.dry_run': 'Only show the plan, without executing anything',
+  'help.login.option.device': 'Use the device-code flow (SSH, server without a browser)',
+  'help.ask.argument.question': 'The question for the assistant',
+  'help.ask.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.ask.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.ask.option.model': 'Override the profile model',
+  'help.chat.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.chat.option.provider': 'Model provider (see: mnemosine providers)',
+  'help.chat.option.model': 'Override the profile model',
+  'help.chat.option.continue':
+    'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)',
+  'help.chat.option.resume': 'Resume a specific session by id (see: mnemosine sessions)',
+  'help.chat.option.no_banner': 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)',
+  'help.compact.description': 'Dry-run compaction report for a session transcript (no API calls)',
+  'help.compact.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.compact.option.tenant': 'Tenant',
+  'help.compact.option.session': 'Session id (default: the most recent session)',
+  'help.compact.option.keep': 'Recent tail to keep intact, in tokens',
+  'help.compact.option.json': 'JSON output',
+  'help.drafts.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.drafts.option.status': 'pending_review | approved | rejected',
+  'help.review.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.review.option.user': 'Reviewer email (default: first active user of the tenant)',
+  'help.sessions.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.sessions.option.limit': 'Maximum number of sessions to show',
+  'help.prompt_size.description': 'Offline breakdown of the system prompt and tool schemas (no API calls)',
+  'help.prompt_size.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.prompt_size.option.tenant': 'Tenant',
+  'help.prompt_size.option.json': 'JSON output',
+  'help.ai.description': 'Metrics and calibration of the accounting agent',
+  'help.ai.stats.description': 'Approval by confidence bucket, confidence-vs-reality delta, cost and events',
+  'help.doctor.description': 'Diagnoses system health: DB, migrations, provider, credentials, isolation',
+  'help.doctor.option.json': 'JSON output for scripts',
+  'help.usage.description': 'Token usage and estimated cost from the local ledger (no API calls)',
+  'help.usage.option.entity': 'Legal entity (id, RFC or name fragment)',
+  'help.usage.option.tenant': 'Tenant',
+  'help.usage.option.since': 'Window: Nd (e.g. 7d, 30d) or YYYY-MM-DD',
+  'help.usage.option.by': 'Group by: {choices}',
+  'help.usage.option.json': 'JSON output',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -3835,6 +6096,128 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+
+  // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
+  //
+  // The Spanish prose six checks of src/ai/doctor-service.ts wrote in place,
+  // their one Spanish label, and the verdict of renderDoctor. `id` and `level`
+  // are the machine's and stay out of the catalogue; commands, tables and
+  // Postgres words inside the prose are typed or matched, so they stay as written.
+  /** The label of `conflicting-permissions`; it must share no word with the id. */
+  'doctor.check.permission_conflicts': 'Segregation of duties (user access)',
+  'doctor.summary.title': 'Mnemosine health check',
+  'doctor.summary.fail': 'There are failures that prevent operation. Resolve them in the order shown.',
+  'doctor.summary.warn': 'Operational with warnings.',
+  'doctor.summary.ok': 'All good.',
+  /** `sample` is the first three `command: detail` of the audit, which #150 keeps untranslated. */
+  'doctor.cli_consistency.new_violations': '{count, plural, one {# new violation} other {# new violations}} — {sample}',
+  'doctor.cli_consistency.new_violations_fix':
+    'The CLI surface stays consistent because every verb comes from a closed list and every flag from the single dictionary. ' +
+    'Fix the command, or —if the change is deliberate— extend the vocabulary in src/cli/kernel/vocabulary.ts. ' +
+    'The baseline in src/cli/kernel/audit.ts is NOT extended.',
+  'doctor.cli_consistency.stale':
+    '{count, plural, one {# baseline entry is no longer violated: delete it} other {# baseline entries are no longer violated: delete them}}',
+  /** `stale` is empty, or « · » and the text of `doctor.cli_consistency.stale`. */
+  'doctor.cli_consistency.inherited':
+    'no new violations; {count, plural, one {# inherited one remains} other {# inherited ones remain}} in the baseline{stale}',
+  'doctor.cli_consistency.clean': 'the surface meets every rule{stale}',
+  'doctor.cli_consistency.inherited_fix':
+    'The inherited ones are known, frozen debt: nine are naming decisions, three require retiring a short form already published, ' +
+    'and eight ask for four listings to be paginated.',
+  'doctor.ledger_integrity.ok': 'account_balances = Σ posted lines, and everything posted has its trail',
+  /** `capped` is `yes` when the query hit its LIMIT 20. */
+  'doctor.ledger_integrity.drift':
+    '{count}{capped, select, yes {+} other {}} (account, period) where account_balances ≠ Σ posted lines — every report on top inherits the difference',
+  'doctor.ledger_integrity.untraced':
+    "{count, plural, one {# posted entry} other {# posted entries}} without a 'post' row in audit_log — facts with no author",
+  'doctor.ledger_integrity.fix':
+    'Balance drift is investigated BEFORE recalculating: since migration 041 a posted line cannot be edited, ' +
+    'so a new difference points at the write path of account_balances, not at the lines.',
+  'doctor.permission_conflicts.ok': 'no active user holds conflicting permissions',
+  'doctor.permission_conflicts.fix':
+    'Split the conflicting permissions between different users, or accept the risk knowingly ' +
+    '(in a one-person firm it is unavoidable; the per-entry maker-checker lives in the panel: segregacion_de_funciones).',
+  /** `list` is `table.trigger=state`, as pg_trigger spells it. */
+  'doctor.guarantee_triggers.unsealed':
+    '{loose} of {total, plural, one {# guarantee} other {# guarantees}} unsealed{off, plural, =0 {} other { (# DISABLED)}}: {list}',
+  'doctor.guarantee_triggers.fix': 'ALTER TABLE <table> ENABLE ALWAYS TRIGGER <trigger>  — and find out WHO disabled it and why',
+  'doctor.guarantee_triggers.ok':
+    '{count, plural, one {# guarantee in ENABLE ALWAYS: not even session_replication_role silences it} other {# guarantees in ENABLE ALWAYS: not even session_replication_role silences them}}',
+  'doctor.bank_statements.unnamed_file': '(unnamed)',
+  /** How many tenants the check read: a green that does not say so is green by not looking. */
+  'doctor.bank_statements.scope':
+    '{tenants, plural, one {# tenant checked} other {# tenants checked}}{blind, plural, =0 {} other {, # could not be checked}}',
+  'doctor.bank_statements.unrepaired': 'this database recorded migration 051 before its correction',
+  'doctor.bank_statements.unique_index': 'the content index is UNIQUE and swallows legitimately identical transactions',
+  'doctor.bank_statements.blind_trigger': 'the trigger does not watch content_hash, so the fingerprint can be forged by hand',
+  'doctor.bank_statements.already_missing':
+    '{lines, plural, one {# line is} other {# lines are}} already missing in {statements, plural, one {# statement} other {# statements}}: {detail}',
+  'doctor.bank_statements.unrepaired_fix':
+    'npm run migrate  — applies 072; lines already lost must be re-imported by hand: the remedy gives back the capacity, not the data',
+  /** It does not say «missing»: a line skipped as a duplicate of an overlapping statement is not lost. */
+  'doctor.bank_statements.short':
+    '{lines, plural, one {# line declared and not present} other {# lines declared and not present}} in {statements, plural, one {# statement} other {# statements}} ({scope}): {detail}',
+  'doctor.bank_statements.short_fix':
+    'compare before touching anything: if those lines are in the account under ANOTHER statement of an overlapping period, ' +
+    'the database is sound and this is the declared gap of 051. Only if they appear nowhere was there a loss, and then the file is ' +
+    're-imported with the account in view of a human — never by removing the bank_statements row, which is evidence',
+  'doctor.bank_statements.blind':
+    'the catalogue is repaired, but {scope}: without reading their statements I cannot say they are complete',
+  'doctor.bank_statements.blind_fix': 'check that the application role can query bank_statements with a tenant context',
+  'doctor.bank_statements.ok':
+    'the content index is not unique, the trigger enforces the fingerprint, and no statement has fewer lines than it declared ({scope})',
+  'doctor.auditor_role.missing':
+    'mnemosine_auditor does not exist: giving an outside auditor access today means lending them WRITE credentials over the books',
+  'doctor.auditor_role.missing_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (it does not fit in a migration: the migrator has no CREATEROLE, on purpose)',
+  /** The four grave findings follow «mnemosine_auditor», joined by «; ». */
+  'doctor.auditor_role.bypasses_rls': 'IGNORES RLS (BYPASSRLS): it sees the books of ALL tenants',
+  'doctor.auditor_role.superuser': 'is a SUPERUSER',
+  'doctor.auditor_role.creates_roles': 'can create roles',
+  'doctor.auditor_role.writes': 'has WRITE on {grants}',
+  'doctor.auditor_role.grave_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — the script reasserts NOBYPASSRLS and revokes; also find out WHO granted it',
+  'doctor.auditor_role.login':
+    'mnemosine_auditor has LOGIN: it is meant as a privilege bundle granted to NAMED accounts (one per auditor), not as a shared account',
+  'doctor.auditor_role.login_fix':
+    'ALTER ROLE mnemosine_auditor NOLOGIN;  and issue one account per person: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+  'doctor.auditor_role.matviews':
+    'mnemosine_auditor reads {count, plural, one {# materialized view} other {# materialized views}} ({views}): ' +
+    'RLS does not filter them and a role with BYPASSRLS builds them, so they hold the books of ALL tenants',
+  'doctor.auditor_role.matviews_fix': "psql \"$SUPERUSER_URL\" -f scripts/rol-auditor.sql  — its block 4 revokes every relkind = 'm'",
+  'doctor.auditor_role.coverage_unmeasured':
+    'mnemosine_auditor exists and is well bounded, but its table coverage could not be measured',
+  'doctor.auditor_role.coverage_unmeasured_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (its verification block prints both counts)',
+  'doctor.auditor_role.ungranted':
+    'mnemosine_auditor reads only {readable} of the {total} isolated tables: ' +
+    '{missing, plural, one {# table was} other {# tables were}} created after the last GRANT',
+  'doctor.auditor_role.ungranted_fix':
+    'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (grants again and sets the default privileges for whatever comes next)',
+  'doctor.auditor_role.global_tables':
+    'also {count, plural, other {# without a tenant, which must be global reference only}} ({tables})',
+  /** `note` is empty, or «; » and the text of `doctor.auditor_role.global_tables`. */
+  'doctor.auditor_role.ok': 'read-only on {count} isolated tables, NOLOGIN and subject to RLS{note}',
+  // ==== end of I11 · doctor by key ====
+  // ==== NVIDIA's hosted trial (MNE-001-448, #644 P8) ====
+  // The terms init, chat and ask print before a session on the hosted catalog,
+  // and the refusals of src/ai/providers/trial-endpoint.ts.
+  'providers.trial.terms.what':
+    "{profile} uses NVIDIA's hosted API catalog ({host}), a trial for development and evaluation.",
+  'providers.trial.terms.records':
+    "NVIDIA's API Trial Terms of Service let it record what you send and what comes back, and ask you not to send personal data: never send it a client's books or documents.",
+  'providers.trial.terms.limits':
+    'Its endpoints can be retired without notice. For client work choose another provider, or NVIDIA NIM on your own host.',
+  'providers.trial.accept_default': 'Save {profile} as your default provider under these terms?',
+  'providers.trial.not_saved': 'Terms not accepted: {profile} was not saved as the default.',
+  'providers.trial.accept_session': 'Use {profile} for this session under these terms?',
+  'providers.trial.refused.unattended':
+    "{profile} is on NVIDIA's hosted trial ({host}), which records what it receives: ingest, jobs run-due and init's import never open a session there. Choose another provider for them.",
+  'providers.trial.refused.no_terminal':
+    "{profile} is on NVIDIA's hosted trial ({host}), whose terms need a yes at a terminal, and there is none here. Run it at a terminal, or choose another provider.",
+  'providers.trial.refused.declined': 'Terms not accepted: no session was opened on {profile}.',
+  'providers.trial.refused.not_accepted':
+    "{profile} is on NVIDIA's hosted trial ({host}), and its terms were not accepted in this session. Start mnemosine chat --provider {profile} at a terminal to read and accept them.",
   // --- pay-run · corrida (MNE-001-068) -----------------------------------
   'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
   'payrun.file_duplicate_employee':
@@ -3898,6 +6281,11 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.employment_subsidy.excess_rule_unknown':
+    'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +
+    'and only 0 or 1 is a rule: 1 hands the subsidy in excess of the ISR to the worker in cash, 0 hands over nothing. ' +
+    'Correct the row against its official source; no paycheck is calculated with a guessed share.',
 
   // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
   'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',
@@ -4006,4 +6394,112 @@ export const EN = {
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',
+
+  // ==== MNE-001-418 · help by key, cfdi post (issue #620) ====
+  'help.cfdi.post.description':
+    'Post a CFDI this entity issued to receivables: the customer invoice with its UUID, and its entry',
+  'help.cfdi.post.argument.uuid': 'UUID of a CFDI this entity issued, as cfdi list prints it',
+  'help.cfdi.post.option.account': 'revenue account, by code or id, of every concept with no account of its own',
+  'help.cfdi.post.option.json': 'one row: invoice number, status, amount due, entry number and dry_run',
+  'cfdi.post.bad_uuid':
+    '"{uuid}" is not a CFDI UUID. List the issued CFDI to post with: mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending',
+  'cfdi.post.confirm':
+    'Post CFDI {uuid} ({rfc}, {total} {currency}, MetodoPago {method, select, none {missing} other {{method}}}) to receivables? This cannot be undone.',
+  'cfdi.post.no_terminal':
+    '{question} There is no terminal to ask on: run it again with --yes once you are sure, or with --dry-run to see the effect first.',
+  'cfdi.post.would_post': 'Would post CFDI {uuid} as {invoice} for {rfc} · entry {entry}',
+  'cfdi.post.posted': 'CFDI {uuid} posted as {invoice} for {rfc} · entry {entry} · {due} due',
+  // MNE-001-431 (#643): `cfdi status sync` and `cfdi status show --refresh` report the bills they marked.
+  'cfdi.status.bills_marked':
+    '{count, plural, one {# bill} other {# bills}} carrying a CFDI the SAT reports cancelled got the mark. ' +
+    'Nothing was reversed: status, entry and balance stay until the accountant decides.',
+  'cfdi.post.nothing_written':
+    'Nothing was written. To code one concept first: mnemosine bill inbox edit {id} --line <n> --account <code>',
+  'cfdi.post.previous_account':
+    'Line {line} held {code} {name} while this CFDI was stored as a vendor bill: a reference only, it is not posted.',
+  'cfdi.post.next':
+    '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
+  'ingest.issued_left_to_code':
+    'Left to post by hand ({reason}): this entity issued it, so it is a sale. Post it to receivables with `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lists the ones waiting',
+  'ingest.received_credit_note_to_inbox':
+    'Received credit note: the model does not draft it. Post it against its bill with `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` shows it, and the reason if it has to wait',
+  'ingest.preview.route.received_credit_note':
+    'received credit note: firm rules, then the inbox; no AI draft. A rule that requires this document type posts it, otherwise `mnemosine bill inbox run` does',
+  'ingest.summary.issued_to_post':
+    '{count} of them issued by this entity: post each to receivables with `mnemosine cfdi post <uuid>`; list them with `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
+  'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
+  'bill.inbox.run.issued_not_a_bill':
+    'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
+  // ==== MNE-001-444 (#644): the readiness answer of a provider's credential ====
+  // credential-state.ts builds the label every surface prints (doctor,
+  // providers, status, init, the jobs tick, chat); provider-readiness.ts the
+  // hint that a chat or ask with no credential prints. A label never carries a
+  // value or a helper's command, only names.
+  'provider.credential.env': '{variable} set',
+  'provider.credential.helper': 'api_key_cmd',
+  'provider.credential.helper_in': 'api_key_cmd in {file}',
+  'provider.credential.helper_in_shared':
+    'api_key_cmd in {file}, a project file shared by everyone who runs mnemosine in that folder',
+  'provider.credential.local': 'local, no credential',
+  'provider.credential.none': 'no credential configured',
+  'provider.credential.missing': '{variable} missing',
+  'provider.credential.missing_at': '{variable} missing (get it at {where})',
+  'provider.credential.refused': '{variable} is not a provider credential',
+  'provider.credential.folder_key':
+    '{label}; {file} defines it, so that key serves everyone who runs mnemosine in that folder',
+  'provider.credential.folder_empty': '{label}; the empty {variable}= in {file} hides ~/.mnemosine/.env',
+  'provider.credential.anthropic.api_key': 'ANTHROPIC_API_KEY set, which the Anthropic SDK reads',
+  'provider.credential.anthropic.auth_token': 'ANTHROPIC_AUTH_TOKEN set, a bearer token the Anthropic SDK sends',
+  'provider.credential.anthropic.custom_header': 'an {header} line in ANTHROPIC_CUSTOM_HEADERS',
+  'provider.credential.anthropic.profile': 'signed in: Anthropic profile {profile} in {file}',
+  'provider.credential.anthropic.federation':
+    'workload identity federation (ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID and an identity token)',
+  'provider.credential.hint.missing':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env.',
+  'provider.credential.hint.missing_at':
+    'Provider {name} has no credential: set {variable} in your shell or ~/.mnemosine/.env (get it at {where}).',
+  'provider.credential.hint.anthropic_alternative': 'Or sign in with `ant auth login`, or set ANTHROPIC_AUTH_TOKEN.',
+  'provider.credential.hint.helper_alternative': 'Or give the profile an api_key_cmd in ~/.mnemosine/config.json.',
+  'provider.credential.hint.refused':
+    'Provider {name} names {variable} in api_key_env, which is not a provider credential: name a variable of its own that holds the key.',
+  'provider.credential.hint.keyless':
+    'Provider {name} has no credential configured: give it an api_key_env or an api_key_cmd. If its endpoint needs no key, start the chat with --provider {name}.',
+  'provider.credential.hint.init': 'To set it up: mnemosine init --section ai',
+  'provider.credential.anthropic_rejected': 'Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env, or run `ant auth login`.',
+  'provider.switch.kept': 'The session stays on {current}.',
+  'provider.switch.done': 'Provider switched to {label} ({credential}). New conversation.',
+  // ==== end of MNE-001-444 ====
+  // ==== MNE-001-469 · lang names the rung that decided, and lang --unset (issue #653) ====
+  'help.lang.argument.language':
+    'the language to set: {choices}; omit it to see the language in effect and what decided it',
+  'help.lang.option.unset':
+    'remove the language saved in ~/.mnemosine/config.json, so the next source decides again',
+  'cli.lang.examples':
+    '\nExamples:\n' +
+    '  Which language the CLI and the agent use right now, and what decided it:\n' +
+    '    mnemosine lang\n' +
+    '  Use Spanish for both; it is saved in ~/.mnemosine/config.json:\n' +
+    '    mnemosine lang es\n' +
+    '  Remove that choice, so the next source decides again:\n' +
+    '    mnemosine lang --unset\n',
+  'cli.lang.name.es': 'Spanish',
+  'cli.lang.name.en': 'English',
+  'cli.lang.in_effect': 'Language: {language} ({locale}), for the CLI and the agent. Decided by {rung}.',
+  'cli.lang.rung.flag': 'the {flag} flag of this run',
+  'cli.lang.rung.env': '{variable}={value} in the environment',
+  'cli.lang.rung.user_config': 'your own choice, saved in {file}',
+  'cli.lang.rung.project_config': "this folder's {file}",
+  'cli.lang.rung.legacy_config': 'the legacy "language" key in {file}',
+  'cli.lang.rung.entity': 'the language of the entity {entity}',
+  'cli.lang.rung.default': 'the system default: nothing else chose one',
+  'cli.lang.change_hint': 'Change it with: mnemosine lang {choices} (or the {variable} environment variable)',
+  'cli.lang.unset_hint': 'Remove your saved choice with: mnemosine lang --unset',
+  'cli.lang.set': 'Language set to {language} ({locale}) for the CLI and the agent, in {file}',
+  'cli.lang.quarantined': 'Your previous {file} could not be read and was replaced; a copy is at {copy}',
+  'cli.lang.takes_effect': 'Takes effect from the next command.',
+  'cli.lang.shadowed_env': '{variable}={value} is set and takes precedence — unset it for this change to apply.',
+  'cli.lang.shadowed': 'It does not apply yet: {rung} takes precedence; change it for this to apply.',
+  'cli.lang.unset.done': 'Removed your language choice ({keys}) from {file}.',
+  'cli.lang.unset.nothing': 'No language choice is saved in {file}; there is nothing to remove.',
+  'cli.lang.unset_with_language': '--unset takes no language: it removes your saved choice (got "{language}").',
 } as const;

@@ -63,7 +63,7 @@ describe('arReconcile manual entries', () => {
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '0' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
     await arReconcile(ENTITY);
@@ -75,7 +75,8 @@ describe('arReconcile manual entries', () => {
     expect(mockQuery.mock.calls[5][1]).toEqual([
       ENTITY,
       'acc-1',
-      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'receipt_reversal_iva',
+        'fx_revaluation'],
       50,
     ]);
   });
@@ -90,7 +91,7 @@ describe('arReconcile reads the report layer', () => {
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '1500.0000' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'MXN', functional: true, foreign: '1300.0000', book: '1300.0000' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'MXN', functional: true, foreign: '100.0000', book: '100.0000' }] })
-      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
         rows: [
           { journal_entry_id: 'je-9', entry_number: 'JE-9', entry_date: new Date('2026-08-20'),
@@ -102,7 +103,8 @@ describe('arReconcile reads the report layer', () => {
 
     expect(queryAccountBalance).toHaveBeenCalledWith(ENTITY, 'acc-1');
     expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, 'acc-1', {
-      excludeSourceTypes: ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      excludeSourceTypes: ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
+        'receipt_reversal_iva', 'fx_revaluation'],
       order: 'newest',
       limit: 50,
     });
@@ -128,7 +130,7 @@ describe('arReconcile reads the report layer', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
     const r = await arReconcile(ENTITY);
@@ -149,7 +151,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
         ],
       })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ net: '700' }] })
+      .mockResolvedValueOnce({ rows: [{ journal_entry_id: 'je-r', amount: '700.0000', total_amount: '700.0000', total_entries: 1 }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const r = await arReconcile(ENTITY);
@@ -172,7 +174,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '15750' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '1000', book: '17500' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '100', book: '1750' }] })
-      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
     const r = await arReconcile(ENTITY);

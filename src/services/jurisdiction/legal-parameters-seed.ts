@@ -15,7 +15,8 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // ── POR QUÉ POCAS FILAS Y NO VEINTE ────────────────────────────────────
 //
 // It was born with six rows; the LFT minimums (T6 · #93) and the five rows of
-// the 2026 employment subsidy (#298) have joined since, each with its source.
+// the 2026 employment subsidy (#298) and the two of its excess over the ISR
+// (#600) have joined since, each with its source.
 // The rule below still holds: a row enters when its figure is verified.
 //
 // El grueso de la ley lo carga J0.4 —UMA de cada año, tarifas del art. 96,
@@ -62,7 +63,10 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // `days` entra con T6 (#93): el mínimo de aguinaldo del art. 87 LFT se cuenta
 // en días, y sin unidad `value` es un número sin significado — que es
 // exactamente el defecto que ese tramo cerró en el panel.
-type LegalParameterUnit = 'rate' | 'MXN' | 'days';
+// `UMA` enters with MNE-001-375 (#194): the separation cap of LISR art. 93
+// fr. XIII is counted in UMA per year of service, as migrations 094, 106 and
+// 164 already store the other art. 93 caps.
+type LegalParameterUnit = 'rate' | 'MXN' | 'days' | 'UMA';
 
 /** Una fila de la semilla: lo que la 080 exige, con la fuente obligatoria. */
 export interface LegalParameterSeedRow {
@@ -82,6 +86,7 @@ export interface LegalParameterSeedRow {
 const LISR_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf';
 const LIVA_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf';
 const LFT_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LFT.pdf';
+const SUBSIDY_DECREE_2024 = 'https://dof.gob.mx/nota_detalle.php?codigo=5725287&fecha=01/05/2024';
 const SUBSIDY_DECREE_2026 = 'https://dof.gob.mx/nota_detalle.php?codigo=5777649&fecha=31/12/2025';
 
 /**
@@ -275,6 +280,63 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
       'Decreto que modifica el subsidio para el empleo, DOF 31-12-2025: only workers whose monthly ' +
       'income does not exceed 11,492.66 receive the subsidy. Replaces the 10,171.00 of the DOF ' +
       '31-12-2024 decree.',
+  },
+
+  // ── The subsidy in excess of the ISR (#600, MNE-001-440) ───────────────
+  //
+  // The same two rows migration 329 loads. The share of the subsidy in excess
+  // of the ISR that the employer pays to the worker in cash: all of it until
+  // 30 April 2024, none of it since. Law with a date, not a policy of the firm.
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.excess_over_isr_paid_share',
+    effectiveFrom: '2014-01-01',
+    value: '1.0000',
+    unit: 'rate',
+    sourceUrl: LISR_PDF,
+    sourceNote:
+      'Decreto DOF 11-12-2013 (the one that issues the LISR), Artículo Décimo, fracción I, in force 1 ' +
+      'January 2014 (its Transitorio Primero): when the ISR of art. 96 is smaller than the employment ' +
+      'subsidy, «el retenedor deberá entregar al contribuyente la diferencia que se obtenga», and may ' +
+      'credit what it hands over against its own ISR or the ISR withheld from others. 1 = the whole ' +
+      'excess over the ISR is paid to the worker in cash.',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.excess_over_isr_paid_share',
+    effectiveFrom: '2024-05-01',
+    value: '0.0000',
+    unit: 'rate',
+    sourceUrl: SUBSIDY_DECREE_2024,
+    sourceNote:
+      'Decreto que otorga el subsidio para el empleo, DOF 01-05-2024, Artículo Segundo, in force 1 May ' +
+      '2024 (its Transitorio Primero): when the ISR is smaller than the subsidy, «la diferencia no ' +
+      'podrá aplicarse contra el impuesto que resulte a su cargo posteriormente, ni se entregará ' +
+      'cantidad alguna por concepto del subsidio para el empleo». 0 = nothing of the excess over the ' +
+      'ISR is paid; it replaces the Artículo Décimo of the DOF 11-12-2013 decree.',
+  },
+
+  // ── The separation exemption (MNE-001-375 · #194) ──────────────────────
+  //
+  // Seeded here and not migrated, by the coordinator's decision on #194: an
+  // install without the law seed computes its settlements without the
+  // exemption, and the settlement says which row is missing
+  // (separation-isr.ts). The value is in UMA, not pesos: the peso figure moves
+  // every February with the UMA, and is computed at the termination date.
+  {
+    jurisdiction: 'MX',
+    key: 'income_tax.exempt_cap.separation_uma_per_year_of_service',
+    effectiveFrom: '2016-01-28',
+    value: '90.0000',
+    unit: 'UMA',
+    sourceUrl: LISR_PDF,
+    sourceNote:
+      'LISR art. 93 fr. XIII: seniority premiums, retirement, indemnities and other separation payments ' +
+      'are exempt «hasta por el equivalente a noventa veces el salario mínimo general del área geográfica ' +
+      'del contribuyente por cada año de servicio»; «Toda fracción de más de seis meses se considerará un ' +
+      'año completo»; the excess is taxed. Text of the LISR in force since 2014-01-01 (DOF 11-12-2013). ' +
+      'In UMA since the desindexation decree (DOF 27-01-2016, third transitory article), in force the ' +
+      'next day, as the other art. 93 caps (migrations 094, 106, 164).',
   },
 
   // ── Salarios mínimos ───────────────────────────────────────────────────

@@ -47,7 +47,7 @@ The figures are the ones **corrected by the skeptics**; each has its command in 
 
 ## 2. The rules
 
-1. **The machine layer is English, and what is new is born English from day one.** Identifiers, file names, comments — new ones, and existing ones by tranche (I20) —, **commit messages**, catalog keys, error codes, columns, values, **migration, script and `npm run` names**: in English. A lint makes it fail in CI for what is new; what exists enters a **per-file** baseline that only shrinks. This inverts `CONTRIBUTING.md:158` and `README.md:345`, which are rewritten in the same PR that installs the rule. **The artifacts of this plan obey the rule from their name**: `scripts/language/`, `docs/language-baseline.json`, `house/english-identifiers`, `npm run language:status`, `src/i18n/`, and this very document (`docs/language.md`, with its twin `language.es.md`).
+1. **The machine layer is English, and what is new is born English from day one.** Identifiers, file names, comments — new ones, and existing ones by tranche (I20) —, **commit messages**, catalog keys, error codes, columns, values, **migration, script and `npm run` names**: in English. A lint makes it fail in CI for what is new; what exists enters a **per-file** baseline that only shrinks. Comments are the exception today: their lane, `src-spanish-comment-lines`, is informational until I20's ratchet (MNE-001-187) lands, so nothing yet stops a new Spanish comment (D15). This inverts `CONTRIBUTING.md:158` and `README.md:345`, which are rewritten in the same PR that installs the rule. **The artifacts of this plan obey the rule from their name**: `scripts/language/`, `docs/language-baseline.json`, `house/english-identifiers`, `npm run language:status`, `src/i18n/`, and this very document (`docs/language.md`, with its twin `language.es.md`).
 2. **Every string a user reads has a key and an English source, and every translation catalog — Spanish today — is complete before the key is used.** The English source is real English: moving Spanish prose into `en.ts` is not translating it (the owner's «a», 2026-11-15). The catalog is **typed**: `es.ts` is declared as `Record<keyof typeof EN, string>`, so a key without a translation is a `tsc` error, not a warning; a sync test guards what the type cannot see (parameters, empties, wrong language, orphans).
 3. **What is persisted is persisted as key and parameters, and rendered on read.** Entry descriptions, audit reasons, period names, payroll calculation notes: the row stores `key` + `params` **and** the English prose in the column it always had; the output renders the key in the resolved locale. History is not backfilled and is shown as it is.
 4. **Persisted vocabulary and published contracts also go to English, and are renamed with a net.** Panel keys and values (53 + 93), the 36 account roles, 43 `CHECK` values, the 11 `as const`, 24 error codes, 10 `x-*` keys and 1,391 JSON row keys, 4 tables and 117 columns, CLI flag values, the *golden* keys (an applied migration keeps its title, D7). First they are **registered** with an English gloss (I4: the registry is the `old → new` map and the net for the criteria), and then renamed by class with a **data migration under RLS**, an alias window in readers and gates, and a version bump where there is a contract (§3.9). New ones are born English from I3. **Proper names are not vocabulary**: SAT, CFDI, RFC, IMSS, UMA, DIOT, REP, PPD, PUE, INPC, CLABE stay, as IRS or W-2 stay in Spanish.
@@ -80,7 +80,7 @@ Like `catalogo:estado` and `ux:status`: it walks the tree, writes its block betw
 | Spanish comment lines in `src/` | 22,731 | ratchet from I20 |
 
 
-The live measurement, written by the meter itself. **Do not edit by hand**: `npm run language:status -- --write` replaces everything between the markers, and re-stamps this page's Spanish twin so it does not fall out of date.
+The ratchet's ceilings, written by the meter itself from `docs/language-baseline.json`; the live counts are read with `npm run language:status`, so a pull request that only moves a count does not touch this page. **Do not edit by hand**: `npm run language:status -- --write` replaces everything between the markers, and re-stamps this page's Spanish twin so it does not fall out of date.
 
 <!-- LANGUAGE-STATUS:START -->
 
@@ -89,24 +89,25 @@ The live measurement, written by the meter itself. **Do not edit by hand**: `npm
   CI verifies it with --check, so a hand edit shows up red.
 -->
 
-### How much Spanish is left, and where
+### How much Spanish may be left, and where
 
-18 lanes under the ratchet and 1 measured but not yet required.
-The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
-manual act and its trace is the diff.
+19 lanes under the ratchet and 1 measured but not yet required.
+This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
+in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
+trace is the diff. The live figures are read with `npm run language:status`.
 
-| Lane | What it counts | Today | Towards |
+| Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10513 | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5763 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10463 | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
-| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 463 | 0 |
+| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 162 | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 29 | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 30 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
@@ -114,8 +115,9 @@ manual act and its trace is the diff.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 649 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28648 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 99 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 926 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
@@ -125,7 +127,7 @@ An own ESLint rule, **inline** in `eslint.config.mjs` (no package), at **error**
 
 ### 3.4 The typed catalog, the resolver and the formatter
 
-- **`src/i18n/en.ts`** is the source (`as const`); **`src/i18n/es.ts`** is declared `Record<keyof typeof EN, string>`; `t(key, params)` with own plural and select over `Intl.PluralRules` (Node ≥ 20 guarantees it): **zero dependencies**, keys that `tsc`, `codigoDe` and the meter see. The sync test covers what the type cannot: equal parameters between languages, empty strings, wrong language, orphan keys, and that `LANGUAGES[0] === 'es'`. A `__TRANSLATE__` marker in `en.ts` is rejected. **For now there are two languages**, `es-MX` and `en-US` (owner's decision, 2026-09-07); the mechanism does not know how many there are, and a third one will be one more file and one line in the sync, not a tranche.
+- **`src/i18n/en.ts`** is the source (`as const`); **`src/i18n/es.ts`** is declared `Record<keyof typeof EN, string>`; `t(key, params)` with own plural and select over `Intl.PluralRules` (Node ≥ 20 guarantees it): **zero dependencies**, keys that `tsc`, `codigoDe` and the meter see. The sync test covers what the type cannot: equal parameters between languages, empty strings, wrong language (an `en.ts` value judged Spanish included), orphan keys, and that `LANGUAGES[0] === 'es'`. A `__TRANSLATE__` marker in `en.ts` is rejected. **For now there are two languages**, `es-MX` and `en-US` (owner's decision, 2026-09-07); the mechanism does not know how many there are, and a third one will be one more file and one line in the sync, not a tranche.
 - **`src/i18n/locale.ts`**: `describeLocale()` (and `resolveLocale()`, its locale alone), synchronous and without a database, takes the first of five rungs that answers: (1) this run: `--locale` (global flag in `FLAG_DICTIONARY`, one meaning), then `MNEMOSINE_LOCALE` (with `MNEMOSINE_LANG` as a permanent alias); (2) `locale` in `~/.mnemosine/config.json`, which `mnemosine lang` writes; (3) `locale` in `./mnemosine.config.json`, then the legacy `language` key of the first of the two files that exists, kept until I24; (4) the entity's language, its own setting else its jurisdiction's (#651), which the caller reads where it has a connection and passes in already read: the CLI and the agent will pass it (#655, proposed), and REST and the board read it on their own path (#656, proposed); (5) `DEFAULT_LOCALE`, `es-MX` (`src/i18n/locale.ts:51`). There is no firm rung. `es` is canonicalized to `es-MX` and `en` to `en-US`. In REST: `Accept-Language` > `DEFAULT_LOCALE`, and the response declares `Content-Language`. **One only** for the interface and the agent; `resolveLanguage` reads it (`config.ts:1208`). `vitest.config.ts` pins `test.env.MNEMOSINE_LOCALE = 'en-US'` so that the 1,025 CLI assertions compare the source.
 - **`src/i18n/format.ts`**: `formatMoney`, `formatDate`, `formatNumber` over `Intl` with the `formatLocale` derived from the jurisdiction and the entity's currency (`jurisdictionOf(entity)`), **only for `table` and prose**; `json`, `csv`, `ndjson` and `md` do not change (`presentation.spec.ts:10-14`). Currency with **ISO code** (`1,234.56 MXN`), ISO dates in tables. `formatMoneyMx` stops carrying the locale in its name, with a deprecated alias. CI pins `full-icu`, because with `small-icu` every locale silently falls back to `en-US` and today no test detects it.
 
@@ -180,7 +182,7 @@ Four classes, four different nets, and the I4 registry as the map of all of them
 
 ## 5. The sequence
 
-Every tranche carries its criterion in `src/plan/criterios.ts` in the same commit; each leaves the tree green and the baseline lower, and **stopping at any tranche is a valid state**. After I0–I6 Spanish no longer grows in the code and the vocabulary is registered; after I7–I11 the user reads in their language; I12–I19 are the source renames; I20–I22 take comments, documentation and commits to English; I23–I26 take to English what has a net underneath — persisted values, published contracts and schema objects, and an index for the dated reports — and go last because each touches tenants' data or third-party clients.
+Every tranche carries its criterion in `src/plan/criterios.ts` in the same commit; each leaves the tree green and the baseline lower, and **stopping at any tranche is a valid state**. After I0–I6 Spanish no longer grows in the code — in the lanes the gate enforces; comments wait for I20's ratchet (D15) — and the vocabulary is registered; after I7–I11 the user reads in their language; I12–I19 are the source renames; I20–I22 take comments, documentation and commits to English; I23–I26 take to English what has a net underneath — persisted values, published contracts and schema objects, and an index for the dated reports — and go last because each touches tenants' data or third-party clients.
 
 | Tranche | What it delivers | Executable criterion | Size |
 |---|---|---|---|
@@ -217,7 +219,7 @@ Every tranche carries its criterion in `src/plan/criterios.ts` in the same commi
 
 ## 6. What the owner decides
 
-The owner decided D1, D2, D5, D6, D7, D8 and D9 on 2026-09-06 with three sentences — "all the code", "everything at origin", "everything. Everything" —, D12 on 2026-09-07 ("only two languages for now") and D14 on 2026-11-15, read on 2026-11-16 ("English first, Spanish or another language second"), which amended D1, D7 and D10: here they stand as decisions, not as proposed defaults. Only D3 (the lint's scope from day one) remains open, and it blocks nothing.
+The owner decided D1, D2, D5, D6, D7, D8 and D9 on 2026-09-06 with three sentences — "all the code", "everything at origin", "everything. Everything" —, D12 on 2026-09-07 ("only two languages for now") and D14 on 2026-11-15, read on 2026-11-16 ("English first, Spanish or another language second"), which amended D1, D7 and D10, and D15 on 2026-11-17 (the internal tranches wait until after the MVP): here they stand as decisions, not as proposed defaults. Only D3 (the lint's scope from day one) remains open, and it blocks nothing.
 
 - **D1 · Existing comments, documentation and commits — decided 2026-09-06: yes, everything at origin in English.** Existing comments are translated by tranche with a ratchet (I20); documentation moves to an English source with a complete Spanish twin (I21); commits in English from I22; dated reports keep their Spanish, with an English index per folder (I26; amended 2026-11-16: «Ambos son registro»).
 - **D2 · Domain terms — decided: everything is translated.** `poliza` → `journalEntry`, `balanza` → `trialBalance`, `nomina` → `payroll`, `agrupador` → `groupingCode`, `folio` → `folio` (it is an English word). Proper names and official acronyms (SAT, CFDI, RFC, IMSS, UMA, DIOT, REP, PPD/PUE, INPC, CLABE) are not vocabulary: they stay. The lexicon's domain-term list starts empty and only admits proper names.
@@ -233,6 +235,7 @@ The owner decided D1, D2, D5, D6, D7, D8 and D9 on 2026-09-06 with three sentenc
 - **D12 · Third language — decided 2026-09-07: only two languages for now**, `es-MX` and `en-US`. No `pt-BR` test; the mechanism stays ready for a third one without its own tranche.
 - **D13 · Time zone per entity**: the two clocks of "today" (`CURRENT_DATE` vs `getMonth()`) and the container without `TZ` are real, but they belong to the J series (J0.6), not to this one.
 - **D14 · Which language comes first — decided 2026-11-15, read 2026-11-16: English first, Spanish or another language second.** The owner, verbatim (transcribed on #141): «a, escribe el inglés de verdad, de hecho revisa el repositorio y hazlo English first Spanish u otro lenguaje second.» The «a» answered #314 (comment 6899506858): help whose English was Spanish author prose gets real English. On 2026-11-16 he answered I27's questions on #141. «Inglés por omisión (recomendada)»: `en-US` is the system default of the CLI, the agent, the REST API and the web board, and Spanish is one step away (`mnemosine idioma es`; the entity's setting; `Accept-Language: es-MX`; the browser). The entity sets the default for its users (D10, amended). «Las dos mitades (recomendada)»: D14's sequence, #314, I8, I8b, the help Examples, I9's request-facing messages, doctor and the agent's fixed lines go into v1.0, and the renames stay in wave 4. «Ambos son registro (recomendada)»: D1 and D7, amended. D12 and rule 5 stand: the SAT's XML does not change with the reader's language (by test), and the agent drafts the descriptions of entities with Mexican books in Spanish; the English system templates that already reach the `Concepto` are I16's (MNE-001-173). Until I27's switch merges, the code's default is still `es-MX` (`src/i18n/locale.ts:51`).
+- **D15 · Whether the internal renaming continues — decided 2026-11-17: parked until after the MVP, none retired.** It is D-05 of PRD-003, answered on #603 (comment 6964687926; MNE-001-538). The owner, verbatim: «B no lo retires solo ponlo después del MVP». The internal tranches — identifiers, schema, persisted vocabulary and published contracts — wait until after the MVP; their tasks stay in the backlog, in wave 4, and none is retired. What a person reads continues now: the surface by key and the statutory language. New code is still born in English. What D14 calls «v1.0» is, since 2026-11-18, the MVP; v1.0 is the milestone after it (`docs/MVP.md` §1). **A correction** to how that answer was first recorded: the language gate of CI keeps Spanish from rising only in the lanes it enforces. `src-spanish-comment-lines` is informational: it measured 28,637 lines against a baseline of 27,780 on 2026-11-18 (`npm run language:status`, `develop` at `ce4851c8`), so Spanish comments did rise. On 2026-11-18 the owner answered «Correcto» to turning that gate on (#603, comment 6965859343): the per-file ratchet for comments, MNE-001-187 (#162), leaves the parked group and continues now, in wave 3. The README also moves ahead: an English source with a Spanish twin before v1.0 (MNE-001-192; «Puedes convertirlo antes»).
 
 ## Further reading
 

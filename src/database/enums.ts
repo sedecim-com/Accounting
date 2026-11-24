@@ -105,8 +105,9 @@ export const VENDOR_PAYMENT_STATUSES = [
 ] as const;
 
 /**
- * 'reversed' (049): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
- * que nunca debió existir.
+ * 'reversed' (049): the receipt HAPPENED and was undone. `reversal_cause`
+ * (327) says how: the money was never collected, or it was taken back. Not
+ * 'void', which should never have existed.
  */
 export const CUSTOMER_PAYMENT_STATUSES = [
   'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
@@ -201,6 +202,13 @@ export const ASSET_STATUSES = [
 ] as const;
 
 /**
+ * The minimum-wage areas of the CONASAMI resolution (LFT arts. 90-92): the
+ * general one and the Zona Libre de la Frontera Norte. The entity declares its
+ * zone and an employee may override it (migration 336, MNE-001-377).
+ */
+export const MINIMUM_WAGE_ZONES = ['general', 'northern_border'] as const;
+
+/**
  * El censo que la prueba de contrato recorre. Añadir una fila aquí es lo que
  * pone el vocabulario bajo vigilancia; declararlo arriba sin registrarlo lo
  * deja fuera y vuelve a permitir que se separe en silencio.
@@ -231,4 +239,6 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('accounts', 'account_type', ACCOUNT_TYPES),
   v('accounts', 'normal_balance', NORMAL_BALANCES),
   v('accounts', 'fs_category', ACCOUNT_FS_CATEGORIES),
+  v('legal_entities', 'minimum_wage_zone', MINIMUM_WAGE_ZONES),
+  v('employees', 'minimum_wage_zone', MINIMUM_WAGE_ZONES),
 ];

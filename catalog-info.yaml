@@ -24,13 +24,31 @@ runtime: node-22                 # package.json engines ">=22.12"; CI y docker/D
 
 provides:
   - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
-    # CONTRACT: the 422 body of every request is pinned byte for byte by
-    # tests/api/golden/rest-body.golden.json, recorded on zod 3 and kept on zod 4 by
-    # src/utils/zod-client-errors.ts and src/utils/zod-compat.ts (#367). The only
-    # changes are two tightenings: JSON 1e999 (Infinity) is rejected wherever zod 3
-    # accepted it as a number (T1), and so is an integer beyond 2^53 - 1 on integer
-    # fields (T2). Where zod 3 already rejected 1e999 (a field that is not a number,
-    # an integer, a bound it breaks), the 422 is the one zod 3 gave.
+    # CONTRACT: a path or method no route serves answers 404 {errors:[{code:'ROUTE_NOT_FOUND',
+    # message}], meta:{request_id, timestamp, version, language}} with Content-Language and
+    # Vary: Accept-Language, instead of Express's text/html "Cannot GET …" page (MNE-001-150,
+    # #151). The status is unchanged; the body becomes the envelope every other error uses.
+    # RESOURCE_NOT_FOUND keeps meaning a missing record under a route that exists.
+    # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
+    # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
+    # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
+    # minimum the LFT art. 486 cap was measured with (MNE-001-377, #196). Compatible: no
+    # field is removed or renamed, and an entity with no declared zone computes as before.
+    # CONTRACT: the 422 of validateBody and validateQuery is written by catalog key
+    # (MNE-001-152, #151). With no supported Accept-Language (none, `*`, or only
+    # unsupported languages) it stays English, and under Accept-Language en, and in
+    # err.message, it is byte for byte the zod 3 English that
+    # tests/api/golden/rest-body.golden.json pins, recorded on zod 3 and kept on zod 4
+    # by src/utils/zod-client-errors.ts and src/utils/zod-compat.ts (#367): the one
+    # response that does not fall back to DEFAULT_LOCALE. Under es its frame and every
+    # issue a key covers are Spanish. Either way the response now declares
+    # Content-Language, Vary: Accept-Language and meta.language. code, field, paths and
+    # issue order do not change. Messages a schema sets itself (refine messages, the
+    # array caps) are not keyed and read the same in every language. The only changes
+    # of the zod 4 migration are two tightenings: JSON 1e999 (Infinity) is rejected
+    # wherever zod 3 accepted it as a number (T1), and so is an integer beyond
+    # 2^53 - 1 on integer fields (T2). Where zod 3 already rejected 1e999 (a field
+    # that is not a number, an integer, a bound it breaks), the 422 is the one zod 3 gave.
     # CONTRACT: /v1/admin/integrations no longer lists `s3`, and every
     # /v1/admin/integrations/s3 route answers 422 PROVIDER_NOT_FOUND (#370). The adapter
     # was a stub that kept the tenant's AWS keys and reported healthy without calling
@@ -44,13 +62,128 @@ provides:
     # language, the one keyed error messages use, never the server's (#654).
     # messageKey and messageParams (noteKey and noteParams when present) are the
     # finding's identity and do not change with the language.
+    # CONTRACT: a received CFDI's line is no longer suggested a control account (payables,
+    # receivables, a bank, VAT, withholdings, one closed to manual entries), and an issuer
+    # with no vendor gets no suggestion at all, where it used to inherit the entity's most
+    # frequent bill-line account (#684). POST /v1/pre-registrations/{id}/process therefore
+    # refuses, with «Line N: no account assigned», a row it used to post; coding the line
+    # (PATCH /v1/pre-registrations/{id}) posts it. The shape of the row does not change.
+    # A `default_account_id` set by that PATCH now posts every line with no account of its
+    # own, ahead of the line's suggestion, which used to win; and a suggestion stored before
+    # #684 that is a control account no longer posts. The way back is coding the line.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
+    # CONTRACT: mnemosine.config.json accepts an optional `models` map, profile name to
+    # model id (MNE-001-441, #644); a name that is no built-in and no profile of the same
+    # file is refused with the names. `init --section ai` now writes `default_provider`
+    # and `models.<p>` to the config file that wins, creates ~/.mnemosine/config.json
+    # instead of a project file, asks before writing a project file (default No), and
+    # writes a typed key to ~/.mnemosine/.env instead of ./.env. Rollback: remove
+    # `models` from any config file, which the previous build refuses.
+    # CONTRACT: a profile in mnemosine.config.json accepts optional `reasoning_effort`
+    # (the openai SDK's enum: none, minimal, low, medium, high, xhigh, max) and
+    # `stream_usage` is typed on the profile (MNE-001-442, #644); a value outside the
+    # enum is refused. Rollback: remove `reasoning_effort` from any profile, which the
+    # previous build refuses.
+    # CONTRACT: the config writer also refuses values starting with nvapi-, xai- or AIza
+    # (except a profile name: default_provider, a failover entry) and a header value
+    # `Bearer <token>`; a profile whose api_key_env names an installation secret
+    # (DATABASE_URL, MIGRATION_DATABASE_URL, ENCRYPTION_KEY, JWT_SECRET and the others
+    # in INSTALLATION_SECRET_VARIABLES) is refused by resolveProfile before anything is
+    # read or sent, and readiness says «not a provider credential» (MNE-001-445, #644).
+    # A tightening: such a profile used to send that secret as its bearer token.
+    # CONTRACT: an api_key_cmd that fails or prints nothing raises CredentialHelperError
+    # with a fixed message (the profile and its exit code or its 10 s limit), never its
+    # command or stderr; it is not a missing credential, so `ingest` fails at start. On
+    # an openai-compatible profile from ~/.mnemosine/config.json the helper is the openai
+    # SDK's async apiKey, re-run after five minutes and after a 401; from a project file
+    # it runs once per session (src/ai/providers/credential-helper.ts, MNE-001-446, #644).
+    # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
+    # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
+    # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs
+    # every due job as before and adds a notice on stderr naming the jobs it ran that
+    # its operator has not adopted; "all" adds a first line on stdout; "adopted" runs
+    # only the jobs in ~/.mnemosine/adopted-jobs.json and lists the rest. New leaves
+    # `jobs adopt [id] [--list]` and `jobs unadopt <id>`; `jobs create` adopts the new
+    # job for its creator. Rollback: remove `jobs` from the config file, which the
+    # previous build refuses, and delete ~/.mnemosine/adopted-jobs.json.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
     # (T1), and an integer beyond 2^53 - 1 as compaction.threshold_tokens,
     # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
     # value is refused, and every command that reads the config reports why.
+    # CONTRACT: `receipt apply` refuses an invoice of another customer than the receipt's,
+    # and `payment apply` a bill of another vendor than the payment's, as the record path
+    # does (#664). The refusal names the document and both parties, covers --dry-run and
+    # --yes alike, and writes nothing: cash on account settles only its own party's
+    # documents, and no option lets the call through.
+    # CONTRACT: `receipt unapply` of a receipt with no treatment from a PPD invoice keeps
+    # the IVA its collection caused (MNE-001-574, #792; LIVA art. 1-B): its entry credits
+    # 2150 the base and 2125 the share with no 2120 line, `--json` adds `iva_kept_caused`
+    # (4 dp) and `iva_reparked` is 0.0000 where it used to carry that share; a later
+    # `receipt apply` of that cash nets the IVA (DR 2150 the base, DR 2125 the share, no
+    # 2120 line). The closed allocation stores it in `unapply_kept_iva_amount` (338).
+    # Rollback: the previous build ignores the column, so cash an unapply kept would cause
+    # its IVA again when applied; before reverting, post DR 2120 / CR 2150 by hand for each
+    # unapply_kept_iva_amount still on account: what its unapply posted beyond this one.
+    # CONTRACT: after a credit note, `receipt unapply` of cash that carried an advance's IVA
+    # (a receipt with a treatment, MNE-001-462, or a plain receipt's pool, MNE-001-574/591)
+    # restores to 2120 only the advance IVA the note did not restitute (MNE-001-592, #814;
+    # LIVA art. 7): 1,160.00 at 16 % on a 1,000.00 + 160.00 invoice with a 200.00 + 32.00
+    # note posts CR 2150 1,032.00 / CR 2125 128.00 with no 2120 line, where it posted CR
+    # 2150 1,000.00 / CR 2125 128.00 / CR 2120 32.00. The closed allocation stores the
+    # restitution in `unapply_restituted_iva_amount` (342), and the advance left loses it and
+    # the cash it covers (restituted × total / tax). `--json` is unchanged; the audit adds
+    # `advance_iva_restituted`. Rollback: the previous build ignores the column, so a later
+    # application would take the restituted IVA from the advance again; before reverting,
+    # post DR 2150 / CR 2120 by hand for each restituted amount still on account. The
+    # migration can stay.
+    # CONTRACT: the panel key `plain_receipt_unapply_iva` (MNE-001-585, #792 part 2/3)
+    # governs that unapply: `keep_caused`, the default, is the line above unchanged; under
+    # `repark_same_month` a row whose IVA was released in the calendar month of the unapply
+    # posts as before 574 (DR 2120 / CR 2125, `iva_reparked` the share, no marker, the IEPS
+    # back to 2181), and one released in an earlier month keeps it, and the dry run says so
+    # (`receipt.unapply.iva_kept_later_month`). The IVA paper does not follow the key.
+    # Rollback: rows re-parked under the key carry no marker and read as before 574.
+    # CONTRACT: a kept unapply (574, `keep_caused`), on an invoice that parked IEPS, credits
+    # 2181 the IEPS the receipt moved for it, with no 2180 line, and 2150 only the rest (MNE-001-590,
+    # #792; LIEPS art. 10): the cash back on account carries that IEPS, read back from the
+    # receipt's tagged IEPS lines, and a later `receipt apply` of it posts DR 2181 r / CR 2180
+    # r - e (DR when negative, no line at zero) and DR 2150 less e. `--json` is unchanged.
+    # Rollback: the previous build does not read that IEPS, so before reverting post DR 2181 /
+    # CR 2150 by hand, tagged, for each kept IEPS still on account.
+    # CONTRACT: `receipt unapply` of a receipt with no treatment by a cheque the bank has not
+    # cashed, from a PPD invoice, still posts no IVA line (CR 2150 the whole cash), and now
+    # stores on each row the IVA its share would have released (`unapply_kept_iva_amount`);
+    # `--json` gives it as `iva_at_cashing`, which used to read 0.00 (MNE-001-586, #792 part
+    # 3/3; LIVA art. 1-B). `bank check reconcile --receipt` then posts DR 2150 / CR 2120 for
+    # it, where it posted nothing, under either answer to `plain_receipt_unapply_iva`. Until
+    # the cashing that cash is a held cheque's advance: `receipt apply` of it follows
+    # `cheque_advance_before_cashing` (refused by default), and a credit note restitutes none
+    # of it from 2120. Rollback: the previous build does not cause the marker at the cashing
+    # and reads it as IVA already caused, so before reverting record on this build the
+    # cashing of each such cheque, and clear the marker of one the bank has still not cashed.
+    # CONTRACT: a credit note issued while such a cheque waits still takes its IVA from 2125
+    # alone, and now tags that line `held_restitution` with the cheque (MNE-001-607, #792
+    # decision (A), risk 2 of #891); `bank check reconcile --receipt` then causes the marker
+    # less it (DR 2150 / CR 2120 128.00 for a 160.00 marker and a 200 + 32 note), the pool
+    # loses the 232.00 it covers, and `receipt reverse` posts no 2150 / 2120 pair for it. A
+    # reversed note stops counting. Rollback: the previous build causes the whole marker, so
+    # before reverting record the cashing of each such cheque on this build.
+    # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
+    # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
+    # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed
+    # credit_note.advance.exceeds_invoiced_advance, covers --dry-run and --yes alike, and
+    # writes nothing. The other three types post as before.
+    # CONTRACT: POST /v1/pre-registrations/:id/process and `bill inbox run` post a received
+    # credit note (type E, TipoRelacion 01 or 03) against the one bill it names instead of
+    # failing with UNSUPPORTED_TYPE (MNE-001-555): an entry of source vendor_credit_note and a
+    # lower amount_due. A note that cannot be posted answers 422 CFDI_REQUIERE_DECISION with
+    # its reason and stays in the inbox; the panel key received_credit_note_cost is new.
+    # CONTRACT: POST /v1/xml/upload posts a received credit note by itself only
+    # when a matched firm rule sets processing_mode = auto and requires it with a condition
+    # `document_type equals credit_note` in `all` (MNE-001-490). A rule with no conditions
+    # leaves it ready for a person, a refused note waits with its reason, and no vendor is created.
   - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and
@@ -98,7 +231,32 @@ external:
     # codes and their sources live in sat-codes.ts; the lifetime limit on identical XML
     # requests (5002) is refused before the call by sat_download_quota (migration 167, #440).
   - pac                          # timbrado; adaptadores sin contrato firmado, fuera del MVP
+    # CONTRACT: the payroll CFDI's employment subsidy node follows the law of the payment
+    # date (src/services/payroll/mx/cfdi-nomina-generator.ts, #600). When the subsidy caused
+    # exceeds the ISR, the Nomina 1.2 complement carries OtroPago TipoOtroPago="002" with
+    # Importe = the cash the paycheck handed over (0.00 when paid from 1 May 2024), its
+    # SubsidioCausado = the whole subsidy of the period, and TotalOtrosPagos. The node is
+    # checked against the SAT's nomina12.xsd, vendored in src/services/sat/cfdi40/xsd.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
+    # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
+    # `reasoning_effort` on chat turns, compaction summaries and the init probe only when
+    # the profile declares it, and sends each tool call's `extra_content` (Gemini 3's
+    # google.thought_signature) back unchanged on the next request, streamed or not. A
+    # turn that ends with finish_reason "length" and neither text nor a tool call is a
+    # TruncatedEmptyTurnError naming the 8192-token cap. The init probe asks for 1024
+    # output tokens instead of 64 (MNE-001-442, #644).
+    # CONTRACT: OpenAI-Organization, OpenAI-Project and the headers of
+    # OPENAI_CUSTOM_HEADERS go only to OpenAI's own hosts (api.openai.com and the
+    # SDK's regional ones), judged on the client's resolved base URL; any other host
+    # gets the profile's own key and headers alone (src/ai/providers/openai-client.ts,
+    # MNE-001-445, #644).
+    # CONTRACT: the built-in `nvidia` profile sends the person's NVIDIA_API_KEY to
+    # NVIDIA's hosted catalog at integrate.api.nvidia.com/v1, a trial that records what it
+    # receives. A session on that host, however its profile was chosen, opens only for chat
+    # and ask after the terms and a yes at a terminal (once per session), or for the eval
+    # over its synthetic golden set; ingest, jobs run-due and init's import refuse it, and
+    # a failover walk never moves into it (src/ai/providers/trial-endpoint.ts,
+    # MNE-001-448, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

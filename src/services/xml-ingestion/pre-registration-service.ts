@@ -3,8 +3,11 @@ import Decimal from 'decimal.js';
 import pg from 'pg';
 import { query, getClient, withTransaction } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
-import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import {
+  planearAsiento, planContabilizable, singleExpenseRole, type OpcionesPlan, type PlanDeAsiento,
+} from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
+import { getPolicySpec } from '../policy/pending-catalog.js';
 import {
   decideMetodoPago,
   entityUsesCashBasisIva,
@@ -12,11 +15,20 @@ import {
   ivaTreatmentNote,
 } from '../accounting/iva-cash-basis.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
+import {
+  LEGACY_ROLE_CODES, ELIGIBLE_EXPENSE_ACCOUNT_SQL, NO_ELIGIBLE_SUGGESTION,
+  eligibleExpenseAccounts, eligibleSuggestions, pickLineAccount,
+} from './expense-line-account.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
+import { money, satKey, sumTax } from './cfdi-amounts.js';
+import { ppdIepsWithoutRole, registerIssuedInvoice } from './issued-invoice-approval.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
+import { postReceivedCreditNote } from './received-credit-note-posting.js';
 import { SATValidationService } from './sat-validation.js';
+import { noteBillCfdiAlreadyCancelled } from '../ap/bill-cfdi-cancellation.js';
 
 /**
  * Tipo de comprobante del SAT → el vocabulario de `pre_registrations`.
@@ -33,7 +45,7 @@ function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): st
   if (tipo === 'P') return 'payment';
   return 'credit_note';
 }
-import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
+import { RulesEngine, autoRuleRequiring, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { nextEntityNumber, nextVendorNumber, type Queryable } from '../../utils/sequence.js';
 
@@ -144,6 +156,34 @@ export interface LineWithSuggestion {
   suggestion_reason: string;
   account_id?: string;
   cost_center_id?: string;
+  /**
+   * MNE-001-522 (#670, decision 4): the expense account the line held before
+   * migration 334 re-typed its row from 'bill' to 'invoice' and uncoded it. A
+   * reference the review prints; no door reads it as coding.
+   */
+  previous_account_id?: string;
+}
+
+/** What the hand door of an issued CFDI wrote, or would write under `dryRun`. */
+export interface IssuedCfdiPosting {
+  dryRun: boolean;
+  tenantId: string;
+  preRegistrationId: string;
+  invoice: { id: string; number: string; status: string; amountDue: string };
+  entry: { id: string; number: string };
+  /** The entry's lines, read back inside the transaction: under `dryRun`, the rows that were rolled back. */
+  lines: Array<{ accountCode: string; accountName: string; debit: string | null; credit: string | null; description: string }>;
+  /** The account each line held before migration 334 uncoded it: shown beside the entry, never posted. */
+  references: Array<{ line: number; accountCode: string; accountName: string }>;
+  /** The classifier's warnings: this door stores none, so the caller prints them. */
+  warnings: string[];
+}
+
+/** Internal sentinel: unwinds the transaction after computing a dry run. */
+class IssuedCfdiDryRun extends Error {
+  constructor(readonly result: IssuedCfdiPosting) {
+    super('dry-run');
+  }
 }
 
 export class PreRegistrationService {
@@ -355,6 +395,13 @@ export class PreRegistrationService {
 
     if (
       updated.processing_mode === 'auto' &&
+      // A credit note posts by itself only under a rule of THIS evaluation
+      // that sets auto and requires `document_type equals credit_note`
+      // (#692): a catch-all rule never reaches it, and the column is not
+      // evidence, since an `auto` of an earlier run survives a deleted rule.
+      // Any other note stays ready for a person.
+      (updated.document_type !== 'credit_note' ||
+        autoRuleRequiring(rules, ruleResults.results, ruleResults.aggregatedActions, 'credit_note') !== null) &&
       updated.validation_status === 'valid' &&
       !updated.requires_approval &&
       updated.status === 'ready'
@@ -517,17 +564,24 @@ export class PreRegistrationService {
     descripcion: string,
     vendor: Record<string, unknown> | null
   ): Promise<{ accountId: string | null; confidence: number; reason: string }> {
+    // MNE-001-487 (#684): every step filters by ELIGIBLE_EXPENSE_ACCOUNT_SQL
+    // before it ranks, so a control account is never the answer and a refused
+    // candidate lets the next step speak.
+
     // 1. Vendor default
-    if (vendor?.default_expense_account_id) {
-      return { accountId: vendor.default_expense_account_id as string, confidence: 0.8, reason: 'vendor_default' };
+    const vendorDefault = vendor?.default_expense_account_id as string | undefined;
+    if (vendorDefault && (await eligibleExpenseAccounts({ query }, entityId, [vendorDefault])).has(vendorDefault)) {
+      return { accountId: vendorDefault, confidence: 0.8, reason: 'vendor_default' };
     }
 
     // 2. SAT code mapping
     const satMapping = await query<{ account_id: string; confidence: string }>(
-      `SELECT account_id, confidence FROM sat_code_mappings
-       WHERE entity_id = $1 AND is_active = true
-         AND (sat_code = $2 OR $2 LIKE sat_code_prefix || '%')
-       ORDER BY LENGTH(COALESCE(sat_code_prefix, sat_code)) DESC LIMIT 1`,
+      `SELECT m.account_id, m.confidence FROM sat_code_mappings m
+         JOIN accounts a ON a.id = m.account_id
+       WHERE m.entity_id = $1 AND m.is_active = true
+         AND (m.sat_code = $2 OR $2 LIKE m.sat_code_prefix || '%')
+         AND ${ELIGIBLE_EXPENSE_ACCOUNT_SQL}
+       ORDER BY LENGTH(COALESCE(m.sat_code_prefix, m.sat_code)) DESC, m.confidence DESC, a.code LIMIT 1`,
       [entityId, claveProdServ]
     );
     if (satMapping.rows.length > 0) {
@@ -538,15 +592,19 @@ export class PreRegistrationService {
       };
     }
 
-    // 3. Historical pattern (same vendor or similar description)
+    // 3. Historical pattern (same vendor or similar description). An issuer
+    // with no vendor has no history: it used to inherit every vendor's.
+    if (!vendor?.id) return { accountId: null, confidence: 0, reason: 'no_match' };
     const historical = await query<{ account_id: string; frequency: string }>(
       `SELECT bl.account_id, COUNT(*) as frequency
        FROM bill_lines bl
        JOIN bills b ON b.id = bl.bill_id
+       JOIN accounts a ON a.id = bl.account_id
        WHERE b.entity_id = $1
-         AND ($2::uuid IS NULL OR b.vendor_id = $2::uuid OR similarity(bl.description, $3) > 0.7)
-       GROUP BY bl.account_id ORDER BY frequency DESC LIMIT 1`,
-      [entityId, vendor?.id || null, descripcion]
+         AND (b.vendor_id = $2::uuid OR similarity(bl.description, $3) > 0.7)
+         AND ${ELIGIBLE_EXPENSE_ACCOUNT_SQL}
+       GROUP BY bl.account_id, a.code ORDER BY frequency DESC, a.code LIMIT 1`,
+      [entityId, vendor.id, descripcion]
     );
     if (historical.rows.length > 0) {
       const freq = Number(historical.rows[0].frequency);
@@ -692,6 +750,11 @@ export class PreRegistrationService {
           break;
         case 'payment':
           result = await this.procesarREP(preReg, userId);
+          break;
+        // A vendor's credit note lowers the bill it names (MNE-001-555). It creates no bill, so
+        // `bill_id` stays null: the related bill keeps its one pre-registration.
+        case 'credit_note':
+          result = { journalEntry: (await postReceivedCreditNote(preReg as never, userId)) as unknown as Record<string, unknown> };
           break;
         default:
           throw new AccountingError('UNSUPPORTED_TYPE', `Unsupported document type: ${preReg.document_type}`);
@@ -865,7 +928,9 @@ export class PreRegistrationService {
   private async planDeAsiento(
     preReg: Record<string, unknown>,
     lines: LineWithSuggestion[],
-    billNumber: string
+    billNumber: string,
+    /** Only the hand door of an issued CFDI passes it: the revenue line opens by concept. */
+    revenueLines?: OpcionesPlan['revenueLines']
   ): Promise<PlanDeAsiento | null> {
     if (!preReg.xml_document_id) return null;
 
@@ -942,10 +1007,12 @@ export class PreRegistrationService {
         line_number: l.line_number,
         descripcion: l.descripcion,
         importe: l.importe,
+        discount: l.descuento,
         account_id: l.account_id ?? null,
         suggested_account_id: l.suggested_account_id,
         cost_center_id: l.cost_center_id,
       })),
+      revenueLines,
       cuentaGastoPorDefecto: (preReg.default_account_id as string) ?? null,
       // El proveedor ya quedó resuelto o creado antes de llegar aquí.
       vendorExists: true,
@@ -1019,9 +1086,9 @@ export class PreRegistrationService {
       ];
 
       for (const line of lines) {
-        const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+        // The lines arrive resolved by createBillFromPreReg, which has refused one with no account.
         jeLines.push({
-          account_id: accountId,
+          account_id: pickLineAccount(line, preReg.default_account_id as string | null, NO_ELIGIBLE_SUGGESTION) as string,
           debit_amount: new Decimal(line.importe).toFixed(4),
           credit_amount: null,
           description: line.descripcion,
@@ -1145,6 +1212,17 @@ export class PreRegistrationService {
       );
     }
 
+    // Saved before the review throw below: a node posted past an annulled
+    // invoice answers `ya_ligado` on the next run and never warns again, and
+    // the catch of processToAccounting leaves the warnings as they are.
+    // NOTE: only this warning is saved; #698 widens it to every warning of a posted node.
+    const annulledWarnings = resultados
+      .filter((r) => r.accion !== 'revision' && r.annulledWarning)
+      .map((r) => r.annulledWarning as string);
+    if (annulledWarnings.length > 0) {
+      await appendRepWarnings(preReg.entity_id as string, preReg.id as string, annulledWarnings);
+    }
+
     const paraRevision = resultados.filter((r) => r.accion === 'revision');
     if (paraRevision.length > 0) {
       // Los nodos anteriores pueden haber creado o casado pagos YA: cada
@@ -1186,6 +1264,47 @@ export class PreRegistrationService {
   }
 
   /**
+   * A LINE WITH NO ACCOUNT (MNE-001-553, #684): the panel key
+   * `received_line_without_account` decides. `refuse`, the default, gives it
+   * none and the bill-lines thunk refuses it. `role_generic_account` asks the
+   * classifier once, before the bill exists, and gives it the account of the
+   * plan's one expense role; when the plan leaves a doubt about which account
+   * that is, the line is refused as under `refuse`, with the reason in `why`.
+   */
+  private async accountForUncodedLines(
+    client: pg.PoolClient,
+    preReg: Record<string, unknown>,
+    lines: LineWithSuggestion[]
+  ): Promise<{ accountId?: string; why?: string }> {
+    const entityId = preReg.entity_id as string;
+    const entity = await client.query<{ tenant_id: string }>(`SELECT tenant_id FROM legal_entities WHERE id = $1`, [entityId]);
+    if (entity.rows.length === 0) throw new AccountingError('ENTITY_NOT_FOUND', `Entity ${entityId} not found`);
+    const tenantId = entity.rows[0].tenant_id;
+    const answer = (await getPolicy({ tenantId, entityId }, 'received_line_without_account', client)).value;
+    if (answer === 'refuse') return {};
+    if (answer !== 'role_generic_account') {
+      throw new AccountingError(
+        'POLICY_VALUE_UNKNOWN',
+        `received_line_without_account = "${answer}" is not a value this system knows (refuse | role_generic_account); nothing was posted.`
+      );
+    }
+    const refused = (why: string) => ({ why: `received_line_without_account = role_generic_account: ${why}` });
+    // The reference only words the plan's descriptions, which this read discards.
+    const plan = await this.planDeAsiento(preReg, lines, String(preReg.external_reference ?? ''));
+    if (!plan) return refused('the document has no CFDI to classify');
+    const role = singleExpenseRole(plan.clasificacion.lines);
+    if ('why' in role) return refused(role.why);
+    const account = await client.query<{ id: string }>(
+      `SELECT a.id FROM accounts a
+         JOIN legal_entities le ON le.id = a.entity_id AND le.tenant_id = $2
+        WHERE a.entity_id = $1 AND a.code = $3`,
+      [entityId, tenantId, role.accountCode]
+    );
+    if (account.rows.length !== 1) return refused(`the role ${role.role} has no account in this entity`);
+    return { accountId: account.rows[0].id };
+  }
+
+  /**
    * THE BILL AND ITS ENTRY ARE ONE ACT (#498).
    *
    * The INSERTs of `bills` and `bill_lines` used to autocommit before the
@@ -1201,16 +1320,31 @@ export class PreRegistrationService {
    * `cfdi_classifications` and the pre-registration's `validation_warnings` --
    * stay on the pool on purpose. They commit even when the hold rolls the bill
    * back: they are what the reviewer and the reprocess read.
+   *
+   * WHICH ACCOUNT A LINE POSTS TO (MNE-001-552, #684): its own, then the one a
+   * person gave the whole document, then its suggestion while it is eligible.
+   * The lines are resolved once, here, and the bill lines and the entry read
+   * the same resolved lines. A suggestion stored before #684 is rechecked on
+   * this read and the stored row is not rewritten. A line the three leave
+   * with no account follows the panel key (`accountForUncodedLines`).
    */
   private async createBillFromPreReg(
     preReg: Record<string, unknown>,
     userId: string,
     opciones: OpcionesDeProceso = {}
   ): Promise<{ bill: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
-    const lines = preReg.lines as LineWithSuggestion[];
+    const stored = preReg.lines as LineWithSuggestion[];
     const entityId = preReg.entity_id as string;
 
     const result = await withTransaction(async (client) => {
+      const eligible = await eligibleSuggestions(client, entityId, stored);
+      const picked = stored.map((line) => ({
+        ...line,
+        account_id: pickLineAccount(line, preReg.default_account_id as string | null, eligible),
+      }));
+      // Invariant 6: a line left with no account is a fork the panel answers, read only when one exists.
+      const generic = picked.every((line) => line.account_id) ? {} : await this.accountForUncodedLines(client, preReg, picked);
+      const lines = picked.map((line) => ({ ...line, account_id: line.account_id ?? generic.accountId }));
       const { billId, billNumber } = await insertarFacturaDePreRegistro(
         client,
         preReg,
@@ -1218,7 +1352,7 @@ export class PreRegistrationService {
         opciones,
         {
           subtotal: preReg.subtotal,
-          taxAmount: preReg.tax_amount,
+          taxAmount: billHeaderVat(preReg),
           totalAmount: preReg.total_amount,
           amountDue: preReg.total_amount,
           amountPaid: 0,
@@ -1226,13 +1360,14 @@ export class PreRegistrationService {
         },
         () =>
           lines.map((line) => {
-            const accountId =
-              line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+            const accountId = line.account_id;
             if (!accountId) {
-              throw new ValidationError(`Line ${line.line_number}: no account assigned`);
+              // The refusal stays here, after the vendor is resolved or refused: an unknown issuer still exits 11.
+              throw new ValidationError(`Line ${line.line_number}: no account assigned${generic.why ? ` (${generic.why})` : ''}`);
             }
             // Only the IVA transfer is `tax_amount`: taking the first transfer
-            // wrote an IEPS that came ahead of it as if it were VAT (#284).
+            // wrote an IEPS that came ahead of it as if it were VAT (#284). The
+            // header follows the same rule through `billHeaderVat` (#691).
             const { tax, ...vat } = vatColumnsOf(line.impuestos?.traslados);
             return {
               line_number: line.line_number,
@@ -1298,6 +1433,221 @@ export class PreRegistrationService {
     return {
       bill: result.bill,
       journalEntry: result.journalEntry as unknown as Record<string, unknown>,
+    };
+  }
+
+  /**
+   * THE HAND DOOR OF AN ISSUED CFDI (MNE-001-417, #620).
+   *
+   * Without a model, only the approval of an AI draft took a sale into
+   * receivables. Here the customer invoice, its entry and the close of the
+   * pre-registration are one transaction, as createBillFromPreReg is for a
+   * received CFDI, through the core the approval uses (registerIssuedInvoice),
+   * so both doors check the same figures. The entry is the classifier's; a
+   * person's coding only chooses each concept's revenue account: the line's
+   * own, then `revenueAccountId`, then the stored default, then `ingreso`.
+   *
+   * It is not a case of processToAccounting on purpose: that would open the
+   * REST routes, the scheduled batch and `bill inbox run` to issued rows.
+   *
+   * NOTE: it writes nothing on the pool: no classifier trail and no stored
+   * warning. A refusal leaves only its message; warnings go to the caller.
+   *
+   * With `dryRun` the same act runs and is rolled back, so what it returns is
+   * what would be written, folio included.
+   */
+  async postIssuedCfdiByHand(opts: {
+    entityId: string;
+    cfdiUuid: string;
+    userId: string;
+    /** The revenue account of every concept with no account of its own. */
+    revenueAccountId?: string;
+    dryRun?: boolean;
+  }): Promise<IssuedCfdiPosting> {
+    try {
+      const posted = await withTransaction(async (client) => {
+        const result = await this.postIssuedCfdiInTransaction(client, opts);
+        if (opts.dryRun) throw new IssuedCfdiDryRun(result);
+        return result;
+      });
+      attestEntryAsync(posted.tenantId, opts.entityId, posted.entry.id);
+      return posted;
+    } catch (err) {
+      if (err instanceof IssuedCfdiDryRun) return err.result;
+      throw err;
+    }
+  }
+
+  private async postIssuedCfdiInTransaction(
+    client: pg.PoolClient,
+    opts: { entityId: string; cfdiUuid: string; userId: string; revenueAccountId?: string; dryRun?: boolean }
+  ): Promise<IssuedCfdiPosting> {
+    const { entityId, userId } = opts;
+    const found = await client.query<Record<string, unknown>>(
+      `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.emisor_rfc AS x_emisor_rfc, x.receptor_rfc AS x_receptor_rfc,
+              x.metodo_pago AS x_metodo_pago, le.tax_id AS entity_rfc, le.tenant_id, le.functional_currency
+         FROM xml_documents x
+         JOIN pre_registrations p ON p.xml_document_id = x.id AND p.entity_id = x.entity_id
+         JOIN legal_entities le ON le.id = x.entity_id
+        WHERE x.entity_id = $1 AND lower(x.cfdi_uuid) = lower($2)
+        ORDER BY p.created_at DESC LIMIT 1
+        FOR UPDATE OF p`,
+      [entityId, opts.cfdiUuid]
+    );
+    const preReg = found.rows[0];
+    if (!preReg) throw new NotFoundError('CFDI', opts.cfdiUuid);
+    const uuid = String(preReg.x_cfdi_uuid);
+    const preRegistrationId = String(preReg.id);
+    const unsupported = (reason: string, detail = '') =>
+      new ValidationError({ key: 'error.ISSUED_CFDI_NOT_SUPPORTED', params: { uuid, reason, detail } });
+
+    if (cfdiDirection(String(preReg.entity_rfc), String(preReg.x_emisor_rfc), String(preReg.x_receptor_rfc)) !== 'issued') {
+      throw unsupported('received', preRegistrationId);
+    }
+    if (preReg.document_type !== 'invoice') throw unsupported('document_type', String(preReg.document_type));
+    if (preReg.result_id || !['ready', 'draft', 'error'].includes(String(preReg.status))) {
+      const invoice = await client.query<{ invoice_number: string }>(
+        `SELECT invoice_number FROM invoices WHERE id = $1 AND entity_id = $2`,
+        [preReg.result_type === 'invoice' ? preReg.result_id : null, entityId]
+      );
+      throw new AccountingError('ISSUED_CFDI_NOT_OPEN', {
+        key: 'error.ISSUED_CFDI_NOT_OPEN',
+        params: { uuid, status: String(preReg.status), invoice: invoice.rows[0]?.invoice_number ?? 'none' },
+      });
+    }
+    // Read without a lock: the approval locks its draft first and this pre-registration second, so
+    // locking the draft here, with the pre-registration already held, could deadlock with it.
+    const draft = await client.query(
+      `SELECT 1 FROM ai_drafts
+        WHERE pre_registration_id = $1 AND entity_id = $2 AND status IN ('pending_review', 'approved')`,
+      [preRegistrationId, entityId]
+    );
+    if (draft.rows.length > 0) {
+      throw new AccountingError('ISSUED_CFDI_DRAFT_IN_REVIEW', { key: 'error.ISSUED_CFDI_DRAFT_IN_REVIEW', params: { uuid } });
+    }
+    if (preReg.currency_code !== preReg.functional_currency) throw unsupported('currency', String(preReg.currency_code));
+
+    const reference = typeof preReg.external_reference === 'string' && preReg.external_reference ? preReg.external_reference : uuid;
+    const lines = (preReg.lines ?? []) as LineWithSuggestion[];
+    const storedDefault = (preReg.default_account_id as string | null) ?? null;
+    const plan = await this.planDeAsiento(preReg, lines, reference, {
+      callerAccountId: opts.revenueAccountId ?? null,
+      storedDefaultAccountId: storedDefault,
+    });
+    if (!plan) throw new NotFoundError('The XML of CFDI', uuid);
+    const { facts, decisions } = plan.clasificacion;
+    // #699 · Said as the draft door says it: the role is missing until the backfill, not a decision to answer.
+    if (plan.clasificacion.missingRoles.includes(IEPS_UNCOLLECTED_ROLE)) throw ppdIepsWithoutRole(uuid, facts.iepsTrasladado);
+    const postable = planContabilizable(plan);
+    if (!postable.ok) {
+      // No trail is written here, so the message is the only place that says how to answer.
+      const commands = decisions
+        .filter((d) => d.severity === 'blocking' && getPolicySpec(d.topic))
+        .map((d) => `mnemosine pending define ${d.topic}${d.id === 'periodo_cerrado' ? ' periodo_actual' : ''}`);
+      throw new AccountingError('CFDI_REQUIERE_DECISION', {
+        key: 'error.ISSUED_CFDI_HELD',
+        params: { uuid, reason: postable.motivo, commands: commands.join(' · ') || 'none' },
+      });
+    }
+    const caseId = plan.clasificacion.case?.id;
+    if (caseId !== 'ingreso_emitido_ppd' && caseId !== 'ingreso_emitido_pue') {
+      throw facts.esAnticipo ? unsupported('advance') : unsupported('other', String(caseId));
+    }
+    // The sale cases do not read TipoRelacion: an invoice that applies an advance would post as a new sale.
+    if (facts.tipoRelacion === '07') throw unsupported('applies_advance');
+    // A substitute (TipoRelacion 04) of a CFDI that is still a live invoice would book the sale twice.
+    const replaced = await client.query<{ invoice_number: string; status: string }>(
+      `SELECT invoice_number, status FROM invoices
+        WHERE entity_id = $1 AND lower(cfdi_uuid) = ANY($2::text[]) AND status NOT IN ('void', 'cancelled')
+        ORDER BY created_at LIMIT 1`,
+      [entityId, facts.tipoRelacion === '04' ? facts.uuidsRelacionados.map((u) => u.toLowerCase()) : []]
+    );
+    if (replaced.rows.length > 0) {
+      throw new AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE', {
+        key: 'error.ISSUED_CFDI_SUBSTITUTES_INVOICE',
+        params: { uuid, invoice: replaced.rows[0].invoice_number, status: replaced.rows[0].status },
+      });
+    }
+    if (plan.revenueLinesMismatch) {
+      throw new ValidationError({
+        key: 'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH',
+        params: { uuid, lines: plan.revenueLinesMismatch.linesTotal, revenue: plan.revenueLinesMismatch.revenueTotal },
+      });
+    }
+    // The case credits the `ingreso` role: another kind of account is another treatment, not a coding.
+    // `bill inbox edit` accepts any postable account, so the check is here. Same precedence as planearAsiento.
+    const coded = lines
+      .map((l) => ({ line: l.account_id ? String(l.line_number) : 'none', id: l.account_id || opts.revenueAccountId || storedDefault }))
+      .filter((c): c is { line: string; id: string } => !!c.id);
+    const accounts = await client.query<{ id: string; code: string; account_type: string; normal_balance: string; usable: boolean }>(
+      `SELECT id, code, account_type, normal_balance, (is_active AND NOT is_header) AS usable
+         FROM accounts WHERE id = ANY($1::uuid[]) AND entity_id = $2`,
+      [coded.map((c) => c.id), entityId]
+    );
+    for (const c of coded) {
+      const a = accounts.rows.find((row) => row.id === c.id);
+      if (!a || !a.usable || a.account_type !== 'revenue' || a.normal_balance !== 'credit') {
+        throw new ValidationError({
+          key: 'error.ISSUED_CFDI_REVENUE_ACCOUNT',
+          params: { uuid, account: a?.code ?? c.id, type: a?.account_type ?? 'unknown', balance: a?.normal_balance ?? 'unknown', line: c.line },
+        }, 'account');
+      }
+    }
+
+    const invoice = await registerIssuedInvoice(client, {
+      tenantId: String(preReg.tenant_id), entityId, preRegistrationId, userId,
+      description: `CFDI ${reference}`,
+      lines: plan.lineas.map((l) => ({
+        accountId: l.account_id, debit: l.debit_amount, credit: l.credit_amount, description: l.description,
+      })),
+      door: 'manual',
+    });
+    const method = decideMetodoPago('issued', { cfdiMetodoPago: preReg.x_metodo_pago });
+    const entry = await createJournalEntry(
+      entityId,
+      // The CFDI's date as pg returns it; under cfdi_periodo_cerrado=periodo_actual the entry goes to
+      // the open period and the invoice keeps its date, as a bill does.
+      plan.fechaContableHoy ? new Date() : (preReg.document_date as Date),
+      JournalEntryType.AUTO_INVOICE,
+      // The note postInvoiceEntry writes, so the assumption is legible in the ledger itself.
+      `Invoice ${invoice.invoiceNumber} - ${reference}` + (method.assumed ? ` · MetodoPago missing: ${method.metodo} assumed` : ''),
+      plan.lineas,
+      userId,
+      { sourceType: 'invoice', sourceId: invoice.invoiceId, autoPost: true, client }
+    );
+    await invoice.close(entry.id);
+
+    const born = await client.query<{ status: string; amountDue: string }>(
+      `SELECT status, amount_due::text AS "amountDue" FROM invoices WHERE id = $1 AND entity_id = $2`,
+      [invoice.invoiceId, entityId]
+    );
+    const entryLines = await client.query<IssuedCfdiPosting['lines'][number]>(
+      `SELECT a.code AS "accountCode", a.name AS "accountName", l.debit_amount::text AS debit,
+              l.credit_amount::text AS credit, l.description
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $2
+         JOIN accounts a ON a.id = l.account_id
+        WHERE l.journal_entry_id = $1 ORDER BY l.line_number`,
+      [entry.id, entityId]
+    );
+    const held = lines.filter((l) => l.previous_account_id);
+    const previous = await client.query<{ id: string; code: string; name: string }>(
+      `SELECT id::text, code, name FROM accounts WHERE id::text = ANY($1::text[]) AND entity_id = $2`,
+      [held.map((l) => String(l.previous_account_id).toLowerCase()), entityId]
+    );
+    const references = held.map((l) => {
+      const a = previous.rows.find((row) => row.id === String(l.previous_account_id).toLowerCase());
+      return { line: l.line_number, accountCode: a?.code ?? String(l.previous_account_id), accountName: a?.name ?? '' };
+    });
+    return {
+      dryRun: opts.dryRun === true,
+      tenantId: String(preReg.tenant_id),
+      preRegistrationId,
+      invoice: { id: invoice.invoiceId, number: invoice.invoiceNumber, ...born.rows[0] },
+      entry: { id: entry.id, number: entry.entry_number },
+      lines: entryLines.rows,
+      references,
+      warnings: plan.avisos,
     };
   }
 
@@ -1439,9 +1789,11 @@ async function insertarFacturaDePreRegistro(
   buildLines: () => BillLineRow[]
 ): Promise<{ billId: string; billNumber: string; vendorId: string }> {
   // ING-3 (#320): the last door before `bills`, shared by `bill inbox run` and
-  // the draft approval. A pre-registration born before the direction existed
-  // can still say 'bill' for a CFDI the entity issued; its own sale is never
-  // its expense, whatever the row says.
+  // the draft approval. Migration 334 (#670) re-typed to 'invoice' the open rows
+  // born 'bill' before the direction existed, with this same predicate. The
+  // guard stays for what it left: a row consumed or rejected by then, and an
+  // entity whose RFC changed since. Its own sale is never its expense, whatever
+  // the row says.
   const own = await db.query<{ emisor_rfc: string }>(
     `SELECT x.emisor_rfc FROM xml_documents x JOIN legal_entities le ON le.id = x.entity_id
       WHERE x.id = $1 AND x.entity_id = $2 AND UPPER(TRIM(x.emisor_rfc)) = UPPER(TRIM(le.tax_id))`,
@@ -1547,6 +1899,9 @@ async function insertarFacturaDePreRegistro(
       ]
     );
   }
+  // MNE-001-601: a CFDI its mirror or census already reports cancelled marks
+  // the bill in this same step, not at the next sweep.
+  await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);
 
   return { billId, billNumber, vendorId };
 }
@@ -1570,18 +1925,30 @@ export interface ApprovedDraftBill {
   close(journalEntryId: string): Promise<void>;
 }
 
+export { money, sumTax };
+
 const RECONCILED_ROLES: AccountRole[] = [
   'cxp', 'banco', 'iva_acreditable', 'iva_pendiente_acreditar',
   'isr_retenido_por_pagar', 'iva_retenido_por_pagar',
 ];
 
-/** SAT tax keys arrive as numbers from the parser ("002" -> 2): normalize the width. */
-const satKey = (v: unknown): string => String(v ?? '').padStart(3, '0');
-
-export const money = (v: unknown): Decimal => new Decimal((v as string | number | null) ?? 0).toDecimalPlaces(2);
-
-export const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
-  (list ?? []).filter((t) => satKey(t.impuesto) === key).reduce((s, t) => s.plus(money(t.importe)), new Decimal(0));
+/**
+ * THE VAT A CFDI BILL STORES IN ITS HEADER (MNE-001-488 · #691).
+ *
+ * `bills.tax_amount` is read as VAT by the payment's release, the short
+ * payment, the REP's cross-check and the DIOT, so it holds the CFDI's IVA
+ * (002) transfers alone, as the lines do. `pre_registrations.tax_amount` stays
+ * the XML's total of transferred taxes, IEPS included: processing rules test it.
+ *
+ * NOTE: with no summary to read (a document with no CFDI, or a summary that
+ * lists no transfer) the stored total stands. Guessing a split there would
+ * invent a figure.
+ */
+export function billHeaderVat(preReg: { tax_amount?: unknown; tax_breakdown?: unknown }): unknown {
+  const transfers = (preReg.tax_breakdown as Partial<CFDIParsed['impuestos']> | null | undefined)?.traslados;
+  if (!Array.isArray(transfers) || transfers.length === 0) return preReg.tax_amount;
+  return sumTax(transfers, '002').toFixed(4);
+}
 
 /** What one bill line says about its VAT: the columns 066 added and the DIOT reads. */
 export interface BillLineVat {
@@ -1683,7 +2050,9 @@ export function spreadDeclaredBase(base: string | null, debits: Decimal[]): Arra
  *     (`newVendorTaxId`); then the inbox path's own vendor creation runs on
  *     this client, so vendor, bill and entry commit or roll back together;
  *   - the approved entry matches the CFDI figure by figure within
- *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed;
+ *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed.
+ *     On cash-basis books its VAT is in iva_pendiente_acreditar, or in
+ *     iva_acreditable for a PUE the entry pays from the bank (MNE-001-492);
  *   - the bill header comes from the XML; its lines follow
  *     `lineas_factura_desde`.
  */
@@ -1785,13 +2154,25 @@ export async function registrarFacturaDeBorradorAprobado(
   const summary = (preReg.tax_breakdown ?? {}) as Partial<CFDIParsed['impuestos']>;
   const toAp = net(ap, 'credit');
   const paid = toAp.isZero() && preReg.x_metodo_pago === 'PUE' && net(bank, 'credit').gt(0);
-  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal }> = [
+  // MNE-001-492: on cash-basis books the VAT sits in one role, as at the issued
+  // door. Owed to vendors, PUE or PPD, it waits in iva_pendiente_acreditar for
+  // the payment that releases it; paid in the entry itself, it is creditable
+  // now, since no payment would ever release it from 1135.
+  const vatRole = !(await entityUsesCashBasisIva(client, entityId))
+    ? null
+    : paid ? 'iva_acreditable' : 'iva_pendiente_acreditar';
+  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal; note?: string }> = [
     {
       figure: paid ? 'total (credit to bank, paid PUE)' : 'total (credit to accounts payable)',
       entry: paid ? net(bank, 'credit') : toAp,
       cfdi: money(preReg.x_total),
     },
-    { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
+    {
+      figure: 'transferred VAT',
+      entry: net(vatRole ? accountsOf(vatRole) : vat, 'debit'),
+      cfdi: sumTax(summary.traslados, '002'),
+      ...(vatRole ? { note: `counted in ${vatRole}${paid ? ', as the entry pays the PUE' : ', where it waits until paid'}` } : {}),
+    },
   ];
   // NOTE: the 'single' withholding layout (MNE-001-147) and entities seeded
   // before MNE-001-056 (2140) point both withholding roles at one account;
@@ -1820,7 +2201,7 @@ export async function registrarFacturaDeBorradorAprobado(
       'CFDI_RECONCILIATION_FAILED',
       `The approved entry does not match CFDI ${uuid}: ` +
         mismatches
-          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})`)
+          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})${c.note ? `, ${c.note}` : ''}`)
           .join('; ') +
         `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
       { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }
@@ -1861,7 +2242,7 @@ export async function registrarFacturaDeBorradorAprobado(
       { permitirProveedorNuevo: unknownVendor === 'preguntar' && consentsTo(opts.newVendorTaxId, preReg) },
       {
         subtotal: preReg.x_subtotal,
-        taxAmount: preReg.tax_amount,
+        taxAmount: billHeaderVat(preReg),
         totalAmount: preReg.x_total,
         amountDue: paid ? 0 : preReg.x_total,
         amountPaid: paid ? preReg.x_total : 0,
@@ -2004,6 +2385,30 @@ function linesPerConcept(
   });
 }
 
+/**
+ * Appends warnings to a REP's pre-registration, never replacing the ones it
+ * already holds. A warning that is saved nowhere is not a warning.
+ */
+export async function appendRepWarnings(
+  entityId: string,
+  preRegistrationId: string,
+  warnings: string[]
+): Promise<void> {
+  const saved = await query(
+    `UPDATE pre_registrations
+        SET validation_status = 'warnings',
+            validation_warnings = COALESCE(validation_warnings, '[]'::jsonb) || $3::jsonb
+      WHERE id = $1 AND entity_id = $2 AND document_type = 'payment'`,
+    [preRegistrationId, entityId, JSON.stringify(warnings)]
+  );
+  if (saved.rowCount !== 1) {
+    throw new AccountingError(
+      'REP_WARNING_NOT_SAVED',
+      `The warnings of payment receipt ${preRegistrationId} could not be saved: it is not a receipt of this entity.`
+    );
+  }
+}
+
 /** El vocabulario de xml_documents.sat_validation_status al del clasificador. */
 function mapearEstadoSat(
   estado: string | null
@@ -2019,16 +2424,10 @@ function mapearEstadoSat(
 /**
  * Rol contable → id de cuenta, dentro de la entidad.
  *
- * El rol manda. El código heredado queda de red para las entidades sembradas
- * antes de que existiera la capa semántica, que todavía no han pasado por el
- * relleno de account_roles (E1.1).
+ * El rol manda. El código heredado (LEGACY_ROLE_CODES, expense-line-account.ts)
+ * queda de red para las entidades sembradas antes de que existiera la capa
+ * semántica, que todavía no han pasado por el relleno de account_roles (E1.1).
  */
-const CODIGO_HEREDADO: Partial<Record<AccountRole, string>> = {
-  cxp: '2110',
-  iva_acreditable: '1130',
-  iva_pendiente_acreditar: '1135',
-};
-
 async function cuentasPorRol(
   cliente: pg.PoolClient,
   entityId: string,
@@ -2046,7 +2445,7 @@ async function cuentasPorRol(
   const faltan = roles.filter((rol) => !porRol.has(rol));
   if (faltan.length === 0) return porRol;
 
-  const codigos = faltan.map((rol) => CODIGO_HEREDADO[rol]).filter((c): c is string => !!c);
+  const codigos = faltan.map((rol) => LEGACY_ROLE_CODES[rol]).filter((c): c is string => !!c);
   if (codigos.length === 0) return porRol;
 
   const c = await cliente.query<{ id: string; code: string }>(
@@ -2055,7 +2454,7 @@ async function cuentasPorRol(
   );
   const porCodigo = new Map(c.rows.map((x) => [x.code, x.id]));
   for (const rol of faltan) {
-    const id = porCodigo.get(CODIGO_HEREDADO[rol] as string);
+    const id = porCodigo.get(LEGACY_ROLE_CODES[rol] as string);
     if (id) porRol.set(rol, id);
   }
   return porRol;

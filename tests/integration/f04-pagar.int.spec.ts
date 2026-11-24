@@ -9,6 +9,7 @@ import {
   recordVendorPayment,
   applyVendorPayment,
 } from '../../src/services/payments/payment-service.js';
+import { AccountingError, ValidationError } from '../../src/utils/errors.js';
 import {
   resolvePolicy,
   seedPolicies,
@@ -246,8 +247,11 @@ describe('el descuento por pronto pago, que se rechazaba por una cuenta que sí 
     expect(r.documentos[0].saldoNuevo, 'efectivo + descuento saldan el gasto entero').toBe('0.00');
     expect(r.documentos[0].estado).toBe('paid');
     const lineas = await lineasDelAsiento(r.journalEntry!.id);
-    // 5200 es contra-costo: se ABONA para reducir la compra.
-    expect(lineas.get(cuentaDescuento)?.credito).toBe('60.0000');
+    // 5200 es contra-costo: se ABONA para reducir la compra. MNE-001-597:
+    // sólo por la parte de costo; 60 × 160 / 1160 = 8.2759 es IVA que nunca
+    // será acreditable y sale de 1135 en el mismo asiento.
+    expect(lineas.get(cuentaDescuento)?.credito).toBe('51.7241');
+    expect(lineas.get(cuentaPendiente)?.credito, '151.7241 liberados + 8.2759 del descuento').toBe('160.0000');
     expect(
       lineas.get(cuentaCxp)?.debito,
       'el pasivo se extingue por los 1160 completos, no sólo por el efectivo'
@@ -389,6 +393,225 @@ describe('el pago corto: cerrar un gasto pagando de menos', () => {
     );
     expect(log.rows[0].new_values.short_pay_reason).toBe(motivo);
     expect(log.rows[0].new_values.condonado).toBe('80.00');
+  });
+});
+
+// MNE-001-516 (#664): a payment on account settles only bills of its own vendor.
+describe('payment apply stays within the payment\'s own vendor', () => {
+  const billRow = async (id: string) =>
+    (await query<{ amount_due: string; amount_paid: string; status: string }>(
+      `SELECT amount_due::text, amount_paid::text, status FROM bills WHERE id = $1`, [id]
+    )).rows[0];
+  const OPEN = { amount_due: '1160.0000', amount_paid: '0.0000', status: 'approved' };
+  /** What the payment left behind: its application rows and its journal entries. */
+  const tracesOf = async (paymentId: string) => ({
+    applications: (await query(`SELECT 1 FROM payment_applications WHERE payment_id = $1`, [paymentId])).rows.length,
+    entries: (await query(
+      `SELECT 1 FROM journal_entries WHERE entity_id = $1 AND source_id = $2`, [f.entityId, paymentId]
+    )).rows.length,
+  });
+  const refusal = async (
+    paymentId: string,
+    app: Parameters<typeof applyVendorPayment>[2][number],
+    opts: Parameters<typeof applyVendorPayment>[4] = {}
+  ): Promise<ValidationError> => {
+    const e = await applyVendorPayment(f.entityId, paymentId, [app], f.userId, opts).then(
+      () => null, (err: unknown) => err
+    );
+    expect(e, 'the application must be refused').toBeInstanceOf(ValidationError);
+    return e as ValidationError;
+  };
+  // Over every period: an application posts on today's date, not on the bill's.
+  const ledgerNet = async (accountId: string) =>
+    (await query<{ net: string }>(
+      `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS net
+         FROM journal_entry_lines jel JOIN journal_entries je ON je.id = jel.journal_entry_id
+        WHERE je.entity_id = $1 AND jel.account_id = $2`,
+      [f.entityId, accountId]
+    )).rows[0].net;
+  const vendorNumber = async (id: string) =>
+    (await query<{ vendor_number: string }>(`SELECT vendor_number FROM vendors WHERE id = $1`, [id])).rows[0].vendor_number;
+
+  it('T8 · refuses a bill of another vendor, naming the bill and both vendors, and writes nothing', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(ofV.vendorId, '1160.00');
+    const parked = await ledgerNet(cuentaPendiente);
+    const creditable = await ledgerNet(cuentaAcreditable);
+
+    const e = await refusal(paymentId, { documentId: ofW.billId, amountApplied: '1160.00' });
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    const payment = await query<{ payment_number: string }>(
+      `SELECT payment_number FROM vendor_payments WHERE id = $1`, [paymentId]
+    );
+    for (const text of [e.message, e.localized('es')]) {
+      for (const part of [
+        ofW.numero, payment.rows[0].payment_number,
+        `${await vendorNumber(ofV.vendorId)} Proveedor F04`, `${await vendorNumber(ofW.vendorId)} Proveedor F04`,
+      ]) {
+        expect(text).toContain(part);
+      }
+    }
+    expect(e.localized('es')).not.toBe(e.message);
+
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
+    expect(await billRow(ofW.billId)).toEqual(OPEN);
+    expect(await ledgerNet(cuentaPendiente), '1135 unchanged').toBe(parked);
+    expect(await ledgerNet(cuentaAcreditable), '1130 unchanged').toBe(creditable);
+  });
+
+  it('T9 · the party refusal speaks before the discount one', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    // 2 % of 1,160.00 is 23.20: a discount of 60.00 is more than the terms grant.
+    await query(`UPDATE bills SET terms = '2/10 Net 30' WHERE id = $1 AND entity_id = $2`, [ofW.billId, f.entityId]);
+    const paymentId = await pagoACuenta(ofV.vendorId, '1100.00');
+
+    const e = await refusal(paymentId, { documentId: ofW.billId, amountApplied: '1100.00', discountAmount: '60.00' });
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
+  });
+
+  it('T10 · a short pay in residual mode is refused, and the bill stays open', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(ofV.vendorId, '1000.00');
+
+    const e = await refusal(
+      paymentId, { documentId: ofW.billId, amountApplied: '1000.00' },
+      { modo: 'residual', shortPayReason: 'Flete en disputa' }
+    );
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    expect(await billRow(ofW.billId)).toEqual(OPEN);
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
+  });
+});
+
+describe('the bill UPDATE of a payment is guarded (invariant 3, MNE-001-532)', () => {
+  const billRow = async (id: string) =>
+    (await query<{ amount_due: string; amount_paid: string; status: string }>(
+      `SELECT amount_due::text, amount_paid::text, status FROM bills WHERE id = $1`, [id]
+    )).rows[0];
+  const OPEN = { amount_due: '1160.0000', amount_paid: '0.0000', status: 'approved' };
+  const PAID = { amount_due: '0.0000', amount_paid: '1160.0000', status: 'paid' };
+  const lastPaymentDate = async (id: string) =>
+    (await query<{ d: string | null }>(
+      `SELECT to_char(last_payment_date, 'YYYY-MM-DD') AS d FROM bills WHERE id = $1`, [id]
+    )).rows[0].d;
+  const tracesOf = async (paymentId: string) => ({
+    applications: (await query(`SELECT 1 FROM payment_applications WHERE payment_id = $1`, [paymentId])).rows.length,
+    entries: (await query(
+      `SELECT 1 FROM journal_entries WHERE entity_id = $1 AND source_id = $2`, [f.entityId, paymentId]
+    )).rows.length,
+  });
+  const entriesOfEntity = async () =>
+    (await query(`SELECT 1 FROM journal_entries WHERE entity_id = $1`, [f.entityId])).rows.length;
+  /**
+   * Under the row lock nothing else can move the bill, so the UPDATE is made
+   * to match no row the way f08a-ataque-2 sabotages a write: a trigger on this
+   * bill alone that skips it. Returns its undo.
+   */
+  const sabotage = async (billId: string): Promise<() => Promise<void>> => {
+    const tag = billId.replace(/-/g, '').slice(0, 12);
+    await query(
+      `CREATE OR REPLACE FUNCTION f04_skip_${tag}() RETURNS TRIGGER AS $$ BEGIN RETURN NULL; END; $$ LANGUAGE plpgsql`
+    );
+    await query(
+      `CREATE TRIGGER trg_f04_skip_${tag} BEFORE UPDATE ON bills
+       FOR EACH ROW WHEN (OLD.id = '${billId}') EXECUTE FUNCTION f04_skip_${tag}()`
+    );
+    return async () => {
+      await query(`DROP TRIGGER IF EXISTS trg_f04_skip_${tag} ON bills`);
+      await query(`DROP FUNCTION IF EXISTS f04_skip_${tag}()`);
+    };
+  };
+  const failure = async (call: () => Promise<unknown>): Promise<AccountingError> => {
+    const e = await call().then(() => null, (err: unknown) => err);
+    expect(e, 'the call must be refused').toBeInstanceOf(AccountingError);
+    expect((e as AccountingError).code).toBe('BILL_CHANGED');
+    return e as AccountingError;
+  };
+
+  it('T1 · payment apply: a bill UPDATE that touches no row refuses the call whole; unsabotaged, it posts', async () => {
+    const bill = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(bill.vendorId, '1160.00');
+    const apply = () =>
+      applyVendorPayment(f.entityId, paymentId, [{ documentId: bill.billId, amountApplied: '1160.00' }], f.userId);
+
+    const restore = await sabotage(bill.billId);
+    let e: AccountingError;
+    try {
+      e = await failure(apply);
+    } finally {
+      await restore();
+    }
+    expect(e.message).toContain(bill.numero);
+    expect(e.localized('es')).toContain(bill.numero);
+    expect(e.localized('es')).not.toBe(e.message);
+    expect(await tracesOf(paymentId), 'only the payment\'s own entry').toEqual({ applications: 0, entries: 1 });
+    expect(await billRow(bill.billId)).toEqual(OPEN);
+
+    // T2 · the same call, the trigger gone, posts as today.
+    await apply();
+    expect(await billRow(bill.billId)).toEqual(PAID);
+    expect(await tracesOf(paymentId)).toEqual({ applications: 1, entries: 2 });
+  });
+
+  it('T3 · payment record: a bill UPDATE that touches no row writes no payment and no entry', async () => {
+    const bill = await gastoAprobado('1000.00', '160.00');
+    const entries = await entriesOfEntity();
+
+    const restore = await sabotage(bill.billId);
+    try {
+      await failure(() =>
+        recordVendorPayment(
+          {
+            entityId: f.entityId, counterpartyId: bill.vendorId, paymentAmount: '1160.00',
+            paymentDate: fechaEnPeriodo(), paymentMethod: 'spei',
+            applications: [{ documentId: bill.billId, amountApplied: '1160.00' }],
+          },
+          f.userId
+        )
+      );
+    } finally {
+      await restore();
+    }
+    const payments = await query(`SELECT 1 FROM vendor_payments WHERE vendor_id = $1`, [bill.vendorId]);
+    expect(payments.rows.length).toBe(0);
+    expect(await billRow(bill.billId)).toEqual(OPEN);
+    expect(await entriesOfEntity()).toBe(entries);
+  });
+
+  it('T4 · payment record: a payment dated before the last one does not move the bill\'s last payment back', async () => {
+    const bill = await gastoAprobado('1000.00', '160.00');
+    const pay = (amount: string, day: number) =>
+      recordVendorPayment(
+        {
+          entityId: f.entityId, counterpartyId: bill.vendorId, paymentAmount: amount,
+          paymentDate: fechaEnPeriodo(8, day), paymentMethod: 'spei',
+          applications: [{ documentId: bill.billId, amountApplied: amount }],
+        },
+        f.userId
+      );
+    await pay('500.00', 20);
+    await pay('660.00', 10); // 500.00 + 660.00 = 1,160.00: the bill is paid
+    expect(await billRow(bill.billId)).toEqual(PAID);
+    expect(await lastPaymentDate(bill.billId)).toBe('2026-08-20');
+  });
+
+  it('T5 · payment apply: an application does not move a later last payment back', async () => {
+    const bill = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(bill.vendorId, '1160.00');
+    // A later payment already on the bill, stamped by hand thirty days ahead.
+    const later = (await query<{ d: string }>(
+      `UPDATE bills SET last_payment_date = CURRENT_DATE + 30 WHERE id = $1 AND entity_id = $2
+       RETURNING to_char(last_payment_date, 'YYYY-MM-DD') AS d`,
+      [bill.billId, f.entityId]
+    )).rows[0].d;
+
+    await applyVendorPayment(f.entityId, paymentId, [{ documentId: bill.billId, amountApplied: '1160.00' }], f.userId);
+    expect(await billRow(bill.billId)).toEqual(PAID);
+    expect(await lastPaymentDate(bill.billId)).toBe(later);
   });
 });
 

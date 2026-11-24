@@ -15,7 +15,9 @@ import {
   ivaToReclassify,
   CONSERVATIVE_METODO,
   ivaStillParked,
+  receivedVatStillParked,
   entityUsesCashBasisIva,
+  discountVatShare,
 } from '../../src/services/accounting/iva-cash-basis.js';
 
 // ============================================================
@@ -140,6 +142,8 @@ describe('the assumption is legible', () => {
       .toMatch(/moves to IVA acreditable on payment/);
     expect(ivaTreatmentNote('received', { metodo: 'PPD', origin: 'default', assumed: true }))
       .toMatch(/conservative PPD assumed/);
+    expect(ivaTreatmentNote('received', { metodo: 'PUE', origin: 'cfdi', assumed: false }))
+      .toBe('IVA not yet creditable — moves to IVA acreditable on payment');
   });
 });
 
@@ -151,7 +155,8 @@ describe('ivaRoleFor', () => {
   it('routes the four cases exactly as cfdi-taxonomy.ts declares them', () => {
     expect(ivaRoleFor('issued', 'PUE')).toBe('iva_trasladado');
     expect(ivaRoleFor('issued', 'PPD')).toBe('iva_trasladado_no_cobrado');
-    expect(ivaRoleFor('received', 'PUE')).toBe('iva_acreditable');
+    // MNE-001-492: a received PUE parks too; its payment releases it.
+    expect(ivaRoleFor('received', 'PUE')).toBe('iva_pendiente_acreditar');
     expect(ivaRoleFor('received', 'PPD')).toBe('iva_pendiente_acreditar');
   });
 
@@ -291,6 +296,101 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
     expect(sql).toMatch(/je\.entity_id = \$1/);
     expect(sql).toMatch(/ar\.entity_id = \$1/);
     expect(params?.[0]).toBe(ENTITY);
+  });
+
+  it('counts a received credit note among the entries of a bill, and only on the received side', async () => {
+    // MNE-001-489: the note's entry carries the bill as source_id, so the cap nets what it took out of 1135.
+    const c = client('0');
+    await ivaStillParked(c as never, 'received', ENTITY, DOC);
+    expect(c.query.mock.calls[0][1]?.[3]).toContain('vendor_credit_note');
+    const c2 = client('0');
+    await ivaStillParked(c2 as never, 'issued', ENTITY, DOC);
+    expect(c2.query.mock.calls[0][1]?.[3]).not.toContain('vendor_credit_note');
+  });
+});
+
+// MNE-001-489: the cap does not reach a payment's entry, whose source is the
+// payment, so what a bill still has parked is the cap minus the releases its
+// live applications stored.
+describe('receivedVatStillParked: the cap minus what the live applications released', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const BILL = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+  function client(parked: string, released: string) {
+    return {
+      query: vi.fn(async (sql: string, _params?: unknown[]) => ({
+        rows: /FROM payment_applications/.test(sql) ? [{ released }] : [{ parked }],
+      })),
+    };
+  }
+
+  it('subtracts the stored releases from the cap', async () => {
+    expect(await receivedVatStillParked(client('1280.0000', '640.0000') as never, ENTITY, BILL)).toBe('640.0000');
+    expect(await receivedVatStillParked(client('1280.0000', '0') as never, ENTITY, BILL)).toBe('1280.0000');
+  });
+
+  it('never goes below zero', async () => {
+    expect(await receivedVatStillParked(client('100.0000', '160.0000') as never, ENTITY, BILL)).toBe('0.0000');
+  });
+
+  it('sums only live applications of that bill, inside the entity', async () => {
+    const c = client('1280.0000', '0');
+    await receivedVatStillParked(c as never, ENTITY, BILL);
+    const call = c.query.mock.calls.find(([sql]) => /FROM payment_applications/.test(sql));
+    const sql = String(call?.[0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('SUM(pa.iva_reclass_amount)');
+    expect(sql).toContain('pa.unapplied_at IS NULL');
+    expect(sql).toContain('b.entity_id = $1');
+    expect(call?.[1]).toEqual([ENTITY, BILL]);
+  });
+
+  it('MNE-001-597: also nets the VAT the live applications\' discounts took out of 1135', async () => {
+    const c = client('160.0000', '0');
+    await receivedVatStillParked(c as never, ENTITY, BILL);
+    const call = c.query.mock.calls.find(([sql]) => /FROM payment_applications/.test(sql));
+    expect(String(call?.[0]).replace(/\s+/g, ' ')).toContain('SUM(pa.discount_iva_amount)');
+  });
+});
+
+// ============================================================
+// MNE-001-597 · THE VAT OF AN EARLY-PAYMENT DISCOUNT
+//
+// Bill 1,000.00 + 160.00 = 1,160.00. A discount of 58.00 carries
+// 58 × 160 / 1,160 = 8.0000 of VAT; one of 20.00 carries 2.758620… → 2.7586.
+// ============================================================
+
+describe('discountVatShare: the discount\'s VAT, never creditable, capped by what is parked', () => {
+  const bill = { taxAmount: '160.0000', totalAmount: '1160.0000' };
+
+  it('is the discount times the VAT over the total, at four decimals', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0000', closes: true })).toBe('8.0000');
+    expect(discountVatShare({ ...bill, discount: '20.00', remainder: '160.0000', closes: false })).toBe('2.7586');
+  });
+
+  it('never takes more than the bill still has parked', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '5.0000', closes: false })).toBe('5.0000');
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '-1.0000', closes: false })).toBe('0.0000');
+  });
+
+  it('at closing it takes a rounding remainder of a cent or less, and only the share when more is parked', () => {
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0001', closes: true })).toBe('8.0001');
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '7.9950', closes: true })).toBe('7.9950');
+    // A held cheque's cash share is still parked: 160 is not a rounding gap.
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '160.0000', closes: true })).toBe('8.0000');
+    // Without closing, a remainder close to the share is not swept either.
+    expect(discountVatShare({ ...bill, discount: '58.00', remainder: '8.0001', closes: false })).toBe('8.0000');
+  });
+
+  it('in another currency the share is converted at the bill\'s rate', () => {
+    // USD 5.80 of discount on USD 100 + 16: USD 0.80 of VAT × 20.0000 = 16.0000.
+    expect(discountVatShare({
+      discount: '5.80', taxAmount: '16.00', totalAmount: '116.00', remainder: '16.0000', closes: true, rate: '20.0000',
+    })).toBe('16.0000');
+  });
+
+  it('nothing for no discount or a bill with no total', () => {
+    expect(discountVatShare({ ...bill, discount: '0', remainder: '160.0000', closes: true })).toBe('0.0000');
+    expect(discountVatShare({ discount: '10', taxAmount: '0', totalAmount: '0', remainder: '0', closes: true })).toBe('0.0000');
   });
 });
 

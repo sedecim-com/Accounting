@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { query } from '../../../database/connection.js';
 import { requirePermission } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { integrationRegistry, pacRouter } from '../../../services/integrations/index.js';
 import { PAC_ADAPTERS } from '../../../services/integrations/mexico/pac/pac-router.js';

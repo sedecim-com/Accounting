@@ -43,7 +43,14 @@ import { entityScope } from '../../src/database/scope.js';
 // cfdi-nomina-generator, y la forma del desglose en paycheck-service).
 // ============================================================
 
-const ANIO_SINTETICO = 2031;
+// SINCE #600 THE EXCESS OVER THE ISR FOLLOWS THE LAW OF THE PAYMENT DATE.
+// Block A keeps the four corners of the rule in force until 30 April 2024, so
+// its synthetic year is one BEFORE the decree of 1 May 2024; the amount of the
+// subsidy of that year was a bracket table this repository does not load, and
+// the synthetic UMA, rate and income cap below stand in for it. Blocks B, C
+// and D are paid in 2026: nothing is handed over, net pay does not grow and
+// the entry and the CFDI carry no cash.
+const ANIO_SINTETICO = 2023;
 
 let f: Fixture;
 let scheduleId: string;
@@ -175,15 +182,16 @@ beforeAll(async () => {
     `INSERT INTO tax_tables (jurisdiction, tax_type, tax_year, filing_status, pay_frequency,
        bracket_order, bracket_low, bracket_high, rate, base_tax, effective_from)
      VALUES
-       ('MX','isr',$1,NULL,'quincenal',1, 0.01, 50.00, 0, 0, '2026-01-01'),
-       ('MX','isr',$1,NULL,'quincenal',2, 50.01, NULL, 0.10, 5.00, '2026-01-01')`,
+       ('MX','isr',$1,NULL,'quincenal',1, 0.01, 50.00, 0, 0, make_date($1, 1, 1)),
+       ('MX','isr',$1,NULL,'quincenal',2, 50.01, NULL, 0.10, 5.00, make_date($1, 1, 1))`,
     [ANIO_SINTETICO]
   );
   await query(
     `INSERT INTO legal_parameters (jurisdiction, key, effective_from, value, unit, source_url, source_note)
      VALUES
        ('MX', 'uma.monthly', make_date($1, 1, 1), '2026.7000', 'MXN', 'https://example.invalid/synthetic', 'synthetic'),
-       ('MX', 'employment_subsidy.uma_monthly_rate', make_date($1, 1, 1), '0.1000', 'rate', 'https://example.invalid/synthetic', 'synthetic')`,
+       ('MX', 'employment_subsidy.uma_monthly_rate', make_date($1, 1, 1), '0.1000', 'rate', 'https://example.invalid/synthetic', 'synthetic'),
+       ('MX', 'employment_subsidy.monthly_income_cap', make_date($1, 1, 1), '10000.0000', 'MXN', 'https://example.invalid/synthetic', 'synthetic')`,
     [ANIO_SINTETICO]
   );
 });
@@ -197,8 +205,9 @@ describe('A · el subsidio al empleo y el efectivo que el trabajador debe recibi
 
   beforeAll(async () => {
     // Paid IN the synthetic year: ISR and subsidy take the tariff of the
-    // payment year (#242), so a 2026 payment would read the real 2026 tariff.
-    periodo = await nuevoPeriodo('2031-02-01', '2031-02-15', '2031-02-15', ANIO_SINTETICO);
+    // payment year (#242), so a 2026 payment would read the real 2026 tariff,
+    // and the excess is handed over in cash only before 1 May 2024 (#600).
+    periodo = await nuevoPeriodo('2023-02-01', '2023-02-15', '2023-02-15', ANIO_SINTETICO);
     corrida = await nuevaCorrida(periodo);
   });
 
@@ -283,7 +292,8 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     // Tarifa REAL 2026 (la publicada en el Anexo 8, sembrada por la 073 del
     // tramo T4a): quincena de 1 500 → ISR 77.28, subsidio 264.30 (15.02 % de
     // la UMA mensual de 2026, #298; era 203.31 con la tabla derogada de la
-    // 009), efectivo entregado 187.02. Antes de T4a estas cifras eran 79.29 y 124.02, con la
+    // 009), y 187.02 de excedente que desde #600 NO se entrega: el pago es de
+    // 2026 y la regla del 1 de mayo de 2024 no entrega nada. Antes de T4a estas cifras eran 79.29 y 124.02, con la
     // «quincenal» que la 009 fabricaba dividiendo la mensual entre dos — y que
     // no era la de ningún año. Lo que F08a fija es el CAMINO del subsidio
     // entregado en efectivo, no la tarifa: la tarifa cambió debajo, y estas
@@ -297,11 +307,15 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     ).paycheck_id;
   });
 
-  it('el punto de partida: la quincena de 1 500 entrega 187.02 en efectivo', async () => {
+  it('the starting point: the fortnight of 1 500 paid in 2026 hands over none of its 187.02 of excess', async () => {
     const fila = await reciboDe(recibo);
     expect(fila.isr_withheld).toBe('77.28');
     expect(fila.subsidio_empleo).toBe('264.30');
-    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('187.02');
+    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('0.00');
+    // Net pay is gross less the worker's contributions: no ISR, no cash.
+    expect(fila.net_pay).toBe(
+      new Decimal(fila.gross_earnings).minus(fila.imss_employee).minus(fila.infonavit_withheld).toFixed(2)
+    );
   });
 
   it('el ISR NETO del periodo, sumado desde paycheck_taxes, es el que el fisco vería', async () => {
@@ -313,22 +327,32 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
       .filter((x) => x.employee_employer === 'EE' && x.is_credit)
       .reduce((a, x) => a.plus(x.tax_amount), new Decimal(0));
 
-    // Lo que el patrón entregó de su bolsillo y acreditará contra el ISR
-    // retenido a otros son 187.02 — ni un peso más. Si la resta da −374.04,
-    // el subsidio está apuntado DOS VECES: entero como crédito, y otra vez
-    // la parte entregada.
+    // Paid in 2026 the subsidy absorbs the ISR and nothing more (#600): the
+    // credits of the table are the 77.28 credited, and the net is zero. A
+    // negative figure would be an excess written as a credit nobody owes.
     const netoSegunLaTabla = cargo.minus(creditos);
-    expect(netoSegunLaTabla.toFixed(2)).toBe('-187.02');
+    expect(netoSegunLaTabla.toFixed(2)).toBe('0.00');
+    expect(filas.some((x) => x.tax_type === 'subsidio_entregado_efectivo')).toBe(false);
   });
 });
 
 // ============================================================
 // C · EL ASIENTO AL MAYOR CUANDO EL SUBSIDIO SE ENTREGA
 // ============================================================
-describe('C · la corrida con subsidio entregado se puede postear al mayor', () => {
+describe('C · la corrida con subsidio mayor que el ISR se puede postear al mayor', () => {
   beforeAll(async () => {
     await seedPayrollAccountMapping(f.entityId, f.tenantId, 'MX', f.userId);
   });
+
+  /** The posted entry carries no debit for subsidy handed over: in 2026 none is (#600). */
+  async function subsidyDebits(entryId: string): Promise<number> {
+    const { rows } = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM journal_entry_lines
+        WHERE journal_entry_id = $1 AND description LIKE 'Subsidio al empleo entregado%'`,
+      [entryId]
+    );
+    return rows[0].n;
+  }
 
   /** Una corrida completa por el camino real: cálculo, totales y aprobación. */
   async function corridaCompleta(
@@ -361,24 +385,34 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
   }
 
   it('control: cuando el ISR retenido supera al subsidio entregado, el asiento cuadra', async () => {
-    // 1 500 (entrega 187.02) + 8 000 (retiene 799.46): el ISR gana.
+    // 1 500 (ISR 77.28 absorbed, nothing handed over) + 8 000 (withholds 799.46).
     const { payRunId } = await corridaCompleta('2026-04-01', '2026-04-15', '2026-04-15', [1500, 8000]);
     const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
     expect(entryId).toBeTruthy();
+    expect(await subsidyDebits(entryId)).toBe(0);
   });
 
-  it('la corrida de PURO subsidio entregado también se tiene que poder postear', async () => {
-    // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 374.04.
+  it('a run where every subsidy exceeds its ISR posts, with no ISR line and no subsidy debit', async () => {
+    // Two workers of 1 500: nobody has ISR withheld, and the 374.04 of excess
+    // are not handed over, so the entry has nothing to book for them.
     const { payRunId } = await corridaCompleta('2026-05-01', '2026-05-15', '2026-05-15', [1500, 1500]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
+    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
+    expect(await subsidyDebits(entryId)).toBe(0);
   });
 
-  it('la corrida MIXTA en la que el subsidio entregado gana también se postea', async () => {
-    // 1 500 (entrega 187.02) + 4 500 (retiene 312.51 − 264.30 = 48.21): el
-    // subsidio gana por 138.81. It was 3 000, which with the 2026 subsidy
-    // (#298) also receives cash and no longer makes the run mixed.
+  it('a MIXED run credits the ISR withheld whole: one worker\'s excess does not reduce it', async () => {
+    // 1 500 (excess 187.02, not handed over) + 4 500 (withholds 312.51 −
+    // 264.30 = 48.21). The old sum netted the two to −138.81 and debited it;
+    // the entry now credits the 48.21 withheld (#600).
     const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 4500]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
+    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
+    expect(await subsidyDebits(entryId)).toBe(0);
+    const { rows } = await query<{ credit: string }>(
+      `SELECT credit_amount::text AS credit FROM journal_entry_lines
+        WHERE journal_entry_id = $1 AND description LIKE 'ISR withheld%'`,
+      [entryId]
+    );
+    expect(rows.map((r) => new Decimal(r.credit).toFixed(2))).toEqual(['48.21']);
   });
 });
 
@@ -391,7 +425,7 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
 // declararlo como OtrosPagos, esa identidad deja de cumplirse.
 // ============================================================
 describe('D · el CFDI de nómina cuadra consigo mismo', () => {
-  it('Total = SubTotal − Descuento en un recibo con subsidio entregado', async () => {
+  it('Total = SubTotal − Descuento en un recibo con subsidio mayor que el ISR', async () => {
     const periodo = await nuevoPeriodo('2026-07-01', '2026-07-15', '2026-07-15', 2026);
     const corrida = await nuevaCorrida(periodo);
     const emp = await nuevoEmpleado({ sbc: '100.0000' });
@@ -431,6 +465,10 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
       const otrosPagos = /\bTotalOtrosPagos="([0-9.]+)"/.exec(r.xml);
       const suma = subTotal.minus(descuento).plus(otrosPagos ? otrosPagos[1] : 0);
       expect(total.toFixed(2)).toBe(suma.toFixed(2));
+      // Paid in 2026 no cash is handed over: OtroPago 002 declares 0.00 with
+      // the subsidy caused (#600, MNE-001-551).
+      expect(r.xml).toMatch(/TipoOtroPago="002"[^>]* Importe="0\.00"/);
+      expect(r.xml).toContain('TotalOtrosPagos="0.00"');
     } finally {
       espia.mockRestore();
     }

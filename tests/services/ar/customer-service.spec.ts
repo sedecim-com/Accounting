@@ -153,7 +153,7 @@ describe('listCustomers', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await listCustomers(ENTITY, { withBalance: true, asOf: '2026-03-31' });
     expect(sql(0)).toMatch(/i\.total_amount - COALESCE/);
-    expect(sql(0)).toMatch(/p\.payment_date <= \$\d+::date/);
+    expect(sql(0)).toMatch(/COALESCE\(pa\.applied_on, p\.payment_date\) <= \$\d+::date/); // MNE-001-460
     expect(sql(0)).toMatch(/i\.invoice_date <= \$\d+::date/);
     // A paid invoice may well have been open on the reference date.
     expect(params(0)[2]).toEqual([...NEVER_RECEIVABLE_STATUSES]);

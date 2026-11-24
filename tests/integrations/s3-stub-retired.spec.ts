@@ -63,7 +63,7 @@ beforeAll(async () => {
   app.use('/v1/admin/integrations', integrationsRouter);
   app.use(errorHandler);
   await new Promise<void>((ok) => {
-    server = app.listen(0, '127.0.0.1', ok);
+    server = app.listen(0, '127.0.0.1', () => ok());
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });

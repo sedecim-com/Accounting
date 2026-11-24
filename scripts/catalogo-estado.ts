@@ -24,6 +24,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { program } from '../src/cli/mnemosine.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const RAIZ = path.resolve(__dirname, '..');
 const DOC = path.join(RAIZ, 'docs', 'cli-command-catalog.md');
@@ -561,5 +562,5 @@ function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

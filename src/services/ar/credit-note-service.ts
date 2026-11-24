@@ -15,13 +15,18 @@ import { todayFor } from '../policy/today.js';
 // ============================================================
 // NOTAS DE CRÉDITO (049 · F03)
 //
-// La nota es un documento propio con folio (CN), no una factura negativa:
-// nace en borrador, se POSTEA AL EMITIR (DR devoluciones + DR IVA / CR CxC
-// — el plan de póliza que la taxonomía CFDI ya tenía escrito para el tipo
-// E) y se APLICA sin asiento adicional: el mayor se movió al emitir, la
-// aplicación reparte ese crédito entre facturas en el auxiliar. Una nota
-// emitida y no aplicada ES el saldo a favor del cliente, y `ar reconcile`
-// la resta del auxiliar por eso.
+// The note is its own document with its own folio (CN), not a negative
+// invoice: born a draft, it POSTS WHEN ISSUED (DR the base role + DR IVA /
+// CR AR) and is APPLIED with no further entry: the ledger moved at issue,
+// and applying spreads that credit over invoices in the subledger. A note
+// issued and not applied IS the customer's credit balance, which is why
+// `ar reconcile` subtracts it from the subledger.
+//
+// THE TYPE DECIDES THE BASE ROLE (MNE-001-515): devolucion_ventas, except
+// for an `anticipo` note, which applies a customer advance and so debits
+// anticipo_clientes. It is refused when the customer's advance invoices do
+// not hold that much: its entry also debits output IVA, and with no advance
+// behind it that would understate the tax due.
 //
 // LA LIGA FISCAL GOBIERNA EL IVA. El rol de IVA del asiento sale del
 // MetodoPago de la factura LIGADA (PUE → iva_trasladado; PPD no cobrada →
@@ -343,7 +348,38 @@ export interface ResultadoEmision {
   dryRun: boolean;
 }
 
-/** Emite la nota: postea DR devoluciones + DR IVA / CR CxC y pasa a 'issued'. */
+/**
+ * The customer's invoiced advance still open (MNE-001-515): what the own
+ * entries of the customer's invoices credited to the role anticipo_clientes,
+ * less what the entries of the customer's credit notes debited to it.
+ *
+ * NOTE: cash on account is left out on purpose: `receipt apply` cancels it,
+ * and counting it would let one advance be cancelled twice. An advance booked
+ * by a journal entry or carried in the opening balance names no customer.
+ */
+async function openInvoicedAdvance(client: pg.PoolClient, entityId: string, customerId: string): Promise<Decimal> {
+  const r = await client.query<{ open: string }>(
+    `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS open
+       FROM (
+         SELECT journal_entry_id, 'invoice' AS source FROM invoices WHERE entity_id = $1 AND customer_id = $2
+         UNION ALL
+         SELECT journal_entry_id, 'credit_note' FROM credit_notes WHERE entity_id = $1 AND customer_id = $2
+       ) doc
+       JOIN journal_entries je ON je.id = doc.journal_entry_id AND je.entity_id = $1
+                              AND je.source_type = doc.source
+                              AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+       JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                            AND ar.qualifier IS NULL AND ar.role = 'anticipo_clientes'`,
+    [entityId, customerId]
+  );
+  return new Decimal(r.rows[0]?.open ?? '0');
+}
+
+/**
+ * Issues the note: posts DR the base role + DR IVA / CR AR and moves it to
+ * 'issued'. An `anticipo` note with no invoiced advance behind it is refused.
+ */
 export async function issueCreditNote(
   entityId: string,
   noteId: string,
@@ -383,11 +419,41 @@ export async function issueCreditNote(
           `unconverted would unbalance receivables. Nothing was posted.`
       );
     }
+    if (nota.type === 'anticipo') {
+      // The lock on the customer's row keeps two notes of one customer from
+      // both passing on the same advance.
+      const who = await client.query<{ customer_number: string; name: string | null }>(
+        `SELECT customer_number,
+                COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+           FROM customers WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+        [nota.customer_id, entityId]
+      );
+      if (who.rows.length === 0) throw new NotFoundError('Customer', nota.customer_id);
+      const available = await openInvoicedAdvance(client, entityId, nota.customer_id);
+      if (new Decimal(nota.subtotal).greaterThan(available)) {
+        throw new ValidationError({
+          key: 'credit_note.advance.exceeds_invoiced_advance',
+          params: {
+            note: nota.credit_note_number,
+            customer: [who.rows[0].customer_number, who.rows[0].name].filter(Boolean).join(' '),
+            requested: new Decimal(nota.subtotal).toFixed(2),
+            available: available.toFixed(2),
+          },
+        });
+      }
+    }
     const entry = await postCreditNoteEntry(client, nota, userId);
-    await client.query(
-      `UPDATE credit_notes SET status = 'issued', updated_at = NOW() WHERE id = $1`,
-      [noteId]
+    const issued = await client.query(
+      `UPDATE credit_notes SET status = 'issued', updated_at = NOW()
+        WHERE id = $1 AND entity_id = $2 AND status = 'draft'`,
+      [noteId, entityId]
     );
+    if (issued.rowCount !== 1) {
+      throw new AccountingError(
+        'CREDIT_NOTE_NOT_DRAFT',
+        `${nota.credit_note_number} is no longer a draft of this entity: it was not issued, and nothing was posted.`
+      );
+    }
     await registrarAuditoria(client, {
       tenantId: nota.tenant_id,
       legalEntityId: nota.entity_id,

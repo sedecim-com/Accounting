@@ -23,6 +23,7 @@ import {
   type FilaCtas,
 } from '../../../src/services/sat/anexo24/validador.js';
 import {
+  FOREIGN_BANK_CODE,
   officialEnumeration,
   parseEnumerations,
   OFFICIAL_ENUMERATIONS_XSD,
@@ -281,6 +282,16 @@ const journal = (): DatosDePolizas => ({
               rfc: 'PSA010101AA1',
               monto: '1160.00',
             },
+            // MNE-001-401 (#532): a foreign bank, as 999 with its full name.
+            {
+              clase: 'transferencia', ctaOri: '012180001234567895', bancoOriNal: '012', ctaDest: 'GB29NWBK60161331926819',
+              bancoDestNal: FOREIGN_BANK_CODE, bancoDestExt: 'Bank of Nowhere',
+              fecha: '2026-02-10', benef: 'Proveedor del Exterior SA', rfc: 'PSA010101AA1', monto: '1160.00',
+            },
+            {
+              clase: 'cheque', num: '7001', banEmisNal: FOREIGN_BANK_CODE, banEmisExt: 'Banco de Ultramar SA', ctaOri: '9876543210',
+              fecha: '2026-02-10', benef: 'Proveedor SA', rfc: 'PSA010101AA1', monto: '1160.00',
+            },
           ],
         },
       ],
@@ -354,6 +365,8 @@ describe('the generated XML validates against its official XSD', () => {
     for (const node of ['CompNal', 'CompNalOtr', 'CompExt', 'Cheque', 'Transferencia', 'OtrMetodoPago']) {
       expect(xml).toContain(`<PLZ:${node} `);
     }
+    expect(xml).toContain('BancoDestNal="999" BancoDestExt="Bank of Nowhere"');
+    expect(xml).toContain('BanEmisNal="999" BanEmisExt="Banco de Ultramar SA"');
     expect(validateAgainstOfficialXsd(xml, 'journal')).toEqual({ valid: true, errors: [] });
   });
 
@@ -365,6 +378,13 @@ describe('the generated XML validates against its official XSD', () => {
   it('the account auxiliary', () => {
     const xml = construirAuxiliarCuentasXml(accountAuxiliary());
     expect(validateAgainstOfficialXsd(xml, 'accountAuxiliary')).toEqual({ valid: true, errors: [] });
+  });
+});
+
+describe('the code a foreign bank is declared with (MNE-001-401)', () => {
+  it('is on the c_Banco of the vendored XSD: a republished list without it turns this red', () => {
+    expect(FOREIGN_BANK_CODE).toBe('999');
+    expect(officialEnumeration('c_Banco').has(FOREIGN_BANK_CODE)).toBe(true);
   });
 });
 
@@ -641,12 +661,12 @@ describe("the service's bank-code checks keep it away from the builder's guard (
   // The guard throws the whole month's file, so every node the service emits
   // must pass it, and every input that lacks a code must leave the node out
   // with a motive. Each combination is judged by both.
-  const ours = { nombre: 'Entidad de Prueba SA', rfc: 'EPR010101AB1' };
   const row = (method: string, checkNumber: string | null, destCode: string | null, destForeign: string | null) => ({
     payment_number: 'VPMT-1', payment_amount: '1160.0000', payment_date: '2026-02-10',
     payment_method: method, currency_code: 'MXN', exchange_rate: '1', bank_account_id: 'ba-1',
     check_number: checkNumber, cuenta_destino: '002180009876543210', banco_destino_sat: destCode,
-    banco_destino_extranjero: destForeign, cfdi_uuid: null, contraparte: 'Proveedor SA',
+    banco_destino_extranjero: destForeign, cuenta_origen: null, banco_origen_sat: null,
+    banco_origen_extranjero: null, cfdi_uuid: null, contraparte: 'Proveedor SA',
     contraparte_id: 'v-1', contraparte_rfc: 'PSA010101AA1',
   });
   const account = (code: string | null) => ({
@@ -667,7 +687,6 @@ describe("the service's bank-code checks keep it away from the builder's guard (
         row(method, '10042', dest === 'foreign' ? null : dest, dest === 'foreign' ? 'Bank of Nowhere' : null),
         direction,
         ourCode === 'none' ? undefined : account(ourCode),
-        ours,
         (raw) => raw,
         'JE-2026-0001'
       );

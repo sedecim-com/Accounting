@@ -30,9 +30,10 @@ import {
 import {
   resolveLanguage,
   setUserLocale,
+  unsetUserLocale,
   configFilePaths,
-  MissingProviderCredentialError,
 } from '../ai/providers/config.js';
+import { acceptTrialTermsFor } from '../ai/providers/trial-endpoint.js';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -48,10 +49,12 @@ import { zoneFor } from '../services/policy/today.js';
 
 // Two dials one letter apart, and this file touches both. The one imported here
 // pins the language the CLI PRINTS in: it lives in memory and dies with the
-// process. The other one — the language the AGENT answers in — is persisted to
-// disk, and `mnemosine lang` writes it through `setUserLocale`. Renaming this
-// one at the import keeps any call site from reading as the other.
-import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+// process. The other one — the person's saved language, which the CLI and the
+// agent both read — is persisted to disk, and `mnemosine lang` writes it
+// through `setUserLocale`. Renaming this one at the import keeps any call site
+// from reading as the other.
+import { LANGUAGES, setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+import { languageInEffectLine, languageName, rungPhrase, shownPath } from './lang-line.js';
 import { formatMoney } from '../i18n/format.js';
 import { AppError } from '../utils/errors.js';
 import {
@@ -64,7 +67,13 @@ import {
   updateSessionProvider,
   type SessionRow,
 } from '../ai/session-store.js';
-import { ingestCfdiFiles, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import {
+  ingestCfdiFiles,
+  leftToCodeSummary,
+  previewCfdiFiles,
+  resolveIngestProfile,
+  type DraftCapture,
+} from '../ai/ingest-service.js';
 import {
   SUPERFICIE_DESATENDIDA,
   SUPERFICIE_DESATENDIDA_SANDBOX,
@@ -93,7 +102,7 @@ import {
   argumentByKey,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
@@ -118,6 +127,7 @@ import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
 import { registerStatusCommand } from './status-command.js';
+import { credentialErrorHint, providerLines, switchProvider } from './provider-readiness.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
@@ -151,6 +161,8 @@ import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
+import { registerFilingRecordCommand } from './filing-record-command.js';
+import { registerAnnualFigureCommand } from './annual-figure-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
@@ -349,7 +361,7 @@ function isInterrupt(err: unknown): boolean {
 export function reportError(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError) {
     console.error(ce.red('\nAuthentication error with the Anthropic API.'));
-    console.error('Set ANTHROPIC_API_KEY in your environment or .env, or run `ant auth login`.');
+    console.error(t('provider.credential.anthropic_rejected'));
   } else if (err instanceof OpenAI.AuthenticationError) {
     console.error(ce.red('\nThe provider rejected the credential (401).'));
     console.error('Check the environment variable named by api_key_env in the profile (mnemosine providers).');
@@ -391,6 +403,20 @@ export function reportError(err: unknown): void {
       if (remedio) console.error(`  → ${remedio}`);
     }
   }
+}
+
+/**
+ * reportError, except that a missing credential reads as the readiness answer
+ * every surface gives: the profile, its variable, where to get it, the
+ * alternative and `mnemosine init --section ai` (MNE-001-444). `providerName`
+ * is the profile the session runs on; undefined means the configured default.
+ */
+function reportSessionError(err: unknown, providerName: string | undefined): void {
+  const hint = credentialErrorHint(err, providerName);
+  if (!hint) return reportError(err);
+  const [problem, ...next] = hint;
+  console.error(ce.red(`\n${problem}`));
+  for (const line of next) console.error(`  → ${line}`);
 }
 
 function makeCallbacks(askUser?: AskUserFn, onDraftCreated?: SessionCallbacks['onDraftCreated']): SessionCallbacks {
@@ -446,6 +472,13 @@ async function buildSession(
   onFailover?: (from: string, errorType: string, to: string) => void
 ): Promise<{ session: LlmSession; ctx: AgentContext }> {
   const ctx = await resolveEntity(entityArg);
+  // NVIDIA's hosted trial records what it receives (MNE-001-448): chat and ask
+  // open a session there only after its terms and a yes, asked here, before
+  // chat's own prompt exists. Without a terminal it is refused.
+  await acceptTrialTermsFor(providerFlag, {
+    confirm: stdin.isTTY === true ? confirmAtTerminal : null,
+    print: (line) => stderr.write(`${line}\n`),
+  });
   // Failover walks the profile's configured chain only on eligible errors
   // (auth/429/5xx/timeout/billing); the winning provider is pinned for the
   // session and surfaced here so the operator always knows who answered.
@@ -465,6 +498,14 @@ async function buildSession(
     },
   });
   return { session, ctx };
+}
+
+/** One yes/no at the terminal on its own short-lived readline; default No. */
+async function confirmAtTerminal(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: stdin, output: stderr });
+  const answer = await ask(rl, c.cyan(yesNoPrompt(question)));
+  rl.close();
+  return esAfirmativa(answer);
 }
 
 /** Interactive ask_user channel for chat mode: renders the agent's question
@@ -646,6 +687,24 @@ function renderBrokenFlow(state: SetupState): void {
 }
 
 /**
+ * The first-run prompt, default yes (MNE-001-219): the question from the I8.2
+ * block and the `[Y/n]` / `[S/n]` suffix from the kernel, in the user language.
+ * Exported so the prompt is tested without a terminal.
+ */
+export function setupPrompt(): string {
+  return yesNoPrompt(t('root.setup.run_now'), 'yes');
+}
+
+/**
+ * The warning `ingest` gives when a flag or mnemosine.config.json asked for an
+ * auto-post the firm's panel does not authorize (A7), in the user language
+ * (MNE-001-219). Exported so it is tested without a database.
+ */
+export function autoPostIgnoredWarning(p: { yellow: (s: string) => string; dim: (s: string) => string }): string {
+  return p.yellow(t('root.ingest.auto_post_ignored')) + p.dim(`\n  ${t('root.ingest.auto_post_turn_on')}`);
+}
+
+/**
  * First-run rescue (fresh state, TTY only): a one-line intro, the detected
  * gaps, and an inline offer to run the wizard without leaving the command
  * the user already typed.
@@ -658,7 +717,7 @@ async function runFreshRescue(state: SetupState): Promise<InitWizardResult | 'de
   for (const reason of state.reasons) console.log(c.dim(`  · ${reason}`));
   console.log('');
   const rl = readline.createInterface({ input: stdin, output: stdout });
-  const answer = await ask(rl, c.cyan('Run setup now? [Y/n] '));
+  const answer = await ask(rl, c.cyan(setupPrompt()));
   rl.close();
   if (!isAffirmative(answer)) return 'declined';
   return runInitWizard({ rescue: true }, { palette: c });
@@ -781,9 +840,9 @@ Examples:
   ask: `
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 `,
   chat: `
 Examples:
@@ -833,13 +892,6 @@ Examples:
   mnemosine ingest ./sat/julio-recibidos.txt --kind metadata
   # Load the census from a SAT package of XML, and ingest each CFDI in it.
   mnemosine ingest ./sat/julio-emitidos.zip --kind zip
-`,
-  lang: `
-Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
 `,
   onboard: `
 Examples:
@@ -1243,26 +1295,8 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
   .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
-      const { profiles, defaultName, source } = listProfiles();
-      for (const [name, p] of Object.entries(profiles)) {
-        const isDefault = name === defaultName ? c.cyan(' ← default') : '';
-        const keyStatus = p.api_key_env
-          ? process.env[p.api_key_env]
-            ? c.dim(`${p.api_key_env} ✔`)
-            : c.dim(`${p.api_key_env} `) + '✘ missing'
-          : c.dim('no key');
-        console.log(`${c.bold(name)}${isDefault}`);
-        console.log(c.dim(`  ${p.type} · ${p.model}${p.base_url ? ` · ${p.base_url}` : ''} · ${p.tools === false ? 'no tools' : 'tools'} · `) + keyStatus);
-        if (p.note) console.log(c.dim(`  ${p.note}`));
-      }
-      console.log(
-        c.dim(
-          source
-            ? `\nConfig: ${source}`
-            : '\nUsing built-in profiles. Customize with mnemosine.config.json (or ~/.mnemosine/config.json) ' +
-                'and pick the default with "default_provider", MNEMOSINE_PROVIDER or --provider.'
-        )
-      );
+      // The readiness answer doctor, status and init give too; no helper runs.
+      for (const line of providerLines(c)) console.log(line);
       await shutdown(0);
     } catch (err) {
       reportError(err);
@@ -1270,11 +1304,12 @@ describeCommand(program.command('providers').alias('proveedores'), 'help.provide
     }
   });
 
-describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description')
-  .argument('<question...>', 'The question for the assistant')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
+const askCommand = describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description');
+argumentByKey(askCommand, '<question...>', 'help.ask.argument.question');
+optionByKey(askCommand, '-e, --entity <idOrName>', 'help.ask.option.entity');
+optionByKey(askCommand, '-p, --provider <name>', 'help.ask.option.provider');
+optionByKey(askCommand, '-m, --model <model>', 'help.ask.option.model');
+askCommand
   .addHelpText('after', EJEMPLOS.ask)
   .action(async (questionParts: string[], opts: { entity?: string; provider?: string; model?: string }) => {
     try {
@@ -1287,18 +1322,19 @@ describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description'
       await shutdown(0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
 
-describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
-  .option('--continue', 'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)')
-  .option('--resume <id>', 'Resume a specific session by id (see: mnemosine sessions)')
-  .option('--no-banner', 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)')
+const chatCommand = describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description');
+optionByKey(chatCommand, '-e, --entity <idOrName>', 'help.chat.option.entity');
+optionByKey(chatCommand, '-p, --provider <name>', 'help.chat.option.provider');
+optionByKey(chatCommand, '-m, --model <model>', 'help.chat.option.model');
+optionByKey(chatCommand, '--continue', 'help.chat.option.continue');
+optionByKey(chatCommand, '--resume <id>', 'help.chat.option.resume');
+optionByKey(chatCommand, '--no-banner', 'help.chat.option.no_banner');
+chatCommand
   .addHelpText('after', EJEMPLOS.chat)
   .action(async (opts: {
     entity?: string; provider?: string; model?: string;
@@ -1360,7 +1396,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
         if (chatDbInitError) throw chatDbInitError;
         built = await buildSession(opts.entity, opts.provider, opts.model, callbacks, onChatFailover);
       } catch (startupErr) {
-        const state = await detectSetupState();
+        const state = await detectSetupState({ provider: opts.provider });
         // Ready but startup still failed → a genuine runtime/user error
         // (e.g. a bad --entity): keep today's error reporting.
         if (state.state === 'ready') throw startupErr;
@@ -1396,6 +1432,8 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
       }
       const ctx = built.ctx;
       let session = built.session;
+      // The profile the session runs on, for the credential hint (MNE-001-444).
+      let currentProvider = opts.provider;
 
       // Usage accounting is fire-and-forget: it must never block or fail a
       // turn. sessionId is read at call time so rows attach to the session
@@ -1512,7 +1550,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
         } catch (err) {
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1545,8 +1583,19 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
             // Hot-swap: new session — history is not portable across
             // different provider formats. The startup --model is NOT
             // propagated: it was an override for the initial profile.
-            const profile = resolveProfile(target);
-            session = await createLlmSession(profile, ctx, callbacks);
+            // A profile with no credential is not switched to: the current
+            // session stays, and the answer says what is missing (MNE-001-444).
+            const swap = await switchProvider(target, {
+              currentLabel: session.label,
+              open: (p) => createLlmSession(p, ctx, callbacks),
+            });
+            if (!swap.switched) {
+              console.log(c.yellow(swap.message) + '\n');
+              continue;
+            }
+            const profile = swap.profile;
+            session = swap.session;
+            currentProvider = target;
             // Keep the audit row's provenance in sync with the provider now
             // producing turns. Chained on recordChain so it cannot
             // interleave with an in-flight recordTurn.
@@ -1556,7 +1605,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
                 .then(() => updateSessionProvider(sid, profile.name, profile.model))
                 .catch(transcriptOff);
             }
-            console.log(c.dim(`Provider switched to ${session.label}. New conversation.\n`));
+            console.log(c.dim(`${t('provider.switch.done', { label: session.label, credential: swap.credential })}\n`));
           } catch (err) {
             reportError(err);
           }
@@ -1610,7 +1659,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
           // failover staged so a later, non-failing turn never inherits it.
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
-          reportError(err);
+          reportSessionError(err, currentProvider);
         }
         stdout.write('\n\n');
       }
@@ -1627,18 +1676,22 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
     } catch (err) {
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
-      reportError(err);
+      reportSessionError(err, opts.provider);
       await shutdown(exitCodeFor(err));
     }
   });
 
-describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-n, --limit <n>', 'Maximum number of sessions to show', (v: string) => {
+const sessionsCommand = describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.description');
+optionByKey(sessionsCommand, '-e, --entity <idOrName>', 'help.sessions.option.entity');
+optionByKey(sessionsCommand, '-n, --limit <n>', 'help.sessions.option.limit', {
+  parser: (v: string) => {
     const n = parseInt(v, 10);
     if (!Number.isFinite(n)) throw new InvalidArgumentError('Expected a number.');
     return n;
-  }, 20)
+  },
+  defaultValue: 20,
+});
+sessionsCommand
   .addHelpText('after', EJEMPLOS.sessions)
   .action(async (opts: { entity?: string; limit?: number }) => {
     try {
@@ -1704,9 +1757,10 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
   console.log(c.dim(`  ${''.padEnd(54)}  ${debits.toFixed(2).padStart(11)}  ${credits.toFixed(2).padStart(11)}`));
 }
 
-describeCommand(program.command('drafts').alias('borradores'), 'help.drafts.description')
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-s, --status <status>', 'pending_review | approved | rejected')
+const draftsCommand = describeCommand(program.command('drafts').alias('borradores'), 'help.drafts.description');
+optionByKey(draftsCommand, '-e, --entity <idOrName>', 'help.drafts.option.entity');
+optionByKey(draftsCommand, '-s, --status <status>', 'help.drafts.option.status');
+draftsCommand
   .addHelpText('after', EJEMPLOS.drafts)
   .action(async (opts: { entity?: string; status?: 'pending_review' | 'approved' | 'rejected' }) => {
     try {
@@ -1937,7 +1991,7 @@ async function offerToSeedPrecedent(
   console.log(c.dim(`    then: ${propuesta.criterion}`));
   const veredicto = await confirmarConReintento(
     preguntar,
-    c.cyan('  Seed it as a firm criterion, attributed to you? [y/N] ')
+    c.cyan(yesNoPrompt('  Seed it as a firm criterion, attributed to you?'))
   );
   if (!veredicto.si) {
     console.log(c.dim('  Not seeded: the rejection stands and nothing was taught.'));
@@ -1959,25 +2013,22 @@ async function offerToSeedPrecedent(
   }
 }
 
-const review = describeCommand(
-  program.command('review').alias('revisar'),
-  'help.review.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.review);
+const review = describeCommand(program.command('review').alias('revisar'), 'help.review.description');
+optionByKey(review, '-e, --entity <idOrName>', 'help.review.option.entity');
+optionByKey(review, '-u, --user <email>', 'help.review.option.user');
+review.addHelpText('after', EJEMPLOS.review);
 // Aprobar POSTEA al mayor: irreversible, declarado junto a su registro (S0.6;
 // antes vivía en la tabla de retrofit). El kernel añade --dry-run, --yes e
 // --idempotency-key y le niega el comando al agente.
 declareRisk(review, {
   risk: 'irreversible',
-  llave: { innecesaria: 'cada aprobación va atada al contenido revisado (su hash) y el estado del borrador rechaza la repetición' },
+  llave: { innecesaria: 'each approval is bound to the reviewed content (its hash), and the state of the draft refuses a repeat' },
   agent: false,
   writes:
-    'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
-    'bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318); ' +
-    'vendors cuando el revisor responde «s» a dar de alta al emisor (proveedor_desconocido_al_aprobar = preguntar); ' +
-    'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
+    'journal_entries + journal_entry_lines POSTED when a draft is approved; ' +
+    'bills + bill_lines + pre_registrations when the draft comes from a received CFDI (#318); ' +
+    'vendors when the reviewer answers yes to registering the issuer (proveedor_desconocido_al_aprobar = preguntar); ' +
+    'ai_questions when seeding a precedent the reviewer confirmed after a rejection',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
     let rl: readline.Interface | undefined;
@@ -2063,7 +2114,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
             // aparte, con la gramática única de confirmación del kernel.
             const veredicto = await confirmarConReintento(
               preguntar,
-              c.cyan('Approve and post THIS version? [y/N] ')
+              c.cyan(yesNoPrompt('Approve and post THIS version?'))
             );
             if (!veredicto.si) {
               console.log(c.dim('Not approved: the correction is discarded and the draft stays pending.'));
@@ -2084,7 +2135,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
               const vendor = vendorToRegister(err);
               if (!vendor || !stdin.isTTY) throw err;
               const answer = await confirmarConReintento(
-                preguntar, c.cyan(t('review.vendor.register_prompt', { name: vendor.name, rfc: vendor.rfc }))
+                preguntar, c.cyan(yesNoPrompt(t('review.vendor.register_prompt', { name: vendor.name, rfc: vendor.rfc })))
               );
               if (!answer.si) {
                 console.log(c.dim(t('review.vendor.not_registered')));
@@ -2147,17 +2198,17 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
 const ingest = describeCommand(
   program.command('ingest').alias('ingesta'),
   'help.ingest.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
-  .option('-m, --model <model>', 'Override the profile model')
-  .option('-u, --user <email>', 'User the ingestion is attributed to (default: sole active user)')
-  .option('--auto-post', 'Enables threshold-based auto-posting (default: everything stays as draft)')
-  .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
-  .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
-  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
-  .option('--retry', 'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates')
-  .addHelpText('after', EJEMPLOS.ingest);
+).addHelpText('after', EJEMPLOS.ingest);
+optionByKey(ingest, '-e, --entity <idOrName>', 'help.ingest.option.entity');
+optionByKey(ingest, '-p, --provider <name>', 'help.ingest.option.provider');
+optionByKey(ingest, '-m, --model <model>', 'help.ingest.option.model');
+optionByKey(ingest, '-u, --user <email>', 'help.ingest.option.user');
+// The positive flag first: Commander then gives autoPost no default, and the panel decides.
+optionByKey(ingest, '--auto-post', 'help.ingest.option.auto_post');
+optionByKey(ingest, '--no-auto-post', 'help.ingest.option.no_auto_post');
+optionByKey(ingest, '--min-confidence <n>', 'help.ingest.option.min_confidence', { parser: parseFloat });
+optionByKey(ingest, '--max-amount <n>', 'help.ingest.option.max_amount', { parser: parseFloat });
+optionByKey(ingest, '--retry', 'help.ingest.option.retry');
 // MNE-001-096 (#312): the SAT census enters through the same leaf.
 argumentByKey(ingest, '<files...>', 'help.ingest.argument.files');
 optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml', parser: parseKind });
@@ -2170,11 +2221,11 @@ optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 
 // evidencia, que es lo único que separa «medimos» de «posteamos».
 declareRisk(ingest, {
   risk: 'irreversible',
-  llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
+  llave: { innecesaria: 'each CFDI deduplicates by its own UUID and hash' },
   agent: false,
   writes:
-    'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS; ' +
-    'con --kind zip|metadata, sat_cfdi_census y sat_census_loads',
+    'xml_documents, pre_registrations, bills; with auto-post, POSTED entries; ' +
+    'with --kind zip|metadata, sat_cfdi_census and sat_census_loads',
 });
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
@@ -2202,16 +2253,7 @@ ingest.action(async (files: string[], opts: {
       // creería que su corrida auto-postea y no entendería por qué no pasa
       // nada — o peor, creería que el sistema le falla.
       if (thresholds.encendidoIgnorado) {
-        console.error(
-          c.yellow(
-            'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: ' +
-              'el panel del despacho no lo autoriza.'
-          ) +
-            c.dim(
-              '\n  Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. ' +
-                'Apagar sí puede ser local.'
-            )
-        );
+        console.error(autoPostIgnoredWarning(c));
       }
       const { dryRun } = gateMutation(ingest, opts);
       let censusInvalid = 0;
@@ -2305,12 +2347,10 @@ ingest.action(async (files: string[], opts: {
       // The run goes on with the deterministic layer (rules, the vendor's
       // default accounts) and leaves the rest in the inbox, instead of failing
       // each file with «Model failure».
-      let profile: ReturnType<typeof resolveProfile> | null = null;
-      try {
-        profile = resolveProfile(opts.provider, opts.model);
-      } catch (err) {
-        if (!(err instanceof MissingProviderCredentialError)) throw err;
-        console.error(c.yellow(`Warning: ${err.message}`) + c.dim('\n  Only the deterministic layer runs.'));
+      // A failing helper is not «no provider»: resolveIngestProfile throws it.
+      const { profile, warning } = resolveIngestProfile(() => resolveProfile(opts.provider, opts.model));
+      if (warning) {
+        console.error(c.yellow(`Warning: ${warning}`) + c.dim('\n  Only the deterministic layer runs.'));
       }
       // Batch pipeline with auto-post thresholds: the grounding corrective
       // turn is harness-initiated and must never be able to add drafts to
@@ -2425,13 +2465,9 @@ ingest.action(async (files: string[], opts: {
           `${cnt.blocked} blocked, ${cnt.duplicate} duplicate(s), ${cnt.invalid + cnt.error} with errors`
       );
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
-      if (report.toCode > 0) {
-        console.log(
-          `${report.toCode} left to code: the model was not consulted. ` +
-            c.dim('See them with `mnemosine bill inbox list`, code them with `mnemosine bill inbox edit`')
-        );
-      }
-      if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      const leftToCode = leftToCodeSummary(report);
+      if (leftToCode) console.log(leftToCode);
+      if (cnt.blocked > report.toCode + report.toInbox) console.log(c.dim('Answer the questions with: mnemosine questions'));
       // El registro es best-effort y NO cambia el código de salida — los CFDI
       // clasificados son verdad aunque la anotación falle. Pero el operador se
       // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.
@@ -2447,20 +2483,60 @@ ingest.action(async (files: string[], opts: {
     }
   });
 
-describeCommand(program.command('lang').alias('idioma'), 'help.lang.description')
-  .argument('[language]', "'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting")
-  .addHelpText('after', EJEMPLOS.lang)
-  .action(async (language?: string) => {
+// ONE STATEMENT, ON PURPOSE (MNE-001-469 · #653). E0.0
+// `the-user-language-is-written-where-it-is-read` reads the top-level statement
+// that registers `lang` and looks for `normalizeLocale` and `setUserLocale`
+// inside it; split into `const lang = …; lang.action(…)`, the criterion would
+// see a command that writes nothing. So the keyed argument and option wrap the
+// command instead of following it.
+optionByKey(
+  argumentByKey(
+    describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'),
+    '[language]',
+    'help.lang.argument.language',
+    { params: { choices: [...LANGUAGES, ...LOCALES].join(', ') } }
+  ),
+  '--unset',
+  'help.lang.option.unset'
+)
+  .addHelpText('after', () => t('cli.lang.examples'))
+  .action(async (language: string | undefined, options: { unset?: boolean }) => {
     try {
-      if (!language) {
-        console.log(`Agent response language: ${c.bold(resolveLanguage())}`);
+      // The language in effect, for the CLI and the agent, and the rung that
+      // chose it: the first line of every answer `lang` gives.
+      const inEffect = (): string => languageInEffectLine(describeLocale(), undefined, undefined, (text) => c.bold(text));
+      if (options.unset) {
+        // An OPTION and not a fifth spelling of the argument: E0.0 refuses a
+        // raw argument compared with a string, and `lang unset` would be a
+        // language nobody speaks. A language beside it is a contradiction.
+        if (language !== undefined) {
+          throw usageError({ key: 'cli.lang.unset_with_language', params: { language } });
+        }
+        const { file, removed } = unsetUserLocale();
+        if (removed.length === 0) {
+          console.log(t('cli.lang.unset.nothing', { file: shownPath(file) }));
+        } else {
+          console.log(`✔ ${t('cli.lang.unset.done', { keys: removed.join(', '), file: shownPath(file) })}`);
+        }
+        // Asked AFTER removing: what decides now is the next rung — today the
+        // default, once #655 passes it the entity's.
+        console.log(inEffect());
+      } else if (!language) {
+        console.log(inEffect());
         // El nombre de la variable sale de la constante y no de una cadena
         // literal: I6 exige que `MNEMOSINE_LANG` se escriba en UN solo archivo
         // de `src/`, y una mención en un console.log cuenta para el grep tanto
-        // como una lectura. El texto que se imprime no cambia ni un byte
-        // —docs/wiki/Manual-Trabajar-con-el-agente.md:21 lo cita literal—: este
-        // comando es `lang`, y el alias es el nombre que le corresponde.
-        console.log(c.dim(`Change it with: mnemosine lang es|en|es-MX|en-US (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
+        // como una lectura. Este comando es `lang`, y el alias es el nombre que
+        // le corresponde.
+        console.log(
+          c.dim(
+            t('cli.lang.change_hint', {
+              choices: [...LANGUAGES, ...LOCALES].join('|'),
+              variable: LOCALE_ENV_VAR_ALIAS,
+            })
+          )
+        );
+        console.log(c.dim(t('cli.lang.unset_hint')));
       } else {
         // ONE TABLE OF SPELLINGS, AND IT IS NOT HERE (I11 · issue #153).
         //
@@ -2475,9 +2551,7 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // drifted before I6.
         const locale = normalizeLocale(language);
         if (locale === null) {
-          throw usageError(
-            `Unsupported language "${language}". Options: ${LOCALES.join(', ')}, or es, en`
-          );
+          throw usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } });
         }
         // WRITTEN WHERE IT IS READ. `setUserLocale` puts `locale` in the user's
         // own file, which is the step of the precedence that beats the project
@@ -2486,26 +2560,25 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // own `locale`, which outranks the legacy key everywhere — could leave
         // this command printing success over a change nobody would ever see.
         const { file, quarantined } = setUserLocale(locale);
+        // Said in the language this run started in: the CLI resolved it before
+        // anything was written, and the next command reads the new one.
         console.log(
-          `✔ Agent will now answer in ${c.bold(languageOfLocale(locale) === 'es' ? 'Spanish' : 'English')} ` +
-            c.dim(`(${locale} in ${file})`)
+          `✔ ${t('cli.lang.set', { language: c.bold(languageName({ locale })), locale, file: shownPath(file) })}`
         );
         // Said out loud, because the rest of that file is gone. The copy is
         // kept so nothing is lost, but a person who had providers or a tenant
         // configured has to know they are not there any more.
         if (quarantined !== null) {
-          console.log(
-            c.dim(`Your previous ${file} could not be read and was replaced; a copy is at ${quarantined}`)
-          );
+          console.log(c.dim(t('cli.lang.quarantined', { file: shownPath(file), copy: shownPath(quarantined) })));
         }
-        console.log(c.dim('Takes effect on the next session.'));
+        console.log(c.dim(t('cli.lang.takes_effect')));
         // THE WARNING ASKS THE RESOLVER, NOT THE ENVIRONMENT (I6).
         //
         // The environment variable used to be read by hand here — the second
-        // reader of the dial, mnemosine.ts:2238 — and reading it by hand made
-        // it lie twice: it announced precedence for a value `resolveLanguage`
-        // was DISCARDING as unusable, and it said nothing when the winner was
-        // `MNEMOSINE_LOCALE`, the canonical name of the same dial.
+        // reader of the dial — and reading it by hand made it lie twice: it
+        // announced precedence for a value `resolveLanguage` was DISCARDING as
+        // unusable, and it said nothing when the winner was `MNEMOSINE_LOCALE`,
+        // the canonical name of the same dial.
         //
         // It resolves again AFTER writing, which is the only question worth
         // asking: «with the file saved, does anything still beat it?». Since
@@ -2519,10 +2592,10 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
           // send the user to switch off something that no longer exists.
           const advice =
             winner.kind === 'env'
-              ? `${winner.label}=${winner.raw} is set and takes precedence — unset it for this change to apply.`
+              ? t('cli.lang.shadowed_env', { variable: winner.label, value: winner.raw ?? '' })
               : winner.kind === 'flag'
                 ? null
-                : `${winner.label} is "${winner.raw}" and takes precedence — remove it for this change to apply.`;
+                : t('cli.lang.shadowed', { rung: rungPhrase(winner) });
           if (advice !== null) console.log(c.dim(`  ⚠ ${advice}`));
         }
       }
@@ -2533,19 +2606,16 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
     }
   });
 
-const onboard = describeCommand(
-  program.command('onboard').alias('alta'),
-  'help.onboard.description'
-)
-  .requiredOption('-p, --provider <name>', 'External system, e.g. contalink')
-  .requiredOption('--cutoff <YYYY-MM-DD>', 'Cutoff date: opening balances are taken as of this date')
-  .option('--from <YYYY-MM-DD>', 'Start of the remote trial balance period (default: January 1st of the cutoff year)')
-  .option('-e, --entity <idOrName>', 'Target legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who runs it (default: sole active user of the tenant)')
-  .option('--balance-account <code>', 'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)')
-  .option('--post', 'Post the opening balance immediately (default: stays as a draft for mnemosine review)')
-  .option('--dry-run', 'Only show the plan, without executing anything')
-  .addHelpText('after', EJEMPLOS.onboard);
+const onboard = describeCommand(program.command('onboard').alias('alta'), 'help.onboard.description');
+optionByKey(onboard, '-p, --provider <name>', 'help.onboard.option.provider', { mandatory: true });
+optionByKey(onboard, '--cutoff <YYYY-MM-DD>', 'help.onboard.option.cutoff', { mandatory: true });
+optionByKey(onboard, '--from <YYYY-MM-DD>', 'help.onboard.option.from');
+optionByKey(onboard, '-e, --entity <idOrName>', 'help.onboard.option.entity');
+optionByKey(onboard, '-u, --user <email>', 'help.onboard.option.user');
+optionByKey(onboard, '--balance-account <code>', 'help.onboard.option.balance_account');
+optionByKey(onboard, '--post', 'help.onboard.option.post');
+optionByKey(onboard, '--dry-run', 'help.onboard.option.dry_run');
+onboard.addHelpText('after', EJEMPLOS.onboard);
 // Irreversible por su camino más grave (--post postea el asiento de apertura),
 // declarado junto a su registro (S0.6). Su --dry-run existía desde antes del
 // kernel y ya era honesta (sólo el plan); el kernel añade --yes e
@@ -2554,7 +2624,7 @@ declareRisk(onboard, {
   risk: 'irreversible',
   llave: { scope: 'onboard' },
   agent: false,
-  writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
+  writes: 'accounts, opening balances; with --post, the POSTED opening entry',
 });
 onboard.action(async (opts: {
     provider: string; cutoff: string; from?: string; entity?: string; user?: string;
@@ -2606,7 +2676,7 @@ onboard.action(async (opts: {
         const rlOnboard = rl;
         const veredicto = await confirmarConReintento(
           (q) => ask(rlOnboard, q),
-          c.cyan(`\n${pregunta} [y/N] > `)
+          c.cyan(`\n${yesNoPrompt(pregunta)}> `)
         );
         if (!veredicto.si) {
           console.log(
@@ -2819,7 +2889,7 @@ async function correrOutboxImpl(
           const rlOutbox = rl;
           const veredicto = await confirmarConReintento(
             (q) => ask(rlOutbox, q),
-            c.cyan('\nExecute in the external system? [y/N] > ')
+            c.cyan(`\n${yesNoPrompt('Execute in the external system?')}> `)
           );
           rl.close();
           rl = undefined;
@@ -3009,9 +3079,9 @@ const outboxRun = describeCommand(
   .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
-  llave: { innecesaria: 'cada operación se reclama atómicamente y queda atada a su fila' },
+  llave: { innecesaria: 'each operation is claimed atomically and stays bound to its row' },
   agent: false,
-  writes: 'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
+  writes: "ai_external_ops; and EXECUTES each operation against the client's accounting system with its credential",
 });
 outboxRun.action((ids: string[], _opts: unknown, cmdArg: Command) =>
   // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
@@ -3319,10 +3389,10 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
 const question = describeCommand(
   program.command('question').aliases(['duda', 'questions', 'dudas']),
   'help.question.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without answering (deprecated: use `question list`)');
+);
+optionByKey(question, '-e, --entity <idOrName>', 'help.question.option.entity');
+optionByKey(question, '-u, --user <email>', 'help.question.option.user');
+optionByKey(question, '-l, --list', 'help.question.option.list');
 
 const questionList = describeCommand(
   question.command('list').alias('listar'),
@@ -3344,20 +3414,17 @@ questionList.action(async (_opts: unknown, cmdArg: Command) => {
 });
 
 const questionAnswer = describeCommand(
-  question
-    .command('answer')
-    .alias('responder')
-    .argument('[id]', 'question id; omit to answer the pending queue interactively')
-    .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)'),
+  question.command('answer').alias('responder'),
   'help.question.answer.description'
-)
-  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
-  .addHelpText('after', EJEMPLOS.questionAnswer);
+).addHelpText('after', EJEMPLOS.questionAnswer);
+argumentByKey(questionAnswer, '[id]', 'help.question.answer.argument.id');
+argumentByKey(questionAnswer, '[answer...]', 'help.question.answer.argument.answer');
+optionByKey(questionAnswer, '-e, --entity <idOrName>', 'help.question.answer.option.entity');
+optionByKey(questionAnswer, '-u, --user <email>', 'help.question.answer.option.user');
 declareRisk(questionAnswer, {
   risk: 'escritura',
   agent: false,
-  writes: 'ai_questions y los precedentes que su respuesta siembra',
+  writes: 'ai_questions and the precedents its answer seeds',
 });
 questionAnswer.action(async (id: string | undefined, answerParts: string[], _opts: unknown, cmdArg: Command) => {
   // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
@@ -3433,8 +3500,9 @@ registerPendingCommands(program, {
   ask,
 });
 
-describeCommand(program.command('login').alias('entrar'), 'help.login.description')
-  .option('--device', 'Use the device-code flow (SSH, server without a browser)')
+const loginCommand = describeCommand(program.command('login').alias('entrar'), 'help.login.description');
+optionByKey(loginCommand, '--device', 'help.login.option.device');
+loginCommand
   .addHelpText('after', EJEMPLOS.login)
   .action(async (opts: { device?: boolean }) => {
     try {
@@ -3555,6 +3623,11 @@ registerPayCalendarCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-577 (#308): the record of a monthly IVA return a person already filed.
+registerFilingRecordCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-457 (#622): the profit coefficient of a filed annual return, which
+// the ISR of the workpaper above cannot settle without.
+registerAnnualFigureCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).

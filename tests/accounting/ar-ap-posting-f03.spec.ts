@@ -12,7 +12,10 @@ import {
   postCreditNoteEntry,
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
+  postReceiptReversalVatEntry,
+  postReceiptReversalRestitutionEntry,
   postCustomerPaymentEntry,
+  splitNoteVatOnKept,
   type AplicacionPosterior,
 } from '../../src/services/accounting/ar-ap-posting.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
@@ -21,6 +24,8 @@ const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
 const USER = 'u0000000-0000-0000-0000-000000000001';
+/** MNE-001-460: the day an application or an unapply is dated, never the process clock. */
+const EVENT_DAY = '2026-05-20';
 
 // ============================================================
 // F03 · LOS ASIENTOS QUE LA FASE ESTRENA
@@ -48,6 +53,16 @@ interface FakeState {
   parked: Record<string, string>;
   /** gl_account_id de la cuenta bancaria ligada, si la hay. */
   bankGl: string | null;
+  /** Rows the credit note's guarded write finds: 1 on the real path. */
+  noteRows: number;
+  /** MNE-001-462: what the receipt's live allocations applied, when a test says so. */
+  applied?: string;
+  /** MNE-001-575: IVA an invoice's collections already released from 2125, by id. */
+  taken?: Record<string, string>;
+  /** MNE-001-593: the IVA each receipt's unapply kept caused on the invoice, all of it still in its pool. */
+  kept?: Record<string, string>;
+  /** MNE-001-607: the same for held cheques, whose marker the cashing will cause. */
+  held?: Record<string, string>;
 }
 
 let state: FakeState;
@@ -61,6 +76,18 @@ function fakeClient(): pg.PoolClient {
 
     // The collection's two guarded UPDATEs (invariant 3) find their one row.
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
+    if (/^UPDATE credit_notes/.test(sql.trim())) return { rows: [], rowCount: state.noteRows };
+    // MNE-001-593: the receipts that kept the invoice's IVA on account (`issuedVatKeptOnAccount`), none restituted yet.
+    // MNE-001-607: its third parameter asks for held cheques.
+    if ((state.kept || state.held) && sql.includes('AS marked')) {
+      const marked = (p[2] === true ? state.held : state.kept) ?? {};
+      return { rows: Object.entries(marked).map(([id, m]) => ({ payment_id: id, payment_number: `PMT-${id}`, marked: m })) };
+    }
+    if ((state.kept || state.held) && sql.includes('AS kept')) {
+      const kept = { ...state.kept, ...state.held }[String(p[0])];
+      return { rows: [{ invoice_id: 'inv-9', amount: '1160.0000', plain: '1160.0000', released: kept, kept }] };
+    }
+    if (state.applied !== undefined && sql.includes('AS aplicado')) return { rows: [{ aplicado: state.applied }] };
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
     }
@@ -77,6 +104,10 @@ function fakeClient(): pg.PoolClient {
     if (sql.includes('AS parked')) {
       return { rows: [{ parked: state.parked[String(p[2])] ?? '0' }] };
     }
+    // MNE-001-575: what an issued invoice's collections and earlier notes already took from 2125.
+    if (sql.includes('AS released')) {
+      return { rows: [{ released: state.taken?.[String(p[1])] ?? '0', unknown: '0', notes: '0', tax: '160', total: '1160' }] };
+    }
     if (sql.includes('FROM account_roles')) {
       const roles = (p[1] ?? []) as string[];
       return { rows: roles.map((role) => ({ role, account_id: `acct:${role}` })) };
@@ -92,7 +123,7 @@ function fakeClient(): pg.PoolClient {
 beforeEach(() => {
   mockCreate.mockClear();
   escrituras = [];
-  state = { country: 'MX', standard: 'mx_nif', cfdiMetodo: {}, invoices: {}, parked: {}, bankGl: null };
+  state = { country: 'MX', standard: 'mx_nif', cfdiMetodo: {}, invoices: {}, parked: {}, bankGl: null, noteRows: 1 };
 });
 
 function lines(): Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> {
@@ -112,6 +143,7 @@ const nota = (over: Partial<NotaCredito> = {}): NotaCredito =>
     id: 'cn-1',
     entity_id: ENTITY,
     credit_note_number: 'CN-001',
+    type: 'devolucion',
     invoice_id: null,
     subtotal: '1000.0000',
     tax_amount: '160.0000',
@@ -154,12 +186,118 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     state.invoices = {
       'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
     };
+    state.parked = { 'inv-9': '160.0000' };
     await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9' }), USER);
 
     const iva = lineFor('acct:iva_trasladado_no_cobrado');
     expect(iva!.debit_amount).toBe('160.0000');
     expect(iva!.description).toMatch(/IVA reversed/);
     expect(lineFor('acct:iva_trasladado')).toBeUndefined();
+  });
+
+  it('MNE-001-575 · on a PPD invoice partly collected: 2125 up to what it still has parked, 2120 the rest', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    // Parked 160, collections released 120: 40 left, so the note's 160 is 40 from 2125 and 120 from 2120.
+    state.parked = { 'inv-9': '160.0000' };
+    state.taken = { 'inv-9': '120.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9' }), USER);
+
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('40.0000');
+    expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('120.0000');
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted \(LIVA art\. 7\)/);
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+  });
+
+  // MNE-001-593 (#814, decision (A)): after a plain receipt's unapply the firm still holds the cash, kept caused.
+  it('MNE-001-593 · U4: what is parked is all kept on account, so the note restitutes from 2120 and moves the kept cash\'s 32 to 2150', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P: '160.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null],
+      ['acct:iva_trasladado', '32.0000', null],
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:anticipo_clientes', null, '32.0000'],
+      ['acct:cxc', null, '232.0000'],
+    ]);
+    const owed = lineFor('acct:anticipo_clientes') as { description: string; tags?: unknown };
+    expect(owed.description).toMatch(/CN-001's reduction restituted from cash kept on account by PMT-P: now owed back/);
+    expect(owed.tags).toEqual({ kept_restitution: { payment_id: 'P', invoice_id: 'inv-9' } });
+  });
+
+  it('MNE-001-593 · two receipts kept 96 and 64: the 32 is split 19.20 / 12.80 by their share, each line tagged with its receipt', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P1: '96.0000', P2: '64.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    const owed = lines().filter((l) => l.account_id === 'acct:anticipo_clientes') as Array<{ credit_amount: string; tags?: unknown }>;
+    expect(owed.map((l) => [l.credit_amount, l.tags])).toEqual([
+      ['19.2000', { kept_restitution: { payment_id: 'P1', invoice_id: 'inv-9' } }],
+      ['12.8000', { kept_restitution: { payment_id: 'P2', invoice_id: 'inv-9' } }],
+    ]);
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('32.0000');
+  });
+
+  // MNE-001-607 (#792, decision (A)): a held cheque's marker is not in 2120 yet, so its share leaves 2125 alone.
+  it('MNE-001-607 · a held cheque kept all 160: the note takes 32 from 2125 on one line tagged held_restitution, with no 2120 or 2150 line', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.held = { H: '160.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null],
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:cxc', null, '232.0000'],
+    ]);
+    const held = lineFor('acct:iva_trasladado_no_cobrado') as { description: string; tags?: unknown };
+    expect(held.description).toMatch(/held cheque PMT-H keeps on account: its cashing will not cause it/);
+    expect(held.tags).toEqual({ held_restitution: { payment_id: 'H', invoice_id: 'inv-9' } });
+  });
+
+  it('MNE-001-607 · a cashed receipt kept 96 and a held cheque 64: 19.20 from 2120 moved to 2150, 12.80 from 2125 alone', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    state.kept = { P: '96.0000' };
+    state.held = { H: '64.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ invoice_id: 'inv-9', subtotal: '200.0000', tax_amount: '32.0000', total_amount: '232.0000' }), USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount, (l as { tags?: unknown }).tags ?? null])).toEqual([
+      ['acct:devolucion_ventas', '200.0000', null, null],
+      ['acct:iva_trasladado_no_cobrado', '12.8000', null, { held_restitution: { payment_id: 'H', invoice_id: 'inv-9' } }],
+      ['acct:iva_trasladado', '19.2000', null, null],
+      ['acct:iva_trasladado_no_cobrado', '19.2000', null, null],
+      ['acct:anticipo_clientes', null, '19.2000', { kept_restitution: { payment_id: 'P', invoice_id: 'inv-9' } }],
+      ['acct:cxc', null, '232.0000', null],
+    ]);
+  });
+
+  it.each([
+    ['U4: all 160 parked is kept', '160', '160', ['0.0000', '32.0000', '32.0000']],
+    ['U4w: the 80 parked is all kept', '80', '80', ['0.0000', '32.0000', '32.0000']],
+    ['U4p: 80 of 160 kept, the other 80 still uncollected takes the note', '160', '80', ['32.0000', '0.0000', '0.0000']],
+    ['nothing kept: 575 as it was', '20', '0', ['20.0000', '12.0000', '0.0000']],
+    ['kept beyond what is parked counts only what is parked', '16', '160', ['0.0000', '32.0000', '16.0000']],
+  ] as const)('MNE-001-593 · the split with H, %s', (_case, parked, kept, [fromPending, fromCreditable, fromKept]) => {
+    expect(splitNoteVatOnKept('32', parked, kept)).toEqual({ fromPending, fromCreditable, fromKept });
   });
 
   it('sobre factura PUE el IVA vuelve de la cuenta causada', async () => {
@@ -198,6 +336,63 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     expect(escrituras.some((e) => /UPDATE credit_notes SET journal_entry_id/.test(e.sql))).toBe(true);
   });
 
+  // MNE-001-515: applying an advance moves it out of the liability, not out
+  // of revenue. The type of the note says which fact happened.
+  it('an anticipo note on a PUE invoice debits the advance, not sales returns', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    state.invoices = {
+      'inv-8': { id: 'inv-8', invoice_number: 'INV-008', cfdi_uuid: 'UUID-PUE', terms: null, memo: null },
+    };
+    await postCreditNoteEntry(fakeClient(), nota({ type: 'anticipo', invoice_id: 'inv-8' }), USER);
+
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('160.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+    expect(lineFor('acct:devolucion_ventas')).toBeUndefined();
+  });
+
+  it('an anticipo note on a PPD invoice takes its IVA back from the parked account', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    state.parked = { 'inv-9': '160.0000' };
+    await postCreditNoteEntry(fakeClient(), nota({ type: 'anticipo', invoice_id: 'inv-9' }), USER);
+
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('160.0000');
+    expect(lineFor('acct:iva_trasladado')).toBeUndefined();
+  });
+
+  it('an anticipo note with no IVA posts two lines', async () => {
+    await postCreditNoteEntry(
+      fakeClient(),
+      nota({ type: 'anticipo', tax_amount: '0.0000', total_amount: '1000.0000' }),
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1000.0000');
+  });
+
+  it.each(['devolucion', 'descuento', 'correccion'])('a %s note still debits sales returns', async (type) => {
+    await postCreditNoteEntry(fakeClient(), nota({ type }), USER);
+
+    expect(lineFor('acct:devolucion_ventas')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:anticipo_clientes')).toBeUndefined();
+  });
+
+  it('links the entry only to a note of the entity that has none, and a write of no row throws', async () => {
+    await postCreditNoteEntry(fakeClient(), nota(), USER);
+    const write = escrituras.find((e) => /UPDATE credit_notes SET journal_entry_id/.test(e.sql))!;
+    expect(write.sql).toMatch(/WHERE id = \$2 AND entity_id = \$3 AND journal_entry_id IS NULL/);
+    expect(write.params).toEqual(['je-1', 'cn-1', ENTITY]);
+
+    state.noteRows = 0;
+    await expect(postCreditNoteEntry(fakeClient(), nota(), USER)).rejects.toThrow(/CN-001/);
+  });
+
   it('una nota ya posteada, o de importe cero, no vuelve a postear', async () => {
     expect(await postCreditNoteEntry(fakeClient(), nota({ journal_entry_id: 'je-viejo' }), USER)).toBeNull();
     expect(await postCreditNoteEntry(fakeClient(), nota({ total_amount: '0.0000' }), USER)).toBeNull();
@@ -230,10 +425,13 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
       fakeClient(),
       payment(),
       [aplicacion()],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(entry.id).toBe('je-1');
+    // MNE-001-460: dated the day of the application, not the run.
+    expect(mockCreate.mock.calls[0][1]).toBe(EVENT_DAY);
     expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('580.0000');
     expect(lineFor('acct:cxc')!.credit_amount).toBe('580.0000');
     expect(lineFor('acct:banco')).toBeUndefined();
@@ -248,7 +446,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
   it('el aparcado real es el tope: no se libera IVA que la factura nunca aparcó', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
     state.parked = { 'inv-1': '20.0000' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.get('inv-1')).toBe('20.0000');
   });
@@ -256,7 +454,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
   it('nada aparcado ⇒ sólo el traspaso del crédito, sin líneas de IVA', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
     state.parked = { 'inv-1': '0' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.size).toBe(0);
     expect(lines()).toHaveLength(2);
@@ -270,7 +468,8 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
       fakeClient(),
       payment(),
       [aplicacion({ cfdiUuid: 'UUID-PUE' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(ivaPorFactura.size).toBe(0);
@@ -281,7 +480,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
     state.country = 'US';
     state.standard = 'us_gaap';
     state.parked = { 'inv-1': '160.0000' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.size).toBe(0);
     expect(lines()).toHaveLength(2);
@@ -297,10 +496,11 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '80.0000', ivaEstimado: '55.0000' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '80.0000', ivaEstimado: '55.0000', date: EVENT_DAY },
       USER
     );
 
+    expect(mockCreate.mock.calls[0][1]).toBe(EVENT_DAY);
     expect(lineFor('acct:cxc')!.debit_amount).toBe('580.0000');
     expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('580.0000');
     expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('80.0000');
@@ -313,7 +513,7 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: null, ivaEstimado: '80.0000' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: null, ivaEstimado: '80.0000', date: EVENT_DAY },
       USER
     );
 
@@ -325,11 +525,250 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '0', ivaEstimado: '0' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '0', ivaEstimado: '0', date: EVENT_DAY },
       USER
     );
 
     expect(lines()).toHaveLength(2);
+  });
+
+  it('MNE-001-581 · lo que una nota ya restituyó se queda en 2120: sin línea de IVA, y la línea de cxc lo nombra', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000' } },
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:cxc')!.description).toMatch(
+      /kept in iva_trasladado: 16\.0000 restituted by credit note CN-001 \(LIVA art\. 7\); the reopened balance carries 0\.0000/
+    );
+  });
+
+  it('MNE-001-581 · con anticipo y nada que re-aparcar, el IVA del anticipo vuelve entero a 2120 y 2125 no se mueve', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        advanceIva: '16.0000', ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000' } },
+      USER
+    );
+
+    expect(lineFor('acct:iva_trasladado_no_cobrado')).toBeUndefined();
+    expect(lineFor('acct:iva_trasladado')!.credit_amount).toBe('16.0000');
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/kept in iva_trasladado: 16\.0000/);
+  });
+});
+
+describe('MNE-001-592 · el IVA del anticipo que una nota restituyó no vuelve a 2120', () => {
+  it('sin línea de IVA, y la línea de cxc nombra la nota y lo restituido', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        advanceIva: '0.0000', ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000', restituted: '16.0000' } },
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('116.0000');
+    expect(lineFor('acct:cxc')!.description).toMatch(
+      /kept in iva_trasladado: 16\.0000 restituted by credit note CN-001 \(LIVA art\. 7\); the reopened balance carries 0\.0000; advance IVA restituted by credit note CN-001 stays out \(LIVA art\. 7\): 16\.0000/
+    );
+  });
+
+  it('con nada restituido, el texto es el de la 581', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      { invoiceNumber: 'INV-001', amount: '116.0000', ivaReclass: '0.0000', ivaEstimado: '0.0000', date: EVENT_DAY,
+        ivaKept: { amount: '16.0000', notes: 'CN-001', carries: '0.0000', restituted: '0.0000' } },
+      USER
+    );
+
+    expect(lineFor('acct:cxc')!.description).not.toMatch(/advance IVA restituted/);
+  });
+});
+
+describe('MNE-001-581 · la corrección de una reversa saca de 2125 lo que ningún saldo reabierto lleva', () => {
+  it('DR iva_trasladado_no_cobrado · CR iva_trasladado, con su propia fuente y las notas que lo restituyeron', async () => {
+    await postReceiptReversalVatEntry(fakeClient(), payment(), '32.0000', 'CN-001', USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:iva_trasladado_no_cobrado', '32.0000', null],
+      ['acct:iva_trasladado', null, '32.0000'],
+    ]);
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/restituted by credit note CN-001 stays out of iva_trasladado_no_cobrado/);
+    expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'receipt_reversal_iva', reference: 'PMT-001' });
+  });
+});
+
+describe('MNE-001-593 · la reversa saca de 2150 lo que una nota restituyó del efectivo que el cobro guardaba a cuenta', () => {
+  it('DR anticipo_clientes · CR iva_trasladado, un par por nota, con la fuente de la corrección', async () => {
+    await postReceiptReversalRestitutionEntry(fakeClient(), payment(), [{ noteNumber: 'CN-001', iva: '32.0000' }, { noteNumber: 'CN-002', iva: '8.0000' }], USER);
+
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:anticipo_clientes', '32.0000', null],
+      ['acct:iva_trasladado', null, '32.0000'],
+      ['acct:anticipo_clientes', '8.0000', null],
+      ['acct:iva_trasladado', null, '8.0000'],
+    ]);
+    expect(lines()[0].description).toMatch(/restituted by credit note CN-001 from the cash PMT-001 kept on account/);
+    expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'receipt_reversal_iva', reference: 'PMT-001' });
+  });
+});
+
+// ============================================================
+// MNE-001-422 · AN ADVANCE APPLIED TO A PUE INVOICE
+// ============================================================
+
+describe('an advance applied to a PUE invoice cancels the IVA it caused', () => {
+  it('DR 2150 the base, DR 2120 the IVA / CR 1120 the cash, and no release', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    const { ivaPorFactura: released } = await postReceiptApplicationEntry(
+      fakeClient(), payment(),
+      [aplicacion({ amount: '1160.0000', taxAmount: '800.0000', totalAmount: '5800.0000', cfdiUuid: 'UUID-PUE', advanceIva: '160.0000' })],
+      USER, EVENT_DAY
+    );
+    expect(released.size).toBe(0);
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado', '160.0000', null],
+    ]);
+    expect(entryDescription()).toBe('Application of PMT-001');
+  });
+
+  it('cancelled on an invoice its month also caused, the line and the entry say which month', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    await postReceiptApplicationEntry(
+      fakeClient(), payment(),
+      [aplicacion({ cfdiUuid: 'UUID-PUE', advanceIva: '80.0000', advanceIvaTwiceIn: '2026-04' })],
+      USER, EVENT_DAY
+    );
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/2026-04 also caused it/);
+    expect(entryDescription()).toMatch(/advance IVA caused twice in 2026-04/);
+  });
+
+  it('the unapply credits back exactly what the allocation stored: CR 2150 the base, CR 2120 the IVA', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '0.0000', ivaEstimado: '0', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado', null, '160.0000'],
+    ]);
+  });
+});
+
+// ============================================================
+// MNE-001-461 · AN ADVANCE APPLIED TO A PPD INVOICE
+// ============================================================
+
+describe('an advance applied to a PPD invoice nets its IVA against the share the invoice releases', () => {
+  const ppd = (over: Partial<AplicacionPosterior> = {}) =>
+    aplicacion({ amount: '1160.0000', taxAmount: '800.0000', totalAmount: '5800.0000', advanceIva: '160.0000', ...over });
+  const shape = () => lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount]);
+
+  it('g = c: DR 2150 a − c, DR 2125 g / CR 1120 a, and no 2120 line', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.parked = { 'inv-1': '800.0000' };
+    const { ivaPorFactura: released } = await postReceiptApplicationEntry(fakeClient(), payment(), [ppd()], USER, EVENT_DAY);
+    // 800 × 1,160 / 5,800 = 160.0000 leaves 2125, and the advance's own 160.00 takes its place in 2120.
+    expect(released.get('inv-1')).toBe('160.0000');
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado_no_cobrado', '160.0000', null],
+    ]);
+  });
+
+  it('g > c: the rest of the share is caused, CR 2120 g − c', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.parked = { 'inv-1': '800.0000' };
+    // An advance of 1,080.00 at 8 % on a sale at 16 %: 800 × 1,080 / 5,800 = 148.9655 against 80.00.
+    await postReceiptApplicationEntry(
+      fakeClient(), payment(), [ppd({ amount: '1080.0000', advanceIva: '80.0000' })], USER, EVENT_DAY
+    );
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1080.0000'],
+      ['acct:iva_trasladado_no_cobrado', '148.9655', null],
+      ['acct:iva_trasladado', null, '68.9655'],
+    ]);
+  });
+
+  it('g < c: the rest of the advance\'s IVA is cancelled, DR 2120 c − g', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    // Only 100.00 is still parked, the cap of what leaves 2125.
+    state.parked = { 'inv-1': '100.0000' };
+    await postReceiptApplicationEntry(fakeClient(), payment(), [ppd()], USER, EVENT_DAY);
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado_no_cobrado', '100.0000', null],
+      ['acct:iva_trasladado', '60.0000', null],
+    ]);
+  });
+
+  it('the unapply gives back what the row stored and re-parks nothing out of 2120: CR 2150 a − c, CR 2125 g', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '160.0000', ivaEstimado: '160.0000', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(shape()).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado_no_cobrado', null, '160.0000'],
+    ]);
+  });
+
+  it('the unapply of rows whose g and c differ moves 2120 by c − g only', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '100.0000', ivaEstimado: '100.0000', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(shape()).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado_no_cobrado', null, '100.0000'],
+      ['acct:iva_trasladado', null, '60.0000'],
+    ]);
+  });
+});
+
+// ============================================================
+// MNE-001-462 · THE EXCESS OF A COLLECTION IS AN ADVANCE
+// ============================================================
+
+describe('the excess a collection leaves on account posts as an advance: its base to 2150, its IVA to 2120', () => {
+  it('1,500.00 on 1,160.00 at 16 %: CR cxc 1,160.00, CR anticipo 293.10, CR iva_trasladado 46.90, and the entry names its source', async () => {
+    state.applied = '1160.0000';
+    const note = ' · excess on account is an advance at 16 %, from INV-001';
+    await postCustomerPaymentEntry(fakeClient(), payment({
+      payment_amount: '1500.0000', advance_base_amount: '293.10', advance_iva_amount: '46.90', advance_note: note,
+    }), USER);
+
+    expect(lineFor('acct:banco')!.debit_amount).toBe('1500.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+    expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('293.1000');
+    expect(lineFor('acct:iva_trasladado')!.credit_amount).toBe('46.9000');
+    expect(entryDescription()).toBe(`Customer payment PMT-001${note}`);
+  });
+
+  it('a split that is not the cash left on account is refused, not posted', async () => {
+    state.applied = '1160.0000';
+    await expect(postCustomerPaymentEntry(fakeClient(), payment({
+      payment_amount: '1500.0000', advance_base_amount: '1293.10', advance_iva_amount: '206.90',
+    }), USER)).rejects.toMatchObject({ code: 'ADVANCE_SPLIT_MISMATCH' });
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -366,7 +805,8 @@ describe('the customer withholding closes the receivable on its own role account
       fakeClient(),
       payment(),
       [aplicacion({ amount: '953.3333', withholdingIsr: '100.0000', withholdingIva: '106.6667' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('953.3333');
@@ -382,7 +822,8 @@ describe('the customer withholding closes the receivable on its own role account
       fakeClient(),
       payment(),
       [aplicacion({ cfdiUuid: null, withholdingIsr: '0', withholdingIva: '50.0000' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(lineFor('acct:isr_retenido_a_favor')).toBeUndefined();
@@ -396,7 +837,7 @@ describe('the customer withholding closes the receivable on its own role account
       payment(),
       {
         invoiceNumber: 'INV-001', amount: '953.3333', ivaReclass: '0', ivaEstimado: '0',
-        withholdingIsr: '100.0000', withholdingIva: '106.6667',
+        withholdingIsr: '100.0000', withholdingIva: '106.6667', date: EVENT_DAY,
       },
       USER
     );

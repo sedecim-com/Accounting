@@ -15,9 +15,10 @@ import {
   type RegimenIsn,
   type TasaIsn,
 } from '../services/payroll/mx/isn-calculator.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { renderHallazgos } from './e-accounting-command.js';
 import type { Palette } from './palette.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import {
   ExitCode,
   abortedByUser,
@@ -37,6 +38,10 @@ import {
   withOutput,
   withSelection,
   withStrict,
+  argumentByKey,
+  describeCommand,
+  describeOption,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -504,6 +509,23 @@ export interface CoberturaDeClave {
 }
 
 /**
+ * One line of the ISN capture preview: the label in the user's language,
+ * padded so every value starts at column 21 in both languages (MNE-001-221).
+ */
+function previewLine(label: TranslationKey, value: string): string {
+  return `  ${t(label).padEnd(18)} ${value}`;
+}
+
+/**
+ * A policy and its value, said as `name=value`, and marked as a default in the
+ * user's language when nobody answered it (MNE-001-221). The name and the value
+ * are identifiers and are never translated.
+ */
+export function policyPair(name: string, value: string, defined: boolean): string {
+  return defined ? `${name}=${value}` : `${name}=${t('payroll.isn.policy_default', { value })}`;
+}
+
+/**
  * Las líneas que se enseñan ANTES de escribir.
  *
  * Es una función pura y separada del manejador a propósito: lo que un operador
@@ -525,13 +547,13 @@ export function lineasDeLaCaptura(datos: {
   const { estado, tasa, regimen, exencion, desde, hasta, fundamento, cobertura, choques } = datos;
   const porcentaje = `${new Decimal(tasa).times(100).toFixed(4)}%`;
   const lineas = [
-    `  estado             ${estado}`,
-    `  tasa               ${tasa}  (${porcentaje})`,
-    `  regimen            ${regimen}`,
-    ...(exencion === null ? [] : [`  exencion mensual   ${formatMoneyMx(exencion)}`]),
-    `  vigencia           ${desde} -> ${hasta ?? '(sin cierre: sigue vigente)'}`,
-    `  fundamento         ${fundamento}`,
-    `  tabla              mx_isn_tasas_estatales (catalogo, sin tenant_id: la ley es la misma)`,
+    previewLine('payroll.isn_rate_set.state', estado),
+    previewLine('payroll.isn_rate_set.rate', `${tasa}  (${porcentaje})`),
+    previewLine('payroll.isn_rate_set.regime', regimen),
+    ...(exencion === null ? [] : [previewLine('payroll.isn_rate_set.monthly_exemption', formatMoneyMx(exencion))]),
+    previewLine('payroll.isn_rate_set.in_force', `${desde} -> ${hasta ?? t('payroll.isn_rate_set.open_ended')}`),
+    previewLine('payroll.isn_rate_set.legal_basis', fundamento),
+    previewLine('payroll.isn_rate_set.table', `mx_isn_tasas_estatales ${t('payroll.isn_rate_set.table_note')}`),
   ];
 
   // EL DESAJUSTE DE CLAVES, que es el defecto que de verdad se cobra caro.
@@ -540,14 +562,16 @@ export function lineasDeLaCaptura(datos: {
       ? 'legal_entities.state_province'
       : 'employees.work_state';
   lineas.push(
-    `  criterio           isn_estado_que_causa=${cobertura.criterio}` +
-      `${cobertura.criterioDefinido ? '' : ' (default, nobody answered)'} -> ${fuente}`
+    previewLine(
+      'payroll.isn_rate_set.criterion',
+      `${policyPair('isn_estado_que_causa', cobertura.criterio, cobertura.criterioDefinido)} -> ${fuente}`
+    )
   );
   if (cobertura.alcanzados > 0) {
-    lineas.push(`  alcanza            ${cobertura.alcanzados} worker(s) carrying "${estado}"`);
+    lineas.push(previewLine('payroll.isn_rate_set.reaches', `${cobertura.alcanzados} worker(s) carrying "${estado}"`));
   } else {
     lineas.push(
-      `  alcanza            NOBODY: no live worker of this entity carries "${estado}" in ${fuente}`
+      previewLine('payroll.isn_rate_set.reaches', `NOBODY: no live worker of this entity carries "${estado}" in ${fuente}`)
     );
     if (cobertura.otras.length > 0) {
       lineas.push(
@@ -706,10 +730,10 @@ function utilidades(deps: PayrollIsnCommandDeps) {
       // tests/cli/confirmacion-gramatica.spec.ts la acusaría.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -774,41 +798,25 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
   // Sin `.alias()`: «ISN» son las siglas del impuesto y se escriben igual en
   // los dos idiomas, como `diot`, `cfdi` y `sat`. Los VERBOS sí llevan el suyo.
-  const familia = program
-    .command('isn')
-    .description(
-      'Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes'
-    );
+  const familia = describeCommand(program.command('isn'), 'help.isn.description');
 
-  const tasa = familia
-    .command('rate')
-    .alias('tasa')
-    .description('State ISN rates, by state and by vigencia');
+  const tasa = describeCommand(familia.command('rate').alias('tasa'), 'help.isn.rate.description');
 
   // ---- isn rate set · isn tasa fijar -----------------------------------
-  const fijar = tasa
-    .command('set')
-    .alias('fijar')
-    .argument('<state>', 'SAT c_Estado key, as it is written on your workers (JAL, NLE)')
-    .argument('<rate>', 'the rate, as a fraction (0.03) or a percentage (3%)')
-    .description('Capture one state rate with its vigencia and the law behind it');
+  const fijar = describeCommand(tasa.command('set').alias('fijar'), 'help.isn.rate.set.description');
+  argumentByKey(fijar, '<state>', 'help.isn.rate.set.argument.state');
+  argumentByKey(fijar, '<rate>', 'help.isn.rate.set.argument.rate');
   withContext(fijar);
   withOutput(fijar);
-  fijar
-    .option('--effective-from <date>', 'first day this rate applies (YYYY-MM-DD)')
-    .option(
-      '--superseded-on <date>',
-      'day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one'
-    )
-    .option('--legal-basis <text>', 'the law and article the rate comes from (required)')
-    .option(
-      `--regime <${REGIMENES_ISN.join('|')}>`,
-      'how the state charges it; the engine only computes tasa_plana',
-      'tasa_plana'
-    )
-    .option('--exemption <amount>', 'monthly amount exempted; only with --regime con_exencion')
-    .option('--dry-run', 'show exactly what would be written, and who it reaches; write nothing')
-    .option('-y, --yes', 'skip the confirmation prompt');
+  optionByKey(fijar, '--effective-from <date>', 'help.isn.rate.set.option.effective_from');
+  optionByKey(fijar, '--superseded-on <date>', 'help.isn.rate.set.option.superseded_on');
+  optionByKey(fijar, '--legal-basis <text>', 'help.isn.rate.set.option.legal_basis');
+  optionByKey(fijar, `--regime <${REGIMENES_ISN.join('|')}>`, 'help.isn.rate.set.option.regime', {
+    defaultValue: 'tasa_plana',
+  });
+  optionByKey(fijar, '--exemption <amount>', 'help.isn.rate.set.option.exemption');
+  optionByKey(fijar, '--dry-run', 'help.isn.rate.set.option.dry_run');
+  optionByKey(fijar, '-y, --yes', 'help.isn.rate.set.option.yes');
   // ESCRITURA, y el agente NO puede llamarla. `mx_isn_tasas_estatales` no es
   // una cola de revisión: lo que se escribe aquí multiplica cada nómina del
   // estado a partir de esa fecha. `declareRisk` sólo admite escritura + agente
@@ -817,8 +825,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
     risk: 'escritura',
     agent: false,
     writes:
-      'mx_isn_tasas_estatales (una vigencia); ningun asiento y ningun pasivo — ' +
-      'el calculo los produce despues, corrida por corrida',
+      'mx_isn_tasas_estatales (one effective period); no journal entry and no liability: ' +
+      'each pay run computes them later',
   });
   fijar.addHelpText('after', EJEMPLOS.rateSet);
   fijar.action(
@@ -1033,10 +1041,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   );
 
   // ---- isn rate list · isn tasa listar ---------------------------------
-  const listar = tasa
-    .command('list')
-    .alias('listar')
-    .description('The captured state rates, with the one in force on a given date marked');
+  const listar = describeCommand(tasa.command('list').alias('listar'), 'help.isn.rate.list.description');
   withContext(listar);
   withOutput(listar);
   // LAS CUATRO BANDERAS DE SELECCIÓN SE DECLARAN A MANO Y NO CON
@@ -1046,12 +1051,11 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   // la bandera declarada que nadie lee, el defecto que este repositorio ya cazó
   // en `ap reconcile`. Y `-a/--all` se documenta por lo que de verdad hace
   // aquí: quitar la ventana de `--as-of`, es decir, enseñar la historia.
-  listar
-    .option('-n, --limit <n>', 'maximum rows to return', enteroNoNegativo('--limit'))
-    .option('--offset <n>', 'skip this many rows', enteroNoNegativo('--offset'))
-    .option('-a, --all', 'every vigencia ever captured, not only the one in force')
-    .option('--state <key>', 'only this state (SAT c_Estado key)')
-    .option('--as-of <date>', 'which rate was in force on this date (YYYY-MM-DD; default today)');
+  optionByKey(listar, '-n, --limit <n>', 'help.isn.rate.list.option.limit', { parser: enteroNoNegativo('--limit') });
+  optionByKey(listar, '--offset <n>', 'help.isn.rate.list.option.offset', { parser: enteroNoNegativo('--offset') });
+  optionByKey(listar, '-a, --all', 'help.isn.rate.list.option.all');
+  optionByKey(listar, '--state <key>', 'help.isn.rate.list.option.state');
+  optionByKey(listar, '--as-of <date>', 'help.isn.rate.list.option.as_of');
   declareRisk(listar, { risk: 'lectura', agent: true });
   listar.addHelpText('after', EJEMPLOS.rateList);
   listar.action(
@@ -1116,18 +1120,12 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
   );
 
   // ---- isn calculate · isn calcular ------------------------------------
-  const calcular = familia
-    .command('calculate')
-    .alias('calcular')
-    .description(
-      "One pay run's ISN, one row per state, naming every rate that is missing instead of computing zero"
-    );
+  const calcular = describeCommand(familia.command('calculate').alias('calcular'), 'help.isn.calculate.description');
   withContext(calcular);
   withOutput(calcular);
   withStrict(calcular);
-  calcular
-    .option('--run <payRunId>', 'the pay run to compute (required)')
-    .option('--state <key>', 'narrow the rows to one state; findings are never hidden');
+  optionByKey(calcular, '--run <payRunId>', 'help.isn.calculate.option.run');
+  optionByKey(calcular, '--state <key>', 'help.isn.calculate.option.state');
   declareRisk(calcular, { risk: 'lectura', agent: true });
   calcular.addHelpText('after', EJEMPLOS.calculate);
   calcular.action(
@@ -1217,9 +1215,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
             `${r.period_start} -> ${r.period_end} (${r.status}) · accrual date ${fechaCausacion}\n`
           ) +
           c.dim(
-            `  isn_estado_que_causa=${criterio}${criterioDefinido ? '' : ' (default)'} · ` +
-              `isn_momento_de_causacion=${causacionPorPago ? 'pago' : 'devengo'}` +
-              `${pCausacion.defined ? '' : ' (default)'}\n`
+            `  ${policyPair('isn_estado_que_causa', criterio, criterioDefinido)} · ` +
+              `${policyPair('isn_momento_de_causacion', causacionPorPago ? 'pago' : 'devengo', pCausacion.defined)}\n`
           );
 
         if (legible(opts)) err.write(cabecera);
@@ -1286,34 +1283,28 @@ export function registerTaxDepositCommand(program: Command, deps: PayrollIsnComm
   const { run, entidad, legible } = utilidades(deps);
   const c = deps.palette;
 
-  const familia = program
-    .command('tax-deposit')
-    .alias('entero')
-    .description('Employer tax liabilities: what is owed, to whom, and by when');
+  const familia = describeCommand(program.command('tax-deposit').alias('entero'), 'help.tax_deposit.description');
 
-  const listar = familia
-    .command('list')
-    .alias('listar')
-    .description('Accrued employer liabilities with their due date and status, soonest due first');
+  const listar = describeCommand(familia.command('list').alias('listar'), 'help.tax_deposit.list.description');
   withContext(listar);
   withOutput(listar);
   withSelection(listar);
-  listar
-    .option('--period <YYYY-MM>', 'only liabilities whose period touches this month')
-    .option('--until <date>', 'only what falls due on or before this date (YYYY-MM-DD)')
-    .option('--all-entities', 'every entity of the tenant, not just the active one');
+  optionByKey(listar, '--period <YYYY-MM>', 'help.tax_deposit.list.option.period');
+  optionByKey(listar, '--until <date>', 'help.tax_deposit.list.option.until');
+  optionByKey(listar, '--all-entities', 'help.tax_deposit.list.option.all_entities');
   // LAS DOS DESCRIPCIONES QUE `withSelection` INYECTA NO DICEN LA VERDAD AQUÍ,
   // y una ayuda que promete algo distinto de lo que el código hace es la clase
   // de mentira que este repositorio ya cazó en `ap reconcile`. La GRAFÍA y la
   // forma corta las sigue gobernando el diccionario; lo que se corrige es lo
   // que la línea dice. `-a` no quita el tope de filas —lo quita no pasar
   // `-n`— y en esta tabla no hay nada «archivado»: hay depositado y dispensado.
+  // MNE-001-239: the rewording goes by key, through describeOption (#314).
   {
     const todo = listar.options.find((o) => o.long === '--all');
-    if (todo) todo.description = 'include what is already settled: deposited and waived rows too';
+    if (todo) describeOption(todo, 'help.tax_deposit.list.option.all');
     const estado = listar.options.find((o) => o.long === '--status');
     if (estado) {
-      estado.description = `filter by liability status (${ESTADOS_DE_PASIVO.join('|')}); repeatable`;
+      describeOption(estado, 'help.tax_deposit.list.option.status', { states: ESTADOS_DE_PASIVO.join('|') });
     }
   }
   declareRisk(listar, { risk: 'lectura', agent: true });

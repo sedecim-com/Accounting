@@ -680,11 +680,21 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
       'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
-      'whether the tax waits, is skipped with a warning, or is asked about.',
+      'whether the receipt waits in review until a person runs mnemosine rep reconcile once its invoice ' +
+      'is in the system, or the documents it knows go on as usual and the unknown one\'s share and VAT ' +
+      'are never recorded from this receipt.',
     options: [
-      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      {
+        value: 'esperar',
+        label:
+          'Wait: the whole payment in the receipt waits in review, the known invoices it pays included, ' +
+          'and none of its VAT is transferred',
+      },
       { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
-      { value: 'preguntar', label: 'Ask for the VAT amount' },
+      {
+        value: 'preguntar',
+        label: 'Same as "Wait": the receipt waits in review and no VAT amount is asked for. Kept for firms that already chose it.',
+      },
     ],
     defaultValue: 'esperar',
     defaultRationale:
@@ -695,8 +705,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
-    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    whatIDo:
+      'By default I leave the receipt in review. Nothing retries it on its own: once its invoice is in the ' +
+      'system, running mnemosine rep reconcile links it.',
     ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
+    priority: 45,
+  },
+  {
+    // MNE-001-524 (#672). A payment node that pays only annulled invoices always goes to review;
+    // the fork is the node that also pays a live one. Reader: ligarPagoREP, issued side only.
+    key: 'rep_voided_document',
+    textKey: 'rep_voided_document',
+    category: 'fiscal',
+    question: 'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+    impact:
+      'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+    options: [
+      { value: 'review', label: 'Review: hold the whole payment and name the annulled invoice' },
+      { value: 'post_live_documents', label: 'Post the live invoices and leave the annulled one unbooked, with a warning' },
+    ],
+    defaultValue: 'review',
+    defaultRationale:
+      'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+    whyAsking:
+      'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+    whatIDo:
+      'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+    ifSkipped: 'The whole payment goes to review, naming the annulled invoice.',
     priority: 45,
   },
   {
@@ -943,6 +978,79 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking: 'The law sets 25 % as the minimum vacation premium; yours may be higher.',
     whatIDo: 'I apply 25 % over the vacation days earned.',
     ifSkipped: 'I use the legal minimum of 25 %.',
+    priority: 40,
+  },
+  {
+    // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
+    key: 'usmo_isr_subsidy',
+    textKey: 'usmo_isr_subsidy',
+    category: 'fiscal',
+    question:
+      'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+    impact:
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), whose separation ISR withholds the taxable part at that rate. Net of the subsidy lowers the rate, so less is withheld.',
+    options: [
+      { value: 'gross_of_tariff', label: 'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy' },
+      { value: 'net_of_subsidy', label: 'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get' },
+    ],
+    defaultValue: 'gross_of_tariff',
+    defaultRationale:
+      'LISR art. 96, in its paragraph on the payments of art. 95 (third from the end; RLISR art. 172 nets the exemption out of those payments), divides «el impuesto correspondiente al último sueldo mensual ordinario» by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+    whyAsking:
+      'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+    whatIDo:
+      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and the settlement withholds the taxable separation pay at that ISR divided by the salary.',
+    ifSkipped: 'I take it gross of the tariff, without subtracting the subsidy.',
+    priority: 40,
+  },
+  {
+    // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
+    // decided by the owner in MNE-001-373. The separation ISR withholds with it (MNE-001-579).
+    key: 'usmo_days_per_month',
+    textKey: 'usmo_days_per_month',
+    category: 'fiscal',
+    question:
+      'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+    impact:
+      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, in its paragraph on the payments of art. 95, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis, compares the separation pay with it and divides by it. On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+    options: [
+      { value: '30', label: 'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)' },
+      { value: '30.4', label: 'Daily wage × 30.4 (the month of the monthly tariff)' },
+    ],
+    defaultValue: '30',
+    defaultRationale:
+      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, in its paragraph on the payments of art. 95, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+    whyAsking:
+      'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+    whatIDo:
+      'I compute the USMO as the daily wage × 30; the settlement compares the separation pay with it and builds the withholding rate on it.',
+    ifSkipped: 'I use 30 days.',
+    priority: 40,
+  },
+  {
+    // MNE-001-579 · #194: read by `calculateSeparationIsr` (payroll/mx/separation-isr.ts).
+    // A builder's ADR-0006 key with the conservative default, under the plan
+    // approved on #194 (comment 7023856765).
+    key: 'separation_isr_usmo_comparison',
+    textKey: 'separation_isr_usmo_comparison',
+    category: 'fiscal',
+    question:
+      'For the separation ISR, what is compared with the last ordinary monthly salary (USMO) to choose between the monthly tariff and the USMO rate: the total paid for separation, or only its taxable part?',
+    impact:
+      'LISR art. 96, in its paragraph on the payments of art. 95, withholds a seniority premium or an indemnity at the ISR of the USMO divided by the USMO, and applies the monthly tariff instead when «los pagos» are below the USMO. Read by the separation ISR of the settlement (separation-isr.ts). When the taxable part is below the USMO and the total paid is not, comparing the total withholds at the rate, more than the tariff on the small taxable part alone.',
+    options: [
+      { value: 'total_payments', label: 'The total paid for separation, its exempt part included (the literal «pagos» of LISR art. 96)' },
+      { value: 'taxable_payments', label: 'Only the taxable part, after the 90 UMA exemption (RLISR art. 172)' },
+    ],
+    defaultValue: 'total_payments',
+    defaultRationale:
+      'LISR art. 96 applies the rate to «el ingreso total por este concepto» and switches to the tariff «Cuando los pagos por estos conceptos sean inferiores al último sueldo mensual ordinario»: the word is the payments, so the total paid is the literal reading, and, gross of the tariff, it never withholds less, because the average rate of the tariff rises with the income. Comparing only the taxable part follows RLISR art. 172, which nets the exemption of LISR art. 93 fr. XIII out of the art. 95 total, as the payroll CFDI builds IngresoAcumulable; it is the other common practice. The conservative default, under ADR-0006; an excess is credited in the annual calculation.',
+    whyAsking:
+      'The law compares «los pagos» with the last monthly salary without saying whether their exempt part counts. Comparing the total withholds at the USMO rate more often; comparing only the taxable part applies the monthly tariff more often. Your firm decides.',
+    whatIDo:
+      'I compare the total paid for separation with the USMO: below it, the monthly tariff on the taxable part; otherwise the USMO rate on the taxable part.',
+    ifSkipped: 'I compare the total paid.',
     priority: 40,
   },
   {
@@ -1486,6 +1594,78 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'By default I stop the load and list the vendor documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
     ifSkipped: 'I stop the load until each vendor document says its IVA rate.',
     priority: 41,
+  },
+  {
+    // MNE-001-553 · #684: read by `createBillFromPreReg`
+    // (xml-ingestion/pre-registration-service.ts), only when a line is left
+    // with no account of its own, none for the document and no eligible suggestion.
+    key: 'received_line_without_account',
+    textKey: 'received_line_without_account',
+    category: 'contable',
+    question: 'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+    impact:
+      'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+    options: [
+      { value: 'refuse', label: 'Post nothing until someone gives the line an account' },
+      { value: 'role_generic_account', label: 'Post the line to the generic account of its expense role' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+    whyAsking:
+      'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+    whatIDo:
+      'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+    ifSkipped: 'I post nothing until every line has an account.',
+    priority: 42,
+  },
+  {
+    // MNE-001-562 · #725: read by `correctVatOvercredit`
+    // (accounting/vat-overcredit.ts), once per entity, before anything posts.
+    key: 'vat_overcredit_correction_period',
+    textKey: 'vat_overcredit_correction_period',
+    category: 'contable',
+    question: 'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+    impact:
+      'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+    options: [
+      { value: 'ask', label: 'Post nothing until someone chooses' },
+      { value: 'current_period', label: 'Post one correction per bill, dated today in the open period' },
+      { value: 'payment_month', label: 'Post one correction per bill and month, in each payment\'s month' },
+    ],
+    defaultValue: 'ask',
+    defaultRationale:
+      'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+    whyAsking:
+      'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+    whatIDo:
+      'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+    ifSkipped: 'I post no correction until you choose.',
+    priority: 43,
+  },
+  {
+    // MNE-001-599 · #831: read by `correctDiscountVat`
+    // (accounting/discount-vat-correction.ts), once per entity, before anything posts.
+    key: 'discount_vat_correction_period',
+    textKey: 'discount_vat_correction_period',
+    category: 'contable',
+    question: 'Early-payment discounts posted before migration 341, whose VAT stayed in 1135: in which period does the correction go?',
+    impact:
+      'Before migration 341 an early-payment discount went whole to 5200 and its share of the bill\'s VAT stayed in 1135, never creditable. `npm run correct:discount-vat` lists each bill, payment and month, and with `--apply` posts DR 5200 / CR 1135 for that share. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill and payment is dated today, in the open period. With "payment_month" one entry per bill, payment and month is dated on the day the discount was posted; a closed month is reopened only when the run says `--reopen`, and a locked month never is. The VAT declared does not change; the ISR deductions of the month the entry is dated in rise by the share.',
+    options: [
+      { value: 'ask', label: 'Post nothing until someone chooses' },
+      { value: 'current_period', label: 'Post one correction per bill and payment, dated today in the open period' },
+      { value: 'payment_month', label: 'Post one correction per bill and payment, in the month the discount was posted' },
+    ],
+    defaultValue: 'ask',
+    defaultRationale:
+      'A discount lowers the price and its VAT (LIVA art. 7), so its share is not creditable and not a cost: 5200 holds it in excess and the purchase cost, a deduction (LISR art. 27), is understated in the month of the discount. NIF B-1 corrects that error retrospectively, while immaterial errors and firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+    whyAsking:
+      'Discounts taken when paying a vendor, before migration 341, left their VAT in 1135 and counted it as a lower cost. The correction can be dated in the month of each discount, reopening it if it is closed, or in the period open today.',
+    whatIDo:
+      'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill and payment today; with "payment_month" one per bill, payment and month, in that month.',
+    ifSkipped: 'I post no correction until you choose.',
+    priority: 43,
   },
   {
     key: 'informes_asientos_de_cierre',
@@ -2112,6 +2292,29 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
     priority: 35,
   },
+  {
+    // MNE-001-555 (#692). The VAT of a received credit note has one treatment;
+    // its cost side is a fork, so it is asked here. Reader: postReceivedCreditNote.
+    key: 'received_credit_note_cost',
+    textKey: 'received_credit_note_cost',
+    category: 'contable',
+    question: 'When a vendor sends a credit note for a bill, which account takes the cost it lowers?',
+    impact:
+      'Governs the entry of a received credit note posted from the inbox (`bill inbox run`). With "bill_accounts" the cost goes back to the expense accounts the bill debited, in proportion to its lines. With "purchase_returns" it goes to purchase returns and discounts (5200), whatever the bill debited. The payable and the VAT move the same either way.',
+    options: [
+      { value: 'bill_accounts', label: 'The accounts the bill debited: the note reverses what was booked' },
+      { value: 'purchase_returns', label: 'Purchase returns and discounts (5200): what vendors give back is shown apart' },
+    ],
+    defaultValue: 'bill_accounts',
+    defaultRationale:
+      'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+    whyAsking:
+      'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
+    whatIDo:
+      'When you run a vendor credit note from the inbox, I debit accounts payable for its total, take its VAT out of where the VAT of its bill is, and credit the cost to the account you choose here.',
+    ifSkipped: 'The cost goes back to the expense accounts of the bill.',
+    priority: 36,
+  },
   // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
 
   {
@@ -2119,7 +2322,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     textKey: 'employment_subsidy_paid_treatment',
     category: 'contable',
     question:
-      'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+      'The employment subsidy over the ISR that was handed to the worker in cash (the rule before 1 May 2024): a receivable from the tax authority or an expense of the firm?',
     impact:
       'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
     options: [
@@ -2139,9 +2342,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'some firms make deliberately when the amounts are small and the paperwork is not worth it — ' +
       'but it should be a decision, not the consequence of a default.',
     whyAsking:
-      'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+      'Until 30 April 2024, when the subsidy was larger than the ISR of the period the employer had to hand the difference to the worker in cash. That money left the firm and comes back only if you credit it, so where you book it changes both your payroll expense and what you owe the SAT. A paycheck paid from 1 May 2024 hands over nothing (decree DOF 01-05-2024): that is law, and this decision does not apply to it. It still applies to a paycheck already calculated with that cash.',
     whatIDo:
-      'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+      'For a paycheck that handed cash over, I post that cash to the account this policy names; with "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports. For a paycheck paid from 1 May 2024 I withhold no ISR, hand over nothing and post nothing for the excess, whatever this policy says.',
     ifSkipped:
       'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
     priority: 42,
@@ -2226,6 +2429,59 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'that pays only aguinaldo, carries none, and the regular paycheck keeps its own whichever was calculated first.',
     ifSkipped:
       'I recompute on the combined income of the period and credit only the difference.',
+    priority: 42,
+  },
+  // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
+  // old-age quota to two decimals and gives no rounding rule. Read by
+  // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer
+  // of 17 Nov 2026 on #661, under the owner's standing rule (ADR-0006).
+  {
+    key: 'imss_old_age_band_edge',
+    textKey: 'imss_old_age_band_edge',
+    category: 'fiscal',
+    question:
+      'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+    impact:
+      'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+    options: [
+      { value: 'above_upper_edge', label: 'An SBC above a band\'s upper edge, by any amount, pays the next band' },
+      { value: 'truncated_to_hundredths', label: 'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table' },
+    ],
+    defaultValue: 'above_upper_edge',
+    defaultRationale:
+      'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+    whyAsking:
+      'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+    ifSkipped: 'An SBC above an upper edge pays the next band.',
+    priority: 42,
+  },
+  // #196 · MNE-001-578. The «1.00 SM» band of the employer old-age quota is
+  // measured with the general minimum of the area of the employer registration
+  // (answer of 17 Nov 2026 on #661: LFT art. 92, LSS arts. 28 and 39); the SUA
+  // FAQ suggests the centre-zone minimum to an employer registered in both
+  // zones. Read by `readOldAgeMinimumWageArea` (payroll/mx/old-age-band.ts).
+  {
+    key: 'imss_old_age_minimum_wage_area',
+    textKey: 'imss_old_age_minimum_wage_area',
+    category: 'fiscal',
+    question:
+      'Which minimum wage measures the «1.00 SM» band of the employer cesantía en edad avanzada y vejez quota: the one of your employer registration\'s area, or the general zone\'s for every worker?',
+    impact:
+      'It decides which SBC pays the lowest rate of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). In March 2026, for an entity registered at the northern border, an SBC of 400.00 pays 3.150 % with "employer_registration_area" (189.00 a quincena, under its minimum of 440.87) and 6.361 % with "general_zone" (381.66, measured with 315.04).',
+    options: [
+      { value: 'employer_registration_area', label: 'The general minimum of the area of the employer registration (the entity\'s declared zone)' },
+      { value: 'general_zone', label: 'The general-zone minimum for every worker, whatever the registration\'s area' },
+    ],
+    defaultValue: 'employer_registration_area',
+    defaultRationale:
+      'A general minimum wage applies to the workers of its own area (LFT art. 92), and the IMSS determines the quotas of each employer registration (LSS arts. 28 and 39), so the band is measured with the minimum of the registration\'s area. An entity that has not declared its zone is measured with the general minimum, and the calculation note says so.',
+    whyAsking:
+      'The table names its first band in minimum wages, and Mexico has two general minimums: the general zone and the Zona Libre de la Frontera Norte. If the program you determine your quotas with uses the general-zone minimum for every registration, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I take the general minimum wage of the area this policy names, in force that day, and place the SBC in the band of the dated table. The calculation note names the minimum, its area and whether the entity declared it.',
+    ifSkipped: 'I use the minimum of the area of the employer registration, which is the entity\'s declared zone, or the general minimum while none is declared.',
     priority: 42,
   },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
@@ -2681,6 +2937,71 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
     ifSkipped: 'I signal it and change nothing.',
     priority: 42,
+  },
+  {
+    // MNE-001-572 (#789) · An advance received by cheque, applied before the
+    // bank cashes it where it would cancel IVA nobody has caused (a PPD
+    // invoice, or a PUE one at another treatment). Reader:
+    // `defersUncausedCancellation` in payment-service.ts, and the cashing
+    // (`deferredAdvanceIva`, treasury-posting.ts) for "defer_to_cashing". The owner's answer
+    // of 19 Nov 2026 on #789: «Rechazar + clave para diferir».
+    key: 'cheque_advance_before_cashing',
+    textKey: 'cheque_advance_before_cashing',
+    category: 'fiscal',
+    question:
+      'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
+    impact:
+      'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. ' +
+      'With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. ' +
+      'With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. ' +
+      'A PUE invoice at the receipt\'s own treatment is applied either way.',
+    options: [
+      { value: 'refuse', label: 'Refuse until the cashing is recorded' },
+      { value: 'defer_to_cashing', label: 'Apply it to a PPD invoice now and net its IVA on the cashing day' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. ' +
+      'Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. ' +
+      'Refusing posts nothing without review, the conservative option of ADR-0006.',
+    whyAsking:
+      'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
+    whatIDo:
+      'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
+    ifSkipped: 'I refuse the application until the cashing is recorded.',
+    priority: 58,
+  },
+  {
+    // MNE-001-585 (#792, part 2/3) · A receipt with no treatment unapplied
+    // from a PPD invoice. Reader: `keptUnderPolicy` in payment-service.ts,
+    // read only when some row would keep IVA. The owner's answer of 19 Nov
+    // 2026 on #623 (comment 7013109077): «Mantener causado + clave».
+    key: 'plain_receipt_unapply_iva',
+    textKey: 'plain_receipt_unapply_iva',
+    category: 'fiscal',
+    question:
+      'A receipt with no advance treatment is unapplied from a PPD invoice: does the IVA its collection caused stay caused, or go back to uncollected?',
+    impact:
+      'Governs `receipt unapply` of a receipt with no advance treatment on a PPD invoice whose collection released its IVA. ' +
+      'With "keep_caused" the IVA stays in 2120 and the cash goes back to 2150 for its base, carrying that IVA, so applying it again nets it instead of causing it twice. ' +
+      'With "repark_same_month" each allocation whose IVA was released in the calendar month of the unapply goes back to 2125, with the IEPS it moved; one released in an earlier month stays caused, and so does a cheque the bank has not cashed. ' +
+      'The IVA workpaper keeps the IVA caused under either answer, and its tie-out names a re-park.',
+    options: [
+      { value: 'keep_caused', label: 'Keep the IVA caused and carry it on the cash back on account' },
+      { value: 'repark_same_month', label: 'Re-park it when the unapply is in the month the IVA was released' },
+    ],
+    defaultValue: 'keep_caused',
+    defaultRationale:
+      'LIVA art. 1-B, first paragraph: a price is collected when it is received, even as an advance, and an unapply returns no money. ' +
+      'LIVA art. 7: only a documented return, discount or bonus takes the IVA back. ' +
+      'Keeping it caused never lowers a month without a refund, the conservative option of ADR-0006. ' +
+      'Re-parking in a later month would lower a month already declared, which takes an amended return (CFF art. 32), so neither answer does it.',
+    whyAsking:
+      'Some firms treat an unapply in the same month as the correction of a mistake, and want the invoice\'s IVA back as uncollected until the cash is applied again. Keeping it caused follows the law and nets when the cash is applied again.',
+    whatIDo:
+      'With "keep_caused" I leave the IVA in 2120 and record on the allocation what it kept. With "repark_same_month" I move back to 2125 the IVA of each allocation released in the month of the unapply, keep the rest caused, and the dry run says why.',
+    ifSkipped: 'I keep the IVA caused.',
+    priority: 59,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

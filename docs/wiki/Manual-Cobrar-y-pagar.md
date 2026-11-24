@@ -380,6 +380,7 @@ Cinco criterios del despacho gobiernan ese casado, y viven en el panel de decisi
 | `rep_tolerancia_importe` | Cuánta diferencia sigue siendo redondeo | `0.01` |
 | `rep_ventana_dias` | Cuántos días de separación siguen siendo el mismo evento | `3` |
 | `rep_documento_desconocido` | Qué hacer con el IVA de una factura que no tenemos | `esperar` |
+| `rep_voided_document` | Qué hacer cuando un pago de un REP emitido cubre una factura viva y otra anulada | `review` |
 | `rep_moneda_extranjera` | Qué hacer con la diferencia cambiaria | `no_casar` |
 
 ```bash

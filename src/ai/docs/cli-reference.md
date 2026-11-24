@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 244 of 388 subcommands
+  spelling is `-T` at the root and `-t` on the 254 of 404 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -49,7 +49,7 @@ Commands:
   drafts|borradores [options]            Lists the journal entry drafts created by the AI
   review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
   ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
-  lang|idioma [options] [language]       Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  lang|idioma [options] [language]       Shows or sets your language: the CLI and the agent's answers (Spanish command aliases always work)
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
@@ -80,7 +80,7 @@ Commands:
   receipt|cobro                          Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks
   credit-note|nota-credito               Credit notes: returns, discounts and corrections against the receivable (never stamped here)
   ar|cxc                                 Receivables controls: reconcile the subledger against the control account, run named diagnostics
-  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account
+  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account, and run the named checks
   bank|banco                             Bank accounts and bank statements: master data and imported statements
   asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
   depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
@@ -94,7 +94,8 @@ Commands:
   pay-period|periodo-nomina              Pay periods of the entity: create the next ones of a schedule, list them
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
-  filing|declaracion                     Tax returns of the entity: the working papers behind them
+  filing|declaracion                     Tax returns of the entity: the working papers behind them, and the record of those filed
+  annual|anual                           The annual return of the entity: the figures read off it once it is filed
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
@@ -107,9 +108,9 @@ Commands:
   backup|respaldo                        Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)
   report|reporte                         Financial statements, trial balance, general ledger and ageing
   ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
-  cfdi                                   The CFDI mirror: list, inspect, SAT status and the classifier trail
+  cfdi                                   The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI
   rep                                    Payment receipts (REP): what is missing one, and the parked ones to retry
-  ai|ia                                  Métricas y calibración del agente contable
+  ai|ia                                  Metrics and calibration of the accounting agent
   usage|uso [options]                    Token usage and estimated cost from the local ledger (no API calls)
   status|estado [options]                Health snapshot: config, live provider probes, database and RLS (redacted, shareable)
   jobs|tareas                            Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)
@@ -171,9 +172,9 @@ Options:
 
 Examples:
   # One question, one answer, no interactive session.
-  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  mnemosine ask "How much creditable VAT did I accrue in July"
   # Ask about one client, on a named provider.
-  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+  mnemosine ask "Balance of account 1111 at the July close" --entity "Molinos del Bajio" --provider anthropic
 ```
 
 ## `mnemosine chat`
@@ -332,21 +333,26 @@ Examples:
 ```
 Usage: mnemosine lang|idioma [options] [language]
 
-Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish
-command aliases always work)
+Shows or sets your language: the CLI and the agent's answers (Spanish command
+aliases always work)
 
 Arguments:
-  language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
+  language    the language to set: es, en, es-MX, en-US; omit it to see the
+              language in effect and what decided it
 
 Options:
+  --unset     remove the language saved in ~/.mnemosine/config.json, so the next
+              source decides again
   -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
-  # Which language the agent answers in right now.
-  mnemosine lang
-  # Make it answer in Spanish. The CLI interface stays English either way.
-  mnemosine lang es
+  Which language the CLI and the agent use right now, and what decided it:
+    mnemosine lang
+  Use Spanish for both; it is saved in ~/.mnemosine/config.json:
+    mnemosine lang es
+  Remove that choice, so the next source decides again:
+    mnemosine lang --unset
 ```
 
 ## `mnemosine onboard` (alias: alta)
@@ -1272,7 +1278,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
-  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
+  edit|editar [options] <idOrName>       Set the tax regime, fiscal postal code or minimum-wage zone of an entity
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar [options]                Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -1364,23 +1370,26 @@ Usage: mnemosine entity create|crear [options] <name>
 Create a legal entity with its chart of accounts, roles and payroll mapping
 
 Arguments:
-  name                     legal name of the company
+  name                        legal name of the company
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-id <id>            RFC (Mexico) or EIN (USA)
-  --country <code>         MX or USA (default: "MX")
-  --currency <code>        functional currency (defaults to the country's)
-  --chart <strategy>       auto | siempre | nunca — whether to seed the base
-                           chart (default: "auto")
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-id <id>               RFC (Mexico) or EIN (USA)
+  --country <code>            MX or USA (default: "MX")
+  --currency <code>           functional currency (defaults to the country's)
+  --chart <strategy>          auto | siempre | nunca — whether to seed the base
+                              chart (default: "auto")
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # A Mexican company with its c_RegimenFiscal and fiscal postal code.
@@ -1394,23 +1403,25 @@ Examples:
 ```
 Usage: mnemosine entity edit|editar [options] <idOrName>
 
-Set the tax regime or fiscal postal code of an entity, validated against the SAT
-catalog
+Set the tax regime, fiscal postal code or minimum-wage zone of an entity
 
 Arguments:
-  idOrName                 entity id, tax id, or a fragment of the name
+  idOrName                    entity id, tax id, or a fragment of the name
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
-  --tax-postal-code <cp>   fiscal address postal code (5 digits)
-  --reason <text>          justification recorded in the audit trail
-  --json                   JSON output
-  -y, --yes                skip the confirmation prompt
-  -h, --help               display help for command
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --tax-regime <code>         c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>      fiscal address postal code (5 digits)
+  --minimum-wage-zone <zone>  general | northern_border: minimum-wage area of
+                              the workplace, which caps the seniority premium
+                              (LFT art. 486)
+  --reason <text>             justification recorded in the audit trail
+  --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
+  -h, --help                  display help for command
 
 Examples:
   # Declare the regime of an entity created without it.
@@ -1632,6 +1643,7 @@ Commands:
   apply|aplicar [options] <payment>       Apply an existing payment to specific bills: partial, with discount, or short-paid
   unapply|desaplicar [options] <payment>  Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account
   reverse|reversar [options] <payment>    Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again
+  trace|rastro                            The payment trace of a registered payment: its cheque, and the account and bank the money went to
   help [command]                          display help for command
 ```
 
@@ -1790,6 +1802,69 @@ Examples:
   # The duplicated transfer came back: look first, then undo the payment on the day it returned.
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31 --dry-run
   mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31
+```
+
+### `mnemosine payment trace` (alias: rastro)
+
+```
+Usage: mnemosine payment trace|rastro [options] [command]
+
+The payment trace of a registered payment: its cheque, and the account and bank
+the money went to
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <payment>  Complete the empty trace fields of a
+                                        registered payment from its evidence:
+                                        only empty fields, audited, posts
+                                        nothing
+  help [command]                        display help for command
+```
+
+#### `mnemosine payment trace record` (alias: registrar)
+
+```
+Usage: mnemosine payment trace record|registrar [options] <payment>
+
+Complete the empty trace fields of a registered payment from its evidence: only
+empty fields, audited, posts nothing
+
+Arguments:
+  payment                   payment number or id
+
+Options:
+  -e, --entity <idOrName>   legal entity to operate on (defaults to the active
+                            one)
+  -t, --tenant <id>         tenant (firm) whose data to scope to
+  -u, --user <email>        acting user, for attribution and permissions
+  --check-number <number>   cheque number; only for a payment made by cheque
+  --to-account <number>     account that received the money (CtaDest of the SAT
+                            voucher)
+  --to-bank <code>          destination bank key from the SAT c_Banco catalogue
+                            (3 digits)
+  --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --bank <account>          bank account (name or id) the payment went out of;
+                            only one that posts to the ledger account its entry
+                            moved
+  --reason <text>           justification recorded in the audit trail (required)
+  --json                    JSON output
+  -y, --yes                 skip the confirmation prompt
+  --dry-run                 compute and show the full effect; write nothing and
+                            call nothing external
+  --idempotency-key <key>   not needed: this command already deduplicates on the
+                            state it writes; accepted and ignored
+  -h, --help                display help for command
+
+Examples:
+  # A SPEI recorded without its destination: complete it from the transfer receipt.
+  mnemosine payment trace record VPMT-2026-00001 --to-account 002180001122334455 --to-bank 002 --reason "SPEI receipt OP-0511"
+  # A cheque recorded without its number: look first, then complete it from the stub.
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
 ```
 
 ## `mnemosine account` (alias: cuenta)
@@ -2434,6 +2509,7 @@ Options:
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
   --subledger <file>                       JSON array with the open documents of the receivable and payable control accounts
+  --chart <file>                           the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry and named with the source figure
   --reason <text>                          why the opening is loaded; goes to the audit log
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
@@ -2449,6 +2525,8 @@ Examples:
   # ALWAYS this one first: the opening is posted and the ledger cannot be undone.
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --dry-run
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --yes
+  # With the migration's catalog, its memorandum accounts (8xx) get no line in the entry, each one named.
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml --dry-run
 ```
 
 ### `mnemosine opening-balance check` (alias: verificar)
@@ -2463,6 +2541,7 @@ Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
+  --chart <file>                           the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing and named with the source figure
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
   -o, --output <path>                      write to a file instead of stdout
@@ -2473,6 +2552,8 @@ Options:
 Examples:
   # Exits 0 when the ledger equals the source to the peso, 4 when it does not.
   mnemosine opening-balance check ./migration/balanza-2025-12.xml
+  # With the migration's catalog, its memorandum accounts (8xx) stay out of the footing, each one named.
+  mnemosine opening-balance check ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml
 ```
 
 ## `mnemosine entry` (alias: poliza, asiento)
@@ -2811,7 +2892,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --layout <name>          file layout: csv, ndjson
-                           (contpaqi/aspel/iif/sat-polizas: aún sin parser)
+                           (contpaqi/aspel/iif/sat-polizas: no parser yet)
                            (default: "csv")
   --dry-run                parse and report, stage nothing
   --idempotency-key <key>  replay-safe key: the same key with the same file
@@ -3673,7 +3754,8 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --line <n>               line number to code; without it, --account is the
                            default for every line with none
-  --account <code>         expense account, by code or id
+  --account <code>         expense account, by code or id; for a CFDI this
+                           entity issued, the revenue account
   --cost-center <id>       cost center id of the --line
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
@@ -3961,9 +4043,9 @@ Options:
 
 Examples:
   # Commercial and contact data. The tax profile is NOT edited here.
-  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "Convenio comercial 2026"
+  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "2026 commercial agreement"
   # Leave a note on the customer file.
-  mnemosine customer edit "Grupo Alameda" --notes "Exige orden de compra en cada factura"
+  mnemosine customer edit "Grupo Alameda" --notes "Requires a purchase order on every invoice"
 ```
 
 ### `mnemosine customer archive` (alias: archivar)
@@ -3989,9 +4071,9 @@ Options:
 
 Examples:
   # Deactivate a customer. It is an undo verb, so --reason is required.
-  mnemosine customer archive "Grupo Alameda" --reason "Cliente inactivo desde 2025"
+  mnemosine customer archive "Grupo Alameda" --reason "Customer inactive since 2025"
   # Archive one that still shows a balance: --force overrides the check, never the reason.
-  mnemosine customer archive "Grupo Alameda" --force --reason "Saldo incobrable ya castigado"
+  mnemosine customer archive "Grupo Alameda" --force --reason "Uncollectible balance already written off"
 ```
 
 ### `mnemosine customer restore` (alias: restaurar)
@@ -4017,7 +4099,7 @@ Examples:
   # Put an archived customer back in service.
   mnemosine customer restore "Grupo Alameda"
   # With the justification that lands in the audit trail.
-  mnemosine customer restore "Grupo Alameda" --reason "Reactivado con contrato 2026"
+  mnemosine customer restore "Grupo Alameda" --reason "Reactivated with the 2026 contract"
 ```
 
 ### `mnemosine customer tax` (alias: fiscal)
@@ -4095,9 +4177,9 @@ Options:
 
 Examples:
   # The four fields CFDI 4.0 stamps against, validated against the SAT catalogs.
-  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Constancia de situacion fiscal de julio"
+  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Tax status certificate of July"
   # Only the default UsoCFDI.
-  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Solicitud del cliente"
+  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Customer request"
 ```
 
 #### `mnemosine customer tax list` (alias: listar)
@@ -4498,64 +4580,104 @@ Options:
   -h, --help                            display help for command
 
 Commands:
-  record|registrar [options] <invoice>  Record cash received against an invoice
-                                        and recognize the IVA it was holding
+  record|registrar [options] [invoice]  Record cash received: against an
+                                        invoice, releasing the IVA it was
+                                        holding, or with no invoice as a
+                                        customer advance
   show|ver [options] <ref>              Show one collection: its applications
                                         (live and history), REP status and
                                         ledger entry
   list|listar [options]                 List collections by customer, date,
                                         application state or missing REP
   apply|aplicar [options] <ref>         Apply the on-account balance of a
-                                        collection to one or more invoices
-                                        (releases PPD IVA)
+                                        collection to invoices: releases PPD
+                                        IVA, and an advance cancels the IVA it
+                                        caused instead of causing it again. It
+                                        covers procedure A of Anexo 20, Appendix
+                                        6 (the sale invoiced whole); under
+                                        procedure B the advance moves to revenue
+                                        by a journal entry
   unapply|desaplicar [options] <ref>    Unapply a collection from an invoice as
-                                        a NEW event: reopens it and re-parks the
-                                        PPD IVA
-  reverse|reversar [options] <ref>      Reverse a bounced collection (NSF):
-                                        mirrors every entry, reopens invoices,
-                                        re-parks IVA
+                                        a NEW event: reopens it and puts the
+                                        cash back on account
+  reverse|reversar [options] <ref>      Reverse a collection whose money did not
+                                        stay, saying why: mirrors every entry,
+                                        reopens invoices, re-parks IVA
+  cause|causa                           The cause of a reversed collection: what
+                                        happened to its money
+  trace|rastro                          The payment trace of a registered
+                                        receipt: the customer's bank and
+                                        account, its cheque, and our bank
+                                        account
+  transfer|traspaso                     A transfer of a customer's cash on
+                                        account to another customer
   help [command]                        display help for command
 ```
 
 ### `mnemosine receipt record` (alias: registrar)
 
 ```
-Usage: mnemosine receipt record|registrar [options] <invoice>
+Usage: mnemosine receipt record|registrar [options] [invoice]
 
-Record cash received against an invoice and recognize the IVA it was holding
+Record cash received: against an invoice, releasing the IVA it was holding, or
+with no invoice as a customer advance
 
 Arguments:
-  invoice                  invoice number or id
+  invoice                      invoice number or id; without it the cash is an
+                               advance, and --customer names who paid it
 
 Options:
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account name or id; without it the entity's
-                           `banco` role is used
-  --reference <text>       bank reference or transfer number
-  --on-account             let the amount exceed the invoice due; the excess
-                           stays on account (anticipo)
-  --json                   JSON output
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  -y, --yes                skip the confirmation prompt
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --customer <ref>             the customer who paid (number, name or id);
+                               required with no invoice, and with one it must be
+                               the invoice's own
+  --tax-rate <rate>            IVA treatment of an advance: 16, 8, 0, exempt
+                               (exento) or not-subject (no-objeto); with no
+                               invoice it is required, and with one it states
+                               the treatment of the excess --on-account leaves;
+                               the IVA is caused on collection
+  --on-account                 let the amount exceed the invoice due: the excess
+                               stays on account as an advance and causes its IVA
+                               on collection (LIVA art. 1-B), at --tax-rate or
+                               the invoice's own rate
+  --check-number <number>      number of the customer's cheque (with --method
+                               check); the vouchers file declares it in the
+                               Cheque node
+  --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
+                               paid from; checked against the SAT list
+  --payer-account <number>     account the customer paid from (for a cheque, the
+                               account it is drawn on); needs --payer-bank or
+                               --payer-foreign-bank
+  --payer-foreign-bank <name>  full name of the customer's bank when it is
+                               foreign, instead of --payer-bank
+  --amount <amount>            amount, in the document currency
+  --date <date>                value date (YYYY-MM-DD); defaults to today
+  --method <method>            cash, check, ach, wire, spei, credit_card or
+                               other (default: "spei")
+  --bank <account>             bank account name or id; without it the entity's
+                               `banco` role is used
+  --reference <text>           bank reference or transfer number
+  --json                       JSON output
+  -e, --entity <idOrName>      legal entity to operate on (defaults to the
+                               active one)
+  -t, --tenant <id>            tenant (firm) whose data to scope to
+  -u, --user <email>           acting user, for attribution and permissions
+  -y, --yes                    skip the confirmation prompt
+  --dry-run                    compute and show the full effect; write nothing
+                               and call nothing external
+  --idempotency-key <key>      client dedupe key, stored on success: a retry
+                               with the same key and payload returns the
+                               recorded result
+  -h, --help                   display help for command
 
 Examples:
   # Cash received against one invoice; this releases the PPD IVA it was holding.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --date 2026-07-31 --method spei --reference "SPEI 0123456789"
-  # Take more than the invoice owes; the excess stays on account as an anticipo.
+  # Take more than the invoice owes; the excess stays on account as an advance and causes its IVA today, at the invoice's rate.
   mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
   # See the entry it would post, writing nothing.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run
+  # An advance with no invoice yet: 1,000.00 stays in customer advances and its 160.00 of IVA is caused today.
+  mnemosine receipt record --customer "Grupo Alameda" --amount 1160.00 --tax-rate 16
 ```
 
 ### `mnemosine receipt show` (alias: ver)
@@ -4629,8 +4751,10 @@ Examples:
 ```
 Usage: mnemosine receipt apply|aplicar [options] <ref>
 
-Apply the on-account balance of a collection to one or more invoices (releases
-PPD IVA)
+Apply the on-account balance of a collection to invoices: releases PPD IVA, and
+an advance cancels the IVA it caused instead of causing it again. It covers
+procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B
+the advance moves to revenue by a journal entry
 
 Arguments:
   ref                      payment number or id
@@ -4649,6 +4773,9 @@ Options:
                            with the cash: "isr:1000" or "iva:1066.67"
                            (repeatable); with several invoices,
                            "INV-2026-00042:isr:1000"
+  --date <date>            day of the application (YYYY-MM-DD), which dates its
+                           entry, the allocation and the invoice's last payment;
+                           defaults to today in the entity's time zone
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4663,6 +4790,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
   # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
+  # Dated: the entry, the allocation and the invoice's last payment carry May 20, and so does the IVA it causes.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:2500.00 --date 2026-05-20
 ```
 
 ### `mnemosine receipt unapply` (alias: desaplicar)
@@ -4670,8 +4799,8 @@ Examples:
 ```
 Usage: mnemosine receipt unapply|desaplicar [options] <ref>
 
-Unapply a collection from an invoice as a NEW event: reopens it and re-parks the
-PPD IVA
+Unapply a collection from an invoice as a NEW event: reopens it and puts the
+cash back on account
 
 Arguments:
   ref                      payment number or id
@@ -4685,6 +4814,9 @@ Options:
   --reason <text>          why: it lands in the audit trail and the ledger
                            description
   --json                   JSON output
+  --date <date>            day of the unapply (YYYY-MM-DD), which dates its
+                           entry and the closed allocation; defaults to today in
+                           the entity's time zone
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4693,10 +4825,12 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # A NEW event, not an erasure: it reopens the invoice and re-parks the PPD IVA.
+  # A NEW event, not an erasure: it reopens the invoice, and the cash goes back on account with the PPD IVA it caused.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
+  # Dated: the mirror and the closed allocation carry May 25.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada" --date 2026-05-25
 ```
 
 ### `mnemosine receipt reverse` (alias: reversar)
@@ -4704,8 +4838,8 @@ Examples:
 ```
 Usage: mnemosine receipt reverse|reversar [options] <ref>
 
-Reverse a bounced collection (NSF): mirrors every entry, reopens invoices,
-re-parks IVA
+Reverse a collection whose money did not stay, saying why: mirrors every entry,
+reopens invoices, re-parks IVA
 
 Arguments:
   ref                      payment number or id
@@ -4715,6 +4849,10 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --cause <cause>          what happened to the money: not_collected (it never
+                           became yours) or taken_back (it arrived and was taken
+                           back, as in a chargeback); with none, a cheque takes
+                           not_collected and any other method keeps no cause
   --fee <amount>           bank fee charged for the return (not yet supported:
                            needs a fee role account)
   --json                   JSON output
@@ -4727,10 +4865,185 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # A bounced collection (NSF): mirrors every entry, reopens invoices, re-parks IVA.
+  # A chargeback: the money arrived and the bank took it back.
+  mnemosine receipt reverse PMT-2026-00042 --cause taken_back --reason "Contracargo 4853"
+  # A cheque returned unpaid: with no --cause a cheque takes not_collected.
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run
+```
+
+### `mnemosine receipt cause` (alias: causa)
+
+```
+Usage: mnemosine receipt cause|causa [options] [command]
+
+The cause of a reversed collection: what happened to its money
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  record|registrar [options] <ref>  State the cause of a collection that was
+                                    reversed with none: written once, audited,
+                                    posts nothing
+  help [command]                    display help for command
+```
+
+#### `mnemosine receipt cause record` (alias: registrar)
+
+```
+Usage: mnemosine receipt cause record|registrar [options] <ref>
+
+State the cause of a collection that was reversed with none: written once,
+audited, posts nothing
+
+Arguments:
+  ref                      payment number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --cause <cause>          what happened to the money: not_collected (it never
+                           became yours) or taken_back (it arrived and was taken
+                           back, as in a chargeback)
+  --reason <text>          justification recorded in the audit trail (required)
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  -h, --help               display help for command
+
+Examples:
+  # A direct debit reversed with no cause turned out to be a dispute after it was paid.
+  mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
+  # See what would be written, writing nothing.
+  mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
+```
+
+### `mnemosine receipt trace` (alias: rastro)
+
+```
+Usage: mnemosine receipt trace|rastro [options] [command]
+
+The payment trace of a registered receipt: the customer's bank and account, its
+cheque, and our bank account
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <receipt>  Complete the empty trace fields of a
+                                        registered receipt from its evidence:
+                                        only empty fields, audited, posts
+                                        nothing
+  help [command]                        display help for command
+```
+
+#### `mnemosine receipt trace record` (alias: registrar)
+
+```
+Usage: mnemosine receipt trace record|registrar [options] <receipt>
+
+Complete the empty trace fields of a registered receipt from its evidence: only
+empty fields, audited, posts nothing
+
+Arguments:
+  receipt                      receipt number or id
+
+Options:
+  -e, --entity <idOrName>      legal entity to operate on (defaults to the
+                               active one)
+  -t, --tenant <id>            tenant (firm) whose data to scope to
+  -u, --user <email>           acting user, for attribution and permissions
+  --check-number <number>      cheque number; only for a receipt by the
+                               customer's cheque
+  --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
+                               paid from, or that issued its cheque
+  --payer-account <number>     account the customer paid from, or the one its
+                               cheque is drawn on
+  --payer-foreign-bank <name>  name of the customer's bank when it is a foreign
+                               one
+  --bank <account>             bank account (name or id) the money went into;
+                               only one that posts to the ledger account its
+                               entry moved
+  --reason <text>              justification recorded in the audit trail
+                               (required)
+  --json                       JSON output
+  -y, --yes                    skip the confirmation prompt
+  --dry-run                    compute and show the full effect; write nothing
+                               and call nothing external
+  --idempotency-key <key>      not needed: this command already deduplicates on
+                               the state it writes; accepted and ignored
+  -h, --help                   display help for command
+
+Examples:
+  # A SPEI recorded without --bank or the customer's bank: complete it from the CEP.
+  mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
+  # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
+  mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
+```
+
+### `mnemosine receipt transfer` (alias: traspaso)
+
+```
+Usage: mnemosine receipt transfer|traspaso [options] [command]
+
+A transfer of a customer's cash on account to another customer
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  record|registrar [options] <ref>  Transfer a customer's cash on account to
+                                    another customer, as agreed: audited, posts
+                                    DR/CR customer advances, no bank, revenue or
+                                    IVA
+  help [command]                    display help for command
+```
+
+#### `mnemosine receipt transfer record` (alias: registrar)
+
+```
+Usage: mnemosine receipt transfer record|registrar [options] <ref>
+
+Transfer a customer's cash on account to another customer, as agreed: audited,
+posts DR/CR customer advances, no bank, revenue or IVA
+
+Arguments:
+  ref                      payment number or id of the receipt whose cash on
+                           account is transferred
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --customer <customer>    the customer who receives the credit (number, name or
+                           id)
+  --amount <amount>        amount to transfer, at most the cash on account of
+                           the receipt
+  --date <date>            the agreed day of the transfer (YYYY-MM-DD), which
+                           dates its entry; defaults to today in the entity's
+                           time zone
+  --reason <text>          justification recorded in the audit trail (required)
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # The two customers and the entity agreed that PMT-2026-00042's cash on account is now Grupo Alameda's: look first.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --dry-run
+  # Then record it: DR/CR customer advances on June 15, no bank, revenue or IVA.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --yes
 ```
 
 ## `mnemosine credit-note` (alias: nota-credito)
@@ -5000,7 +5313,8 @@ Examples:
 ```
 Usage: mnemosine ap|cxp [options] [command]
 
-Payables controls: reconcile the vendor subledger against the control account
+Payables controls: reconcile the vendor subledger against the control account,
+and run the named checks
 
 Options:
   -h, --help                     display help for command
@@ -5008,6 +5322,8 @@ Options:
 Commands:
   reconcile|conciliar [options]  Vendor subledger (open bills) vs the cxp
                                  control account, naming the reconciling items
+  check|verificar [options]      Named payables checks; `--check` with no value
+                                 lists them, `--check a,b` selects
   help [command]                 display help for command
 ```
 
@@ -5040,6 +5356,35 @@ Examples:
   mnemosine ap reconcile --as-of 2026-07-31 --explain
   # Exit 4 on any delta, for CI.
   mnemosine ap reconcile --as-of 2026-07-31 --strict
+```
+
+### `mnemosine ap check` (alias: verificar)
+
+```
+Usage: mnemosine ap check|verificar [options]
+
+Named payables checks; `--check` with no value lists them, `--check a,b` selects
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [names]                          comma-separated checks to run; bare --check lists the battery
+  -h, --help                               display help for command
+
+Examples:
+  # Every named payables check, for the active entity.
+  mnemosine ap check
+  # The names of the checks, without touching the database.
+  mnemosine ap check --check
+  # One check, exit 4 on its warning too, for CI.
+  mnemosine ap check --check cancelled-cfdi-open --strict
 ```
 
 ## `mnemosine bank` (alias: banco)
@@ -6501,29 +6846,38 @@ Options:
   -h, --help                          display help for command
 
 Commands:
-  reconcile|conciliar [options] <id>  Prove the check against the bank movement
-                                      that cleared it and post the VAT
-                                      reclassification from pending to
-                                      creditable IN THE MONTH IT CLEARED
+  reconcile|conciliar [options] [id]  Prove the check against the bank movement
+                                      that cleared it and post its VAT IN THE
+                                      MONTH IT CLEARED: from pending to
+                                      creditable for a vendor payment, from
+                                      pending collection to charged for a
+                                      customer receipt
   help [command]                      display help for command
 ```
 
 #### `mnemosine bank check reconcile` (alias: conciliar)
 
 ```
-Usage: mnemosine bank check reconcile|conciliar [options] <id>
+Usage: mnemosine bank check reconcile|conciliar [options] [id]
 
-Prove the check against the bank movement that cleared it and post the VAT
-reclassification from pending to creditable IN THE MONTH IT CLEARED
+Prove the check against the bank movement that cleared it and post its VAT IN
+THE MONTH IT CLEARED: from pending to creditable for a vendor payment, from
+pending collection to charged for a customer receipt
 
 Arguments:
-  id                       vendor payment made by check
+  id                       vendor payment made by check; omit it with --receipt
 
 Options:
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --receipt <ref>          customer receipt paid by cheque, by number
+                           (PMT-2026-00042) or id, instead of <id>; without
+                           --transaction the credit of its amount is searched in
+                           its bank account from its date. Repeat it for a
+                           deposit of several cheques: one credit of their exact
+                           sum, named with --transaction
   --transaction <id>       the bank movement that paid it, named by hand;
                            required when several charges match
   --as-of <date>           the clearing date you assert (YYYY-MM-DD); it is
@@ -6548,6 +6902,9 @@ Examples:
   # Assert the clearing date: it is CONTRASTED against the movement and never
   # imposed on it. The bank dates the clearing.
   mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --as-of 2026-03-10 --dry-run
+  # A customer's cheque: its receipt held the VAT in 2125, and the bank credit
+  # that cashed it moves it to 2120 on the credit's date.
+  mnemosine bank check reconcile --receipt PMT-2026-00042 --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
 ```
 
 ## `mnemosine asset` (alias: activo)
@@ -8423,15 +8780,19 @@ Examples:
 ```
 Usage: mnemosine filing|declaracion [options] [command]
 
-Tax returns of the entity: the working papers behind them
+Tax returns of the entity: the working papers behind them, and the record of
+those filed
 
 Options:
-  -h, --help               display help for command
+  -h, --help                  display help for command
 
 Commands:
-  workpaper|papel-trabajo  The auditable working paper of the month, line by
-                           line
-  help [command]           display help for command
+  workpaper|papel-trabajo     The auditable working paper of the month, line by
+                              line
+  record|registrar [options]  Record a monthly IVA return already filed in the
+                              SAT portal: its acuse, what it left payable or in
+                              favour, its payment and the balances it credited
+  help [command]              display help for command
 ```
 
 ### `mnemosine filing workpaper` (alias: papel-trabajo)
@@ -8472,6 +8833,8 @@ Options:
   --form <iva|isr|all>                     which settlement to include (default: "all")
   --ptu-paid <amount>                      PTU paid in the year (ISR), captured by a person
   --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
+  --prior-balance <amount>                 prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason
+  --prior-balance-reason <text>            why the prior balance is overridden, shown on its line
   -h, --help                               display help for command
 
 This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
@@ -8483,6 +8846,120 @@ Examples:
     mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
   The ISR with the PTU paid in the year and the provisional payments already made:
     mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
+  The IVA with a prior balance a person gives instead of the one the filed returns give:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"
+```
+
+### `mnemosine filing record` (alias: registrar)
+
+```
+Usage: mnemosine filing record|registrar [options]
+
+Record a monthly IVA return already filed in the SAT portal: its acuse, what it
+left payable or in favour, its payment and the balances it credited
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --form <form>                            which return it is: iva (the monthly IVA)
+  --period <YYYY-MM>                       month the return covers
+  --filed-on <date>                        day the return was filed (YYYY-MM-DD), after its month ends
+  --acuse <number>                         operation number of the acknowledgement («acuse»): how the record names this return
+  --capture-line <line>                    payment reference the SAT gave with the filing (the capture line), when the return has something to pay
+  --payable <amount>                       amount payable the return left, up to two decimals (use 0 for a return at zero)
+  --in-favor <amount>                      balance in favour the return left, up to two decimals; never together with --payable
+  --paid <amount>                          what was paid with the capture line; goes with --paid-on
+  --paid-on <date>                         day it was paid (YYYY-MM-DD), the day of the filing or later; goes with --paid
+  --credit <acuse:amount>                  an earlier balance in favour this return credited (LIVA art. 6), as the acuse of the return that left it and the amount; repeat it for each
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+This records a return a person already filed. It sends nothing to the SAT, and a recorded return is never edited: each filed return is a new row.
+An amended return («complementaria») is not recorded here.
+
+Examples:
+  See the row the July return would leave, with its balance in favour, writing nothing:
+    mnemosine filing record --form iva --period 2026-07 --filed-on 2026-08-14 --acuse OP-0701 --in-favor 5000.00 --dry-run
+  August: 8,000.00 of IVA less 3,000.00 credited from July, 5,000.00 payable and paid the next day:
+    mnemosine filing record --form iva --period 2026-08 --filed-on 2026-09-15 --acuse OP-0801 --capture-line LC-0801 --payable 5000.00 --paid 5000.00 --paid-on 2026-09-16 --credit OP-0701:3000.00 --json
+```
+
+## `mnemosine annual` (alias: anual)
+
+```
+Usage: mnemosine annual|anual [options] [command]
+
+The annual return of the entity: the figures read off it once it is filed
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  figure|cifra    Figures of a filed annual return that the provisional payments
+                  need
+  help [command]  display help for command
+```
+
+### `mnemosine annual figure` (alias: cifra)
+
+```
+Usage: mnemosine annual figure|cifra [options] [command]
+
+Figures of a filed annual return that the provisional payments need
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  record|registrar [options]  Record a figure of a filed annual return, with
+                              that return as its source and who captured it
+  help [command]              display help for command
+```
+
+#### `mnemosine annual figure record` (alias: registrar)
+
+```
+Usage: mnemosine annual figure record|registrar [options]
+
+Record a figure of a filed annual return, with that return as its source and who
+captured it
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --kind <kind>                            which figure it is: profit_coefficient | pending_tax_losses
+  --value <figure>                         the figure as the return states it: zero or more, up to four decimals
+  --year <yyyy>                            fiscal year of the annual return
+  --filed-on <date>                        day the return, or its amendment, was filed (YYYY-MM-DD)
+  --source <text>                          how you identify that return: its operation number
+  --updated-through <yyyy-mm>              pending tax losses only: the INPC month they are already updated through (YYYY-MM, LISR art. 57)
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.
+A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).
+
+Examples:
+  See the row the profit coefficient of the 2025 return would leave, writing nothing:
+    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run
+  Its amendment, filed later: a new capture that takes over, and the earlier one stays:
+    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json
+  The pending tax losses of that return, updated through December 2025; zero is captured too:
+    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"
 ```
 
 ## `mnemosine isn`
@@ -10047,21 +10524,26 @@ Examples:
 ```
 Usage: mnemosine cfdi [options] [command]
 
-The CFDI mirror: list, inspect, SAT status and the classifier trail
+The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an
+issued CFDI
 
 Options:
-  -h, --help                         display help for command
+  -h, --help                          display help for command
 
 Commands:
-  list|listar [options]              The mirror, filtered by direction, type,
-                                     status and date
-  show|ver [options] <uuid>          One CFDI: header, lines, taxes and SAT
-                                     status; --format xml prints the exact bytes
-  status|estatus                     SAT status of the mirror (public
-                                     ConsultaCFDIService; no e.firma involved)
-  explain|explicar [options] <uuid>  WHY it was recorded the way it was: case,
-                                     facts and decisions the classifier left
-  help [command]                     display help for command
+  list|listar [options]               The mirror, filtered by direction, type,
+                                      status and date
+  show|ver [options] <uuid>           One CFDI: header, lines, taxes and SAT
+                                      status; --format xml prints the exact
+                                      bytes
+  status|estatus                      SAT status of the mirror (public
+                                      ConsultaCFDIService; no e.firma involved)
+  explain|explicar [options] <uuid>   WHY it was recorded the way it was: case,
+                                      facts and decisions the classifier left
+  post|contabilizar [options] <uuid>  Post a CFDI this entity issued to
+                                      receivables: the customer invoice with its
+                                      UUID, and its entry
+  help [command]                      display help for command
 ```
 
 ### `mnemosine cfdi list` (alias: listar)
@@ -10089,8 +10571,8 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --direction <d>                          emitido, recibido o ajeno (derivada contra el RFC de la entidad)
-  --type <t>                               document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)
+  --direction <d>                          emitido, recibido or ajeno (derived against the RFC of the entity)
+  --type <t>                               filter by document_type, for example cfdi_ingreso, cfdi_egreso or cfdi_pago
   -h, --help                               display help for command
 
 Examples:
@@ -10166,7 +10648,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --refresh                                consulta al SAT ahora y actualiza la caché sat_* del documento
+  --refresh                                ask the SAT now and update the sat_* cache of the document
   -h, --help                               display help for command
 
 Examples:
@@ -10234,6 +10716,41 @@ Examples:
   mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301
   # The same, as JSON, to attach to the working paper.
   mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --json
+```
+
+### `mnemosine cfdi post` (alias: contabilizar)
+
+```
+Usage: mnemosine cfdi post|contabilizar [options] <uuid>
+
+Post a CFDI this entity issued to receivables: the customer invoice with its
+UUID, and its entry
+
+Arguments:
+  uuid                     UUID of a CFDI this entity issued, as cfdi list
+                           prints it
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --account <code>         revenue account, by code or id, of every concept with
+                           no account of its own
+  --json                   one row: invoice number, status, amount due, entry
+                           number and dry_run
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  -h, --help               display help for command
+
+Examples:
+  # The invoice and the entry it would write, writing nothing.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --dry-run
+  # Post it, with 4200 as the revenue account of every concept not coded on its own.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --account 4200 --yes
 ```
 
 ## `mnemosine rep`
@@ -10320,14 +10837,14 @@ Options:
 ```
 Usage: mnemosine ai|ia [options] [command]
 
-Métricas y calibración del agente contable
+Metrics and calibration of the accounting agent
 
 Options:
   -h, --help                    display help for command
 
 Commands:
-  stats|estadisticas [options]  Aprobación por bucket de confianza, delta
-                                confianza-vs-realidad, costo y eventos
+  stats|estadisticas [options]  Approval by confidence bucket,
+                                confidence-vs-reality delta, cost and events
   help [command]                display help for command
 ```
 
@@ -10336,7 +10853,7 @@ Commands:
 ```
 Usage: mnemosine ai stats|estadisticas [options]
 
-Aprobación por bucket de confianza, delta confianza-vs-realidad, costo y eventos
+Approval by confidence bucket, confidence-vs-reality delta, cost and events
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -10394,19 +10911,27 @@ Persisted scheduled agent tasks (all output is reviewable drafts, never direct
 writes)
 
 Options:
-  -h, --help                 display help for command
+  -h, --help                            display help for command
 
 Commands:
-  list [options]             List the scheduled jobs of this entity
-  create [options]           Create a scheduled job
-  enable [options] <jobId>   Enable a job (resets its failure counter and
-                             recomputes the next run)
-  disable [options] <jobId>  Disable a job (it stays configured; runs stop)
-  run-due [options]          Tick entry point: claim and run every due job (call
-                             this from cron/launchd; --live enables the external
-                             reads)
-  history [options]          Execution log (most recent first)
-  help [command]             display help for command
+  list [options]                        List the scheduled jobs of this entity
+  create [options]                      Create a scheduled job
+  adopt|adoptar [options] [jobId]       Adopt a job: with jobs.run_due set to
+                                        "adopted" in ~/.mnemosine/config.json,
+                                        jobs run-due runs only the jobs you
+                                        adopted
+  unadopt|desadoptar [options] <jobId>  Stop adopting a job: with jobs.run_due
+                                        set to "adopted", jobs run-due no longer
+                                        runs it
+  enable [options] <jobId>              Enable a job (resets its failure counter
+                                        and recomputes the next run)
+  disable [options] <jobId>             Disable a job (it stays configured; runs
+                                        stop)
+  run-due [options]                     Tick entry point: claim and run every
+                                        due job (call this from cron/launchd;
+                                        --live enables the external reads)
+  history [options]                     Execution log (most recent first)
+  help [command]                        display help for command
 ```
 
 ### `mnemosine jobs list`
@@ -10441,6 +10966,61 @@ Options:
   --user <email>           Who creates the job (audit)
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # A nightly close check at 02:00; it is adopted for you as it is created.
+  mnemosine jobs create --name nightly-close --kind close_verification --schedule "0 2 * * *"
+```
+
+### `mnemosine jobs adopt` (alias: adoptar)
+
+```
+Usage: mnemosine jobs adopt|adoptar [options] [jobId]
+
+Adopt a job: with jobs.run_due set to "adopted" in ~/.mnemosine/config.json,
+jobs run-due runs only the jobs you adopted
+
+Arguments:
+  jobId                    Job id (omit it with --list)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  --list                   List the jobs you adopted in this entity, and the
+                           value of jobs.run_due
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Adopt a job of this entity: with "jobs": { "run_due": "adopted" } in
+  # ~/.mnemosine/config.json, your jobs run-due runs only the jobs you adopted.
+  mnemosine jobs adopt 00000000-0000-4000-8000-000000000001
+  # The jobs you adopted here, and the value of jobs.run_due.
+  mnemosine jobs adopt --list
+```
+
+### `mnemosine jobs unadopt` (alias: desadoptar)
+
+```
+Usage: mnemosine jobs unadopt|desadoptar [options] <jobId>
+
+Stop adopting a job: with jobs.run_due set to "adopted", jobs run-due no longer
+runs it
+
+Arguments:
+  jobId                    Job id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  # Stop adopting a job: with jobs.run_due set to "adopted", your tick no longer runs it.
+  mnemosine jobs unadopt 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs enable`
@@ -10458,6 +11038,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Re-enable a job its failure limit disabled.
+  mnemosine jobs enable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs disable`
@@ -10475,6 +11059,10 @@ Options:
   -t, --tenant <id>        Tenant
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
+
+Examples:
+  # Stop a job's runs and keep its configuration.
+  mnemosine jobs disable 00000000-0000-4000-8000-000000000001
 ```
 
 ### `mnemosine jobs run-due`
@@ -10496,6 +11084,14 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # What this tick would run, and skip, claiming nothing.
+  mnemosine jobs run-due --dry-run
+  # The tick for cron/launchd, with the reads against the client's external system.
+  mnemosine jobs run-due --live
+Which due jobs it runs on your credential is jobs.run_due in ~/.mnemosine/config.json:
+"adopted" (only the jobs you adopted) or "all" (every due job of the entity).
 ```
 
 ### `mnemosine jobs history`

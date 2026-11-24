@@ -4,7 +4,7 @@ vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
 }));
 
-import { OpenAiCompatSession } from '../../../src/ai/providers/openai-compat.js';
+import { OpenAiCompatSession, TruncatedEmptyTurnError } from '../../../src/ai/providers/openai-compat.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 import type { ResolvedProfile } from '../../../src/ai/providers/types.js';
@@ -171,7 +171,8 @@ describe('OpenAiCompatSession', () => {
     const create = vi.fn().mockResolvedValueOnce(chunks());
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     // Old local servers 400 on unknown fields: the profile can opt out.
-    const profile = { ...PROFILE, stream: undefined, stream_usage: false } as ResolvedProfile;
+    // stream_usage is a field of ProviderProfile: no cast needed.
+    const profile: ResolvedProfile = { ...PROFILE, stream: undefined, stream_usage: false };
     const session = new OpenAiCompatSession(client, profile, CTX, 'sistema');
     await session.runTurn('x');
     expect(create.mock.calls[0][0].stream_options).toBeUndefined();
@@ -223,5 +224,162 @@ describe('OpenAiCompatSession', () => {
     const assistantMsg = secondParams.messages.find((m: { role: string }) => m.role === 'assistant');
     expect(assistantMsg.tool_calls[0].function.name).toBe('search_accounts');
     expect(assistantMsg.tool_calls[0].function.arguments).toBe('{"search":"banco"}');
+  });
+});
+
+// ============================================================
+// MNE-001-442 · what current models need from the compatible adapter
+// ============================================================
+
+/** A fake thought signature: opaque bytes, as Google documents them. */
+const SIGNATURE = 'CiQBjz1rX+firma/falsa==Zq8-_0';
+
+/**
+ * A Gemini 3 tool-call response on Google's OpenAI-compatible endpoint, in the
+ * shape Google documents (ai.google.dev/gemini-api/docs/thought-signatures,
+ * «OpenAI compatibility»): the first call of a step carries
+ * extra_content.google.thought_signature; a parallel call after it carries none.
+ */
+function geminiToolCalls() {
+  return {
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'tool_calls',
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              extra_content: { google: { thought_signature: SIGNATURE } },
+              function: { arguments: '{"search":"banco"}', name: 'search_accounts' },
+              id: 'function-call-1',
+              type: 'function',
+            },
+            {
+              function: { arguments: '{"search":"caja"}', name: 'search_accounts' },
+              id: 'function-call-2',
+              type: 'function',
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+type SentMessage = { role: string; tool_calls?: Array<Record<string, unknown>> };
+const assistantSent = (params: unknown) =>
+  (params as { messages: SentMessage[] }).messages.find((m) => m.role === 'assistant' && m.tool_calls);
+
+describe('reasoning_effort goes in the body only when the profile declares it', () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it('absent from turns when the profile does not declare it', async () => {
+    const { client, create } = fakeClient([assistantMessage('hola')]);
+    await new OpenAiCompatSession(client, PROFILE, CTX, 'sistema').runTurn('x');
+    expect('reasoning_effort' in create.mock.calls[0][0]).toBe(false);
+  });
+
+  it('on every turn and on the compaction summary when it does', async () => {
+    const create = vi.fn().mockResolvedValue(assistantMessage('respuesta corta'));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const session = new OpenAiCompatSession(
+      client, { ...PROFILE, reasoning_effort: 'low' }, CTX, 'sistema', {},
+      { compaction: { keepRecentTokens: 1 }, grounding: { enabled: false } }
+    );
+    await session.runTurn('primera');
+    await session.runTurn('segunda');
+    expect(await session.compact()).not.toBeNull();
+
+    const bodies = create.mock.calls.map((c) => c[0] as { reasoning_effort?: string; tools?: unknown });
+    const summaries = bodies.filter((b) => b.tools === undefined);
+    expect(summaries.length).toBeGreaterThan(0);
+    for (const body of bodies) expect(body.reasoning_effort).toBe('low');
+  });
+});
+
+describe('Gemini 3 thought signatures come back byte for byte', () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it('non-streamed: the next request carries each tool call\'s extra_content unchanged', async () => {
+    const { client, create } = fakeClient([geminiToolCalls(), assistantMessage('listo')]);
+    mockQuery.mockResolvedValue({ rows: [] });
+    await new OpenAiCompatSession(client, PROFILE, CTX, 'sistema').runTurn('x');
+
+    const sent = assistantSent(create.mock.calls[1][0]);
+    expect(sent?.tool_calls?.[0]).toEqual({
+      id: 'function-call-1',
+      type: 'function',
+      function: { name: 'search_accounts', arguments: '{"search":"banco"}' },
+      extra_content: { google: { thought_signature: SIGNATURE } },
+    });
+    expect((sent?.tool_calls?.[0].extra_content as { google: { thought_signature: string } }).google.thought_signature)
+      .toBe(SIGNATURE);
+    // A call that brought none gets none.
+    expect('extra_content' in (sent?.tool_calls?.[1] ?? {})).toBe(false);
+  });
+
+  it('streamed: the signature in the call\'s delta is kept and sent back', async () => {
+    async function* chunks() {
+      yield {
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: [{
+              index: 0, id: 'function-call-1', type: 'function',
+              function: { name: 'search_accounts', arguments: '{"search":"banco"}' },
+              extra_content: { google: { thought_signature: SIGNATURE } },
+            }],
+          },
+        }],
+      };
+      yield { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] };
+    }
+    async function* final() {
+      yield { choices: [{ index: 0, delta: { content: 'listo' }, finish_reason: 'stop' }] };
+    }
+    const create = vi.fn().mockResolvedValueOnce(chunks()).mockResolvedValueOnce(final());
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    mockQuery.mockResolvedValue({ rows: [] });
+    await new OpenAiCompatSession(client, { ...PROFILE, stream: undefined }, CTX, 'sistema').runTurn('x');
+
+    const sent = assistantSent(create.mock.calls[1][0]);
+    expect(sent?.tool_calls?.[0].extra_content).toEqual({ google: { thought_signature: SIGNATURE } });
+  });
+});
+
+describe('a turn cut by the output cap with nothing in it is an error', () => {
+  beforeEach(() => mockQuery.mockReset());
+  const truncated = (content: string | null) => ({
+    choices: [{ index: 0, finish_reason: 'length', message: { role: 'assistant', content } }],
+  });
+
+  it('non-streamed: throws a typed error naming the cap and the profile\'s reasoning_effort', async () => {
+    const { client } = fakeClient([truncated(null)]);
+    const session = new OpenAiCompatSession(client, { ...PROFILE, reasoning_effort: 'high' }, CTX, 'sistema');
+    const err = await session.runTurn('x').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TruncatedEmptyTurnError);
+    expect((err as Error).message).toContain('8192');
+    expect((err as Error).message).toContain('hermes');
+    expect((err as Error).message).toContain('reasoning_effort "high"');
+  });
+
+  it('streamed: same error', async () => {
+    async function* chunks() {
+      yield { choices: [{ index: 0, delta: { role: 'assistant' } }] };
+      yield { choices: [{ index: 0, delta: {}, finish_reason: 'length' }] };
+    }
+    const create = vi.fn().mockResolvedValueOnce(chunks());
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const session = new OpenAiCompatSession(client, { ...PROFILE, stream: undefined }, CTX, 'sistema');
+    await expect(session.runTurn('x')).rejects.toBeInstanceOf(TruncatedEmptyTurnError);
+  });
+
+  it('a truncated turn WITH text is returned as before', async () => {
+    const { client } = fakeClient([truncated('media respuesta')]);
+    const session = new OpenAiCompatSession(client, PROFILE, CTX, 'sistema', {}, { grounding: { enabled: false } });
+    expect(await session.runTurn('x')).toBe('media respuesta');
   });
 });

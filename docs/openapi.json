@@ -6139,6 +6139,13 @@
                         "type": "number"
                       }
                     ]
+                  },
+                  "minimum_wage_zone": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "northern_border"
+                    ]
                   }
                 },
                 "required": [
@@ -7972,7 +7979,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo",
+        "x-escribe": "bills o vendor/customer_payments + journal_entries POSTEADOS; una nota de credito recibida, su poliza y bills.amount_due; con allow_new_vendor, tambien un vendor nuevo",
         "x-alcance-idempotencia": "POST /v1/pre-registrations/:id/process",
         "x-permisos-requeridos": [
           "bills:create"
@@ -9109,7 +9116,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS",
+        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note",
         "x-alcance-idempotencia": "POST /v1/upload",
         "x-permisos-requeridos": [
           "bills:create"
@@ -10130,7 +10137,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo",
+        "x-escribe": "bills o vendor/customer_payments + journal_entries POSTEADOS; una nota de credito recibida, su poliza y bills.amount_due; con allow_new_vendor, tambien un vendor nuevo",
         "x-alcance-idempotencia": "POST /v1/xml/pre-registrations/:id/process",
         "x-permisos-requeridos": [
           "bills:create"
@@ -10916,7 +10923,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS",
+        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note",
         "x-alcance-idempotencia": "POST /v1/xml/upload",
         "x-permisos-requeridos": [
           "bills:create"
@@ -11265,7 +11272,7 @@
         }
       },
       "CuerpoInvalido": {
-        "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400.",
+        "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400. Its message is written by catalog key and always declares its language, but it answers in English, the zod 3 wording byte for byte, unless the request names a supported language: with no Accept-Language, with `*`, or with only unsupported languages it does not fall back to the default language (#367).",
         "headers": {
           "Content-Language": {
             "$ref": "#/components/headers/ContentLanguage"
@@ -11280,7 +11287,7 @@
         }
       },
       "InvalidQuery": {
-        "description": "A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` naming the parameter). Note the status is 422, not 400.",
+        "description": "A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` naming the parameter). Note the status is 422, not 400. Its message is written by catalog key and always declares its language, but it answers in English, the zod 3 wording byte for byte, unless the request names a supported language: with no Accept-Language, with `*`, or with only unsupported languages it does not fall back to the default language (#367).",
         "headers": {
           "Content-Language": {
             "$ref": "#/components/headers/ContentLanguage"

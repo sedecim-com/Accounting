@@ -567,10 +567,11 @@ async function leerCandidato(
       `SELECT COALESCE(amount_due, total_amount) AS importe, bill_date AS fecha,
               description AS descripcion, bill_number AS referencia
          FROM bills WHERE id = $1 AND entity_id = $2`,
+    // MNE-001-498 · a transfer of customer credit moved no money: no bank movement can be it.
     customer_payment:
       `SELECT payment_amount AS importe, payment_date AS fecha,
               memo AS descripcion, payment_number AS referencia
-         FROM customer_payments WHERE id = $1 AND entity_id = $2`,
+         FROM customer_payments WHERE id = $1 AND entity_id = $2 AND payment_method <> 'balance_transfer'`,
     vendor_payment:
       `SELECT payment_amount AS importe, payment_date AS fecha,
               memo AS descripcion, payment_number AS referencia

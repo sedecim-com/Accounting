@@ -1,4 +1,4 @@
-import { codigoDe, type Criterio, existe, falla, ok } from './shared.js';
+import { codigoDe, crudoDe, type Criterio, existe, falla, ok, sinProsa } from './shared.js';
 
 // ============================================================
 // THE E3.2 CRITERIA
@@ -124,6 +124,397 @@ export const E3_2: Criterio[] = [
       return /cfdi_status = 'cancelled' AND amount_due > 0/.test(codigoDe('src/services/ar/ar-controls.ts'))
         ? ok('el SAT cancelado llega a invoices.cfdi_status por un UPDATE guardado desde los dos escritores, y el control de CxC lo lee')
         : falla('el control de CxC dejó de leer cfdi_status = cancelled: el puente escribe algo que nadie mira');
+    },
+  },
+
+  // ---- EFIRMA-3 1/3 · MNE-001-144 (#441) · the census's cancellations reach the mirror and the invoice ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-metadata-cancellation-reaches-invoice',
+    enunciado: 'Una cancelación que entra al censo del SAT marca el espejo y, por el puente de #313, la factura, con UPDATE guardados',
+    mutantes: [
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: 'invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);',
+        a: 'invoices += 0;',
+        porque: 'the mirror learns the cancellation and the invoice never does: the AR control stays quiet over a cancelled CFDI',
+      },
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: "AND xd.sat_validation_status IS DISTINCT FROM 'cancelled'",
+        a: 'AND TRUE',
+        porque: 'the mirror UPDATE loses its state predicate: a row already cancelled is rewritten on every load',
+      },
+      {
+        archivo: 'src/cli/ingest-census.ts',
+        de: 'const marked = await markCensusCancellations(opts.scope, ...span);',
+        a: 'const marked = { mirror: 0, invoices: 0 };',
+        porque: 'runCensus loads the cancellation into the census and never runs the marks: the mirror and the invoice keep saying current',
+      },
+    ],
+    evaluar: () => {
+      // Before MNE-001-144 the SAT's metadata status stayed in sat_cfdi_census:
+      // only the one-by-one status query told the mirror and, through the
+      // #313 bridge, the invoice. The marks reuse that bridge; they never
+      // write invoices themselves.
+      const file = 'src/services/sat-census/cancellations.ts';
+      if (!existe(file)) return falla('no existen las marcas de cancelación sobre el censo');
+      const src = codigoDe(file);
+      const i = src.indexOf('export async function markCensusCancellations');
+      const marks = i >= 0 ? src.slice(i, src.indexOf('\n}', i)) : '';
+      if (!marks) return falla('no existe markCensusCancellations: el Estatus 0 del SAT se queda en el censo');
+      const u = marks.indexOf('UPDATE xml_documents xd');
+      const update = u >= 0 ? marks.slice(u, marks.indexOf('args\n', u)) : '';
+      if (!/SET sat_validation_status = 'cancelled', sat_estado = 'Cancelado'/.test(update)) {
+        return falla('el espejo no recibe la cancelación del censo');
+      }
+      if (!/FROM \(\$\{CANCELLED_OF_WINDOW\}\) k/.test(update) || !/JOIN legal_entities le ON le\.id = c\.entity_id AND le\.tenant_id = \$2/.test(src) ||
+          !/xd\.entity_id = \$1/.test(update) ||
+          !/AND xd\.sat_validation_status IS DISTINCT FROM 'cancelled'/.test(update) ||
+          !/if \(marked\.rowCount !== expected\.rows\.length\)/.test(marks)) {
+        return falla('el UPDATE del espejo perdió su guarda (entidad y tenant en el SQL, el predicado de estado o el rowCount): invariante 3');
+      }
+      if (!/invoices \+= await markInvoiceCfdiCancelled\(scope\.entityId, row\.u\)/.test(marks) ||
+          !/import \{ markInvoiceCfdiCancelled \} from '\.\.\/sat\/cfdi-status\.js'/.test(src)) {
+        return falla('las marcas no llaman al puente de #313: el espejo sabe que el CFDI se canceló y la factura no');
+      }
+      if (/UPDATE\s+invoices/i.test(src)) {
+        return falla('las marcas escriben invoices por su cuenta: un segundo puente que no lleva la guarda del de #313');
+      }
+      const cli = codigoDe('src/cli/ingest-census.ts');
+      const r = cli.indexOf('export async function runCensus');
+      const run = r >= 0 ? cli.slice(r, cli.indexOf('\n}\n', r)) : '';
+      const load = run.indexOf('await loadCensus(');
+      const mark = run.indexOf('await markCensusCancellations(opts.scope, ...span)');
+      if (load < 0 || mark < load) {
+        return falla('runCensus no corre las marcas tras cada carga: ingest --kind metadata y sat package download --import dejan la cancelación en el censo');
+      }
+      return /await cancelledCfdiFindings\(opts\.scope/.test(run)
+        ? ok('cada carga del censo marca el espejo con un UPDATE guardado y la factura por el puente de #313, y nombra cada documento contabilizado que aún lleva un CFDI cancelado')
+        : falla('runCensus marca y no nombra los documentos contabilizados que aún llevan un CFDI cancelado');
+    },
+  },
+
+  // ---- MNE-001-431 (#643) · a received CFDI the SAT cancelled marks its bill ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-cancellation-reaches-bill',
+    enunciado: 'Un CFDI que el SAT reporta cancelado marca el bill de la entidad que lo lleva, con UPDATE guardado, por cada camino que marca el espejo o el censo',
+    mutantes: [
+      {
+        archivo: 'src/services/sat/cfdi-status.ts',
+        de: 'resumen.bills_marked += await markBillCfdiCancelled(ctx.entityId, fila.cfdi_uuid);',
+        a: 'resumen.bills_marked += 0;',
+        porque: 'cfdi status sync marks the mirror and the invoice and never the bill: a cancelled received CFDI stays payable with no mark',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/sat-validation.ts',
+        de: 'result.billsMarked = await markBillCfdiCancelled(d.entity_id, d.cfdi_uuid);',
+        a: 'result.billsMarked = 0;',
+        porque: 'the ingest check and cfdi status show --refresh learn the cancellation and forget the bill',
+      },
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: 'bills += await markBillCfdiCancelled(scope.entityId, row.u);',
+        a: 'bills += 0;',
+        porque: 'the census marks skip the bill: one with no mirror row, such as an opening bill, is never reached',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'WHERE entity_id = $1',
+        a: 'WHERE $1::uuid IS NOT NULL',
+        porque: 'the bridge loses its entity scope: another entity carrying the same UUID is marked',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND cfdi_cancellation_noted_at IS NULL',
+        a: '',
+        porque: 'the bridge loses its predicate: the same cancellation rewrites the mark and the count reports bills that did not move',
+      },
+      {
+        archivo: 'src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql',
+        de: 'x.entity_id = b.entity_id',
+        a: 'x.entity_id IS NOT NULL',
+        porque: 'the backfill matches the mirror across entities: a bill of a sister entity with the same UUID is marked',
+      },
+    ],
+    evaluar: () => {
+      // Before MNE-001-431 a received CFDI the SAT cancelled reached the
+      // mirror and, as a finding, the screen; the bill itself carried nothing.
+      // One bridge writes the mark, called after the #313 invoice bridge by
+      // each path that marks the mirror or the census.
+      const file = 'src/services/ap/bill-cfdi-cancellation.ts';
+      if (!existe(file)) return falla('no existe el puente del bill: el SAT cancelado nunca llega a la factura de proveedor');
+      const src = codigoDe(file);
+      const i = src.indexOf('export async function markBillCfdiCancelled');
+      const bridge = i >= 0 ? src.slice(i, src.indexOf('\n}', i)) : '';
+      const set = /SET ([^\n]*)/.exec(bridge)?.[1] ?? '';
+      if (!/cfdi_cancellation_noted_at = NOW\(\)/.test(set) || /status|amount_due|amount_paid|journal_entry_id/.test(set) ||
+          !/WHERE entity_id = \$1\s+AND lower\(cfdi_uuid\) = lower\(\$2\)\s+AND cfdi_cancellation_noted_at IS NULL/.test(bridge) ||
+          !/rowCount/.test(bridge)) {
+        return falla('el puente del bill perdió su guarda (sólo la marca, alcance de entidad, predicado o rowCount): invariante 3');
+      }
+      const status = codigoDe('src/services/sat/cfdi-status.ts');
+      const sweep = status.slice(Math.max(0, status.indexOf('export async function revalidateEntityCfdis')));
+      if (!/if \(vs === 'cancelled'\) \{\s+resumen\.invoices_cancelled \+= await markInvoiceCfdiCancelled\([^)]*\);\s+resumen\.bills_marked \+= await markBillCfdiCancelled\(ctx\.entityId, fila\.cfdi_uuid\)/.test(sweep)) {
+        return falla('cfdi status sync no marca el bill tras la factura');
+      }
+      const single = codigoDe('src/services/xml-ingestion/sat-validation.ts');
+      if (!/if \(result\.status === 'cancelled'\) \{\s+await markInvoiceCfdiCancelled\([^)]*\);\s+result\.billsMarked = await markBillCfdiCancelled\(d\.entity_id, d\.cfdi_uuid\)/.test(single)) {
+        return falla('la consulta de un solo CFDI no marca el bill tras la factura');
+      }
+      const census = codigoDe('src/services/sat-census/cancellations.ts');
+      const m = census.indexOf('export async function markCensusCancellations');
+      const marks = m >= 0 ? census.slice(m, census.indexOf('\n}', m)) : '';
+      if (!/for \(const row of cancelled\.rows\) \{\s+bills \+= await markBillCfdiCancelled\(scope\.entityId, row\.u\)/.test(marks) ||
+          !/const cancelled = await query<\{ u: string \}>\(`\$\{CANCELLED_OF_WINDOW\} ORDER BY c\.cfdi_uuid`, args\)/.test(marks)) {
+        return falla('las marcas del censo no llevan cada CFDI cancelado de la ventana al bill');
+      }
+      if ([status, single, census].some((x) => /UPDATE\s+bills/i.test(x))) {
+        return falla('un camino escribe bills por su cuenta: un segundo escritor que no lleva la guarda del puente');
+      }
+      const migration = 'src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql';
+      if (!existe(migration)) return falla('no existe la migración 340: la columna de la marca no existe');
+      const sql = sinProsa(crudoDe(migration));
+      const optIn = sql.indexOf('SET LOCAL row_security = on;');
+      const loop = sql.indexOf("PERFORM set_config('app.current_tenant', t.id::text, true);");
+      return /ADD COLUMN IF NOT EXISTS cfdi_cancellation_noted_at TIMESTAMPTZ/.test(sql) && optIn >= 0 && loop > optIn &&
+        /le\.tenant_id = t\.id/.test(sql) && /x\.entity_id = b\.entity_id/.test(sql) && /c\.entity_id = b\.entity_id/.test(sql) &&
+        /AND b\.cfdi_cancellation_noted_at IS NULL/.test(sql)
+        ? ok('el SAT cancelado llega al bill por un UPDATE guardado desde el censo, el barrido y la consulta de un CFDI, y la 340 rellena bajo RLS los ya cancelados dentro de su entidad')
+        : falla('la 340 no rellena bajo RLS, dentro de su entidad y su inquilino, los bills cuyo CFDI ya consta cancelado');
+    },
+  },
+
+  // ---- MNE-001-609 (#643) · a bill born from a CFDI already cancelled ----
+  {
+    paquete: 'E3.2',
+    id: 'cancelled-cfdi-noted-at-bill-birth',
+    enunciado: 'Un bill que nace de un CFDI que su entidad ya sabe cancelado lleva la marca desde su alta, por un UPDATE guardado en la misma transacción, y tomar un bill de apertura no le deja la marca de un UUID que ya no lleva',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);',
+        a: '',
+        porque: 'bill inbox run and the AI-draft approval write a bill on a CFDI already known cancelled, and it waits unmarked for the next sweep',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: 'await noteBillCfdiAlreadyCancelled(client, entityId, billId);',
+        a: '',
+        porque: 'an opening bill, new or taken over, whose UUID the census already reports cancelled is born unmarked',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND b.entity_id = $1',
+        a: 'AND $1::uuid IS NOT NULL',
+        porque: 'the birth mark loses its entity scope: the statement no longer says whose bill it may touch',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'x.entity_id = b.entity_id',
+        a: 'x.entity_id IS NOT NULL',
+        porque: 'the birth mark reads the mirror across entities: a sister entity that cancelled the same UUID marks this bill',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'c.entity_id = b.entity_id',
+        a: 'c.entity_id IS NOT NULL',
+        porque: 'the birth mark reads the census across entities: another entity\'s metadata marks this bill',
+      },
+      {
+        archivo: 'src/services/ap/bill-cfdi-cancellation.ts',
+        de: 'AND b.cfdi_cancellation_noted_at IS NULL',
+        a: '',
+        porque: 'the birth mark loses its predicate: measuring a bill again rewrites the moment the system first learned it',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: '                cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)\n                                                  THEN cfdi_cancellation_noted_at END,\n',
+        a: '',
+        porque: 'the takeover rewrites cfdi_uuid and keeps the old UUID\'s mark: ap check names a bill for a CFDI it no longer carries',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: 'lower($12::text)',
+        a: 'lower(cfdi_uuid)',
+        porque: 'the takeover compares the old UUID with itself, so it always keeps the mark, whatever UUID the bill now carries',
+      },
+    ],
+    evaluar: () => {
+      // MNE-001-601 (#888): the bridge of 431 marks a bill that exists when
+      // the cancellation arrives. A bill born after the mirror or the census of
+      // its entity already says cancelled is marked by noteBillCfdiAlreadyCancelled,
+      // on the bill's own transaction, from the two writers that give a bill a
+      // cfdi_uuid. The takeover of an opening bill drops the mark of a UUID it
+      // no longer carries before that measure runs.
+      const file = 'src/services/ap/bill-cfdi-cancellation.ts';
+      if (!existe(file)) return falla('no existe el puente del bill: ningún bill nace marcado');
+      const src = codigoDe(file);
+      const n = src.indexOf('export async function noteBillCfdiAlreadyCancelled');
+      const note = n >= 0 ? src.slice(n, src.indexOf('\n}', n)) : '';
+      if (!note) return falla('no existe noteBillCfdiAlreadyCancelled: un bill que nace de un CFDI ya cancelado espera sin marca al siguiente barrido');
+      const set = /SET ([^\n]*)/.exec(note)?.[1] ?? '';
+      if (!/^cfdi_cancellation_noted_at = NOW\(\)\s*$/.test(set)) {
+        return falla('la marca al nacer escribe algo más que la marca (status, saldo, póliza o updated_at): el alta no es una edición del bill');
+      }
+      if (!/WHERE b\.id = \$2\s+AND b\.entity_id = \$1\s+AND b\.cfdi_cancellation_noted_at IS NULL/.test(note)) {
+        return falla('la marca al nacer perdió su guarda (el bill, su entidad o el predicado del bill ya marcado): invariante 3');
+      }
+      if (!/FROM xml_documents x\s+WHERE x\.entity_id = b\.entity_id/.test(note) ||
+          !/FROM sat_cfdi_census c\s+WHERE c\.entity_id = b\.entity_id/.test(note)) {
+        return falla('la marca al nacer lee el espejo o el censo de otra entidad: invariante 4');
+      }
+      if (!/const moved = r\.rowCount \?\? 0;\s+if \(moved > 1\) throw/.test(note)) {
+        return falla('la marca al nacer no comprueba su rowCount: por id mueve cero o una fila');
+      }
+
+      // The one core of `bill inbox run` and of the AI-draft approval.
+      const pre = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+      const c = pre.indexOf('async function insertarFacturaDePreRegistro(');
+      const core = c >= 0 ? pre.slice(c, pre.indexOf('\n}\n', c)) : '';
+      const born = core.indexOf('INSERT INTO bills (');
+      const preCall = core.indexOf('await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);');
+      if (!core || born < 0 || preCall < born || preCall > core.indexOf('return { billId')) {
+        return falla('insertarFacturaDePreRegistro no mide el bill tras escribirlo, en su transacción: bill inbox run y la aprobación de un borrador del agente lo dejan sin marca');
+      }
+      const body = (head: string, end: string): string => {
+        const i = pre.indexOf(head);
+        return i < 0 ? '' : pre.slice(i, pre.indexOf(end, i));
+      };
+      if (!body('private async createBillFromPreReg(', '\n  }\n').includes('await insertarFacturaDePreRegistro(') ||
+          !body('export async function registrarFacturaDeBorradorAprobado(', '\n}\n').includes('await insertarFacturaDePreRegistro(')) {
+        return falla('bill inbox run o la aprobación de un borrador ya no pasan por insertarFacturaDePreRegistro: un camino escribe el bill sin medirlo');
+      }
+
+      // The opening bills: both branches, then the measure.
+      const op = codigoDe('src/services/ap/opening-bills.ts');
+      const w = op.indexOf('export async function writeOpeningBills(');
+      const write = w >= 0 ? op.slice(w, op.indexOf('\n}\n', w)) : '';
+      const takeover = write.indexOf('billId = d.replacesId;');
+      const inserted = write.indexOf('billId = inserted.rows[0].id;');
+      const opCall = write.indexOf('await noteBillCfdiAlreadyCancelled(client, entityId, billId);');
+      if (!write || takeover < 0 || inserted < 0 || opCall < Math.max(takeover, inserted)) {
+        return falla('writeOpeningBills no mide cada bill de apertura, nuevo o tomado, contra el UUID que ya lleva');
+      }
+      const u = write.indexOf('UPDATE bills');
+      const update = u >= 0 && u < takeover ? write.slice(u, write.indexOf('`', u)) : '';
+      const kase = /cfdi_cancellation_noted_at = CASE WHEN lower\(cfdi_uuid\) IS NOT DISTINCT FROM lower\(\$12::text\)\s+THEN cfdi_cancellation_noted_at END,/.exec(update)?.[0];
+      return /cfdi_uuid = \$6,/.test(update) && kase !== undefined && !/\bELSE\b/.test(kase) &&
+        /\[\.\.\.values, d\.replacesId, d\.cfdiUuid\]/.test(write.slice(u, takeover))
+        ? ok('el bill que nace de un CFDI que su entidad ya sabe cancelado lleva la marca en su alta desde la bandeja, el borrador aprobado y la apertura, y la toma de un bill de apertura suelta la marca de un UUID que ya no lleva')
+        : falla('la toma de un bill de apertura reescribe cfdi_uuid y conserva la marca de un UUID distinto');
+    },
+  },
+
+  // ---- MNE-001-432 (#643) · the AP control names the marked open bill ----
+  {
+    paquete: 'E3.2',
+    id: 'cancelled-received-cfdi-open-named',
+    enunciado: 'El control de CxP nombra cada bill abierto con saldo cuyo CFDI recibido el SAT canceló, leyendo la marca que escribe su puente',
+    mutantes: [
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'AND b.cfdi_cancellation_noted_at IS NOT NULL',
+        a: "AND b.status = 'cancelled'",
+        porque: 'the control reads a value the mark never writes: every marked bill with a balance goes unnamed',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'AND b.status = ANY($2::text[])',
+        a: 'AND $2::text[] IS NOT NULL',
+        porque: 'the control forgets the open set: a void or draft bill is named as owed',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'AND b.amount_due > 0',
+        a: '',
+        porque: 'the control forgets the balance: a bill with nothing left to pay is named as owed',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'WHERE b.entity_id = $1',
+        a: 'WHERE $1::uuid IS NOT NULL',
+        porque: 'the control loses its entity scope: a sister entity with the same UUID shows its bill here',
+      },
+    ],
+    evaluar: () => {
+      // MNE-001-431 wrote the mark and nothing read it. The control must read
+      // the very column the bridge writes, so it takes the name from the
+      // bridge's SET rather than from a copy here.
+      const bridgeFile = 'src/services/ap/bill-cfdi-cancellation.ts';
+      const file = 'src/services/ap/ap-checks.ts';
+      if (!existe(bridgeFile)) return falla('no existe el puente del bill: no hay marca que el control pueda leer');
+      if (!existe(file)) return falla('no existe ap-checks.ts: ningún control de CxP lee la marca del CFDI cancelado');
+      const column = /SET (\w+) = NOW\(\)/.exec(codigoDe(bridgeFile))?.[1];
+      if (!column) return falla('el puente del bill no escribe una marca con fecha');
+      const src = codigoDe(file);
+      const i = src.indexOf("name: 'cancelled-cfdi-open'");
+      const probe = i >= 0 ? src.slice(i, src.indexOf('\n  },', i)) : '';
+      if (!probe) return falla('ap check no tiene la sonda cancelled-cfdi-open');
+      if (!probe.includes(`AND b.${column} IS NOT NULL`)) {
+        return falla(`la sonda no lee b.${column}, la marca que escribe el puente: lee un valor que la marca nunca escribe`);
+      }
+      if (!/WHERE b\.entity_id = \$1\b/.test(probe)) return falla('la sonda perdió el alcance de la entidad: invariante 4');
+      if (!/AND b\.status = ANY\(\$2::text\[\]\)/.test(probe) || !/\[entityId, \[\.\.\.PAYABLE_OPEN_STATUSES\]\]/.test(probe)) {
+        return falla('la sonda no filtra por PAYABLE_OPEN_STATUSES: nombra bills que no están abiertos');
+      }
+      if (!/AND b\.amount_due > 0/.test(probe)) return falla('la sonda nombra bills sin saldo por pagar');
+      return /\bLIMIT\b/.test(probe)
+        ? falla('la sonda recorta el listado: la aceptación pide cada bill')
+        : ok('ap check nombra cada bill abierto de la entidad con saldo cuyo CFDI recibido el SAT canceló, por la marca que escribe su puente');
+    },
+  },
+
+  // ---- MNE-001-610 (#643) · the AP control names the marked paid bill ----
+  {
+    paquete: 'E3.2',
+    id: 'cancelled-received-cfdi-paid-named',
+    enunciado: 'El control de CxP nombra cada bill pagado y sin saldo cuyo CFDI recibido el SAT canceló, con lo pagado, leyendo la marca que escribe su puente',
+    mutantes: [
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'WHERE b.cfdi_cancellation_noted_at IS NOT NULL',
+        a: "WHERE b.status = 'cancelled'",
+        porque: 'the paid probe reads a value the mark never writes: every paid bill on a cancelled CFDI goes unnamed',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: 'AND b.entity_id = $1',
+        a: 'AND $1::uuid IS NOT NULL',
+        porque: 'the paid probe loses its entity scope: a sister entity with the same UUID shows its paid bill here',
+      },
+      {
+        archivo: 'src/services/ap/ap-checks.ts',
+        de: "AND b.status = 'paid'",
+        a: 'AND b.status IS NOT NULL',
+        porque: 'the paid probe forgets the status: a void bill with nothing due is named as paid',
+      },
+    ],
+    evaluar: () => {
+      // The second reader of the mark of MNE-001-431. Like 432's criterion, it
+      // takes the column from the bridge's SET rather than from a copy here.
+      const bridgeFile = 'src/services/ap/bill-cfdi-cancellation.ts';
+      const file = 'src/services/ap/ap-checks.ts';
+      if (!existe(bridgeFile)) return falla('no existe el puente del bill: no hay marca que el control pueda leer');
+      if (!existe(file)) return falla('no existe ap-checks.ts: ningún control de CxP lee la marca del CFDI cancelado');
+      const column = /SET (\w+) = NOW\(\)/.exec(codigoDe(bridgeFile))?.[1];
+      if (!column) return falla('el puente del bill no escribe una marca con fecha');
+      const src = codigoDe(file);
+      const i = src.indexOf("name: 'cancelled-cfdi-paid'");
+      const probe = i >= 0 ? src.slice(i, src.indexOf('\n  },', i)) : '';
+      if (!probe) return falla('ap check no tiene la sonda cancelled-cfdi-paid');
+      if (!probe.includes(`WHERE b.${column} IS NOT NULL`)) {
+        return falla(`la sonda de pagados no lee b.${column}, la marca que escribe el puente: lee un valor que la marca nunca escribe`);
+      }
+      if (!/AND b\.entity_id = \$1\b/.test(probe)) return falla('la sonda de pagados perdió el alcance de la entidad: invariante 4');
+      if (!/AND b\.status = 'paid'/.test(probe) || !/AND b\.amount_due = 0\b/.test(probe)) {
+        return falla('la sonda de pagados no se limita a los bills pagados y sin saldo');
+      }
+      if (!/b\.amount_paid\b/.test(probe)) return falla('la sonda de pagados no dice lo pagado');
+      return /\bLIMIT\b/.test(probe)
+        ? falla('la sonda de pagados recorta el listado: la aceptación pide cada bill')
+        : ok('ap check nombra cada bill pagado y sin saldo de la entidad cuyo CFDI recibido el SAT canceló, con lo pagado, por la marca que escribe su puente');
     },
   },
 

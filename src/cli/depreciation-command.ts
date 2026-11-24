@@ -1,5 +1,5 @@
 import * as readline from 'node:readline/promises';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import Decimal from 'decimal.js';
@@ -38,6 +38,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine depreciation · depreciacion
@@ -123,21 +124,17 @@ export type Dimension = (typeof DIMENSIONES)[number];
 export function exigirDimension(valor: string): Dimension {
   const d = valor.trim().toLowerCase();
   if (!(DIMENSIONES as readonly string[]).includes(d)) {
-    throw usageError(
-      `--by "${valor}" no existe. Las cuatro dimensiones son: ${DIMENSIONES.join(', ')} ` +
-        '(asset es el detalle activo por activo; class y account son el resumen por clase y por ' +
-        'destino del gasto que pide el catálogo).'
-    );
+    throw usageError({
+      key: 'assets.depreciation.by_unknown',
+      params: { value: valor, dimensions: DIMENSIONES.join(', ') },
+    });
   }
   return d as Dimension;
 }
 
 function exigirPeriodo(periodo: string | undefined): string {
   if (!periodo) {
-    throw usageError(
-      'Falta --period. La depreciación es de un mes concreto y no se adivina del reloj: correr ' +
-        '«el periodo actual» un día 1 a las 00:05 depreciaría el mes que acaba de empezar.'
-    );
+    throw usageError({ key: 'assets.depreciation.period_required' });
   }
   return periodo;
 }
@@ -178,10 +175,24 @@ export function filasPorActivo(plan: PlanDeDepreciacion): Row[] {
   return [...entran, ...omitidos];
 }
 
+/**
+ * The group of the assets with no class (MNE-001-222). The ROW stores the
+ * English catalogue, because --json and csv are read by scripts and must not
+ * change with the locale; the table renders it in the user's language through
+ * `noClassLabel` and the kernel's `labelled` hook.
+ */
+const noClass = (): string => t('assets.depreciation.no_class', {}, 'en');
+
+/** The table's label of a stored group: the no-class key in the user's language; any other value passes through. */
+export function noClassLabel(value: string): string {
+  return value === noClass() ? t('assets.depreciation.no_class') : value;
+}
+
 /** El resumen por clase, por cuenta de destino o por método. */
 export function filasAgrupadas(plan: PlanDeDepreciacion, por: Exclude<Dimension, 'asset'>): Row[] {
+  const classless = noClass();
   const clave = (r: { categoria: string; cuenta_gasto: string; metodo: string }): string =>
-    por === 'class' ? r.categoria || '(sin clase)' : por === 'account' ? r.cuenta_gasto : r.metodo;
+    por === 'class' ? r.categoria || classless : por === 'account' ? r.cuenta_gasto : r.metodo;
 
   const grupos = new Map<string, { activos: number; suma: Decimal }>();
   for (const r of plan.renglones) {
@@ -199,7 +210,7 @@ export function filasAgrupadas(plan: PlanDeDepreciacion, por: Exclude<Dimension,
   const omitidosPorClase = new Map<string, number>();
   if (por === 'class') {
     for (const o of plan.omitidos) {
-      const k = o.categoria || '(sin clase)';
+      const k = o.categoria || classless;
       omitidosPorClase.set(k, (omitidosPorClase.get(k) ?? 0) + 1);
       if (!grupos.has(k)) grupos.set(k, { activos: 0, suma: new Decimal(0) });
     }
@@ -343,10 +354,10 @@ export function registerDepreciationCommand(
       // que un «sí» tecleado en español contaba como NO.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -376,25 +387,31 @@ export function registerDepreciationCommand(
     const p = deps.palette;
     err.write(
       p.dim(
-        `${plan.periodo} (${plan.inicio}..${plan.fin}) · libro ${plan.tipo_calendario} · ` +
-          `asientos con fecha ${plan.fecha_del_asiento} · huella ${plan.huella.slice(0, 12)}\n`
+        `${t('assets.depreciation.header', {
+          period: plan.periodo,
+          start: plan.inicio,
+          end: plan.fin,
+          book: plan.tipo_calendario,
+          entryDate: plan.fecha_del_asiento,
+          fingerprint: plan.huella.slice(0, 12),
+        })}\n`
       )
     );
     err.write(
       p.dim(
-        `base ${plan.base}${plan.base_definida ? '' : ' (defecto)'} · ` +
-          `convención ${plan.convencion}${plan.convencion_definida ? '' : ' (defecto)'} · ` +
-          `${plan.renglones.length} activo(s) entran, ${plan.omitidos.length} se omiten, ` +
-          `total ${plan.total}\n`
+        `${t('assets.depreciation.criteria', {
+          base: plan.base,
+          baseDefaulted: plan.base_definida ? 'no' : 'yes',
+          convention: plan.convencion,
+          conventionDefaulted: plan.convencion_definida ? 'no' : 'yes',
+          entering: plan.renglones.length,
+          skipped: plan.omitidos.length,
+          total: plan.total,
+        })}\n`
       )
     );
     if (!plan.base_definida || !plan.convencion_definida) {
-      err.write(
-        p.yellow(
-          '  ⚠ Rige al menos un defecto declarado y no una elección del despacho. Se contesta con ' +
-            '`mnemosine pending define base_depreciacion` / `convencion_primer_mes`.\n'
-        )
-      );
+      err.write(p.yellow(`  ⚠ ${t('assets.depreciation.default_criteria_warning')}\n`));
     }
   };
 
@@ -402,7 +419,7 @@ export function registerDepreciationCommand(
   const detalleDeOmitidos = (plan: PlanDeDepreciacion, opts: CommonOpts): void => {
     if (!legible(opts) || plan.omitidos.length === 0) return;
     const err = process.stderr;
-    err.write(deps.palette.dim(`\nOmitidos (${plan.omitidos.length}):\n`));
+    err.write(deps.palette.dim(`\n${t('assets.depreciation.skipped_heading', { count: plan.omitidos.length })}\n`));
     for (const o of plan.omitidos) {
       const linea = `  · ${o.asset_number} ${o.asset_name}: ${o.motivo} — ${o.detalle}\n`;
       err.write(o.pendiente ? deps.palette.yellow(linea) : deps.palette.dim(linea));
@@ -422,10 +439,12 @@ export function registerDepreciationCommand(
     if (plan.pendientes === 0) return;
     process.stderr.write(
       deps.palette.yellow(
-        `  ⚠ ${plan.pendientes} activo(s) se quedan sin renglón de ${plan.periodo} y el mes ` +
-          `debería reconocerlo. La política \`depreciacion_faltante_al_cierre\` vale ` +
-          `"${plan.faltante_al_cierre.politica}"` +
-          `${plan.faltante_al_cierre.definida ? '' : ' (defecto declarado)'}.\n`
+        `  ⚠ ${t('assets.depreciation.missing_rows_warning', {
+          pending: plan.pendientes,
+          period: plan.periodo,
+          policy: plan.faltante_al_cierre.politica,
+          defaulted: plan.faltante_al_cierre.definida ? 'no' : 'yes',
+        })}\n`
       )
     );
   };
@@ -471,24 +490,24 @@ export function registerDepreciationCommand(
         ...opts,
         idField: por === 'asset' ? 'asset_number' : 'grupo',
         numeric: ['depreciacion', 'acumulada', 'valor_en_libros', 'activos', 'omitidos', 'indice'],
+        ...(por === 'class' ? { labelled: { grupo: noClassLabel } } : {}),
       });
 
       detalleDeOmitidos(plan, opts);
       avisoDeFaltante(plan);
 
       if (bloqueaElFaltante(plan, opts.strict)) {
-        throw blockedByState(
-          `${plan.pendientes} activo(s) sin renglón de ${plan.periodo}. ` +
-            (opts.strict === true
-              ? '--strict convierte el aviso en bloqueo.'
-              : 'La política `depreciacion_faltante_al_cierre` está en "bloquear".') +
-            ' `depreciation post` se negará a contabilizar hasta que se resuelvan.'
-        );
+        throw blockedByState({
+          key: 'assets.depreciation.run_blocked',
+          params: {
+            pending: plan.pendientes,
+            period: plan.periodo,
+            cause: opts.strict === true ? 'strict' : 'policy',
+          },
+        });
       }
       if (plan.renglones.length === 0) {
-        process.stderr.write(
-          deps.palette.dim('Nada que contabilizar en este periodo con este libro.\n')
-        );
+        process.stderr.write(deps.palette.dim(`${t('assets.depreciation.nothing_this_book')}\n`));
       }
       return ExitCode.OK;
     })
@@ -511,7 +530,7 @@ export function registerDepreciationCommand(
     risk: 'irreversible',
     llave: { scope: 'depreciation post' },
     agent: false,
-    writes: 'journal_entries + journal_entry_lines (una póliza por activo), depreciation_schedules, fixed_assets',
+    writes: 'journal_entries + journal_entry_lines (one entry per asset), depreciation_schedules, fixed_assets',
   });
   contabilizar.addHelpText('after', EJEMPLOS.post);
   contabilizar.action((
@@ -544,11 +563,10 @@ export function registerDepreciationCommand(
         const aprobado = leerPlanAprobado(readFileSync(opts.file, 'utf-8'), opts.file);
         const diferencias = diferenciasContraPlan(aprobado, plan);
         if (diferencias.length > 0) {
-          throw conflict(
-            `El plan aprobado en ${opts.file} ya no corresponde a lo que la corrida haría hoy, ` +
-              `así que no se contabiliza nada: ${diferencias.join('; ')}. Vuelve a correr ` +
-              '`depreciation run`, revisa el plan nuevo y contabiliza contra ése.'
-          );
+          throw conflict({
+            key: 'assets.depreciation.plan_changed',
+            params: { file: opts.file, differences: diferencias.join('; ') },
+          });
         }
       }
 
@@ -557,19 +575,21 @@ export function registerDepreciationCommand(
       // de un valor en libros que ya no es reconstruible de un vistazo.
       if (bloqueaElFaltante(plan, false)) {
         avisoDeFaltante(plan);
-        throw blockedByState(
-          `No se contabiliza: ${plan.pendientes} activo(s) se quedan sin renglón de ` +
-            `${plan.periodo} y la política \`depreciacion_faltante_al_cierre\` está en ` +
-            '"bloquear". Resuélvelos (captura la producción del periodo, corrige la ficha) o ' +
-            `cambia la política con ${changePolicyHint('depreciacion_faltante_al_cierre')}.`
-        );
+        throw blockedByState({
+          key: 'assets.depreciation.post_blocked',
+          params: {
+            pending: plan.pendientes,
+            period: plan.periodo,
+            hint: changePolicyHint('depreciacion_faltante_al_cierre'),
+          },
+        });
       }
 
       if (plan.renglones.length === 0) {
         cabecera(plan);
         detalleDeOmitidos(plan, opts);
         process.stderr.write(
-          deps.palette.dim(`Nada que contabilizar en ${plan.periodo}: el mayor no se tocó.\n`)
+          deps.palette.dim(`${t('assets.depreciation.nothing_to_post', { period: plan.periodo })}\n`)
         );
         return ExitCode.OK;
       }
@@ -584,32 +604,30 @@ export function registerDepreciationCommand(
       });
       if (legible(opts)) {
         process.stderr.write(
-          deps.palette.dim(
-            `${plan.renglones.length} póliza(s) de dos líneas, una por activo — no una sola de ` +
-              `la corrida. Reversar esta corrida son ${plan.renglones.length} reversas.\n`
-          )
+          deps.palette.dim(`${t('assets.depreciation.entries_note', { count: plan.renglones.length })}\n`)
         );
       }
       avisoDeFaltante(plan);
 
       if (dryRun) {
-        process.stderr.write(
-          deps.palette.dim('Ensayo: el mayor no se tocó y no se escribió ningún renglón.\n')
-        );
+        process.stderr.write(deps.palette.dim(`${t('dry_run_ledger_untouched')}\n`));
         return ExitCode.OK;
       }
 
       if (opts.yes !== true) {
         const ok = await ask(
-          `¿Contabilizar ${plan.total} en ${plan.renglones.length} póliza(s) del libro ` +
-            `${plan.tipo_calendario} de ${plan.periodo}? El mayor no admite deshacer.`
+          t('assets.depreciation.confirm', {
+            total: plan.total,
+            count: plan.renglones.length,
+            book: plan.tipo_calendario,
+            period: plan.periodo,
+          })
         );
         if (!ok) {
           throw abortedByUser(
             stdin.isTTY
-              ? 'Sin cambios: el mayor no se tocó.'
-              : 'Sin cambios: no hay terminal donde confirmar. Añade -y para contabilizar sin ' +
-                'preguntar, o --dry-run para ver el asiento completo sin escribir nada.'
+              ? { key: 'no_changes_ledger_untouched' }
+              : { key: 'no_changes_no_terminal', params: { command: 'depreciation post' } }
           );
         }
       }
@@ -631,12 +649,7 @@ export function registerDepreciationCommand(
 
       const err = process.stderr;
       if (repetido) {
-        err.write(
-          deps.palette.dim(
-            'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se ' +
-              'volvió a contabilizar.\n'
-          )
-        );
+        err.write(deps.palette.dim(`${t('assets.depreciation.idempotency_hit')}\n`));
       }
 
       // LA COMPARACIÓN CONTRA LO QUE DE VERDAD PASÓ. El plan y la corrida
@@ -645,17 +658,21 @@ export function registerDepreciationCommand(
       if (resultado.processed !== plan.renglones.length) {
         err.write(
           deps.palette.yellow(
-            `  ⚠ El plan enseñaba ${plan.renglones.length} póliza(s) y la corrida hizo ` +
-              `${resultado.processed}. El plan y el motor no coincidieron: revisa los errores ` +
-              'antes de dar el mes por cerrado.\n'
+            `  ⚠ ${t('assets.depreciation.plan_count_mismatch', {
+              planned: plan.renglones.length,
+              processed: resultado.processed,
+            })}\n`
           )
         );
       }
       for (const e of resultado.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
       err.write(
         deps.palette.green(
-          `✔ ${resultado.processed} póliza(s) contabilizada(s) en ${plan.periodo} (libro ` +
-            `${plan.tipo_calendario}).\n`
+          `✔ ${t('assets.depreciation.done', {
+            count: resultado.processed,
+            period: plan.periodo,
+            book: plan.tipo_calendario,
+          })}\n`
         )
       );
 

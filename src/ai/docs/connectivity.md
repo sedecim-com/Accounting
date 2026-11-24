@@ -59,16 +59,24 @@ coverage, and provider-specific traps. Ask the human to run it and paste the
 output when a connection problem is unclear.
 
 ## Model providers
-12 built-in profiles: `anthropic` (default), `hermes`, `hermes-agent`,
-`ollama`, `openai`, `grok`, `minimax`, `qwen`, `gemini`, `openrouter`,
-`copilot`, `openclaw`. `mnemosine providers` lists them with notes.
+13 built-in profiles: `anthropic` (default), `hermes`, `hermes-agent`,
+`ollama`, `openai`, `grok`, `minimax`, `qwen`, `gemini`, `nvidia`,
+`openrouter`, `copilot`, `openclaw`. `mnemosine providers` lists them with notes.
 
 - Selection precedence: `--provider` flag > `MNEMOSINE_PROVIDER` env >
   `default_provider` in config > `anthropic`.
 - Config files: `./mnemosine.config.json` (project) or
   `~/.mnemosine/config.json` (user). API keys NEVER go in the config — it
   only names the env var (`api_key_env`), or a command that prints the
-  credential (`api_key_cmd`, tried when the env var is empty). An invalid
+  credential (`api_key_cmd`, tried when the env var is empty). A helper in
+  the person's own `~/.mnemosine/config.json` on an OpenAI-compatible profile
+  is run again every five minutes and after a 401, so a one-hour `gcloud`
+  token lasts the session; one in a project file runs once per session. A
+  helper that fails says the profile and its exit code or its 10 s limit,
+  never its command or stderr: tell the person to run it themselves. Help
+  them put helper profiles in their own user file, never in a shared project
+  file, and say that «Sign in with ChatGPT» and a Codex login are not API
+  credentials for mnemosine. An invalid
   config fails loudly and is quarantined, never silently replaced by
   defaults; the one writer that goes further is `mnemosine lang`, which on a
   USER file whose CONTENT is invalid (it does not parse, or the schema rejects
@@ -87,7 +95,50 @@ output when a connection problem is unclear.
   (`MNEMOSINE_LOCALE`, alias `MNEMOSINE_LANG`) outrank it, and `lang` says so
   out loud after writing. The legacy `language` key keeps its OLD order (the
   first file that exists wins entire, project before user) and is still read
-  as a fallback below `locale`.
+  as a fallback below `locale`. `mnemosine lang --unset` (`unsetUserLocale`)
+  removes `locale` and the legacy `language` from the USER file only, keeps
+  every other key, and writes nothing when neither is there.
+- A second key is read from `~/.mnemosine/config.json` ALONE: `jobs.run_due`,
+  `"adopted"` or `"all"`, which due jobs `jobs run-due` runs on the
+  credential of whoever runs it (#646). `adopted` runs only the jobs that
+  operator adopted (`jobs adopt <id>`, kept in `~/.mnemosine/adopted-jobs.json`,
+  never in the database) and lists the rest; `all` runs every due job; unset
+  behaves as `all` and names on stderr the jobs it ran that were not adopted.
+  In a project file the key is not read, and the tick says so.
+- `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
+  copying it, so a built-in keeps its declared window: `--model` >
+  `models.<profile>` > the profile's `model`. A name that is no profile is
+  refused. `init --section ai` writes `default_provider` and `models` to the
+  file that wins, creating `~/.mnemosine/config.json` (never a project file)
+  when none exists, and asks before writing a project file (default No, kept
+  by `--yes`; on No the project file still decides in that folder). A key
+  typed at init goes to `~/.mnemosine/.env` (600), never `./.env`; init
+  removes an empty definition of that variable from `./.env`, which would
+  hide it. `MNEMOSINE_PROVIDER` still outranks the saved default, and init
+  says so.
+- An openai-compatible profile may declare `reasoning_effort` (none, minimal,
+  low, medium, high, xhigh, max); it is sent only then. The built-ins `grok`
+  (`grok-4.3`) and `gemini` (`gemini-3.8-flash`) declare `low`; their model
+  ids ship not verified live, as their notes say. A turn that spends
+  the whole 8192-token output cap without text or a tool call fails with an
+  error that says so: suggest a lower `reasoning_effort`, not a retry. Tool
+  calls keep the provider's `extra_content` (Gemini 3's thought signature)
+  and send it back unchanged.
+- `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and the lines of `OPENAI_CUSTOM_HEADERS`,
+  which the `openai` SDK reads on its own, reach only OpenAI's hosts
+  (`api.openai.com` and its regional ones); every other host gets the
+  profile's own key and `headers`, nothing more. A profile whose
+  `api_key_env` names an installation secret (`DATABASE_URL`,
+  `ENCRYPTION_KEY`, `JWT_SECRET`…) is refused before anything is sent, and
+  readiness says «not a provider credential»: tell the person to name the
+  provider's own key variable instead.
+- `nvidia` is NVIDIA's hosted catalog (`integrate.api.nvidia.com`), a
+  trial that records what it receives: never a client's data. `ingest`,
+  `jobs run-due` and init's import refuse any profile on that host; `chat`
+  and `ask` use it only after its terms and a yes at a terminal, once per
+  session; a failover walk never moves into it, and `doctor` warns while the
+  default or a link of its chain is on it. When a refusal names it, suggest
+  another provider or a self-hosted NIM, never a way around the guard.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.

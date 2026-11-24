@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="B" Folio="2002" Fecha="2026-08-21T10:00:00" FormaPago="99" MetodoPago="PPD" TipoDeComprobante="I" Moneda="MXN" SubTotal="8000.00" Descuento="500.00" Total="8700.00" LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="SIN060101AB1" Nombre="Servicios Integrales SA" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Demo Corp MX" UsoCFDI="G03" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="80101500" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Consultoria en procesos administrativos agosto 2026" Cantidad="1" ValorUnitario="8000.00" Importe="8000.00" Descuento="500.00" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="1200.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="7500.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1200.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="A4D2B9C6-3E57-4F10-9B8A-52C7D6E8F901" FechaTimbrado="2026-08-21T10:05:00" RfcProvCertif="SAT970701NN3" SelloCFD="selloCFD" NoCertificadoSAT="30001000000500000001" SelloSAT="selloSAT"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

@@ -60,7 +60,7 @@ describe('a RECEIVED lodging CFDI', () => {
     expect(entry(c)).toEqual([
       { role: 'gasto', code: ROLE_MAP.gasto, debit: 1000, credit: null },
       { role: 'impuestos_locales_gasto', code: ROLE_MAP.impuestos_locales_gasto, debit: 30, credit: null },
-      { role: 'iva_acreditable', code: '1130', debit: 160, credit: null },
+      { role: 'iva_pendiente_acreditar', code: '1135', debit: 160, credit: null },
       { role: 'cxp', code: '2110', debit: null, credit: 1190 },
     ]);
   });

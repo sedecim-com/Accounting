@@ -23,7 +23,7 @@ const CTX: AgentContext = {
  */
 function mockSources(sources: {
   drafts?: unknown[]; questions?: unknown[]; ops?: unknown[];
-  creds?: unknown[]; periods?: unknown[];
+  creds?: unknown[]; periods?: unknown[]; undeclaredZone?: unknown[];
 }) {
   // Defensive with the first argument: the runner may invoke the mock with
   // no args when clearing it, and a mock that assumes its shape breaks.
@@ -34,6 +34,7 @@ function mockSources(sources: {
     if (q.includes('ai_external_ops')) return Promise.resolve({ rows: sources.ops ?? [] });
     if (q.includes('fiscal_credentials')) return Promise.resolve({ rows: sources.creds ?? [] });
     if (q.includes('fiscal_periods')) return Promise.resolve({ rows: sources.periods ?? [] });
+    if (q.includes('minimum_wage_zone_declared_at')) return Promise.resolve({ rows: sources.undeclaredZone ?? [] });
     return Promise.resolve({ rows: [] });
   });
 }
@@ -90,6 +91,24 @@ describe('getPendingBoard', () => {
     expect(board.items[0].summary).toMatch(/ALREADY EXPIRED/);
   });
 
+  it('an entity with employees and no declared minimum-wage zone gets a WARNING with the command (MNE-001-377)', async () => {
+    mockSources({ undeclaredZone: [{ employees: 3 }] });
+    const board = await getPendingBoard(CTX);
+    expect(board.items).toHaveLength(1);
+    const item = board.items[0];
+    expect(item.kind).toBe('minimum_wage_zone');
+    expect(item.warning).toBe(true);
+    expect(item.summary).toMatch(/minimum wage zone/i);
+    expect(item.summary).toMatch(/general minimum/i);
+    expect(item.command).toBe('mnemosine entity edit AME010101AAA --minimum-wage-zone general|northern_border');
+    expect(board.totalWork).toBe(0);
+  });
+
+  it('no warning once the zone is declared, or with no active employees', async () => {
+    mockSources({ undeclaredZone: [] });
+    expect((await getPendingBoard(CTX)).items).toEqual([]);
+  });
+
   it('limits examples to 3 even when there are more', async () => {
     mockSources({
       questions: Array.from({ length: 7 }, (_, i) => ({ question: `duda ${i}` })),
@@ -112,7 +131,7 @@ describe('getPendingBoard', () => {
     mockSources({});
     await getPendingBoard(CTX);
     const realCalls = mockQuery.mock.calls.filter((c) => typeof c[0] === 'string');
-    expect(realCalls).toHaveLength(5);
+    expect(realCalls).toHaveLength(6);
     for (const call of realCalls) {
       expect(call[1]).toEqual(['entity-1']);
       expect(String(call[0])).toMatch(/entity_id = \$1/);

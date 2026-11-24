@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/database/connection.js', () => ({ query: vi.fn(), getClient: vi.fn() }));
 
 import Decimal from 'decimal.js';
-import { vatColumnsOf, uniformVatColumns, spreadDeclaredBase } from '../../src/services/xml-ingestion/pre-registration-service.js';
+import { vatColumnsOf, uniformVatColumns, spreadDeclaredBase, billHeaderVat } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { CFDIParser } from '../../src/services/xml-ingestion/cfdi-parser.js';
 import type { CFDIImpuesto } from '../../src/services/xml-ingestion/cfdi-parser.js';
 
@@ -56,6 +56,33 @@ describe('vatColumnsOf', () => {
   it('two IVA transfers on one concept add their tax and leave the rate to be measured', () => {
     const iva8: CFDIImpuesto = { base: 100, impuesto: '002', tipoFactor: 'Tasa', tasaOCuota: 0.08, importe: 8 };
     expect(vatColumnsOf([iva16, iva8])).toEqual({ tax: '180.8', factor_type: 'tasa', tax_rate: null, acts_value: null });
+  });
+});
+
+// MNE-001-488 · #691 — the bill header holds VAT alone, like its lines.
+describe('billHeaderVat', () => {
+  const summary = (transfers: CFDIImpuesto[]) => ({ totalImpuestosTrasladados: 0, traslados: transfers, retenciones: [] });
+
+  it('a VAT-only CFDI keeps the stored total, which is its 002 sum', () => {
+    expect(billHeaderVat({ tax_amount: '172.8000', tax_breakdown: summary([iva16]) })).toBe('172.8000');
+  });
+
+  it('IEPS ahead of the VAT stays out of the header', () => {
+    expect(billHeaderVat({ tax_amount: '252.8000', tax_breakdown: summary([ieps, iva16]) })).toBe('172.8000');
+    const numeric = { ...iva16, impuesto: 2 as unknown as string };
+    expect(billHeaderVat({ tax_amount: '252.8000', tax_breakdown: summary([ieps, numeric]) })).toBe('172.8000');
+  });
+
+  it('a CFDI that transfers no VAT has a header of zero', () => {
+    expect(billHeaderVat({ tax_amount: '80.0000', tax_breakdown: summary([ieps]) })).toBe('0.0000');
+    const exempt: CFDIImpuesto = { base: 300, impuesto: '002', tipoFactor: 'Exento' };
+    expect(billHeaderVat({ tax_amount: '0.0000', tax_breakdown: summary([exempt]) })).toBe('0.0000');
+  });
+
+  it('with no summary to read, the stored total stands: no split is guessed', () => {
+    expect(billHeaderVat({ tax_amount: '252.8000', tax_breakdown: null })).toBe('252.8000');
+    expect(billHeaderVat({ tax_amount: '252.8000', tax_breakdown: summary([]) })).toBe('252.8000');
+    expect(billHeaderVat({ tax_amount: '252.8000', tax_breakdown: { totalImpuestosTrasladados: 252.8 } })).toBe('252.8000');
   });
 });
 

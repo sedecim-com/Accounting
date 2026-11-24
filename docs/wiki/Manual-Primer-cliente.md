@@ -32,7 +32,7 @@ Mnemosine health check
   ✘ Database        no connection: role "postgres" does not exist
       → Check DATABASE_URL in .env and that PostgreSQL is running (docker compose up -d postgres)
   ✘ Model provider  anthropic requires ANTHROPIC_API_KEY and it is not set
-      → Set ANTHROPIC_API_KEY in .env, or use --provider ollama
+      → Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env (get it at https://platform.claude.com/settings/keys), or use --provider ollama
   ⚠ Encryption key  ENCRYPTION_KEY not set (the code default is used)
       → openssl rand -hex 32  → ENCRYPTION_KEY in .env
 
@@ -309,9 +309,9 @@ npm run mnemosine -- chart import ./migracion/catalogo.xml --yes
 Y después la balanza del cierre anterior, que se contabiliza como la póliza de apertura el primer día del ejercicio. **Es irreversible**, así que siempre en seco primero; `--subledger` trae los documentos abiertos de clientes y proveedores, para que CxC y CxP nazcan documento a documento:
 
 ```bash
-npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --dry-run
-npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --yes
-npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --chart ./migracion/catalogo.xml --dry-run
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --chart ./migracion/catalogo.xml --yes
+npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml --chart ./migracion/catalogo.xml
 ```
 
 **El archivo de documentos abiertos** (`--subledger`) es un JSON: una lista con un objeto por documento que seguía abierto al corte, de clientes y de proveedores juntos. Cada objeto lleva:
@@ -350,7 +350,7 @@ Un RFC genérico (`XAXX010101000`, `XEXX010101000`) no identifica a nadie: esos 
 
 **Si no cuadra, no carga.** Los documentos de cada cuenta de control tienen que sumar, al peso, lo que la balanza declara para ella. Si no, la carga se detiene sin escribir nada y dice la diferencia por cuenta («suman 13000.00 y la balanza declara 14000.00 para esa cuenta: faltan 1000.00»). No se postea ningún ajuste para hacerlo cuadrar: la diferencia se corrige en el origen. También se detiene si un documento viene con saldo contrario (un anticipo, una nota de crédito: nétalo en el origen), en otra moneda, o si la factura (por folio del mismo proveedor, o por UUID) ya está registrada aquí. Después de cargar, `ar reconcile` y `ap reconcile` dan diferencia 0.
 
-`opening-balance check` coteja la balanza de origen contra el mayor al día de la apertura, cuenta por cuenta, y sale con 4 si algo no cuadra al peso. Si el día siguiente al corte de la balanza no es el primer día de un ejercicio dado de alta (Paso 3), la carga se niega y te dice qué archivo hace falta.
+Cuando la balanza trae filas 8xx (cuentas de orden), la carga necesita `--chart` con el catálogo de la misma migración: las deja fuera del asiento y nombra cada una con el saldo del origen. Sin `--chart` se niega con `APE-CUENTA-DESCONOCIDA` en cada una de esas filas. `opening-balance check` coteja la balanza de origen contra el mayor al día de la apertura, cuenta por cuenta, y sale con 4 si algo no cuadra al peso. Con `--chart` y el catálogo de la misma migración deja fuera del cuadre las cuentas de orden (8xx: CUFIN, CUCA, UFIN), y nombra cada una con el saldo que declara el origen: guarda esa salida con los papeles de la migración. Si el día siguiente al corte de la balanza no es el primer día de un ejercicio dado de alta (Paso 3), la carga se niega y te dice qué archivo hace falta.
 
 **Recomendación:** si el cliente viene de CONTPAQi o Aspel, el camino D; si no, el B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.
 

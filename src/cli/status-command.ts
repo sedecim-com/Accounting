@@ -15,6 +15,7 @@ import {
   type ProfileWithFailover,
 } from '../ai/providers/config.js';
 import { probeAll, type NamedProbeResult, type ProbeOptions } from '../ai/providers/probe.js';
+import { credentialState } from '../ai/providers/credential-state.js';
 import { FLOOR_MAX_AUTO_POST, floorMaxAutoAmount } from '../ai/floor.js';
 import type { ResolvedProfile } from '../ai/providers/types.js';
 import { exitCodeFor } from './kernel/index.js';
@@ -42,6 +43,12 @@ export interface ProviderStatusRow {
   keySet: boolean;
   /** Where the credential came from ('cmd' = the profile's api_key_cmd). */
   keySource?: 'env' | 'cmd';
+  /**
+   * The readiness answer doctor, providers, init and the tick give too
+   * (credential-state.ts): a variable's name, a helper's file, «local» or what
+   * is missing. Never a value, never a helper's command.
+   */
+  credential: string;
   failover?: string[];
   probe?: NamedProbeResult;
   /** Reason the probe was skipped (e.g. credential unset). */
@@ -149,7 +156,9 @@ export interface BuildStatusOptions {
 function toRow(
   name: string,
   profile: ProfileWithFailover,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  source: string | null
 ): ProviderStatusRow {
   const keyEnv = profile.api_key_env ?? null;
   return {
@@ -158,6 +167,7 @@ function toRow(
     model: profile.model,
     keyEnv,
     keySet: keyEnv !== null && Boolean(env[keyEnv]),
+    credential: credentialState(profile, { cwd, env, source }).label,
     ...(profile.failover ? { failover: profile.failover } : {}),
   };
 }
@@ -192,7 +202,7 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
   }
 
   const rows = new Map<string, ProviderStatusRow>();
-  for (const target of probeTargets) rows.set(target.name, toRow(target.name, target, env));
+  for (const target of probeTargets) rows.set(target.name, toRow(target.name, target, env, cwd, source));
 
   const resolveProfileFn = options.resolveProfileFn ?? resolveProfile;
   const probeable: ResolvedProfile[] = [];
@@ -323,7 +333,7 @@ export function formatStatus(report: StatusReport, c: StatusDeps['palette']): st
   out.push(`  config file        ${report.config.source ?? c.dim('(none — built-in defaults)')}`);
   out.push(`  provider           ${c.cyan(report.config.provider)}`);
   out.push(`  model              ${report.config.model}`);
-  out.push(`  agent language     ${report.config.language}`);
+  out.push(`  language           ${report.config.language}`);
   const t = report.config.thresholds;
   out.push(
     `  auto-post          ${t.autoPost ? 'on' : 'off'}  min confidence ${t.minConfidence}  ` +
@@ -338,8 +348,7 @@ export function formatStatus(report: StatusReport, c: StatusDeps['palette']): st
   out.push('');
   out.push(c.bold('Providers'));
   for (const p of report.providers) {
-    const key =
-      p.keyEnv === null ? c.dim('no credential required') : `${p.keyEnv} ${p.keySet ? 'set' : 'unset'}`;
+    const key = p.credential;
     let probeText: string;
     if (p.skipped) probeText = `probe skipped (${p.skipped})`;
     else if (p.probe && p.probe.ok) probeText = `probe ok ${p.probe.latencyMs}ms`;

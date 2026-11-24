@@ -12,7 +12,9 @@ import {
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
-import { listProfiles } from './providers/config.js';
+import { listProfiles, resolveFailoverChain } from './providers/config.js';
+import { credentialState } from './providers/credential-state.js';
+import { isTrialEndpoint, NVIDIA_TRIAL_HOST } from './providers/trial-endpoint.js';
 import { scanOrphans, type Orphan } from './orphan-scan.js';
 import {
   detectMemoryConflicts,
@@ -20,6 +22,7 @@ import {
   detectStrandedMemory,
   digestCoverage,
 } from './memory-service.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // DOCTOR — health diagnostics
@@ -39,8 +42,9 @@ export type CheckLevel = 'ok' | 'warn' | 'fail';
  *
  * The id is kebab-case English, and it names what the check MEASURES rather
  * than how the check says it. That distinction is the whole point: `name` is
- * prose — some of it is Spanish today, all of it is headed for the i18n
- * catalogue — and translating a label must not rename the thing it labels.
+ * prose — the once-Spanish label of `permissionConflicts` already comes from
+ * the i18n catalogue (MNE-001-475), the rest is headed there — and translating
+ * a label must not rename the thing it labels.
  * Deriving the id from the label with a slugify would tie the identity back to
  * the prose, which is exactly the defect #253 closed one layer up, where a
  * report's key had been its translated title.
@@ -95,7 +99,12 @@ export const CHECK_IDENTITIES = {
   reopenedPeriods: { id: 'periods-left-open', name: 'Reopened periods' },
   permissionConflicts: {
     id: 'conflicting-permissions',
-    name: 'Segregación de funciones (permisos)',
+    // The one label that was Spanish prose. A getter, so each spread of this
+    // identity reads it in the language of the run, while the id stays a
+    // literal (MNE-001-475). The other labels are English and wait their turn.
+    get name(): string {
+      return t('doctor.check.permission_conflicts');
+    },
   },
   bankStatements: { id: 'bank-statement-lines-present', name: 'Bank statements complete' },
   guaranteeTriggers: { id: 'guarantee-triggers-always-on', name: 'Guarantee triggers sealed' },
@@ -548,29 +557,23 @@ export async function checkConsistenciaCli(): Promise<CheckResult> {
     return {
       ...CHECK_IDENTITIES.cliConsistency,
       level: 'fail',
-      detail: `${nuevas.length} violación(es) nuevas — ${m}${nuevas.length > 3 ? ' …' : ''}`,
-      fix:
-        'La superficie del CLI se mantiene coherente porque cada verbo sale de una lista cerrada y cada ' +
-        'bandera del diccionario único. Corrige el comando, o —si el cambio es deliberado— amplía el ' +
-        'vocabulario en src/cli/kernel/vocabulary.ts. La línea base de src/cli/kernel/audit.ts NO se amplía.',
+      detail:
+        t('doctor.cli_consistency.new_violations', { count: nuevas.length, sample: m }) + (nuevas.length > 3 ? ' …' : ''),
+      fix: t('doctor.cli_consistency.new_violations_fix'),
     };
   }
 
   const sobrantes = obsoletas.length > 0
-    ? ` · ${obsoletas.length} entrada(s) de la línea base ya no se violan: bórralas`
+    ? ` · ${t('doctor.cli_consistency.stale', { count: obsoletas.length })}`
     : '';
   return {
     ...CHECK_IDENTITIES.cliConsistency,
     level: heredadas > 0 ? 'warn' : 'ok',
     detail:
       heredadas > 0
-        ? `sin violaciones nuevas; quedan ${heredadas} heredadas en la línea base${sobrantes}`
-        : `la superficie cumple todas las reglas${sobrantes}`,
-    fix:
-      heredadas > 0
-        ? 'Las heredadas son deuda conocida y congelada: nueve son decisiones de nombre, tres exigen ' +
-          'retirar una forma corta ya publicada, y ocho piden que cuatro listados se puedan paginar.'
-        : undefined,
+        ? t('doctor.cli_consistency.inherited', { count: heredadas, stale: sobrantes })
+        : t('doctor.cli_consistency.clean', { stale: sobrantes }),
+    fix: heredadas > 0 ? t('doctor.cli_consistency.inherited_fix') : undefined,
   };
 }
 
@@ -718,6 +721,41 @@ export async function checkCredentials(now: Date): Promise<CheckResult> {
 }
 
 export function checkModelProvider(cwd?: string): CheckResult {
+  return withTrialEndpointWarning(checkProviderCredential(cwd), cwd);
+}
+
+/**
+ * NVIDIA's hosted catalog is a trial that records what it receives
+ * (MNE-001-448): doctor warns while the default, or a link of its chain, is
+ * on it. A failure stays a failure.
+ */
+function withTrialEndpointWarning(result: CheckResult, cwd?: string): CheckResult {
+  if (result.level === 'fail') return result;
+  let chain: Array<{ name: string; base_url?: string }>;
+  try {
+    chain = resolveFailoverChain(listProfiles(cwd).defaultName, cwd);
+  } catch {
+    return result;
+  }
+  const notes: string[] = [];
+  if (isTrialEndpoint(chain[0]?.base_url)) {
+    notes.push(`on NVIDIA's hosted trial (${NVIDIA_TRIAL_HOST}), which records what it receives: never with a client's data`);
+  }
+  const links = chain.slice(1).filter((p) => isTrialEndpoint(p.base_url)).map((p) => p.name);
+  if (links.length > 0) {
+    notes.push(`the failover chain names ${links.join(', ')}, on NVIDIA's hosted trial (${NVIDIA_TRIAL_HOST}); a failover never moves into it`);
+  }
+  if (notes.length === 0) return result;
+  const fix = 'For client work choose another provider: mnemosine init --section ai';
+  return {
+    ...result,
+    level: 'warn',
+    detail: `${result.detail} · ${notes.join('; ')}`,
+    fix: result.fix ? `${fix}. ${result.fix}` : fix,
+  };
+}
+
+function checkProviderCredential(cwd?: string): CheckResult {
   let profiles: ReturnType<typeof listProfiles>;
   try {
     profiles = listProfiles(cwd);
@@ -740,32 +778,56 @@ export function checkModelProvider(cwd?: string): CheckResult {
       fix: 'mnemosine providers  (pick a valid one)',
     };
   }
-  // No api_key_env = local without a credential (ollama): ready to use.
-  if (!active.api_key_env) {
-    return {
-      ...CHECK_IDENTITIES.modelProvider,
-      level: 'ok',
-      detail: `${defaultName} · ${active.model} (local, no credential)`,
-    };
-  }
-  if (!process.env[active.api_key_env]) {
-    const withKey = Object.entries(all).filter(
-      ([, p]) => !p.api_key_env || process.env[p.api_key_env]
-    );
+  // The readiness answer every surface gives (credential-state.ts): it never
+  // runs a helper and is advisory, so a warn here never stops anything.
+  const states = Object.fromEntries(
+    Object.entries(all).map(([n, p]) => [n, credentialState(p, { cwd, source: profiles.source })])
+  );
+  const state = states[defaultName];
+  const ownFile = 'your shell or ~/.mnemosine/.env';
+  // resolveProfile refuses this profile before sending anything (MNE-001-445).
+  if (state.source.kind === 'refused') {
+    const ready = Object.entries(states).find(([n, st]) => n !== defaultName && st.ready);
     return {
       ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
-      detail: `${defaultName} requires ${active.api_key_env} and it is not set`,
-      fix: withKey.length
-        ? `Set ${active.api_key_env} in .env, or use --provider ${withKey[0][0]}`
-        : `Set ${active.api_key_env} in .env`,
+      detail: `${defaultName} · ${active.model} (${state.label})`,
+      fix: `Name the provider's own key variable in api_key_env, set in ${ownFile}` +
+        (ready ? `, or use --provider ${ready[0]}` : ''),
     };
   }
-  return {
-    ...CHECK_IDENTITIES.modelProvider,
-    level: 'ok',
-    detail: `${defaultName} · ${active.model}`,
-  };
+  if (state.source.kind === 'missing') {
+    const variable = state.source.variable;
+    const where = state.source.where ? ` (get it at ${state.source.where})` : '';
+    const ready = Object.entries(states).find(([n, st]) => n !== defaultName && st.ready);
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'fail',
+      detail: `${defaultName} requires ${variable} and it is not set` +
+        (state.folderEnv === 'empty' ? `; the empty ${variable}= in ./.env hides ~/.mnemosine/.env` : ''),
+      fix: ready
+        ? `Set ${variable} in ${ownFile}${where}, or use --provider ${ready[0]}`
+        : `Set ${variable} in ${ownFile}${where}`,
+    };
+  }
+  const detail = `${defaultName} · ${active.model} (${state.label})`;
+  if (state.source.kind === 'none' && !state.source.local) {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'warn',
+      detail,
+      fix: `If ${active.base_url ?? 'its endpoint'} needs a credential, give the profile an api_key_env or api_key_cmd`,
+    };
+  }
+  if (state.folderEnv === 'key' && state.source.kind === 'env') {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'warn',
+      detail,
+      fix: `Keep your own key in ${ownFile} and remove ${state.source.variable} from ./.env`,
+    };
+  }
+  return { ...CHECK_IDENTITIES.modelProvider, level: 'ok', detail };
 }
 
 /** The example default (64 zeros) is nominal encryption: it must be shouted. */
@@ -981,26 +1043,23 @@ export async function checkLedgerIntegrity(): Promise<CheckResult> {
     return {
       ...CHECK_IDENTITIES.ledgerIntegrity,
       level: 'ok',
-      detail: 'account_balances = Σ líneas posteadas, y todo posteado tiene su rastro',
+      detail: t('doctor.ledger_integrity.ok'),
     };
   }
   const partes: string[] = [];
   if (deriva.rows.length > 0) {
     partes.push(
-      `${deriva.rows.length}${deriva.rows.length === 20 ? '+' : ''} (cuenta, periodo) donde ` +
-        'account_balances ≠ Σ líneas posteadas — todo reporte encima hereda la diferencia'
+      t('doctor.ledger_integrity.drift', { count: deriva.rows.length, capped: deriva.rows.length === 20 ? 'yes' : 'no' })
     );
   }
   if (huerfanos > 0) {
-    partes.push(`${huerfanos} asiento(s) posteado(s) sin fila 'post' en audit_log — hechos sin autor`);
+    partes.push(t('doctor.ledger_integrity.untraced', { count: huerfanos }));
   }
   return {
     ...CHECK_IDENTITIES.ledgerIntegrity,
     level: 'fail',
     detail: partes.join('; '),
-    fix:
-      'La deriva de saldos se investiga ANTES de recalcular: desde la 041 una línea posteada no se ' +
-      'edita, así que una diferencia nueva apunta al camino de escritura de account_balances, no a las líneas.',
+    fix: t('doctor.ledger_integrity.fix'),
   };
 }
 
@@ -1062,16 +1121,14 @@ export async function checkPermisosEnConflicto(): Promise<CheckResult> {
     return {
       ...CHECK_IDENTITIES.permissionConflicts,
       level: 'ok',
-      detail: 'ningún usuario activo acumula permisos en conflicto',
+      detail: t('doctor.permission_conflicts.ok'),
     };
   }
   return {
     ...CHECK_IDENTITIES.permissionConflicts,
     level: 'warn',
     detail: conflictos.slice(0, 10).join('; ') + (conflictos.length > 10 ? ` … (+${conflictos.length - 10})` : ''),
-    fix:
-      'Reparte los permisos en conflicto entre usuarios distintos, o acepta el riesgo a sabiendas ' +
-      '(en un despacho unipersonal es inevitable; el maker-checker por póliza vive en el panel: segregacion_de_funciones).',
+    fix: t('doctor.permission_conflicts.fix'),
   };
 }
 
@@ -1155,9 +1212,9 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
 
   const cortos: Array<{ file_name: string | null; period_start: string; declaradas: string; presentes: string }> = [];
   let ciegos = 0;
-  for (const t of inquilinos.rows) {
+  for (const tenant of inquilinos.rows) {
     try {
-      const r = await withTenant(t.id, () =>
+      const r = await withTenant(tenant.id, () =>
         query<{ file_name: string | null; period_start: string; declaradas: string; presentes: string }>(
           `SELECT s.file_name, s.period_start::text AS period_start,
                   s.line_count::text AS declaradas,
@@ -1183,25 +1240,26 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
     0
   );
   const detalle = cortos
-    .map((r) => `${r.file_name ?? '(sin nombre)'} ${r.period_start}: ${r.presentes}/${r.declaradas}`)
+    .map((r) => `${r.file_name ?? t('doctor.bank_statements.unnamed_file')} ${r.period_start}: ${r.presentes}/${r.declaradas}`)
     .join('; ');
   // El verde tiene que decir CUÁNTO miró: uno que no lo diga es verde por no
   // mirar, y aquí mirar de menos es exactamente el modo de fallo.
-  const alcance =
-    `${inquilinos.rows.length} inquilino(s) revisado(s)` +
-    (ciegos > 0 ? `, ${ciegos} sin poder mirarse` : '');
+  const alcance = t('doctor.bank_statements.scope', { tenants: inquilinos.rows.length, blind: ciegos });
 
   if (unico || ciego) {
     return {
       ...identity,
       level: 'fail',
-      detail:
-        'esta base registró la 051 antes de su corrección' +
-        (unico ? '; el índice de contenido es ÚNICO y se traga movimientos legítimamente idénticos' : '') +
-        (ciego ? '; el disparador no vigila content_hash, así que la huella se puede forjar a mano' : '') +
-        (faltan > 0 ? `; ya faltan ${faltan} línea(s) en ${cortos.length} extracto(s): ${detalle}` : '') +
-        `; ${alcance}`,
-      fix: 'npm run migrate  — aplica la 072; las líneas ya perdidas hay que reimportarlas a mano, el remedio devuelve la capacidad, no el dato',
+      detail: [
+        t('doctor.bank_statements.unrepaired'),
+        ...(unico ? [t('doctor.bank_statements.unique_index')] : []),
+        ...(ciego ? [t('doctor.bank_statements.blind_trigger')] : []),
+        ...(faltan > 0
+          ? [t('doctor.bank_statements.already_missing', { lines: faltan, statements: cortos.length, detail: detalle })]
+          : []),
+        alcance,
+      ].join('; '),
+      fix: t('doctor.bank_statements.unrepaired_fix'),
     };
   }
 
@@ -1209,8 +1267,12 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail:
-        `${faltan} línea(s) declaradas y no presentes en ${cortos.length} extracto(s) (${alcance}): ${detalle}`,
+      detail: t('doctor.bank_statements.short', {
+        lines: faltan,
+        statements: cortos.length,
+        scope: alcance,
+        detail: detalle,
+      }),
       // NO DICE «FALTAN», Y NO MANDA BORRAR NADA.
       //
       // Este recuento no distingue dos casos, y uno de los dos es SANO: una
@@ -1226,8 +1288,7 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
       // `bank_transactions.statement_id`. Sobre el caso sano, ese consejo
       // destruye el documento y reimporta un archivo que descartaría las
       // mismas líneas otra vez.
-      fix:
-        'compara antes de tocar nada: si esas líneas están en la cuenta bajo OTRO extracto de periodo traslapado, la base está sana y esto es el hueco declarado de la 051. Sólo si no aparecen en ninguna parte hubo pérdida, y entonces se reimporta el archivo con la cuenta a la vista de un humano — nunca soltando la fila de bank_statements, que es evidencia',
+      fix: t('doctor.bank_statements.short_fix'),
     };
   }
 
@@ -1235,17 +1296,15 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail: `el catálogo está reparado, pero ${alcance}: sin poder leer sus extractos no puedo decir que estén completos`,
-      fix: 'revisa que el rol de la aplicación pueda consultar bank_statements con contexto de inquilino',
+      detail: t('doctor.bank_statements.blind', { scope: alcance }),
+      fix: t('doctor.bank_statements.blind_fix'),
     };
   }
 
   return {
     ...identity,
     level: 'ok',
-    detail:
-      'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró' +
-      ` (${alcance})`,
+    detail: t('doctor.bank_statements.ok', { scope: alcance }),
   };
 }
 
@@ -1278,19 +1337,20 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
     return {
       ...CHECK_IDENTITIES.guaranteeTriggers,
       level: 'fail',
-      detail:
-        `${flojos.length} de ${r.rows.length} garantías sin sellar` +
-        (apagados.length > 0 ? ` (${apagados.length} APAGADAS)` : '') +
-        ': ' +
-        flojos.map((t) => `${t.relname}.${t.tgname}=${t.tgenabled}`).join(', '),
-      fix: 'ALTER TABLE <tabla> ENABLE ALWAYS TRIGGER <disparador>  — y averigua QUIÉN lo apagó y por qué',
+      detail: t('doctor.guarantee_triggers.unsealed', {
+        loose: flojos.length,
+        total: r.rows.length,
+        off: apagados.length,
+        list: flojos.map((g) => `${g.relname}.${g.tgname}=${g.tgenabled}`).join(', '),
+      }),
+      fix: t('doctor.guarantee_triggers.fix'),
     };
   }
 
   return {
     ...CHECK_IDENTITIES.guaranteeTriggers,
     level: 'ok',
-    detail: `${r.rows.length} garantías en ENABLE ALWAYS: ni session_replication_role las calla`,
+    detail: t('doctor.guarantee_triggers.ok', { count: r.rows.length }),
   };
 }
 
@@ -1336,10 +1396,8 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail:
-        'mnemosine_auditor no existe: dar acceso a un auditor externo hoy exige prestarle ' +
-        'credenciales de ESCRITURA sobre los libros',
-      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (no cabe en una migración: el migrador no tiene CREATEROLE, y es a propósito)',
+      detail: t('doctor.auditor_role.missing'),
+      fix: t('doctor.auditor_role.missing_fix'),
     };
   }
 
@@ -1359,12 +1417,12 @@ export async function checkRolAuditor(): Promise<CheckResult> {
   );
 
   const graves: string[] = [];
-  if (r.rolbypassrls) graves.push('IGNORA LA RLS (BYPASSRLS): ve los libros de TODOS los inquilinos');
-  if (r.rolsuper) graves.push('es SUPERUSUARIO');
-  if (r.rolcreaterole) graves.push('puede crear roles');
+  if (r.rolbypassrls) graves.push(t('doctor.auditor_role.bypasses_rls'));
+  if (r.rolsuper) graves.push(t('doctor.auditor_role.superuser'));
+  if (r.rolcreaterole) graves.push(t('doctor.auditor_role.creates_roles'));
   if (escribe.rows.length > 0) {
     graves.push(
-      `tiene ESCRITURA sobre ${escribe.rows.map((e) => `${e.tabla}:${e.privilegio}`).join(', ')}`
+      t('doctor.auditor_role.writes', { grants: escribe.rows.map((e) => `${e.tabla}:${e.privilegio}`).join(', ') })
     );
   }
   if (graves.length > 0) {
@@ -1372,7 +1430,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
       ...identity,
       level: 'fail',
       detail: `mnemosine_auditor ${graves.join('; ')}`,
-      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — el guion reafirma NOBYPASSRLS y revoca; averigua además QUIÉN se lo concedió',
+      fix: t('doctor.auditor_role.grave_fix'),
     };
   }
 
@@ -1385,10 +1443,8 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail:
-        'mnemosine_auditor tiene LOGIN: está pensado como paquete de privilegios que se concede a ' +
-        'cuentas NOMINALES (una por auditor), no como cuenta compartida',
-      fix: 'ALTER ROLE mnemosine_auditor NOLOGIN;  y emite una cuenta por persona: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+      detail: t('doctor.auditor_role.login'),
+      fix: t('doctor.auditor_role.login_fix'),
     };
   }
 
@@ -1427,11 +1483,8 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'fail',
-      detail:
-        `mnemosine_auditor lee ${vistas.length} vista(s) materializada(s) (${vistas.join(', ')}): ` +
-        'no las filtra la RLS y las construye un rol con BYPASSRLS, así que contienen los libros ' +
-        'de TODOS los inquilinos',
-      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — su bloque 4 revoca toda relkind = \'m\'',
+      detail: t('doctor.auditor_role.matviews', { count: vistas.length, views: vistas.join(', ') }),
+      fix: t('doctor.auditor_role.matviews_fix'),
     };
   }
 
@@ -1459,8 +1512,8 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail: 'mnemosine_auditor existe y está bien acotado, pero no se pudo medir su cobertura de tablas',
-      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (su bloque de verificación imprime los dos conteos)',
+      detail: t('doctor.auditor_role.coverage_unmeasured'),
+      fix: t('doctor.auditor_role.coverage_unmeasured_fix'),
     };
   }
   const legibles = parseInt(cobertura.rows[0].legibles, 10);
@@ -1471,10 +1524,8 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     return {
       ...identity,
       level: 'warn',
-      detail:
-        `mnemosine_auditor sólo lee ${legibles} de las ${totales} tablas aisladas: ` +
-        `${sinConceder} tabla(s) nacieron después del último GRANT`,
-      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (vuelve a conceder y fija los privilegios por defecto de lo que venga)',
+      detail: t('doctor.auditor_role.ungranted', { readable: legibles, total: totales, missing: sinConceder }),
+      fix: t('doctor.auditor_role.ungranted_fix'),
     };
   }
 
@@ -1483,13 +1534,12 @@ export async function checkRolAuditor(): Promise<CheckResult> {
   // y verlas escritas es lo que hace que alguien note el día que aparece una
   // que no lo es.
   const nota = tablasSinFiltro.length > 0
-    ? `; además ${tablasSinFiltro.length} sin inquilino, que deben ser sólo referencia global (${tablasSinFiltro.join(', ')})`
+    ? `; ${t('doctor.auditor_role.global_tables', { count: tablasSinFiltro.length, tables: tablasSinFiltro.join(', ') })}`
     : '';
   return {
     ...identity,
     level: 'ok',
-    detail:
-      `sólo lectura sobre ${legibles} tablas aisladas, NOLOGIN y sujeto a la RLS${nota}`,
+    detail: t('doctor.auditor_role.ok', { count: legibles, note: nota }),
   };
 }
 
@@ -1515,7 +1565,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
 //
 // NINGUNA es 'fail', y no es pereza: 'fail' significa en este archivo «el
 // sistema no puede operar», y con la memoria contradictoria el sistema opera
-// —mal, pero opera—, igual que `Segregación de funciones` o `Reopened
+// —mal, pero opera—, igual que `Segregation of duties` o `Reopened
 // periods`, que son avisos por la misma razón. Poner en rojo, y en código de
 // salida 1, una instalación que trabaja es lo que enseña a la gente a
 // ignorar doctor.

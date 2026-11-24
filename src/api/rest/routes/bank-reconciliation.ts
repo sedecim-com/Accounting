@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { ConflictError, NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import { entityScope } from '../../../database/scope.js';
@@ -130,7 +130,8 @@ async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTr
 const DOCUMENT_ENTITY_SQL: Record<(typeof MATCHED_ENTITY_TYPES)[number], string> = {
   invoice: 'SELECT 1 FROM invoices WHERE id = $1 AND entity_id = $2',
   bill: 'SELECT 1 FROM bills WHERE id = $1 AND entity_id = $2',
-  customer_payment: 'SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2',
+  // MNE-001-498 · a transfer of customer credit moved no money, so it is no bank match.
+  customer_payment: "SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2 AND payment_method <> 'balance_transfer'",
   vendor_payment: 'SELECT 1 FROM vendor_payments WHERE id = $1 AND entity_id = $2',
   journal_entry_line:
     'SELECT 1 FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id WHERE l.id = $1 AND je.entity_id = $2',

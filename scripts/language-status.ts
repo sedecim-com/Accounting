@@ -4,9 +4,10 @@
  *
  *   npm run language:status                 el tablero, para leerlo
  *   npm run language:status -- --json       el mismo dato, para una máquina
- *   npm run language:status -- --check      sale con 1 si algún lane CRECIÓ
+ *   npm run language:status -- --check      exits 1 if a lane GREW over its baseline, or if the
+ *                                           published block is not the one the baseline generates
  *   npm run language:status -- --tighten    baja las líneas base con holgura
- *   npm run language:status -- --escribir   reescribe el block del documento rector
+ *   npm run language:status -- --escribir   rewrites the governing document's block (the ceilings)
  *   npm run language:status -- --seed    crea la línea base desde cero
  *
  * ============================================================
@@ -35,6 +36,18 @@
  * él, cada PR cierra los archivos que toca y el trinquete lo nota.
  *
  * ============================================================
+ * THE BLOCK PUBLISHES THE CEILINGS, THE COMMAND PRINTS THE COUNTS (#734)
+ *
+ * The block in `docs/language.md` and its twin shows each ratcheted lane's
+ * baseline and no live count; the counts are read with the command and no
+ * flag. It used to print the value measured on the tree, and almost any change
+ * under `src/` moves one: every code PR rewrote the same row of both pages, so
+ * each merge put every other open PR in conflict there and cost each of them a
+ * merge of `develop`, a regeneration and another CI run. The block is now a
+ * function of the baseline file and the lane list, and changes only when one
+ * of those does — which is rare and deliberate.
+ *
+ * ============================================================
  * LO QUE ESTE METRO NO HACE
  *
  * No mide la ayuda renderizada del CLI: eso lo mide `ux-status.ts` y aquí se
@@ -46,6 +59,11 @@
  * (scripts/language/lanes/help.ts, #314), does not measure the rendered prose
  * either: it asks each description whether it comes from a catalog KEY, a
  * question `ux-status.ts` does not ask. The prose itself stays its business.
+ *
+ * `cli-user-strings-without-key` (scripts/language/lanes/cli-strings.ts,
+ * MNE-001-476) is the run-time half: English literals the CLI prints without a
+ * key. It reads the source, not the tree, and leaves help registration to the
+ * lane above.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -56,6 +74,8 @@ import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
+import { cliStringsLanes } from './language/lanes/cli-strings.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
@@ -79,7 +99,14 @@ interface Baseline {
 
 /** Every lane, in the order they are published. The count is the meter's to say, not this comment's. */
 export function measure(): Lane[] {
-  return [...codeLanes(), ...planLanes(), ...docsLanes(), ...commentTagsLanes(), ...helpLanes()];
+  return [
+    ...codeLanes(),
+    ...planLanes(),
+    ...docsLanes(),
+    ...commentTagsLanes(),
+    ...helpLanes(),
+    ...cliStringsLanes(),
+  ];
 }
 
 function readBaseline(): Baseline | null {
@@ -227,12 +254,28 @@ function seed(lanes: Lane[], date: string): Baseline {
   return b;
 }
 
-function block(lanes: Lane[], base: Baseline | null): string {
-  const row = (c: Lane): string => {
-    const floor = base?.lanes[c.id];
-    const slack = floor !== undefined && c.value < floor ? ` (baseline ${floor})` : '';
+/**
+ * What the block may read of a lane: who it is, never what it measures today.
+ * `value`, `examples` and `perFile` are left out of the type on purpose, so a
+ * live count cannot find its way back into the page without a compile error.
+ */
+export type PublishedLane = Pick<Lane, 'id' | 'title' | 'target' | 'informational'>;
+
+/**
+ * The published block: a function of the baseline and the lane list ONLY.
+ *
+ * A ratcheted lane shows its ceiling, the number in `docs/language-baseline.json`.
+ * An informational lane shows no figure: it has no ceiling — the baseline keeps
+ * what it measured when it was seeded, and nothing holds it to that — so any
+ * number printed for it would be either a live count or a stale one. A ratcheted
+ * lane nobody has seeded shows none either, and `compare` names it.
+ */
+export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes'> | null): string {
+  const NO_FIGURE = '—';
+  const row = (c: PublishedLane): string => {
+    const ceiling = c.informational ? undefined : base?.lanes[c.id];
     const mark = c.informational ? ' *(informational)*' : '';
-    return `| \`${c.id}\` | ${c.title}${mark} | ${c.value}${slack} | ${c.target} |`;
+    return `| \`${c.id}\` | ${c.title}${mark} | ${ceiling ?? NO_FIGURE} | ${c.target} |`;
   };
   const required = lanes.filter((c) => !c.informational);
   const observed = lanes.filter((c) => c.informational);
@@ -244,13 +287,14 @@ function block(lanes: Lane[], base: Baseline | null): string {
     '  CI verifies it with --check, so a hand edit shows up red.',
     '-->',
     '',
-    '### How much Spanish is left, and where',
+    '### How much Spanish may be left, and where',
     '',
     `${required.length} lanes under the ratchet and ${observed.length} measured but not yet required.`,
-    'The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a',
-    'manual act and its trace is the diff.',
+    "This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline",
+    'in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its',
+    'trace is the diff. The live figures are read with `npm run language:status`.',
     '',
-    '| Lane | What it counts | Today | Towards |',
+    '| Lane | What it counts | Ceiling | Towards |',
     '|---|---|---:|---:|',
     ...required.map(row),
     ...observed.map(row),
@@ -294,20 +338,20 @@ export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): st
 
   // RESELLAR LA GEMELA, o el metro rompe su propio carril en cada corrida.
   //
-  // El bloque vive DENTRO del rector, así que cada medición cambia el hash de
-  // `language.md` — y `docs-spanish-twins-stale` (lanes/docs.ts) cuenta las
-  // gemelas cuyo `source_sha` ya no casa. Sin este paso, `--write` dejaba ese
-  // carril en 1 y `--check` en rojo: el instrumento se ponía la zancadilla a
-  // sí mismo publicando su propia cifra.
+  // The block lives INSIDE the governing page, so a block that changes — now
+  // only when the baseline or the lane list does (#734) — changes the hash of
+  // `language.md`, and `docs-spanish-twins-stale` (lanes/docs.ts) counts the
+  // twins whose `source_sha` no longer matches. Without this step `--write`
+  // left that lane at 1 and `--check` red.
   //
   // Se resella con el hash del fuente YA ESCRITO, no del que se leyó al
   // empezar: si se sellara antes, el sello certificaría una versión que ya no
   // está en disco.
-  // One write is not always the fixed point: the block is published INSIDE the
-  // corpus the meter measures, so a write can move the documentation lanes and
-  // the next measurement renders a slightly different block. `main` (see
-  // `--write`) therefore repeats until the page publishes what the tree
-  // measures, which is exactly what `--check` now verifies.
+  // One write IS the fixed point since #734. The block is published inside the
+  // corpus the meter measures, so a write can still move a documentation lane's
+  // count — but the block no longer prints any count, so the next measurement
+  // renders the same text. `--write` used to repeat until stable; it no longer
+  // has anything to wait for.
   if (failures.length === 0) restampTwin(targets);
   return failures;
 }
@@ -333,7 +377,8 @@ function restampTwin(targets: string[]): void {
  *
  * Returns one message per page whose block — the text between the markers,
  * markers included — is not exactly `expected`. Empty means both pages publish
- * what the tree measures today.
+ * what the baseline and the lane list generate today (the ceilings, #734; it
+ * used to be what the tree measured).
  *
  * Why this exists: the block itself says "CI verifies it with --check, so a
  * hand edit shows up red", and until this function that was only half true.
@@ -348,6 +393,11 @@ function restampTwin(targets: string[]): void {
  *
  * `scripts/catalogo-estado.ts --check` already fails on a stale block; this
  * brings the language meter to the same contract.
+ *
+ * Since #734 the block carries no live count, so this check no longer asks a
+ * PR to regenerate the page because its code moved a number. It still catches
+ * what it exists for: a hand edit, a baseline changed without `--write`, and a
+ * lane added, removed or retitled without `--write`.
  */
 export function staleBlocks(expected: string, targets: string[] = GOVERNING_DOCS): string[] {
   const stale: string[] = [];
@@ -365,7 +415,7 @@ export function staleBlocks(expected: string, targets: string[] = GOVERNING_DOCS
       continue;
     }
     if (doc.slice(i, j + CLOSE_MARK.length) !== expected) {
-      stale.push(`${rel}: el bloque publicado no es el que el árbol mide hoy`);
+      stale.push(`${rel}: the published block is not the one generated from docs/language-baseline.json and the lane list`);
     }
   }
   return stale;
@@ -440,31 +490,12 @@ function main(argv: string[]): number {
   const findings = compare(lanes, base);
 
   if (has('--write')) {
-    // Write, re-measure, and write again until the published block is the one
-    // the tree measures. Measured on this tree it settles on the second pass;
-    // the cap is there so a lane that genuinely oscillated would fail loudly
-    // instead of looping, and it would fail as a stale block under `--check`.
-    const MAX_PASSES = 4;
-    let current = lanes;
-    let failures: string[] = [];
-    let passes = 0;
-    while (passes < MAX_PASSES) {
-      passes += 1;
-      failures = writeBlock(block(current, base));
-      if (failures.length > 0) break;
-      current = measure();
-      if (staleBlocks(block(current, base)).length === 0) break;
-    }
-    if (failures.length === 0 && staleBlocks(block(current, base)).length > 0) {
-      process.stderr.write(
-        `El bloque no se estabilizó en ${MAX_PASSES} pasadas: algún carril cambia cada vez que se publica.\n`
-      );
-      return 1;
-    }
+    // One pass: the block is a function of the baseline and the lane list, so
+    // writing it cannot change what the next run would write (#734).
+    const failures = writeBlock(block(lanes, base));
     if (failures.length === 0) {
       process.stdout.write(
-        `Bloque regenerado en ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' y ')}` +
-          ` (${passes} pasada${passes === 1 ? '' : 's'}).\n`
+        `Block regenerated in ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' and ')}.\n`
       );
       return 0;
     }
@@ -482,14 +513,15 @@ function main(argv: string[]): number {
     if (findings.length === 0) {
       // The ratchet first, then the page — the same order as catalogo-estado:
       // a regenerated block does not excuse a regression, and a clean ratchet
-      // does not excuse a page that publishes last month's figures.
+      // does not excuse a page that publishes ceilings the baseline no longer holds.
       const stale = staleBlocks(block(lanes, base));
       if (stale.length > 0) {
         process.stderr.write(
-          `El bloque publicado está desfasado en ${stale.length} página(s):\n` +
+          `The published block is stale in ${stale.length} page(s):\n` +
             stale.map((m) => `  · ${m}`).join('\n') +
-            '\n\nRegenéralo con `npm run language:status -- --write` y comprométalo con el cambio\n' +
-            'que movió las cifras. El rector promete que un bloque viejo o editado a mano sale en rojo.\n'
+            '\n\nRegenerate it with `npm run language:status -- --write` and commit it with the change\n' +
+            'to docs/language-baseline.json or to the lane list. A code change that only moves a count\n' +
+            'does not need this. The governing page promises that an old or hand-edited block shows red.\n'
         );
         return 1;
       }
@@ -518,4 +550,4 @@ function main(argv: string[]): number {
   return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+if (require.main === module) exitWhenDrained(main(process.argv.slice(2)));

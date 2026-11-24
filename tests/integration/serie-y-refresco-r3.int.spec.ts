@@ -50,42 +50,85 @@ describe('la serie del folio por ejercicio', () => {
 
   it('la siembra de la 043 continúa la serie desde los folios reales emitidos', async () => {
     // Un folio del esquema viejo, emitido antes del cambio:
-    const e = await createJournalEntry(
-      f.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, 'previo',
-      [
-        { account_id: f.roles.banco, debit_amount: '10.00', credit_amount: null, description: 'c' },
-        { account_id: f.roles.cxc, debit_amount: null, credit_amount: '10.00', description: 'a' },
-      ],
-      f.userId
-    );
+    const e = await postEntry(f, '10.00', 'previo');
     expect(e.entry_number).toMatch(/^JE-2026-\d{5}$/);
     const emitido = Number(e.entry_number.split('-')[2]);
 
-    // Re-ejecutar la siembra (es idempotente por GREATEST): el contador anual
-    // debe quedar en el máximo observado, nunca por debajo.
-    const siembra = fs.readFileSync(
-      path.resolve('src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql'),
-      'utf-8'
+    // A second tenant with a folio of its own: the seeding below is scoped to
+    // `f`, so it must not reach this one.
+    const other = await crearInquilino('Serie y refresco R3, otro');
+    const otherEntry = await postEntry(other, '3.00', 'otro');
+    expect(otherEntry.entry_number).toBe('JE-2026-00001'); // its first folio of the year
+
+    // Both annual counters are dropped, as on a base that never ran the 043
+    // seeding: posting the folio above already moved the counter, so without
+    // this the check below would hold whether the seeding ran or not.
+    await query(
+      `DELETE FROM entity_sequences WHERE entity_id = ANY($1::uuid[]) AND name = 'journal_entry_2026'`,
+      [[f.entityId, other.entityId]]
     );
-    await query(siembra);
-    const contador = await query<{ value: string }>(
-      `SELECT value FROM entity_sequences WHERE entity_id = $1 AND name = 'journal_entry_2026'`,
-      [f.entityId]
-    );
-    expect(Number(contador.rows[0].value)).toBeGreaterThanOrEqual(emitido);
+
+    await query(seed043For(f));
+    expect(await je2026Counter(f)).toBe(emitido);
+    expect(await je2026Counter(other)).toBeNull();
 
     // Y el siguiente folio del mismo ejercicio no colisiona con lo emitido.
-    const siguiente = await createJournalEntry(
-      f.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, 'siguiente',
-      [
-        { account_id: f.roles.banco, debit_amount: '5.00', credit_amount: null, description: 'c' },
-        { account_id: f.roles.cxc, debit_amount: null, credit_amount: '5.00', description: 'a' },
-      ],
-      f.userId
-    );
-    expect(Number(siguiente.entry_number.split('-')[2])).toBeGreaterThan(emitido);
+    const siguiente = await postEntry(f, '5.00', 'siguiente');
+    expect(Number(siguiente.entry_number.split('-')[2])).toBe(emitido + 1);
+
+    // The other tenant gets its counter back from its own seeding, which leaves
+    // it as the run's other specs may find it.
+    await query(seed043For(other));
+    expect(await je2026Counter(other)).toBe(1);
   });
 });
+
+const MIGRATION_043 = path.resolve('src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql');
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LOOP_HEADER = 'FOR t IN SELECT id FROM tenants LOOP';
+const NUMBER_FILTER = /^( {5}WHERE \w+_number ~ '[^']+')$/gm;
+
+/**
+ * Migration 043's seeding block, read from the migration file and scoped to
+ * one fixture. As shipped it walks every tenant of the database, and the
+ * integration suite runs as a role that bypasses RLS, so each of its five
+ * INSERT ... SELECT also read every tenant's folios: the work grew with the
+ * whole suite, and under CI's load it outgrew the pool's 60 s statement
+ * timeout (#846, #848). Two textual edits bound it to this fixture: the loop
+ * visits only its tenant, and each INSERT's WHERE adds its entity (an indexed
+ * column in all five tables). Everything else runs as the migration wrote it;
+ * if the migration's text stops matching, the counts below fail loudly
+ * instead of seeding the whole database again.
+ */
+function seed043For(fx: Fixture): string {
+  expect(fx.tenantId).toMatch(UUID);
+  expect(fx.entityId).toMatch(UUID);
+  const sql = fs.readFileSync(MIGRATION_043, 'utf-8');
+  expect(sql.split(LOOP_HEADER)).toHaveLength(2);
+  expect(sql.match(NUMBER_FILTER)).toHaveLength(5);
+  return sql
+    .replace(LOOP_HEADER, `FOR t IN SELECT id FROM tenants WHERE id = '${fx.tenantId}' LOOP`)
+    .replace(NUMBER_FILTER, `$1 AND entity_id = '${fx.entityId}'`);
+}
+
+async function je2026Counter(fx: Fixture): Promise<number | null> {
+  const r = await query<{ value: string }>(
+    `SELECT value FROM entity_sequences WHERE entity_id = $1 AND name = 'journal_entry_2026'`,
+    [fx.entityId]
+  );
+  return r.rows.length ? Number(r.rows[0].value) : null;
+}
+
+function postEntry(fx: Fixture, amount: string, description: string) {
+  return createJournalEntry(
+    fx.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, description,
+    [
+      { account_id: fx.roles.banco, debit_amount: amount, credit_amount: null, description: 'c' },
+      { account_id: fx.roles.cxc, debit_amount: null, credit_amount: amount, description: 'a' },
+    ],
+    fx.userId
+  );
+}
 
 describe('el refresco fuera del posteo', () => {
   it('postear NO refresca las vistas: la deriva se detecta y el callable la cierra', async () => {

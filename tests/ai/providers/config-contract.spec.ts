@@ -4,7 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { listProfiles, loadConfigFile, writeConfigPatch } from '../../../src/ai/providers/config.js';
+import {
+  listProfiles, loadConfigFile, NotAProviderCredentialError, resolveProfile, writeConfigPatch,
+} from '../../../src/ai/providers/config.js';
 
 // ============================================================
 // CONTRACT: what the config loader tells a person whose config is wrong (#367).
@@ -75,6 +77,18 @@ describe('the loader reports every rejected key verbatim', () => {
       "providers.p.type: Invalid enum value. Expected 'anthropic' | 'openai-compatible', received 'x'",
     ],
     ['a missing provider type', { providers: { p: { model: 'm' } } }, 'providers.p.type: Required'],
+    [
+      'a reasoning_effort outside the openai SDK\'s enum',
+      profile({ reasoning_effort: 'extreme' }),
+      "providers.p.reasoning_effort: Invalid enum value. Expected 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max', received 'extreme'",
+    ],
+    ['a model id that is not a string', { models: { gemini: 1 } }, 'models.gemini: Expected string, received number'],
+    [
+      'a models name that is no profile',
+      { models: { nadie: 'x' } },
+      'models.nadie: "nadie" is not a profile. Known: anthropic, hermes, hermes-agent, ollama, openai, grok, ' +
+        'minimax, qwen, gemini, nvidia, openrouter, copilot, openclaw',
+    ],
     // The config format has no '<root>' label: a root issue starts with ': '.
     ['an unknown key at the strict root', { extra: 1 }, ": Unrecognized key(s) in object: 'extra'"],
     [
@@ -210,6 +224,33 @@ describe('the writer refuses an invalid merge with the same prose', () => {
         `Refusing to write an invalid configuration to ${file}: ` +
           'compaction.threshold_tokens: Expected integer, received float; ' +
           'compaction.threshold_tokens: Number must be greater than or equal to 0'
+      )
+    );
+  });
+});
+
+describe('MNE-001-445 · what is refused as a credential, word for word', () => {
+  it('the writer names the key and sends the secret to the person\'s own files', () => {
+    const { file } = projectWith({});
+    expect(() =>
+      writeConfigPatch({ providers: { p: { type: 'openai-compatible', model: 'nvapi-inventada' } } }, undefined, file)
+    ).toThrow(
+      new Error(
+        'Refusing to write "providers.p.model" to the config file: the value looks like a credential. ' +
+          'Config files are shareable and may end up in git — put the secret in your shell or ' +
+          '~/.mnemosine/.env instead and reference it by variable name via api_key_env (or use ' +
+          'api_key_cmd for a vault/credential helper).'
+      )
+    );
+  });
+
+  it('a profile naming an installation secret is refused before anything is read or sent', () => {
+    const { dir } = projectWith(profile({ base_url: 'https://a.example.test/v1', api_key_env: 'JWT_SECRET' }));
+    expect(() => resolveProfile('p', undefined, dir)).toThrow(
+      new NotAProviderCredentialError(
+        'Provider "p" names JWT_SECRET in api_key_env, which is not a provider credential: it is one of ' +
+          "this installation's own secrets, and mnemosine never sends it to a model provider. Put the " +
+          "provider's own key in a variable of its own (in your shell or ~/.mnemosine/.env) and name that one."
       )
     );
   });

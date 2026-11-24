@@ -2,7 +2,13 @@ import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { entityScope, type EntityScope } from '../database/scope.js';
 import type { Palette } from './palette.js';
-import { exitCodeFor, requireExplicitEntity, resolveActiveEntity, type ExitCodeValue } from './kernel/index.js';
+import {
+  describeCommand,
+  exitCodeFor,
+  requireExplicitEntity,
+  resolveActiveEntity,
+  type ExitCodeValue,
+} from './kernel/index.js';
 import { registerEmployeeCreate } from './employee-create-command.js';
 import { registerEmployeeList } from './employee-list-command.js';
 import { registerEmployeeShow } from './employee-show-command.js';
@@ -57,10 +63,7 @@ export interface EmployeeLeafKit {
 }
 
 export function registerEmployeeCommand(program: Command, deps: EmployeeCommandDeps): void {
-  const employee = program
-    .command('employee')
-    .alias('empleado')
-    .description('The payroll roll: register an employee, see one record, list the roll');
+  const employee = describeCommand(program.command('employee').alias('empleado'), 'help.employee.description');
 
   const kit: EmployeeLeafKit = {
     deps,

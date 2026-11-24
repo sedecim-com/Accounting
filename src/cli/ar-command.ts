@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
-import { arReconcile, runArChecks, AR_CHECK_NAMES } from '../services/ar/ar-controls.js';
+import { arReconcile, runArChecks, AR_CHECK_NAMES, type ArCheckResult } from '../services/ar/ar-controls.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -156,6 +157,8 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
   );
 
   // ---- ar check ----------------------------------------------------
+  // A probe whose detail is keyed is rendered here, at the edge, in the reader's language.
+  const detailOf = (r: ArCheckResult): string => (r.detailKey ? t(r.detailKey) : r.detail);
   const check = describeCommand(ar.command('check').alias('verificar'), 'help.ar.check.description');
   withOutput(withContext(check));
   optionByKey(check, '--check [names]', 'help.ar.check.option.check');
@@ -187,7 +190,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
             check: r.name,
             level: r.level,
             count: r.count,
-            detail: r.detail,
+            detail: detailOf(r),
             sample: r.sample.join(' · '),
           })),
           { ...opts, idField: 'check', total: results.length }
@@ -198,7 +201,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
         for (const r of results) {
           const icono =
             r.level === 'clean' ? p.green('✔') : r.level === 'warning' ? p.yellow('▲') : p.red('✘');
-          out.write(`  ${icono} ${r.name.padEnd(24)} ${p.dim(r.detail)}\n`);
+          out.write(`  ${icono} ${r.name.padEnd(24)} ${p.dim(detailOf(r))}\n`);
           for (const s of r.sample) out.write(`      ${p.dim(`· ${s}`)}\n`);
         }
         out.write(

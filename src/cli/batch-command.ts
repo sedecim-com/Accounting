@@ -1,5 +1,5 @@
 import * as readline from 'node:readline/promises';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -23,8 +23,11 @@ import type { Palette } from './palette.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import {
+  argumentByKey,
   declareRisk,
+  describeCommand,
   gateMutation,
+  optionByKey,
   render,
   withContext,
   withOutput,
@@ -206,12 +209,7 @@ Examples:
 } as const;
 
 export function registerBatchCommand(program: Command, deps: BatchCommandDeps): void {
-  const batch = program
-    .command('batch')
-    .alias('lote')
-    .description(
-      'Staged entry batches: list, inspect, check, post transactionally and reverse as a unit'
-    );
+  const batch = describeCommand(program.command('batch').alias('lote'), 'help.batch.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -255,7 +253,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       // que un «sí» tecleado en español contaba como NO.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
@@ -340,12 +338,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   };
 
   // ---- batch list --------------------------------------------------
-  const list = batch
-    .command('list')
-    .alias('listar')
-    .description('List batches with their state, row counts, posted entries and content hash');
+  const list = describeCommand(batch.command('list').alias('listar'), 'help.batch.list.description');
   withReadFlags(list);
-  list.option('--kind <kind>', `batch class (available: ${CLASES_DE_LOTE.join(', ')})`);
+  optionByKey(list, '--kind <kind>', 'help.batch.list.option.kind', {
+    params: { kinds: CLASES_DE_LOTE.join(', ') },
+  });
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: CommonOpts & { kind?: string }, cmd: Command) =>
@@ -411,16 +408,10 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   );
 
   // ---- batch show --------------------------------------------------
-  const show = batch
-    .command('show')
-    .alias('ver')
-    .argument('<id>', 'batch id')
-    .description(
-      'One batch in full: rows with their generated entries, stored parse errors by category, ' +
-        'and the file hash'
-    );
+  const show = describeCommand(batch.command('show').alias('ver'), 'help.batch.show.description');
+  argumentByKey(show, '<id>', 'help.batch.show.argument.id');
   withOutput(withContext(show));
-  show.option('--errors-only', 'only the rows whose parser rejected them');
+  optionByKey(show, '--errors-only', 'help.batch.show.option.errors_only');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((id: string, opts: CommonOpts & { errorsOnly?: boolean }) =>
@@ -495,31 +486,18 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   );
 
   // ---- batch check -------------------------------------------------
-  const check = batch
-    .command('check')
-    .alias('verificar')
-    .argument('<id>', 'batch id')
-    .description(
-      'Run the posting validations over every row and report each finding; exits 4 when any blocks'
-    );
+  const check = describeCommand(batch.command('check').alias('verificar'), 'help.batch.check.description');
+  argumentByKey(check, '<id>', 'help.batch.check.argument.id');
   withOutput(withStrict(withContext(check)));
-  check.option(
-    '--check <names>',
-    // OJO, y está medido: `cuenta`, `periodo` y `forma` son VALORES que el
-    // usuario teclea —vocabulario cerrado del servicio—, pero salen aquí
-    // desnudos dentro de una frase inglesa, así que el censo de superficie
-    // (`npm run ux:status`) cuenta esta hoja como prosa fuera del idioma
-    // canónico y tiene razón. Los acentos graves de la línea de abajo son los
-    // delimitadores de la plantilla, no marcas del valor: un comentario
-    // anterior afirmaba que sí lo eran, y era falso.
-    //
-    // No se renombran aquí a propósito: el idioma de un VALOR de bandera es
-    // superficie visible y pertenece a la decisión §5.1 del plan maestro, que
-    // sigue abierta y es del dueño. La línea base del censo queda en 7 con
-    // esta razón escrita, no maquillada a 6.
-    `finding categories to display, comma-separated (available: ${CATEGORIAS_DE_HALLAZGO.join(', ')}); ` +
-      'the full battery always runs'
-  );
+  // NOTE: `cuenta`, `periodo` and `forma` are VALUES the user types (the
+  // service's closed vocabulary), so they travel as {categories}, unchanged in
+  // every language. The surface census (`npm run ux:status`) counts this leaf as
+  // prose outside the canonical language, and is right about what it sees. They
+  // are not renamed here: the language of a flag value is the owner's decision,
+  // left for I23 (MNE-001-200) by the acceptance of MNE-001-426 on #314.
+  optionByKey(check, '--check <names>', 'help.batch.check.option.check', {
+    params: { categories: CATEGORIAS_DE_HALLAZGO.join(', ') },
+  });
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((id: string, opts: CommonOpts & { check?: string }) =>
@@ -603,21 +581,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   );
 
   // ---- batch post --------------------------------------------------
-  const post = batch
-    .command('post')
-    .alias('contabilizar')
-    .argument('<id>', 'batch id')
-    .description(
-      'Post the whole batch in one transaction; --partial applies the valid rows and leaves the ' +
-        'rest staged'
-    );
+  const post = describeCommand(batch.command('post').alias('contabilizar'), 'help.batch.post.description');
+  argumentByKey(post, '<id>', 'help.batch.post.argument.id');
   withContext(post);
-  post
-    .option(
-      '--partial',
-      'apply the valid rows and leave the invalid ones in staging (accepts an unchecked batch)'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(post, '--partial', 'help.batch.post.option.partial');
+  optionByKey(post, '--json', 'help.batch.post.option.json');
   declareRisk(post, {
     risk: 'irreversible',
     llave: { scope: 'batch post' },
@@ -752,18 +720,11 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   );
 
   // ---- batch reverse -----------------------------------------------
-  const reverse = batch
-    .command('reverse')
-    .alias('reversar')
-    .argument('<id>', 'batch id')
-    .description(
-      'Mirror every entry the batch posted, as one unit in one transaction — import errors are ' +
-        'batch-shaped, not entry-shaped'
-    );
+  const reverse = describeCommand(batch.command('reverse').alias('reversar'), 'help.batch.reverse.description');
+  argumentByKey(reverse, '<id>', 'help.batch.reverse.argument.id');
   withContext(reverse);
-  reverse
-    .option('--as-of <date>', 'date for every mirror entry (YYYY-MM-DD); defaults to today')
-    .option('--json', 'JSON output');
+  optionByKey(reverse, '--as-of <date>', 'help.batch.reverse.option.as_of');
+  optionByKey(reverse, '--json', 'help.batch.reverse.option.json');
   // declareRisk añade --reason por ser verbo de deshacer, y gateMutation la
   // exige salvo en ensayo.
   declareRisk(reverse, {

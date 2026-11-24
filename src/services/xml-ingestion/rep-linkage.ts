@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { TERMINAL_INVOICE_STATUSES } from '../ar/invoice-service.js';
 import {
   recordVendorPayment,
   recordCustomerPayment,
@@ -42,7 +43,30 @@ export interface ResultadoREP {
   /** Por qué se hizo lo que se hizo. Se guarda con el documento. */
   motivo: string;
   avisos: string[];
+  /**
+   * Set when the node was posted past an annulled invoice (`rep_voided_document`).
+   * The caller saves it on the pre-registration: a posted node answers
+   * `ya_ligado` on the next run and would never say it again.
+   */
+  annulledWarning?: string;
 }
+
+/** An invoice the lookup found by UUID, as a review reason names it. */
+interface NamedInvoice {
+  number: string;
+  status: string;
+}
+
+const namesOf = (invoices: NamedInvoice[]): string =>
+  invoices.map((i) => `${i.number} (${i.status})`).join(', ');
+
+// NOTE: prose in place, as every other reason of this module: a service may not
+// reach the language catalog (plan criterion report-labels-come-from-the-catalog).
+const WAYS_OUT =
+  'Si la venta sigue en pie, el error fue la anulación: mientras su CFDI siga esperando aprobación, ' +
+  'aprueba su borrador para registrar otra vez la factura y después corre `mnemosine rep reconcile`; ' +
+  'si ese CFDI ya no espera, una persona decide cómo registrarla. Si el error es el complemento, ' +
+  'sustitúyelo o cancélalo en el PAC o en el portal del SAT: este sistema no cancela CFDI.';
 
 interface DocumentoResuelto {
   uuid: string;
@@ -154,17 +178,69 @@ export async function ligarPagoREP(opts: {
   // ── Los documentos que el REP relaciona ──
   const resueltos: DocumentoResuelto[] = [];
   const desconocidos: string[] = [];
+  const annulled: NamedInvoice[] = [];
   for (const dr of opts.pago.docsRelacionados) {
-    const doc = await resolverDocumento(opts.entityId, dr.uuid, lado);
-    if (!doc) {
-      desconocidos.push(dr.uuid);
-      continue;
+    const found = await resolverDocumento(opts.entityId, dr.uuid, lado);
+    if (found.live.length > 1) {
+      // No policy is read: taking one of two live invoices is never a legitimate choice.
+      return {
+        accion: 'revision',
+        motivo:
+          `Las facturas ${namesOf(found.live)} están todas vivas y llevan el UUID ${dr.uuid} que este ` +
+          'complemento paga. Tomar una en silencio podría liquidar la equivocada, así que no se registró ' +
+          'ni se ligó nada: cuando sólo una de ellas quede viva, corre `mnemosine rep reconcile`.',
+        avisos,
+      };
     }
-    resueltos.push({ ...doc, uuid: dr.uuid, impPagado: dr.impPagado, ivaTrasladadoDR: dr.ivaTrasladadoDR });
+    if (found.live.length === 1) {
+      resueltos.push({ ...found.live[0].doc, uuid: dr.uuid, impPagado: dr.impPagado, ivaTrasladadoDR: dr.ivaTrasladadoDR });
+    } else if (found.annulled.length > 0) {
+      annulled.push(...found.annulled);
+    } else {
+      desconocidos.push(dr.uuid);
+    }
+  }
+
+  // ── A document only annulled invoices carry (MNE-001-524, #672) ──
+  //
+  // A void or cancelled invoice holds no receivable, so the REP and the books
+  // contradict each other for it. This runs before the unknown-document check
+  // and before the search for a captured payment: the reason names the invoice
+  // under every policy, and a collection still applied to it is never linked.
+  let annulledWarning: string | undefined;
+  if (annulled.length > 0) {
+    const invoices = namesOf(annulled);
+    if (resueltos.length === 0) {
+      // No option of any key posts this node, so none is read.
+      return {
+        accion: 'revision',
+        motivo:
+          `Este pago del complemento no paga ninguna factura viva: el UUID que nombra está en ${invoices}, ` +
+          `que los libros anularon. No se registró ni se ligó nada. ${WAYS_OUT}`,
+        avisos,
+      };
+    }
+    // Any value other than the explicit one holds the node, as rep_moneda_extranjera does above.
+    if ((await getPolicy(ctx, 'rep_voided_document')).value !== 'post_live_documents') {
+      return {
+        accion: 'revision',
+        motivo:
+          `Este pago del complemento paga además ${invoices}, que los libros anularon, así que todo el ` +
+          'pago espera y no se registró ni se ligó nada (política rep_voided_document; con ' +
+          `post_live_documents sólo se cobran sus facturas vivas). ${WAYS_OUT}`,
+        avisos,
+      };
+    }
+    annulledWarning =
+      `El complemento paga además ${invoices}, que los libros anularon. No se aplicó nada a lo anulado y su parte ` +
+      'del movimiento de banco no está registrada: sólo se cobraron las facturas vivas (política ' +
+      'rep_voided_document = post_live_documents).';
+    avisos.push(annulledWarning);
   }
 
   if (desconocidos.length > 0) {
     const pol = await getPolicy(ctx, 'rep_documento_desconocido');
+    // CONTRACT: every value but postear_sin_iva parks the node, so `preguntar` (kept for stored answers, #667) reads as `esperar`.
     if (pol.value !== 'postear_sin_iva') {
       return {
         accion: 'revision',
@@ -293,6 +369,7 @@ export async function ligarPagoREP(opts: {
         `El comprobante corresponde al pago ${candidato.numero}, ya registrado. Se anota la ` +
         'ligadura y no se postea nada: el asiento de ese pago ya movió el banco y ya liberó su IVA.',
       avisos,
+      annulledWarning,
     };
   }
 
@@ -368,23 +445,40 @@ export async function ligarPagoREP(opts: {
       'que relaciona. Al escribirlo por la puerta de pagos, el IVA aparcado se libera en la misma ' +
       'póliza, sin una línea de impuesto escrita a mano.',
     avisos,
+    annulledWarning,
   };
+}
+
+type SystemDocument = Omit<DocumentoResuelto, 'uuid' | 'impPagado'>;
+
+/** Every document of the entity that carries a UUID, split by whether it still holds a balance. */
+interface DocumentLookup {
+  live: Array<NamedInvoice & { doc: SystemDocument }>;
+  /** Void or cancelled invoices: known to the books, with no receivable. Always empty for bills. */
+  annulled: NamedInvoice[];
 }
 
 /**
  * Del UUID fiscal al documento del sistema.
  *
- * Issued invoices carry their UUID in their own table. A bill is looked up
- * first through the pre-registration that created it (it keeps the XML), the
- * same detour the cash-basis VAT and the bill service take; then, ING-1
- * (#318), by its own `bills.cfdi_uuid` (migration 037), the column the DIOT
- * and Anexo 24 already read. Same entity scope in both queries.
+ * Issued invoices carry their UUID in their own table, and more than one can
+ * carry the same one: the column has a plain index, and a void invoice keeps
+ * its UUID next to the live one booked after it (MNE-001-524, #672). So every
+ * invoice with the UUID is read, and the caller tells none, one and many
+ * apart. The UUID compares without case, as the approval's own check and the
+ * census do: the parser stores it as written and the REP writes it as its
+ * issuer did.
+ *
+ * A bill is looked up first through the pre-registration that created it (it
+ * keeps the XML), the same detour the cash-basis VAT and the bill service
+ * take; then, ING-1 (#318), by its own `bills.cfdi_uuid` (migration 037), the
+ * column the DIOT and Anexo 24 already read. Same entity scope in every query.
  */
 async function resolverDocumento(
   entityId: string,
   uuid: string,
   lado: 'ap' | 'ar'
-): Promise<Omit<DocumentoResuelto, 'uuid' | 'impPagado'> | null> {
+): Promise<DocumentLookup> {
   if (lado === 'ar') {
     // La primera versión consultaba `balance_due`, columna que no existe —la
     // tabla se creó con `amount_due`— así que TODO REP emitido moría con un
@@ -392,22 +486,31 @@ async function resolverDocumento(
     // porque la suite sólo cubría el lado de proveedores: una rama sin
     // prueba no está «casi lista», está sin ejecutar.
     const r = await query<{
-      id: string; customer_id: string; currency_code: string;
+      id: string; invoice_number: string; status: string; customer_id: string; currency_code: string;
       tax_amount: string; total_amount: string;
     }>(
-      `SELECT id, customer_id, currency_code,
+      `SELECT id, invoice_number, status, customer_id, currency_code,
               tax_amount::text AS tax_amount, total_amount::text AS total_amount
-         FROM invoices WHERE entity_id = $1 AND cfdi_uuid = $2
-        ORDER BY created_at LIMIT 1`,
+         FROM invoices WHERE entity_id = $1 AND lower(cfdi_uuid) = lower($2)
+        ORDER BY created_at`,
       [entityId, uuid]
     );
-    const row = r.rows[0];
-    return row
-      ? {
+    const lookup: DocumentLookup = { live: [], annulled: [] };
+    for (const row of r.rows) {
+      const named = { number: row.invoice_number, status: row.status };
+      if ((TERMINAL_INVOICE_STATUSES as readonly string[]).includes(row.status)) {
+        lookup.annulled.push(named);
+        continue;
+      }
+      lookup.live.push({
+        ...named,
+        doc: {
           documentId: row.id, counterpartyId: row.customer_id, currencyCode: row.currency_code,
           taxAmount: row.tax_amount, totalAmount: row.total_amount,
-        }
-      : null;
+        },
+      });
+    }
+    return lookup;
   }
   const r = await query<{
     id: string; vendor_id: string; currency_code: string;
@@ -429,12 +532,19 @@ async function resolverDocumento(
       ORDER BY created_at LIMIT 1`,
     [entityId, uuid]
   )).rows[0];
-  return row
-    ? {
+  if (!row) return { live: [], annulled: [] };
+  // NOTE: the received side keeps its first-match lookup (out of scope of #672), so the
+  // bill is never named in a reason and its number and status are not read.
+  return {
+    live: [{
+      number: '', status: '',
+      doc: {
         documentId: row.id, counterpartyId: row.vendor_id, currencyCode: row.currency_code,
         taxAmount: row.tax_amount, totalAmount: row.total_amount,
-      }
-    : null;
+      },
+    }],
+    annulled: [],
+  };
 }
 
 /**

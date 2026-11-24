@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll, afterEach } from 'vitest';
 import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -12,14 +12,14 @@ import {
   reciboDeBalanza,
   renderHallazgos,
   PASOS_PARA_PRESENTAR,
-  TITULAR_SIN_SELLO,
   type EAccountingCommandDeps,
 } from '../../src/cli/e-accounting-command.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import { BALANZA_CHECK_NAMES } from '../../src/services/sat/anexo24/balanza-invariantes.js';
 import { ValidationError } from '../../src/utils/errors.js';
-import { t } from '../../src/i18n/index.js';
+import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
+import { changePolicyHint } from '../../src/services/policy/policy-hint.js';
 
 // ============================================================
 // F07b · `e-accounting` · `contabilidad-electronica` contra su fila del
@@ -270,7 +270,7 @@ describe('mesDelCatalogo: el mes se exige, no se supone', () => {
 
   it('el 13 manda a --closing en vez de colarse como mes del catálogo', () => {
     expect(() => mesDelCatalogo('2026-13')).toThrow(/--closing/);
-    expect(() => mesDelCatalogo('2026-00')).toThrow(/01 a 12/);
+    expect(() => mesDelCatalogo('2026-00')).toThrow(/01 to 12/);
   });
 });
 
@@ -288,7 +288,7 @@ describe('exigirTipoDeEnvio y exigirChecksDeBalanza', () => {
     expect(() => exigirChecksDeBalanza('no-existe')).toThrow(/cuentas-en-catalogo/);
     // Una lista vacía NO es «todas»: sería un check que no verificó nada y
     // contestó limpio.
-    expect(() => exigirChecksDeBalanza(' , ')).toThrow(/no nombró ninguna/);
+    expect(() => exigirChecksDeBalanza(' , ')).toThrow(/--check named no check/);
   });
 });
 
@@ -302,7 +302,7 @@ describe('los recibos llevan siempre el sello ausente y lo que falta', () => {
   });
 
   it('el de la balanza publica sellada:false y si el SaldoIni es firme', () => {
-    const fila = reciboDeBalanza(balanza() as never, '(almacén de artefactos)');
+    const fila = reciboDeBalanza(balanza() as never, '(artifact store)');
     expect(fila.sellada).toBe(false);
     expect(fila.saldo_inicial_firme).toBe(true);
     expect(fila.falta_para_presentar).toEqual([...PASOS_PARA_PRESENTAR]);
@@ -313,7 +313,7 @@ describe('los recibos llevan siempre el sello ausente y lo que falta', () => {
     expect(texto).not.toMatch(/mnemosine/);
     expect(texto).toMatch(/e\.firma/);
     expect(texto).toMatch(/Buzón Tributario/);
-    expect(texto).toMatch(/acuse/);
+    expect(texto).toMatch(/acknowledgement of receipt/);
   });
 });
 
@@ -399,7 +399,7 @@ describe('registro de la familia e-accounting', () => {
       expect(r?.draftOnly, g).toBe(true);
       // El artefacto es lo ÚNICO que se escribe: ni póliza ni envío.
       expect(r?.writes).toMatch(/sat_anexo24_artefactos/);
-      expect(r?.writes).toMatch(/SIN SELLAR/);
+      expect(r?.writes).toMatch(/UNSEALED/);
     }
     const check = riskOf(hoja('balance', 'check') as Command);
     expect(check?.risk).toBe('lectura');
@@ -537,7 +537,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
     expect(r.exitCode).toBe(ExitCode.OK);
     expect(r.out).toMatch(/CtaCatalogo 02\/2026/);
     expect(r.out).toMatch(/AAA010101AAA/);
-    expect(r.err, 'la advertencia del tramo entero').toContain(TITULAR_SIN_SELLO);
+    expect(r.err, 'la advertencia del tramo entero').toContain(t('fiscal_mx.e_accounting.unsealed.headline'));
     for (const paso of PASOS_PARA_PRESENTAR) {
       expect(r.err).toContain(paso);
     }
@@ -548,7 +548,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
       'contabilidad-electronica', 'catalogo', 'generar', '--period', '2026-02', ...E,
     ]);
     expect(r.exitCode).toBe(ExitCode.OK);
-    expect(r.err).toContain(TITULAR_SIN_SELLO);
+    expect(r.err).toContain(t('fiscal_mx.e_accounting.unsealed.headline'));
   });
 
   it('el mes se valida ANTES de tocar la base: un typo no cuesta una conexión', async () => {
@@ -562,7 +562,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
       'e-accounting', 'catalog', 'generate', '--period', '2026-02', '--dry-run', ...E,
     ]);
     expect((mundo.ultimoCatalogo as { dryRun: boolean }).dryRun).toBe(true);
-    expect(r.err).toMatch(/--dry-run: no se archivó nada/);
+    expect(r.err).toMatch(/--dry-run: nothing was archived/);
     expect(r.exitCode).toBe(ExitCode.OK);
   });
 
@@ -633,7 +633,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
       }
     );
     expect(r.exitCode).toBe(ExitCode.ABORTED);
-    expect(preguntas[0], 'la pregunta dice lo que está en juego').toMatch(/sellado/);
+    expect(preguntas[0], 'la pregunta dice lo que está en juego').toMatch(/sealed/);
     expect(fs.readFileSync(destino, 'utf8')).toBe('<sellado/>');
   });
 
@@ -709,7 +709,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
       },
     });
     const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
-    expect(r.err).toMatch(/ya estaban archivados/);
+    expect(r.err).toMatch(/were already archived/);
   });
 
   it('con el sellado declarado por el despacho, la nota del motor se repite en voz alta', async () => {
@@ -723,7 +723,7 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
     });
     const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
     expect(r.err).toMatch(/NO SELLA/);
-    expect(r.err).toContain(TITULAR_SIN_SELLO);
+    expect(r.err).toContain(t('fiscal_mx.e_accounting.unsealed.headline'));
   });
 });
 
@@ -733,9 +733,9 @@ describe('balance generate · la balanza y sus banderas', () => {
       'e-accounting', 'balance', 'generate', '--period', '2026-02', ...E,
     ]);
     expect(r.exitCode).toBe(ExitCode.OK);
-    expect(r.out).toMatch(/Balanza 02\/2026/);
+    expect(r.out).toMatch(/Trial balance 02\/2026/);
     expect(r.out).toMatch(/AAA010101AAA202602BN\.XML/);
-    expect(r.err).toContain(TITULAR_SIN_SELLO);
+    expect(r.err).toContain(t('fiscal_mx.e_accounting.unsealed.headline'));
   });
 
   it('--type C traslada --modified como FechaModBal; --closing pide la del ejercicio', async () => {
@@ -785,7 +785,7 @@ describe('balance generate · la balanza y sus banderas', () => {
       },
     });
     const legible = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', ...E]);
-    expect(legible.out).toMatch(/TODAVÍA PUEDE CAMBIAR/);
+    expect(legible.out).toMatch(/MAY STILL CHANGE/);
     expect(legible.err).toMatch(/sigue abierto/);
 
     const maquina = await correr([
@@ -821,7 +821,7 @@ describe('balance check · el contrato de salida §4', () => {
 
   it('limpia: lo dice en prosa y sale 0', async () => {
     const r = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
-    expect(r.out).toMatch(/sin hallazgos/);
+    expect(r.out).toMatch(/no findings/);
     expect(r.exitCode).toBe(ExitCode.OK);
   });
 
@@ -881,7 +881,7 @@ describe('balance check · el contrato de salida §4', () => {
       referencia: '4100',
     });
     expect(r.err, 'el sobre es nota: viaja por stderr y no ensucia el pipe').toMatch(
-      /balanza 02\/2026/
+      /trial balance 02\/2026/
     );
     expect(r.exitCode).toBe(ExitCode.VALIDATION);
   });
@@ -891,7 +891,7 @@ describe('balance check · el contrato de salida §4', () => {
       'contabilidad-electronica', 'balanza', 'verificar', '--period', '2026-02', ...E,
     ]);
     expect(r.exitCode).toBe(ExitCode.OK);
-    expect(r.out).toMatch(/Balanza 02\/2026/);
+    expect(r.out).toMatch(/Trial balance 02\/2026/);
   });
 
   it('--type C and --modified reach the check: an amended balance is sealed as its own bytes', async () => {
@@ -931,5 +931,306 @@ describe('catalog seal · balance seal (EFIRMA-4, #442)', () => {
     expect(r.exitCode).toBe(ExitCode.OK);
     expect(mundo.ultimoSello).toMatchObject({ document: 'balanza', year: 2026, month: 13, envelopeType: 'C' });
     expect(r.err).toContain(t('anexo24.seal.nothing_filed'));
+  });
+});
+
+// ============================================================
+// I8.7 · the e-accounting leaves speak by key (MNE-001-225, #269)
+//
+// Every line these leaves write to a person comes from the catalogue: English
+// under the suite's en-US, Spanish when the language is pinned to es. The
+// receipt's prose (`destino`, `falta_para_presentar`) is English in --json
+// under any locale, because scripts read it; the table labels it in the
+// user's language. Texts by hand, before the code.
+//
+// Not driven here: the «lo tomo como no» line of the overwrite prompt, which
+// only a TTY reaches (`deps.confirm` replaces the prompt in these tests). It
+// reuses `bank.confirm.taken_as_no`, which the bank, payroll and backup specs
+// assert.
+// ============================================================
+
+describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
+  afterEach(() => resetLanguage());
+
+  const usageOf = (fn: () => unknown): { message: string; es: string } => {
+    try {
+      fn();
+    } catch (e) {
+      const err = e as Error & { localized: (l: 'es' | 'en') => string };
+      return { message: err.message, es: err.localized('es') };
+    }
+    throw new Error('it did not throw');
+  };
+
+  it('the catalog period errors, in English and in Spanish', () => {
+    expect(usageOf(() => mesDelCatalogo(undefined)).message).toBe(
+      'The chart of accounts is filed by month: give --period YYYY-MM (for example --period 2026-02). ' +
+        'Without it there is no Mes or Anio to declare in the header.'
+    );
+    expect(usageOf(() => mesDelCatalogo('2026-Q1')).message).toBe(
+      '--period "2026-Q1" is not a month. The CtaCatalogo declares ONE month of ONE fiscal year, so only the ' +
+        'form YYYY-MM (2026-02) is valid here. A quarter, a fiscal year or a range has nowhere to go in the file.'
+    );
+    const outOfRange = usageOf(() => mesDelCatalogo('2026-13'));
+    expect(outOfRange.message).toBe(
+      '--period "2026-13": the month must run from 01 to 12. Month 13 belongs to the year-end balance ' +
+        '(`balance generate --closing`), not to the chart of accounts.'
+    );
+    expect(outOfRange.es).toBe(
+      '--period «2026-13»: el mes ha de ir de 01 a 12. El 13 es de la balanza de cierre ' +
+        '(`balance generate --closing`), no del catálogo de cuentas.'
+    );
+  });
+
+  it('the --type and --check errors, with a plural for the unknown checks', () => {
+    expect(usageOf(() => exigirTipoDeEnvio('X')).message).toBe(
+      '--type "X" does not exist: N is the normal balance and C the amended one. ' +
+        'The year-end balance is not a type, it is --closing (filed as Mes 13).'
+    );
+    const available = 'saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello';
+    expect(usageOf(() => exigirChecksDeBalanza('no-existe')).message).toBe(
+      `Unknown check: no-existe. The available ones are: ${available}.`
+    );
+    const two = usageOf(() => exigirChecksDeBalanza('a,b'));
+    expect(two.message).toBe(`Unknown checks: a, b. The available ones are: ${available}.`);
+    expect(two.es).toBe(`Verificaciones desconocidas: a, b. Las disponibles son: ${available}.`);
+    expect(usageOf(() => exigirChecksDeBalanza(' , ')).message).toBe(
+      `--check named no check. The available ones are: ${available}.`
+    );
+  });
+
+  it('the steps of the receipt are English, whatever the language', () => {
+    setLanguage('es');
+    expect([...PASOS_PARA_PRESENTAR]).toEqual([
+      'Review the XML: it is the document you are going to file, and once it is sealed it is not touched again.',
+      "Seal it with the taxpayer's e.firma: outside this system or, if the firm declared sellar_con_custodia, " +
+        "with this family's seal leaf. No one will ask you for the e.firma by chat.",
+      'Compress it and upload it yourself through the Buzón Tributario (Contabilidad electrónica).',
+      'Keep the acknowledgement of receipt and, later, the one of acceptance or rejection: it is the only proof ' +
+        'that it was filed.',
+    ]);
+  });
+
+  it('catalog generate, en-US: the summary, the policies, the target and the unsealed block', async () => {
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.exitCode).toBe(ExitCode.OK);
+    expect(r.out).toContain('CtaCatalogo 02/2026  RFC AAA010101AAA · 2 accounts · 80 bytes\n');
+    expect(r.out).toContain(
+      '  levels jerarquia_completa · without grouping code bloquear · sealing nunca_sellar_en_el_sistema\n'
+    );
+    expect(r.out).toContain('  target (artifact store)\n');
+    expect(r.err).toContain('  ⚠ THIS FILE IS NOT SEALED AND NOTHING WAS FILED WITH THE SAT.\n');
+    expect(r.err).toContain('    Building the file and signing it are separate acts, by separate hands.\n');
+    expect(r.err).toContain(
+      '    1. Review the XML: it is the document you are going to file, and once it is sealed it is not touched again.\n'
+    );
+    expect(r.err).toContain(
+      '    4. Keep the acknowledgement of receipt and, later, the one of acceptance or rejection: it is the only ' +
+        'proof that it was filed.'
+    );
+  });
+
+  it('catalog generate, es-MX: the same block in Spanish, with «Comprímelo»', async () => {
+    setLanguage('es');
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.out).toContain('CtaCatalogo 02/2026  RFC AAA010101AAA · 2 cuentas · 80 bytes\n');
+    expect(r.out).toContain('  destino (almacén de artefactos)\n');
+    expect(r.err).toContain('  ⚠ ESTE ARCHIVO NO VA SELLADO Y NO SE PRESENTÓ NADA ANTE EL SAT.\n');
+    expect(r.err).toContain(
+      '    3. Comprímelo y transmítelo tú por el Buzón Tributario (Contabilidad electrónica).\n'
+    );
+  });
+
+  it('catalog generate --dry-run --json, es-MX: the receipt stays English, the note is Spanish', async () => {
+    setLanguage('es');
+    const r = await correr([
+      'e-accounting', 'catalog', 'generate', '--period', '2026-02', '--dry-run', '--json', ...E,
+    ]);
+    const receipt = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(receipt['destino']).toBe('(dry run: nothing was written)');
+    expect((receipt['falta_para_presentar'] as string[])[2]).toBe(
+      'Compress it and upload it yourself through the Buzón Tributario (Contabilidad electrónica).'
+    );
+    expect(r.err).toContain('  --dry-run: no se archivó nada y no se escribió ningún archivo.\n');
+  });
+
+  it('catalog generate --fields, es-MX: the table labels the English cells in Spanish', async () => {
+    setLanguage('es');
+    const r = await correr([
+      'e-accounting', 'catalog', 'generate', '--period', '2026-02', '--fields', 'destino,falta_para_presentar', ...E,
+    ]);
+    expect(r.out).toContain('(almacén de artefactos)');
+    expect(r.out).toContain('Comprímelo y transmítelo tú');
+    expect(r.out).not.toContain('(artifact store)');
+  });
+
+  it('catalog generate with accounts left out says how many', async () => {
+    mundo.catalogo = catalogo({ omitidas: [{ code: '9100' }, { code: '9200' }] });
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.out).toContain('  2 accounts left out of the file\n');
+  });
+
+  const undeliverable = (ungrouped: unknown[]) =>
+    catalogo({
+      xml: null, hash: null, bytes: 0, filas: [], puedeEntregarse: false, sinAgrupador: ungrouped, artefacto: null,
+    });
+
+  it('not deliverable: one account without its grouping code, in the singular', async () => {
+    mundo.catalogo = undeliverable([{ code: '1120', name: 'Bancos' }]);
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.exitCode).toBe(ExitCode.VALIDATION);
+    expect(r.err).toContain(
+      '  No deliverable file was produced. 1 account in scope has no grouping code and the policy ' +
+        "`anexo24_cuenta_sin_agrupador` is set to 'bloquear'. Assign it, or change the policy with " +
+        `${changePolicyHint('anexo24_cuenta_sin_agrupador')}.\n`
+    );
+  });
+
+  it('not deliverable: two accounts, in the plural and in Spanish', async () => {
+    mundo.catalogo = undeliverable([{ code: '1120' }, { code: '1130' }]);
+    const en = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(en.err).toContain('2 accounts in scope have no grouping code');
+    expect(en.err).toContain("is set to 'bloquear'. Assign them, or change the policy with");
+    setLanguage('es');
+    const es = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(es.err).toContain(
+      '  No se generó ningún archivo entregable. 2 cuentas del alcance no tienen código agrupador y la política ' +
+        "`anexo24_cuenta_sin_agrupador` está en 'bloquear'. Asígnalos, o cambia la política con "
+    );
+  });
+
+  it('not deliverable for a blocking finding: resolve them and generate again', async () => {
+    mundo.catalogo = undeliverable([]);
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.err).toContain(
+      '  No deliverable file was produced. Resolve the blocking findings above and generate again.\n'
+    );
+  });
+
+  it('bytes already archived: the generator is deterministic', async () => {
+    mundo.catalogo = catalogo({ artefacto: { ...catalogo().artefacto, yaExistia: true } });
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(r.err).toContain(
+      '  These same bytes were already archived: no new version was created. The generator is deterministic.\n'
+    );
+  });
+
+  it('the overwrite question, and the abort a «no» gives', async () => {
+    const target = path.join(tmpRaiz, 'i87-sellado.xml');
+    fs.writeFileSync(target, '<sellado/>', 'utf8');
+    const questions: string[] = [];
+    const r = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', '-o', target, ...E], {
+      confirm: (q: string) => {
+        questions.push(q);
+        return Promise.resolve(false);
+      },
+    });
+    expect(questions[0]).toBe(
+      `${target} already exists. If that file is already sealed, overwriting it leaves it without its seal. Replace it?`
+    );
+    expect(r.exitCode).toBe(ExitCode.ABORTED);
+    expect((r.errs[0] as Error).message).toBe(
+      `Nothing was written: ${target} is kept as it was. Use another path, or --yes if you really want to replace it.`
+    );
+  });
+
+  it('balance generate, en-US: the title, the header, the policies and the suggested file', async () => {
+    const r = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', ...E]);
+    expect(r.out).toContain(
+      'Trial balance 02/2026  RFC AAA010101AAA · TipoEnvio N · Febrero 2026 2026-02-01 → 2026-02-28 · 3 accounts\n'
+    );
+    expect(r.out).toContain(
+      '  levels jerarquia_completa · sealing nunca_sellar_en_el_sistema · SaldoIni from mayor, firm\n'
+    );
+    expect(r.out).toContain('  suggested file AAA010101AAA202602BN.XML · 67 bytes\n');
+    expect(r.out).toContain('  target (artifact store)\n');
+  });
+
+  it('balance generate, a closing balance whose SaldoIni may still change, in both languages', async () => {
+    mundo.balanza = balanza({
+      meta: { ...META_BALANZA, cierre: true },
+      inicial: { ...INICIAL, firme: false },
+    });
+    const en = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', ...E]);
+    expect(en.out).toContain('· TipoEnvio N · closing (Mes 13) ·');
+    expect(en.out).toContain('SaldoIni from mayor, MAY STILL CHANGE (the previous period is still open)\n');
+    setLanguage('es');
+    const es = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', ...E]);
+    expect(es.out).toContain(
+      'Balanza 02/2026  RFC AAA010101AAA · TipoEnvio N · cierre (Mes 13) · Febrero 2026 2026-02-01 → 2026-02-28 · 3 cuentas\n'
+    );
+    expect(es.out).toContain(
+      '  niveles jerarquia_completa · sellado nunca_sellar_en_el_sistema · SaldoIni del mayor, ' +
+        'TODAVÍA PUEDE CAMBIAR (el periodo anterior sigue abierto)\n'
+    );
+  });
+
+  it('balance generate with the sealing declared names the seal leaf', async () => {
+    mundo.balanza = balanza({ meta: { ...META_BALANZA, criterio_sellado: 'sellar_con_custodia' } });
+    const r = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', ...E]);
+    expect(r.err).toContain(
+      '    The firm declared "sellar_con_custodia" in efirma_sellado_contabilidad_electronica, and this command ' +
+        'does not seal: the file comes out without Sello, noCertificado or Certificado. ' +
+        'Review it and seal it with `e-accounting balance seal`.\n'
+    );
+  });
+
+  it('balance check, clean: the matching catalog, the checks and the verdict, in both languages', async () => {
+    const en = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(en.out).toContain('  matching catalog: artefacto_archivado (abc123def456)\n');
+    expect(en.out).toContain('  checks: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello\n');
+    expect(en.out).toContain('  ✔ no findings: the trial balance passes the 5 checks asked for.\n');
+    setLanguage('es');
+    const es = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(es.out).toContain('  catálogo de cotejo: artefacto_archivado (abc123def456)\n');
+    expect(es.out).toContain('  verificaciones: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello\n');
+    expect(es.out).toContain('  ✔ sin hallazgos: la balanza pasa las 5 verificaciones pedidas.\n');
+  });
+
+  it('balance check of one check and no catalog: the singular, and «none»', async () => {
+    mundo.verificacion = verificacion({ checks: ['saldos'], catalogo: null });
+    const en = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--check', 'saldos', ...E]);
+    expect(en.out).toContain('  matching catalog: none\n');
+    expect(en.out).toContain('passes the 1 check asked for.\n');
+    setLanguage('es');
+    const es = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--check', 'saldos', ...E]);
+    expect(es.out).toContain('  catálogo de cotejo: ninguno\n');
+    expect(es.out).toContain('la balanza pasa la 1 verificación pedida.\n');
+  });
+
+  it('balance check with findings counts them with plurals, in both languages', async () => {
+    mundo.verificacion = verificacion({
+      hallazgos: [HALLAZGO_BLOQUEA, HALLAZGO_AVISA],
+      conteo: { blocking: 1, warning: 1 },
+    });
+    const en = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(en.out).toContain('  1 blocking, 1 warning. A blocking finding stops the file from being generated.\n');
+    setLanguage('es');
+    const es = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(es.out).toContain('  1 bloqueante, 1 aviso. Un bloqueante impide generar el archivo.\n');
+    resetLanguage();
+    mundo.verificacion = verificacion({ hallazgos: [HALLAZGO_BLOQUEA], conteo: { blocking: 2, warning: 0 } });
+    const two = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(two.out).toContain('  2 blocking, 0 warnings. ');
+  });
+
+  it('balance check --json: the envelope line on stderr', async () => {
+    const r = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--json', ...E]);
+    expect(r.err).toContain(
+      'AAA010101AAA · trial balance 02/2026 · Febrero 2026 · 3 accounts · ' +
+        'checks: saldos,redondeo,cuentas-en-catalogo,natur-coherente,sin-sello\n'
+    );
+  });
+
+  it('the generate leaves write the archived artifact, UNSEALED, in English', () => {
+    const program = new Command();
+    registerEAccountingCommand(program, { palette: plain, shutdown: () => undefined, reportError: () => undefined });
+    const family = program.commands.find((c) => c.name() === 'e-accounting')!;
+    for (const g of ['catalog', 'balance']) {
+      const generate = family.commands.find((c) => c.name() === g)!.commands.find((c) => c.name() === 'generate')!;
+      expect(riskOf(generate)?.writes, g).toBe(
+        'sat_anexo24_artefactos (the archived XML with its hash, UNSEALED); no journal entry, nothing sent to the authority'
+      );
+    }
   });
 });

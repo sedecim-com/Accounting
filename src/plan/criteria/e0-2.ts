@@ -64,6 +64,8 @@ export const E0_2: Criterio[] = [
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
+        // tax_balance_uses (migration 337) left this list with MNE-001-386 (#308): the IVA
+        // workpaper now reads it (balancesInFavorBefore), so it is no longer dead.
       };
       const dirMigraciones = 'src/database/migrations';
       const sql = fs

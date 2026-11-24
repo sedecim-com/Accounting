@@ -15,6 +15,7 @@ import { E3_2 } from './criteria/e3-2.js';
 import { E4_1 } from './criteria/e4-1.js';
 import { E4_2 } from './criteria/e4-2.js';
 import { E5_1 } from './criteria/e5-1.js';
+import { E6_1 } from './criteria/e6-1.js';
 
 
 // ============================================================
@@ -60,6 +61,7 @@ export const CRITERIOS: Criterio[] = [
   ...E4_1,
   ...E4_2,
   ...E5_1,
+  ...E6_1,
 
   // ============================================================
   // LOS CRITERIOS QUE EJECUTAN (S4a)

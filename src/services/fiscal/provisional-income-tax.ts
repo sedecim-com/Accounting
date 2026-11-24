@@ -46,8 +46,10 @@ import {
 // how the coefficient's denominator is built. Two things the ledger cannot
 // say, the paper warns about instead of guessing: customer advances, which
 // LISR art. 17 fr. I accumulates when collected (anticipo_clientes mixes
-// advance CFDIs at their subtotal with on-account remainders that carry
-// their IVA), and non-accumulable revenue such as dividends from Mexican
+// advance CFDIs at their subtotal, and advances and the excess of a
+// collection recorded with their IVA treatment at their base, MNE-001-458 and
+// MNE-001-462, with on-account remainders the service records with no
+// treatment, which carry their IVA), and non-accumulable revenue such as dividends from Mexican
 // entities (art. 16), which has no role of its own yet.
 //
 // WITHHELD ISR is read per entry: an entry whose lines on the role accounts
@@ -286,7 +288,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     if (!coefficient) {
       block('ISR-WP-NO-COEFFICIENT',
         `No hay coeficiente de utilidad capturado de una declaración anual presentada o exigible al ` +
-          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración; ` +
+          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración: ` +
+          '`mnemosine annual figure record --kind profit_coefficient`; ' +
           `en el primer ejercicio de operaciones no hay pagos provisionales.`);
     }
 
@@ -301,7 +304,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       block('ISR-WP-LOSSES-STALE',
         `Las pérdidas pendientes capturadas son de la declaración de ${lossInput.sourceFiscalYear}; ` +
           `el pago de ${year} aplica las que quedaron al cierre de ${year - 1} (LISR art. 57). ` +
-          `Captura las de la declaración de ${year - 1}, aunque sean cero.`);
+          `Captura las de la declaración de ${year - 1} una vez presentada, aunque sean cero: ` +
+          `\`mnemosine annual figure record --kind pending_tax_losses --year ${year - 1}\`.`);
     } else if (lossInput) {
       const target = lossesUpdateTarget(year, month);
       const [y, m] = (lossInput.updatedThrough as string).split('-').map(Number);
@@ -355,14 +359,29 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     const incomeAccounts = revenue.filter((b) => treatment === 'net_of_income' || !returnIds.has(b.id));
     const nominalIncome = incomeAccounts.reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
 
+    // MNE-001-498 · a transfer of customer credit (DR 2150 / CR 2150) collects nothing: its credit is not counted.
+    const { rows: transferred } = await client.query<{ account_id: string; credit: string }>(
+      `SELECT l.account_id, SUM(l.credit_amount)::text AS credit
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id
+        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = 'customer_credit_transfer'
+          AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+          AND l.account_id = ANY($4::uuid[]) AND COALESCE(l.credit_amount, 0) > 0
+        GROUP BY l.account_id`,
+      [entityId, from, through, [...advanceIds]]
+    );
+    const transferredTo = new Map(transferred.map((r) => [r.account_id, new Decimal(r.credit)]));
     const advancesCollected = balance
-      .filter((b) => advanceIds.has(b.account_id) && !new Decimal(b.credit_total).isZero())
-      .map((b) => ({ code: b.account_code, amount: new Decimal(b.credit_total).toFixed(4) }));
+      .map((b) => ({ b, credit: new Decimal(b.credit_total).minus(transferredTo.get(b.account_id) ?? 0) }))
+      .filter(({ b, credit }) => advanceIds.has(b.account_id) && !credit.isZero())
+      .map(({ b, credit }) => ({ code: b.account_code, amount: credit.toFixed(4) }));
     if (advancesCollected.length > 0) {
       findings.push({ codigo: 'ISR-WP-ADVANCES', severidad: 'aviso',
         mensaje: `Anticipos de clientes cobrados en el ejercicio (` +
           `${advancesCollected.map((a) => `${a.code}: ${a.amount}`).join(', ')}) no están en los ingresos ` +
-          `nominales, y LISR art. 17 fr. I los acumula al cobrarse. Súmalos sin IVA al declarar, menos los ya facturados.` });
+          `nominales, y LISR art. 17 fr. I los acumula al cobrarse. Un anticipo registrado con su tratamiento de IVA ` +
+          `se abonó por su base, ya sin IVA; el efectivo a cuenta sin tratamiento todavía lo lleva. ` +
+          `Súmalos sin IVA al declarar, menos los ya facturados.` });
     }
 
     const { accounts: withholdingAccounts, entryIds: withholdingEntryIds } = await withheldInRange(

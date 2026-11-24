@@ -15,6 +15,7 @@ import {
   type SerializadorDiot,
 } from '../services/sat/diot/index.js';
 import { renderHallazgos } from './e-accounting-command.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -130,41 +131,47 @@ const MARK = { bloquea: '✘', avisa: '⚠', limpio: '✔' } as const;
 // LO QUE FALTA PARA PRESENTAR, DICHO SIEMPRE Y CON TODAS SUS LETRAS
 // ------------------------------------------------------------
 
-/**
- * El titular. En español porque es la advertencia más importante del tramo:
- * la DIOT tiene fecha límite y un contador que cierre la terminal creyendo
- * que ya presentó descubre el error cuando le llega el requerimiento.
- */
-export const TITULAR_NO_PRESENTADA =
-  'ESTA DIOT NO SE PRESENTÓ Y ESTE ARCHIVO NO ES LA DECLARACIÓN.';
+// The headline and the steps speak by key (MNE-001-226, I8.7). The headline
+// is the most important warning of this family: the DIOT has a deadline, and
+// an accountant who closes the terminal believing it was filed finds out when
+// the SAT's request arrives. es-MX, the default, reads it word for word as
+// before. The receipt's copy of the steps stays English, for scripts.
 
 /**
- * Los pasos que quedan, en el orden en que ocurren. Se exportan para que una
- * prueba los fije: una lista que se acorta sin querer deja al lector creyendo
- * que ya terminó.
+ * The steps still to do, in the order they happen. A list that shrinks by
+ * accident leaves the reader believing they are done, so a test pins it.
  *
- * No mandan a ningún comando de este binario, porque no hay ninguno que
- * presente: `diot export --layout sat` only writes the batch file, and
- * `diot record` no existe.
+ * They send to no command of this binary, because none files:
+ * `diot export --layout sat` only writes the batch file, and `diot record`
+ * does not exist.
  */
-export const PASOS_PARA_PRESENTAR_DIOT: readonly string[] = Object.freeze([
-  'Coteja el papel de trabajo contra el movimiento del mes de la cuenta de IVA acreditable: ' +
-    'si no cuadra al centavo, no captures — «casi cuadra» es un requerimiento dentro de un año.',
-  'Captura o carga la declaración TÚ en el portal del SAT. Este binario no entra al portal, ' +
-    'no carga la e.firma y no presenta nada.',
-  'Guarda el acuse con su número de operación: es la única prueba de que se presentó.',
-  'Registra el acuse en el expediente del mes. Ese registro TODAVÍA NO tiene comando ' +
-    '(`diot record` no está construido).',
-]);
+const STEP_KEYS: readonly TranslationKey[] = [
+  'fiscal_mx.diot.unfiled.step_tie_out',
+  'fiscal_mx.diot.unfiled.step_capture',
+  'fiscal_mx.diot.unfiled.step_acknowledgement',
+  'fiscal_mx.diot.unfiled.step_record',
+];
+
+/**
+ * The steps as the receipt carries them (`falta_para_presentar`): English
+ * under every locale, because --json and csv are read by scripts. A table
+ * renders them in the user's language through `stepsLabel`.
+ */
+export const PASOS_PARA_PRESENTAR_DIOT: readonly string[] = Object.freeze(STEP_KEYS.map((k) => t(k, {}, 'en')));
+
+/** The table's label of the stored step list: the same steps in the user's language. */
+function stepsLabel(value: string): string {
+  return value === JSON.stringify(PASOS_PARA_PRESENTAR_DIOT) ? JSON.stringify(STEP_KEYS.map((k) => t(k))) : value;
+}
 
 /** El bloque completo, para la salida legible. */
 function bloqueNoPresentada(c: Palette): string {
   return [
     '',
-    c.yellow(`  ⚠ ${TITULAR_NO_PRESENTADA}`),
-    c.dim('    Armar la declaración y presentarla son actos distintos y de manos distintas.'),
+    c.yellow(`  ⚠ ${t('fiscal_mx.diot.unfiled.headline')}`),
+    c.dim(`    ${t('fiscal_mx.diot.unfiled.two_hands')}`),
     '',
-    ...PASOS_PARA_PRESENTAR_DIOT.map((p, i) => c.dim(`    ${i + 1}. ${p}`)),
+    ...STEP_KEYS.map((k, i) => c.dim(`    ${i + 1}. ${t(k)}`)),
     '',
   ].join('\n');
 }
@@ -188,26 +195,16 @@ const MES_RE = /^(\d{4})-(\d{2})$/;
  */
 export function mesDeLaDiot(expr: string | undefined): { anio: number; mes: number } {
   if (expr === undefined || expr.trim() === '') {
-    throw usageError(
-      'La DIOT se declara por mes: indica --period YYYY-MM (por ejemplo --period 2026-02). ' +
-        'Sin él no hay periodo que declarar.'
-    );
+    throw usageError({ key: 'fiscal_mx.diot.period.missing' });
   }
   const m = MES_RE.exec(expr.trim());
   if (!m) {
-    throw usageError(
-      `--period «${expr}» no es un mes. La DIOT es mensual (LIVA art. 32 fr. VIII), así que ` +
-        'aquí sólo vale la forma YYYY-MM (2026-02). Un trimestre o un ejercicio no se declaran.'
-    );
+    throw usageError({ key: 'fiscal_mx.diot.period.not_month', params: { value: expr } });
   }
   const anio = Number(m[1]);
   const mes = Number(m[2]);
   if (mes < 1 || mes > 12) {
-    throw usageError(
-      `--period «${expr}»: el mes ha de ir de 01 a 12. El mes 13 es de la balanza de cierre ` +
-        'del Anexo 24 (`e-accounting balance generate --closing`); una declaración informativa ' +
-        'no tiene mes 13.'
-    );
+    throw usageError({ key: 'fiscal_mx.diot.period.month_out_of_range', params: { value: expr } });
   }
   return { anio, mes };
 }
@@ -225,8 +222,14 @@ export function mesDeLaDiot(expr: string | undefined): { anio: number; mes: numb
  * cambiar sin que cambie de qué habla el hallazgo.
  */
 export const CODIGOS_POR_CHECK = Object.freeze({
-  /** El suceso del mayor: ¿hay pago, y no se libera más de lo aparcado? */
-  'hecho-pagado': Object.freeze(['DIOT-PUE-SIN-PAGO', 'DIOT-TOPE-APARCADO']),
+  /** El suceso del mayor: ¿hay pago, y no se libera más de lo aparcado? A cheque counts when cashed. */
+  'hecho-pagado': Object.freeze([
+    'DIOT-PUE-SIN-PAGO',
+    'DIOT-PUE-ESPERA-PAGO',
+    'DIOT-TOPE-APARCADO',
+    'DIOT-CHEQUE-NOT-CASHED',
+    'DIOT-CHEQUE-CREDITED-BEFORE-CASHING',
+  ]),
   /** El reparto por tasa: la DIOT declara por casilla, no un total. */
   'desglose-por-tasa': Object.freeze([
     'DIOT-SIN-RENGLONES',
@@ -270,23 +273,33 @@ export const DIOT_CHECK_NAMES = Object.freeze(
   Object.keys(CODIGOS_POR_CHECK) as DiotCheckName[]
 );
 
-/** Una línea por verificación, para `--check` sin valor. */
-export const DESCRIPCION_DEL_CHECK: Readonly<Record<DiotCheckName, string>> = Object.freeze({
-  'hecho-pagado':
-    'el suceso que la DIOT declara existe en el mayor y no libera más IVA del que hay aparcado',
-  'desglose-por-tasa':
-    'cada gasto se reparte por tasa (16/8/0/exento) y la suma reproduce el IVA de la cabecera',
-  'base-de-lo-exento':
-    'los actos exentos declaran su base, que es lo que la DIOT informa aunque no haya impuesto',
-  'tercero-identificado':
-    'cada tercero llega con RFC usable, o con identificación fiscal, país y nacionalidad si es extranjero',
-  'tipo-de-operacion':
-    'cada tercero trae un tipo de operación capturado que el catálogo 2025 admite para su tipo de tercero, no supuesto',
-  'creditable-iva-proportion':
-    'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue in the fiscal year',
-  'politica-en-catalogo':
-    'las políticas de la DIOT valen algo que su propio catálogo admite',
+/** The key of each check's one-line description, for `--check` with no value. */
+const CHECK_DESCRIPTION_KEYS: Readonly<Record<DiotCheckName, TranslationKey>> = Object.freeze({
+  'hecho-pagado': 'fiscal_mx.diot.check.paid_event',
+  'desglose-por-tasa': 'fiscal_mx.diot.check.rate_breakdown',
+  'base-de-lo-exento': 'fiscal_mx.diot.check.exempt_base',
+  'tercero-identificado': 'fiscal_mx.diot.check.third_party_identified',
+  'tipo-de-operacion': 'fiscal_mx.diot.check.operation_type',
+  'creditable-iva-proportion': 'fiscal_mx.diot.check.creditable_iva_proportion',
+  'politica-en-catalogo': 'fiscal_mx.diot.check.catalog_policy',
 });
+
+/**
+ * One line per check, as the `detalle` column carries it: English under every
+ * locale, because --json and csv are read by scripts. A table renders it in
+ * the user's language through `checkDescriptionLabel`.
+ */
+export const DESCRIPCION_DEL_CHECK: Readonly<Record<DiotCheckName, string>> = Object.freeze(
+  Object.fromEntries(
+    DIOT_CHECK_NAMES.map((n) => [n, t(CHECK_DESCRIPTION_KEYS[n], {}, 'en')])
+  ) as Record<DiotCheckName, string>
+);
+
+/** The table's label of a stored check description: the same line in the user's language. */
+function checkDescriptionLabel(value: string): string {
+  const name = DIOT_CHECK_NAMES.find((n) => DESCRIPCION_DEL_CHECK[n] === value);
+  return name === undefined ? value : t(CHECK_DESCRIPTION_KEYS[name]);
+}
 
 /** El check al que pertenece un código, o undefined si nadie lo clasificó. */
 export function checkDelCodigo(codigo: string): DiotCheckName | undefined {
@@ -312,15 +325,17 @@ export function exigirChecksDeDiot(valor: string): DiotCheckName[] {
     (p) => !(DIOT_CHECK_NAMES as readonly string[]).includes(p)
   );
   if (desconocidos.length > 0) {
-    throw usageError(
-      `Verificación(es) desconocida(s): ${desconocidos.join(', ')}. ` +
-        `Las disponibles son: ${DIOT_CHECK_NAMES.join(', ')}.`
-    );
+    // The same words as the balance's `--check`, so the key is shared.
+    throw usageError({
+      key: 'fiscal_mx.e_accounting.balance.check_unknown',
+      params: { count: desconocidos.length, unknown: desconocidos.join(', '), available: DIOT_CHECK_NAMES.join(', ') },
+    });
   }
   if (pedidos.length === 0) {
-    throw usageError(
-      `--check no nombró ninguna verificación. Las disponibles son: ${DIOT_CHECK_NAMES.join(', ')}.`
-    );
+    throw usageError({
+      key: 'fiscal_mx.e_accounting.balance.check_empty',
+      params: { available: DIOT_CHECK_NAMES.join(', ') },
+    });
   }
   return pedidos as DiotCheckName[];
 }
@@ -368,11 +383,10 @@ export function exigirLayout(valor: string | undefined): SerializadorDiot {
   const clave = (valor ?? LAYOUT_POR_OMISION).trim();
   const elegido = LAYOUTS[clave];
   if (!elegido) {
-    throw usageError(
-      `--layout «${clave}» no existe. Los layouts son: ${Object.keys(LAYOUTS).join(', ')} ` +
-        `(working-paper es la conciliación por tercero que se coteja antes de capturar; ` +
-        `sat es el archivo de lote de la autoridad).`
-    );
+    throw usageError({
+      key: 'fiscal_mx.diot.export.layout_unknown',
+      params: { value: clave, layouts: Object.keys(LAYOUTS).join(', ') },
+    });
   }
   return elegido;
 }
@@ -416,6 +430,9 @@ export function filaDeTercero(r: RenglonDiot): Row {
   };
 }
 
+/** The suffix of a criterion's origin field in the receipt: a --json field name, not prose. */
+const ORIGIN_FIELD_SUFFIX = '_origen';
+
 /**
  * El recibo de la declaración: UNA fila con todo lo que hace falta para saber
  * qué se armó y si se puede capturar. Los terceros y los hallazgos viajan
@@ -448,7 +465,7 @@ export function reciboDeDiot(d: DiotConstruida, extra: Record<string, unknown> =
     presentada: false,
     ...Object.fromEntries(d.politicas.map((p) => [`criterio_${p.clave}`, p.valor])),
     ...Object.fromEntries(
-      d.politicas.map((p) => [`criterio_${p.clave}_origen`, p.definida ? 'contestada' : 'omision'])
+      d.politicas.map((p) => [`criterio_${p.clave}${ORIGIN_FIELD_SUFFIX}`, p.definida ? 'contestada' : 'omision'])
     ),
     falta_para_presentar: [...PASOS_PARA_PRESENTAR_DIOT],
     ...extra,
@@ -536,14 +553,20 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
     return (
       `\n${c.bold(`DIOT ${mes}/${d.periodo.anio}`)}  ` +
       c.dim(
-        `RFC ${d.rfc} — ${d.razonSocial} · ${d.periodo.desde} → ${d.periodo.hasta} · ` +
-          `${d.totales.terceros} tercero(s) · ${d.totales.documentos} documento(s)`
+        t('fiscal_mx.diot.header.summary', {
+          rfc: d.rfc,
+          name: d.razonSocial,
+          from: d.periodo.desde,
+          to: d.periodo.hasta,
+          parties: d.totales.terceros,
+          documents: d.totales.documentos,
+        })
       ) +
       '\n' +
-      c.dim('  base: operaciones PAGADAS (LIVA art. 5 frac. III), no devengadas\n') +
+      c.dim(`  ${t('fiscal_mx.diot.header.basis')}\n`) +
       c.dim(
         `  ${d.politicas
-          .map((p) => `${p.clave}=${p.valor}${p.definida ? '' : ' (omisión)'}`)
+          .map((p) => `${p.clave}=${p.valor}${p.definida ? '' : ` ${t('fiscal_mx.diot.header.by_default')}`}`)
           .join(' · ')}\n`
       )
     );
@@ -552,27 +575,25 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
   /** Los totales por casilla, que es como la declaración se captura. */
   const totales = (d: DiotConstruida): string => {
     const c = deps.palette;
-    const t = d.totales.desglose;
+    const rates = d.totales.desglose;
     const linea = (etiqueta: string, base: string, iva: string | null): string =>
       `  ${etiqueta.padEnd(22)} base ${formatMoneyMx(base).padStart(16)}` +
       (iva === null ? '' : `   IVA ${formatMoneyMx(iva).padStart(16)}`);
     const filas = [
-      linea('16 %', t.tasa16.base, t.tasa16.iva),
-      linea('8 % (frontera)', t.tasa8.base, t.tasa8.iva),
-      linea('0 %', t.tasa0.base, null),
-      linea('exento', t.exento.base, null),
-      ...t.otras.map((o) => linea(`otras (${o.etiqueta})`, o.base, o.iva)),
+      linea('16 %', rates.tasa16.base, rates.tasa16.iva),
+      linea(t('fiscal_mx.diot.totals.rate_8'), rates.tasa8.base, rates.tasa8.iva),
+      linea('0 %', rates.tasa0.base, null),
+      linea(t('fiscal_mx.diot.totals.exempt'), rates.exento.base, null),
+      ...rates.otras.map((o) => linea(t('fiscal_mx.diot.totals.other', { label: o.etiqueta }), o.base, o.iva)),
     ];
+    // The two amounts line up after their labels, in any language.
+    const total = (key: TranslationKey, amount: string): string =>
+      `  ${t(key).padEnd(34)}${formatMoneyMx(amount)}\n`;
     return (
       `\n${filas.join('\n')}\n\n` +
-      c.bold(
-        `  IVA acreditable pagado en el mes  ${formatMoneyMx(d.totales.ivaAcreditablePagado)}\n`
-      ) +
-      c.dim(`  IVA retenido a terceros           ${formatMoneyMx(d.totales.ivaRetenido)}\n`) +
-      c.dim(
-        '  Cotéjalo contra el movimiento del mes de la cuenta de IVA acreditable: si no ' +
-          'cuadra al centavo, no captures.\n'
-      )
+      c.bold(total('fiscal_mx.diot.totals.creditable_paid', d.totales.ivaAcreditablePagado)) +
+      c.dim(total('fiscal_mx.diot.totals.withheld', d.totales.ivaRetenido)) +
+      c.dim(`  ${t('fiscal_mx.diot.totals.tie_out')}\n`)
     );
   };
 
@@ -632,7 +653,7 @@ Examples:
       const err = process.stderr;
 
       if (!legible(opts)) {
-        render([reciboDeDiot(d)], { ...opts, idField: 'rfc' });
+        render([reciboDeDiot(d)], { ...opts, idField: 'rfc', labelled: { falta_para_presentar: stepsLabel } });
       } else {
         out.write(cabecera(d));
         out.write(totales(d));
@@ -651,13 +672,7 @@ Examples:
 
       if (!esEntregable(d)) {
         const conteo = contarHallazgos(d.hallazgos);
-        err.write(
-          c.red(
-            `  ${conteo.bloqueante} hallazgo(s) impiden capturar esta DIOT tal cual. ` +
-              'Arréglalos y vuelve a armarla; `diot check --check` lista las verificaciones ' +
-              'por nombre para atacarlas de una en una.\n\n'
-          )
-        );
+        err.write(c.red(`  ${t('fiscal_mx.diot.generate.not_capturable', { count: conteo.bloqueante })}\n\n`));
         return ExitCode.VALIDATION;
       }
       return ExitCode.OK;
@@ -699,7 +714,7 @@ Examples:
               codigos: CODIGOS_POR_CHECK[n].join(','),
               detalle: DESCRIPCION_DEL_CHECK[n],
             })),
-            { ...opts, idField: 'check' }
+            { ...opts, idField: 'check', labelled: { detalle: checkDescriptionLabel } }
           );
           return ExitCode.OK;
         }
@@ -724,27 +739,28 @@ Examples:
           render(hallazgos.map(filaDeHallazgo), { ...opts, idField: 'codigo' });
           process.stderr.write(
             c.dim(
-              `${d.rfc} · DIOT ${String(mes).padStart(2, '0')}/${anio} · ` +
-                `${d.totales.terceros} tercero(s) · IVA acreditable pagado ` +
-                `${d.totales.ivaAcreditablePagado} · verificaciones: ${corridas.join(',')}\n`
+              `${t('fiscal_mx.diot.check.envelope', {
+                rfc: d.rfc,
+                month: String(mes).padStart(2, '0'),
+                year: anio,
+                parties: d.totales.terceros,
+                amount: d.totales.ivaAcreditablePagado,
+                checks: corridas.join(','),
+              })}\n`
             )
           );
         } else {
           out.write(cabecera(d));
-          out.write(c.dim(`  verificaciones: ${corridas.join(', ')}\n\n`));
+          out.write(c.dim(`  ${t('fiscal_mx.e_accounting.balance.checks_run', { checks: corridas.join(', ') })}\n\n`));
           const lineas = lineasDeHallazgos(hallazgos, c);
           if (lineas.length === 0) {
-            out.write(
-              `  ${MARK.limpio} sin hallazgos: la DIOT pasa las ${corridas.length} ` +
-                'verificación(es) pedidas.\n\n'
-            );
+            out.write(`  ${MARK.limpio} ${t('fiscal_mx.diot.check.clean', { count: corridas.length })}\n\n`);
           } else {
             for (const l of lineas) out.write(`${l}\n`);
             out.write(
               '\n' +
                 c.dim(
-                  `  ${conteo.bloqueante} bloqueante(s), ${conteo.aviso} aviso(s). ` +
-                    'Un bloqueante impide capturar la declaración.\n\n'
+                  `  ${t('fiscal_mx.diot.check.summary', { blocking: conteo.bloqueante, warning: conteo.aviso })}\n\n`
                 )
             );
           }
@@ -803,9 +819,13 @@ Examples:
           // portal. Hence 11 (needs human) and not 1.
           if (e instanceof DiotFormatoNoFundamentado) {
             throw needsHuman(
-              `${e.message}\n\nMientras tanto: \`mnemosine diot export --period ` +
-                `${String(anio)}-${String(mes).padStart(2, '0')} --layout working-paper\` ` +
-                `produce la conciliación por tercero para capturar en el portal.`,
+              {
+                key: 'fiscal_mx.diot.export.meanwhile',
+                params: {
+                  message: e.message,
+                  command: `mnemosine diot export --period ${String(anio)}-${String(mes).padStart(2, '0')} --layout working-paper`,
+                },
+              },
               e.details
             );
           }
@@ -830,13 +850,16 @@ Examples:
         if (opts.output !== undefined) {
           if (!legible(opts, true)) {
             const { output: _output, ...sinDestino } = opts;
-            render([recibo], { ...sinDestino, idField: 'rfc' });
+            render([recibo], { ...sinDestino, idField: 'rfc', labelled: { falta_para_presentar: stepsLabel } });
           } else {
             process.stdout.write(cabecera(d));
             process.stdout.write(
               c.dim(
-                `  layout ${opts.layout ?? LAYOUT_POR_OMISION} · ` +
-                  `${recibo.bytes as number} byte(s) · destino ${destino}\n`
+                `  ${t('fiscal_mx.diot.export.written', {
+                  layout: opts.layout ?? LAYOUT_POR_OMISION,
+                  bytes: recibo.bytes as number,
+                  target: destino,
+                })}\n`
               )
             );
             process.stdout.write(totales(d));
@@ -852,8 +875,7 @@ Examples:
           err.write(
             '\n' +
               c.yellow(
-                `  ⚠ Layout «${opts.layout ?? LAYOUT_POR_OMISION}»: esto es un PAPEL DE TRABAJO. ` +
-                  'No se sube al portal del SAT.\n'
+                `  ⚠ ${t('fiscal_mx.diot.export.working_paper', { layout: opts.layout ?? LAYOUT_POR_OMISION })}\n`
               )
           );
         }
@@ -864,10 +886,7 @@ Examples:
         if (!esEntregable(d)) {
           const conteo = contarHallazgos(d.hallazgos);
           err.write(
-            c.red(
-              `  El archivo se escribió, pero ${conteo.bloqueante} hallazgo(s) impiden ` +
-                'capturar la declaración tal cual.\n\n'
-            )
+            c.red(`  ${t('fiscal_mx.diot.export.written_not_capturable', { count: conteo.bloqueante })}\n\n`)
           );
           return ExitCode.VALIDATION;
         }
@@ -887,10 +906,7 @@ Examples:
  */
 function escribirArchivo(destino: string, contenido: string, opts: { yes?: boolean }): void {
   if (existsSync(destino) && opts.yes !== true) {
-    throw usageError(
-      `${destino} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes. ` +
-        'Un papel de trabajo revisado y anotado a mano no se reemplaza en silencio.'
-    );
+    throw usageError({ key: 'fiscal_mx.diot.export.exists', params: { target: destino } });
   }
   mkdirSync(path.dirname(path.resolve(destino)), { recursive: true });
   writeFileSync(destino, Buffer.from(contenido, 'utf8'));

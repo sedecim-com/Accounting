@@ -1693,6 +1693,13 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "ieps_trasladado_no_cobrado",
+      "en": "ieps_payable_uncollected",
+      "why": "2181 (grouping code 209.02, Anexo 24): the IEPS of a PPD sale not collected yet, which is caused on collection (LIEPS art. 10). It mirrors `iva_payable_uncollected` (2125) so the uncollected pair reads together, and keeps the IEPS acronym as `ieps_payable` does. An issued PPD CFDI parks IEPS in it (cfdi-taxonomy.ts, MNE-001-505) and each collection moves it to `ieps_payable` (src/services/accounting/ieps-cash-basis.ts:IEPS_UNCOLLECTED_ROLE, MNE-001-504); seeded on Mexican books only (account-roles-seed.ts), and given to entities seeded before by `npm run backfill:account-roles` (#699)."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "impuestos_locales_gasto",
       "en": "local_taxes_expense",
       "why": "Apunta a 6100 (account-roles-seed.ts:269): el ISH y demás impuestos estatales son gasto, no impuesto acreditable. `local_taxes` en plural porque la cuenta 2190 agrupa varios (ISH y otros) y el rol no distingue cuál; `expense` marca el lado que lo separa de `local_taxes_payable`. Ojo: comparte código 6100 con el rol genérico `gasto`, así que los dos nombres ingleses tienen que seguir siendo distintos aunque la cuenta sea la misma."
@@ -2370,6 +2377,30 @@
     },
     {
       "class": "policy-key",
+      "where": "vat_overcredit_correction_period",
+      "es": "vat_overcredit_correction_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): `vat` is the tax, `overcredit` the VAT credited above the CFDI's, `correction_period` the period its correction entry is dated in. Read by `correctVatOvercredit` (accounting/vat-overcredit.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "discount_vat_correction_period",
+      "es": "discount_vat_correction_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): `discount_vat` is the VAT of an early-payment discount, `correction_period` the period its correction entry is dated in, as `vat_overcredit_correction_period` names it. Read by `correctDiscountVat` (accounting/discount-vat-correction.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "received_line_without_account",
+      "es": "received_line_without_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): `received` is the tree's term for a vendor's CFDI (`received_credit_note_cost`), `line` is a concept of it. Read by `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2635,6 +2666,30 @@
       "es": "prima_vacacional_pct",
       "en": "vacation_premium_pct",
       "why": "«Vacation premium» es como el propio archivo ya lo dice en inglés («What vacation premium does the firm pay over the vacation days earned?», pending-catalog.ts:498, y «the minimum vacation premium» :510). `pct` se conserva porque el valor es una fracción decimal que entra crudo, como cadena, en un `new Decimal(...)` (finiquito-math.ts:185 y :308): el sufijo avisa de la escala y evita que alguien lo lea como 25 en vez de 0.25."
+    },
+    {
+      "class": "policy-key",
+      "where": "usmo_isr_subsidy",
+      "es": "usmo_isr_subsidy",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): `usmo` is kept, as this registry keeps `aguinaldo` (the legal term of art. 87 LFT): it is the «último sueldo mensual ordinario» of LISR art. 96 (its paragraph on the payments of art. 95), a term of the law and not a word to translate; `isr` is a proper name (the tax) and `subsidy` is the employment subsidy (`employment_subsidy_separate_run`). Read by `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "usmo_days_per_month",
+      "es": "usmo_days_per_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): `usmo` is kept for the same reason as in `usmo_isr_subsidy`; `days_per_month` is how many days make that monthly salary. Read by `readUsmoDaysPerMonth` (payroll/mx/finiquito-calculator.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "separation_isr_usmo_comparison",
+      "es": "separation_isr_usmo_comparison",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): what the separation ISR compares with the USMO (`usmo` kept as in `usmo_isr_subsidy`) to choose between the monthly tariff and the USMO rate of LISR art. 96. Read by `readSeparationIsrUsmoComparison` (payroll/mx/separation-isr.ts)."
     },
     {
       "class": "policy-key",
@@ -2995,6 +3050,70 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/ask",
+      "es": "ask",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): `ask` is this house's verb for handing the decision back to a person, the English that `cfdi_periodo_cerrado/preguntar` and `rep_documento_desconocido/preguntar` take. The literal `correctVatOvercredit` compares: nothing is posted."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/current_period",
+      "es": "current_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): the literal `correctVatOvercredit` compares; one correction per bill is dated today, in the open period."
+    },
+    {
+      "class": "policy-value",
+      "where": "vat_overcredit_correction_period/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-562): the literal `correctVatOvercredit` compares; one correction per bill and month is dated in the month each payment's VAT was credited (`CREDIT_DATE`, sat/diot/hechos.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/ask",
+      "es": "ask",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599), as `vat_overcredit_correction_period/ask`: the literal `correctDiscountVat` compares; nothing is posted."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/current_period",
+      "es": "current_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): the literal `correctDiscountVat` compares; one correction per bill and payment is dated today, in the open period."
+    },
+    {
+      "class": "policy-value",
+      "where": "discount_vat_correction_period/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-599): the literal `correctDiscountVat` compares; one correction per bill, payment and month is dated on the day the entry that took the discount was posted."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts) compares; a received line with no account posts nothing."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/role_generic_account",
+      "es": "role_generic_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` compares; `role` is the tree's term for an account role (`account_roles`), and the line posts to the account of the classifier's one expense role."
     },
     {
       "class": "policy-value",
@@ -3716,6 +3835,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Es un número, no vocabulario: es una fracción decimal que `finiquito-math.ts` multiplica con `new Decimal(...).times(...)` (:185, :308). Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_isr_subsidy/gross_of_tariff",
+      "es": "gross_of_tariff",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): the literal `readUsmoIsrSubsidy` (payroll/mx/finiquito-calculator.ts) compares; the ISR of the USMO by the monthly tariff, without subtracting the employment subsidy. The default the owner chose in MNE-001-373."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_isr_subsidy/net_of_subsidy",
+      "es": "net_of_subsidy",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-374): the literal `readUsmoIsrSubsidy` compares; the ISR of the USMO minus the employment subsidy that salary would get."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_days_per_month/30",
+      "es": "30",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "A number, not vocabulary: the days `lastOrdinaryMonthlySalary` (payroll/mx/finiquito-math.ts) multiplies the daily wage by, compared as a literal by `readUsmoDaysPerMonth`. LFT art. 89; the default the owner chose in MNE-001-373."
+    },
+    {
+      "class": "policy-value",
+      "where": "usmo_days_per_month/30.4",
+      "es": "30.4",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "A number, not vocabulary: the days of the month of the monthly tariff, multiplied by `lastOrdinaryMonthlySalary` and compared as a literal by `readUsmoDaysPerMonth`; normalising it would change the stored answer."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/total_payments",
+      "es": "total_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; the total paid for separation, exempt part included, is compared with the USMO (the literal «pagos» of LISR art. 96). The conservative default."
+    },
+    {
+      "class": "policy-value",
+      "where": "separation_isr_usmo_comparison/taxable_payments",
+      "es": "taxable_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-579): the literal `readSeparationIsrUsmoComparison` compares; only the taxable part, after the LISR art. 93 fr. XIII exemption (RLISR art. 172), is compared with the USMO."
     },
     {
       "class": "policy-value",
@@ -5893,6 +6060,102 @@
     },
     {
       "class": "policy-key",
+      "where": "received_credit_note_cost",
+      "es": "received_credit_note_cost",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-555): which account takes the cost a received credit note lowers."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_credit_note_cost/bill_accounts",
+      "es": "bill_accounts",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the expense accounts the bill debited, pro rata to its lines."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_credit_note_cost/purchase_returns",
+      "es": "purchase_returns",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the role of purchase returns and discounts (5200)."
+    },
+    {
+      "class": "policy-key",
+      "where": "rep_voided_document",
+      "es": "rep_voided_document",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-524): a REP payment that covers a live invoice and one the books annulled."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/review",
+      "es": "review",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the whole payment node waits for a person."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/post_live_documents",
+      "es": "post_live_documents",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the node is processed with its live documents only."
+    },
+    {
+      "class": "policy-key",
+      "where": "cheque_advance_before_cashing",
+      "es": "cheque_advance_before_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-572): a customer advance received by cheque applied before the bank cashes it."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application is refused until the cashing is recorded."
+    },
+    {
+      "class": "policy-value",
+      "where": "cheque_advance_before_cashing/defer_to_cashing",
+      "es": "defer_to_cashing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the application posts now and its IVA is netted on the cashing day (part 2/2)."
+    },
+    {
+      "class": "policy-key",
+      "where": "plain_receipt_unapply_iva",
+      "es": "plain_receipt_unapply_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-585): a receipt with no advance treatment unapplied from a PPD invoice."
+    },
+    {
+      "class": "policy-value",
+      "where": "plain_receipt_unapply_iva/keep_caused",
+      "es": "keep_caused",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA stays caused and the cash back on account carries it (LIVA art. 1-B)."
+    },
+    {
+      "class": "policy-value",
+      "where": "plain_receipt_unapply_iva/repark_same_month",
+      "es": "repark_same_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the IVA goes back to uncollected only when the unapply is in the month it was released."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
@@ -6162,6 +6425,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the separate paycheck of the period (a run other than the regular one, or one that pays only aguinaldo) carries no subsidy."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_band_edge",
+      "es": "imss_old_age_band_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-513): how an SBC meets the edge of a band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/above_upper_edge",
+      "es": "above_upper_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: an SBC above a band's upper edge, by any amount, pays the next band."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/truncated_to_hundredths",
+      "es": "truncated_to_hundredths",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the SBC in minimum wages and in UMA is cut to two decimals before it is placed in the table."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_minimum_wage_area",
+      "es": "imss_old_age_minimum_wage_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-578): which minimum wage measures the «1.00 SM» band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/employer_registration_area",
+      "es": "employer_registration_area",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general minimum of the area of the employer registration, which is the entity's declared zone."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_minimum_wage_area/general_zone",
+      "es": "general_zone",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the general-zone minimum wage for every worker, whatever the registration's area."
     }
   ]
 }

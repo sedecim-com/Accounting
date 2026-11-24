@@ -33,6 +33,41 @@ mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/doctor-s
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/i18n/locale.ts	limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	src/cli/mnemosine.ts	sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	docs/language-baseline.json	terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/kernel/confirmacion.ts	kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/i18n/es.ts	suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/mnemosine.ts	default-yes-back-in-a-leaf: the first-run prompt writes [Y/n] by hand again and a Spanish user reads an English suffix
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-reconcile-command.ts	string-back-in-the-code: the tie note is written in Spanish in the leaf again, and its key is left unread
+mirror	memory	E0.0 cli-family-report-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the family again
+mirror	memory	E0.0 cli-family-report-speaks-by-key	src/cli/cashflow-command.ts	console-prose: the leaf prints a sentence from the code, outside the catalogue
+mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	string-back-in-the-code: the auto-post warning is written in Spanish in the leaf again, and its key is left unread
+mirror	memory	E0.0 cli-family-root-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the root family again
+mirror	memory	E0.0 cli-family-root-speaks-by-key	src/cli/mnemosine.ts	key-unread: the language refusal goes back to a template in the leaf and stops following the user language
+mirror	memory	E0.0 cli-family-ar-speaks-by-key	src/cli/invoice-command.ts	reason-back-in-the-code: invoice issue declares its no-key reason in Spanish again, inside an English sentence
+mirror	memory	E0.0 cli-family-ar-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the ar family again
+mirror	memory	E0.0 cli-family-ar-speaks-by-key	src/cli/receipt-command.ts	string-back-in-the-code: receipt show writes «sin REP» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	src/cli/payroll-command.ts	spanish-beside-the-key: the key is still read, and its Spanish is written next to it, which only check 3 sees
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the payroll family again
+mirror	memory	E0.0 cli-family-payroll-speaks-by-key	src/cli/payroll-isn-command.ts	string-back-in-the-code: the ISN preview writes «sin cierre» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-assets-speaks-by-key	src/cli/depreciation-command.ts	string-back-in-the-code: depreciation run writes «nada que contabilizar» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-assets-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the assets family again
+mirror	memory	E0.0 cli-family-assets-speaks-by-key	src/cli/asset-command.ts	string-back-in-the-code: the usage error of asset create is a Spanish template again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/backup-command.ts	string-back-in-the-code: backup export writes «no es un respaldo» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in the platform family again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/backup-command.ts	string-back-in-the-code: the reason restore gives for not honouring a key is Spanish again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/audit-command.ts	string-back-in-the-code: audit list says «sin filas» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-platform-speaks-by-key	src/cli/ai-command.ts	string-back-in-the-code: ai stats writes its latency line in Spanish again, which only check 2 sees
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/e-accounting-command.ts	string-back-in-the-code: the generate leaves shout «no va sellado» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in e-accounting again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/e-accounting-command.ts	string-back-in-the-code: balance check counts its findings in Spanish with «(s)» again, which only check 2 sees
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in sat again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/diot-command.ts	string-back-in-the-code: every diot leaf warns «no se presentó» in Spanish to every reader again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in diot again
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	src/cli/cfdi-command.ts	string-back-in-the-code: cfdi status sync tallies the SAT answers in Spanish with «(s)» again, which only check 2 sees
+mirror	memory	E0.0 cli-family-fiscal-mx-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in rep again
+mirror	memory	E0.0 cli-family-ap-speaks-by-key	src/cli/prepaid-command.ts	string-back-in-the-code: prepaid run counts its adjusting entries in Spanish with «(s)» again, which only check 2 sees
+mirror	memory	E0.0 cli-family-ap-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records a Spanish string in prepaid again
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -135,6 +170,8 @@ mirror	memory	E1.1 posting-roles-point-to-leaf-accounts	src/services/xml-ingesti
 mirror	memory	E1.1 account-code-single-name	src/services/payroll/common/payroll-account-mapping-seed.ts	devolver la nómina al código de las devoluciones sobre compras es EL fallo que este criterio vino a impedir: el sueldo bruto cargado a un contra-costo acreedor
 mirror	memory	E1.1 account-code-single-name	src/services/accounting/chart-seed.ts	la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo de un solo sentido bendeciría
 mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor
+mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	the later application stores its IVA on the vendor table: the vendor store alone used to satisfy the check
+mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	receipt unapply closes on the run day again (MNE-001-460): its entry carries --date and the closure another day
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	el INSERT de la edición vuelve a dejarse el centro de costo fuera: corregir el texto de una línea borra la dimensión de todas
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	la capa que resuelve las líneas tira el centro de costo que el llamador mandó: las cuatro superficies que la usan lo pierden a la vez
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	lo mismo con el proyecto, que es la otra dimensión que el mayor general devuelve al cliente
@@ -449,6 +486,30 @@ mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/s
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror learns the cancellation and the invoice never does: the AR control stays quiet over a cancelled CFDI
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror UPDATE loses its state predicate: a row already cancelled is rewritten on every load
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/cli/ingest-census.ts	runCensus loads the cancellation into the census and never runs the marks: the mirror and the invoice keep saying current
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/sat/cfdi-status.ts	cfdi status sync marks the mirror and the invoice and never the bill: a cancelled received CFDI stays payable with no mark
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/xml-ingestion/sat-validation.ts	the ingest check and cfdi status show --refresh learn the cancellation and forget the bill
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/sat-census/cancellations.ts	the census marks skip the bill: one with no mirror row, such as an opening bill, is never reached
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/services/ap/bill-cfdi-cancellation.ts	the bridge loses its predicate: the same cancellation rewrites the mark and the count reports bills that did not move
+mirror	memory	E3.2 sat-cancellation-reaches-bill	src/database/migrations/340_a_bill_notes_its_cancelled_cfdi.sql	the backfill matches the mirror across entities: a bill of a sister entity with the same UUID is marked
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/xml-ingestion/pre-registration-service.ts	bill inbox run and the AI-draft approval write a bill on a CFDI already known cancelled, and it waits unmarked for the next sweep
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	an opening bill, new or taken over, whose UUID the census already reports cancelled is born unmarked
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark loses its entity scope: the statement no longer says whose bill it may touch
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark reads the mirror across entities: a sister entity that cancelled the same UUID marks this bill
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark reads the census across entities: another entity's metadata marks this bill
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/bill-cfdi-cancellation.ts	the birth mark loses its predicate: measuring a bill again rewrites the moment the system first learned it
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	the takeover rewrites cfdi_uuid and keeps the old UUID's mark: ap check names a bill for a CFDI it no longer carries
+mirror	memory	E3.2 cancelled-cfdi-noted-at-bill-birth	src/services/ap/opening-bills.ts	the takeover compares the old UUID with itself, so it always keeps the mark, whatever UUID the bill now carries
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control reads a value the mark never writes: every marked bill with a balance goes unnamed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the open set: a void or draft bill is named as owed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control forgets the balance: a bill with nothing left to pay is named as owed
+mirror	memory	E3.2 cancelled-received-cfdi-open-named	src/services/ap/ap-checks.ts	the control loses its entity scope: a sister entity with the same UUID shows its bill here
+mirror	memory	E3.2 cancelled-received-cfdi-paid-named	src/services/ap/ap-checks.ts	the paid probe reads a value the mark never writes: every paid bill on a cancelled CFDI goes unnamed
+mirror	memory	E3.2 cancelled-received-cfdi-paid-named	src/services/ap/ap-checks.ts	the paid probe loses its entity scope: a sister entity with the same UUID shows its paid bill here
+mirror	memory	E3.2 cancelled-received-cfdi-paid-named	src/services/ap/ap-checks.ts	the paid probe forgets the status: a void bill with nothing due is named as paid
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
@@ -544,8 +605,11 @@ mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/servic
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/services/accounting/closing-conductor.ts	la negativa calcula bien qué aconsejar y aconseja siempre reanudar, también la corrida de otro
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/services/accounting/closing-conductor.ts	un `finally` vuelve a contar como latido el que falló: el conductor aislado de la base nunca nota su silencio
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/cli/closing-command.ts	el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo
-mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el criterio tiene que verlo aunque el nodo siga ahí
-mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el importe entregado, que es el defecto original con una condición imposible en vez de un Math.max
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/paycheck-service.ts	the paycheck pays the excess in cash whatever its payment date, which is the defect of #600 with the row still read and never used
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/employment-subsidy.ts	the two rules trade places: cash from May 2024 and none before it
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	the CFDI stops declaring the subsidy handed over under the key the SAT crosses, and the criterion has to see it although the node is still there
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	the old sum books an excess nobody received as a receivable, and lets it reduce the ISR withheld from another worker of the run
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	the debit branch is written and never taken: a run paid under the old rule is unbalanced by the cash handed over
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/mx/isr-calculator.ts	restaura la tabla por tramos de la migración 009: el subsidio vuelve a ser el de la ley derogada en mayo de 2024
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/common/paycheck-service.ts	el recibo lee la política y no se la pasa al motor: la clave del panel se vuelve decorativa
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/policy/pending-catalog.ts	el panel pierde uno de los dos valores decididos y ofrece truncar, que quedó descartado por no tener fuente
@@ -556,6 +620,7 @@ mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón
 mirror	memory	E4.1 seniority-premium-is-paid-and-capped-by-zone	src/services/payroll/mx/finiquito-math.ts	el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note
+mirror	memory	E4.1 minimum-wage-zone-has-a-reader	src/services/payroll/mx/minimum-wage-zone.ts	the border zone reads the general minimum again: fifteen years at 1 000 a day pay 113 414.40 instead of 158 713.20, 45 298.80 less for each worker at the northern border (LFT art. 486)
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/services/payroll/mx/isr-calculator.ts	EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos
 mirror	memory	E4.1 isr-tariff-matches-the-pay-period	src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql	vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado
 mirror	memory	E4.1 imss-rate-fix-verified-by-running-it	tests/integration/migracion-070-cuota-obrera.int.spec.ts	si la prueba desaparece, la única defensa de un parámetro fiscal vuelve a ser un regex sobre el archivo: el criterio debe dar ROJO, no reventar leyendo una prueba que ya no está
@@ -643,6 +708,8 @@ mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/kernel/audit.ts	la
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/receipt-command.ts	el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` deja de existir para quien la lea
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/payment-command.ts	dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener llamada propia
 mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)
+mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	importing the receivables core must turn red by its MODULE: the name imported is on no list, so only the module fence can catch it (MNE-001-454)
+mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	the hand door of an issued CFDI posts an invoice and its entry: a tool that names it must turn red (MNE-001-417)
 mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/tools/question-tools.ts	the defect this criterion was written for (#303): search_precedents hands stored questions and answers back as bare JSON, and a precedent saying «ignora lo anterior…» reads like the system talking
 mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/tools/question-tools.ts	one fenced path does not fence the tool: a second return hands the rows back bare while the envelope is still called on the first
 mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/untrusted.ts	the envelope opens a block it never closes: every tool still calls it by name, and the census has to notice that what it calls no longer fences
@@ -665,6 +732,7 @@ mirror	memory	E5.1 messages-cite-live-commands	src/services/policy/policy-hint.t
 mirror	memory	E5.1 messages-cite-live-commands	src/cli/webhook-sweep-command.ts	el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)
 mirror	memory	E5.1 messages-cite-live-commands	src/services/banking/reconciliation-adjustments.ts	el-verbo-muerto tras una hoja: `review` es interactivo y no declara argumentos, así que `reject` sólo puede ser un verbo que no tiene (#300)
 mirror	memory	E5.1 messages-cite-live-commands	src/services/fiscal/inpc/inpc-service.ts	la-familia-muerta: una invocación de una familia que el binario no tiene, sin la frase que la declara ausente (#300)
+mirror	memory	E6.1 mvp-month-spec-has-no-todo	tests/integration/mvp-month-end-to-end.int.spec.ts	a step goes back to a todo: the month would pass in CI with the journal XML of December never generated, which is the hole #311 exists to close
 mirror	disk	E0.1 child-tenant-is-derived-not-declared	src/database/migrations/077_la_hija_que_pregunta_por_su_madre.sql	la hija deja de heredar el inquilino de su padre: nace sin él, y una fila sin inquilino queda invisible para su propio dueño en cuanto la política lo mire
 mirror	disk	E0.1 trial-balance-sign-convention	src/services/reporting/report-service.ts	la resta invertida: el mismo número con el signo cambiado. Una prueba que recompone la resta sobre un mock no lo ve; la balanza de un ejercicio real, sí
 mirror	disk	E0.1 closed-year-nets-exactly-zero	src/services/accounting/period-close.ts	el neto del ejercicio con el signo del gasto invertido. Es el mutante SILENCIOSO: ingresos y gastos igual quedan en cero, el asiento cuadra, y lo que cambia es la utilidad publicada y el residuo que queda en la 3900 — que verificarQueElEjercicioBarrio no mira porque sólo revisa revenue/expense
@@ -737,6 +805,41 @@ anchor	src/plan/criteria/e0-0.ts	de: ' /** Stable machine identity. See `CheckId
 anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', name: 'Database' },",
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
 anchor	src/plan/criteria/e0-0.ts	de: 'installHelpChrome(program);',
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: "t('confirm_yes_no_suffix')",
+anchor	src/plan/criteria/e0-0.ts	de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
+anchor	src/plan/criteria/e0-0.ts	de: "yesNoPrompt(t('root.setup.run_now'), 'yes')",
+anchor	src/plan/criteria/e0-0.ts	de: "t('report.cashflow_reconcile.ties')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "throw usageError({ key: 'report.cashflow.gross_unavailable' });",
+anchor	src/plan/criteria/e0-0.ts	de: "t('root.ingest.auto_post_ignored')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'root.lang.unsupported', params: { language, options: LOCALES.join(', '), languages: LANGUAGES.join(', ') } })",
+anchor	src/plan/criteria/e0-0.ts	de: "llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } },",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "t('ar.receipt.no_rep')",
+anchor	src/plan/criteria/e0-0.ts	de: "deps.palette.dim(t('payroll.accrue.dry_run'))",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "t('payroll.isn_rate_set.open_ended')",
+anchor	src/plan/criteria/e0-0.ts	de: "deps.palette.dim(`${t('assets.depreciation.nothing_this_book')}\\n`)",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "usageError({ key: 'assets.asset.source_entry_contradiction' })",
+anchor	src/plan/criteria/e0-0.ts	de: "t('platform.backup.export.not_a_backup')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "{ key: 'platform.backup.restore.retry_restores' }",
+anchor	src/plan/criteria/e0-0.ts	de: "t('platform.audit.list.no_rows')",
+anchor	src/plan/criteria/e0-0.ts	de: "'platform.ai.stats.latency'",
+anchor	src/plan/criteria/e0-0.ts	de: "t('fiscal_mx.e_accounting.unsealed.headline')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "'fiscal_mx.e_accounting.balance.check_summary'",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "t('fiscal_mx.diot.unfiled.headline')",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "'fiscal_mx.cfdi.sync.done'",
+anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: "'ap.prepaid.run.entries_note'",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
@@ -840,6 +943,8 @@ anchor	src/plan/criteria/e1-1.ts	de: "NON_POSTING_ROLES: readonly AccountRole[] 
 anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-2.ts	de: "SET status = 'reversed', reversed_at = NOW()",
+anchor	src/plan/criteria/e1-2.ts	de: 'UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2',
+anchor	src/plan/criteria/e1-2.ts	de: 'SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3, unapply_kept_iva_amount = k.kept',
 anchor	src/plan/criteria/e1-2.ts	de: ' cost_center_id, project_id\n ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
 anchor	src/plan/criteria/e1-2.ts	de: ' cost_center_id: line.cost_center_id ?? null,',
 anchor	src/plan/criteria/e1-2.ts	de: ' project_id: line.project_id ?? null,',
@@ -880,7 +985,7 @@ anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(docume
 anchor	src/plan/criteria/e1-2.ts	de: "await expect(advance(customerMxn, 'EUR')).rejects.toThrow(ValidationError);",
 anchor	src/plan/criteria/e1-2.ts	de: "midnight, which west of Greenwich is the previous day in the DATE column.\n entry_date,",
 anchor	src/plan/criteria/e1-2.ts	de: ' reversalDate: reversal_date,',
-anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n iva.documents.length',
+anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n taxNote.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n (iva.documents.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' entry.entryDate,',
@@ -1149,6 +1254,30 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
 anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
+anchor	src/plan/criteria/e3-2.ts	de: 'invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND xd.sat_validation_status IS DISTINCT FROM 'cancelled'",
+anchor	src/plan/criteria/e3-2.ts	de: 'const marked = await markCensusCancellations(opts.scope, ...span);',
+anchor	src/plan/criteria/e3-2.ts	de: 'resumen.bills_marked += await markBillCfdiCancelled(ctx.entityId, fila.cfdi_uuid);',
+anchor	src/plan/criteria/e3-2.ts	de: 'result.billsMarked = await markBillCfdiCancelled(d.entity_id, d.cfdi_uuid);',
+anchor	src/plan/criteria/e3-2.ts	de: 'bills += await markBillCfdiCancelled(scope.entityId, row.u);',
+anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND cfdi_cancellation_noted_at IS NULL',
+anchor	src/plan/criteria/e3-2.ts	de: 'x.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'await noteBillCfdiAlreadyCancelled(db, preReg.entity_id as string, billId);',
+anchor	src/plan/criteria/e3-2.ts	de: 'await noteBillCfdiAlreadyCancelled(client, entityId, billId);',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: 'x.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'c.entity_id = b.entity_id',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.cfdi_cancellation_noted_at IS NULL',
+anchor	src/plan/criteria/e3-2.ts	de: ' cfdi_cancellation_noted_at = CASE WHEN lower(cfdi_uuid) IS NOT DISTINCT FROM lower($12::text)\n THEN cfdi_cancellation_noted_at END,\n',
+anchor	src/plan/criteria/e3-2.ts	de: 'lower($12::text)',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.cfdi_cancellation_noted_at IS NOT NULL',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.status = ANY($2::text[])',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.amount_due > 0',
+anchor	src/plan/criteria/e3-2.ts	de: 'WHERE b.entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: 'WHERE b.cfdi_cancellation_noted_at IS NOT NULL',
+anchor	src/plan/criteria/e3-2.ts	de: 'AND b.entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: "AND b.status = 'paid'",
 anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
 anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
@@ -1243,7 +1372,10 @@ anchor	src/plan/criteria/e4-1.ts	de: " AND fp.id = cr.fiscal_period_id AND fp.en
 anchor	src/plan/criteria/e4-1.ts	de: 'recorded step(s). ${next}`',
 anchor	src/plan/criteria/e4-1.ts	de: ' // Not a verdict (see above): the silence it leaves is what counts.\n }\n',
 anchor	src/plan/criteria/e4-1.ts	de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
+anchor	src/plan/criteria/e4-1.ts	de: 'applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule)',
+anchor	src/plan/criteria/e4-1.ts	de: 'rule.paidShare === 1 ? excess : new Decimal(0)',
 anchor	src/plan/criteria/e4-1.ts	de: 'TipoOtroPago="002"',
+anchor	src/plan/criteria/e4-1.ts	de: 'SUM(GREATEST(isr_withheld - subsidio_empleo, 0) - subsidio_entregado_efectivo)',
 anchor	src/plan/criteria/e4-1.ts	de: 'isrDeLaCorrida.lessThan(0)',
 anchor	src/plan/criteria/e4-1.ts	de: "const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);",
 anchor	src/plan/criteria/e4-1.ts	de: 'employment_subsidy_rounding: employmentSubsidyRounding,',
@@ -1255,6 +1387,7 @@ anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: " return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
 anchor	src/plan/criteria/e4-1.ts	de: ' return Decimal.min(piso, salarioMinimo.times(2));',
 anchor	src/plan/criteria/e4-1.ts	de: " 'SIN CALCULAR: faltó el salario mínimo de la zona",
+anchor	src/plan/criteria/e4-1.ts	de: " northern_border: 'salario_minimo_frontera_diario',",
 anchor	src/plan/criteria/e4-1.ts	de: " case 'weekly': return 'weekly';",
 anchor	src/plan/criteria/e4-1.ts	de: "('MX','isr',2026,NULL,'monthly', 1, 0.01, 844.59,",
 anchor	src/plan/criteria/e4-1.ts	de: "describe('la 070 sobre una instalación que ya cobraba de más'",
@@ -1342,6 +1475,8 @@ anchor	src/plan/criteria/e5-1.ts	de: "rule: 'R11 llave aceptada sin honrar',",
 anchor	src/plan/criteria/e5-1.ts	de: "const AMBITO_DE_COBRO = 'receipt record';",
 anchor	src/plan/criteria/e5-1.ts	de: " scope: 'payment create',",
 anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(',
+anchor	src/plan/criteria/e5-1.ts	de: "import { query } from '../../database/connection.js';",
+anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(',
 anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(data)',
 anchor	src/plan/criteria/e5-1.ts	de: "return 'No precedents for that search.';",
 anchor	src/plan/criteria/e5-1.ts	de: '${UNTRUSTED_OPEN}${cuerpo}${UNTRUSTED_CLOSE}',
@@ -1364,4 +1499,5 @@ anchor	src/plan/criteria/e5-1.ts	de: 'y luego \\`mnemosine pending define ${key}
 anchor	src/plan/criteria/e5-1.ts	de: "'`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'",
 anchor	src/plan/criteria/e5-1.ts	de: 'Recházalo en \\`mnemosine review\\`',
 anchor	src/plan/criteria/e5-1.ts	de: "'Cargar la serie del INEGI/DOF: `mnemosine inpc import`, que todavía no existe, es el comando '",
+anchor	src/plan/criteria/e6-1.ts	de: " it('the journal XML of the month (`voucher generate`)",
 anchor	src/plan/criteria/shared.ts	de: string;

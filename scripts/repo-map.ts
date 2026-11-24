@@ -19,6 +19,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'docs', 'REPO_MAP.md');
@@ -176,4 +177,4 @@ function main(): number {
   return 0;
 }
 
-process.exit(main());
+exitWhenDrained(main());

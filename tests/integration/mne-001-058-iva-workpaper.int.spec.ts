@@ -151,6 +151,7 @@ beforeAll(async () => {
 
   wp = await buildIvaWorkpaper({
     tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH, priorBalanceInFavor: '10.50',
+    priorBalanceReason: 'Saldo sintético de abril, declarado fuera del sistema',
   });
 
   const bare = await sale('PUE', [['1000', '16']], '2026-06-05');
@@ -215,7 +216,7 @@ describe('the definitive IVA of the month equals the hand calculation', () => {
 
   it('a prior balance in favor that is not an amount of zero or more is refused', async () => {
     await expect(
-      buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH, priorBalanceInFavor: '-1' })
+      buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH, priorBalanceInFavor: '-1', priorBalanceReason: 'motivo' })
     ).rejects.toBeInstanceOf(ValidationError);
   });
 

@@ -717,6 +717,22 @@ export const E5_1: Criterio[] = [
         a: 'envolverDatosDeTerceros(postJournalEntry, ',
         porque: 'una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)',
       },
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: "import { query } from '../../database/connection.js';",
+        a:
+          "import { query } from '../../database/connection.js';\n" +
+          "import { customerCreateCommand } from '../../services/xml-ingestion/issued-invoice-approval.js';",
+        porque:
+          'importing the receivables core must turn red by its MODULE: the name imported is on no list, ' +
+          'so only the module fence can catch it (MNE-001-454)',
+      },
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'envolverDatosDeTerceros(',
+        a: 'envolverDatosDeTerceros(postIssuedCfdiByHand, ',
+        porque: 'the hand door of an issued CFDI posts an invoice and its entry: a tool that names it must turn red (MNE-001-417)',
+      },
     ],
     evaluar: () => {
       // ESTE CRITERIO ESTABA EN ROJO POR UNA AFIRMACIÓN FALSA.
@@ -762,13 +778,16 @@ export const E5_1: Criterio[] = [
         'ligarPagoREP',
         'procesarREP',
         'processToAccounting',
+        'postIssuedCfdiByHand',
         'createBankTransaction',
       ];
       // 2. MÓDULOS prohibidos: llamar a un servicio que a su vez postea es la
       //    evasión transitiva. Los módulos de dinero no se importan desde las
       //    herramientas, con ningún nombre.
+      //    MNE-001-454: issued-invoice-approval is the receivables core both
+      //    doors share; it writes the customer invoice of an issued CFDI.
       const MODULOS_PROHIBIDOS =
-        /from\s+'[^']*(accounting\/posting|payments\/payment-service|xml-ingestion\/rep-linkage|accounting\/period-close|xml-ingestion\/pre-registration-service)/;
+        /from\s+'[^']*(accounting\/posting|payments\/payment-service|xml-ingestion\/rep-linkage|accounting\/period-close|xml-ingestion\/pre-registration-service|xml-ingestion\/issued-invoice-approval)/;
       const culpables: string[] = [];
       for (const f of archivos) {
         const codigo = sinComentarios(leer(f));

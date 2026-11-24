@@ -33,9 +33,14 @@ import {
   usageError,
   exitCodeFor,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
+import { completePaymentTrace } from '../services/payments/payment-trace-service.js';
+import { listedTraceFields, warnUntracedPayment, writeTraceCompletion } from './trace-completion-output.js';
+import { argumentByKey, describeCommand, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
+import { FOREIGN_BANK_CODE } from '../services/sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // mnemosine payment
@@ -105,7 +110,7 @@ interface AplicarOpts extends CommonOpts {
 }
 
 /** `--bill A --amount 100 --bill B --amount 50` se lee por posición. */
-const acumular = (valor: string, previo: string[] = []): string[] => [...previo, valor];
+const acumular = (valor: string, previo: unknown): string[] => [...((previo as string[] | undefined) ?? []), valor];
 
 /** Un gasto se paga cuando su pasivo ya está en el mayor. */
 const PAGABLES = ['approved', 'posted', 'partially_paid'] as const;
@@ -191,7 +196,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(
@@ -204,13 +209,13 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     }
   };
 
-  const montoFlags = (cmd: Command): Command =>
-    cmd
-      .requiredOption('--amount <amount>', 'amount, in the document currency')
-      .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
-      .option('--method <method>', 'cash, check, ach, wire, spei, credit_card or other', 'spei')
-      .option('--bank <account>', "bank account name or id; without it the entity's `banco` role is used")
-      .option('--json', 'JSON output');
+  const montoFlags = (cmd: Command): Command => {
+    optionByKey(cmd, '--amount <amount>', 'help.payment.create.option.amount', { mandatory: true });
+    optionByKey(cmd, '--date <date>', 'help.payment.create.option.date');
+    optionByKey(cmd, '--method <method>', 'help.payment.create.option.method', { defaultValue: 'spei' });
+    optionByKey(cmd, '--bank <account>', 'help.payment.create.option.bank');
+    return optionByKey(cmd, '--json', 'help.payment.create.option.json');
+  };
 
   // EL RASTRO DE PAGO (F07d). Cuatro banderas que no cambian ni un asiento y
   // sin las cuales la póliza del Anexo 24 no se puede emitir: el nodo de pago
@@ -228,29 +233,23 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   // altas al diccionario de §3 y se proponen como tales en el informe. La
   // cuenta de ORIGEN no lleva bandera propia: es `--bank`, que ya existe, y
   // de ella salen CtaOri y BancoOriNal (bank_accounts.sat_bank_code, F05).
-  const rastroFlags = (cmd: Command): Command =>
-    cmd
-      .option('--check-number <number>', 'cheque number; only valid with --method check')
-      .option('--to-account <number>', 'account that received the money (CtaDest of the SAT voucher)')
-      .option('--to-bank <code>', 'destination bank key from the SAT c_Banco catalogue (3 digits)')
-      .option('--to-foreign-bank <name>', 'destination bank name when it is a foreign one');
+  const rastroFlags = (cmd: Command): Command => {
+    optionByKey(cmd, '--check-number <number>', 'help.payment.create.option.check_number');
+    optionByKey(cmd, '--to-account <number>', 'help.payment.create.option.to_account');
+    optionByKey(cmd, '--to-bank <code>', 'help.payment.create.option.to_bank');
+    return optionByKey(cmd, '--to-foreign-bank <name>', 'help.payment.create.option.to_foreign_bank');
+  };
 
   // ============================================================
   // payment · lo que sale
   // ============================================================
-  const payment = program
-    .command('payment')
-    .alias('pago')
-    .description('Vendor payments: record cash that already left the bank and settle the bill it pays');
+  const payment = describeCommand(program.command('payment').alias('pago'), 'help.payment.description');
 
-  const create = payment
-    .command('create')
-    .alias('crear')
-    .argument('<bill>', 'bill number, vendor invoice number or id')
-    .description('Record a payment made against a bill and recognize the IVA it was holding');
-  rastroFlags(montoFlags(create))
-    .option('--discount <amount>', 'early-payment discount taken')
-    .option('--memo <text>', 'note stored with the payment');
+  const create = describeCommand(payment.command('create').alias('crear'), 'help.payment.create.description');
+  argumentByKey(create, '<bill>', 'help.payment.create.argument.bill');
+  rastroFlags(montoFlags(create));
+  optionByKey(create, '--discount <amount>', 'help.payment.create.option.discount');
+  optionByKey(create, '--memo <text>', 'help.payment.create.option.memo');
   withContext(create);
   // Mueve saldo y postea al mayor: el núcleo añade --dry-run, --yes e
   // --idempotency-key, y se niega a que la IA lo invoque.
@@ -348,18 +347,14 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   //                   lo que falta deja de deberse. Exige motivo escrito, y la
   //                   cuenta a la que va ese saldo la decide el panel
   //                   (`pago_corto_residual`), no este comando.
-  const apply = payment
-    .command('apply')
-    .alias('aplicar')
-    .argument('<payment>', 'payment number or id whose on-account balance is to be applied')
-    .description('Apply an existing payment to specific bills: partial, with discount, or short-paid');
-  apply
-    .option('--bill <ref...>', 'bill to apply to; repeat it, paired in order with --amount', acumular)
-    .option('--amount <amount...>', 'amount applied to the bill in the same position', acumular)
-    .option('--discount <amount...>', 'early-payment discount for the bill in the same position', acumular)
-    .option('--mode <mode>', 'partial (leave the rest open) or residual (close it short)', 'partial')
-    .option('--short-pay-reason <text>', 'why the unpaid balance is being written off; required by --mode residual')
-    .option('--json', 'JSON output');
+  const apply = describeCommand(payment.command('apply').alias('aplicar'), 'help.payment.apply.description');
+  argumentByKey(apply, '<payment>', 'help.payment.apply.argument.payment');
+  optionByKey(apply, '--bill <ref...>', 'help.payment.apply.option.bill', { parser: acumular });
+  optionByKey(apply, '--amount <amount...>', 'help.payment.apply.option.amount', { parser: acumular });
+  optionByKey(apply, '--discount <amount...>', 'help.payment.apply.option.discount', { parser: acumular });
+  optionByKey(apply, '--mode <mode>', 'help.payment.apply.option.mode', { defaultValue: 'partial' });
+  optionByKey(apply, '--short-pay-reason <text>', 'help.payment.apply.option.short_pay_reason');
+  optionByKey(apply, '--json', 'help.payment.apply.option.json');
   withContext(apply);
   declareRisk(apply, {
     risk: 'irreversible',
@@ -467,16 +462,15 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   // The way back from `apply` (#98): a duplicated transfer applied to a bill
   // left it 'paid' for ever. Unapplying is a NEW dated event, never a DELETE:
   // the bill is owed again and the cash goes back on account.
-  const unapply = payment
-    .command('unapply')
-    .alias('desaplicar')
-    .argument('<payment>', 'payment number or id')
-    .description('Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account');
-  unapply
-    .requiredOption('--bill <ref>', 'the bill to unapply from')
-    .requiredOption('--reason <text>', 'why: it lands in the audit trail')
-    .option('--date <date>', 'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today')
-    .option('--json', 'JSON output');
+  const unapply = describeCommand(
+    payment.command('unapply').alias('desaplicar'),
+    'help.payment.unapply.description'
+  );
+  argumentByKey(unapply, '<payment>', 'help.payment.unapply.argument.payment');
+  optionByKey(unapply, '--bill <ref>', 'help.payment.unapply.option.bill', { mandatory: true });
+  optionByKey(unapply, '--reason <text>', 'help.payment.unapply.option.reason', { mandatory: true });
+  optionByKey(unapply, '--date <date>', 'help.payment.unapply.option.date');
+  optionByKey(unapply, '--json', 'help.payment.unapply.option.json');
   withContext(unapply);
   declareRisk(unapply, {
     risk: 'irreversible',
@@ -554,15 +548,11 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   // The transfer came back (#98 · MNE-001-128): the payment itself is undone,
   // not only its applications. Every entry it posted gets a dated mirror, the
   // bills it settled are owed again and the payment turns 'reversed'.
-  const reverse = payment
-    .command('reverse')
-    .alias('reversar')
-    .argument('<payment>', 'payment number or id')
-    .description('Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again');
-  reverse
-    .requiredOption('--reason <text>', 'why: it lands in the audit trail')
-    .option('--date <date>', 'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today')
-    .option('--json', 'JSON output');
+  const reverse = describeCommand(payment.command('reverse').alias('reversar'), 'help.payment.reverse.description');
+  argumentByKey(reverse, '<payment>', 'help.payment.reverse.argument.payment');
+  optionByKey(reverse, '--reason <text>', 'help.payment.reverse.option.reason', { mandatory: true });
+  optionByKey(reverse, '--date <date>', 'help.payment.reverse.option.date');
+  optionByKey(reverse, '--json', 'help.payment.reverse.option.json');
   withContext(reverse);
   declareRisk(reverse, {
     risk: 'irreversible',
@@ -630,6 +620,97 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         }
       }
       if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+    })
+  );
+
+  registerTraceRecord(payment, { run, writeEntityOf, confirmOrAbort, palette: deps.palette });
+}
+
+// ---- payment trace record (MNE-001-568, #612) -----------------------
+//
+// The trace of a payment already registered, completed from its evidence:
+// only empty fields, with a reason, posting nothing (see
+// payment-trace-service.ts). `trace` qualifies `payment` as `cause` qualifies
+// `receipt`; the flags are the capture's own spellings in `payment create`.
+const TRACE_RECORD_EXAMPLES = `
+Examples:
+  # A SPEI recorded without its destination: complete it from the transfer receipt.
+  mnemosine payment trace record VPMT-2026-00001 --to-account 002180001122334455 --to-bank 002 --reason "SPEI receipt OP-0511"
+  # A cheque recorded without its number: look first, then complete it from the stub.
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
+  mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
+`;
+
+interface TraceOpts extends CommonOpts {
+  checkNumber?: string;
+  toAccount?: string;
+  toBank?: string;
+  toForeignBank?: string;
+  bank?: string;
+  reason?: string;
+}
+
+function registerTraceRecord(
+  payment: Command,
+  k: {
+    run: (fn: () => Promise<void>) => Promise<void>;
+    writeEntityOf: (opts: CommonOpts) => ReturnType<typeof requireExplicitEntity>;
+    confirmOrAbort: (opts: CommonOpts, question: string) => Promise<void>;
+    palette: Palette;
+  }
+): void {
+  const trace = describeCommand(payment.command('trace').alias('rastro'), 'help.payment.trace.description');
+  const record = describeCommand(trace.command('record').alias('registrar'), 'help.payment.trace.record.description');
+  argumentByKey(record, '<payment>', 'help.payment.trace.record.argument.payment');
+  withContext(record);
+  optionByKey(record, '--check-number <number>', 'help.payment.trace.record.option.check_number');
+  optionByKey(record, '--to-account <number>', 'help.payment.trace.record.option.to_account');
+  optionByKey(record, '--to-bank <code>', 'help.payment.trace.record.option.to_bank');
+  optionByKey(record, '--to-foreign-bank <name>', 'help.payment.trace.record.option.to_foreign_bank');
+  // MNE-001-569 · the spelling `payment create` uses; checked against the entry's lines by the service.
+  optionByKey(record, '--bank <account>', 'help.payment.trace.record.option.bank');
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(record, '--reason <text>', 'cli.flag.reason');
+  optionByKey(record, '--json', 'help.payment.trace.record.option.json');
+  declareRisk(record, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'only empty fields are filled: a repeat finds them filled and reports them unchanged' },
+    agent: false,
+    writes: 'vendor_payments: its empty trace columns (the cheque number, the destination account and bank, the bank account)',
+  });
+  record.addHelpText('after', TRACE_RECORD_EXAMPLES);
+  record.action((ref: string, opts: TraceOpts) =>
+    k.run(async () => {
+      const given = [opts.checkNumber, opts.toAccount, opts.toBank, opts.toForeignBank, opts.bank];
+      if (given.every((v) => (v ?? '').trim() === '')) {
+        throw usageError({ key: 'payment.trace.nothing_given' });
+      }
+      const { dryRun, reason } = gateMutation(record, opts as unknown as Record<string, unknown>);
+      if (!reason?.trim() && !dryRun) throw usageError({ key: 'payment.trace.reason_required' });
+      const ctx = await k.writeEntityOf(opts);
+      const p = k.palette;
+      const vp = await resolveVendorPayment(ctx.entityId, ref);
+      const bank = (opts.bank ?? '').trim() === '' ? null : await resolverCuentaBancaria(ctx.entityId, (opts.bank as string).trim());
+      const fields = {
+        checkNumber: opts.checkNumber, toAccount: opts.toAccount, toBank: opts.toBank, toForeignBank: opts.toForeignBank,
+        bankAccountId: bank?.id ?? null,
+      };
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const why = reason?.trim() ?? '';
+
+      const preview = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId, { dryRun: true });
+      let result = preview;
+      if (!dryRun && preview.filled.length > 0) {
+        await k.confirmOrAbort(opts, t('payment.trace.confirm', { number: preview.paymentNumber, fields: listedTraceFields(preview.filled) }));
+        result = await completePaymentTrace(ctx.entityId, 'vendor', vp.id, fields, why, reviewer.userId);
+      }
+      writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
+      // MNE-001-571 · a finding names one gap at a time: say the next one now.
+      if (!dryRun && result.filled.length > 0) {
+        await warnUntracedPayment('vendor', ctx.entityId, vp.id, { json: opts.json === true, palette: p });
+      }
     })
   );
 }
@@ -735,22 +816,23 @@ async function ejecutar(a: {
   }
   imprimir(result, p, a.etiqueta, false, a.opts.json === true);
   avisarRastroIncompleto(a.entrada, p, a.opts.json === true);
+  // MNE-001-571 · what its voucher will lack, in the generator's own words.
+  await warnUntracedPayment('vendor', a.ctx.entityId, result.paymentId, { json: a.opts.json === true, palette: p });
 }
 
-/** Métodos que mueven dinero por un banco y por tanto piden cuenta destino. */
+/** Métodos que mueven dinero por un banco: sólo ellos llevan un nodo con clave de banco. */
 const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
 
 /**
- * DICE LO QUE FALTA EN EL MOMENTO EN QUE TODAVÍA SE PUEDE PREGUNTAR.
+ * THE CAPTURE HOOK FOR WHAT THE INPUT ALONE SHOWS (MNE-001-571, #612).
  *
- * No es una compuerta y no debe serlo: el pago YA OCURRIÓ, y negarse a
- * registrarlo porque falta un dato del XML de pólizas dejaría el mayor sin el
- * movimiento y el IVA acreditable aparcado — mucho peor que una póliza
- * incompleta. Pero callarlo produce el otro desastre, el de F07: el dato se
- * descubre tres meses después, cuando `voucher generate` nombra la póliza y
- * ya no hay a quién preguntarle a qué cuenta se transfirió.
- *
- * Va por stderr para no ensuciar el `--json`, que es contrato de máquina.
+ * What the vouchers file will lack is no longer listed here by hand: once the
+ * payment is written, `warnUntracedPayment` asks the generator for its
+ * voucher's finding, so capture and file cannot disagree. This hook stays for
+ * a capture invariant that is not a cause of `rastroDePago` and can be told
+ * from the flags before anything is written, in the dry run too: the bare
+ * `--to-bank 999` line of MNE-001-401 lives here. It goes to stderr and says
+ * nothing under `--json`.
  */
 export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
   if (json) return;
@@ -758,27 +840,10 @@ export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: b
   // aserción aquí sólo callaría al compilador. Es la misma lección que la
   // cabecera de `payment apply` deja escrita sobre `--mode`.
   if (!POR_BANCO.some((m) => m === entrada.paymentMethod)) return;
-
-  const faltan: string[] = [];
-  if ((entrada.cuentaDestino ?? '') === '') faltan.push('--to-account');
-  if (
-    (entrada.bancoDestinoSat ?? '') === '' &&
-    (entrada.bancoDestinoExtranjero ?? '') === ''
-  ) {
-    faltan.push('--to-bank / --to-foreign-bank');
+  // MNE-001-401 (#532): a bare 999 is a valid node with a warning on its voucher.
+  if ((entrada.bancoDestinoSat ?? '').trim() === FOREIGN_BANK_CODE && (entrada.bancoDestinoExtranjero ?? '').trim() === '') {
+    process.stderr.write(p.yellow(`${t('payment.capture.foreign_code_without_name')}\n`));
   }
-  if (entrada.paymentMethod === 'check' && (entrada.checkNumber ?? '') === '') {
-    faltan.push('--check-number');
-  }
-  if (faltan.length === 0) return;
-
-  process.stderr.write(
-    p.yellow(
-      `The SAT voucher (Anexo 24) declares where this money went, and that is missing: ` +
-        `${faltan.join(', ')}. ` +
-        `When the SAT asks for the period vouchers, \`mnemosine e-accounting voucher generate\` will name this payment as untraced.\n`
-    )
-  );
 }
 
 function imprimir(

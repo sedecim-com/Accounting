@@ -119,6 +119,10 @@ describe('the provisional ISR of August equals the hand calculation', () => {
     expect(august.blockedBy).toEqual([]);
     expect(august.findings.map((h) => h.codigo)).toEqual(['ISR-WP-REGIME-UNDECLARED', 'ISR-WP-ADVANCES']);
     expect(august.advancesCollected).toEqual([{ code: '2150', amount: '5000.0000' }]);
+    // MNE-001-458: an advance recorded with its treatment is credited to 2150 at its base, and the warning says so.
+    expect(august.findings.find((h) => h.codigo === 'ISR-WP-ADVANCES')?.mensaje).toContain(
+      'Un anticipo registrado con su tratamiento de IVA se abonó por su base, ya sin IVA'
+    );
     expect(august.figures).toEqual({
       nominalIncome: '1235802.4500',
       profitCoefficient: '0.0875',

@@ -41,6 +41,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const RAIZ = path.resolve(__dirname, '..');
 const DOC = path.join(RAIZ, 'docs', 'HISTORY.md');
@@ -116,6 +117,31 @@ export function prDe(asunto: string): number | null {
 }
 
 /**
+ * FIRST-PARENT SQUASHES WHOSE SUBJECT LOST ITS `(#N)`, keyed by full SHA.
+ *
+ * A squash title is typed by hand at merge time, and once it is on the base
+ * branch it is a record: it is not rewritten. When one goes in without its
+ * number, `prDe` reads it as a direct commit, the census counts one direct
+ * commit too many, and the PR it carried never shows up as merged. This list
+ * names the PR such a commit carried, by its SHA, so the census stays true
+ * without touching the history.
+ *
+ * - `d1b08fee…`: PR #896 (MNE-001-448), squash-merged on 2026-11-23 with the
+ *   placeholder subject «PLACEHOLDER» by the coordinator's mistake.
+ *
+ * An entry is added only for a commit already on the base branch; a PR in
+ * review fixes its own title instead.
+ */
+export const SQUASH_WITHOUT_PR_NUMBER: ReadonlyMap<string, number> = new Map([
+  ['d1b08fee202fbf2bf1e282ac75f1f996787364a1', 896],
+]);
+
+/** The PR a first-parent commit carried: its subject first, then the list above. */
+export function prOfCommit(sha: string, asunto: string): number | null {
+  return prDe(asunto) ?? SQUASH_WITHOUT_PR_NUMBER.get(sha) ?? null;
+}
+
+/**
  * La columna vertebral de `main`, que es la misma que el documento declara usar.
  *
  * Se camina desde HEAD a propósito: en CI el checkout es `refs/pull/N/merge`,
@@ -160,7 +186,7 @@ function columnaVertebral(): Entrada[] {
     .map((l) => {
       const [sha, commit, fecha, ...resto] = l.split('\t');
       const asunto = resto.join('\t');
-      return { sha, commit, fecha, pr: prDe(asunto), asunto };
+      return { sha, commit, fecha, pr: prOfCommit(sha, asunto), asunto };
     });
 
   // LO QUE DE VERDAD IMPORTA: que el recorrido llegue al principio.
@@ -383,5 +409,5 @@ function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

@@ -4,6 +4,7 @@ import { estadisticasDelAgente } from '../ai/stats-service.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
+  describeCommand,
   render,
   withContext,
   withOutput,
@@ -11,6 +12,8 @@ import {
   exitCodeFor,
   type Row,
 } from './kernel/index.js';
+import { t } from '../i18n/index.js';
+import { FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_VEREDICTOS } from '../ai/floor.js';
 
 // ============================================================
 // mnemosine ai
@@ -46,10 +49,7 @@ interface StatsOpts {
 }
 
 export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
-  const ai = program
-    .command('ai')
-    .alias('ia')
-    .description('Métricas y calibración del agente contable');
+  const ai = describeCommand(program.command('ai').alias('ia'), 'help.ai.description');
 
   const note = (message: string) => process.stderr.write(deps.palette.dim(`${message}\n`));
   const warn = (message: string) => process.stderr.write(deps.palette.yellow(`${message}\n`));
@@ -65,10 +65,7 @@ export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
   };
 
   // ---- ai stats -----------------------------------------------------
-  const stats = ai
-    .command('stats')
-    .alias('estadisticas')
-    .description('Aprobación por bucket de confianza, delta confianza-vs-realidad, costo y eventos');
+  const stats = describeCommand(ai.command('stats').alias('estadisticas'), 'help.ai.stats.description');
   withOutput(withContext(stats));
   declareRisk(stats, { risk: 'lectura', agent: true });
   stats.action((opts: StatsOpts) =>
@@ -82,7 +79,7 @@ export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
       const est = await estadisticasDelAgente(ctx);
       const r = est.resumen;
 
-      note(`ai stats · ${ctx.entityName} · ${r.borradores_total} borrador(es), ${r.decididos} decidido(s)`);
+      note(t('platform.ai.stats.header', { entity: ctx.entityName, drafts: r.borradores_total, decided: r.decididos }));
       const rows: Row[] = est.buckets.map((b) => ({
         bucket: b.bucket,
         borradores: b.borradores,
@@ -101,34 +98,56 @@ export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
       // para un pipe que consume la tabla.
       if (r.tasa_intervencion_humana !== null) {
         note(
-          `intervención humana ${r.tasa_intervencion_humana} ` +
-            `(${r.aprobados_humano} aprobados + ${r.rechazados} rechazados de ${r.decididos} decididos; ` +
-            `${r.aprobados_politica} por política, ${r.auto_posteados} auto-posteados)`
+          t('platform.ai.stats.human_intervention', {
+            rate: r.tasa_intervencion_humana,
+            human: r.aprobados_humano,
+            rejected: r.rechazados,
+            decided: r.decididos,
+            policy: r.aprobados_politica,
+            auto: r.auto_posteados,
+          })
         );
       }
       if (r.corridas_ingesta > 0) {
         note(
-          `ingesta: ${r.corridas_ingesta} corrida(s), ${r.borradores_de_ingesta} borrador(es)` +
-            (r.costo_por_borrador_usd !== null
-              ? `, ~$${r.costo_por_borrador_usd} USD por borrador (total $${r.costo_ingesta_usd})`
-              : ', costo no estimable (modelo sin precio)')
+          t('platform.ai.stats.ingest', {
+            runs: r.corridas_ingesta,
+            drafts: r.borradores_de_ingesta,
+            priced: r.costo_por_borrador_usd !== null ? 'yes' : 'no',
+            perDraft: r.costo_por_borrador_usd ?? '',
+            total: r.costo_ingesta_usd ?? '',
+          })
         );
       }
       if (r.llamadas_con_duracion > 0) {
         note(
-          `latencia del modelo: ${r.duracion_promedio_ms} ms promedio, ` +
-            `${r.duracion_p95_ms} ms p95 (${r.llamadas_con_duracion} llamada(s) medidas)`
+          t('platform.ai.stats.latency', {
+            average: r.duracion_promedio_ms ?? '—',
+            p95: r.duracion_p95_ms ?? '—',
+            calls: r.llamadas_con_duracion,
+          })
         );
       }
       note(
-        `eventos: ${r.eventos.sospecha} sospecha(s) de inyección, ` +
-          `${r.eventos.nudge} nudge(s) de grounding, ${r.eventos.failover} failover(s)`
+        t('platform.ai.stats.events', {
+          suspicions: r.eventos.sospecha,
+          nudges: r.eventos.nudge,
+          failovers: r.eventos.failover,
+        })
       );
       if (est.sombra.veredictos > 0) {
+        // The floors come from the rule itself (src/ai/floor.ts), so this line
+        // cannot say something the panel does not enforce.
         note(
-          `sombra: ${est.sombra.veredictos} veredicto(s) en ${est.sombra.dias_con_veredictos} día(s), ` +
-            `${est.sombra.decididos} decidido(s) por humano, acuerdo ${est.sombra.tasa_acuerdo ?? '—'} ` +
-            `(encender 'on' exige ≥7 días, ≥10 decididos y ≥0.90)`
+          t('platform.ai.stats.shadow', {
+            verdicts: est.sombra.veredictos,
+            days: est.sombra.dias_con_veredictos,
+            decided: est.sombra.decididos,
+            agreement: est.sombra.tasa_acuerdo ?? '—',
+            minDays: FLOOR_SOMBRA_DIAS,
+            minDecided: FLOOR_SOMBRA_VEREDICTOS,
+            minAgreement: FLOOR_SOMBRA_ACUERDO.toFixed(2),
+          })
         );
       }
     })

@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { DECIMALES_IMPORTE_ANEXO24 } from './xml.js';
+import { FOREIGN_BANK_CODE } from './official-enumerations.js';
 import {
   COMPROBANTES_DE_POLIZA,
   describeOffListValue,
@@ -135,10 +136,22 @@ export interface UntracedMoney {
    */
   missingOnBankAccount?: string;
   /**
+   * The option of `bank account edit` that completes that bank account, when
+   * it is not its c_Banco code: a receipt into it also needs its number for
+   * CtaDest (#611). Absent: `--sat-bank-code <clave>`.
+   */
+  bankAccountFlag?: string;
+  /**
    * Why no command completes the datum today, when that is the truth. The
    * finding then says so instead of prescribing a remedy that fixes nothing.
    */
   noCommandFixes?: string;
+  /**
+   * MNE-001-568 · The command line that completes the datum on the payment
+   * already registered, named by its number. A registered payment is never
+   * sent back to the command that captures one: paying again posts twice.
+   */
+  completedBy?: string;
 }
 
 /** Lo que una verificación necesita saber y no puede deducir del árbol. */
@@ -250,27 +263,30 @@ export function polizaConDineroSinRastro(
     // A payee datum lives on the counterparty record and a bank code on the
     // bank account, so sending the reader to the payment would be a remedy
     // that fixes nothing: reversing it and paying again leaves two blocking
-    // entries where there was one. Where no command completes the datum, the
-    // finding says so rather than send the reader anywhere.
+    // entries where there was one. A datum of the payment itself is completed
+    // on it (MNE-001-568), never captured again. Where no command completes
+    // the datum, the finding says so; with no cause at all it prescribes
+    // nothing rather than a command that fixes nothing.
     const remedy =
       s.missingOnRecord !== undefined
-        ? `El dato falta en ${s.missingOnRecord}, no en el pago: corregir, reversar o volver a ` +
+        ? ` El dato falta en ${s.missingOnRecord}, no en el pago: corregir, reversar o volver a ` +
           `capturar el pago no lo arregla, y un pago nuevo a la misma contraparte saldría igual. ` +
           `Corrige ese registro y vuelve a generar.`
         : s.missingOnBankAccount !== undefined
-          ? `El dato falta en ${s.missingOnBankAccount}, no en el pago: captura su clave ` +
-            `(\`bank account edit <cuenta> --sat-bank-code <clave>\`) y vuelve a generar.`
-          : s.noCommandFixes !== undefined
-            ? `Hoy ningún comando lo completa: ${s.noCommandFixes}.`
-            : `Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
-              `y vuelve a generar.`;
+          ? ` El dato falta en ${s.missingOnBankAccount}, no en el pago: captúralo ` +
+            `(\`bank account edit <cuenta> ${s.bankAccountFlag ?? '--sat-bank-code <clave>'}\`) y vuelve a generar.`
+          : s.completedBy !== undefined
+            ? ` Complétalo en el pago ya registrado (\`${s.completedBy}\`) y vuelve a generar.`
+            : s.noCommandFixes !== undefined
+              ? ` Hoy ningún comando lo completa: ${s.noCommandFixes}.`
+              : '';
     return hallazgo(
       'poliza-con-dinero-sin-rastro',
       'blocking',
       s.numUnIdenPol,
       `Mueve dinero y no lleva el nodo de pago que el Anexo 24 exige: ${s.motivo}. Sin ese nodo la ` +
         `autoridad no puede seguir el movimiento hasta el banco, que es exactamente para lo que ` +
-        `pidió las pólizas. ${remedy}` +
+        `pidió las pólizas.${remedy}` +
         (s.withoutRegisteredPayment === true
           ? ` Si ningún instrumento de pago lo movió (una comisión que el banco cargó), el ` +
             `tratamiento es de la política anexo24_voucher_money_without_trace.`
@@ -310,9 +326,28 @@ export function bancoEnCatalogo(
             )
           );
         }
-        for (const [campo, clave] of clavesDeBanco(pago)) {
+        for (const [campo, clave, extAttribute, foreignName] of clavesDeBanco(pago)) {
           // Off the XSD's list is already reported above, and says more.
           if (offXsd.some((v) => v.attribute === campo)) continue;
+          // MNE-001-401 (#532): 999 is «N/A» in c_Banco. With the name in the
+          // `*Ext` it declares a foreign bank; alone it names no bank, and it
+          // may stand where a national code belonged. The XSD lets it pass
+          // (the `*Ext` is required only «cuando se cuente con la
+          // información»), and no command corrects a captured value, so it
+          // warns instead of blocking the month.
+          if ((clave ?? '').trim() === FOREIGN_BANK_CODE && (foreignName ?? '').trim() === '') {
+            hs.push(
+              hallazgo(
+                'banco-en-catalogo',
+                'warning',
+                p.numUnIdenPol,
+                `${campo}="${FOREIGN_BANK_CODE}" sin ${extAttribute}: en el c_Banco la clave ` +
+                  `${FOREIGN_BANK_CODE} es «N/A» y no nombra ningún banco. Si el banco es extranjero falta ` +
+                  `su nombre; si es nacional, su clave. Revisa la clave de banco de la cuenta o del pago ` +
+                  `de esta póliza.`
+              )
+            );
+          }
           const estado = estadoDeBanco(clave, bancos);
           if (estado === 'fuera_de_catalogo') {
             hs.push(
@@ -374,14 +409,15 @@ export function codeInOfficialList(entries: readonly Poliza[]): HallazgoPoliza[]
 }
 
 /** Los campos de clave de banco NACIONAL de cada nodo de pago, con su nombre. */
-function clavesDeBanco(p: NodoDePago): Array<[string, string | undefined]> {
+/** Each c_Banco code of a payment node, with the `*Ext` attribute that names a foreign bank. */
+function clavesDeBanco(p: NodoDePago): Array<[string, string | undefined, string, string | undefined]> {
   switch (p.clase) {
     case 'cheque':
-      return [['BanEmisNal', p.banEmisNal]];
+      return [['BanEmisNal', p.banEmisNal, 'BanEmisExt', p.banEmisExt]];
     case 'transferencia':
       return [
-        ['BancoOriNal', p.bancoOriNal],
-        ['BancoDestNal', p.bancoDestNal],
+        ['BancoOriNal', p.bancoOriNal, 'BancoOriExt', p.bancoOriExt],
+        ['BancoDestNal', p.bancoDestNal, 'BancoDestExt', p.bancoDestExt],
       ];
     case 'otro':
       return [];

@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { negotiateLocale } from '../../src/api/rest/middleware/locale.js';
-import { errorHandler } from '../../src/api/rest/middleware/error-handler.js';
+import { correlationIdMiddleware } from '../../src/api/rest/middleware/correlation.js';
+import { errorHandler, routeNotFound } from '../../src/api/rest/middleware/error-handler.js';
 import { AccountingError, AppError } from '../../src/utils/errors.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
+import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
 
 // ============================================================
 // API ERRORS BY LOCALE (I9 · issue #151)
@@ -40,7 +44,10 @@ beforeAll(async () => {
   // sets MNEMOSINE_LOCALE=en-US; the pin keeps this file from depending on it.
   setLanguage('en');
 
+  // The order src/index.ts mounts: the correlation id, the negotiation, the
+  // routes, the fallback for a path no route serves, the renderer.
   const app = express();
+  app.use(correlationIdMiddleware);
   app.use(negotiateLocale);
   app.get('/keyed', () => {
     throw new AccountingError(
@@ -52,10 +59,11 @@ beforeAll(async () => {
   app.get('/prose', () => {
     throw new AppError(409, 'SOME_PROSE_ERROR', PROSE_MESSAGE, 'period');
   });
+  app.use(routeNotFound);
   app.use(errorHandler);
 
   await new Promise<void>((ok) => {
-    server = app.listen(0, '127.0.0.1', ok);
+    server = app.listen(0, '127.0.0.1', () => ok());
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -72,12 +80,21 @@ afterAll(async () => {
  */
 function call(
   path: string,
-  acceptLanguage?: string
-): Promise<{ status: number; contentLanguage?: string; vary?: string; body: ErrorEnvelope }> {
-  const headers: Record<string, string> = {};
+  acceptLanguage?: string,
+  options: { method?: string; headers?: Record<string, string> } = {}
+): Promise<{
+  status: number;
+  contentLanguage?: string;
+  contentType?: string;
+  vary?: string;
+  requestId?: string;
+  raw: string;
+  body: ErrorEnvelope;
+}> {
+  const headers: Record<string, string> = { ...options.headers };
   if (acceptLanguage !== undefined) headers['accept-language'] = acceptLanguage;
   return new Promise((resolve, reject) => {
-    const req = request(`${baseUrl}${path}`, { method: 'GET', headers }, (res) => {
+    const req = request(`${baseUrl}${path}`, { method: options.method ?? 'GET', headers }, (res) => {
       let raw = '';
       res.setEncoding('utf-8');
       res.on('data', (chunk: string) => (raw += chunk));
@@ -86,7 +103,10 @@ function call(
           resolve({
             status: res.statusCode ?? 0,
             contentLanguage: res.headers['content-language'],
+            contentType: res.headers['content-type'],
             vary: res.headers['vary'],
+            requestId: res.headers['x-request-id'] as string | undefined,
+            raw,
             body: JSON.parse(raw) as ErrorEnvelope,
           });
         } catch (err) {
@@ -167,5 +187,144 @@ describe('an error still written as prose', () => {
       expect(r.contentLanguage).toBeUndefined();
       expect(r.body.meta.language).toBeUndefined();
     }
+  });
+});
+
+// ============================================================
+// A PATH NO ROUTE SERVES (MNE-001-150 · issue #151)
+//
+// Express's own final handler answered it with an HTML page in English,
+// «Cannot GET /v1/no-existe», with no code, no request id and no language.
+// It now goes out in the envelope every other error uses, under its own code:
+// ROUTE_NOT_FOUND says the URL is wrong, RESOURCE_NOT_FOUND says the route
+// exists and the record does not.
+// ============================================================
+
+const ROUTE_SPANISH = 'No hay ninguna ruta para GET /v1/no-existe.';
+const ROUTE_ENGLISH = 'No route matches GET /v1/no-existe.';
+
+describe('a path no route serves', () => {
+  it('answers 404 ROUTE_NOT_FOUND in the envelope, its message in the negotiated language', async () => {
+    const es = await call('/v1/no-existe', 'es');
+    const en = await call('/v1/no-existe', 'en');
+
+    for (const r of [es, en]) {
+      expect(r.status).toBe(404);
+      expect(r.contentType ?? '').toMatch(/^application\/json/);
+      expect(r.body.errors).toHaveLength(1);
+      expect(r.body.errors[0].code).toBe('ROUTE_NOT_FOUND');
+      expect(r.body.meta.version).toBe('v1');
+      expect(Number.isNaN(Date.parse(r.body.meta.timestamp))).toBe(false);
+      expect((r.vary ?? '').toLowerCase()).toContain('accept-language');
+    }
+    expect(es.body.errors[0].message).toBe(ROUTE_SPANISH);
+    expect(en.body.errors[0].message).toBe(ROUTE_ENGLISH);
+    expect(es.contentLanguage).toBe('es-MX');
+    expect(en.contentLanguage).toBe('en-US');
+    expect(es.body.meta.language).toBe('es');
+    expect(en.body.meta.language).toBe('en');
+  });
+
+  it('carries the request id, the one sent or the one generated', async () => {
+    const sent = await call('/v1/no-existe', 'en', { headers: { 'x-request-id': 'req-150' } });
+    expect(sent.body.meta.request_id).toBe('req-150');
+
+    const generated = await call('/v1/no-existe', 'en');
+    expect(typeof generated.body.meta.request_id).toBe('string');
+    expect(generated.body.meta.request_id).not.toBe('');
+    expect(generated.body.meta.request_id).toBe(generated.requestId);
+  });
+
+  it('without Accept-Language answers in the default locale', async () => {
+    // Read from the default, not written down: when DEFAULT_LOCALE moves, this
+    // case moves with it instead of being rewritten.
+    const none = await call('/v1/no-existe');
+    expect(none.contentLanguage).toBe(DEFAULT_LOCALE);
+    expect(none.body.meta.language).toBe(languageOfLocale(DEFAULT_LOCALE));
+    expect(none.body.errors[0].message).toBe(languageOfLocale(DEFAULT_LOCALE) === 'es' ? ROUTE_SPANISH : ROUTE_ENGLISH);
+  });
+
+  it('names the method it was asked with', async () => {
+    const post = await call('/v1/no-existe', 'en', { method: 'POST' });
+    expect(post.status).toBe(404);
+    expect(post.body.errors[0].code).toBe('ROUTE_NOT_FOUND');
+    expect(post.body.errors[0].message).toBe('No route matches POST /v1/no-existe.');
+  });
+
+  it('a path that exists for another method is still a 404, not that route', async () => {
+    const wrongMethod = await call('/keyed', 'en', { method: 'DELETE' });
+    expect(wrongMethod.status).toBe(404);
+    expect(wrongMethod.body.errors[0].code).toBe('ROUTE_NOT_FOUND');
+    expect(wrongMethod.body.errors[0].message).toBe('No route matches DELETE /keyed.');
+  });
+
+  it('never echoes the query string, which is where a token or an RFC travels', async () => {
+    const r = await call('/v1/no-existe?token=s3cr3t&rfc=XAXX010101000', 'en');
+    expect(r.body.errors[0].message).toBe(ROUTE_ENGLISH);
+    expect(r.raw).not.toContain('s3cr3t');
+    expect(r.raw).not.toContain('XAXX010101000');
+  });
+
+  it('covers paths outside /v1 too', async () => {
+    const root = await call('/', 'en');
+    expect(root.status).toBe(404);
+    expect(root.body.errors[0].code).toBe('ROUTE_NOT_FOUND');
+    expect(root.body.errors[0].message).toBe('No route matches GET /.');
+  });
+
+  it('routeNotFound hands an English, keyed AppError to the renderer', () => {
+    setLanguage('es');
+    try {
+      const next = vi.fn();
+      routeNotFound({ method: 'GET', path: '/v1/x' } as express.Request, {} as express.Response, next);
+      expect(next).toHaveBeenCalledTimes(1);
+      const err = next.mock.calls[0][0] as AppError;
+      expect(err).toBeInstanceOf(AppError);
+      expect(err.statusCode).toBe(404);
+      expect(err.code).toBe('ROUTE_NOT_FOUND');
+      expect(err.messageKey?.key).toBe('error.ROUTE_NOT_FOUND');
+      // The log language is English whatever the process speaks (errors.ts).
+      expect(err.message).toBe('No route matches GET /v1/x.');
+    } finally {
+      setLanguage('en');
+    }
+  });
+});
+
+// ============================================================
+// THE MOUNT IN src/index.ts
+// ============================================================
+
+const ROOT = join(__dirname, '..', '..');
+
+/** The source without comments: the comment over the mount names errorHandler too. */
+const withoutComments = (s: string): string =>
+  s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+const indexSource = withoutComments(readFileSync(join(ROOT, 'src', 'index.ts'), 'utf-8'));
+
+/** Offset of the only occurrence of `needle`; fails the test if it is missing or repeated. */
+function onlyOffsetOf(needle: string): number {
+  const first = indexSource.indexOf(needle);
+  expect(first, `${needle} is not in src/index.ts`).toBeGreaterThanOrEqual(0);
+  expect(indexSource.indexOf(needle, first + 1), `${needle} appears twice in src/index.ts`).toBe(-1);
+  return first;
+}
+
+describe('src/index.ts mounts routeNotFound after every router and before the renderer', () => {
+  const mount = () => onlyOffsetOf('app.use(routeNotFound);');
+
+  it('once, at the top level of bootstrap', () => {
+    expect(mount()).toBeGreaterThanOrEqual(0);
+    expect(indexSource.match(/^ {2}app\.use\(routeNotFound\);$/gm) ?? []).toHaveLength(1);
+  });
+
+  it('after the /v1 routers and the AI webhooks', () => {
+    expect(mount()).toBeGreaterThan(onlyOffsetOf('for (const [sufijo, router] of MONTAJES_V1)'));
+    expect(mount()).toBeGreaterThan(onlyOffsetOf("app.use('/v1/ai/webhooks'"));
+  });
+
+  it('before errorHandler', () => {
+    expect(mount()).toBeLessThan(onlyOffsetOf('app.use(errorHandler);'));
   });
 });
