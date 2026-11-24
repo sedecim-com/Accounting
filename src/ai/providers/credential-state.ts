@@ -71,7 +71,7 @@ export type CredentialSource =
    * its api_key_cmd (or `project_helpers: never`), or, with `variable` and
    * `host`, sending that variable to a host its provider does not document.
    */
-  | { kind: 'unapproved'; file: string; never: boolean; variable?: string; host?: string }
+  | { kind: 'unapproved'; file: string; never: boolean; variable?: string; host?: string; unbindable?: boolean }
   /** Neither a variable nor a helper: «local» only for a loopback base_url. */
   | { kind: 'none'; local: boolean }
   | { kind: 'missing'; variable: string; where: string | null }
@@ -306,7 +306,7 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
   } else if (profile.api_key_cmd) {
     const file = options.source ?? null;
     const shared = file !== null && file !== userConfigPath(home);
-    let gate: { never: boolean } | null = null;
+    let gate: { never: boolean; unbindable?: string } | null = null;
     if (shared) {
       try {
         gate = projectHelperGate(file, profile, { home, env, own: options.own });
@@ -315,7 +315,10 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
         gate = { never: false };
       }
     }
-    source = gate && file ? { kind: 'unapproved', file, never: gate.never } : { kind: 'helper', file, shared };
+    source =
+      gate && file
+        ? { kind: 'unapproved', file, never: gate.never, ...(gate.unbindable ? { unbindable: true } : {}) }
+        : { kind: 'helper', file, shared };
   } else if (isAnthropic && (sdk = anthropicSdkSource(env, options.platform))) {
     source = { kind: 'anthropic', sdk };
   } else if (variable) {
@@ -358,9 +361,14 @@ export function credentialState(profile: ProviderProfile, options: CredentialSta
             host: source.host ?? '',
             file: collapseHome(source.file, home),
           })
-        : t(source.never ? 'provider.credential.unapproved_never' : 'provider.credential.unapproved', {
-            file: collapseHome(source.file, home),
-          });
+        : t(
+            source.unbindable
+              ? 'provider.credential.unbindable'
+              : source.never
+                ? 'provider.credential.unapproved_never'
+                : 'provider.credential.unapproved',
+            { file: collapseHome(source.file, home) }
+          );
       break;
     case 'anthropic':
       label = anthropicLabel(source.sdk, home);

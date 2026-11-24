@@ -57,8 +57,10 @@ export function approvalMaterial(kind: ApprovalKind, file: string, what: string,
 }
 
 /** ~30-50 ms on a laptop: run once per material per resolution, never in a loop over the store. */
+const SCRYPT_PARAMS: crypto.ScryptOptions = { N: 2 ** 14, r: 8, p: 1 };
+
 function deriveKey(material: string, saltHex: string): string {
-  return crypto.scryptSync(material, Buffer.from(saltHex, 'hex'), 32, { N: 2 ** 14, r: 8, p: 1 }).toString('hex');
+  return crypto.scryptSync(material, Buffer.from(saltHex, 'hex'), 32, SCRYPT_PARAMS).toString('hex');
 }
 
 function load(file: string): ApprovalFile {
@@ -80,6 +82,17 @@ export function isApproved(material: string, home = os.homedir()): boolean {
   const store = load(projectApprovalsPath(home));
   if (!store.salt || Object.keys(store.approvals).length === 0) return false;
   return Object.prototype.hasOwnProperty.call(store.approvals, deriveKey(material, store.salt));
+}
+
+/** isApproved for an async caller (a renewal): the derivation does not block the event loop. */
+export async function isApprovedAsync(material: string, home = os.homedir()): Promise<boolean> {
+  const store = load(projectApprovalsPath(home));
+  if (!store.salt || Object.keys(store.approvals).length === 0) return false;
+  const salt = Buffer.from(store.salt, 'hex');
+  const key = await new Promise<Buffer>((resolve, reject) =>
+    crypto.scrypt(material, salt, 32, SCRYPT_PARAMS, (err, derived) => (err ? reject(err) : resolve(derived)))
+  );
+  return Object.prototype.hasOwnProperty.call(store.approvals, key.toString('hex'));
 }
 
 /** Records the approvals, replacing the store atomically, 0600 in a 0700 directory. */

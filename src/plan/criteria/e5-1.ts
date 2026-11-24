@@ -1687,7 +1687,7 @@ export const E5_1: Criterio[] = [
       },
       {
         archivo: 'src/ai/providers/config.ts',
-        de: "  if (readProjectHelperPolicy(home, opts.own) === 'never') return { never: true };\n",
+        de: "  if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };\n",
         a: '',
         porque: 'setting-ignored: "project_helpers": "never" stops nothing, and an approved helper runs for the person who chose never',
       },
@@ -1726,7 +1726,7 @@ export const E5_1: Criterio[] = [
           "resolveProfile runs a project file's api_key_cmd without asking for its approval first",
         ],
         [
-          has(config, "if (readProjectHelperPolicy(home, opts.own) === 'never') return { never: true };"),
+          has(config, "if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };"),
           'the gate no longer reads "project_helpers": "never" from the reader\'s own file',
         ],
         [

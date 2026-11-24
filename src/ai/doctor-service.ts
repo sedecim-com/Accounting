@@ -804,7 +804,9 @@ function checkProviderCredential(cwd?: string): CheckResult {
       detail: `${defaultName} · ${active.model} (${state.label})`,
       fix: state.source.variable
         ? `If you trust ${state.source.host} with ${state.source.variable}: mnemosine providers approve ${defaultName}`
-        : state.source.never
+        : state.source.unbindable
+          ? `Ask whoever keeps ${state.source.file} to point providers.${defaultName}.api_key_cmd at a script inside the project, run directly or by sh/bash/node/python, or at a command outside it`
+          : state.source.never
           ? `Define ${defaultName} in ~/.mnemosine/config.json, where "project_helpers" is "never"`
           : `Read providers.${defaultName}.api_key_cmd in ${state.source.file}; if you trust it: mnemosine providers approve ${defaultName}`,
     };

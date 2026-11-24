@@ -361,12 +361,11 @@ describe('review: an approved helper binds the project file it runs', () => {
     expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-cambiado');
   });
 
-  it('a file outside the project is not fingerprinted, and the approve output says what is bound by name only', () => {
-    writeProject({ api_key_cmd: `sh ${path.join(home, 'fuera.sh')}` });
+  it('an interpreter running a script outside the project is refused: shape b needs a script of the project', () => {
     fs.writeFileSync(path.join(home, 'fuera.sh'), "printf 'tok-fuera'\n");
-    approveProjectProfile('vault', project);
-    fs.writeFileSync(path.join(home, 'fuera.sh'), "printf 'tok-fuera-2'\n");
-    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-fuera-2');
+    writeProject({ api_key_cmd: `sh ${path.join(home, 'fuera.sh')}` });
+    const err = refusal(() => approveProjectProfile('vault', project));
+    expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
   });
 });
 
@@ -475,7 +474,7 @@ describe('re-review: a project helper binds every script it can run, or is refus
     expect(err).toBeInstanceOf(ProjectFileRefusalError);
     expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
     expect(err.message).toContain('providers.vault.api_key_cmd');
-    expect(err.message).toContain('point it at a script directly');
+    expect(err.message).toContain('point it at a script inside the project');
     expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
     expect(fs.existsSync(marker)).toBe(false);
   });
@@ -499,12 +498,13 @@ describe('re-review: a project helper binds every script it can run, or is refus
     expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-path');
   });
 
-  it('a script created after the approval asks again', () => {
+  it('a script that does not exist yet cannot be approved, and a file created later where an argument points asks again', () => {
     writeProject({ api_key_cmd: 'sh tools/key.sh' });
+    expect(refusal(() => approveProjectProfile('vault', project))).toBeInstanceOf(ProjectFileRefusalError);
+    writeProject({ api_key_cmd: 'printf tok-tarde tools/later.txt' });
     approveProjectProfile('vault', project);
-    script('tools/key.sh', 'tok-tarde');
+    script('tools/later.txt', 'x');
     expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
-    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it('a FIFO the command names is refused, not left unbound', () => {
@@ -569,5 +569,77 @@ describe('the store derives its keys with scrypt and a salt of its own (CodeQL j
     delete store.salt;
     fs.writeFileSync(projectApprovalsPath(home), JSON.stringify(store));
     expect(isApproved(material, home)).toBe(false);
+  });
+});
+
+// The third review: an allowlist of shapes, not a denylist of forms.
+describe('third review: a project api_key_cmd is accepted only in a shape whose code mnemosine binds', () => {
+  function script(rel: string, token: string): string {
+    const target = path.join(project, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `touch '${marker}'; printf '${token}'\n`);
+    fs.chmodSync(target, 0o755);
+    return target;
+  }
+  beforeEach(() => {
+    script('tools/key.sh', 'tok-1');
+    script('tools/k.js', 'tok-1');
+    script('tools/k.py', 'tok-1');
+    fs.writeFileSync(path.join(project, 'package.json'), '{"scripts":{"key":"sh tools/key.sh"}}');
+    fs.writeFileSync(path.join(project, 'Makefile'), 'key:\n\tsh tools/key.sh\n');
+  });
+
+  it.each([
+    ["quotes inside a path", "sh tools/k''ey.sh"],
+    ['a backslash inside a path', 'sh ./tools/k\\ey.sh'],
+    ['python -m', 'python3 -m tools.k'],
+    ['node -e', `node -e "require('./tools/k'+'.js')"`],
+    ['npm run', 'npm run --silent key'],
+    ['make', 'make -s key'],
+    ['npx', 'npx some-tool'],
+    ['a wrapper that runs a task runner', 'timeout 5 npm run key'],
+    ['an assignment before a command', 'FOO=1 npm run key'],
+    ['sh without a script', 'sh'],
+    ['an interpreter flag before the script', 'node --require ./tools/k.js tools/k.js'],
+    ['a tab', 'sh\ttools/key.sh'],
+    ['a PATH command with a project path argument', 'cat tools/key.sh'],
+    ['a PATH command with a project path inside a flag', 'tool --file=tools/key.sh'],
+  ])('%s is refused as helper_unbindable, and nothing runs', (_label, command) => {
+    writeProject({ api_key_cmd: command });
+    const err = refusal(() => approveProjectProfile('vault', project));
+    expect((err as ProjectFileRefusalError).code).toBe('helper_unbindable');
+    expect(err.message).toContain('providers.vault.api_key_cmd');
+    expect(err.message).toContain('point it at a script inside the project, run directly or by sh/bash/node/python, or at a command outside it');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it.each([
+    ['a) a project script run directly', './tools/key.sh', 'tools/key.sh'],
+    ['a) with plain arguments', './tools/key.sh --profile prod', 'tools/key.sh'],
+    ['b) sh and a script', 'sh tools/key.sh', 'tools/key.sh'],
+    ['b) python3 and a script', 'python3 tools/k.py', 'tools/k.py'],
+    ['env and shape b', 'env REGION=us-east-1 sh tools/key.sh', 'tools/key.sh'],
+  ])('%s is accepted, and an edit to the script asks again', (_label, command, rel) => {
+    writeProject({ api_key_cmd: command });
+    expect(approveProjectProfile('vault', project).approved).toContain('helper');
+    fs.appendFileSync(path.join(project, rel), '# editado\n');
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+  });
+
+  it('c) a PATH command that loads nothing from the project is accepted by name, env included', () => {
+    writeProject({ api_key_cmd: 'env LANG=C printf tok-path' });
+    approveProjectProfile('vault', project);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('tok-path');
+  });
+
+  it('readiness names an unbindable helper as such, and doctor would not ask to approve it', () => {
+    writeProject({ api_key_cmd: 'npm run --silent key' });
+    const { profiles, origins } = listProfiles(project);
+    const state = credentialState(profiles.vault, { cwd: project, home, source: origins.vault, env: {} });
+    expect(state.ready).toBe(false);
+    expect(state.source).toMatchObject({ kind: 'unapproved', unbindable: true });
+    expect(state.label).toContain('cannot be approved');
+    expect(state.label).not.toContain('until you approve it');
   });
 });

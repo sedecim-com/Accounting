@@ -6218,9 +6218,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.switch.kept': 'La sesión sigue en {current}.',
   'provider.switch.done': 'Proveedor cambiado a {label} ({credential}). Conversación nueva.',
   // ==== end of MNE-001-444 ====
-  // ==== MNE-001-452 (#645): lo que puede correr un archivo de proyecto compartido ====
+  // ==== MNE-001-452 (#645): what a shared project file may run ====
   'provider.credential.unapproved':
     'api_key_cmd en {file}, un archivo de proyecto compartido, sin aprobar aquí: no corre hasta que lo apruebes',
+  'provider.credential.unbindable':
+    'api_key_cmd en {file}, un archivo de proyecto compartido, en una forma que no se puede aprobar: no corre hasta que se reescriba',
+  'provider.credential.hint.unbindable':
+    'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, en una forma que no se puede aprobar: pide a quien lo mantiene que apunte providers.{name}.api_key_cmd a un script dentro del proyecto, corrido directo o con sh/bash/node/python, o a un comando fuera de él.',
   'provider.credential.unapproved_never':
     'api_key_cmd en {file}, un archivo de proyecto compartido: "project_helpers" es "never" en ~/.mnemosine/config.json, así que no corre',
   'provider.credential.unapproved_pair':

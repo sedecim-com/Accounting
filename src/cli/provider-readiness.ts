@@ -119,7 +119,12 @@ export function missingCredentialHint(
         name, file: source.file, variable: source.variable, host: source.host ?? '',
       });
     }
-    return t(source.never ? 'provider.credential.hint.unapproved_never' : 'provider.credential.hint.unapproved', {
+    const key = source.unbindable
+      ? 'provider.credential.hint.unbindable'
+      : source.never
+        ? 'provider.credential.hint.unapproved_never'
+        : 'provider.credential.hint.unapproved';
+    return t(key, {
       name,
       file: source.file,
     });

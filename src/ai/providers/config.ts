@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
 import { REASONING_EFFORT_LEVELS } from './types.js';
 import { RenewingHelperKey, runCredentialHelper, runCredentialHelperSync } from './credential-helper.js';
-import { approvalMaterial, isApproved, recordApprovals, type ApprovalKind } from './project-approvals.js';
+import { approvalMaterial, isApproved, isApprovedAsync, recordApprovals, type ApprovalKind } from './project-approvals.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -948,7 +948,9 @@ const SCHEMA_KEY_NAMES: ReadonlySet<string> = new Set(['api_key_env', 'api_key_c
 /** Text that does not parse as JSON may still hold a key, or an auth-named field such as "Authorization". */
 function textMayHoldCredential(text: string): boolean {
   if (KEY_SHAPE_RE.test(text)) return true;
-  for (const m of text.matchAll(/"([^"\\]{1,128})"\s*:/g)) {
+  // The quote is \x22 so the comment stripper the criteria read through (it knows
+  // strings, not regex literals) does not take it for an open string.
+  for (const m of text.matchAll(/\x22([^\x22\\]{1,128})\x22\s*:/g)) {
     if (!SCHEMA_KEY_NAMES.has(m[1]) && AUTH_NAME_RE.test(m[1])) return true;
   }
   return false;
@@ -1136,11 +1138,29 @@ export function profileDestinations(
   return [...new Set(urls.map(originOf))].sort();
 }
 
-// What a project api_key_cmd may not contain: whatever lets the shell reach a
-// script the token reading below cannot see (a substitution, a variable, a
-// cd, a list, a glob, a redirection, a newline). Refused, failing closed: the
-// person points the command at the script directly.
-const UNBINDABLE_RE = /[$`;<>*?[\n\r]|&&|\|\||(^|[\s(])(cd|pushd)(\s|$)/;
+// A project api_key_cmd is accepted only in a shape whose code mnemosine can
+// bind (MNE-001-452, third review): an ALLOWLIST, failing closed, because
+// every denylist of shell forms leaked. Tokens are split on single spaces and
+// may hold only these characters: no quote, backslash, $, backtick, glob,
+// redirection, ;, &, |, tab or newline can reach the shell.
+const HELPER_TOKEN_RE = /^[A-Za-z0-9_./:=@%+,-]+$/;
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@%+,-]*$/;
+/** Shape b: these run the project script that is their very next token. */
+const HELPER_INTERPRETERS: ReadonlySet<string> = new Set(['sh', 'bash', 'node', 'python', 'python3', 'ruby', 'perl']);
+/**
+ * Never a PATH command (shape c): each runs code it finds in the project on
+ * its own (a task or package runner, a build tool, a shell, an interpreter
+ * that is not in shape b), or runs another command given as its arguments.
+ */
+const HELPER_REFUSED_COMMANDS: ReadonlySet<string> = new Set([
+  'npm', 'pnpm', 'yarn', 'npx', 'bun', 'bunx', 'deno', 'make', 'gmake', 'just', 'rake', 'task', 'gradle', 'gradlew',
+  'mvn', 'mvnw', 'ant', 'sbt', 'cargo', 'go', 'dotnet', 'bazel', 'cmake', 'ninja', 'meson', 'docker', 'docker-compose',
+  'podman', 'poetry', 'pipenv', 'uv', 'uvx', 'pip', 'tox', 'nox', 'invoke', 'bundle', 'composer', 'php', 'lua',
+  'Rscript', 'java', 'tsx', 'ts-node', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh', 'osascript', 'awk',
+  'env', 'xargs', 'parallel', 'sudo', 'doas', 'su', 'eval', 'exec', 'source', '.', 'cd', 'pushd', 'command',
+  'builtin', 'nohup', 'time', 'nice', 'timeout', 'stdbuf', 'setsid', 'watch', 'chroot',
+  ...HELPER_INTERPRETERS,
+]);
 const MAX_HASHED_BYTES = 2 * 1024 ** 3;
 
 /** SHA-256 of a regular file, read in chunks; null when it cannot be read whole. */
@@ -1161,38 +1181,86 @@ function hashRegularFile(target: string): string | null {
   }
 }
 
+type Binding = { files: string[] } | { unbindable: string };
+
 /**
- * What an api_key_cmd of a project file runs from the project, resolved from
- * the folder the helper runs in (the project file's own folder, unresolved,
- * which is mnemosine's cwd there): every token that lands inside it, as
- * `<real path>:<sha256>`, or `<path>:absent` for one that does not exist yet,
- * so an edit, or a script created later, asks again. A command found through
- * PATH or npx is bound by name only. Returns the reason instead when the
- * command cannot be bound: a shell form above, a directory of the project, or
- * a file that is not regular or cannot be read whole.
+ * What a project api_key_cmd runs, resolved from the folder the helper runs
+ * in (the project file's own folder, unresolved: mnemosine's cwd there), or
+ * why it cannot be approved. Accepted, optionally after `env NAME=value…`:
+ *   a) a project script run directly: `./tools/key.sh [args]`;
+ *   b) an interpreter of HELPER_INTERPRETERS and a project script as its very
+ *      next token (no flag before it): `sh tools/key.sh [args]`;
+ *   c) a PATH command not in HELPER_REFUSED_COMMANDS, bound by name.
+ * A script is bound by `<real path>:<sha256>`. No argument may touch a path
+ * of the project; one that does not exist yet is bound as `<path>:absent`,
+ * so a file created there later asks again.
  */
-function helperBinding(file: string, command: string): { files: string[] } | { unbindable: string } {
-  if (UNBINDABLE_RE.test(command)) return { unbindable: 'it uses a shell form ($, a backtick, cd, ;, &&, ||, a glob or a redirection)' };
+function helperBinding(file: string, command: string): Binding {
   const dir = path.dirname(path.resolve(file));
-  const out = new Set<string>();
-  for (const token of command.split(/[\s|&()'"=]+/)) {
-    if (!token || token.startsWith('-')) continue;
-    const target = path.resolve(dir, token);
-    const rel = path.relative(dir, target);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(target);
-    } catch {
-      out.add(`${rel}:absent`);
-      continue;
-    }
-    if (stat.isDirectory()) return { unbindable: `it names ${rel}, a directory of the project` };
-    const digest = hashRegularFile(target);
-    if (digest === null) return { unbindable: `it names ${rel}, which is not a regular file mnemosine can read whole` };
-    out.add(`${fs.realpathSync(target)}:${digest}`);
+  const tokens = command.split(' ');
+  if (!tokens.every((t) => HELPER_TOKEN_RE.test(t))) {
+    return { unbindable: 'it holds a character or a spacing outside the accepted ones (letters, digits and _ . / : = @ % + , -, one space apart)' };
   }
-  return { files: [...out].sort() };
+  let i = 0;
+  if (tokens[0] === 'env') {
+    i = 1;
+    while (i < tokens.length && ENV_ASSIGNMENT_RE.test(tokens[i])) i++;
+  }
+  const head = tokens[i];
+  if (head === undefined) return { unbindable: 'it names no command' };
+  if (head.startsWith('-') || head.includes('=')) return { unbindable: `${head} is not a command` };
+  const files: string[] = [];
+  const inside = (token: string): string | null => {
+    const rel = path.relative(dir, path.resolve(dir, token));
+    return rel.startsWith('..') || path.isAbsolute(rel) ? null : rel;
+  };
+  const bindScript = (token: string): string | null => {
+    const rel = inside(token);
+    const digest = rel === null || token.startsWith('-') ? null : hashRegularFile(path.resolve(dir, token));
+    if (rel === null || digest === null) return `${token} is not a regular file of the project mnemosine can read whole`;
+    files.push(`${fs.realpathSync(path.resolve(dir, token))}:${digest}`);
+    return null;
+  };
+  let rest: string[];
+  const base = path.basename(head);
+  if (head.includes('/') && inside(head) !== null) {
+    const problem = bindScript(head); // shape a
+    if (problem) return { unbindable: problem };
+    rest = tokens.slice(i + 1);
+  } else if (!head.includes('/') && HELPER_INTERPRETERS.has(head)) {
+    const scriptToken = tokens[i + 1]; // shape b
+    if (scriptToken === undefined) return { unbindable: `${head} runs no script of the project` };
+    const problem = bindScript(scriptToken);
+    if (problem) return { unbindable: `${head} must run a script of the project as its next token: ${problem}` };
+    rest = tokens.slice(i + 2);
+  } else if (HELPER_REFUSED_COMMANDS.has(base)) {
+    return { unbindable: `${base} runs code mnemosine cannot bind` };
+  } else {
+    rest = tokens.slice(i + 1); // shape c
+  }
+  for (const arg of rest) {
+    const candidates = new Set([arg, arg.replace(/^-+/, ''), arg.replace(/^-[A-Za-z]/, ''), ...arg.split(/[=:,]/)]);
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const rel = inside(candidate);
+      if (rel === null) continue;
+      if (fs.existsSync(path.resolve(dir, candidate)) || hasExtensionSibling(path.resolve(dir, candidate))) {
+        return { unbindable: `the argument ${arg} reaches ${rel || '.'}, a path of the project` };
+      }
+      files.push(`${rel}:absent`);
+    }
+  }
+  return { files: [...new Set(files)].sort() };
+}
+
+/** True when `target` has no file of its own but `<target>.<ext>` exists (what node or python would load). */
+function hasExtensionSibling(target: string): boolean {
+  try {
+    const prefix = `${path.basename(target)}.`;
+    return fs.readdirSync(path.dirname(target)).some((entry) => entry.startsWith(prefix));
+  } catch {
+    return false;
+  }
 }
 
 /** The approval material of a project helper (the file, the command, the files it runs, where its output goes), or why it has none. */
@@ -1208,9 +1276,10 @@ function unbindableRefusal(name: string, file: string, reason: string): ProjectF
   return new ProjectFileRefusalError(
     'helper_unbindable',
     `Provider "${name}" in ${file}: providers.${name}.api_key_cmd cannot be approved, because ${reason}, ` +
-      'so mnemosine could not tell which scripts it runs and did not run it. Ask whoever keeps that file to ' +
-      'point it at a script directly (for example ./tools/key.sh or sh tools/key.sh), or define the profile ' +
-      'in your own ~/.mnemosine/config.json.'
+      'so mnemosine could not tell what code it runs and did not run it. Ask whoever keeps that file to ' +
+      'point it at a script inside the project, run directly or by sh/bash/node/python, or at a command ' +
+      'outside it (for example ./tools/key.sh, sh tools/key.sh or gcloud auth print-access-token); or define ' +
+      'the profile in your own ~/.mnemosine/config.json.'
   );
 }
 
@@ -1252,12 +1321,24 @@ export function projectHelperGate(
   file: string,
   profile: ProviderProfile,
   opts: ProjectGateOptions = {}
-): { never: boolean; unbindable?: string } | null {
+): HelperGate {
+  const pre = helperGateBefore(file, profile, opts);
+  return 'gate' in pre ? pre.gate : isApproved(pre.material, pre.home) ? null : { never: false };
+}
+
+type HelperGate = { never: boolean; unbindable?: string } | null;
+
+/** The part of the helper gate that needs no derivation: a decided gate, or the material to look up. */
+function helperGateBefore(
+  file: string,
+  profile: ProviderProfile,
+  opts: ProjectGateOptions
+): { gate: HelperGate } | { material: string; home: string } {
   const home = opts.home ?? os.homedir();
-  if (readProjectHelperPolicy(home, opts.own) === 'never') return { never: true };
+  if (readProjectHelperPolicy(home, opts.own) === 'never') return { gate: { never: true } };
   const helper = helperMaterial(file, profile, opts.env ?? process.env);
-  if ('unbindable' in helper) return { never: false, unbindable: helper.unbindable };
-  return isApproved(helper.material, home) ? null : { never: false };
+  if ('unbindable' in helper) return { gate: { never: false, unbindable: helper.unbindable } };
+  return { material: helper.material, home };
 }
 
 /**
@@ -1343,7 +1424,21 @@ function assertProjectHelperAllowed(
   profile: ProviderProfile,
   own: MnemosineConfig | null
 ): void {
-  const gate = projectHelperGate(file, profile, { own });
+  refuseHelper(name, file, projectHelperGate(file, profile, { own }));
+}
+
+/** The renewal's check: the same gate, with the derivation off the event loop. */
+async function assertProjectHelperAllowedAsync(
+  name: string,
+  file: string,
+  profile: ProviderProfile,
+  own: MnemosineConfig | null
+): Promise<void> {
+  const pre = helperGateBefore(file, profile, { own });
+  refuseHelper(name, file, 'gate' in pre ? pre.gate : (await isApprovedAsync(pre.material, pre.home)) ? null : { never: false });
+}
+
+function refuseHelper(name: string, file: string, gate: HelperGate): void {
   if (!gate) return;
   if (gate.unbindable) throw unbindableRefusal(name, file, gate.unbindable);
   throw new ProjectFileRefusalError(
@@ -1404,15 +1499,15 @@ export function resolveProfile(
     // SECURITY (MNE-001-452): a shared project file's helper runs only once its
     // person approved that exact command for that host, unless they chose
     // `never`. Checked BEFORE it runs; the error never quotes the command.
-    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);
     // It runs in the folder mnemosine resolves for, whose ./.env is in its environment.
+    if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);
     apiKey = runCredentialHelperSync(name, profile.api_key_cmd, { cwd });
     // Every helper that got this far is the person's own or one they approved.
     if (profile.type === 'openai-compatible') {
       const command = profile.api_key_cmd;
       // A project helper is re-checked before each re-run, scripts included.
       const run = async (p: string, c: string): Promise<string> => {
-        if (isProjectOrigin(origin)) assertProjectHelperAllowed(name, origin, profile, own);
+        if (isProjectOrigin(origin)) await assertProjectHelperAllowedAsync(name, origin, profile, own);
         return runCredentialHelper(p, c, { cwd });
       };
       keyRenewal = new RenewingHelperKey(name, command, apiKey, { run });

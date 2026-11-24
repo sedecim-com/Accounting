@@ -193,14 +193,14 @@ describe('api_key_cmd (credential helper)', () => {
 
   it('prefers the env var over the command', () => {
     process.env.SUB_TOKEN = 'from-env';
-    writeProfile({ api_key_cmd: "printf 'from-cmd'" });
+    writeProfile({ api_key_cmd: 'printf from-cmd' });
     expect(resolveProfile('sub', undefined, tmpDir).apiKey).toBe('from-env');
   });
 
   it('fails clearly when the command errors or prints nothing', () => {
     writeProfile({ api_key_cmd: 'exit 3' });
     expect(() => resolveProfile('sub', undefined, tmpDir)).toThrow(/api_key_cmd/);
-    writeProfile({ api_key_cmd: 'printf ""' });
+    writeProfile({ api_key_cmd: 'true' });
     expect(() => resolveProfile('sub', undefined, tmpDir)).toThrow(/did not print/);
   });
 });

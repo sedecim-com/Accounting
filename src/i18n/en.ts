@@ -6745,6 +6745,10 @@ export const EN = {
   // ==== MNE-001-452 (#645): what a shared project file may run ====
   'provider.credential.unapproved':
     'api_key_cmd in {file}, a shared project file, not approved here: it does not run until you approve it',
+  'provider.credential.unbindable':
+    'api_key_cmd in {file}, a shared project file, in a form that cannot be approved: it does not run until it is rewritten',
+  'provider.credential.hint.unbindable':
+    'Provider {name} runs an api_key_cmd from {file}, a shared project file, in a form that cannot be approved: ask whoever keeps it to point providers.{name}.api_key_cmd at a script inside the project, run directly or by sh/bash/node/python, or at a command outside it.',
   'provider.credential.unapproved_never':
     'api_key_cmd in {file}, a shared project file: "project_helpers" is "never" in ~/.mnemosine/config.json, so it does not run',
   'provider.credential.unapproved_pair':
