@@ -17,6 +17,7 @@ import {
 } from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
+import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -1872,12 +1873,15 @@ export async function getGeneralLedger(
  * born with, because payments book the realised difference against that same
  * rate (MNE-001-112; the why is in fx-revaluation.ts). It lives here so the
  * aging and the reconciliations read one expression.
+ *
+ * `amountSql` is the balance to weigh: the maintained one unless the caller
+ * read the balance of a past day (MNE-001-648), which keeps the same rate.
  */
-export function bookAmountDueSql(alias: string, entityParam: string): string {
+export function bookAmountDueSql(alias: string, entityParam: string, amountSql = `${alias}.amount_due`): string {
   return (
     `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ` +
     `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) ` +
-    `THEN ${alias}.amount_due ELSE ROUND(${alias}.amount_due * ${alias}.exchange_rate, 4) END`
+    `THEN ${amountSql} ELSE ROUND(${amountSql} * ${alias}.exchange_rate, 4) END`
   );
 }
 
@@ -1920,28 +1924,51 @@ export const RECEIVABLE_OPEN_STATUSES = ['sent', 'viewed', 'partially_paid', 'ov
 export const PAYABLE_OPEN_STATUSES = ['approved', 'posted', 'partially_paid'] as const;
 
 /**
- * IMPORTANT, and the reason `as_of_date` is narrower than it looks: this
- * reads `amount_due` AS IT IS NOW. The cutoff only ages the due date; it does
- * NOT reconstruct what was owed on that date. An aged listing "as of
- * 31 December" produced today is therefore today's balances with December's
- * ageing — fine for a collections call, wrong for an auditor. Rebuilding the
- * point in time needs the payment history, which no table here carries in a
- * usable shape (see the catalog's 🟡 note on aged-payables).
+ * Two readings, and the report says which it gave (`balance_basis`):
+ *
+ *   CURRENT reads `amount_due` AS IT IS NOW, over the documents open now. The
+ *   cutoff only ages the due date: fine for a collections call.
+ *
+ *   AS OF THE CUTOFF (`reconstruct`, MNE-001-648) reads what each invoice
+ *   issued on or before it still owed at the end of that day, by the one
+ *   definition `customer show --as-of` binds (`amountDueAsOfSql`), in one
+ *   statement. A document voided after the cutoff was a receivable that day
+ *   (`voidedAfterSql`). Payables still read CURRENT only (MNE-001-649).
  *
  * MNE-001-647: a row is in its document's currency and says which, and
- * `book_amount_due` is that balance in the functional currency, read in this
- * same statement. Nothing is revalued here.
+ * `book_amount_due` is that balance in the functional currency, at the rate
+ * the document was posted at, in this same statement. Nothing is revalued.
  */
 export async function queryAgedReceivableRows(
   entityId: string,
-  opts: { asOfDate: string; order?: AgingOrder }
+  opts: { asOfDate: string; order?: AgingOrder; reconstruct?: boolean }
 ): Promise<AgedReceivableRow[]> {
   const orderBy = opts.order === 'overdue' ? 'days_overdue DESC, c.company_name' : 'c.company_name, i.due_date';
+  const columns = `c.id as customer_id, c.company_name as customer_name, c.customer_number,
+      i.id as invoice_id, i.invoice_number, i.invoice_date, i.due_date,
+      i.currency_code, i.total_amount`;
+  if (opts.reconstruct) {
+    // OFFSET 0 keeps the balance of the day from being inlined into the
+    // filter, the column and the book value: its subqueries run once per invoice.
+    const dated = await query<AgedReceivableRow>(
+      `SELECT
+      ${columns}, d.amount_due,
+      ${bookAmountDueSql('i', '$1', 'd.amount_due')} as book_amount_due,
+      ($2::date - i.due_date) as days_overdue
+    FROM invoices i
+    JOIN customers c ON c.id = i.customer_id
+    CROSS JOIN LATERAL (SELECT ${amountDueAsOfSql('$2')} AS amount_due OFFSET 0) d
+    WHERE i.entity_id = $1 AND i.invoice_date <= $2::date
+      AND (i.status <> ALL($3::text[]) OR (i.status = 'void' AND ${voidedAfterSql('$2')}))
+      AND d.amount_due > 0
+    ORDER BY ${orderBy}`,
+      [entityId, opts.asOfDate, [...NEVER_RECEIVABLE_STATUSES]]
+    );
+    return dated.rows;
+  }
   const result = await query<AgedReceivableRow>(
     `SELECT
-      c.id as customer_id, c.company_name as customer_name, c.customer_number,
-      i.id as invoice_id, i.invoice_number, i.invoice_date, i.due_date,
-      i.currency_code, i.total_amount, i.amount_due,
+      ${columns}, i.amount_due,
       ${bookAmountDueSql('i', '$1')} as book_amount_due,
       ($2::date - i.due_date) as days_overdue
     FROM invoices i
@@ -1979,6 +2006,8 @@ export async function queryAgedPayableRows(
 export interface AgingReport<Row> {
   entity_id: string;
   as_of_date: string;
+  /** Which balances the rows carry: those of `as_of_date`, or today's aged against it. */
+  balance_basis: 'as_of_date' | 'current';
   rows: Row[];
   /** Open documents matched, before limit/offset. */
   total: number;
@@ -2044,12 +2073,14 @@ export interface AgingOptions {
 
 export async function getAgedReceivables(
   entityId: string,
-  opts: AgingOptions
+  /** `reconstruct`: read the balances of `asOfDate`; a surface asks for it when its caller stated the date. */
+  opts: AgingOptions & { reconstruct?: boolean }
 ): Promise<AgingReport<AgedReceivableRow>> {
   const all = await queryAgedReceivableRows(entityId, opts);
   return {
     entity_id: entityId,
     as_of_date: opts.asOfDate,
+    balance_basis: opts.reconstruct ? 'as_of_date' : 'current',
     rows: paginate(all, opts.limit, opts.offset),
     total: all.length,
     ...totalAging(all, opts.scale),
@@ -2064,6 +2095,7 @@ export async function getAgedPayables(
   return {
     entity_id: entityId,
     as_of_date: opts.asOfDate,
+    balance_basis: 'current',
     rows: paginate(all, opts.limit, opts.offset),
     total: all.length,
     ...totalAging(all, opts.scale),

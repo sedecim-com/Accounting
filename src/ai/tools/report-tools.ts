@@ -344,14 +344,17 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     description:
       'Aged receivables: customer invoices with outstanding balance and days overdue ' +
       '(negative days_overdue = not yet due). Amounts are in each row currency_code; ' +
-      'book_amount_due and total_due are in the entity currency.',
+      'book_amount_due and total_due are in the entity currency. With as_of_date the balances ' +
+      'are what was owed at the end of that day (balance_basis as_of_date); without it, today (current).',
     inputSchema: z.object({
       as_of_date: dateInput('Reference date YYYY-MM-DD; omit for today').optional(),
     }),
     run: async (input) => {
       observe?.('get_aged_receivables', input);
+      // MNE-001-648: a stated date is read as that date, as `customer show --as-of` does.
+      const reconstruct = input.as_of_date !== undefined;
       const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
-      const all = await queryAgedReceivableRows(ctx.entityId, { asOfDate: asOf, order: 'overdue' });
+      const all = await queryAgedReceivableRows(ctx.entityId, { asOfDate: asOf, order: 'overdue', reconstruct });
       const invoices = all.map((r) => ({
         customer_name: r.customer_name,
         customer_number: r.customer_number,
@@ -370,7 +373,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       const totals = totalAging(all, AGENT_SCALE);
       const residuo = residuoDeRedondeo(invoices.map((i) => i.book_amount_due), totals.total_book_amount_due);
       return envolverDatosDeTerceros({
-        as_of_date: asOf, currency: ctx.currency,
+        as_of_date: asOf, balance_basis: reconstruct ? 'as_of_date' : 'current', currency: ctx.currency,
         total_due: totals.total_book_amount_due, totals_by_currency: totals.totals_by_currency,
         count: invoices.length, invoices,
         ...(residuo ? { rounding_residual: { book_amount_due: residuo } } : {}),
@@ -383,7 +386,8 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     description:
       'Aged payables: vendor bills with outstanding balance and days overdue ' +
       '(negative days_overdue = not yet due). Amounts are in each row currency_code; ' +
-      'book_amount_due and total_due are in the entity currency.',
+      'book_amount_due and total_due are in the entity currency. The balances are always today\'s ' +
+      '(balance_basis current): as_of_date ages the due date only.',
     inputSchema: z.object({
       as_of_date: dateInput('Reference date YYYY-MM-DD; omit for today').optional(),
     }),
@@ -406,7 +410,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       const totals = totalAging(all, AGENT_SCALE);
       const residuo = residuoDeRedondeo(bills.map((b) => b.book_amount_due), totals.total_book_amount_due);
       return envolverDatosDeTerceros({
-        as_of_date: asOf, currency: ctx.currency,
+        as_of_date: asOf, balance_basis: 'current', currency: ctx.currency,
         total_due: totals.total_book_amount_due, totals_by_currency: totals.totals_by_currency,
         count: bills.length, bills,
         ...(residuo ? { rounding_residual: { book_amount_due: residuo } } : {}),

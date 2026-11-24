@@ -419,6 +419,18 @@ describe('get_aged_receivables', () => {
     expect(parsed.total_due).toBe('20.01');
     expect(parsed.rounding_residual).toEqual({ book_amount_due: '0.01' });
   });
+
+  // MNE-001-648 (#596): a stated date is read as that date, and the answer says which balances it carries.
+  it('as_of_date reads the balances of that day; omitted, the current ones', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    const dated = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string) as { balance_basis: string };
+    expect(dated.balance_basis).toBe('as_of_date');
+    expect(String(mockQuery.mock.calls.at(-1)![0])).toContain('i.invoice_date <= $2::date');
+
+    const current = parseResultado((await getTool('get_aged_receivables').run({})) as string) as { balance_basis: string };
+    expect(current.balance_basis).toBe('current');
+    expect(String(mockQuery.mock.calls.at(-1)![0])).toContain('AND i.amount_due > 0');
+  });
 });
 
 describe('get_general_ledger', () => {

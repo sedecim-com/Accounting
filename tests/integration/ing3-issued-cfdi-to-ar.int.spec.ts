@@ -15,6 +15,7 @@ import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-se
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-invoice-approval.js';
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
+import { listInvoices } from '../../src/services/ar/invoice-service.js';
 import { actoresPorInquilino, addMissingRoles, censusMissingRole } from '../../src/services/accounting/account-roles-backfill.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
@@ -211,6 +212,10 @@ describe('ING-3 · S3: approving the draft of an issued CFDI creates the AR invo
     const posted = await approve(await ingest(xml, PUE_COLLECTED));
     const [inv] = await invoicesOf(uuid);
     expect(inv).toMatchObject({ status: 'paid', amount_due: '0.0000', journal_entry_id: posted.entryId });
+    // MNE-001-648: no collection row dates it, and it owed nothing on any date.
+    const dated = await listInvoices(f.entityId, { asOf: '2099-12-31', withAging: true });
+    const row = (dated.rows as unknown as Array<{ id: string; amount_due_as_of: string }>).find((r) => r.id === inv.id);
+    expect(row?.amount_due_as_of).toBe('0.0000');
   });
 
   it('an unknown customer is refused with the command to register it; nothing is written', async () => {
