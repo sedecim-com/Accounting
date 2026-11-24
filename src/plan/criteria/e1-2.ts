@@ -2981,6 +2981,14 @@ export const E1_2: Criterio[] = [
         a: "            AND ds.schedule_type = $3",
         porque: 'el freno vuelve a acotarse por libro: correr marzo, contestar el panel con la otra base y correr marzo otra vez postea un SEGUNDO asiento — 20.000 en el mayor para un mes que vale 10.000, y con la 041 eso son reversas, no ediciones',
       },
+      {
+        // MNE-001-646 (#595): the same month is not LOST either. A reversed
+        // entry left its row counting, and the run refused the month for good.
+        archivo: 'src/services/assets/depreciation.ts',
+        de: "export const LIVE_ROW = `ds.is_posted = true AND ${backedBy('fa')}`;",
+        a: 'export const LIVE_ROW = `ds.is_posted = true`;',
+        porque: 'a row counts by is_posted alone again: after its entry is reversed the asset card keeps the month, the close box calls it depreciated and the run never posts it again',
+      },
     ],
     evaluar: () => {
       // MEDIDO por el verificador adversarial, y la secuencia es la que el
@@ -2996,6 +3004,15 @@ export const E1_2: Criterio[] = [
       const svc = codigoDe('src/services/assets/depreciation.ts');
       if (!/AND \(ds\.is_posted = true OR ds\.schedule_type = \$\d\)/.test(svc)) {
         return falla('el freno de la corrida volvió a acotarse por libro: cambiar la política entre corridas cargaría el mismo mes dos veces');
+      }
+      // MNE-001-646 · and a posted row counts only while the ledger backs it:
+      // the run, the plan, the card and the close box read the same predicate.
+      const live = /export const LIVE_ROW = `ds\.is_posted = true AND \$\{backedBy\('fa'\)\}`;/.test(svc) &&
+        /AND je_v\.status = 'posted'\s+AND je_v\.reversed_by_entry_id IS NULL/.test(svc) &&
+        /SELECT ds\.id, NOT \(\$\{DEAD_ROW\}\) AS stands/.test(svc) &&
+        /AND \$\{LIVE_ROW\}/.test(codigoDe('src/services/accounting/period-close.ts'));
+      if (!live) {
+        return falla('a depreciation row counts by is_posted alone: a reversed entry would leave its month posted on the card and at the close, and the run would never post it again');
       }
       // Y LA FICHA SE DERIVA DE LO POSTEADO, no del calendario teórico. Los
       // meses no tienen por qué correrse en orden: con el acumulado teórico,

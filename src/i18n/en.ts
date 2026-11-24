@@ -3110,6 +3110,12 @@ export const EN = {
   'bank.import.counts':
     '{added, plural, one {# new} other {# new}}, ' +
     '{duplicated, plural, one {# already there} other {# already there}}',
+  'bank.import.nothing_new':
+    'Nothing new was stored: {count, plural, one {the only movement of the file is} other {all # movements of the file are}} ' +
+    'already in {account} by native bank id' +
+    '{held, select, none {} other {, in {statements}}}' +
+    '{loose, plural, =0 {} other { (# entered with no statement)}}. ' +
+    'No statement was created: work with what is already there.',
   'bank.import.findings':
     '{file}: {count, plural, one {# integrity finding} other {# integrity findings}}. They are ' +
     'in staging all the same — it is `bank statement check` that exits 4.',
@@ -7404,6 +7410,9 @@ export const EN = {
   'help.cfdi.post.argument.uuid': 'UUID of a CFDI this entity issued, as cfdi list prints it',
   'help.cfdi.post.option.account': 'revenue account, by code or id, of every concept with no account of its own',
   'help.cfdi.post.option.json': 'one row: invoice number, status, amount due, entry number and dry_run',
+  'cfdi.lookup.same_uuid_twice':
+    'CFDI {uuid} is stored {count} times in this entity, under UUIDs that differ only in letter case: {stored}. ' +
+    'They are one fiscal folio, so none was picked. Until only one of them is kept, this CFDI cannot be read by its UUID.',
   'cfdi.post.bad_uuid':
     '"{uuid}" is not a CFDI UUID. List the issued CFDI to post with: mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending',
   'cfdi.post.confirm':

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { getPeriodCloseStatus, softClosePeriod } from '../../src/services/accounting/period-close.js';
-import { createJournalEntry } from '../../src/services/accounting/posting.js';
+import { createJournalEntry, postJournalEntry } from '../../src/services/accounting/posting.js';
 
 // ============================================================
 // El checklist del cierre daba verde por VACUIDAD: con cero
@@ -142,6 +142,9 @@ describe('universo poblado: la semántica de siempre sigue intacta', () => {
       ] as never,
       f.userId
     );
+    // MNE-001-646: a row counts while the ledger backs it, so its entry is
+    // posted. A draft behind a row marked `is_posted` is no depreciation.
+    await postJournalEntry(asiento.id, f.userId);
     await query(
       // Y el renglón posteado necesita SU asiento: F06a añadió el CHECK
       // `depreciacion_posteada_con_asiento`, que impide marcar `is_posted` sin

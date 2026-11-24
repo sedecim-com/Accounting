@@ -2898,6 +2898,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.import.counts':
     '{added, plural, one {# nueva} other {# nuevas}}, ' +
     '{duplicated, plural, one {# ya estaba} other {# ya estaban}}',
+  'bank.import.nothing_new':
+    'No se guardó nada nuevo: {count, plural, one {el único movimiento del archivo ya está} other {los # movimientos del archivo ya están}} ' +
+    'en {account} por su id nativo del banco' +
+    '{held, select, none {} other {, en {statements}}}' +
+    '{loose, plural, =0 {} one { (# entró sin estado de cuenta)} other { (# entraron sin estado de cuenta)}}. ' +
+    'No se creó ningún estado de cuenta: trabaja con lo que ya está.',
   'bank.import.findings':
     '{file}: {count, plural, one {# hallazgo} other {# hallazgos}} de integridad. Están en ' +
     'staging igual — es `bank statement check` quien sale 4.',
@@ -6737,6 +6743,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.cfdi.post.argument.uuid': 'UUID de un CFDI que emitió esta entidad, como lo imprime cfdi list',
   'help.cfdi.post.option.account': 'cuenta de ingresos, por código o id, de cada concepto sin cuenta propia',
   'help.cfdi.post.option.json': 'un renglón: número de factura, estado, saldo por cobrar, número de póliza y dry_run',
+  'cfdi.lookup.same_uuid_twice':
+    'El CFDI {uuid} está guardado {count} veces en esta entidad, con UUID que sólo difieren en mayúsculas y minúsculas: {stored}. ' +
+    'Son un solo folio fiscal, así que no se escogió ninguno. Mientras no quede sólo uno, este CFDI no se puede leer por su UUID.',
   'cfdi.post.bad_uuid':
     '"{uuid}" no es el UUID de un CFDI. Lista los CFDI emitidos por contabilizar con: mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending',
   'cfdi.post.confirm':
