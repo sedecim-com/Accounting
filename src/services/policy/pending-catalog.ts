@@ -1785,6 +1785,31 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 20,
   },
   {
+    // MNE-001-661 (#602). The annual seal swept a year whose months could
+    // still take entries. Whether it waits for them is the firm's answer.
+    // Reader: `yearSealNeedsSealedMonths`, through `getPeriodCloseStatus`
+    // (period-close.ts), which the seal re-reads.
+    key: 'year_seal_with_unsealed_months',
+    textKey: 'year_seal_with_unsealed_months',
+    category: 'contable',
+    question: 'Can a fiscal year be sealed while another of its periods is not hard-closed?',
+    impact:
+      'Governs the hard close of the last period of a fiscal year (period 13, or December in a year that kept twelve periods), the act that sweeps income and expenses into equity with what is posted at that moment. With "require_hard_close" that seal is refused while another period of the year is in soft close, open or future, and the refusal names each one; the soft close of the last period is not stopped. With "accept_unsealed" the year is sealed over them, and the close checklist warns and names them (box year-months-sealed). A period that is not hard-closed still takes entries, and none posted to it after the seal is swept.',
+    options: [
+      { value: 'require_hard_close', label: 'Refuse the annual seal until every other period of the year is hard-closed' },
+      { value: 'accept_unsealed', label: 'Seal the year over them: the checklist warns and names them' },
+    ],
+    defaultValue: 'require_hard_close',
+    defaultRationale:
+      'The seal sweeps the result with what is posted at that moment, and a period that is not hard-closed still takes entries: an income or an expense posted to it afterwards stays outside the result already swept, while costs and expenses belong to the period of the revenue they produce (NIF A-1, chapter 20). NIF B-1 corrects an error of a closed fiscal year with an adjusting entry in the current period against retained earnings, without reopening it, which presupposes that a closed year takes no more entries. No paragraph of the standards this system carries rules on the order between the monthly closes and the annual one, so none is cited for it: the default is the conservative option of ADR-0006, decision 1, the one that does not sweep a year that can still change.',
+    whyAsking:
+      'Some firms keep their months in soft close so that late adjustments still fit, and seal everything at year end; others hard-close every month first. The annual close sweeps the result on the day it is sealed, so I need to know whether it waits for the months.',
+    whatIDo:
+      'By default I refuse to seal the last period of the year while another period of that year is not hard-closed, and I name each one. With "accept_unsealed" I seal it, and the checklist warns which ones stayed unsealed.',
+    ifSkipped: 'I refuse the annual seal until every other period of the year is hard-closed.',
+    priority: 21,
+  },
+  {
     key: 'fuente_tipo_cambio',
     textKey: 'exchange_rate_source',
     category: 'contable',

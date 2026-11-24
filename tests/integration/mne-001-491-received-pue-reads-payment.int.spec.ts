@@ -169,8 +169,9 @@ beforeAll(async () => {
   entries.g2 = (await pay(bills.g2, '2026-04-08')).journalEntry!.id;
   entries.t1 = (await pay(bills.t1, '2026-04-08')).journalEntry!.id;
   const onAccount = await pay(null, '2026-07-20');
+  // MNE-001-679: dated, because the DIOT counts an application on its own day, and an undated one is today's.
   const applied = await applyVendorPayment(
-    f.entityId, onAccount.paymentId, [{ documentId: bills.t2, amountApplied: '1160.00' }], f.userId
+    f.entityId, onAccount.paymentId, [{ documentId: bills.t2, amountApplied: '1160.00' }], f.userId, { date: '2026-07-25' }
   );
   entries.t2 = applied.journalEntry!.id;
   await pay(bills.g3, '2026-06-08');
@@ -217,7 +218,7 @@ describe('a PUE whose VAT is parked in 1135 follows its payment', () => {
     expect(rows.map((r) => r.released)).toEqual(['160.0000']);
   });
 
-  it('T2 · applying a payment on account releases the same, declared in the payment month', async () => {
+  it('T2 · applying a payment on account releases the same, declared in the month it was applied', async () => {
     expect(await vatLines(entries.t2)).toEqual(['1130 160.0000/0', '1135 0/160.0000']);
     expect(declared(july, bills.t2)).toEqual({ base: '1000.0000', iva: '160.0000' });
   });

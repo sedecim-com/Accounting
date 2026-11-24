@@ -123,6 +123,8 @@ export const EN = {
     'The period already issued its closing ({entries}) and the policy cierre_recierre_de_periodo_reabierto forbids closing it again: correct it by an explicit reclassification, or change the policy with mnemosine pending.',
   'error.RESULTADO_SIN_BARRER':
     'The close did not leave the fiscal year at zero: {count} income-statement account(s) keep a balance ({detail}). The whole close was rolled back and the period is still open: a balance that survives the close seeds the next fiscal year wrongly. If the firm prefers this only to warn, the policy is severidad_resultado_sin_barrer.',
+  'error.YEAR_MONTHS_NOT_SEALED':
+    '{period} seals the fiscal year and {count, plural, one {another of its periods is} other {# of its other periods are}} not hard-closed: {periods}. A period that is not hard-closed still takes entries, and none posted after the seal would be swept. Hard-close {count, plural, one {it} other {them, oldest first}} with mnemosine close --period <period> --hard, or declare that the firm seals over them: mnemosine pending define year_seal_with_unsealed_months accept_unsealed.',
   // posting.ts
   'error.SOD_QUIEN_CREA_NO_POSTEA.apply':
     '{reference}: the segregation-of-duties policy requires that whoever applies it is not whoever prepared it. Have another user apply it, or adjust the policy segregacion_de_funciones with mnemosine pending.',
@@ -1392,6 +1394,23 @@ export const EN = {
     'Warn: the close completes and the residue is reported with its remedy',
   'policy.unswept_pl_accounts_severity.option.tolerancia':
     'Accept up to the entity\'s closing tolerance and fail above it',
+
+  'policy.year_seal_with_unsealed_months.question':
+    'Can a fiscal year be sealed while another of its periods is not hard-closed?',
+  'policy.year_seal_with_unsealed_months.impact':
+    'Governs the hard close of the last period of a fiscal year (period 13, or December in a year that kept twelve periods), the act that sweeps income and expenses into equity with what is posted at that moment. With "require_hard_close" that seal is refused while another period of the year is in soft close, open or future, and the refusal names each one; the soft close of the last period is not stopped. With "accept_unsealed" the year is sealed over them, and the close checklist warns and names them (box year-months-sealed). A period that is not hard-closed still takes entries, and none posted to it after the seal is swept.',
+  'policy.year_seal_with_unsealed_months.rationale':
+    'The seal sweeps the result with what is posted at that moment, and a period that is not hard-closed still takes entries: an income or an expense posted to it afterwards stays outside the result already swept, while costs and expenses belong to the period of the revenue they produce (NIF A-1, chapter 20). NIF B-1 corrects an error of a closed fiscal year with an adjusting entry in the current period against retained earnings, without reopening it, which presupposes that a closed year takes no more entries. No paragraph of the standards this system carries rules on the order between the monthly closes and the annual one, so none is cited for it: the default is the conservative option of ADR-0006, decision 1, the one that does not sweep a year that can still change.',
+  'policy.year_seal_with_unsealed_months.why':
+    'Some firms keep their months in soft close so that late adjustments still fit, and seal everything at year end; others hard-close every month first. The annual close sweeps the result on the day it is sealed, so I need to know whether it waits for the months.',
+  'policy.year_seal_with_unsealed_months.what':
+    'By default I refuse to seal the last period of the year while another period of that year is not hard-closed, and I name each one. With "accept_unsealed" I seal it, and the checklist warns which ones stayed unsealed.',
+  'policy.year_seal_with_unsealed_months.if_skipped':
+    'I refuse the annual seal until every other period of the year is hard-closed.',
+  'policy.year_seal_with_unsealed_months.option.require_hard_close':
+    'Refuse the annual seal until every other period of the year is hard-closed',
+  'policy.year_seal_with_unsealed_months.option.accept_unsealed':
+    'Seal the year over them: the checklist warns and names them',
 
   'policy.exchange_rate_source.question':
     'When I need an exchange rate for a date, which published source do I use?',
@@ -7331,6 +7350,13 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // Nothing leaves for a run nobody approved (MNE-001-720, #601).
+  'payrun.cfdi.run_not_approved':
+    'Paycheck {id} was not stamped: its run {run} is {status}, and a payroll CFDI is issued only for a run ' +
+    'that is approved or paid. Nothing was sent to the PAC and nothing was written.',
+  'payrun.deposit_file.run_not_approved':
+    'No deposit file was built for run {id}: it is {status}, and a deposit file is built only for a run ' +
+    'that is approved or paid. Nothing was written.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +

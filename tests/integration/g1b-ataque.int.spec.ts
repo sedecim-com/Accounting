@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
+  acceptSealOverUnsealedMonths,
   crearInquilino,
   crearEntidadHermana,
   fechaEnPeriodo,
@@ -959,6 +960,7 @@ describe('un ejercicio con cierre duro dentro del rango', () => {
     await julioConMovimiento(f, { receivable: '1140', payable: '2140' });
     await asiento(f, 12, 'Venta cobrada de diciembre', f.cuentas['1110'], f.cuentas['4100'], '3000.0000');
 
+    await acceptSealOverUnsealedMonths(f);
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[12], f.entityId, f.userId, 'cierre del ejercicio');
 

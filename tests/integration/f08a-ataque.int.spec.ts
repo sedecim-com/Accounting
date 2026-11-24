@@ -435,6 +435,8 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
         earnings: [{ earning_type: 'salary', amount: 1500 }],
       })
     ).paycheck_id;
+    // A paycheck is stamped once its run is approved (MNE-001-720).
+    await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1 AND tenant_id = $2`, [corrida, f.tenantId]);
 
     const { pacRouter } = await import('../../src/services/integrations/mexico/pac/pac-router.js');
     const { generateAndStampCfdiNomina } = await import(
