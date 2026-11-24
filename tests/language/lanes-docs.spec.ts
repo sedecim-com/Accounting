@@ -297,7 +297,7 @@ describe('los cuatro carriles sobre un árbol de juguete', () => {
   it('cuenta las líneas de comentario en español y no las inglesas', () => {
     const lane = lanesFor(root).find((c) => c.id === 'src-spanish-comment-lines');
     expect(lane?.value).toBe(2);
-    expect(lane?.informational).toBe(true);
+    expect(lane?.informational).toBeUndefined();
     expect(lane?.perFile).toEqual({ 'src/a.ts': 2 });
   });
 
@@ -459,10 +459,10 @@ describe('el contrato de los carriles sobre el árbol real', () => {
     }
   });
 
-  it('sólo el de los comentarios es informativo', () => {
-    // Mezclar lo que se observa con lo que se exige apagaría el trinquete: el
-    // de comentarios no se exige hasta I20 y los otros tres sí.
-    expect(lanes.filter((c) => c.informational === true).map((c) => c.id)).toEqual(['src-spanish-comment-lines']);
+  it('none is informational: the comment lane is a per-file ratchet since MNE-001-187', () => {
+    // It was the only informational one until #162's ratchet: a new Spanish
+    // comment now goes red like any other debt (tests/language/comment-lines-ratchet.spec.ts).
+    expect(lanes.filter((c) => c.informational === true).map((c) => c.id)).toEqual([]);
   });
 
   it('el desglose por archivo apunta a archivos que existen', () => {
