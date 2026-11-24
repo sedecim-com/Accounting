@@ -149,6 +149,54 @@ export async function iepsKeptOnAccount(
 }
 
 /**
+ * MNE-001-608 (#792, risk 3 of #891) · The IEPS of the share whose IVA a held
+ * cheque's unapply stored for its cashing (`unapply_kept_iva_amount`, 586):
+ * the invoice's parked IEPS × `marked` / its IVA, at four decimals, half up,
+ * never more than parked. The marker is the invoice's IVA times the fraction
+ * those rows settled (its telescope), and the cashing would have released the
+ * parked IEPS by the same fraction, so the marker is all the row needs to
+ * keep. Zero when the invoice has no IVA to read the fraction from.
+ */
+export function heldIepsShare(s: { parked: Decimal.Value; marked: Decimal.Value; tax: Decimal.Value }): string {
+  const parked = Decimal.max(new Decimal(s.parked), 0);
+  const marked = new Decimal(s.marked);
+  const tax = new Decimal(s.tax);
+  if (!parked.greaterThan(0) || !marked.greaterThan(0) || !tax.greaterThan(0)) return new Decimal(0).toFixed(SCALE);
+  return Decimal.min(parked.times(marked).dividedBy(tax).toDecimalPlaces(SCALE, Decimal.ROUND_HALF_UP), parked).toFixed(SCALE);
+}
+
+/**
+ * MNE-001-608 · The IEPS a held cheque's cash back on account carries for its
+ * cashing, per invoice (`heldIepsShare`): the receipt's closed rows that
+ * stored a marker, summed by invoice. A cheque is cashed once, and every row
+ * it closes before that is a held one, so only the cashing reads this.
+ */
+export async function iepsHeldForCashing(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<IepsMove[]> {
+  const { rows } = await client.query<{ invoice_id: string; invoice_number: string; tax: string; marked: string }>(
+    `SELECT pa.invoice_id::text, i.invoice_number, i.tax_amount::text AS tax,
+            SUM(pa.unapply_kept_iva_amount)::text AS marked
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      WHERE pa.payment_id = $2 AND pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0
+      GROUP BY pa.invoice_id, i.invoice_number, i.tax_amount
+      ORDER BY i.invoice_number`,
+    [entityId, paymentId]
+  );
+  const moves: IepsMove[] = [];
+  for (const row of rows) {
+    const parked = await iepsParkedByInvoice(client, entityId, row.invoice_id);
+    const amount = heldIepsShare({ parked, marked: row.marked, tax: row.tax });
+    if (new Decimal(amount).greaterThan(0)) moves.push({ invoiceId: row.invoice_id, invoiceNumber: row.invoice_number, amount });
+  }
+  return moves;
+}
+
+/**
  * The IEPS one collection event causes on one invoice: the invoice's parked
  * IEPS times what this event collects over the invoice total, as the
  * difference of two cumulative targets (the VAT's `ivaToReclassify`), so
@@ -234,13 +282,18 @@ export async function iepsCausedByReceipt(
  * (LIEPS art. 10). A release with a `take` nets it: 2180 is credited
  * amount − take, debited when that is negative, and gets no line at zero. A
  * take is written even for an invoice that releases nothing.
+ *
+ * MNE-001-608 · `cause` is a held cheque's cashing of the IEPS its cash back
+ * on account carries (`iepsHeldForCashing`): one 2180 credit, tagged, so the
+ * cash carries it (`iepsKeptOnAccount`); 2181 does not move, because the
+ * invoice is owed again, and the caller debits 2150, as for the IVA marker.
  */
 export async function iepsMoveLines(
   client: pg.PoolClient,
   entityId: string,
   paymentId: string,
   moves: readonly IepsMove[],
-  direction: 'release' | 'repark' | 'keep',
+  direction: 'release' | 'repark' | 'keep' | 'cause',
   event: string
 ): Promise<IepsLine[]> {
   const live = moves.filter((m) => new Decimal(m.amount).greaterThan(0) || new Decimal(m.take ?? '0').greaterThan(0));
@@ -267,6 +320,16 @@ export async function iepsMoveLines(
   return live.flatMap((m): IepsLine[] => {
     const tags = { [IEPS_MOVE_TAG]: { invoice_id: m.invoiceId, payment_id: paymentId } };
     const amount = new Decimal(m.amount).toFixed(SCALE);
+    if (direction === 'cause') {
+      return [{
+        account_id: due,
+        debit_amount: null,
+        credit_amount: amount,
+        description: `IEPS now in ${IEPS_DUE_ROLE} (caused on ${event}, LIEPS art. 10) on the cash back on account, ` +
+          `kept for the cashing when it was unapplied - Invoice ${m.invoiceNumber}`,
+        tags,
+      }];
+    }
     if (direction === 'keep') {
       return [{
         account_id: uncollected,

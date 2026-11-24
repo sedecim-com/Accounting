@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type pg from 'pg';
-import { iepsKeptOnAccount, iepsMoveLines } from '../../src/services/accounting/ieps-cash-basis.js';
+import { heldIepsShare, iepsHeldForCashing, iepsKeptOnAccount, iepsMoveLines } from '../../src/services/accounting/ieps-cash-basis.js';
 
 // MNE-001-590 (#792) · the lines that keep an unapplied receipt's IEPS caused and
 // net it on a later application, by hand. The ledger reads themselves are
@@ -80,5 +80,68 @@ describe('iepsKeptOnAccount', () => {
     expect(client.sql[0]).toContain("l.tags -> 'ieps_release' ->> 'payment_id' = $3");
     expect(client.sql[0]).toContain('je.reversed_by_entry_id IS NULL AND je.is_reversal = false');
     expect(await iepsKeptOnAccount(fakeClient('-0.0001'), ENTITY, 'pay-1')).toBe('0.0000');
+  });
+});
+
+// MNE-001-608 (#792, risk 3 of #891) · the IEPS a held cheque's cash back on account carries for its cashing, read
+// from the rows' IVA marker by the invoice's own proportion, and the 2180 line that causes it. By hand.
+describe('heldIepsShare', () => {
+  it('the whole marker is the whole parked IEPS: 80 × 172.80 / 172.80 = 80.0000', () => {
+    expect(heldIepsShare({ parked: '80', marked: '172.80', tax: '172.80' })).toBe('80.0000');
+  });
+
+  it('half the marker is half the IEPS, and an odd share rounds half up: 80 × 57.60 / 172.80 = 26.6667', () => {
+    expect(heldIepsShare({ parked: '80', marked: '86.40', tax: '172.80' })).toBe('40.0000');
+    expect(heldIepsShare({ parked: '80', marked: '57.60', tax: '172.80' })).toBe('26.6667');
+  });
+
+  it('never more than parked, and nothing with no IVA, no marker or nothing parked', () => {
+    expect(heldIepsShare({ parked: '80', marked: '200', tax: '172.80' })).toBe('80.0000');
+    expect(heldIepsShare({ parked: '80', marked: '172.80', tax: '0' })).toBe('0.0000');
+    expect(heldIepsShare({ parked: '80', marked: '0', tax: '172.80' })).toBe('0.0000');
+    expect(heldIepsShare({ parked: '0', marked: '172.80', tax: '172.80' })).toBe('0.0000');
+  });
+});
+
+describe('iepsHeldForCashing', () => {
+  /** The closed rows' marker by invoice, then each invoice's parked IEPS. */
+  function heldClient(rows: { invoice_id: string; invoice_number: string; tax: string; marked: string }[], parked: Record<string, string>) {
+    const sql: string[] = [];
+    const params: unknown[][] = [];
+    const query = async (text: string, p?: unknown[]): Promise<{ rows: unknown[] }> => {
+      sql.push(String(text).replace(/\s+/g, ' '));
+      params.push(p ?? []);
+      if (/unapply_kept_iva_amount/.test(sql.at(-1) as string)) return { rows };
+      return { rows: [{ ieps_parked: parked[String((p ?? [])[1])] ?? '0' }] };
+    };
+    return { query, sql, params } as unknown as pg.PoolClient & { sql: string[]; params: unknown[][] };
+  }
+
+  it('reads the receipt\'s closed rows with a marker, entity-scoped, and gives each invoice its share; one with none is left out', async () => {
+    const client = heldClient(
+      [
+        { invoice_id: 'inv-a', invoice_number: 'A', tax: '172.80', marked: '172.8000' },
+        { invoice_id: 'inv-c', invoice_number: 'C', tax: '160.00', marked: '160.0000' },
+      ],
+      { 'inv-a': '80.0000' }
+    );
+    expect(await iepsHeldForCashing(client, ENTITY, 'pay-1')).toEqual([{ invoiceId: 'inv-a', invoiceNumber: 'A', amount: '80.0000' }]);
+    expect(client.params[0]).toEqual([ENTITY, 'pay-1']);
+    expect(client.sql[0]).toContain('pa.unapplied_at IS NOT NULL AND pa.unapply_kept_iva_amount > 0');
+    expect(client.sql[0]).toContain('JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1');
+    expect(client.sql[0]).toContain('JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1');
+    expect(client.params.slice(1).map((p) => p[1])).toEqual(['inv-a', 'inv-c']);
+  });
+});
+
+describe('iepsMoveLines · cause', () => {
+  it('one line: 2180 credited, tagged with the invoice and the cheque, and nothing out of 2181 (H1)', async () => {
+    const lines = await iepsMoveLines(fakeClient(), ENTITY, 'pay-1', [{ invoiceId: 'inv-a', invoiceNumber: 'A', amount: '80' }], 'cause', 'cheque CHQ-608 cashed 2026-06-01');
+    expect(amounts(lines)).toEqual([[DUE, null, '80.0000']]);
+    expect(lines[0].tags).toEqual(tags('inv-a'));
+    expect(lines[0].description).toBe(
+      'IEPS now in ieps_por_pagar (caused on cheque CHQ-608 cashed 2026-06-01, LIEPS art. 10) on the cash back on account, ' +
+        'kept for the cashing when it was unapplied - Invoice A'
+    );
   });
 });

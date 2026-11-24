@@ -124,6 +124,21 @@ export function iepsTakeOf(t: { left: string; cashLeft: string; fromAdvance: str
 }
 
 /**
+ * MNE-001-608 (#792) · What a held cheque's cashing causes of the IEPS its cash
+ * back on account carries (`held`, per invoice), once the cash its live rows
+ * took from that pool before the cashing is out (`defer_to_cashing`, 573):
+ * those rows took no IEPS, and the cashing releases their own invoices' IEPS
+ * from 2181, so the cash they took carries none. The take is the pool's own
+ * ratio (`iepsTakeOf` over all `consumed` of `cash`), the same as cashing first
+ * and applying after, and what is left is split by `capKept`.
+ */
+export function heldIepsLeft(held: readonly string[], pool: { cash: string; consumed: string }): string[] {
+  const total = held.reduce((s, h) => s.plus(h), new Decimal(0));
+  const take = iepsTakeOf({ left: total.toFixed(4), cashLeft: pool.cash, fromAdvance: pool.consumed });
+  return capKept(held, total.minus(take).toFixed(4));
+}
+
+/**
  * MNE-001-462 · What the cash an unapply puts back on account carries, on a
  * receipt recorded with a treatment.
  *
