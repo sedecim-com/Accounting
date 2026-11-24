@@ -4293,6 +4293,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'con 12 periodos mensuales (año calendario) y el periodo de ajuste de fin de ejercicio (13); los meses ya pasados y el corriente abiertos, el resto future',
   'ledger.period.year.created': 'Ejercicio {year} creado',
   'ledger.period.year.created_detail': 'con 12 periodos mensuales y el periodo de ajuste de fin de ejercicio (13)',
+  'ledger.period.year.carried':
+    '  Saldos iniciales arrastrados desde {period}: {count, plural, one {# cuenta} other {# cuentas}}',
   'ledger.period.year.open_hint': '  Abre un mes futuro con: mnemosine period open <nombre>',
   // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
