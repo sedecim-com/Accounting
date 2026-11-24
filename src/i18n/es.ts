@@ -1782,6 +1782,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.plain_receipt_unapply_iva.option.repark_same_month':
     'Re-aparcarlo cuando el desaplicar es del mes en que se liberó el IVA',
 
+  'policy.note_reversal_after_cashing_iva.question':
+    'Una nota de crédito emitida mientras esperaba el cheque de un cliente se reversa después de que el banco lo cobró: ¿en qué mes cuenta el papel del IVA el IVA que la nota ya no restituye?',
+  'policy.note_reversal_after_cashing_iva.impact':
+    'Gobierna el papel de trabajo del IVA después de `entry reverse` o `entry void` de esa nota. Con cualquiera de las dos respuestas el mayor postea DR 2150 / CR 2120 por ese IVA, con la fecha de la reversa, o con la del cobro cuando la reversa lleva una fecha anterior. Con "reversal_month" el papel lo cuenta en el mes de esa póliza, así que cada mes cuadra con el mayor y ningún mes ya declarado se mueve. Con "cashing_month" el papel lee la nota como nunca emitida y lo cuenta en el mes del cobro; el cotejo nombra la complementaria que ese mes necesita y la corrección en el mes de la reversa.',
+  'policy.note_reversal_after_cashing_iva.rationale':
+    'LIVA art. 1-B y la decisión (A) sobre el efectivo a cuenta: el efectivo que cubría la nota se le debía al cliente, no era contraprestación, y la cancelación es el acto que lo vuelve contraprestación guardada a cuenta. El mayor fecha esa corrección con la reversa (NIF B-1), y contarla ahí no cambia ningún mes ya declarado ni baja ninguno, la opción conservadora de ADR-0006. Leer el CFDI cancelado como nunca emitido (CFF art. 29-A) también se acepta, y pide una complementaria del mes del cobro (CFF art. 32).',
+  'policy.note_reversal_after_cashing_iva.why':
+    'Algunos despachos tratan una nota de crédito cancelada como si nunca hubiera existido y corrigen el mes que afectó; otros reconocen la cancelación en el mes en que ocurre. El mayor queda igual de cualquier modo.',
+  'policy.note_reversal_after_cashing_iva.what':
+    'Con "reversal_month" cuento ese IVA en el mes de la corrección de la reversa. Con "cashing_month" lo cuento en el mes del cobro y nombro, en el cotejo, la complementaria y la corrección.',
+  'policy.note_reversal_after_cashing_iva.if_skipped': 'Lo cuento en el mes de la reversa.',
+  'policy.note_reversal_after_cashing_iva.option.reversal_month': 'Contarlo en el mes de la reversa, como el mayor',
+  'policy.note_reversal_after_cashing_iva.option.cashing_month':
+    'Contarlo en el mes del cobro, como si la nota nunca se hubiera emitido',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -3566,6 +3581,91 @@ export const ES: Record<keyof typeof EN, string> = {
   'ap.prepaid.run.total_mismatch': 'La vista previa sumaba {previewed} y la corrida devengó {accrued}.',
   'ap.prepaid.run.done':
     '{count, plural, one {# asiento de devengo contabilizado} other {# asientos de devengo contabilizados}} en {period} por {total}.',
+
+  // MNE-001-228 part 1: ap reconcile, vendor and payment. Part 2 (bill) appends below.
+  'ap.reconcile.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
+  'ap.reconcile.title': 'Conciliación de CxP',
+  'ap.reconcile.header': '· control {code} {name} · al {date}',
+  'ap.reconcile.row.subledger': 'Subdiario (facturas abiertas)',
+  'ap.reconcile.row.foreign': 'de lo cual {currency} {foreign}',
+  'ap.reconcile.row.fx_revaluation': 'de lo cual revaluación cambiaria',
+  'ap.reconcile.row.ledger': 'Cuenta de control (mayor)',
+  'ap.reconcile.row.difference': 'Diferencia',
+  'ap.reconcile.row.explained': 'Explicado por partidas',
+  'ap.reconcile.row.unexplained': 'Sin explicar',
+  'ap.reconcile.balanced': 'Cuadra.',
+  'ap.reconcile.unbalanced':
+    'Diferencia {difference} — {owner, select, none {{explained} nombrados, {unexplained} sin dueño.} other {cada peso de ella está nombrado abajo.}}',
+  'ap.reconcile.items_title': 'Partidas conciliatorias',
+  'ap.reconcile.items_note':
+    'importe = lo que esta partida suma a (subdiario − mayor); las nombradas suman Explicado, y con la fila del residuo, Diferencia.',
+  'ap.reconcile.items_rounding':
+    'Los importes se redondean por partida; la columna puede diferir de Explicado por centavos.',
+  'ap.reconcile.why_title': 'Por qué está cada partida',
+  'ap.reconcile.no_manual_entries': 'Tampoco hay asientos manuales en la cuenta de control.',
+  'ap.reconcile.capped':
+    '{count, plural, one {# partida más existe y no se enumeró} other {# partidas más existen y no se enumeraron}}: el listado tiene tope por sonda. Los totales (explicado, sin explicar) sí las incluyen.',
+  'ap.vendor.show.include_unknown':
+    'No se puede incluir "{part}". Este comando puede incluir: {parts}. "compliance" necesita las tablas vendor_tax_profiles y vendor_compliance_checks, y "bank" la ruta de descifrado auditada — ninguna existe todavía.',
+  'ap.vendor.show.disappeared': 'El proveedor {ref} desapareció mientras se leía.',
+  'ap.vendor.create.no_default_tax_id_type':
+    'Esta entidad está constituida en "{country}", que no tiene un tipo de identificador fiscal por omisión. Di cuál con --tax-id-type {types}.',
+  'ap.vendor.create.tax_id_type_unknown': '--tax-id-type "{value}" no existe. Usa uno de: {types}.',
+  'ap.vendor.create.tax_id_type_alone': 'Llegó --tax-id-type sin --tax-id.',
+  'ap.vendor.create.terms_not_understood':
+    'Las condiciones de pago "{terms}" no se entendieron, así que nunca podría calcularse un vencimiento con ellas. Usa "Net 30", "2/10 Net 30" o "Due on receipt".',
+  'ap.vendor.create.tax_id_accepted': 'Identificador fiscal {taxId} aceptado bajo: {rule}.',
+  'ap.vendor.create.no_tax_id':
+    'No hay identificador fiscal registrado. Un CFDI recibido no podrá casarse con este proveedor y no podrá aparecer en una DIOT ni en un 1099.',
+  'ap.vendor.edit.nothing_to_change':
+    'Nada que cambiar. Pasa --name, --contact, --email, --phone o --notes. Las condiciones de pago son `vendor terms set`; los datos bancarios no se editan desde aquí.',
+  'ap.vendor.edit.done': '{number} actualizado ({fields})',
+  'ap.vendor.terms.nothing_to_set': 'Nada que fijar. Pasa --terms, --currency, o los dos.',
+  'ap.vendor.terms.read_as':
+    'Leído como: {net, select, none {sin plazo neto} other {vence {days, plural, one {# día} other {# días}} después de la fecha de la factura}}{discount, select, none {} other {, {pct}% de descuento si se paga dentro de {discountDays, plural, one {# día} other {# días}}}}.',
+  'ap.payment.confirm.no_terminal':
+    '{question} — no hay terminal donde preguntar. Vuelve a correrlo con --yes cuando estés seguro, o con --dry-run para ver antes el efecto.',
+  'ap.payment.dry_run': 'Ensayo: no se escribió nada.',
+  'ap.payment.bank_account': 'Cuenta bancaria: {name}',
+  'ap.payment.entry': 'asiento {entry}',
+  'ap.payment.create.not_payable':
+    'La factura {bill} está en "{status}". {reason, select, paid {Ya está liquidada.} unapproved {Apruébala primero: el pasivo tiene que estar en el mayor antes de poder pagarse.} other {Sólo se pagan facturas {payable}.}}',
+  'ap.payment.create.confirm':
+    '¿Registrar el pago de {amount} {currency} a {bill} ({before} → {after}){bank, select, none {} other { desde {bankName}}} en {entity}? Esto contabiliza en el mayor.',
+  'ap.payment.create.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya consumó este acto ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ap.payment.create.idempotency_race':
+    '↩ Idempotency hit: la llave "{key}" ya consumó este pago ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ap.payment.create.would_record': 'Registraría {before} → {after} en {bill}',
+  'ap.payment.apply.bill_missing':
+    'Indica a qué gasto se aplica: --bill <ref> --amount <importe>. Repítelos para repartir entre varios.',
+  'ap.payment.apply.pairs_mismatch':
+    'Hay {bills} --bill y {amounts} --amount: van emparejados por posición, así que tienen que ser tantos como aquéllos.',
+  'ap.payment.apply.discounts_excess': 'Hay {discounts} --discount para {bills} --bill: sobra alguno.',
+  'ap.payment.apply.mode_invalid': '--mode admite "partial" o "residual"; llegó "{mode}".',
+  'ap.payment.apply.retry_reapplies': 'un reintento vuelve a repartir el pago y postea otro asiento',
+  'ap.payment.apply.not_applicable': 'La factura {bill} está en "{status}"; sólo se aplican pagos a facturas {payable}.',
+  'ap.payment.apply.confirm':
+    '¿Aplicar {count, plural, one {# documento} other {# documentos}} de {payment} en {entity}{writeOff, select, none {} other {, CONDONANDO {amount}, que dejará de deberse}}? Esto contabiliza en el mayor.',
+  'ap.payment.apply.would': 'Aplicaría {payment}',
+  'ap.payment.apply.on_account': 'a cuenta {before} → {after}',
+  'ap.payment.apply.discount_outside_terms': 'Descuento tomado fuera de las condiciones en {bills}',
+  'ap.payment.apply.discount_outside_terms_why': 'es una deducción negociada, no un pronto pago pactado.',
+  'ap.payment.apply.written_off': '{amount} dejó de deberse (pago corto)',
+  'ap.payment.apply.write_off_default':
+    'Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía: `mnemosine pending --verbose` la muestra y `mnemosine pending define pago_corto_residual` la decide.',
+  'ap.payment.apply.iva_not_credited':
+    '{amount} de IVA salió de la {account} SIN acreditarse: era el impuesto de la parte que no se pagó, y bajo flujo de efectivo no se acredita lo no pagado.',
+  'ap.payment.unapply.confirm':
+    '¿Desaplicar {amount} de {payment} en {bill} el {date} ({before} → {after})? El efectivo vuelve a quedar a cuenta.',
+  'ap.payment.unapply.idempotency_hit': '↩ Idempotency hit: la llave "{key}" ya desaplicó esto; nada se escribió otra vez.',
+  'ap.payment.unapply.result': '{mode, select, dry_run {Desaplicaría {payment}} other {{payment} desaplicado}} de {bill}',
+  'ap.payment.unapply.detail': '{before} → {after} · a cuenta {onAccount}',
+  'ap.payment.reverse.confirm':
+    '¿Reversar {payment} el {date}? {entries, plural, one {# asiento del mayor recibe su espejo} other {# asientos del mayor reciben su espejo}} y {bills, plural, one {# factura se vuelve a deber} other {# facturas se vuelven a deber}}.',
+  'ap.payment.reverse.idempotency_hit': '↩ Idempotency hit: la llave "{key}" ya reversó esto; nada se escribió otra vez.',
+  'ap.payment.reverse.result': '{mode, select, dry_run {Reversaría {payment}} other {{payment} reversado}}',
+  'ap.payment.reverse.detail': 'el {date} · {entries}',
 
   // ==== end of I8.8 ====
 

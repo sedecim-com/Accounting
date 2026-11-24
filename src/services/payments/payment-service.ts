@@ -2778,7 +2778,9 @@ export async function reverseCustomerPayment(
         WHERE entity_id = $1 AND status = 'posted' AND reversed_by_entry_id IS NULL
           AND ((source_type = 'customer_payment' AND source_id = $2)
             -- MNE-001-556: the cashing's release is the receipt's too, or a reversed cheque would leave its IVA caused.
-            OR (source_type IN ('receipt_application', 'receipt_unapplication', 'customer_cheque_cashing') AND source_id = $2))
+            -- MNE-001-612: and so is the pair a note's reversal posted after that cashing.
+            OR (source_type IN ('receipt_application', 'receipt_unapplication', 'customer_cheque_cashing',
+                                'held_restitution_reversal') AND source_id = $2))
         ORDER BY created_at`,
       [entityId, paymentId]
     );

@@ -48,11 +48,11 @@ import { isRealCalendarDate } from '../utils/calendar-date.js';
 // bloqueantes con `--strict`, que es exactamente para lo que existe la
 // bandera.
 //
-// La tercera, el IDIOMA. Las etiquetas de la interfaz van en inglés, como en
-// el resto del CLI; el `detalle` de cada partida y las advertencias vienen del
-// servicio en español, igual que los hallazgos de `ledger check`. La
-// explicación contable es del dominio y se escribe una sola vez, donde se
-// conoce el porqué.
+// La tercera, el IDIOMA. Since MNE-001-228 (I8.8) the labels and notes of the
+// table come from the I8.8 block of the catalogue, in the user's language;
+// --json keeps the service's field names. The `detalle` of each item and the
+// warnings still come from the service in Spanish, like the findings of
+// `ledger check`: they are I9's, not this leaf's.
 // ============================================================
 
 export interface ApCommandDeps {
@@ -86,7 +86,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 function exigirFecha(flag: string, valor: string): string {
   if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
-    throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
+    throw usageError({ key: 'ap.reconcile.date_invalid', params: { flag, value: valor } });
   }
   return valor;
 }
@@ -196,32 +196,46 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
       } else {
         const out = process.stdout;
         out.write(
-          `\n${p.bold('AP reconciliation')} ` +
-            `${p.dim(`· control ${r.cuentaControl.code} ${r.cuentaControl.name} · as of ${r.asOf}`)}\n\n`
+          `\n${p.bold(t('ap.reconcile.title'))} ` +
+            `${p.dim(t('ap.reconcile.header', { code: r.cuentaControl.code, name: r.cuentaControl.name, date: r.asOf }))}\n\n`
         );
-        const linea = (etiqueta: string, valor: string) =>
-          out.write(`  ${p.dim(etiqueta.padEnd(28))}${valor.padStart(16)}\n`);
-        linea('Subledger (open bills)', r.subdiario);
-        for (const f of r.foreignOpen) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
-        // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
-        if (r.fxRevaluation !== '0.00') linea('  of which FX revaluation', r.fxRevaluation);
-        linea('Control account (ledger)', r.mayor);
-        linea('Difference', r.diferencia);
-        linea('Explained by items', r.explicado);
-        linea('Unexplained', r.sinExplicar);
+        // MNE-001-228: the labels come from the catalogue, so they pad to the
+        // longest one (28 at least, the English width) and the column lines up
+        // in every language.
+        const rows: Array<[string, string]> = [
+          [t('ap.reconcile.row.subledger'), r.subdiario],
+          ...r.foreignOpen.map((f): [string, string] => [
+            `  ${t('ap.reconcile.row.foreign', { currency: f.currency, foreign: f.foreign })}`,
+            f.book,
+          ]),
+          // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
+          ...(r.fxRevaluation !== '0.00'
+            ? [[`  ${t('ap.reconcile.row.fx_revaluation')}`, r.fxRevaluation] as [string, string]]
+            : []),
+          [t('ap.reconcile.row.ledger'), r.mayor],
+          [t('ap.reconcile.row.difference'), r.diferencia],
+          [t('ap.reconcile.row.explained'), r.explicado],
+          [t('ap.reconcile.row.unexplained'), r.sinExplicar],
+        ];
+        const width = Math.max(28, ...rows.map(([label]) => label.length + 1));
+        for (const [label, value] of rows) {
+          out.write(`  ${p.dim(label.padEnd(width))}${value.padStart(16)}\n`);
+        }
 
         out.write(
           r.cuadra
-            ? `\n${p.green('✔')} Balanced.\n`
-            : `\n${p.red('✘')} Difference ${p.bold(r.diferencia)} — ` +
-              (bloqueantes
-                ? `${r.explicado} named, ${p.bold(r.sinExplicar)} with no owner.\n`
-                : 'every peso of it is named below.\n')
+            ? `\n${p.green('✔')} ${t('ap.reconcile.balanced')}\n`
+            : `\n${p.red('✘')} ${t('ap.reconcile.unbalanced', {
+                difference: p.bold(r.diferencia),
+                owner: bloqueantes ? 'none' : 'all',
+                explained: r.explicado,
+                unexplained: p.bold(r.sinExplicar),
+              })}\n`
         );
 
         if (r.partidas.length) {
           out.write(
-            `\n${p.bold('Reconciling items')} ${p.dim(`(${r.partidas.length})`)}\n`
+            `\n${p.bold(t('ap.reconcile.items_title'))} ${p.dim(`(${r.partidas.length})`)}\n`
           );
           render(r.partidas as unknown as Row[], {
             format: 'table',
@@ -237,8 +251,7 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
           });
           out.write(
             p.dim(
-              '  importe = what this item adds to (subledger − ledger); the named ones sum to Explained, ' +
-                'and with the residual row to Difference.\n' +
+              `  ${t('ap.reconcile.items_note')}\n` +
                 // Cada importe se redondea POR SEPARADO y Explained se redondea
                 // una sola vez sobre la suma exacta, así que la columna puede
                 // no cuadrar al centavo con Explained. Decirlo aquí es más
@@ -246,18 +259,18 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
                 // Explained + Unexplained = Difference, y Explained cubre
                 // también las filas que el tope no llegó a enumerar.
 
-                '  Amounts are rounded per item; the column may differ from Explained by cents.\n'
+                `  ${t('ap.reconcile.items_rounding')}\n`
             )
           );
         }
 
         if (opts.explain && r.partidas.length) {
-          out.write(`\n${p.bold('Why each item is there')}\n\n`);
+          out.write(`\n${p.bold(t('ap.reconcile.why_title'))}\n\n`);
           for (const partida of r.partidas) escribirProsa(out, p, partida);
         }
 
         if (!r.partidas.length && r.cuadra) {
-          out.write(p.dim('\n  No manual entries on the control account either.\n'));
+          out.write(p.dim(`\n  ${t('ap.reconcile.no_manual_entries')}\n`));
         }
       }
 
@@ -266,12 +279,7 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
       // justo el error que la ficha del aged payables lleva documentado.
       if (r.advertenciaAsOf) err.write(p.yellow(`\n${r.advertenciaAsOf}\n`));
       if (r.omitidas > 0) {
-        err.write(
-          p.yellow(
-            `\n${r.omitidas} partida(s) más existen y no se enumeraron: el listado tiene tope por sonda. ` +
-              'Los totales (explicado, sin explicar) sí las incluyen.\n'
-          )
-        );
+        err.write(p.yellow(`\n${t('ap.reconcile.capped', { count: r.omitidas })}\n`));
       }
 
       return checkExitCode(

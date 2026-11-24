@@ -170,6 +170,13 @@ provides:
     # loses the 232.00 it covers, and `receipt reverse` posts no 2150 / 2120 pair for it. A
     # reversed note stops counting. Rollback: the previous build causes the whole marker, so
     # before reverting record the cashing of each such cheque on this build.
+    # CONTRACT: `entry reverse` and `entry void` of such a note after the cashing that netted
+    # it now also post DR 2150 / CR 2120 for its tagged IVA, one entry per cheque, of source
+    # held_restitution_reversal, dated with the reversal or with the cashing when the reversal
+    # is dated before it (MNE-001-612, risk 1 of #905; NIF B-1); `receipt reverse` mirrors it.
+    # The IVA paper counts it in that entry's month unless `note_reversal_after_cashing_iva`
+    # is `cashing_month`. Rollback: the previous build posts no pair, and these entries stay
+    # valid corrections under it.
     # CONTRACT: `credit-note issue` posts a note of type `anticipo` to anticipo_clientes
     # (2150) instead of devolucion_ventas (4400), and refuses it when its base is more than
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed

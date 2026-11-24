@@ -1879,6 +1879,79 @@ export async function postReceiptReversalRestitutionEntry(
   );
 }
 
+/** MNE-001-612 · The source of the pair a note's reversal posts after the cashing that netted it. */
+export const HELD_RESTITUTION_REVERSAL_SOURCE = 'held_restitution_reversal';
+
+/** MNE-001-612 · The tag on that pair's 2150 line: `{ payment_id, invoice_id, note_entry_id }`. */
+export const HELD_RESTITUTION_UNDONE_TAG = 'held_restitution_undone';
+
+/**
+ * MNE-001-612 (#792, risk 1 of #905) · A credit note issued while a cheque
+ * was held took its IVA from 2125 alone (`held_restitution`), and the
+ * cashing caused the marker less it (MNE-001-607). Its mirror gives 2125
+ * back, but not what the cashing did not cause. So once the note's entry is
+ * reversed, each cheque the bank has since cashed gets its own correction,
+ * DR anticipo_clientes / CR iva_trasladado for what the note tagged. The
+ * entry is dated with the mirror, or with the cashing when the mirror is
+ * dated before it, which is the day that cash was collected. Nothing posted
+ * is rewritten (NIF B-1). With the note cancelled the cash is owed back to
+ * no one: it is consideration held on account again (LIVA art. 1-B,
+ * decision (A)). A reversal before the cashing, or of a receipt already
+ * reversed, posts nothing: the cashing causes the whole marker, or its
+ * mirror took out what it caused. Entity-scoped in the SQL.
+ * CONTRACT: the ledger: `entry reverse` and `entry void` of such a note also
+ * post this entry (`source_type` held_restitution_reversal).
+ */
+export async function followNoteReversal(
+  client: pg.PoolClient,
+  note: { id: string; entity_id: string; entry_number: string },
+  mirror: { id: string },
+  userId: string
+): Promise<JournalEntry[]> {
+  const held = await client.query<{ payment_id: string; payment_number: string; invoice_id: string; iva: string; day: string }>(
+    `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
+            GREATEST(m.entry_date, MAX(c.entry_date))::text AS day
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
+       JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
+       JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
+                                AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
+       JOIN journal_entries c ON c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
+                             AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false
+      WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
+      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date
+      ORDER BY cp.payment_number`,
+    [note.entity_id, note.id, mirror.id]
+  );
+  const due = held.rows.filter((x) => new Decimal(x.iva).greaterThan('0.00005'));
+  if (due.length === 0) return [];
+  const { to } = reclassRoles('issued');
+  const roles = await roleAccounts(client, note.entity_id, ['anticipo_clientes', to]);
+  const out: JournalEntry[] = [];
+  for (const x of due) {
+    const iva = new Decimal(x.iva).toFixed(4);
+    const text = `IVA credit note ${note.entry_number} restituted from the cash held cheque ${x.payment_number} kept on account: ` +
+      'the note is reversed after the cashing, so that cash is consideration again (LIVA arts. 1-B, 7, decision (A))';
+    out.push(await createJournalEntry(
+      note.entity_id,
+      x.day,
+      JournalEntryType.AUTO_PAYMENT,
+      `Reversal of ${note.entry_number} after the cashing of ${x.payment_number} · IVA back to ${to}`,
+      [
+        {
+          account_id: requireRole(roles, 'anticipo_clientes'), debit_amount: iva, credit_amount: null, description: text,
+          tags: { [HELD_RESTITUTION_UNDONE_TAG]: { payment_id: x.payment_id, invoice_id: x.invoice_id, note_entry_id: note.id } },
+        },
+        { account_id: requireRole(roles, to), debit_amount: null, credit_amount: iva, description: text },
+      ],
+      userId,
+      { autoPost: true, client, sourceType: HELD_RESTITUTION_REVERSAL_SOURCE, sourceId: x.payment_id, reference: note.entry_number }
+    ));
+  }
+  return out;
+}
+
 /**
  * MNE-001-498 · A customer's credit assigned to another customer (CCF art.
  * 2029), as its own entry dated on the agreed day: DR anticipo_clientes for
