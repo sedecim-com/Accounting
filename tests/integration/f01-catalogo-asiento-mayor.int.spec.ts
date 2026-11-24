@@ -285,7 +285,7 @@ describe('maker-checker de punta a punta', () => {
       f.userId
     );
 
-    await expect(postJournalEntry(borrador.id, f.userId)).rejects.toThrow(/segregación de funciones/);
+    await expect(postJournalEntry(borrador.id, f.userId)).rejects.toThrow(/segregation-of-duties/);
 
     const posteada = await postJournalEntry(borrador.id, segundoUsuario);
     expect(posteada.status).toBe('posted');

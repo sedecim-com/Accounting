@@ -330,10 +330,10 @@ describe('period reopen deja rastro y el checklist ve el hueco que deja', () => 
 
     await expect(
       reopenClosedPeriod(A.entityId, A.periodos[1], A.userId, '')
-    ).rejects.toThrow(/motivo/);
+    ).rejects.toThrow(/requires a reason/);
     await expect(
       reopenClosedPeriod(A.entityId, A.periodos[1], A.userId, '   ')
-    ).rejects.toThrow(/motivo/);
+    ).rejects.toThrow(/requires a reason/);
 
     const { period, previousStatus } = await reopenClosedPeriod(
       A.entityId,

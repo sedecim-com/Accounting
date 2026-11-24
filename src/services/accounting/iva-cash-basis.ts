@@ -258,8 +258,7 @@ export function ivaRoleFor(side: DocumentSide, metodo: MetodoPago): AccountRole 
   if (!line) {
     throw new AccountingError(
       'IVA_ROLE_UNRESOLVED',
-      `La taxonomía CFDI no define una línea de IVA para (${side}, ${metodo}). ` +
-        `Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.`
+      { key: 'error.IVA_ROLE_UNRESOLVED.no_line', params: { side, method: metodo } }
     );
   }
   roleCache.set(key, line.role);
@@ -719,9 +718,7 @@ export async function ivaStillParked(
     if (r[0]?.n === '0') {
       throw new AccountingError(
         'MISSING_ROLE_ACCOUNT',
-        `La entidad ${entityId} no tiene sembrada la capa semántica, así que no se puede saber ` +
-          `cuánto IVA tiene aparcado: el pago liberaría cero y el impuesto se quedaría ahí. ` +
-          `Siémbrala con: npm run backfill:account-roles -- --tenant <uuid> --aplicar`
+        { key: 'error.MISSING_ROLE_ACCOUNT.no_semantic_layer', params: { entity: entityId } }
       );
     }
   }

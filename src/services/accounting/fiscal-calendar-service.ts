@@ -246,7 +246,7 @@ export async function reopenClosedPeriod(
   if (!reason || reason.trim().length === 0) {
     throw new AccountingError(
       'REASON_REQUIRED',
-      'Reabrir un periodo cerrado exige un motivo: queda en el rastro de auditoría.'
+      { key: 'error.REASON_REQUIRED' }
     );
   }
 
@@ -268,14 +268,13 @@ export async function reopenClosedPeriod(
     if (previousStatus === 'locked') {
       throw new AccountingError(
         'PERIOD_LOCKED',
-        `${period.period_name} está 'locked': su información ya salió del sistema y no se reabre. ` +
-          'La corrección va en el periodo abierto más próximo.'
+        { key: 'error.PERIOD_LOCKED', params: { period: period.period_name } }
       );
     }
     if (previousStatus !== 'soft_close' && previousStatus !== 'hard_close') {
       throw new AccountingError(
         'PERIOD_NOT_CLOSED',
-        `${period.period_name} está '${previousStatus}': esta operación es sólo para periodos cerrados.`
+        { key: 'error.PERIOD_NOT_CLOSED', params: { period: period.period_name, status: previousStatus } }
       );
     }
 
@@ -332,7 +331,7 @@ export async function restorePeriodStatus(
   if (status !== 'soft_close' && status !== 'hard_close') {
     throw new AccountingError(
       'INVALID_STATUS',
-      `Sólo se restaura a 'soft_close' o 'hard_close'; se pidió '${status}'.`
+      { key: 'error.INVALID_STATUS', params: { status } }
     );
   }
   return withTransaction(async (client) => {
@@ -344,7 +343,7 @@ export async function restorePeriodStatus(
     if (r.rows.length === 0) {
       throw new AccountingError(
         'PERIOD_NOT_OPEN',
-        `No se pudo restaurar el periodo ${periodId}: ya no estaba abierto.`
+        { key: 'error.PERIOD_NOT_OPEN.restore', params: { period: periodId } }
       );
     }
 
@@ -385,7 +384,7 @@ async function inquilinoDeEntidad(client: pg.PoolClient, entityId: string): Prom
   );
   const tenantId = r.rows[0]?.tenant_id;
   if (!tenantId) {
-    throw new AccountingError('TENANT_NO_RESUELTO', `No se pudo determinar el inquilino de ${entityId}.`);
+    throw new AccountingError('TENANT_NO_RESUELTO', { key: 'error.TENANT_NO_RESUELTO.period', params: { entity: entityId } });
   }
   return tenantId;
 }
