@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
+import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../../database/connection.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { taxRegistry } from '../tax-engine/tax-registry.js';
@@ -240,11 +241,12 @@ function isrContextOf(
  * Checks one employee's overtime lines against LISR art. 93 fr. I and the LFT
  * limit WITHOUT writing anything (MNE-001-110).
  *
- * A run calculates employee by employee, each in its own transaction: an
- * overtime line refused for the tenth employee used to leave nine paychecks
- * written. `calculatePayRun` calls this for every input first, so a refused
- * line stops the run before its first paycheck. It runs the same reader the
- * calculation runs, so the two cannot disagree.
+ * `calculatePayRun` calls this for every input first, so a refused line stops
+ * the run before its first paycheck is calculated. When this was written each
+ * paycheck committed on its own and the tenth employee's refusal left nine
+ * written; since MNE-001-657 the run is one transaction, and this check is
+ * what makes the refusal cheap. It runs the same reader the calculation runs,
+ * so the two cannot disagree.
  */
 export async function checkOvertimeLines(input: PaycheckInput): Promise<void> {
   const overtime = input.earnings.filter((e) => e.earning_type === 'overtime');
@@ -257,11 +259,11 @@ export async function checkOvertimeLines(input: PaycheckInput): Promise<void> {
  * anything (MNE-001-353). Empty for a non-US employee.
  *
  * FIT and SIT throw when the table for the employee's filing status is not
- * seeded, and each paycheck commits on its own: found mid-run, that left the
- * earlier employees' paychecks written and the run stuck in `calculating`.
- * `calculatePayRun` collects these for every employee first. It runs the same
- * calculators on a nominal wage, so this check and the calculation cannot
- * disagree about which table is read.
+ * seeded. Found mid-run, that names one employee and one table at a time (and,
+ * before MNE-001-657 made the run one transaction, left the earlier paychecks
+ * written). `calculatePayRun` collects these for every employee first. It runs
+ * the same calculators on a nominal wage, so this check and the calculation
+ * cannot disagree about which table is read.
  */
 export async function checkUsTaxTables(input: PaycheckInput): Promise<string[]> {
   const { emp, period } = await paycheckScope(input);
@@ -288,7 +290,16 @@ export async function checkUsTaxTables(input: PaycheckInput): Promise<string[]> 
   return problems;
 }
 
-export async function calculatePaycheck(input: PaycheckInput): Promise<CalculatedPaycheck> {
+/**
+ * Calculates one paycheck and writes it with its earnings, deductions and taxes.
+ *
+ * `tx` is the transaction of the run being calculated (MNE-001-657): the
+ * paycheck is written on it, so it lives or dies with the whole run. Without
+ * it the paycheck commits on its own, as a single paycheck always did. The
+ * reads stay on the pool either way: none of them counts a paycheck of this
+ * same run, so they need not see what the transaction has not committed.
+ */
+export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): Promise<CalculatedPaycheck> {
   const scope = await paycheckScope(input);
   const { emp, period, daysInPeriod } = scope;
 
@@ -747,7 +758,7 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
 
   // --- Persist ---
   const paycheckId = uuidv4();
-  await withTransaction(async (client) => {
+  const persist = async (client: PoolClient): Promise<void> => {
     await client.query(
       `INSERT INTO paychecks (
         id, tenant_id, pay_run_id, employee_id,
@@ -847,7 +858,8 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
         ]
       );
     }
-  });
+  };
+  await (tx ? persist(tx) : withTransaction(persist));
 
   return {
     paycheck_id: paycheckId,

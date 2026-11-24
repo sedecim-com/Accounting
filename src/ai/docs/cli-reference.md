@@ -8106,7 +8106,9 @@ Commands:
   create|crear [options]             Create a draft run over a pay period; the
                                      tax year is fixed from the period
   calculate|calcular [options] <id>  Calculate gross to net for each employee in
-                                     the inputs file and total the run
+                                     the inputs file and total the run; a run
+                                     that is not approved can be calculated
+                                     again, which rebuilds its paychecks
   approve|aprobar [options] <id>     Approve a calculated run, sealing its
                                      totals and writing the employer liability;
                                      irreversible
@@ -8149,7 +8151,8 @@ Examples:
 ```
 Usage: mnemosine pay-run calculate|calcular [options] <id>
 
-Calculate gross to net for each employee in the inputs file and total the run
+Calculate gross to net for each employee in the inputs file and total the run; a
+run that is not approved can be calculated again, which rebuilds its paychecks
 
 Arguments:
   id                                       pay run to calculate

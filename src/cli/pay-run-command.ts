@@ -217,7 +217,7 @@ async function blockedOnConflict<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof ConflictError) throw blockedByState(err.message);
+    if (err instanceof ConflictError) throw blockedByState(err.messageKey ?? err.message);
     throw err;
   }
 }
@@ -307,7 +307,9 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   declareRisk(calculate, {
     risk: 'escritura',
     agent: false,
-    writes: 'paychecks with their earnings, deductions and taxes; pay_runs totals; NEVER journal_entries',
+    writes:
+      'paychecks with their earnings, deductions and taxes, replacing the ones the run had; pay_runs totals; ' +
+      'NEVER journal_entries',
   });
   calculate.addHelpText('after', EXAMPLES.calculate);
   calculate.action((id: string, opts: CommonOpts & { file?: string }) =>
