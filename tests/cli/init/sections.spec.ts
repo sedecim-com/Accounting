@@ -614,10 +614,11 @@ describe('--section with no .env writes to the announced location', () => {
 describe('buildSections', () => {
   it('orders the sections by dependency and marks the required ones', () => {
     const s = buildSections(tmp);
+    // The language comes first (MNE-001-470): everything after it can speak it.
     expect(s.map((x) => x.id)).toEqual([
-      'infra', 'identidad', 'usuarios', 'ia', 'politicas', 'importar',
+      'idioma', 'infra', 'identidad', 'usuarios', 'ia', 'politicas', 'importar',
     ]);
-    expect(s.filter((x) => x.required).map((x) => x.id)).toEqual(['infra', 'identidad', 'ia']);
+    expect(s.filter((x) => x.required).map((x) => x.id)).toEqual(['idioma', 'infra', 'identidad', 'ia']);
   });
 
   it('every section implements the full contract', () => {
