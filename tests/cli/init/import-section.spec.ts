@@ -324,6 +324,11 @@ describe('--section aliases', () => {
     expect(resolveSectionId('import')).toBe('importar');
     expect(resolveSectionId('importar')).toBe('importar');
   });
+
+  it('accepts language and idioma for the language step (MNE-001-470)', () => {
+    expect(resolveSectionId('language')).toBe('idioma');
+    expect(resolveSectionId('idioma')).toBe('idioma');
+  });
 });
 
 // ─── runInitWizard contract ───
