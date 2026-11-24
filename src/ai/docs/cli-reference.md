@@ -151,7 +151,7 @@ Options:
 Commands:
   approve|aprobar [options] <profile>  Approves, for you alone, what a profile
                                        of this folder's mnemosine.config.json
-                                       runs (as direnv allow)
+                                       runs or sends (as direnv allow)
 
 Examples:
   # Which model providers are configured, and whether their API key is present.
@@ -164,7 +164,7 @@ Examples:
 Usage: mnemosine providers approve|aprobar [options] <profile>
 
 Approves, for you alone, what a profile of this folder's mnemosine.config.json
-runs (as direnv allow)
+runs or sends (as direnv allow)
 
 Arguments:
   profile     the profile, as the project file names it

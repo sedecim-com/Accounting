@@ -90,7 +90,7 @@ describe('credentialState — the five answers', () => {
 
   it('the variable wins over the helper, as resolveProfile does', () => {
     const s = credentialState(remote({ api_key_cmd: 'echo x' }), {
-      cwd, home, env: { FAKE_PROVIDER_KEY: 'fake-value-2' }, source: path.join(cwd, 'mnemosine.config.json'),
+      cwd, home, env: { FAKE_PROVIDER_KEY: 'fake-value-2' }, source: path.join(home, '.mnemosine', 'config.json'),
     });
     expect(s.source.kind).toBe('env');
   });

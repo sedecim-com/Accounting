@@ -80,7 +80,12 @@ output when a connection problem is unclear.
   approving, and never approve it for them. A project file that carries a
   credential written by hand (an auth header, a key in a command, a model or
   a base_url) is refused at load, naming the field: the fix is to move the
-  secret to the person's own files. A helper that fails says the profile and its exit code or its 10 s limit,
+  secret to the person's own files. The person's own profiles stay available
+  beneath a project file's. A project profile that would send a variable to
+  a host its provider does not document stops, naming both, until the
+  person approves that pair the same way. When the folder's `./.env` sets
+  `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` or `ANTHROPIC_CONFIG_DIR`,
+  readiness and doctor say it serves everyone in that folder. A helper that fails says the profile and its exit code or its 10 s limit,
   never its command or stderr: tell the person to run it themselves. Help
   them put helper profiles in their own user file, never in a shared project
   file, and say that «Sign in with ChatGPT» and a Codex login are not API

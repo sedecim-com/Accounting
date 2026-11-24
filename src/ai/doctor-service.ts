@@ -781,7 +781,7 @@ function checkProviderCredential(cwd?: string): CheckResult {
   // The readiness answer every surface gives (credential-state.ts): it never
   // runs a helper and is advisory, so a warn here never stops anything.
   const states = Object.fromEntries(
-    Object.entries(all).map(([n, p]) => [n, credentialState(p, { cwd, source: profiles.source })])
+    Object.entries(all).map(([n, p]) => [n, credentialState(p, { cwd, source: profiles.origins[n] })])
   );
   const state = states[defaultName];
   const ownFile = 'your shell or ~/.mnemosine/.env';
@@ -802,9 +802,11 @@ function checkProviderCredential(cwd?: string): CheckResult {
       ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
       detail: `${defaultName} · ${active.model} (${state.label})`,
-      fix: state.source.never
-        ? `Define ${defaultName} in ~/.mnemosine/config.json, where "project_helpers" is "never"`
-        : `Read providers.${defaultName}.api_key_cmd in ${state.source.file}; if you trust it: mnemosine providers approve ${defaultName}`,
+      fix: state.source.variable
+        ? `If you trust ${state.source.host} with ${state.source.variable}: mnemosine providers approve ${defaultName}`
+        : state.source.never
+          ? `Define ${defaultName} in ~/.mnemosine/config.json, where "project_helpers" is "never"`
+          : `Read providers.${defaultName}.api_key_cmd in ${state.source.file}; if you trust it: mnemosine providers approve ${defaultName}`,
     };
   }
   if (state.source.kind === 'missing') {
@@ -836,6 +838,15 @@ function checkProviderCredential(cwd?: string): CheckResult {
       level: 'warn',
       detail,
       fix: `Keep your own key in ${ownFile} and remove ${state.source.variable} from ./.env`,
+    };
+  }
+  // MNE-001-452: a base URL or config root in ./.env reroutes everyone's sessions in this folder.
+  if (state.folderRouting.length > 0) {
+    return {
+      ...CHECK_IDENTITIES.modelProvider,
+      level: 'warn',
+      detail,
+      fix: `Set ${state.folderRouting.join(', ')} in ${ownFile} if you need them, and remove them from ./.env`,
     };
   }
   return { ...CHECK_IDENTITIES.modelProvider, level: 'ok', detail };

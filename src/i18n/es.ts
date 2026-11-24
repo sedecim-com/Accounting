@@ -6207,12 +6207,18 @@ export const ES: Record<keyof typeof EN, string> = {
     'api_key_cmd en {file}, un archivo de proyecto compartido, sin aprobar aquí: no corre hasta que lo apruebes',
   'provider.credential.unapproved_never':
     'api_key_cmd en {file}, un archivo de proyecto compartido: "project_helpers" es "never" en ~/.mnemosine/config.json, así que no corre',
+  'provider.credential.unapproved_pair':
+    '{variable} definida, pero {file}, un archivo de proyecto compartido, la manda a {host}, donde su proveedor no la recibe: sin aprobar aquí',
+  'provider.credential.folder_routing':
+    '{label}; {file} define {variables}, que le sirven a todo el que corre mnemosine en esa carpeta',
+  'provider.credential.hint.unapproved_pair':
+    'El proveedor {name} de {file}, un archivo de proyecto compartido, mandaría {variable} a {host}: si confías ese host con ella, corre `mnemosine providers approve {name}`.',
   'provider.credential.hint.unapproved':
     'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, que no has aprobado: lee providers.{name}.api_key_cmd ahí y, si confías en él, corre `mnemosine providers approve {name}`.',
   'provider.credential.hint.unapproved_never':
     'El proveedor {name} corre un api_key_cmd de {file}, un archivo de proyecto compartido, y "project_helpers" es "never" en ~/.mnemosine/config.json: define el perfil en tu propio archivo.',
   'help.providers.approve.description':
-    'Aprueba, sólo para ti, lo que corre un perfil del mnemosine.config.json de esta carpeta (como direnv allow)',
+    'Aprueba, sólo para ti, lo que corre o envía un perfil del mnemosine.config.json de esta carpeta (como direnv allow)',
   'help.providers.approve.argument.profile': 'el perfil, como lo nombra el archivo de proyecto',
   'help.providers.approve.footer':
     'Ejemplos:\n' +
@@ -6220,7 +6226,9 @@ export const ES: Record<keyof typeof EN, string> = {
     '    mnemosine providers approve vault',
   'provider.approve.builtin': '{name} es un perfil de fábrica: no hay nada que aprobar.',
   'provider.approve.own_file': '{name} viene de tu propio {file}: no hay nada que aprobar.',
-  'provider.approve.nothing': '{name} en {file} no corre ningún api_key_cmd: no hay nada que aprobar.',
+  'provider.approve.nothing':
+    '{name} en {file} no corre ningún api_key_cmd ni manda una llave a otro host: no hay nada que aprobar.',
+  'provider.approve.pair': 'Aprobado para ti: providers.{name} en {file} puede mandar {variable} a {host}. Otro host pide otra aprobación.',
   'provider.approve.helper':
     'Aprobado para ti: el api_key_cmd de providers.{name} en {file}, para {host}. Un comando o un host distinto pide otra aprobación.',
   'provider.approve.never': '"project_helpers" es "never" en ~/.mnemosine/config.json, así que sigue sin correr.',

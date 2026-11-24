@@ -387,6 +387,7 @@ describe('formatStatus — the readiness answer every surface gives (MNE-001-443
 
   it('a set variable and a missing one keep their names, never their values', async () => {
     writeConfig();
+    approveProjectProfile('primary', tmpDir); // its variable goes to its own host (MNE-001-452)
     mockDbUp();
     const r = await buildStatusReport({ cwd: tmpDir, env, probeOptions: { fetchImpl: okFetch() } });
     expect(r.providers.map((p) => p.credential)).toEqual(['FAKE_STATUS_KEY set', 'BACKUP_KEY missing']);

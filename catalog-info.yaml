@@ -112,6 +112,17 @@ provides:
     # with no `.rejected-` copy and no key that changes it. Readiness says «not approved»
     # and doctor fails with the approve command. Rollback: revert; delete
     # ~/.mnemosine/project-approvals.json; the previous build refuses `project_helpers`.
+    # CONTRACT (MNE-001-452 part B, #645): listProfiles layers built-ins, then the
+    # providers and models of ~/.mnemosine/config.json, then the project file's, and
+    # returns each profile's origin; every other key keeps the first file that exists. A
+    # user file that does not parse now stops a folder with a project file too. A
+    # project profile whose api_key_env is set is refused (ProjectFileRefusalError,
+    # naming the variable and host, never the value) unless that variable goes to the
+    # host a built-in documents for it or its reader approved the pair with
+    # `providers approve`. Readiness reports such a pair as «not approved», and adds
+    # `folderRouting`: ANTHROPIC_BASE_URL / ANTHROPIC_CONFIG_DIR (anthropic) or
+    # OPENAI_BASE_URL (openai-compatible with no base_url) set in the folder's ./.env,
+    # which doctor warns about. Criterion shared-project-file-runs-and-sends-nothing-unapproved.
     # CONTRACT: mnemosine.config.json accepts an optional `jobs` object whose one key,
     # `run_due`, is "adopted" or "all" (MNE-001-453, #646); another value or key is
     # refused. Only ~/.mnemosine/config.json is read for it. `jobs run-due` unset runs

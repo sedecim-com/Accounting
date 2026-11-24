@@ -186,6 +186,16 @@ describe('runDoctor — model provider', () => {
   function config(cfg: unknown) {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify(cfg));
   }
+  // An empty home: approvals and the user's file are read from it (MNE-001-452).
+  let ownHome: string;
+  beforeEach(() => {
+    ownHome = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-own-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(ownHome);
+  });
+  afterEach(() => {
+    vi.mocked(os.homedir).mockRestore();
+    fs.rmSync(ownHome, { recursive: true, force: true });
+  });
 
   it('ok with a loopback provider without a credential: only that is «local»', async () => {
     mockDb();
@@ -214,13 +224,10 @@ describe('runDoctor — model provider', () => {
   });
 
   describe('a helper-only default in the project file (MNE-001-452)', () => {
-    let home: string;
     let marker: string;
     beforeEach(() => {
       mockDb();
       delete process.env.SOME_KEY;
-      home = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-home-'));
-      vi.spyOn(os, 'homedir').mockReturnValue(home);
       marker = path.join(tmpDir, 'helper-ran');
       config({
         default_provider: 'vault',
@@ -232,11 +239,6 @@ describe('runDoctor — model provider', () => {
         },
       });
     });
-    afterEach(() => {
-      vi.mocked(os.homedir).mockRestore();
-      fs.rmSync(home, { recursive: true, force: true });
-    });
-
     it('FAILS while unapproved, with the approve command, never running it or printing it', async () => {
       const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
       expect(c.level).toBe('fail');
@@ -291,11 +293,40 @@ describe('runDoctor — model provider', () => {
       default_provider: 'remoto',
       providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1', api_key_env: 'SOME_KEY' } },
     });
+    approveProjectProfile('remoto', tmpDir);
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/SOME_KEY set; .*\.env defines it, so that key serves everyone who runs mnemosine in that folder/);
     expect(c.fix).toMatch(/~\/\.mnemosine\/\.env/);
     expect(JSON.stringify(c)).not.toContain('fake-folder-key');
+  });
+
+  it('FAILS while a project profile sends a key to a host its provider does not document (MNE-001-452)', async () => {
+    mockDb();
+    process.env.SOME_KEY = 'clave-falsa-de-prueba';
+    config({
+      default_provider: 'remoto',
+      providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY' } },
+    });
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    expect(c.level).toBe('fail');
+    expect(c.fix).toBe('If you trust x.example.test with SOME_KEY: mnemosine providers approve remoto');
+    expect(JSON.stringify(c)).not.toContain('clave-falsa');
+  });
+
+  it("warns when the folder's ./.env sets ANTHROPIC_BASE_URL: it reroutes everyone's sessions (MNE-001-452)", async () => {
+    mockDb();
+    process.env.ANTHROPIC_API_KEY = 'clave-falsa-de-prueba';
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'ANTHROPIC_BASE_URL=https://proxy.example.test\n');
+    config({ default_provider: 'anthropic' });
+    try {
+      const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+      expect(c.level).toBe('warn');
+      expect(c.detail).toMatch(/sets ANTHROPIC_BASE_URL, which serve everyone who runs mnemosine in that folder/);
+      expect(c.fix).toBe('Set ANTHROPIC_BASE_URL in your shell or ~/.mnemosine/.env if you need them, and remove them from ./.env');
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('FAILS when the default requires a missing key, and suggests a viable alternative', async () => {
@@ -341,6 +372,7 @@ describe('runDoctor — model provider', () => {
       default_provider: 'remoto',
       providers: { remoto: { type: 'openai-compatible', model: 'm', base_url: 'https://x.example.test/v1', api_key_env: 'SOME_KEY', failover: ['nvidia'] } },
     });
+    approveProjectProfile('remoto', tmpDir);
     const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/the failover chain names nvidia, on NVIDIA's hosted trial .*a failover never moves into it/);

@@ -61,8 +61,14 @@ export function approveProfileLines(name: string, c: Pick<ReadinessPalette, 'dim
   if (r.file === null) return [t('provider.approve.builtin', { name })];
   if (!r.shared) return [t('provider.approve.own_file', { name, file: r.file })];
   if (r.approved.length === 0) return [t('provider.approve.nothing', { name, file: r.file })];
-  const out = [t('provider.approve.helper', { name, file: r.file, host: r.host })];
-  if (r.never) out.push(c.dim(t('provider.approve.never')));
+  const out: string[] = [];
+  if (r.approved.includes('helper')) {
+    out.push(t('provider.approve.helper', { name, file: r.file, host: r.host }));
+    if (r.never) out.push(c.dim(t('provider.approve.never')));
+  }
+  if (r.approved.includes('pair')) {
+    out.push(t('provider.approve.pair', { name, file: r.file, variable: r.variable ?? '', host: r.host }));
+  }
   return out;
 }
 
@@ -107,6 +113,11 @@ export function missingCredentialHint(
     return t('provider.credential.hint.refused', { name, variable: source.variable });
   }
   if (source.kind === 'unapproved') {
+    if (source.variable) {
+      return t('provider.credential.hint.unapproved_pair', {
+        name, file: source.file, variable: source.variable, host: source.host ?? '',
+      });
+    }
     return t(source.never ? 'provider.credential.hint.unapproved_never' : 'provider.credential.hint.unapproved', {
       name,
       file: source.file,

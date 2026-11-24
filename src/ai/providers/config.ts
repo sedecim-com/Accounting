@@ -877,40 +877,43 @@ function quarantineInvalidConfig(file: string): string | null {
  * more file holding the secret. Credentials are each person's own.
  */
 export function loadConfigFile(cwd = process.cwd()): { config: MnemosineConfig; source: string | null } {
-  const [projectFile] = configFilePaths(cwd);
-  for (const file of configFilePaths(cwd)) {
-    if (!fs.existsSync(file)) continue;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch (err) {
-      const quarantined = quarantineInvalidConfig(file);
-      throw new Error(
-        `Invalid configuration in ${file}: ${(err as Error).message}` +
-          (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
-      );
-    }
-    const parsed = parseForClient(configFileSchema, raw);
-    if (!parsed.success) {
-      const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
-      const quarantined = quarantineInvalidConfig(file);
-      throw new Error(
-        `Invalid configuration in ${file}: ${issues}` +
-          (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
-      );
-    }
-    const handWritten = file === projectFile ? projectFileCredentialFields(parsed.data) : [];
-    if (handWritten.length > 0) {
-      throw new Error(
-        `Refusing ${file}: ${handWritten.join(', ')} ${handWritten.length === 1 ? 'holds' : 'hold'} a credential ` +
-          'written by hand. A project file is shared with whoever clones it, and a credential is each ' +
-          "person's own: put it in your shell or ~/.mnemosine/.env and name its variable in api_key_env, " +
-          'or move the profile to ~/.mnemosine/config.json.'
-      );
-    }
-    return { config: parsed.data, source: file };
-  }
+  const [projectFile, ownFile] = configFilePaths(cwd);
+  if (fs.existsSync(projectFile)) return { config: readConfigAt(projectFile, true), source: projectFile };
+  if (fs.existsSync(ownFile)) return { config: readConfigAt(ownFile, false), source: ownFile };
   return { config: {}, source: null };
+}
+
+/** One config file, validated (and, for a project file, checked for credentials) or thrown. */
+function readConfigAt(file: string, isProject: boolean): MnemosineConfig {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (err) {
+    const quarantined = quarantineInvalidConfig(file);
+    throw new Error(
+      `Invalid configuration in ${file}: ${(err as Error).message}` +
+        (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
+    );
+  }
+  const parsed = parseForClient(configFileSchema, raw);
+  if (!parsed.success) {
+    const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
+    const quarantined = quarantineInvalidConfig(file);
+    throw new Error(
+      `Invalid configuration in ${file}: ${issues}` +
+        (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
+    );
+  }
+  const handWritten = isProject ? projectFileCredentialFields(parsed.data) : [];
+  if (handWritten.length > 0) {
+    throw new Error(
+      `Refusing ${file}: ${handWritten.join(', ')} ${handWritten.length === 1 ? 'holds' : 'hold'} a credential ` +
+        'written by hand. A project file is shared with whoever clones it, and a credential is each ' +
+        "person's own: put it in your shell or ~/.mnemosine/.env and name its variable in api_key_env, " +
+        'or move the profile to ~/.mnemosine/config.json.'
+    );
+  }
+  return parsed.data;
 }
 
 // A key's shape ANYWHERE in a value (the writer's prefixes, unanchored): not
@@ -968,13 +971,22 @@ export function listProfiles(cwd = process.cwd()): {
   const { config, source } = loadConfigFile(cwd);
   const profiles: Record<string, ProviderProfile> = { ...BUILTIN_PROFILES };
   const origins: Record<string, string | null> = Object.fromEntries(Object.keys(profiles).map((n) => [n, null]));
-  for (const [name, profile] of Object.entries(config.providers ?? {})) {
-    profiles[name] = profile;
-    origins[name] = source;
-  }
-  // The schema already refused a name that matches no profile.
-  for (const [name, model] of Object.entries(config.models ?? {})) {
-    profiles[name] = { ...profiles[name], model };
+  // MNE-001-452: the person's own profiles stay available beneath a project
+  // file's, so a shared file cannot hide their helpers. Only `providers` and
+  // `models` layer; every other key keeps the first file that exists.
+  const ownFile = userConfigPath();
+  const layers: Array<[MnemosineConfig, string | null]> =
+    source !== ownFile && fs.existsSync(ownFile) ? [[readConfigAt(ownFile, false), ownFile]] : [];
+  layers.push([config, source]);
+  for (const [layer, file] of layers) {
+    for (const [name, profile] of Object.entries(layer.providers ?? {})) {
+      profiles[name] = profile;
+      origins[name] = file;
+    }
+    // The schema already refused a name that matches no profile.
+    for (const [name, model] of Object.entries(layer.models ?? {})) {
+      profiles[name] = { ...profiles[name], model };
+    }
   }
   const defaultName = process.env.MNEMOSINE_PROVIDER || config.default_provider || 'anthropic';
   return { profiles, defaultName, source, origins };
@@ -1097,7 +1109,7 @@ export function approveProjectProfile(
   name: string,
   cwd = process.cwd(),
   home = os.homedir()
-): { file: string | null; shared: boolean; host: string; approved: ApprovalKind[]; never: boolean } {
+): { file: string | null; shared: boolean; host: string; variable?: string; approved: ApprovalKind[]; never: boolean } {
   const { profiles, origins } = listProfiles(cwd);
   const profile = profiles[name];
   if (!profile) {
@@ -1110,9 +1122,50 @@ export function approveProjectProfile(
   if (profile.api_key_cmd) {
     entries.push({ key: approvalKey('helper', file, profile.api_key_cmd, host), kind: 'helper', file });
   }
+  if (profile.api_key_env && !isDocumentedPair(profile.api_key_env, host)) {
+    entries.push({ key: approvalKey('pair', file, profile.api_key_env, host), kind: 'pair', file });
+  }
   const never = readProjectHelperPolicy(home) === 'never';
   if (entries.length > 0) recordApprovals(entries, home);
-  return { file, shared: true, host, approved: entries.map((e) => e.kind), never };
+  return { file, shared: true, host, variable: profile.api_key_env, approved: entries.map((e) => e.kind), never };
+}
+
+// The pairs the built-ins document: each provider's key variable and its host.
+let documentedPairs: ReadonlySet<string> | null = null;
+function isDocumentedPair(variable: string, host: string): boolean {
+  documentedPairs ??= new Set(
+    Object.values(BUILTIN_PROFILES)
+      .filter((p) => p.api_key_env)
+      .map((p) => `${p.api_key_env}@${profileHost(p)}`)
+  );
+  return documentedPairs.has(`${variable}@${host}`);
+}
+
+/**
+ * Whether a project profile may send its `api_key_env` to its host, or the
+ * pair it may not send (MNE-001-452). A provider's documented variable to its
+ * own host passes; any other pair needs its person's approval.
+ */
+export function projectPairGate(
+  file: string,
+  profile: ProviderProfile,
+  home = os.homedir()
+): { variable: string; host: string } | null {
+  const variable = profile.api_key_env;
+  if (!variable) return null;
+  const host = profileHost(profile);
+  if (isDocumentedPair(variable, host)) return null;
+  return isApproved(approvalKey('pair', file, variable, host), home) ? null : { variable, host };
+}
+
+function assertProjectPairAllowed(name: string, file: string, profile: ProviderProfile): void {
+  const gate = projectPairGate(file, profile);
+  if (!gate) return;
+  throw new ProjectFileRefusalError(
+    `Provider "${name}" in ${file} would send ${gate.variable} to ${gate.host}, which is not where that ` +
+      `variable's provider takes it, so nothing was sent. If you trust ${gate.host} with it, run: ` +
+      `mnemosine providers approve ${name}. Another host asks again.`
+  );
 }
 
 function assertProjectHelperAllowed(name: string, file: string, profile: ProviderProfile): void {
@@ -1159,8 +1212,11 @@ export function resolveProfile(
   }
 
   let apiKey: string | undefined;
-  if (profile.api_key_env) {
-    apiKey = process.env[profile.api_key_env] || undefined;
+  if (profile.api_key_env && process.env[profile.api_key_env]) {
+    // SECURITY (MNE-001-452): a shared project file sends a variable only to
+    // the host its provider documents, or to one its person approved.
+    if (isProjectOrigin(origin)) assertProjectPairAllowed(name, origin, profile);
+    apiKey = process.env[profile.api_key_env];
   }
   // Credential helper: only if the env did not resolve. For vaults, keychains
   // and a short-lived token from the person's own login (gcloud). The first

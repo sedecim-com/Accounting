@@ -158,6 +158,17 @@ short-lived token from **your own** login:
   header, a key in a header value, in `api_key_cmd`, `model` or `api_key_env`,
   or a `base_url` with a password or a key, is refused at load: the message
   names the field, never its value. Credentials are each person's own.
+- **Your own profiles stay available in a folder with a project file**:
+  `~/.mnemosine/config.json` profiles sit beneath the project's, so a
+  shared file can override one by name but never hide the rest.
+- **A project profile sends a key only where its provider takes it.**
+  `OPENAI_API_KEY` to `api.openai.com`, `GEMINI_API_KEY` to Google's host,
+  and so on for every built-in; any other variable and host pair stops,
+  naming both, until you run `mnemosine providers approve <profile>`.
+- `mnemosine doctor` and `mnemosine providers` say when the folder's
+  `./.env` sets a provider key, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` or
+  `ANTHROPIC_CONFIG_DIR`: that value serves everyone who runs mnemosine
+  there. Keep yours in your shell or `~/.mnemosine/.env`.
 - The `gcloud` recipes use **your own** `gcloud auth login`, not a machine's
   service account. The Agent Platform URL carries your project and region:
   copy it from Google's page above, and the same pattern serves Grok's

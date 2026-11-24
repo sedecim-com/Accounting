@@ -61,13 +61,20 @@ describe('providers approve', () => {
   });
 
   it('a project profile with no helper, a built-in and an unknown name', () => {
-    const file = writeProject({ api_key_env: 'VAULT_API_KEY' });
+    const file = writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://api.openai.com/v1' });
     expect(approveProfileLines('vault', plain, project)).toEqual([
-      `vault in ${file} runs no api_key_cmd: there is nothing to approve.`,
+      `vault in ${file} runs no api_key_cmd and sends no key to another host: there is nothing to approve.`,
     ]);
     expect(approveProfileLines('ollama', plain, project)).toEqual(['ollama is a built-in profile: there is nothing to approve.']);
     expect(() => approveProfileLines('nadie', plain, project)).toThrow(/Provider "nadie" does not exist/);
     expect(fs.existsSync(path.join(home, '.mnemosine', 'project-approvals.json'))).toBe(false);
+  });
+
+  it('approves sending a variable to a host its provider does not document (MNE-001-452, part B)', () => {
+    const file = writeProject({ api_key_env: 'OPENAI_API_KEY' });
+    expect(approveProfileLines('vault', plain, project)).toEqual([
+      `Approved for you: providers.vault in ${file} may send OPENAI_API_KEY to v.example.test. Another host asks again.`,
+    ]);
   });
 
   it("a profile of the person's own file has nothing to approve", () => {

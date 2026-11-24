@@ -186,3 +186,104 @@ describe('a credential written by hand into a project file is refused at load, n
     expect(() => loadConfigFile(project)).not.toThrow();
   });
 });
+
+// Part B: the user's profiles beneath, the variable sent to a host, the folder's ./.env.
+
+describe("the person's own profiles stay available beneath a project file", () => {
+  it('a profile of the user file is listed, with its own origin, and a project profile of the same name wins', () => {
+    writeUser({ providers: {
+      mine: { type: 'openai-compatible', model: 'propio', base_url: 'https://mio.example.test/v1', api_key_cmd: helper() },
+      vault: { type: 'openai-compatible', model: 'del-usuario', base_url: 'https://v.example.test/v1' },
+    } });
+    writeProject({ api_key_env: 'VAULT_API_KEY' });
+    const { profiles, origins, source } = listProfiles(project);
+    expect(source).toBe(projectFile());
+    expect(profiles.mine.model).toBe('propio');
+    expect(origins.mine).toBe(userFile());
+    expect(profiles.vault.model).toBe('m');
+    expect(origins.vault).toBe(projectFile());
+    expect(origins.openai).toBeNull();
+  });
+
+  it("the user's helper beneath a project file runs with no approval", () => {
+    writeUser({ providers: { mine: { type: 'openai-compatible', model: 'm', base_url: 'https://mio.example.test/v1', api_key_cmd: helper() } } });
+    writeProject({ api_key_env: 'VAULT_API_KEY' });
+    expect(resolveProfile('mine', undefined, project).apiKey).toBe('tok-inventado-1');
+  });
+
+  it('the user file is checked too: one that does not parse stops the folder, failing closed', () => {
+    fs.mkdirSync(path.dirname(userFile()), { recursive: true });
+    fs.writeFileSync(userFile(), '{ roto');
+    writeProject({ api_key_env: 'VAULT_API_KEY' });
+    expect(() => listProfiles(project)).toThrow(userFile());
+  });
+});
+
+describe("a project profile sends a key only where it belongs, unless its person approves the pair", () => {
+  it("an undocumented variable and host pair is refused before the key is read, naming both and not the value", () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://otro.example.test/v1' });
+    const err = refusal(() => resolveProfile('vault', undefined, project));
+    expect(err).toBeInstanceOf(ProjectFileRefusalError);
+    expect(err.message).toContain('OPENAI_API_KEY');
+    expect(err.message).toContain('otro.example.test');
+    expect(err.message).toContain('mnemosine providers approve vault');
+    expect(err.message).not.toContain('valor-inventado');
+  });
+
+  it('approved once, the pair is sent; another host asks again', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://otro.example.test/v1' });
+    expect(approveProjectProfile('vault', project).approved).toEqual(['pair']);
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('valor-inventado-de-openai');
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://tercero.example.test/v1' });
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(ProjectFileRefusalError);
+  });
+
+  it("a provider's documented pair passes with no approval, and an unset variable sends nothing to refuse", () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://api.openai.com/v1' });
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('valor-inventado-de-openai');
+    vi.stubEnv('OTRA_LLAVE', '');
+    writeProject({ api_key_env: 'OTRA_LLAVE', base_url: 'http://localhost:9/v1', type: 'openai-compatible' });
+    expect(() => resolveProfile('vault', undefined, project)).toThrow(MissingProviderCredentialError);
+  });
+
+  it("the person's own profile may pair any variable with any host", () => {
+    vi.stubEnv('OPENAI_API_KEY', 'valor-inventado-de-openai');
+    writeUser({ providers: { vault: { type: 'openai-compatible', model: 'm', base_url: 'https://otro.example.test/v1', api_key_env: 'OPENAI_API_KEY' } } });
+    expect(resolveProfile('vault', undefined, project).apiKey).toBe('valor-inventado-de-openai');
+  });
+
+  it('readiness says unapproved for the pair, with the variable and host', () => {
+    writeProject({ api_key_env: 'OPENAI_API_KEY', base_url: 'https://otro.example.test/v1' });
+    const { profiles, origins } = listProfiles(project);
+    const env = { OPENAI_API_KEY: 'valor-inventado-de-openai' };
+    const state = credentialState(profiles.vault, { cwd: project, home, source: origins.vault, env });
+    expect(state.ready).toBe(false);
+    expect(state.source).toEqual({ kind: 'unapproved', file: projectFile(), never: false, variable: 'OPENAI_API_KEY', host: 'otro.example.test' });
+    expect(state.label).not.toContain('valor-inventado');
+  });
+});
+
+describe("readiness names the routing variables the folder's ./.env sets for everyone", () => {
+  it('ANTHROPIC_BASE_URL and ANTHROPIC_CONFIG_DIR for an anthropic profile, OPENAI_BASE_URL for one with no base_url', () => {
+    fs.writeFileSync(path.join(project, '.env'),
+      'ANTHROPIC_BASE_URL=https://proxy.example.test\nANTHROPIC_CONFIG_DIR=/tmp/otro\nOPENAI_BASE_URL=https://proxy.example.test/v1\n');
+    const anthropic = credentialState({ type: 'anthropic', model: 'm' }, { cwd: project, home, env: { ANTHROPIC_API_KEY: 'x' } });
+    expect(anthropic.folderRouting).toEqual(['ANTHROPIC_BASE_URL', 'ANTHROPIC_CONFIG_DIR']);
+    expect(anthropic.label).toContain('ANTHROPIC_BASE_URL, ANTHROPIC_CONFIG_DIR');
+    expect(anthropic.label).toContain('serve everyone who runs mnemosine in that folder');
+    const bare = credentialState({ type: 'openai-compatible', model: 'm', api_key_env: 'K' }, { cwd: project, home, env: { K: 'x' } });
+    expect(bare.folderRouting).toEqual(['OPENAI_BASE_URL']);
+    const pinned = credentialState({ type: 'openai-compatible', model: 'm', base_url: 'https://a.example.test/v1' }, { cwd: project, home, env: {} });
+    expect(pinned.folderRouting).toEqual([]);
+  });
+
+  it('an empty value in ./.env is not reported, and no ./.env reports nothing', () => {
+    fs.writeFileSync(path.join(project, '.env'), 'ANTHROPIC_BASE_URL=\n');
+    expect(credentialState({ type: 'anthropic', model: 'm' }, { cwd: project, home, env: {} }).folderRouting).toEqual([]);
+    fs.rmSync(path.join(project, '.env'));
+    expect(credentialState({ type: 'anthropic', model: 'm' }, { cwd: project, home, env: {} }).folderRouting).toEqual([]);
+  });
+});
