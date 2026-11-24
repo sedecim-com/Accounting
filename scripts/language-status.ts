@@ -69,6 +69,11 @@
  * MNE-001-477) counts the third kind of CLI text: the `Examples:` blocks at
  * the end of `--help`, written at the call site instead of drawn from a key.
  * It reads the source too, per file.
+ *
+ * `spanish-user-strings-services` (scripts/language/lanes/service-strings.ts,
+ * MNE-001-153) is `spanish-user-strings-cli`'s recognizer over the services,
+ * the API, the agent, auth and the database layer: the Spanish prose I9 moves
+ * to keys, per file.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -81,6 +86,7 @@ import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
 import { cliStringsLanes } from './language/lanes/cli-strings.js';
 import { helpExamplesLanes } from './language/lanes/help-examples.js';
+import { serviceStringsLanes } from './language/lanes/service-strings.js';
 import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -113,6 +119,7 @@ export function measure(): Lane[] {
     ...helpLanes(),
     ...cliStringsLanes(),
     ...helpExamplesLanes(),
+    ...serviceStringsLanes(),
   ];
 }
 

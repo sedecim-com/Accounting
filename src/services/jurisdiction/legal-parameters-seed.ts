@@ -122,9 +122,9 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     sourceUrl: LFT_PDF,
     sourceNote:
       'LFT art. 87: «Los trabajadores tendrán derecho a un aguinaldo anual que deberá pagarse antes ' +
-      'del día veinte de diciembre, equivalente a quince días de salario, por lo menos». El mínimo ' +
-      'es de la ley; cuántos días paga el despacho por encima es criterio suyo y vive en el panel ' +
-      '(`dias_aguinaldo`).',
+      'del día veinte de diciembre, equivalente a quince días de salario, por lo menos». The minimum ' +
+      'is the law\'s; how many days the firm pays above it is the firm\'s own criterion and lives in ' +
+      'the panel (`dias_aguinaldo`).',
   },
   {
     jurisdiction: 'MX',
@@ -135,8 +135,9 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     sourceUrl: LFT_PDF,
     sourceNote:
       'LFT art. 80: «Los trabajadores tendrán derecho a una prima no menor de veinticinco por ciento ' +
-      'sobre los salarios que les correspondan durante el período de vacaciones». Es un mínimo, y el ' +
-      'artículo NO fija techo: pagar más es una prestación, y va en el panel (`prima_vacacional_pct`).',
+      'sobre los salarios que les correspondan durante el período de vacaciones». It is a minimum, and ' +
+      'the article sets NO ceiling: paying more is a benefit, and it goes in the panel ' +
+      '(`prima_vacacional_pct`).',
   },
   // ── IVA ────────────────────────────────────────────────────────────────
   {
@@ -150,11 +151,11 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'rate',
     sourceUrl: LIVA_PDF,
     sourceNote:
-      'LIVA art. 1. La tasa general pasó de 15 % a 16 % por el decreto publicado en el DOF el ' +
-      '07-12-2009, en vigor el 1 de enero de 2010 (ficha de reformas: ' +
-      'https://www.diputados.gob.mx/LeyesBiblio/ref/liva.htm). La tasa del 8 % de la franja ' +
-      'fronteriza NO se siembra aquí: no es una tasa de la LIVA —el art. 2 está derogado— sino un ' +
-      'crédito del 50 % por decreto de estímulos, con lista de municipios, y entra con J0.4.',
+      'LIVA art. 1. The general rate went from 15 % to 16 % by the decree published in the DOF on ' +
+      '07-12-2009, in force on 1 January 2010 (reform record: ' +
+      'https://www.diputados.gob.mx/LeyesBiblio/ref/liva.htm). The 8 % rate of the border strip is ' +
+      'NOT seeded here: it is not a LIVA rate —art. 2 is repealed— but a 50 % credit by an incentives ' +
+      'decree, with a list of municipalities, and it comes with J0.4.',
   },
 
   // ── ISR: los dos umbrales que hoy están quemados en la ingesta ─────────
@@ -170,11 +171,11 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'MXN',
     sourceUrl: LISR_PDF,
     sourceNote:
-      'LISR art. 27 fr. III: los pagos cuyo monto exceda de $2,000.00 sólo son deducibles por ' +
-      'transferencia, cheque nominativo, tarjeta o monedero. Ley publicada en el DOF el ' +
-      '11-12-2013, en vigor desde el 1 de enero de 2014. La excepción de combustibles —que aplica ' +
-      'aunque no se exceda el importe— es REGLA, no parámetro, y no cabe en esta tabla. Hoy la ' +
-      'cifra está quemada en src/services/xml-ingestion/cfdi-decisions.ts (CASH_DEDUCTION_LIMIT_MXN).',
+      'LISR art. 27 fr. III: payments over $2,000.00 are deductible only by transfer, nominative ' +
+      'cheque, card or e-wallet. Law published in the DOF on 11-12-2013, in force since 1 January ' +
+      '2014. The fuel exception —which applies even below that amount— is a RULE, not a parameter, ' +
+      'and does not fit in this table. Today the figure is hard-coded in ' +
+      'src/services/xml-ingestion/cfdi-decisions.ts (CASH_DEDUCTION_LIMIT_MXN).',
   },
   {
     jurisdiction: 'MX',
@@ -184,10 +185,10 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'rate',
     sourceUrl: LISR_PDF,
     sourceNote:
-      'LISR art. 28 fr. XX: no es deducible el 91.5 % de los consumos en restaurantes, de modo que ' +
-      'la parte deducible es el 8.5 %, y sólo si se paga con tarjeta, cheque nominativo o ' +
-      'monedero. Ley en vigor desde el 1 de enero de 2014. Hoy la tasa está quemada DOS veces: ' +
-      'cfdi-decisions.ts (RESTAURANT_DEDUCTIBLE_RATE) y policy-preview.ts.',
+      'LISR art. 28 fr. XX: 91.5 % of restaurant consumption is not deductible, so the deductible ' +
+      'share is 8.5 %, and only when paid by card, nominative cheque or e-wallet. Law in force since ' +
+      '1 January 2014. Today the rate is hard-coded TWICE: cfdi-decisions.ts ' +
+      '(RESTAURANT_DEDUCTIBLE_RATE) and policy-preview.ts.',
   },
 
   // ── UMA: la fila que justifica el tramo entero ─────────────────────────
@@ -205,13 +206,13 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'MXN',
     sourceUrl: 'https://dof.gob.mx/nota_detalle.php?codigo=5778072&fecha=09/01/2026',
     sourceNote:
-      'UMA diaria 2026: $117.31 (mensual 3,566.22; anual 42,794.64), publicada por el INEGI en el ' +
-      'DOF el 09-01-2026. Rige desde el 1 de FEBRERO de 2026, no desde enero: lo manda el art. 5 ' +
-      'de la Ley para Determinar el Valor de la UMA ' +
-      '(https://www.diputados.gob.mx/LeyesBiblio/pdf/LDVUMA_301216.pdf), que da al INEGI los diez ' +
-      'primeros días de enero para publicarla y fija su entrada en vigor el 1 de febrero. Enero de ' +
-      '2026 se rige por la UMA de 2025, que este tramo NO siembra: preguntar por una fecha de ' +
-      'enero falla cerrado, que es la respuesta correcta mientras esa fila no exista.',
+      'Daily UMA 2026: $117.31 (monthly 3,566.22; annual 42,794.64), published by INEGI in the DOF ' +
+      'on 09-01-2026. It governs from 1 FEBRUARY 2026, not from January: so says art. 5 of the Ley ' +
+      'para Determinar el Valor de la UMA ' +
+      '(https://www.diputados.gob.mx/LeyesBiblio/pdf/LDVUMA_301216.pdf), which gives INEGI the first ' +
+      'ten days of January to publish it and sets its entry into force on 1 February. January 2026 ' +
+      'is governed by the 2025 UMA, which this tranche does NOT seed: asking for a January date ' +
+      'fails closed, which is the right answer while that row does not exist.',
   },
 
   // ── Subsidio al empleo 2026 (#298) ─────────────────────────────────────
@@ -348,9 +349,9 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'MXN',
     sourceUrl: 'https://dof.gob.mx/nota_detalle.php?codigo=5775534&fecha=09/12/2025',
     sourceNote:
-      'Salario mínimo general 2026: $315.04 diarios, fijado por la CONASAMI y publicado en el DOF ' +
-      'el 09-12-2025, en vigor desde el 1 de enero de 2026 (incremento del 13 %: 6.5 % más el ' +
-      'Monto Independiente de Recuperación de 17.01).',
+      'General minimum wage 2026: $315.04 a day, set by CONASAMI and published in the DOF on ' +
+      '09-12-2025, in force since 1 January 2026 (a 13 % increase: 6.5 % plus the Monto ' +
+      'Independiente de Recuperación of 17.01).',
   },
   {
     jurisdiction: 'MX',
@@ -360,9 +361,8 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
     unit: 'MXN',
     sourceUrl: 'https://dof.gob.mx/nota_detalle.php?codigo=5775534&fecha=09/12/2025',
     sourceNote:
-      'Salario mínimo de la Zona Libre de la Frontera Norte 2026: $440.87 diarios (incremento del ' +
-      '5 %), misma resolución de la CONASAMI publicada en el DOF el 09-12-2025, en vigor desde el ' +
-      '1 de enero de 2026.',
+      'Minimum wage of the Zona Libre de la Frontera Norte 2026: $440.87 a day (a 5 % increase), ' +
+      'same CONASAMI resolution published in the DOF on 09-12-2025, in force since 1 January 2026.',
   },
 ];
 

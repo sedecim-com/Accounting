@@ -209,7 +209,7 @@ describe('the calculator reads the law of the payment date, not the 009 table', 
   });
 
   it('a payment date before the 2026 law was loaded fails closed', async () => {
-    await expect(calc.calculate(input(3000, 'quincenal', '2025-12-15'))).rejects.toThrow(/no regía/);
+    await expect(calc.calculate(input(3000, 'quincenal', '2025-12-15'))).rejects.toThrow(/was not in force/);
   });
 });
 
