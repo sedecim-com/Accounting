@@ -27,6 +27,18 @@ vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
 
+// MNE-001-052 (#101): the statement reads its balances through report-service.
+// The real helpers run (their SQL reaches the mocked `query`), wrapped in spies
+// so a test can say which layer was asked, and how many times.
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return {
+    ...real,
+    queryPeriodMovementByAccount: vi.fn(real.queryPeriodMovementByAccount),
+    queryEntryMovementsTouching: vi.fn(real.queryEntryMovementsTouching),
+  };
+});
+
 import {
   clasificarCuenta,
   construirIndirecto,
@@ -36,6 +48,7 @@ import {
   resolverCuentasDeEfectivo,
   resolveCashAccounts,
   queryMovimientosNoEfectivo,
+  queryOperacionesSinEfectivo,
   politicasDeFlujo,
   getCashFlowStatement,
   type MovimientoDeCuenta,
@@ -45,14 +58,22 @@ import { ROLES_DE_EFECTIVO } from '../../../src/services/reporting/cash-flow-rec
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
+import {
+  queryPeriodMovementByAccount,
+  queryEntryMovementsTouching,
+} from '../../../src/services/reporting/report-service.js';
 
 const mockQuery = query as unknown as Mock;
 const mockPolicy = getPolicy as unknown as Mock;
+const movementReader = queryPeriodMovementByAccount as unknown as Mock;
+const nonCashReader = queryEntryMovementsTouching as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 beforeEach(() => {
   mockQuery.mockReset();
   mockPolicy.mockReset();
+  movementReader.mockClear();
+  nonCashReader.mockClear();
 });
 
 const sql = (call: number) => String(mockQuery.mock.calls[call][0]).replace(/\s+/g, ' ');
@@ -563,6 +584,91 @@ describe('la consulta del movimiento', () => {
     });
     expect(sql(0).toLowerCase()).not.toContain('ilike');
     expect(sql(0)).not.toContain('fixed_assets');
+  });
+});
+
+describe('one balance layer: the statement reads through report-service (MNE-001-052)', () => {
+  it('the movement by account comes from queryPeriodMovementByAccount, with the cash left out', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: ENERO });
+    const rows = await queryMovimientosNoEfectivo(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      cashAccountIds: ['id-1111'],
+    });
+    expect(rows).toEqual(ENERO);
+    expect(movementReader.mock.calls).toEqual([
+      [ENTITY, { startDate: '2026-01-01', endDate: '2026-01-31', excludeAccountIds: ['id-1111'] }],
+    ]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('the entries that move no cash come from queryEntryMovementsTouching', async () => {
+    const line: LineaSinEfectivo = {
+      entry_id: 'je-7',
+      entry_number: 'JE-7',
+      entry_date: '2026-01-20',
+      description: 'Mobiliario a crédito',
+      account_id: 'id-1210',
+      code: '1210',
+      name: 'Mobiliario y Equipo',
+      debit_total: '20000.0000',
+      credit_total: '0.0000',
+    };
+    mockQuery.mockResolvedValueOnce({ rows: [line] });
+    const rows = await queryOperacionesSinEfectivo(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      cashAccountIds: ['id-1111'],
+      inversionOFinanciamientoIds: ['id-1210', 'id-3100'],
+    });
+    expect(rows).toEqual([line]);
+    expect(nonCashReader.mock.calls).toEqual([
+      [
+        ENTITY,
+        { startDate: '2026-01-01', endDate: '2026-01-31', withLineOn: ['id-1210', 'id-3100'], withoutLineOn: ['id-1111'] },
+      ],
+    ]);
+  });
+
+  it('with no investing or financing account it asks nothing at all', async () => {
+    const rows = await queryOperacionesSinEfectivo(ENTITY, {
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      cashAccountIds: ['id-1111'],
+      inversionOFinanciamientoIds: [],
+    });
+    expect(rows).toEqual([]);
+    expect(nonCashReader).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('a whole statement is three ledger reads, whatever the number of accounts, and the hand figures hold', async () => {
+    mockPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
+      key,
+      value: { flujo_efectivo_metodo: 'indirecto', flujo_efectivo_cuentas_de_efectivo: 'rol', flujo_efectivo_descuadre: 'avisar', flujo_efectivo_sin_clasificar: 'avisar' }[key],
+      defined: true,
+      question: '',
+      rationale: null,
+    }));
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'id-1111', code: '1111', name: 'Banco', via: 'rol' }] })
+      .mockResolvedValueOnce({ rows: ENERO })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const cf = await getCashFlowStatement(ENTITY, { startDate: '2026-01-01', endDate: '2026-01-31' });
+
+    // The January figures written by hand above the fixture.
+    expect(cf.net_income).toBe('55000.0000');
+    expect(cf.operating_activities.total).toBe('42000.0000');
+    expect(cf.investing_activities.total).toBe('-20000.0000');
+    expect(cf.financing_activities.total).toBe('58000.0000');
+    expect(cf.net_cash_flow).toBe('80000.0000');
+    // The cash accounts, the movement of the nine accounts and the entries
+    // that move no cash: one query each, never one per account.
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+    expect(movementReader).toHaveBeenCalledTimes(1);
+    expect(nonCashReader).toHaveBeenCalledTimes(1);
+    expect(nonCashReader.mock.calls[0][1].withLineOn).toEqual(['id-1210', 'id-3100', 'id-2210']);
   });
 });
 

@@ -2,18 +2,19 @@ import Decimal from 'decimal.js';
 import { query, currentTenant } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { getPolicy } from '../policy/policy-service.js';
-import {
-  avisoDeCierreEnRango,
-  criterioDeCierreEnInformes,
-  predicadoSinCierre,
-  type AvisoDeCierre,
-} from './criterio-cierre.js';
+import { avisoDeCierreEnRango, type AvisoDeCierre } from './criterio-cierre.js';
 // El punto ÚNICO de crecimiento de «qué rol significa efectivo». Se importa —no
 // se repite el literal— porque la lista se declara con esa promesa por escrito
 // («el conjunto crece aquí y en ningún otro sitio») y este archivo la estaba
 // incumpliendo con un `ar.role = 'banco'` a mano.
 import { ROLES_DE_EFECTIVO, SUBTIPOS_DE_EFECTIVO, type ViaDeEfectivo } from './cash-flow-reconcile.js';
-import { LEDGER_SCALE } from './report-service.js';
+import {
+  LEDGER_SCALE,
+  queryEntryMovementsTouching,
+  queryPeriodMovementByAccount,
+  type EntryAccountMovementRow,
+  type PeriodAccountMovementRow,
+} from './report-service.js';
 
 // ============================================================
 // G1b · EL ESTADO DE FLUJOS DE EFECTIVO (NIF B-2 / ASC 230)
@@ -376,16 +377,8 @@ export async function resolverCuentasDeEfectivo(
 // EL MOVIMIENTO DEL PERIODO, CUENTA POR CUENTA
 // ------------------------------------------------------------
 
-export interface MovimientoDeCuenta {
-  account_id: string;
-  code: string;
-  name: string;
-  account_type: string;
-  account_subtype: string | null;
-  fs_category: string | null;
-  debit_total: string;
-  credit_total: string;
-}
+/** One account's movement in the period, as report-service reads it. */
+export type MovimientoDeCuenta = PeriodAccountMovementRow;
 
 /** Movimiento neto en CARGO-POSITIVO: cargos − abonos. */
 export function netoDe(m: Pick<MovimientoDeCuenta, 'debit_total' | 'credit_total'>): Decimal {
@@ -395,8 +388,8 @@ export function netoDe(m: Pick<MovimientoDeCuenta, 'debit_total' | 'credit_total
 /**
  * El movimiento de cada cuenta que NO es efectivo.
  *
- * El par (jel JOIN je) entre paréntesis es el de siempre y es load-bearing:
- * encadenar dos JOIN sueltos deja pasar líneas de asientos en borrador.
+ * The SQL lives in report-service (`queryPeriodMovementByAccount`, MNE-001-052):
+ * one balance layer, so a fix to how the ledger is read lands once.
  *
  * El filtro del cierre es el MISMO que el estado de resultados —lo resuelve
  * criterio-cierre.ts, no este archivo—, y tiene que serlo: la primera línea
@@ -410,31 +403,11 @@ export async function queryMovimientosNoEfectivo(
   entityId: string,
   opts: { startDate: string; endDate: string; cashAccountIds: string[] }
 ): Promise<MovimientoDeCuenta[]> {
-  const criterio = await criterioDeCierreEnInformes(entityId);
-  const closingFilter = criterio.enEstadoDeResultados ? '' : predicadoSinCierre();
-
-  const r = await query<MovimientoDeCuenta>(
-    `SELECT a.id AS account_id, a.code, a.name,
-            a.account_type, a.account_subtype, a.fs_category,
-            COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0)::text AS debit_total,
-            COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0)::text AS credit_total
-       FROM accounts a
-       JOIN (journal_entry_lines jel
-             JOIN journal_entries je
-               ON je.id = jel.journal_entry_id
-              AND je.status = 'posted'
-              AND je.entry_date BETWEEN $2 AND $3
-              ${closingFilter})
-         ON jel.account_id = a.id
-      WHERE a.entity_id = $1
-        AND NOT (a.id = ANY($4::uuid[]))
-      GROUP BY a.id, a.code, a.name, a.account_type, a.account_subtype, a.fs_category
-     HAVING COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0) <> 0
-         OR COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0) <> 0
-      ORDER BY a.code`,
-    [entityId, opts.startDate, opts.endDate, opts.cashAccountIds]
-  );
-  return r.rows;
+  return queryPeriodMovementByAccount(entityId, {
+    startDate: opts.startDate,
+    endDate: opts.endDate,
+    excludeAccountIds: opts.cashAccountIds,
+  });
 }
 
 // ------------------------------------------------------------
@@ -510,17 +483,8 @@ export function clasificarCuenta(
 // LAS OPERACIONES QUE NO MOVIERON EFECTIVO
 // ------------------------------------------------------------
 
-export interface LineaSinEfectivo {
-  entry_id: string;
-  entry_number: string;
-  entry_date: string;
-  description: string | null;
-  account_id: string;
-  code: string;
-  name: string;
-  debit_total: string;
-  credit_total: string;
-}
+/** One entry's movement on one account, as report-service reads it. */
+export type LineaSinEfectivo = EntryAccountMovementRow;
 
 export interface OperacionSinEfectivo {
   entry_id: string;
@@ -554,6 +518,8 @@ export interface OperacionSinEfectivo {
  * `inversionOFinanciamientoIds` lo calcula el clasificador de arriba y viaja
  * como parámetro: la regla de clasificación existe UNA vez, en TypeScript, y
  * no se reescribe en SQL para que las dos puedan discrepar.
+ *
+ * The SQL lives in report-service (`queryEntryMovementsTouching`, MNE-001-052).
  */
 export async function queryOperacionesSinEfectivo(
   entityId: string,
@@ -565,42 +531,12 @@ export async function queryOperacionesSinEfectivo(
   }
 ): Promise<LineaSinEfectivo[]> {
   if (opts.inversionOFinanciamientoIds.length === 0) return [];
-  const criterio = await criterioDeCierreEnInformes(entityId);
-  const closingFilter = criterio.enEstadoDeResultados ? '' : predicadoSinCierre();
-
-  const r = await query<LineaSinEfectivo>(
-    `SELECT jel.journal_entry_id AS entry_id, je.entry_number,
-            je.entry_date::text AS entry_date, je.description,
-            a.id AS account_id, a.code, a.name,
-            COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0)::text AS debit_total,
-            COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0)::text AS credit_total
-       FROM accounts a
-       JOIN (journal_entry_lines jel
-             JOIN journal_entries je
-               ON je.id = jel.journal_entry_id
-              AND je.status = 'posted'
-              AND je.entry_date BETWEEN $2 AND $3
-              ${closingFilter})
-         ON jel.account_id = a.id
-      WHERE a.entity_id = $1
-        AND EXISTS (SELECT 1 FROM journal_entry_lines t
-                     WHERE t.journal_entry_id = jel.journal_entry_id
-                       AND t.account_id = ANY($4::uuid[]))
-        AND NOT EXISTS (SELECT 1 FROM journal_entry_lines c
-                         WHERE c.journal_entry_id = jel.journal_entry_id
-                           AND c.account_id = ANY($5::uuid[]))
-      GROUP BY jel.journal_entry_id, je.entry_number, je.entry_date, je.description,
-               a.id, a.code, a.name
-      ORDER BY je.entry_date, je.entry_number, a.code`,
-    [
-      entityId,
-      opts.startDate,
-      opts.endDate,
-      opts.inversionOFinanciamientoIds,
-      opts.cashAccountIds,
-    ]
-  );
-  return r.rows;
+  return queryEntryMovementsTouching(entityId, {
+    startDate: opts.startDate,
+    endDate: opts.endDate,
+    withLineOn: opts.inversionOFinanciamientoIds,
+    withoutLineOn: opts.cashAccountIds,
+  });
 }
 
 /**
