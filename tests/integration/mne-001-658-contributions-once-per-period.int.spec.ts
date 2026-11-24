@@ -175,7 +175,9 @@ describe('the days of a period contribute to IMSS and INFONAVIT once, whatever t
                 t.taxable_wages::numeric(14,2)::text AS base, t.calculation_notes AS notes
            FROM paycheck_taxes t JOIN paychecks p ON p.id = t.paycheck_id
           WHERE p.pay_run_id = $1 AND p.tenant_id = $2 AND t.tax_type IN ('imss', 'infonavit', 'infonavit_credit')
-          ORDER BY 1`,
+          -- By byte, so the order is the same on every database: a linguistic
+          -- collation (en_US, CI's) puts «infonavit_credit EE» before «infonavit ER».
+          ORDER BY 1 COLLATE "C"`,
         [bonus, f.tenantId]
       );
       expect(rows.map((r) => [r.tax, r.amount, r.base])).toEqual([
