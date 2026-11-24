@@ -6451,6 +6451,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
 
+  // ==== MNE-001-647 · the totals of an aged listing, per currency (#596) ====
+  'report.aging.total.receivable':
+    'Total por cobrar {amount} {currency} en {count, plural, one {# factura abierta} other {# facturas abiertas}}',
+  'report.aging.total.payable':
+    'Total por pagar {amount} {currency} en {count, plural, one {# factura de proveedor abierta} other {# facturas de proveedor abiertas}}',
+  'report.aging.total_foreign.receivable':
+    'Total por cobrar {amount} {currency} en {count, plural, one {# factura abierta} other {# facturas abiertas}}; valor en libros {book} {functional}',
+  'report.aging.total_foreign.payable':
+    'Total por pagar {amount} {currency} en {count, plural, one {# factura de proveedor abierta} other {# facturas de proveedor abiertas}}; valor en libros {book} {functional}',
+  'report.aging.book_value.receivable':
+    'Valor en libros de {count, plural, one {la factura abierta} other {las # facturas abiertas}}: {book} {functional}',
+  'report.aging.book_value.payable':
+    'Valor en libros de {count, plural, one {la factura de proveedor abierta} other {las # facturas de proveedor abiertas}}: {book} {functional}',
+
   // ==== I11 · doctor by key (MNE-001-475, issue #153) ====
   'doctor.check.permission_conflicts': 'Segregación de funciones (permisos)',
   'doctor.summary.title': 'Revisión de salud de Mnemosine',

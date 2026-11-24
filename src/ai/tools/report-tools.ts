@@ -13,6 +13,7 @@ import {
   netMovement,
   queryAgedReceivableRows,
   queryAgedPayableRows,
+  totalAging,
   queryLedgerRows,
 } from '../../services/reporting/report-service.js';
 import { avisoDeCierreEnRango } from '../../services/reporting/criterio-cierre.js';
@@ -342,7 +343,8 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     name: 'get_aged_receivables',
     description:
       'Aged receivables: customer invoices with outstanding balance and days overdue ' +
-      '(negative days_overdue = not yet due).',
+      '(negative days_overdue = not yet due). Amounts are in each row currency_code; ' +
+      'book_amount_due and total_due are in the entity currency.',
     inputSchema: z.object({
       as_of_date: dateInput('Reference date YYYY-MM-DD; omit for today').optional(),
     }),
@@ -356,17 +358,22 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         invoice_number: r.invoice_number,
         invoice_date: soloFecha(r.invoice_date),
         due_date: soloFecha(r.due_date),
+        currency_code: r.currency_code,
         total_amount: aEscala(r.total_amount),
         amount_due: aEscala(r.amount_due),
+        book_amount_due: aEscala(r.book_amount_due),
         days_overdue: r.days_overdue,
       }));
       // El total, sobre las filas CRUDAS: es lo que se debe, no lo que se lee.
-      const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
-      const residuo = residuoDeRedondeo(invoices.map((i) => i.amount_due), totalDue.toFixed(AGENT_SCALE));
+      // MNE-001-647: `total_due` is in `currency`, so it is the sum of the BOOK
+      // values; what is due in each currency is `totals_by_currency`.
+      const totals = totalAging(all, AGENT_SCALE);
+      const residuo = residuoDeRedondeo(invoices.map((i) => i.book_amount_due), totals.total_book_amount_due);
       return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
-        total_due: totalDue.toFixed(AGENT_SCALE), count: invoices.length, invoices,
-        ...(residuo ? { rounding_residual: { amount_due: residuo } } : {}),
+        total_due: totals.total_book_amount_due, totals_by_currency: totals.totals_by_currency,
+        count: invoices.length, invoices,
+        ...(residuo ? { rounding_residual: { book_amount_due: residuo } } : {}),
       });
     },
   });
@@ -375,7 +382,8 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     name: 'get_aged_payables',
     description:
       'Aged payables: vendor bills with outstanding balance and days overdue ' +
-      '(negative days_overdue = not yet due).',
+      '(negative days_overdue = not yet due). Amounts are in each row currency_code; ' +
+      'book_amount_due and total_due are in the entity currency.',
     inputSchema: z.object({
       as_of_date: dateInput('Reference date YYYY-MM-DD; omit for today').optional(),
     }),
@@ -389,16 +397,19 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         bill_number: r.bill_number,
         bill_date: soloFecha(r.bill_date),
         due_date: soloFecha(r.due_date),
+        currency_code: r.currency_code,
         total_amount: aEscala(r.total_amount),
         amount_due: aEscala(r.amount_due),
+        book_amount_due: aEscala(r.book_amount_due),
         days_overdue: r.days_overdue,
       }));
-      const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
-      const residuo = residuoDeRedondeo(bills.map((b) => b.amount_due), totalDue.toFixed(AGENT_SCALE));
+      const totals = totalAging(all, AGENT_SCALE);
+      const residuo = residuoDeRedondeo(bills.map((b) => b.book_amount_due), totals.total_book_amount_due);
       return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
-        total_due: totalDue.toFixed(AGENT_SCALE), count: bills.length, bills,
-        ...(residuo ? { rounding_residual: { amount_due: residuo } } : {}),
+        total_due: totals.total_book_amount_due, totals_by_currency: totals.totals_by_currency,
+        count: bills.length, bills,
+        ...(residuo ? { rounding_residual: { book_amount_due: residuo } } : {}),
       });
     },
   });

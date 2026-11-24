@@ -290,16 +290,95 @@ describe('truncation is announced and the footing is not truncated with it', () 
       rows: [{
         vendor_id: 'v', vendor_name: 'Proveedor', vendor_number: 'V-1',
         bill_id: 'b', bill_number: 'BILL-1', bill_date: new Date(2026, 3, 10),
-        due_date: new Date(2026, 4, 10), total_amount: '1160.0000',
-        amount_due: '1160.0000', days_overdue: 107,
+        due_date: new Date(2026, 4, 10), currency_code: 'MXN', total_amount: '1160.0000',
+        amount_due: '1160.0000', book_amount_due: '1160.0000', days_overdue: 107,
       }],
       total: 6,
-      total_due: '12528.0000',
+      totals_by_currency: [{ currency_code: 'MXN', documents: 6, amount_due: '12528.0000', book_amount_due: '12528.0000' }],
+      total_book_amount_due: '12528.0000',
     });
     const { out, err } = await runCli(['report', 'aged-payable', 'show', '--entity', 'Demo', '--limit', '1']);
-    expect(err).toMatch(/Total due 12528\.0000 across 6 open bill\(s\)/);
+    expect(err).toMatch(/Total due 12528\.0000 MXN across 6 open bills\n/);
+    // Pesos only: the book value would repeat the line above.
+    expect(err).not.toMatch(/[Bb]ook value/);
     expect(err).toMatch(/Showing 1 of 6 rows/);
     expect(out).toMatch(/90\+/);
+  });
+
+  // MNE-001-647 (#596). MXN 2 400 and USD 1 000 at 17.50: the books hold
+  // 2 400 + 17 500 = 19 900. The defect printed «Total due 3400.0000».
+  const mixedReceivables = () =>
+    vi.mocked(reportService.getAgedReceivables).mockResolvedValue({
+      entity_id: 'ent-1',
+      as_of_date: '2026-08-25',
+      rows: [
+        {
+          customer_id: 'c1', customer_name: 'Alfa', customer_number: 'C-1',
+          invoice_id: 'i1', invoice_number: 'INV-1', invoice_date: new Date(2026, 7, 1),
+          due_date: new Date(2026, 7, 20), currency_code: 'MXN', total_amount: '2400.0000',
+          amount_due: '2400.0000', book_amount_due: '2400.0000', days_overdue: 5,
+        },
+        {
+          customer_id: 'c2', customer_name: 'Beta', customer_number: 'C-2',
+          invoice_id: 'i2', invoice_number: 'INV-2', invoice_date: new Date(2026, 7, 1),
+          due_date: new Date(2026, 7, 20), currency_code: 'USD', total_amount: '1000.0000',
+          amount_due: '1000.0000', book_amount_due: '17500.0000', days_overdue: 5,
+        },
+      ],
+      total: 2,
+      totals_by_currency: [
+        { currency_code: 'MXN', documents: 1, amount_due: '2400.0000', book_amount_due: '2400.0000' },
+        { currency_code: 'USD', documents: 1, amount_due: '1000.0000', book_amount_due: '17500.0000' },
+      ],
+      total_book_amount_due: '19900.0000',
+    });
+
+  it('ageing in two currencies: a total per currency and the book value, never dollars added to pesos', async () => {
+    mixedReceivables();
+    const { out, err } = await runCli(['report', 'aged-receivable', 'show', '--entity', 'Demo']);
+    expect(err).toMatch(/Total due 2400\.0000 MXN across 1 open invoice\n/);
+    expect(err).toMatch(/Total due 1000\.0000 USD across 1 open invoice; book value 17500\.0000 MXN\n/);
+    expect(err).toMatch(/Book value of the 2 open invoices: 19900\.0000 MXN\n/);
+    expect(out + err).not.toContain('3400');
+    // The table says which currency each amount is in.
+    expect(out).toMatch(/currency_code/);
+    expect(out).toMatch(/book_amount_due/);
+    expect(out).toMatch(/USD\s+1,000\.00\s+1,000\.00\s+17,500\.00/);
+  });
+
+  it('ageing in two currencies: csv and json carry the currency and the book value too', async () => {
+    mixedReceivables();
+    const csv = await runCli(['report', 'aged-receivable', 'show', '--entity', 'Demo', '--format', 'csv']);
+    expect(csv.out.split('\n')[0]).toBe(
+      'customer_number,customer_name,invoice_number,invoice_date,bucket,days_overdue,due_date,' +
+        'currency_code,total_amount,amount_due,book_amount_due'
+    );
+    expect(csv.out).toContain('USD,1000.0000,1000.0000,17500.0000');
+
+    mixedReceivables();
+    const json = await runCli(['report', 'aged-receivable', 'show', '--entity', 'Demo', '--json']);
+    const rows = (JSON.parse(json.out) as { rows: Record<string, string>[] }).rows;
+    expect(rows.map((r) => [r.currency_code, r.amount_due, r.book_amount_due])).toEqual([
+      ['MXN', '2400.0000', '2400.0000'],
+      ['USD', '1000.0000', '17500.0000'],
+    ]);
+  });
+
+  it('ageing in Spanish: the same lines from the catalogue', async () => {
+    setLanguage('es');
+    mixedReceivables();
+    const { err } = await runCli(['report', 'aged-receivable', 'show', '--entity', 'Demo']);
+    expect(err).toMatch(/Total por cobrar 1000\.0000 USD en 1 factura abierta; valor en libros 17500\.0000 MXN\n/);
+    expect(err).toMatch(/Valor en libros de las 2 facturas abiertas: 19900\.0000 MXN\n/);
+  });
+
+  it('an empty ageing still says the total, in the entity currency', async () => {
+    vi.mocked(reportService.getAgedPayables).mockResolvedValue({
+      entity_id: 'ent-1', as_of_date: '2026-08-25', rows: [], total: 0,
+      totals_by_currency: [], total_book_amount_due: '0.0000',
+    });
+    const { err } = await runCli(['report', 'aged-payable', 'show', '--entity', 'Demo']);
+    expect(err).toMatch(/Total due 0\.0000 MXN across 0 open bills\n/);
   });
 });
 
@@ -329,7 +408,8 @@ describe('the family refuses rather than guessing', () => {
 
   it('an aged report reached with a past cutoff says what the cutoff does NOT do', async () => {
     vi.mocked(reportService.getAgedReceivables).mockResolvedValue({
-      entity_id: 'ent-1', as_of_date: '2020-12-31', rows: [], total: 0, total_due: '0.0000',
+      entity_id: 'ent-1', as_of_date: '2020-12-31', rows: [], total: 0,
+      totals_by_currency: [], total_book_amount_due: '0.0000',
     });
     const { err } = await runCli([
       'report', 'aged-receivable', 'show', '--entity', 'Demo', '--as-of', '2020-12-31',
