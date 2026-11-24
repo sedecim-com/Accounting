@@ -32,7 +32,8 @@ apartarCatalogos('mx_isn_tasas_estatales');
 let f: Fixture;
 let sibling: Fixture;
 let email: string;
-let periodId: string;
+let scheduleId: string;
+let fortnights = 0;
 let employees: string[];
 let inputsFile: string;
 
@@ -84,9 +85,26 @@ async function employee(scheduleId: string, number: string, sbc: string): Promis
   return id;
 }
 
-/** A run created and calculated through the CLI; approved too unless told otherwise. */
+/** The first fortnight of the next month, from July 2026 on. */
+async function newPeriod(): Promise<string> {
+  const month = String(7 + fortnights).padStart(2, '0');
+  fortnights += 1;
+  const id = uuidv4();
+  await query(
+    `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
+     VALUES ($1, $2, $3, $4, $5, $5, 2026, 'draft')`,
+    [id, f.tenantId, scheduleId, `2026-${month}-01`, `2026-${month}-15`]
+  );
+  return id;
+}
+
+/**
+ * A run created and calculated through the CLI; approved too unless told
+ * otherwise. Each one over a period of its own: a period holds one regular
+ * run (MNE-001-659).
+ */
 async function calculatedRun(approve = true): Promise<string> {
-  const created = await cli(['create', '--period', periodId, '--json']);
+  const created = await cli(['create', '--period', await newPeriod(), '--json']);
   expect(created.exitCode, String(created.errs[0])).toBe(0);
   const id = String(rowOf(created).id);
   const calc = await cli(['calculate', id, '--file', inputsFile, '--json']);
@@ -127,17 +145,11 @@ beforeAll(async () => {
     `INSERT INTO mx_isn_tasas_estatales (estado, vigencia_desde, vigencia_hasta, tasa, regimen, exencion_mensual, fundamento)
      VALUES ('JA', '2026-01-01', NULL, 0.03, 'tasa_plana', NULL, 'Ley de Hacienda del Estado de Jalisco, art. 39')`
   );
-  const scheduleId = uuidv4();
+  scheduleId = uuidv4();
   await query(
     `INSERT INTO pay_schedules (id, tenant_id, entity_id, name, frequency, country_code, first_period_start, is_active)
      VALUES ($1, $2, $3, 'Quincenal', 'quincenal', 'MX', '2026-01-01', true)`,
     [scheduleId, f.tenantId, f.entityId]
-  );
-  periodId = uuidv4();
-  await query(
-    `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
-     VALUES ($1, $2, $3, '2026-07-01', '2026-07-15', '2026-07-15', 2026, 'draft')`,
-    [periodId, f.tenantId, scheduleId]
   );
   employees = [await employee(scheduleId, 'P-001', '400.0000'), await employee(scheduleId, 'P-002', '650.0000')];
   inputsFile = join(mkdtempSync(join(tmpdir(), 'mne069-')), 'inputs.json');
