@@ -7,13 +7,14 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import {
   recordCustomerPayment, reverseCustomerPayment, applyCustomerPayment, unapplyCustomerPayment, getCustomerPayment,
+  transferCustomerCredit,
 } from '../../src/services/payments/payment-service.js';
 import {
   recordCustomerCheckCashing, recordCustomerChecksCashing, CUSTOMER_CHECK_CASHING_SOURCE,
 } from '../../src/services/banking/treasury-posting.js';
 import { crearGrupoDeCotejo, desaplicarCotejo, type ReferenciaDeLibros } from '../../src/services/banking/match-service.js';
 import { entityScope } from '../../src/database/scope.js';
-import { ValidationError } from '../../src/utils/errors.js';
+import { ValidationError, type AppError } from '../../src/utils/errors.js';
 import { registerBankCommand } from '../../src/cli/bank-command.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
@@ -61,11 +62,11 @@ async function bankLine(inAccount: string, date: string, amount: string): Promis
   return id;
 }
 
-/** A new PPD invoice of 1,000.00 + 160.00. */
-async function invoice(): Promise<string> {
+/** A new PPD (or `terms`) invoice of 1,000.00 + 160.00. */
+async function invoice(terms: 'PPD' | 'PUE' = 'PPD'): Promise<string> {
   const draft = await createInvoice({
     entity_id: mx.entityId, customer_id: customerId, invoice_date: '2026-05-10', due_date: '2026-05-10',
-    currency_code: 'MXN', terms: 'PPD', created_by: mx.userId,
+    currency_code: 'MXN', terms, created_by: mx.userId,
     lines: [{ revenue_account_id: mx.cuentas['4100'], description: 'Sale', quantity: '1', unit_price: '1000.00', tax_rate: '16.0000' }],
   });
   return (await issueInvoice(draft.id, mx.userId, { entityId: mx.entityId })).invoice.id;
@@ -455,6 +456,114 @@ describe('a cheque releases its IVA the day the bank cashes it', () => {
     });
     expect(await cashing(id)).toEqual({ date: '2026-06-05', tx: credit });
     expect(await terminal(['receipt', 'show', number])).toContain(`2026-06-05 · bank transaction ${credit}`);
+  });
+});
+
+/**
+ * MNE-001-779 (#787) · A CHEQUE CASHED WHILE ON ACCOUNT IS NOT APPLIED BEFORE
+ * ITS CASHING. A price paid by cheque is paid the day the bank cashes it (LIVA
+ * art. 1o.-B, second paragraph). Cashed with its cash still on account, the
+ * cheque has nothing to release and its cashing posts no entry, so only the
+ * receipt keeps that day; once cashed, its application causes the invoice's
+ * IVA on its own day. The customer side of MNE-001-746.
+ */
+describe('a cheque cashed while on account is not applied, nor transferred, before its cashing', () => {
+  const CASHED = '2026-07-03';
+  const ON_ACCOUNT = [
+    { account: 'anticipo_clientes', debit: '1160.0000', credit: null },
+    { account: 'cxc', debit: null, credit: '1160.0000' },
+  ];
+  const applyOn = (id: string, invoiceId: string, date: string, amount = '1160.00') =>
+    applyCustomerPayment(mx.entityId, id, [{ documentId: invoiceId, amountApplied: amount }], mx.userId, { date });
+  const refusal = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as AppError);
+  const applications = async (id: string) =>
+    (await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM journal_entries WHERE entity_id = $1 AND source_id = $2 AND source_type = 'receipt_application'`,
+      [mx.entityId, id]
+    )).rows[0].n;
+  /** A cheque of 1,160.00 received on 2026-05-30 and left on account, cashed on 2026-07-03 with no entry. */
+  async function cashedOnAccount(): Promise<string> {
+    const { id } = await pay(null);
+    expect(await record(id, await bankLine(account, CASHED, '1160.00'))).toMatchObject({
+      released: '0.0000', entryId: null, note: 'bank.check.cashing.note.nothing_to_release',
+    });
+    return id;
+  }
+
+  it('T7b · applied with --date 2026-06-20 is refused by key, in en and es, writing nothing; the cashing day itself takes DR 2125 / CR 2120 160.00', async () => {
+    const id = await cashedOnAccount();
+    const invoiceId = await invoice();
+    const before = await iva();
+
+    const refused = await refusal(applyOn(id, invoiceId, '2026-06-20'));
+    expect(refused, 'an application dated before the cashing is refused').not.toBeNull();
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode, field: refused?.field }).toEqual({
+      key: 'receipt.apply.date_before_cashing', status: 422, field: 'date',
+    });
+    const number = await numberOf(id);
+    expect(refused?.message).toContain(`The bank cashed the cheque of ${number} on ${CASHED}: an application dated 2026-06-20 `);
+    expect(refused?.localized('es')).toContain(`El banco cobró el cheque del cobro ${number} el ${CASHED}: una aplicación fechada el 2026-06-20 `);
+    expect(await stored(id), 'no allocation').toEqual([]);
+    expect(await applications(id), 'no entry').toBe('0');
+    expect(await iva(), 'the 160.00 stay in 2125').toEqual(before);
+
+    const applied = await applyOn(id, invoiceId, CASHED);
+    const entry = await query<{ d: string }>(
+      'SELECT entry_date::text AS d FROM journal_entries WHERE id = $1 AND entity_id = $2', [applied.journalEntry?.id, mx.entityId]
+    );
+    expect(entry.rows[0].d).toBe(CASHED);
+    expect(await linesOf(applied.journalEntry?.id as string)).toEqual([...ON_ACCOUNT, PENDING('160.0000'), DUE('160.0000')]);
+    expect(await stored(id)).toEqual(['160.0000']);
+    expect(await iva()).toEqual({ pending: before.pending - 160, due: before.due + 160 });
+  });
+
+  it('T7c · of the cashing and the receipt\'s last entry, the refusal names the later day', async () => {
+    const id = await cashedOnAccount();
+    await applyOn(id, await invoice(), '2026-07-10', '580.00');
+    const refused = await refusal(applyOn(id, await invoice(), '2026-06-20', '580.00'));
+    expect(refused?.messageKey).toMatchObject({ key: 'receipt.apply.date_before_last_event', params: { since: '2026-07-10' } });
+  });
+
+  it('T7d · a cheque nobody cashed takes a dated application as before, and its cashing releases the 160.00', async () => {
+    const { id } = await pay(null);
+    const applied = await applyOn(id, await invoice(), '2026-06-20');
+    expect(await linesOf(applied.journalEntry?.id as string)).toEqual(ON_ACCOUNT);
+    expect(await stored(id)).toEqual(['0.0000']);
+    expect(await record(id, await bankLine(account, CASHED, '1160.00'))).toMatchObject({ released: '160.0000' });
+  });
+
+  it('T7f · an unapply is not held to the cashing: cash applied and taken back before the bank paid is a legitimate order', async () => {
+    // Applied to a PUE invoice while held, the cash releases nothing at the cashing, which posts no entry.
+    const { id } = await pay(null);
+    const invoiceId = await invoice('PUE');
+    await applyOn(id, invoiceId, '2026-06-01');
+    expect((await record(id, await bankLine(account, CASHED, '1160.00'))).entryId).toBeNull();
+    const undone = await unapplyCustomerPayment(mx.entityId, id, { invoiceId, reason: 'wrong invoice', date: '2026-06-20' }, mx.userId);
+    const entry = await query<{ d: string }>(
+      'SELECT entry_date::text AS d FROM journal_entries WHERE id = $1 AND entity_id = $2', [undone.journalEntry.id, mx.entityId]
+    );
+    expect(entry.rows[0].d).toBe('2026-06-20');
+  });
+
+  it('T7e · a transfer of its cash on account dated before the cashing is refused by key, writing nothing', async () => {
+    const id = await cashedOnAccount();
+    const other = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, $3, 'Synthetic Transfer Receiver SA', 'MXN', $4)`,
+      [other, mx.entityId, `C-779-${other.slice(0, 6)}`, mx.userId]
+    );
+    const transfer = (date: string) =>
+      transferCustomerCredit(mx.entityId, id, { customerId: other, amount: '1160.00', date, reason: 'agreed by both' }, mx.userId);
+    const refused = await refusal(transfer('2026-06-20'));
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode, field: refused?.field }).toEqual({
+      key: 'receipt.transfer.date_before_cashing', status: 422, field: 'date',
+    });
+    expect(refused?.message).toContain(`on ${CASHED}: a transfer dated 2026-06-20 `);
+    expect(refused?.localized('es')).toContain(`el ${CASHED}: un traspaso fechado el 2026-06-20 `);
+    const rows = await query('SELECT 1 FROM customer_payments WHERE transferred_from_payment_id = $1 AND entity_id = $2', [id, mx.entityId]);
+    expect(rows.rows, 'no transfer row').toEqual([]);
+    expect((await transfer(CASHED)).transferNumber).toMatch(/^TRF/);
   });
 });
 
