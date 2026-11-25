@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "cli-user-strings-without-key": 671,
+    "cli-user-strings-without-key": 614,
     "help-examples-without-key": 252,
     "spanish-user-strings-services": 1859
   },
@@ -1479,7 +1479,6 @@
     "cli-user-strings-without-key": {
       "src/cli/anexo24-migration-command.ts": 1,
       "src/cli/approvals-command.ts": 6,
-      "src/cli/ar-command.ts": 5,
       "src/cli/asset-command.ts": 3,
       "src/cli/bank-command.ts": 11,
       "src/cli/banner.ts": 2,
@@ -1503,7 +1502,6 @@
       "src/cli/init/s3-ai.ts": 37,
       "src/cli/init/s4-policies.ts": 1,
       "src/cli/init/s5-import.ts": 43,
-      "src/cli/invoice-command.ts": 52,
       "src/cli/kernel/audit.ts": 1,
       "src/cli/kernel/closable-period.ts": 3,
       "src/cli/kernel/line-spec.ts": 6,
