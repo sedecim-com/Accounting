@@ -18,6 +18,7 @@ import {
 import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
+import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -40,8 +41,10 @@ import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../
 //                   per sale and receipt movement, the DIOT's exempt
 //                   revenue, the cash-flow statement's movement by
 //                   account and its non-cash entries, and its tie-out's
-//                   opening and movement of cash and residue suspects;
-//                   T14, #101). This is
+//                   opening and movement of cash and residue suspects,
+//                   the opening check's ledger, the receivable a
+//                   collection credits and the held IVA a reversed note
+//                   gives back; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -1146,6 +1149,49 @@ export async function queryAccountAncestry(entityId: string): Promise<Map<string
   return new Map(
     r.rows.map((x) => [x.account_id, { level: Number(x.account_level), ancestors: x.ancestors }])
   );
+}
+
+export interface LedgerNetRow {
+  id: string;
+  code: string;
+  parent_code: string | null;
+  normal_balance: string;
+  codigo_agrupador_sat: string | null;
+  /** Debit-positive net (debit − credit) of the posted entries at the cut. */
+  net: string;
+}
+
+/**
+ * Every account of the entity with its parent's code and its net at a cut,
+ * reversal pairs left out on both sides: the reversed entry
+ * (`reversed_by_entry_id`) and its mirror (`reverses_entry_id`). It is the
+ * ledger side of `opening-balance check` (`checkOpeningBalance`,
+ * MNE-001-616): a reversed opening stays posted on the opening day while its
+ * mirror is dated the day it was voided, so counting the original "as of" the
+ * opening day would double every balance right after a reload (087).
+ *
+ * LEFT JOINs, with the entry's predicates inside its ON, so an account with
+ * no line (or only lines of a draft, a later or a reversed entry) comes back
+ * at zero instead of dropping out. No closing policy is read: the check
+ * compares facts of the ledger with the source's SaldoFin.
+ */
+export async function queryLedgerNetsWithoutReversalPairs(entityId: string, asOf: string): Promise<LedgerNetRow[]> {
+  const r = await query<LedgerNetRow>(
+    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance, a.codigo_agrupador_sat,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                       FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
+       FROM accounts a
+       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
+       LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+       LEFT JOIN journal_entries e
+              ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id
+             AND e.status = 'posted' AND e.entry_date <= $2::date
+             AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
+      WHERE a.entity_id = $1
+      GROUP BY a.id, a.code, p.code, a.normal_balance, a.codigo_agrupador_sat`,
+    [entityId, asOf]
+  );
+  return r.rows;
 }
 
 const ROLLED_COLUMNS = ['debit_total', 'credit_total', 'ending_balance', 'beginning_balance', 'final_balance'] as const;
@@ -2380,6 +2426,85 @@ export async function getAgedPayables(
     total: all.length,
     ...totalAging(all, opts.scale),
   };
+}
+
+// ------------------------------------------------------------
+// RECEIVABLE POSTING READS (MNE-001-616, #101)
+//
+// Two sums the AR posting reads from the ledger before it writes, on the
+// caller's transaction client: a reading taken outside the transaction would
+// not see the lines it has just written, nor be held by its locks. Neither
+// reads a policy, so nothing here leaves the transaction. Each one keeps the
+// join to its document table inside the statement: the join decides which
+// lines are summed, and taking it out would cost a second query.
+// ------------------------------------------------------------
+
+/**
+ * The net the invoice's own entry left on one account: the debit its
+ * receivable was born with (the sum of its rounded lines, MNE-001-081), read
+ * by the tranche that collects a foreign invoice in full (`receivableCredit`,
+ * ar-ap-posting.ts) so the receivable ends at exactly zero. The invoice is
+ * bound to the entity; its entry is read whatever its status, as it always
+ * was. Null when the entry has no line on the account.
+ */
+export async function queryInvoiceEntryNetOnAccount(
+  entityId: string,
+  invoiceId: string,
+  accountId: string,
+  client?: pg.PoolClient
+): Promise<string | null> {
+  const text = `SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born
+         FROM invoices i
+         JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id
+        WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3`;
+  const values = [invoiceId, entityId, accountId];
+  const r = client
+    ? await client.query<{ born: string | null }>(text, values)
+    : await query<{ born: string | null }>(text, values);
+  return r.rows[0]?.born ?? null;
+}
+
+export interface HeldNoteIvaRow {
+  payment_id: string;
+  payment_number: string;
+  invoice_id: string;
+  /** What the note's `held_restitution` lines for this receipt took from 2125. */
+  iva: string;
+  /** The mirror's day, or the cashing's when the mirror is dated before it. */
+  day: string;
+}
+
+/**
+ * Per receipt the bank has cashed, the IVA a reversed credit note took from
+ * 2125 on its `held_restitution` lines (`followNoteReversal`, MNE-001-612):
+ * the note's entry and its mirror bound to the entity, the receipt completed
+ * and cashed, and a live posted cashing entry standing. One statement for
+ * the whole note, ordered by receipt number.
+ */
+export async function queryHeldNoteIvaByCashedReceipt(
+  entityId: string,
+  entries: { noteEntryId: string; mirrorEntryId: string },
+  client?: pg.PoolClient
+): Promise<HeldNoteIvaRow[]> {
+  const text = `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
+            GREATEST(m.entry_date, cp.check_cashed_date)::text AS day
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
+       JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
+       JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
+                                AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
+      WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
+        -- MNE-001-794: a cashing may post one entry per day, so it is asked for, not joined (a join would sum
+        -- the note's lines once per entry), and the day is the bank's, the one every entry of it once carried.
+        AND EXISTS (SELECT 1 FROM journal_entries c
+                     WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
+                       AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)
+      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date, cp.check_cashed_date
+      ORDER BY cp.payment_number`;
+  const values = [entityId, entries.noteEntryId, entries.mirrorEntryId];
+  const r = client ? await client.query<HeldNoteIvaRow>(text, values) : await query<HeldNoteIvaRow>(text, values);
+  return r.rows;
 }
 
 // ------------------------------------------------------------

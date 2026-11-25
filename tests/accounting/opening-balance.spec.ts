@@ -26,6 +26,13 @@ vi.mock('../../src/services/ap/opening-bills.js', () => ({
 vi.mock('../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
+// MNE-001-616: the penny check reads the ledger through report-service. The
+// real helper runs (its SQL reaches the mocked `query`), wrapped in a spy so a
+// test can say which layer was asked, with what, and how many times.
+vi.mock('../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/reporting/report-service.js')>();
+  return { ...real, queryLedgerNetsWithoutReversalPairs: vi.fn(real.queryLedgerNetsWithoutReversalPairs) };
+});
 
 import {
   planOpeningBalance,
@@ -58,8 +65,10 @@ import {
   writeOpeningBills,
 } from '../../src/services/ap/opening-bills.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
+import { queryLedgerNetsWithoutReversalPairs } from '../../src/services/reporting/report-service.js';
 
 const mockQuery = query as unknown as Mock;
+const ledgerReader = queryLedgerNetsWithoutReversalPairs as unknown as Mock;
 const mockTx = withTransaction as unknown as Mock;
 const mockAudit = registrarAuditoria as unknown as Mock;
 const mockCrear = createJournalEntry as unknown as Mock;
@@ -1376,6 +1385,18 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     expect(sql).toContain('reverses_entry_id IS NULL');
     expect(mockCrear).not.toHaveBeenCalled();
     expect(mockTx).not.toHaveBeenCalled();
+  });
+
+  it('reads the ledger once through report-service, as of the opening day (MNE-001-616)', async () => {
+    // By hand: 1110 debit 1 000.0000 and 3100 credit 1 000.0000 (net −1 000.0000)
+    // against a source that declares 1 000.00 for each: equal to the penny.
+    ledgerReader.mockClear();
+    withLedger(ledger('1000.0000', '-1000.0000'));
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml: XML_SIMPLE });
+    expect(ledgerReader.mock.calls).toEqual([['ent-1', '2026-01-01']]);
+    // The entity, the ledger, the ancestry: three statements, as before the move.
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+    expect(r.comparison.iguales).toBe(true);
   });
 
   it('a penny off is a difference, in the account nature', async () => {
