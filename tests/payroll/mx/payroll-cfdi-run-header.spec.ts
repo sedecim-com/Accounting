@@ -4,13 +4,18 @@ import { types } from 'pg';
 // MNE-001-277 · TipoNomina, PeriodicidadPago and Antiguedad come from the run,
 // the pay schedule and the hire date, not from literals or the surname.
 
-vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+// The generator runs on one transaction since MNE-001-736: its client is this same double.
+vi.mock('../../../src/database/connection.js', () => {
+  const query = vi.fn();
+  return { query, withTransaction: (fn: (tx: unknown) => unknown) => fn({ query, on: vi.fn(), off: vi.fn() }) };
+});
 vi.mock('../../../src/services/integrations/mexico/pac/pac-router.js', () => ({
   pacRouter: { stamp: vi.fn() },
 }));
 
 import {
   generateAndStampCfdiNomina,
+  paycheckIsFreeToStamp,
   payrollTypeForRunType,
   paymentPeriodicityFor,
   seniorityWeeks,
@@ -22,11 +27,15 @@ import { pacRouter } from '../../../src/services/integrations/mexico/pac/pac-rou
 const mockQuery = query as unknown as Mock;
 const mockStamp = pacRouter.stamp as unknown as Mock;
 
+/** The rows the double says the paycheck's UPDATE wrote. */
+let rowsWritten = 1;
+
 async function xmlFor(over: Record<string, string | Date | null>): Promise<string> {
   mockQuery.mockImplementation(async (sql: string) => {
     if (/FROM paychecks p/.test(sql)) {
       return {
         rows: [{
+          cfdi_uuid: null, cfdi_status: null, cfdi_stamped_at: null,
           paycheck_id: 'pc-1', tenant_id: 't-1', gross_earnings: '100.00', net_pay: '100.00',
           isr_withheld: '0', subsidio_empleo: '0', subsidio_entregado_efectivo: '0',
           imss_employee: '0', infonavit_withheld: '0',
@@ -39,7 +48,7 @@ async function xmlFor(over: Record<string, string | Date | null>): Promise<strin
         }],
       };
     }
-    return { rows: [] };
+    return { rows: [], rowCount: rowsWritten };
   });
   const r = await generateAndStampCfdiNomina(
     'pc-1', { tenantId: 't-1', userId: 'u-1' },
@@ -49,6 +58,7 @@ async function xmlFor(over: Record<string, string | Date | null>): Promise<strin
 }
 
 beforeEach(() => {
+  rowsWritten = 1;
   mockQuery.mockReset();
   mockStamp.mockReset();
   mockStamp.mockResolvedValue({
@@ -136,6 +146,58 @@ describe('the run has to be approved before its paycheck is stamped', () => {
     expect(mockStamp).toHaveBeenCalledTimes(1);
     const first = String(mockQuery.mock.calls[0][0]);
     expect(first).toMatch(/pr\.status AS run_status/);
+  });
+});
+
+// MNE-001-736 (#601): the paycheck's own CFDI rides in that same statement,
+// which now holds the row, and the write names the state it was read in.
+describe('a paycheck that holds a payroll CFDI is not stamped again', () => {
+  it('only a stamped CFDI, or a status nobody decided, holds the paycheck', () => {
+    expect([null, 'pending', 'failed', 'cancelled'].map(paycheckIsFreeToStamp)).toEqual([true, true, true, true]);
+    expect(['stamped', 'stamping', ''].map(paycheckIsFreeToStamp)).toEqual([false, false, false]);
+  });
+
+  it('a stamped paycheck is refused by key after one statement, before the PAC, and names its folio', async () => {
+    const stampedAt = new Date('2026-03-09T16:00:00.000Z');
+    await expect(
+      xmlFor({ cfdi_status: 'stamped', cfdi_uuid: 'folio-1', cfdi_stamped_at: stampedAt })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      messageKey: {
+        key: 'payrun.cfdi.already_stamped',
+        params: { id: 'pc-1', uuid: 'folio-1', status: 'stamped', stamped_at: '2026-03-09T16:00:00.000Z' },
+      },
+    });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockStamp).not.toHaveBeenCalled();
+  });
+
+  it('the run is asked first: a stamped paycheck of an unapproved run answers for the run', async () => {
+    await expect(xmlFor({ run_status: 'calculated', cfdi_status: 'stamped' })).rejects.toMatchObject({
+      messageKey: { key: 'payrun.cfdi.run_not_approved' },
+    });
+  });
+
+  it('the read holds the paycheck row, and the write carries the scope and the state it was read in', async () => {
+    await xmlFor({});
+    const [read, , , write] = mockQuery.mock.calls as Array<[string, unknown[]]>;
+    expect(read[0]).toMatch(/FOR NO KEY UPDATE OF p/);
+    expect(read[0]).toMatch(/p\.cfdi_uuid, p\.cfdi_status, p\.cfdi_stamped_at/);
+    expect(write[0]).toMatch(/UPDATE paychecks SET cfdi_uuid = \$1/);
+    expect(write[0]).toMatch(/WHERE id = \$4 AND tenant_id = \$5/);
+    expect(write[0]).toMatch(/cfdi_status IS NULL OR cfdi_status = ANY\(\$6::text\[\]\)/);
+    expect(write[0]).toMatch(/e\.entity_id = \$7::uuid/);
+    expect(write[1]).toEqual(['u', 'failed', 'p', 'pc-1', 't-1', ['pending', 'cancelled', 'failed'], 'ent-1']);
+  });
+
+  it('a folio the write did not record is named by the error, with its PAC', async () => {
+    rowsWritten = 0;
+    await expect(xmlFor({})).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'PAYROLL_CFDI_NOT_RECORDED',
+      messageKey: { key: 'payrun.cfdi.stamped_not_recorded', params: { id: 'pc-1', uuid: 'u', provider: 'p' } },
+    });
+    expect(mockStamp).toHaveBeenCalledTimes(1);
   });
 });
 
