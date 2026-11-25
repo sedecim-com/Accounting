@@ -170,7 +170,8 @@ export const CASES: CfdiCase[] = [
       { role: 'gasto', side: 'debit', amount: A.subtotalNeto, description: 'Expense/purchase' },
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
-      // As for a PUE (MNE-001-492): the VAT is NOT creditable yet.
+      // As for a PUE (MNE-001-492): the VAT is NOT creditable yet. On an entity off Mexican books no
+      // payment releases it, so the classifier posts this line and the one of a PUE to the creditable role (MNE-001-742).
       { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited with the REP)', omitIfZero: true },
       { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
       { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },

@@ -8,6 +8,7 @@ import {
   type DecisionPoint, type PolicyThresholds,
 } from './cfdi-decisions.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
+import { reclassRoles } from '../accounting/iva-cash-basis.js';
 import {
   isBorderRateFreight, isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding,
   unwithheldFeesPolicyOf, withholdingByLaw, withholdingMismatchPolicyOf, withholdingQualifierOf,
@@ -97,6 +98,13 @@ export interface ClassifyOptions {
   /** CFDI status at the SAT, if validated. */
   satStatus?: 'vigente' | 'cancelado' | 'no_encontrado' | 'sin_validar';
   roleMap?: Map<string, { code: string; name: string }>;
+  /**
+   * MNE-001-742: `false` when the caller has read that the entity does not keep
+   * Mexican books (`keepsMexicanBooks`). No payment releases VAT on those books,
+   * so the VAT a received CFDI would park is posted to the role a payment would
+   * release it to. Absent, the taxonomy's roles are used as written.
+   */
+  cashBasisVat?: boolean;
   /** Policy-resolved thresholds; without them the defaults are used. */
   thresholds?: PolicyThresholds;
   /** Where the withholding rates are read; Postgres' `legal_parameters` by default. */
@@ -274,10 +282,14 @@ export async function classifyParsed(
 
   const lines: ProposedLine[] = [];
   const missingRoles: AccountRole[] = [];
+  // MNE-001-742: the pair is the one a vendor payment reclassifies (iva-cash-basis.ts), so the
+  // bill door, the credit note and this one agree on where the VAT of such books sits.
+  const unparked = opts.cashBasisVat === false ? reclassRoles('received') : null;
   for (const t of matched.posting) {
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
-    const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role);
+    const released = unparked !== null && t.role === unparked.from;
+    const role = t.role === 'gasto' && roleOverride ? roleOverride : released ? unparked.to : t.role;
     // MNE-001-147: ISR withheld on a lease has its own mapping when the
     // withholding layout splits it (withholding-accounts.ts); otherwise the
     // default one.
@@ -290,7 +302,7 @@ export async function classifyParsed(
       accountName: acct?.name ?? null,
       debit: t.side === 'debit' ? round2(amount) : null,
       credit: t.side === 'credit' ? round2(amount) : null,
-      description: t.description,
+      description: released ? 'Creditable tax on the purchase (books off the Mexican cash basis)' : t.description,
     });
   }
 
