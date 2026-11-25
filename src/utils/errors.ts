@@ -137,14 +137,14 @@ export class ConflictError extends AppError {
 }
 
 export class UnauthorizedError extends AppError {
-  constructor(message = 'Unauthorized') {
+  constructor(message: string | ErrorMessageKey = 'Unauthorized') {
     super(401, 'UNAUTHORIZED', message);
     this.name = 'UnauthorizedError';
   }
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = 'Forbidden', details?: Record<string, unknown>) {
+  constructor(message: string | ErrorMessageKey = 'Forbidden', details?: Record<string, unknown>) {
     super(403, 'FORBIDDEN', message, undefined, details);
     this.name = 'ForbiddenError';
   }
@@ -164,7 +164,7 @@ export class ForbiddenError extends AppError {
  * answers 501 is a promise the system has publicly withdrawn.
  */
 export class NotImplementedError extends AppError {
-  constructor(message: string, details?: Record<string, unknown>) {
+  constructor(message: string | ErrorMessageKey, details?: Record<string, unknown>) {
     super(501, 'NOT_IMPLEMENTED', message, undefined, details);
     this.name = 'NotImplementedError';
   }

@@ -251,7 +251,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.cfdi.direction': '--direction ilegible "{direction}": emitido, recibido o ajeno.',
   'error.RESOURCE_NOT_FOUND.classification_trail':
     'Clasificación with id {uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró) not found',
-  // ---- MNE-001-730 · I9 by folder, part 7: the refusals of src/services/payroll; see en.ts ----
+  // ---- MNE-001-729 · I9 by folder, part 6: the messages of src/api/rest; see en.ts ----
+  'error.FORBIDDEN.entity_header_repeated': 'x-entity-id viene repetida: la petición actúa sobre una sola entidad',
+  'error.VALIDATION_ERROR.entity.several_named':
+    'La petición nombra {count} entidades distintas ({named}). Cada ruta usa la fuente que le corresponde y la bitácora registra la de la cabecera, así que con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
+  'error.VALIDATION_ERROR.entity.named_source':
+    '{source, select, header {la cabecera x-entity-id} route {la ruta (:entity_id)} body {el cuerpo} other {la cadena de consulta (?entity_id=)}}: {value}',
+  'error.VALIDATION_ERROR.idempotency_key.repeated':
+    'La petición trae {count} cabeceras {header}. Manda exactamente una: con dos, cuál manda decidiría en silencio si este acto se repite o no.',
+  'error.VALIDATION_ERROR.idempotency_key.empty':
+    'La cabecera {header} viene vacía. Quítala, o manda una llave: una llave vacía no deduplica nada y hace creer que sí.',
+  'error.VALIDATION_ERROR.idempotency_key.too_long': 'La llave de idempotencia mide {length} caracteres y el máximo es {max}.',
+  'error.VALIDATION_ERROR.idempotency_key.malformed':
+    'La llave de idempotencia "{value}" trae caracteres que no se admiten. Usa letras, dígitos y _ . : @ + / = - (un UUID sirve). La coma y el espacio quedan fuera a propósito: es como llegan DOS cabeceras unidas por el servidor, y una llave así no es la que mandó nadie — el reintento no casaría y el acto se repetiría en silencio.',
+  'error.VALIDATION_ERROR.idempotency_key.no_tenant':
+    'No se puede honrar {header}: la petición no identifica un inquilino, y las llaves consumadas se guardan por inquilino.',
+  'error.UNAUTHORIZED.no_tenant': 'El token no identifica un inquilino: la petición no puede acotarse y se rechaza.',
+  'error.VALIDATION_ERROR.xml.batch_cap': 'xml_contents debe ser un arreglo de a lo más {max} documentos.',
+  'error.FORBIDDEN.detail.issued_payment_receipt': 'Un comprobante de pago emitido registra cobros de clientes.',
+  'api.invoices.send_note': 'La factura queda registrada como enviada; el sistema no transmite correo. El envío es del usuario.',
+  'error.NOT_IMPLEMENTED.cfdi_cancellation':
+    'mnemosine todavía no cancela CFDI ante el SAT. Cancela en el portal de tu PAC o en el del SAT, y después reversa el asiento con `mnemosine entry reverse <numero> --reason "CFDI cancelado, acuse <folio>"`. Cuando exista, la cancelación irá por pac-router con acuse archivado y reversa encadenada.',
+  'api.blockchain.simulated_attestations':
+    '{simulated} de {total} atestaciones de esta página son SIMULADAS: su txHash, su número de bloque y su enlace al explorador están fabricados y no corresponden a ninguna transacción. No sirven como prueba ante un tercero.',
+  'api.blockchain.simulated_anchors':
+    '{simulated} de {total} anclajes de esta página son SIMULADOS: su txid se fabricó localmente y no existe en Bitcoin. No los publiques como prueba ante un tercero ni compartas un enlace a un explorador con ellos.',
+  'error.ATTESTATION_SIMULATED':
+    '{what, select, entry_attestation {La atestación de ese asiento} period_commitment {El compromiso de ese periodo} bitcoin_anchor {Ese anclaje de Bitcoin} other {La prueba de anclaje de ese asiento}} existe, pero su anclaje es SIMULADO: ningún hash se escribió en ninguna cadena, así que no hay nada que un tercero pueda comprobar. Este endpoint se niega a presentarlo como prueba. Volverá a responder cuando exista un adaptador de cadena real.',
+  'api.public_verification.bitcoin_simulated_step': '6. El anclaje de Bitcoin es SIMULADO: no hay OP_RETURN en la cadena que comprobar',
+  // ---- MNE-001-730 ·I9 by folder, part 7: the refusals of src/services/payroll; see en.ts ----
   'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales':
     'La política provision_cuotas_patronales vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende si las cuotas patronales se apuntan con cada corrida o una vez al mes, y aplicar la omisión como si fuera tu criterio deja el pasivo del mes repartido entre dos formas de contarlo. Corrígela con `mnemosine pending define provision_cuotas_patronales <{choices}>`.',
   'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion':
