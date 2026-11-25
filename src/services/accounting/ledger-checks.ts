@@ -1,6 +1,6 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
-import { t } from '../../i18n/index.js';
+import type { MessageParams, TranslationKey } from '../../i18n/index.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
 import { resolveAccount } from './account-service.js';
 
@@ -33,6 +33,13 @@ export interface LedgerFinding {
   severity: 'blocking' | 'warning';
   referencia: string;
   detalle: string;
+  /**
+   * When present, the detail text is the English of this catalogue key: each human
+   * surface paints it in its reader's language (no service imports the
+   * language, see the E4.2 criterion report-labels-come-from-the-catalog).
+   */
+  detail_key?: TranslationKey;
+  detail_params?: MessageParams;
 }
 
 export const LEDGER_CHECK_NAMES = ['balance', 'audit-trail', 'continuity', 'year-sweep'] as const;
@@ -340,8 +347,8 @@ async function checkContinuity(entityId: string): Promise<LedgerFinding[]> {
  *    sweeps them;
  *  - that account's balance over the year is not zero any more. So a late
  *    entry and its reversal pass, a new sweep (the period closed again) passes,
- *    and a residue the firm accepted at the seal (`severidad_resultado_sin_barrer`
- *    = 'avisar') with no late posting on it is not reopened here.
+ *    and a residue the firm accepted at the seal (the unswept-result policy
+ *    set to warn) with no late posting on it is not reopened here.
  *
  * With `closing`, only the sealed years before that period: the months of the
  * same year still close, so the late entry can be fixed and the seal redone.
@@ -397,9 +404,15 @@ async function checkYearSweep(entityId: string, f: LedgerCheckFilters): Promise<
     check: 'year-sweep',
     severity: 'blocking' as const,
     referencia: r.entry_number,
-    detalle: t('ledger.ledger.check.year_sweep', {
+    // The English of `ledger.check.year_sweep.found`, which the spec pins to en.ts.
+    detalle:
+      `posted to ${r.period_name} on ${r.posted}, after ${r.sealed} swept the fiscal year on ${r.sealed_at}: ` +
+      `${r.accounts} no longer agree with that sweep. Close ${r.sealed} again (period reopen, then close twice), ` +
+      'or reverse the entry',
+    detail_key: 'ledger.check.year_sweep.found' as const,
+    detail_params: {
       period: r.period_name, posted: r.posted, sealed: r.sealed, sealed_at: r.sealed_at, accounts: r.accounts,
-    }),
+    },
   }));
 }
 

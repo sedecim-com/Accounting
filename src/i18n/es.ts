@@ -4268,8 +4268,6 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.ledger.check.blocking_checks': 'las verificaciones bloqueantes',
   'ledger.ledger.check.findings':
     '{blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}}, {warning, plural, one {# advertencia} other {# advertencias}}',
-  'ledger.ledger.check.year_sweep':
-    'posteada en {period} el {posted}, después de que {sealed} barrió el ejercicio el {sealed_at}: {accounts} ya no cuadran con ese barrido. Cierra {sealed} otra vez (period reopen y después close dos veces), o reversa la póliza',
   'ledger.ledger.stale_draft.days_unreadable': '--days ilegible: "{value}".',
   'ledger.ledger.stale_draft.found':
     '{count, plural, one {# borrador} other {# borradores}} con más de {days, plural, one {# día} other {# días}}. Se aplican con entry post, o se retiran.',
@@ -4786,6 +4784,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'ciérrala con `receipt allocation close <cobro> --invoice <factura> --reason "<por qué>"`, que no postea nada, ' +
     'antes de volver a cobrar esa factura. En un cobro anulado o fallido, repórtala',
   'ar.check.orphan_application.none': 'ninguna',
+  'ledger.check.year_sweep.found':
+    'posteada en {period} el {posted}, después de que {sealed} barrió el ejercicio el {sealed_at}: {accounts} ya no cuadran con ese barrido. Cierra {sealed} otra vez (period reopen y después close dos veces), o reversa la póliza',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',

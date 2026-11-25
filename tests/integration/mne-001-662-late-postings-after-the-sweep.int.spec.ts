@@ -9,6 +9,7 @@ import { runLedgerChecks } from '../../src/services/accounting/ledger-checks.js'
 import { explainCloseCheck } from '../../src/services/accounting/close-explain.js';
 import { createFiscalYear, reopenClosedPeriod } from '../../src/services/accounting/fiscal-calendar-service.js';
 import { AccountingError } from '../../src/utils/errors.js';
+import { t } from '../../src/i18n/index.js';
 import { JournalEntryType } from '../../src/types/index.js';
 
 // ============================================================
@@ -131,6 +132,12 @@ describe('A · accept_unsealed: a sale posted to a soft-closed December after th
     expect(found[0].detalle).toContain('December 2025');
     expect(found[0].detalle).toContain('Year-end adjustments 2025');
     expect(found[0].detalle).toContain('4100');
+    // The finding text is a catalogue key: the English the service carries is en.ts, and es.ts says it too.
+    expect(found[0].detail_key).toBe('ledger.check.year_sweep.found');
+    expect(found[0].detalle).toBe(t(found[0].detail_key!, found[0].detail_params, 'en'));
+    const es = t(found[0].detail_key!, found[0].detail_params, 'es');
+    expect(es).toContain('barrió el ejercicio');
+    expect(es).toContain('4100');
     // Asked by name, the same answer.
     expect(await runLedgerChecks(b.f.entityId, [CHECK])).toEqual(found);
   });

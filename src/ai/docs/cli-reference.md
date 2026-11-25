@@ -10575,7 +10575,7 @@ Examples:
   # One named check, scoped to a single account and period.
   mnemosine ledger check --check balance --account 1120 --period 2026-07
   # Every check, with warnings blocking too.
-  mnemosine ledger check --check balance,audit-trail,continuity --strict
+  mnemosine ledger check --check balance,audit-trail,continuity,year-sweep --strict
 ```
 
 ### `mnemosine ledger stale-draft` (alias: borrador-viejo)

@@ -149,6 +149,18 @@ const findings = (blocking: number, warning: number) => () => {
     ...Array.from({ length: warning }, (_, i) => ({ check: 'audit-trail', severity: 'warning', referencia: `W${i}` })),
   ] as never);
 };
+/** MNE-001-662: a `year-sweep` finding carries its text as a catalogue key, painted here at the edge. */
+const lateAfterSweep = () => {
+  vi.mocked(runLedgerChecks).mockResolvedValue([{
+    check: 'year-sweep', severity: 'blocking', referencia: 'JE-2025-000009',
+    detalle: 'posted to December 2025 on 2026-01-15, after … (English)',
+    detail_key: 'ledger.check.year_sweep.found',
+    detail_params: {
+      period: 'December 2025', posted: '2026-01-15', sealed: 'Year-end adjustments 2025',
+      sealed_at: '2026-01-10', accounts: '4100',
+    },
+  }] as never);
+};
 const drafts = (count: number) => () => {
   vi.mocked(listStaleDrafts).mockResolvedValue(
     Array.from({ length: count }, (_, i) => ({ entry_number: `JE-00${i}` })) as never
@@ -358,6 +370,9 @@ const CASES: Case[] = [
     en: '1 blocking finding, 1 warning\n', es: '1 hallazgo bloqueante, 1 advertencia\n' },
   { key: 'ledger.ledger.check.findings', argv: ['ledger', 'check'], where: 'err', setup: findings(2, 3),
     en: '2 blocking findings, 3 warnings\n', es: '2 hallazgos bloqueantes, 3 advertencias\n' },
+  { key: 'ledger.check.year_sweep.found', argv: ['ledger', 'check', '--json'], where: 'out', setup: lateAfterSweep,
+    en: 'posted to December 2025 on 2026-01-15, after Year-end adjustments 2025 swept the fiscal year on 2026-01-10: 4100 no longer agree with that sweep. Close Year-end adjustments 2025 again (period reopen, then close twice), or reverse the entry',
+    es: 'posteada en December 2025 el 2026-01-15, después de que Year-end adjustments 2025 barrió el ejercicio el 2026-01-10: 4100 ya no cuadran con ese barrido. Cierra Year-end adjustments 2025 otra vez (period reopen y después close dos veces), o reversa la póliza' },
 
   // ---- ledger stale-draft list ----
   { key: 'ledger.ledger.stale_draft.days_unreadable', argv: ['ledger', 'stale-draft', 'list', '--days', 'x'], where: 'error',

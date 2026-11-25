@@ -4909,9 +4909,6 @@ export const EN = {
   'ledger.ledger.check.blocking_checks': 'the blocking checks',
   'ledger.ledger.check.findings':
     '{blocking, plural, one {# blocking finding} other {# blocking findings}}, {warning, plural, one {# warning} other {# warnings}}',
-  /** MNE-001-662: the `year-sweep` finding of one entry. `sealed` is the year's last period; `accounts`, codes. */
-  'ledger.ledger.check.year_sweep':
-    'posted to {period} on {posted}, after {sealed} swept the fiscal year on {sealed_at}: {accounts} no longer agree with that sweep. Close {sealed} again (period reopen, then close twice), or reverse the entry',
   /** `ledger stale-draft list`. */
   'ledger.ledger.stale_draft.days_unreadable': 'Unreadable --days: "{value}".',
   'ledger.ledger.stale_draft.found':
@@ -5447,6 +5444,9 @@ export const EN = {
     'close it with `receipt allocation close <receipt> --invoice <invoice> --reason "<why>"`, which posts nothing, ' +
     'before collecting that invoice again. On a void or failed receipt, report it',
   'ar.check.orphan_application.none': 'none',
+  /** `ledger check`, check year-sweep (MNE-001-662): `sealed` is the year's last period; `accounts`, codes. */
+  'ledger.check.year_sweep.found':
+    'posted to {period} on {posted}, after {sealed} swept the fiscal year on {sealed_at}: {accounts} no longer agree with that sweep. Close {sealed} again (period reopen, then close twice), or reverse the entry',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
