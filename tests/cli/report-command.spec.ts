@@ -287,6 +287,7 @@ describe('truncation is announced and the footing is not truncated with it', () 
     vi.mocked(reportService.getAgedPayables).mockResolvedValue({
       entity_id: 'ent-1',
       as_of_date: '2026-08-25',
+      balance_basis: 'current',
       rows: [{
         vendor_id: 'v', vendor_name: 'Proveedor', vendor_number: 'V-1',
         bill_id: 'b', bill_number: 'BILL-1', bill_date: new Date(2026, 3, 10),
@@ -311,6 +312,7 @@ describe('truncation is announced and the footing is not truncated with it', () 
     vi.mocked(reportService.getAgedReceivables).mockResolvedValue({
       entity_id: 'ent-1',
       as_of_date: '2026-08-25',
+      balance_basis: 'current',
       rows: [
         {
           customer_id: 'c1', customer_name: 'Alfa', customer_number: 'C-1',
@@ -374,7 +376,7 @@ describe('truncation is announced and the footing is not truncated with it', () 
 
   it('an empty ageing still says the total, in the entity currency', async () => {
     vi.mocked(reportService.getAgedPayables).mockResolvedValue({
-      entity_id: 'ent-1', as_of_date: '2026-08-25', rows: [], total: 0,
+      entity_id: 'ent-1', as_of_date: '2026-08-25', balance_basis: 'current', rows: [], total: 0,
       totals_by_currency: [], total_book_amount_due: '0.0000',
     });
     const { err } = await runCli(['report', 'aged-payable', 'show', '--entity', 'Demo']);
@@ -406,16 +408,34 @@ describe('the family refuses rather than guessing', () => {
     expect(err).toMatch(/--level must be a whole number/);
   });
 
-  it('an aged report reached with a past cutoff says what the cutoff does NOT do', async () => {
+  // MNE-001-648: the listing that still reads today's balances keeps saying so.
+  it('aged payables reached with a past cutoff say what the cutoff does NOT do', async () => {
+    vi.mocked(reportService.getAgedPayables).mockResolvedValue({
+      entity_id: 'ent-1', as_of_date: '2020-12-31', balance_basis: 'current', rows: [], total: 0,
+      totals_by_currency: [], total_book_amount_due: '0.0000',
+    });
+    const { err } = await runCli([
+      'report', 'aged-payable', 'show', '--entity', 'Demo', '--as-of', '2020-12-31',
+    ]);
+    expect(err).toMatch(/ages the due dates only/);
+    expect(err).toMatch(/not the balances as they stood on that date/);
+  });
+
+  it('aged receivables with a stated cutoff ask for the balances of that day, and the warning is gone', async () => {
     vi.mocked(reportService.getAgedReceivables).mockResolvedValue({
-      entity_id: 'ent-1', as_of_date: '2020-12-31', rows: [], total: 0,
+      entity_id: 'ent-1', as_of_date: '2020-12-31', balance_basis: 'as_of_date', rows: [], total: 0,
       totals_by_currency: [], total_book_amount_due: '0.0000',
     });
     const { err } = await runCli([
       'report', 'aged-receivable', 'show', '--entity', 'Demo', '--as-of', '2020-12-31',
     ]);
-    expect(err).toMatch(/ages the due dates only/);
-    expect(err).toMatch(/not the balances as they stood on that date/);
+    expect(vi.mocked(reportService.getAgedReceivables).mock.calls.at(-1)![1]).toMatchObject({
+      asOfDate: '2020-12-31', reconstruct: true,
+    });
+    expect(err).not.toMatch(/ages the due dates only/);
+
+    await runCli(['report', 'aged-receivable', 'show', '--entity', 'Demo']);
+    expect(vi.mocked(reportService.getAgedReceivables).mock.calls.at(-1)![1].reconstruct).toBe(false);
   });
 });
 

@@ -668,11 +668,14 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         const ctx = await entityOf(opts);
         rejectStatus(opts, `report aged-${kind} show`);
         const range = await windowOf(ctx, opts);
-        const asOf = opts.asOf ?? range?.end_date ?? opts.until ?? today();
+        const stated = opts.asOf ?? range?.end_date ?? opts.until;
+        const asOf = stated ?? today();
 
+        // MNE-001-648: a stated date is read as that date, as `customer show --as-of` does.
         const aging = isAr
           ? await getAgedReceivables(ctx.entityId, {
               asOfDate: asOf, order: 'overdue', limit: pageLimit(opts), offset: opts.offset,
+              reconstruct: stated !== undefined,
             })
           : await getAgedPayables(ctx.entityId, {
               asOfDate: asOf, order: 'overdue', limit: pageLimit(opts), offset: opts.offset,
@@ -734,12 +737,10 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
           );
         }
 
-        // The limit of this report, said out loud rather than left for an
-        // auditor to discover: the cutoff ages the DUE DATE, but the amount
-        // is the balance as it stands right now. Reproducing what was owed
-        // on a past date needs the payment history, which this report does
-        // not reconstruct.
-        if (asOf !== today()) {
+        // The limit of a listing that read today's balances (payables, until
+        // MNE-001-649), said out loud rather than left for an auditor to
+        // discover: the cutoff aged the DUE DATE only.
+        if (aging.balance_basis === 'current' && asOf !== today()) {
           warn(
             `--as-of ${asOf} ages the due dates only. The amounts are today's open balances, ` +
               'not the balances as they stood on that date.'

@@ -145,10 +145,18 @@ export interface CustomerListPage {
  * January and applied in March still leaves the invoice owed at 31 January,
  * which is what the auxiliary showed that day. Timestamps are cut to a date in
  * the session time zone.
+ *
+ * MNE-001-648: a sale collected on the spot is born `paid` with no collection
+ * behind it, because its entry debited the bank and never receivables
+ * (issued-invoice-approval.ts). It is told apart by what it lacks, and it owed
+ * nothing on any date. The count is an index probe per paid invoice; NOT
+ * EXISTS can be planned as a scan of every allocation.
  */
 export function amountDueAsOfSql(asOfParam: string): string {
   const asOf = `${asOfParam}::date`;
-  return `(i.total_amount
+  return `(CASE WHEN i.status = 'paid' AND i.amount_paid >= i.total_amount
+        AND (SELECT COUNT(*) FROM payment_allocations born WHERE born.invoice_id = i.id) = 0
+      THEN 0.0000 ELSE i.total_amount
       - COALESCE((
           -- A withholding settled the invoice with the cash (MNE-001-113).
           SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
@@ -164,7 +172,22 @@ export function amountDueAsOfSql(asOfParam: string): string {
           SELECT SUM(cna.amount_applied)
           FROM credit_note_applications cna
           WHERE cna.invoice_id = i.id AND cna.created_at::date <= ${asOf}
-        ), 0))`;
+        ), 0) END)`;
+}
+
+/**
+ * Whether invoice `i`, void today, was voided after `asOfParam` (MNE-001-648).
+ * The invoice keeps no day of its void; the ledger does: the reversal that
+ * annulled its entry (`voidInvoice`, NIF B-1). One voided before it was posted
+ * has no reversal and never was a receivable.
+ *
+ * NOTE: a scalar subquery, not EXISTS: it stays two primary-key reads per
+ * void invoice, where EXISTS can be planned as a hash over every entry.
+ */
+export function voidedAfterSql(asOfParam: string): string {
+  return `(SELECT rev.entry_date FROM journal_entries je
+        JOIN journal_entries rev ON rev.id = je.reversed_by_entry_id
+       WHERE je.id = i.journal_entry_id AND je.entity_id = i.entity_id) > ${asOfParam}::date`;
 }
 
 /**
@@ -180,7 +203,8 @@ export function amountDueAsOfSql(asOfParam: string): string {
  *   what was billed on documents dated on or before the reference date, minus
  *   what had settled them by then. The known limit, stated rather than hidden:
  *   a document VOIDED after the reference date is treated as never having been
- *   open, because the void carries no date either.
+ *   open here. The ledger does date the void (`voidedAfterSql`), and the aged
+ *   receivables read it (MNE-001-648); these doors do not yet.
  */
 function openDocumentExpr(
   asOfParam: string,

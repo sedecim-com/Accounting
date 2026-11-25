@@ -98,6 +98,7 @@ import {
   getPeriodMovementByAccountType,
 } from '../../../src/services/reporting/report-service.js';
 import { query, currentTenant } from '../../../src/database/connection.js';
+import { amountDueAsOfSql, voidedAfterSql } from '../../../src/services/ar/customer-service.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
 import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
@@ -1276,6 +1277,31 @@ describe('ageing', () => {
     await queryAgedPayableRows(ENTITY, { asOfDate: '2026-08-25', order: 'x; DROP TABLE bills' as never });
     expect(sql(0)).toMatch(/ORDER BY v\.company_name, b\.due_date$/);
     expect(sql(0)).not.toMatch(/DROP TABLE/);
+  });
+
+  // MNE-001-648 (#596): a stated cutoff reads what was owed that day.
+  it('receivables as of the cutoff: the balance of that day, its book value and the void after it, in one query', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAgedReceivableRows(ENTITY, { asOfDate: '2026-08-31', reconstruct: true });
+    const flat = (text: string) => text.replace(/\s+/g, ' ');
+    expect(sql(0)).toContain(flat(`CROSS JOIN LATERAL (SELECT ${amountDueAsOfSql('$2')} AS amount_due OFFSET 0) d`));
+    expect(sql(0)).toContain(flat(`${bookAmountDueSql('i', '$1', 'd.amount_due')} as book_amount_due`));
+    expect(sql(0)).toMatch(/ROUND\(d\.amount_due \* i\.exchange_rate, 4\)/);
+    expect(sql(0)).toMatch(/\(\$2::date - i\.due_date\) as days_overdue/);
+    expect(sql(0)).toMatch(/WHERE i\.entity_id = \$1 AND i\.invoice_date <= \$2::date/);
+    expect(sql(0)).toContain(flat(`(i.status <> ALL($3::text[]) OR (i.status = 'void' AND ${voidedAfterSql('$2')}))`));
+    expect(sql(0)).toMatch(/AND d\.amount_due > 0/);
+    expect(sql(0)).not.toMatch(/i\.amount_due/);
+    expect(params(0)).toEqual([ENTITY, '2026-08-31', ['draft', 'void', 'cancelled']]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('the report says which balances it read; payables read the current ones', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    expect((await getAgedReceivables(ENTITY, { asOfDate: '2026-08-31', reconstruct: true })).balance_basis).toBe('as_of_date');
+    expect((await getAgedReceivables(ENTITY, { asOfDate: '2026-08-31' })).balance_basis).toBe('current');
+    expect((await getAgedPayables(ENTITY, { asOfDate: '2026-08-31' })).balance_basis).toBe('current');
+    expect(sql(1)).toMatch(/i\.status IN \('sent', 'viewed', 'partially_paid', 'overdue'\) AND i\.amount_due > 0/);
   });
 
   // MNE-001-647 (#596). MXN 1 000 + 2 000 and USD 3 000 at 17.50 (book

@@ -275,11 +275,15 @@ router.get('/aged-receivables', requirePermission('reports:read'), requireEntity
 
   // Unlike its siblings this endpoint has never validated entity_id; the cast
   // keeps that behaviour rather than turning a silent empty result into a 422.
-  const report = await getAgedReceivables(entityId as string, { asOfDate: asOf, order: 'party' });
+  // MNE-001-648: a stated as_of_date is read as that date; without one, today's balances.
+  const report = await getAgedReceivables(entityId as string, {
+    asOfDate: asOf, order: 'party', reconstruct: Boolean(as_of_date),
+  });
 
   res.json({
     data: {
-      entity_id: entityId, as_of_date: asOf, invoices: report.rows.map(publishedInvoice),
+      entity_id: entityId, as_of_date: asOf, balance_basis: report.balance_basis,
+      invoices: report.rows.map(publishedInvoice),
       totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
     },
     meta: meta(req),
@@ -296,7 +300,7 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
 
   res.json({
     data: {
-      entity_id: entityId, as_of_date: asOf, bills: report.rows.map(publishedBill),
+      entity_id: entityId, as_of_date: asOf, balance_basis: report.balance_basis, bills: report.rows.map(publishedBill),
       totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
     },
     meta: meta(req),
