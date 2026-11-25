@@ -11,6 +11,7 @@ import {
   type GarnishmentState,
   type RecordedGarnishment,
 } from '../services/payroll/common/garnishment-service.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -147,7 +148,7 @@ function wholeNumber(name: string) {
   return (value: string): number => {
     const n = Number(value);
     if (!Number.isSafeInteger(n) || n < 0) {
-      throw new InvalidArgumentError(`${name} must be a whole number of 0 or more; got "${value}".`);
+      throw new InvalidArgumentError(t('payroll.garnishment.not_whole_number', { name, value }));
     }
     return n;
   };
@@ -299,11 +300,7 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
         opts.start ? null : '--start',
       ].filter((f): f is string => f !== null);
       if (missing.length > 0) {
-        throw usageError(
-          `Missing ${missing.join(', ')}. An order with no type cannot be computed, one with no ` +
-            'issuing authority cannot be traced back to the court that dictated it, and ' +
-            '`start_date` is NOT NULL.'
-        );
+        throw usageError({ key: 'payroll.garnishment.record.missing', params: { flags: missing.join(', ') } });
       }
 
       const scope = await scopeForWrite(opts);
@@ -362,27 +359,17 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
 
       const err = process.stderr;
       if (dryRun) {
-        err.write(deps.palette.dim('Rehearsal: the transaction was undone. No order was filed.\n'));
+        err.write(deps.palette.dim(`${t('payroll.garnishment.record.rehearsal')}\n`));
       }
       // THE CASCADE THIS ORDER JOINS. The engine has no joint ceiling across
       // order families; the service refuses any set whose ceilings add past
       // disposable earnings, and this leaf shows the operator the queue they
       // just joined, in the sequence payday will use.
       if (filed.cascade.length > 1) {
-        err.write(
-          deps.palette.yellow(
-            `  ⚠ this worker now has ${filed.cascade.length} live orders. Payday takes them in ` +
-              'this sequence (their combined ceilings were checked against disposable earnings ' +
-              'before filing):\n'
-          )
-        );
-        for (const other of filed.cascade) {
-          err.write(
-            deps.palette.dim(
-              `      ${other.garnishment_type} · rank ${other.rank} · priority ${other.priority} · ` +
-                `${other.amount_type} ${other.amount_value}\n`
-            )
-          );
+        err.write(deps.palette.yellow(`  ⚠ ${t('payroll.garnishment.record.cascade', { count: filed.cascade.length })}\n`));
+        for (const o of filed.cascade) {
+          const row = { type: o.garnishment_type, rank: o.rank, priority: o.priority, amountType: o.amount_type, amountValue: o.amount_value };
+          err.write(deps.palette.dim(`      ${t('payroll.garnishment.record.cascade_row', row)}\n`));
         }
       }
       return ExitCode.OK;
@@ -403,10 +390,7 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
       const states = (opts.status ?? []).map((s) => s.trim().toLowerCase());
       const unknown = states.filter((s) => s !== 'active' && s !== 'archived');
       if (unknown.length > 0) {
-        throw usageError(
-          `--status ${unknown.join(', ')}: an order is either active or archived. ` +
-            'Use -a/--all for both.'
-        );
+        throw usageError({ key: 'payroll.garnishment.list.status_unknown', params: { values: unknown.join(', ') } });
       }
       // THE STATES TRAVEL AS STATES. Folding them into one boolean is what the
       // first draft did — `all = opts.all || states.includes('archived')` —
@@ -430,9 +414,7 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
         numeric: ['amount_value', 'priority', 'rank'],
       });
       if (rows.length === 0) {
-        process.stderr.write(
-          deps.palette.dim('No garnishment orders matched. Nothing is being withheld here.\n')
-        );
+        process.stderr.write(deps.palette.dim(`${t('payroll.garnishment.list.none')}\n`));
       }
       return ExitCode.OK;
     })
@@ -470,12 +452,7 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
         ],
         { ...opts, idField: 'id' }
       );
-      process.stderr.write(
-        deps.palette.dim(
-          'The order stays on file. What stopped is the withholding: the engine reads is_active ' +
-            'and nothing else.\n'
-        )
-      );
+      process.stderr.write(deps.palette.dim(`${t('payroll.garnishment.archive.stays_on_file')}\n`));
       return ExitCode.OK;
     })
   );
