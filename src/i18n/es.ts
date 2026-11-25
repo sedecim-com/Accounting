@@ -6576,6 +6576,65 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.outbox.run.argument.id': 'ids de las operaciones que se ejecutan; omítelos para revisar toda la cola de forma interactiva',
   'help.outbox.run.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
   'help.outbox.run.option.user': 'Quién ejecuta (por omisión: el único usuario activo del inquilino)',
+  // ==== MNE-001-428 · help by key, audit, backup, status, subscription and completion (issue #314) ====
+  'help.audit.description': 'Lee la bitácora de auditoría: quién cambió qué, cuándo y desde qué valor',
+  'help.audit.list.description': 'Bitácora de los cambios: quién, cuándo, qué objeto y qué campos cambiaron',
+  'help.audit.list.option.user': 'sólo los registros que escribió este usuario (correo); este comando no atribuye nada',
+  'help.audit.list.option.since': 'límite inferior inclusivo de la fecha y hora del registro (AAAA-MM-DD)',
+  'help.audit.list.option.until': 'límite superior inclusivo de la fecha y hora del registro (AAAA-MM-DD)',
+  'help.audit.list.option.actor': 'human | agent | agent:<sesión> (ver la nota sobre --actor agent)',
+  'help.audit.list.option.action': 'una de: {actions}',
+  'help.audit.list.option.object': 'familia de objetos: {families}; sin valor, las lista',
+  'help.audit.list.option.entity_type': 'valor exacto de audit_log.entity_type, cuando la familia no basta',
+  'help.audit.show.description': 'Un registro de auditoría completo: el valor anterior, el posterior y el motivo',
+  'help.audit.show.option.user': 'sólo los registros que escribió este usuario (correo); este comando no atribuye nada',
+  'help.audit.show.argument.id': 'id del renglón de audit_log (la columna id de `audit list`)',
+  'help.backup.description':
+    'Respaldos lógicos de toda la instalación (create, list, verify ensayando la restauración, restore) y exportaciones lógicas por inquilino (export)',
+  'help.backup.create.description':
+    'Hace un volcado lógico de TODA la instalación, con su manifiesto de versión del esquema',
+  'help.backup.create.option.tenant':
+    'AQUÍ NO: este volcado no se acota. El archivo de un solo inquilino es `mnemosine backup export --tenant <id>`',
+  'help.backup.create.option.entity':
+    'AQUÍ NO: el archivo de una sola entidad es `mnemosine backup export --entity <idOrName>`',
+  'help.backup.create.option.target': 'directorio donde se escribe (por omisión: {dir})',
+  'help.backup.create.option.json': 'salida en JSON',
+  'help.backup.export.description':
+    'EXPORTACIÓN lógica de UN inquilino (o de una entidad): consistente, acotada por la propia RLS de la base de datos y con manifiesto. NO es un respaldo restaurable',
+  'help.backup.export.option.tenant': 'inquilino (despacho) que se exporta (por omisión, --tenant / MNEMOSINE_TENANT)',
+  'help.backup.export.option.entity': 'la acota además a una entidad legal de ese inquilino',
+  'help.backup.export.option.target': 'directorio donde se escribe (por omisión: {dir})',
+  'help.backup.export.option.json': 'salida en JSON',
+  'help.backup.list.description':
+    'Lista los respaldos y las exportaciones conocidos con su fecha, alcance, tamaño, versión del esquema y si su hash todavía coincide',
+  'help.backup.list.option.target': 'directorio que se lee (por omisión: {dir})',
+  'help.backup.verify.description':
+    'Comprueba un respaldo contra su manifiesto; con --restore, ensaya la restauración y corre las comprobaciones del mayor',
+  'help.backup.verify.argument.file': 'archivo de respaldo que se comprueba',
+  'help.backup.verify.option.restore':
+    'lo RESTAURA en una base de datos desechable y corre las comprobaciones del mayor (la única prueba real)',
+  'help.backup.verify.option.strict': 'sale con 4 también ante avisos',
+  'help.backup.restore.description': 'Restaura un respaldo en una base de datos NUEVA; nunca sobre una existente',
+  'help.backup.restore.argument.file': 'archivo de respaldo que se restaura',
+  'help.backup.restore.option.target': 'nombre de la base de datos NUEVA que se crea y en la que se restaura',
+  'help.backup.restore.option.json': 'salida en JSON',
+  'help.status.description':
+    'Foto del estado: configuración, sondeo en vivo de los proveedores, base de datos y RLS (sin secretos, se puede compartir)',
+  'help.status.option.all': 'Sondea todos los perfiles configurados, no sólo la cadena de failover activa',
+  'help.status.option.tenant': 'Inquilino (despacho), para comprobar que la RLS está activa',
+  'help.status.option.json': 'salida en JSON (la misma estructura sin secretos, para tickets de soporte)',
+  'help.status.option.strict':
+    'Sale también con 1 cuando el sondeo de algún proveedor falla o se omite (por omisión, el comando sólo falla si no alcanza la base de datos)',
+  'help.subscription.delivery.description': 'Bitácora de las entregas salientes y sus reintentos',
+  'help.subscription.delivery.sweep.description':
+    'Reintenta cada entrega saliente cuya hora de reintento ya pasó, con espera exponencial; las que agotan sus intentos se declaran muertas y se reportan (llámalo desde cron)',
+  'help.subscription.delivery.sweep.option.tenant': 'Inquilino (despacho) que se barre (por omisión, MNEMOSINE_TENANT)',
+  'help.subscription.delivery.sweep.option.all_tenants':
+    'Barre todos los inquilinos activos, cada uno en su propio contexto de inquilino',
+  'help.subscription.delivery.sweep.option.limit': 'Máximo de entregas por inquilino en esta pasada',
+  'help.subscription.delivery.sweep.option.json': 'salida en JSON',
+  'help.completion.description': 'Imprime en la salida estándar un script de autocompletado para el shell (bash, zsh)',
+  'help.completion.argument.shell': 'Shell para el que se genera: {list} o {last}',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

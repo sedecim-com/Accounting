@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10456,
+    "spanish-identifiers-src": 10454,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
@@ -17,11 +17,11 @@
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 332,
-    "src-spanish-comment-lines": 28951,
+    "src-spanish-comment-lines": 28949,
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 48,
+    "help-descriptions-without-key": 0,
     "cli-user-strings-without-key": 758,
     "help-examples-without-key": 252,
     "spanish-user-strings-services": 1934
@@ -285,7 +285,7 @@
       "src/services/sat/diot/desglose.ts": 106,
       "src/services/sat/diot/diot-service.ts": 42,
       "src/services/sat/diot/hallazgos.ts": 10,
-      "src/services/sat/diot/hechos.ts": 54,
+      "src/services/sat/diot/hechos.ts": 52,
       "src/services/sat/diot/modelo.ts": 33,
       "src/services/sat/diot/rfc.ts": 14,
       "src/services/sat/diot/serializador.ts": 22,
@@ -1103,7 +1103,7 @@
       "src/api/rest/routes/blockchain.ts": 30,
       "src/api/rest/routes/fiscal-periods.ts": 3,
       "src/api/rest/routes/integrations.ts": 18,
-      "src/api/rest/routes/invoices.ts": 54,
+      "src/api/rest/routes/invoices.ts": 52,
       "src/api/rest/routes/journal-entries.ts": 35,
       "src/api/rest/routes/payroll.ts": 38,
       "src/api/rest/routes/public-verification.ts": 89,
@@ -1476,13 +1476,6 @@
     },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
-    },
-    "help-descriptions-without-key": {
-      "audit": 14,
-      "backup": 21,
-      "completion": 2,
-      "status": 5,
-      "subscription": 6
     },
     "cli-user-strings-without-key": {
       "src/cli/anexo24-migration-command.ts": 1,
