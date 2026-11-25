@@ -1437,7 +1437,7 @@ anchor	src/plan/criteria/e4-1.ts	de: "RAISE EXCEPTION 'La cuota obrera de enferm
 anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: " return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
 anchor	src/plan/criteria/e4-1.ts	de: ' return Decimal.min(piso, salarioMinimo.times(2));',
-anchor	src/plan/criteria/e4-1.ts	de: " 'SIN CALCULAR: faltó el salario mínimo de la zona",
+anchor	src/plan/criteria/e4-1.ts	de: " key: 'payroll.finiquito.seniority_premium.not_calculated',",
 anchor	src/plan/criteria/e4-1.ts	de: " northern_border: 'salario_minimo_frontera_diario',",
 anchor	src/plan/criteria/e4-1.ts	de: " case 'weekly': return 'weekly';",
 anchor	src/plan/criteria/e4-1.ts	de: "('MX','isr',2026,NULL,'monthly', 1, 0.01, 844.59,",

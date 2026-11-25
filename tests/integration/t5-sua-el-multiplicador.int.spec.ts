@@ -8,6 +8,7 @@ import {
   resplitStraddlingLiabilities,
 } from '../../src/services/payroll/common/employer-liability-service.js';
 import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
+import { findingText } from '../../src/i18n/payroll-finding-text.js';
 
 /**
  * T5·SUA (#92) · EL ARCHIVO QUE SE LE ENTREGA AL IMSS MULTIPLICA LAS CUOTAS.
@@ -392,7 +393,7 @@ describe('the straddling week is split by the contribution days of each month', 
     const finding = await settledFinding();
     expect(finding?.severidad).toBe('aviso');
     expect(finding?.periodo).toBe('2026-02-25 a 2026-02-28');
-    expect(finding?.mensaje).toMatch(/2026-02-01.*SUA ya generado/);
+    expect(findingText(finding!, 'es')).toMatch(/2026-02-01.*SUA ya generado/);
   }, 180_000);
 
   it('the month-end liability books the same split, so both months tie out', async () => {
@@ -428,7 +429,7 @@ describe('the straddling week is split by the contribution days of each month', 
     const back = await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: straddlerRun });
     const both = back.hallazgos.find((h) => h.codigo === 'pasivo_mensual_y_por_corrida_a_la_vez');
     expect(both?.severidad).toBe('bloqueante');
-    expect(both?.mensaje).toContain('imss_employer 1285.71 del mes que inicia el 2026-02-01');
-    expect(both?.mensaje).toContain('imss_employer 1214.29 del mes que inicia el 2026-03-01');
+    expect(findingText(both!, 'es')).toContain('imss_employer 1285.71 del mes que inicia el 2026-02-01');
+    expect(findingText(both!, 'es')).toContain('imss_employer 1214.29 del mes que inicia el 2026-03-01');
   }, 180_000);
 });
