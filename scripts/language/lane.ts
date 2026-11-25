@@ -46,6 +46,14 @@ export interface Lane {
    * appended to an entry that grew, so the CI message names the remedy.
    */
   perEntryRule?: string;
+  /**
+   * The lane reached its target and is held there by this declaration, not by
+   * the baseline (MNE-001-405, #314): it has no entry in
+   * `docs/language-baseline.json`, `--check` refuses any value above `target`,
+   * and `--tighten` and `--seed` never write one. A baseline number could be
+   * raised by hand, which is the manual act the ratchet allows; this cannot.
+   */
+  closed?: true;
 }
 
 /** Lo que devuelve un módulo de carriles. */
