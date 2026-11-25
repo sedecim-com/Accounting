@@ -27,6 +27,7 @@ import {
 } from '../../services/integrations/accounting/entity-credentials.js';
 import { zeroize } from '../../services/vault/index.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
+import { t } from '../../i18n/index.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -60,6 +61,11 @@ const ONBOARDING_DRAFT: CheckIdentity = {
   id: 'opening-balance-unapproved',
   name: 'Onboarding draft',
 };
+
+/** Commands the step names; never translated. */
+const ONBOARD_HELP = 'mnemosine onboard --help';
+const INGEST_FILES = 'mnemosine ingest <files…>';
+const RERUN_IMPORT = 'mnemosine init --section import';
 
 interface ImportCounts {
   entries: number;
@@ -144,7 +150,9 @@ export async function defaultCreateSession(
 
 export class ImportSection implements SetupSection {
   readonly id = 'importar' as const;
-  readonly title = 'Bring your accounting in';
+  get title(): string {
+    return t('init.import.title');
+  }
   /** Never blocks setup: starting fresh is a legitimate answer. */
   readonly required = false;
 
@@ -204,28 +212,28 @@ export class ImportSection implements SetupSection {
     try {
       entity = await this.deps.resolveEntity(ctx.flags.entity);
     } catch {
-      ctx.print('  No entity resolved yet; the import comes after the entity exists.');
+      ctx.print(`  ${t('init.import.no_entity')}`);
       return;
     }
 
     // Explain BEFORE asking (house idiom): why, and what happens to the data.
     ctx.print('');
-    ctx.print('  Why I ask: mnemosine is most useful when it sees your real books.');
-    ctx.print('  What I do: everything lands as reviewable drafts — nothing posts without you.');
+    ctx.print(`  ${t('init.import.why')}`);
+    ctx.print(`  ${t('init.import.what')}`);
     ctx.print('');
-    ctx.print('  How would you like to start?');
-    ctx.print('    1) Import from another accounting system by API (Contalink today)');
-    ctx.print('    2) Ingest CFDI XML files from a folder');
-    ctx.print('    3) Start fresh — you can import anytime later');
+    ctx.print(`  ${t('init.import.how')}`);
+    ctx.print(`    1) ${t('init.import.door.api', { product: 'Contalink' })}`);
+    ctx.print(`    2) ${t('init.import.door.xml')}`);
+    ctx.print(`    3) ${t('init.import.door.fresh')}`);
 
     // --yes mode must not ask, and an import is never a surprise default.
     if (!ctx.rl || ctx.flags.yes) {
       ctx.print('');
-      ctx.print('  Non-interactive mode: starting fresh. You can import anytime: mnemosine onboard --help');
+      ctx.print(`  ${t('init.import.non_interactive', { command: ONBOARD_HELP })}`);
       return;
     }
 
-    const raw = await ctx.askText('  Choice [1/2/3] (3): ', '3');
+    const raw = await ctx.askText(`  ${t('init.import.choice_prompt', { choices: '1/2/3', default: '3' })} `, '3');
     const choice = (raw ?? '3').trim() || '3';
 
     if (choice === '1') {
@@ -233,23 +241,23 @@ export class ImportSection implements SetupSection {
     } else if (choice === '2') {
       await this.ingestFolder(ctx, entity);
     } else {
-      ctx.print('  Starting fresh. You can import anytime: mnemosine onboard --help');
+      ctx.print(`  ${t('init.import.fresh', { command: ONBOARD_HELP })}`);
     }
   }
 
   /** [1] Plan → confirm → execute over the existing onboarding service. */
   private async importByApi(ctx: SectionContext, entity: AgentContext): Promise<void> {
-    const provider =
-      (await ctx.askText('  External system (contalink): ', 'contalink')) ?? 'contalink';
+    const systemPrompt = `  ${t('init.import.system_prompt', { default: 'contalink' })} `;
+    const provider = (await ctx.askText(systemPrompt, 'contalink')) ?? 'contalink';
 
     if (!(await this.deps.hasCredential(entity, provider))) {
       if (!(await this.registerKey(ctx, entity, provider))) return;
     }
 
-    const cutoff = await ctx.askText('  Cutoff date, balances as of YYYY-MM-DD: ');
+    const cutoff = await ctx.askText(`  ${t('init.import.cutoff_prompt')} `);
     if (!cutoff || !/^\d{4}-\d{2}-\d{2}$/.test(cutoff.trim())) {
-      ctx.print('  The cutoff must be YYYY-MM-DD. Nothing was imported — re-run when ready:');
-      ctx.print('    mnemosine init --section import');
+      ctx.print(`  ${t('init.import.cutoff_invalid')}`);
+      ctx.print(`    ${RERUN_IMPORT}`);
       return;
     }
     const cutoffDate = cutoff.trim();
@@ -257,42 +265,35 @@ export class ImportSection implements SetupSection {
 
     let plan: OnboardingPlan;
     try {
-      ctx.print('  Reading the remote trial balance…');
+      ctx.print(`  ${t('init.import.reading')}`);
       plan = await this.deps.planOnboarding(entity, provider, startDate, cutoffDate);
     } catch (err) {
-      ctx.print(`  Could not plan the import: ${err instanceof Error ? err.message : String(err)}`);
-      ctx.print('  Nothing was created. Full control over the import: mnemosine onboard --help');
+      ctx.print(`  ${t('init.import.plan_failed', { message: err instanceof Error ? err.message : String(err) })}`);
+      ctx.print(`  ${t('init.import.plan_failed_more', { command: ONBOARD_HELP })}`);
       return;
     }
 
     ctx.print('');
-    ctx.print(
-      `  Remote accounts: ${plan.remoteAccounts} · already exist: ${plan.existingAccounts} · ` +
-        `to create: ${plan.accountsToCreate.length}`
-    );
-    ctx.print(
-      `  Opening balance: ${plan.openingLines.length} line(s) · ` +
-        `debits ${plan.totals.debits} · credits ${plan.totals.credits}`
-    );
+    const { remoteAccounts: remote, existingAccounts: existing, accountsToCreate, totals } = plan;
+    ctx.print(`  ${t('init.import.plan_accounts', { remote, existing, create: accountsToCreate.length })}`);
+    const opening = { count: plan.openingLines.length, debits: totals.debits, credits: totals.credits };
+    ctx.print(`  ${t('init.import.plan_opening', opening)}`);
     if (plan.openingLines.length === 0) {
-      ctx.print('  Nothing to import: the remote trial balance has no balances.');
+      ctx.print(`  ${t('init.import.nothing')}`);
       return;
     }
 
     let balanceAccountCode: string | undefined;
     if (plan.needsBalancingAccount) {
-      ctx.print(`  The remote trial balance does not balance (difference ${plan.totals.imbalance}).`);
-      balanceAccountCode =
-        (await ctx.askText('  Balancing account code (3200): ', '3200')) ?? '3200';
+      ctx.print(`  ${t('init.import.unbalanced', { imbalance: totals.imbalance })}`);
+      const balancingPrompt = `  ${t('init.import.balancing_prompt', { default: '3200' })} `;
+      balanceAccountCode = (await ctx.askText(balancingPrompt, '3200')) ?? '3200';
     }
 
     // Same consequence wording the onboard command uses; default is No.
-    const go = await ctx.confirm(
-      `  Create ${plan.accountsToCreate.length} account(s) and the opening balance as a draft?`,
-      false
-    );
+    const go = await ctx.confirm(`  ${t('init.import.confirm', { count: accountsToCreate.length })}`, false);
     if (!go) {
-      ctx.print('  Cancelled. Nothing was created. You can import anytime: mnemosine onboard --help');
+      ctx.print(`  ${t('init.import.cancelled', { command: ONBOARD_HELP })}`);
       return;
     }
 
@@ -302,12 +303,12 @@ export class ImportSection implements SetupSection {
         balanceAccountCode,
         postNow: false,
       });
-      ctx.print(`  ✔ ${result.accountsCreated} account(s) created.`);
-      ctx.print(`  ✔ Opening balance in draft ${result.draftId} (ref ${plan.reference}).`);
-      ctx.print('  Review the drafts: mnemosine review');
+      ctx.print(`  ✔ ${t('init.import.accounts_created', { count: result.accountsCreated })}`);
+      ctx.print(`  ✔ ${t('init.import.opening_draft', { draftId: result.draftId, reference: plan.reference })}`);
+      ctx.print(`  ${t('init.import.review', { command: 'mnemosine review' })}`);
     } catch (err) {
-      ctx.print(`  Import failed: ${err instanceof Error ? err.message : String(err)}`);
-      ctx.print('  Retry with full control: mnemosine onboard --help');
+      ctx.print(`  ${t('init.import.failed', { message: err instanceof Error ? err.message : String(err) })}`);
+      ctx.print(`  ${t('init.import.retry_full', { command: ONBOARD_HELP })}`);
     }
   }
 
@@ -324,23 +325,22 @@ export class ImportSection implements SetupSection {
     provider: string
   ): Promise<boolean> {
     const resume = () => {
-      ctx.print('  Section left incomplete. Re-run to register it: mnemosine init --section import');
+      ctx.print(`  ${t('init.import.key.resume', { command: RERUN_IMPORT })}`);
       return false;
     };
     ctx.print('');
-    ctx.print(`  ${entity.entityName} has no usable ${provider} key yet.`);
-    ctx.print('  Each entity reads and writes only with the key of its own company (same RFC).');
-    ctx.print(`  In ${provider}: open the company with RFC ${entity.taxId} → API Configuration.`);
-    const typed = await ctx.askSecret(`  ${provider} API key for RFC ${entity.taxId} (Enter to skip): `);
+    const rfc = entity.taxId;
+    ctx.print(`  ${t('init.import.key.none', { entity: entity.entityName, provider })}`);
+    ctx.print(`  ${t('init.import.key.same_rfc')}`);
+    // The menu is a screen of the other system: its name is quoted, not translated.
+    ctx.print(`  ${t('init.import.key.where', { provider, rfc, menu: 'API Configuration' })}`);
+    const typed = await ctx.askSecret(`  ${t('init.import.key.prompt', { provider, rfc })} `);
     if (!typed?.trim()) return resume();
     const apiKey = Buffer.from(typed.trim(), 'utf8');
     try {
-      const attested = await ctx.confirm(
-        `  This key opens the ${provider} company with RFC ${entity.taxId}, and no other?`,
-        false
-      );
+      const attested = await ctx.confirm(`  ${t('init.import.key.attest', { provider, rfc })}`, false);
       if (!attested) {
-        ctx.print('  Not registered: a key for another company would write into its books.');
+        ctx.print(`  ${t('init.import.key.not_attested')}`);
         return resume();
       }
       const reviewer = await this.deps.resolveReviewer(entity.tenantId, ctx.flags.user);
@@ -353,20 +353,20 @@ export class ImportSection implements SetupSection {
         registeredBy: reviewer.email,
       });
     } catch (err) {
-      ctx.print(`  Could not register the key: ${err instanceof Error ? err.message : String(err)}`);
+      ctx.print(`  ${t('init.import.key.failed', { message: err instanceof Error ? err.message : String(err) })}`);
       return resume();
     } finally {
       zeroize(apiKey);
     }
-    ctx.print(`  ✔ ${provider} key registered for RFC ${entity.taxId} (kept in the vault).`);
+    ctx.print(`  ✔ ${t('init.import.key.registered', { provider, rfc })}`);
     return true;
   }
 
   /** [2] Folder of CFDIs through the existing ingest pipeline, auto-post OFF. */
   private async ingestFolder(ctx: SectionContext, entity: AgentContext): Promise<void> {
-    const dir = await ctx.askText('  Folder with CFDI XML files: ');
+    const dir = await ctx.askText(`  ${t('init.import.xml.prompt')} `);
     if (!dir) {
-      ctx.print('  No folder given. You can ingest anytime: mnemosine ingest <files…>');
+      ctx.print(`  ${t('init.import.xml.no_folder', { command: INGEST_FILES })}`);
       return;
     }
 
@@ -374,24 +374,22 @@ export class ImportSection implements SetupSection {
     try {
       files = this.deps.listXmlFiles(dir.trim());
     } catch (err) {
-      ctx.print(`  Could not read the folder: ${err instanceof Error ? err.message : String(err)}`);
-      ctx.print('  You can ingest anytime: mnemosine ingest <files…>');
+      ctx.print(`  ${t('init.import.xml.unreadable', { message: err instanceof Error ? err.message : String(err) })}`);
+      ctx.print(`  ${t('init.import.xml.anytime', { command: INGEST_FILES })}`);
       return;
     }
     if (files.length === 0) {
-      ctx.print('  No *.xml files found there. You can ingest anytime: mnemosine ingest <files…>');
+      ctx.print(`  ${t('init.import.xml.none', { command: INGEST_FILES })}`);
       return;
     }
 
     let batch = files;
     if (files.length > XML_FIRST_RUN_CAP) {
       batch = files.slice(0, XML_FIRST_RUN_CAP);
-      ctx.print(
-        `  Found ${files.length} files; taking the first ${XML_FIRST_RUN_CAP} on this first run ` +
-          'so the review stays manageable. Ingest the rest with: mnemosine ingest <files…>'
-      );
+      const capped = { count: files.length, cap: XML_FIRST_RUN_CAP, command: INGEST_FILES };
+      ctx.print(`  ${t('init.import.xml.capped', capped)}`);
     } else {
-      ctx.print(`  Found ${files.length} file(s).`);
+      ctx.print(`  ${t('init.import.xml.found', { count: files.length })}`);
     }
 
     try {
@@ -490,14 +488,12 @@ export class ImportSection implements SetupSection {
         onAviso: (mensaje) => ctx.print(`  ⚠ ${mensaje}`),
       });
       const c = report.counts;
-      ctx.print(
-        `  Done: ${c.rules} by rules, ${c.draft} draft(s), ${c.blocked} blocked, ` +
-          `${c.duplicate} duplicate(s), ${c.invalid + c.error} with errors.`
-      );
-      ctx.print('  Review the drafts: mnemosine review');
+      const done = { rules: c.rules, drafts: c.draft, blocked: c.blocked, duplicates: c.duplicate };
+      ctx.print(`  ${t('init.import.xml.done', { ...done, errors: c.invalid + c.error })}`);
+      ctx.print(`  ${t('init.import.review', { command: 'mnemosine review' })}`);
     } catch (err) {
-      ctx.print(`  Ingest failed: ${err instanceof Error ? err.message : String(err)}`);
-      ctx.print('  Retry anytime: mnemosine ingest <files…>');
+      ctx.print(`  ${t('init.import.xml.failed', { message: err instanceof Error ? err.message : String(err) })}`);
+      ctx.print(`  ${t('init.import.xml.retry', { command: INGEST_FILES })}`);
     }
   }
 
@@ -511,23 +507,25 @@ export class ImportSection implements SetupSection {
         ...ACCOUNTING_DATA,
         level: hasData ? 'ok' : 'warn',
         detail: hasData
-          ? `${c.entries} journal entr${c.entries === 1 ? 'y' : 'ies'}, ${c.xmls} CFDI(s) ingested`
-          : 'No accounting data yet',
-        ...(hasData ? {} : { fix: 'Import with `mnemosine onboard` or ingest CFDIs with `mnemosine ingest`' }),
+          ? t('init.import.check.data', { entries: c.entries, xmls: c.xmls })
+          : t('init.import.check.no_data'),
+        ...(hasData
+          ? {}
+          : { fix: t('init.import.check.no_data_fix', { onboard: 'mnemosine onboard', ingest: 'mnemosine ingest' }) }),
       });
       if (c.onboardingDrafts > 0) {
         checks.push({
           ...ONBOARDING_DRAFT,
           level: 'warn',
-          detail: `${c.onboardingDrafts} opening-balance draft(s) awaiting approval`,
-          fix: 'Approve or reject with `mnemosine review`',
+          detail: t('init.import.check.drafts', { count: c.onboardingDrafts }),
+          fix: t('init.import.check.drafts_fix', { command: 'mnemosine review' }),
         });
       }
     } catch (err) {
       checks.push({
         ...ACCOUNTING_DATA,
         level: 'warn',
-        detail: `Could not read: ${err instanceof Error ? err.message : String(err)}`,
+        detail: t('init.policies.check.could_not_read', { message: err instanceof Error ? err.message : String(err) }),
       });
     }
     return checks;
