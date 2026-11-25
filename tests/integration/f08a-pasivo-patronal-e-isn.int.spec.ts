@@ -439,6 +439,6 @@ describe('aprobar la corrida es lo que apunta el pasivo', () => {
     const otro = await crearInquilino('F08a · inquilino vecino');
     await expect(
       acumularPasivoPatronal({ tenantId: otro.tenantId, payRunId: uuidv4() })
-    ).rejects.toThrow(/No existe la corrida/);
+    ).rejects.toThrow(/does not exist in this tenant/);
   });
 });
