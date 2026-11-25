@@ -66,7 +66,7 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
   interface Refused { errors: Array<{ code: string; message: string }> }
   const stamp = (invoiceId: string, on = srv, language = 'en'): Promise<Answer> =>
     pedir(on, 'POST', `/v1/invoices/${invoiceId}/cfdi/stamp`, {}, { 'accept-language': language });
-  const folioOf = (a: Answer): string => (a.body as unknown as Stamped).data.cfdi_uuid;
+  const uuidOf = (a: Answer): string => (a.body as unknown as Stamped).data.cfdi_uuid;
   const errorOf = (a: Answer) => (a.body as unknown as Refused).errors[0];
 
   const until = async (seen: () => boolean | Promise<boolean>, ms = 5_000): Promise<boolean> => {
@@ -120,7 +120,7 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
     const first = await stamp(invoiceId);
     expect(first.status, JSON.stringify(first.body)).toBe(200);
     const before = await stored(invoiceId);
-    expect(before).toMatchObject({ uuid: folioOf(first), status: 'stamped', provider: 'test' });
+    expect(before).toMatchObject({ uuid: uuidOf(first), status: 'stamped', provider: 'test' });
     expect(before.at).toBeInstanceOf(Date);
     const at = before.at!.toISOString();
 
@@ -144,15 +144,15 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
     simulatedPac();
     const simulated = await stamp(invoiceId);
     expect(simulated.status).toBe(200);
-    expect(await stored(invoiceId)).toMatchObject({ uuid: folioOf(simulated), status: 'failed' });
+    expect(await stored(invoiceId)).toMatchObject({ uuid: uuidOf(simulated), status: 'failed' });
     vi.restoreAllMocks();
 
     const pac = realPac();
     const real = await stamp(invoiceId);
     expect(real.status).toBe(200);
     expect(pac).toHaveBeenCalledTimes(1);
-    expect(folioOf(real)).not.toBe(folioOf(simulated));
-    expect(await stored(invoiceId)).toMatchObject({ uuid: folioOf(real), status: 'stamped' });
+    expect(uuidOf(real)).not.toBe(uuidOf(simulated));
+    expect(await stored(invoiceId)).toMatchObject({ uuid: uuidOf(real), status: 'stamped' });
   });
 
   // `cancelled` is what the SAT status sweep writes; nothing writes `pending`
@@ -167,7 +167,7 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
     const result = await stamp(invoiceId);
     expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(pac).toHaveBeenCalledTimes(1);
-    expect(await stored(invoiceId)).toMatchObject({ uuid: folioOf(result), status: 'stamped' });
+    expect(await stored(invoiceId)).toMatchObject({ uuid: uuidOf(result), status: 'stamped' });
   });
 
   it('two stamps at once reach the PAC once: the one that waited is refused with the folio of the other', async () => {
@@ -193,8 +193,8 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
     expect(pac).toHaveBeenCalledTimes(1);
     expect(first.status, JSON.stringify(first.body)).toBe(200);
     expect(second.status, JSON.stringify(second.body)).toBe(409);
-    expect(errorOf(second).message).toContain(`folio ${folioOf(first)} (stamped)`);
-    expect(await stored(invoiceId)).toMatchObject({ uuid: folioOf(first), status: 'stamped' });
+    expect(errorOf(second).message).toContain(`folio ${uuidOf(first)} (stamped)`);
+    expect(await stored(invoiceId)).toMatchObject({ uuid: uuidOf(first), status: 'stamped' });
   });
 
   it('an attempt that cannot have the invoice within the lock timeout gives up by key, before the PAC', async () => {
@@ -258,7 +258,7 @@ describe('an invoice with a stamped CFDI is not stamped again', () => {
     try {
       const refused = await stamp(invoiceId, elsewhere);
       expect(refused.status).toBe(404);
-      expect(JSON.stringify(refused.body)).not.toContain(folioOf(first));
+      expect(JSON.stringify(refused.body)).not.toContain(uuidOf(first));
     } finally {
       await elsewhere.cerrar();
     }

@@ -3658,6 +3658,10 @@ export const EN = {
   /** The reason `invoice delete` does not honor --idempotency-key. */
   'ar.invoice.delete_by_state':
     'the delete is unrepeatable only through the state of the draft, not through the key',
+  /** The reason `credit-note issue` does not honor --idempotency-key. */
+  'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
+  // ==== end of I8.3 ====
+
   // An invoice that holds a CFDI is not stamped again (MNE-001-763, #696).
   'ar.invoice.cfdi.already_stamped':
     'Invoice {id} was not stamped again: it already has a CFDI, folio {uuid} ({status}), stamped at ' +
@@ -3671,9 +3675,6 @@ export const EN = {
     'Invoice {id} WAS stamped: the PAC ({provider}) answered with folio {uuid}, and the folio could not be ' +
     'written on the invoice. Do not stamp it again. Keep this folio: the invoice does not carry it, and it is ' +
     'what a cancellation needs.',
-  /** The reason `credit-note issue` does not honor --idempotency-key. */
-  'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
-  // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
 

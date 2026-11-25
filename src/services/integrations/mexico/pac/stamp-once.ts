@@ -11,8 +11,8 @@ export type CfdiStatus = (typeof CFDI_STATUSES)[number];
  *
  * `stamped` holds one. The other three do not: no status and `pending` are
  * «not yet»; `failed` is how the UUID a simulated adapter made up is stored
- * (simulacion.ts), and the SAT never saw it; a `cancelled` CFDI is replaced by
- * a new one.
+ * (the anti-simulation lock), and the SAT never saw it; a `cancelled` CFDI is
+ * replaced by a new one.
  *
  * A record with every status on purpose: one added to CFDI_STATUSES does not
  * compile until someone decides it here. A value this code does not know is

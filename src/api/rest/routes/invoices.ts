@@ -300,8 +300,8 @@ router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 
     // 404 que lo deshaga: si el alcance se comprobara después, el acto externo e
     // irreversible ya habría ocurrido sobre la factura de la sociedad hermana.
     // RLS no lo tapa —acota por INQUILINO, y las dos sociedades son del mismo
-    // despacho—, que es exactamente el eje que `scope.ts` existe para defender:
-    // el predicado es el que `requireByIdInScope` escribe para una entidad.
+    // despacho—, que es exactamente el eje que `scope.ts` existe para defender.
+    // The predicate is the one `requireByIdInScope` writes for an entity scope.
     //
     // Cero filas significa a la vez «no existe» y «no es tuya», y las dos salen
     // por el mismo 404 con el mismo cuerpo: distinguirlas reabriría por prosa el
