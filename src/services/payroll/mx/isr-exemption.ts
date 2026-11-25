@@ -188,8 +188,8 @@ interface OvertimeLaw {
 // (see `weeksOfService`): no SAT rule says how a quincena counts them.
 //
 // THE MINIMUM-WAGE WORKER (fr. I, first sentence · #196, MNE-001-633). The
-// 50 % and the 5 UMA cap quoted above are those of «los demás trabajadores»
-// (migration 164); the worker who earns the minimum wage has the overtime
+// 50 % and the 5 UMA cap quoted above belong to the sentence on the OTHER
+// workers (migration 164); the worker who earns the minimum wage has the overtime
 // exempt in full (normas/fiscal-mx.md:97). The corpus does not hold the
 // verbatim first sentence, so the LFT limit and the triple-pay rule above
 // still bind it: the reading that can only tax more. See `earnsTheMinimumWage`.
@@ -236,7 +236,7 @@ async function overtimeLaw(mx: IsrExemptionContext): Promise<OvertimeLaw> {
 
 /**
  * Whether the worker earns the minimum wage of their zone on the payment date:
- * the contractual daily wage (`annual_salary` / 365, as the finiquito reads it)
+ * the contractual daily wage (`annual_salary` / 365, as the settlement reads it)
  * is at most the daily minimum of the employee's zone, else the entity's, else
  * the general one undeclared (MNE-001-376). Each unknown answers no, and no is
  * the 50 %, which over-withholds and never under-withholds: no annual salary,
