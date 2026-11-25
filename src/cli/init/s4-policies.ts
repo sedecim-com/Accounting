@@ -9,6 +9,7 @@ import {
 } from '../../services/policy/policy-service.js';
 import { previewFor } from '../../services/policy/policy-preview.js';
 import { panelTranslator, previewText } from '../../i18n/panel-text.js';
+import { t } from '../../i18n/index.js';
 import { specWording } from '../../services/policy/policy-text-key.js';
 import { getPolicySpec } from '../../services/policy/pending-catalog.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
@@ -16,14 +17,13 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from '../policy-answer.js';
 
 /**
- * The wizard's own chrome ("Why I ask:", "In your data:", "Stopping here", ...)
- * is hand-written English until the init family (I8) is translated. Painting
- * the catalog text in Spanish beside English labels would ship a half-translated
- * screen, so the whole wizard speaks English, by key, and moves to the active
- * language together with its chrome.
+ * ONE LANGUAGE FOR CHROME AND PANEL TEXT. The wizard's own labels ("Why I ask:",
+ * "In your data:", ...) and the panel's question, options and preview all come
+ * from the catalogue in the active language (MNE-001-479), so neither can be
+ * painted in another language beside the other. The note handed to
+ * `resolvePolicy` is the one English literal left: it is stored with the
+ * answer, and what is stored stays as written.
  */
-const WIZARD_LANGUAGE = 'en' as const;
-
 // ============================================================
 // S4 · ACCOUNTING POLICIES
 // The decisions the system cannot make on its own because they
@@ -59,7 +59,9 @@ interface PreparedQuestion {
 
 export class PoliciesSection implements SetupSection {
   readonly id = 'politicas' as const;
-  readonly title = 'Accounting policies';
+  get title(): string {
+    return t('init.policies.title');
+  }
   /** Never blocks setup: every policy has a working default. */
   readonly required = false;
 
@@ -81,7 +83,7 @@ export class PoliciesSection implements SetupSection {
     try {
       entity = await resolveEntity(ctx.flags.entity);
     } catch {
-      ctx.print('  No entity resolved yet; policies are configured after the entity exists.');
+      ctx.print(`  ${t('init.policies.no_entity')}`);
       return;
     }
 
@@ -89,23 +91,22 @@ export class PoliciesSection implements SetupSection {
     const pending = await listPending({ tenantId: entity.tenantId });
 
     if (pending.length === 0) {
-      ctx.print('  All policies are already defined.');
+      ctx.print(`  ${t('init.policies.all_defined')}`);
       return;
     }
 
     ctx.print('');
-    ctx.print(`  There are ${pending.length} decisions I cannot make on my own.`);
-    ctx.print('  They depend on your firm\'s criteria, not on a rule I can look up.');
+    ctx.print(`  ${t('init.policies.intro_count', { count: pending.length })}`);
+    ctx.print(`  ${t('init.policies.intro_firm')}`);
     ctx.print('');
-    ctx.print('  You can skip any of them: each has a working default, and whatever');
-    ctx.print('  you leave open stays visible in `mnemosine pending`.');
+    ctx.print(`  ${wrap(t('init.policies.intro_skip', { command: 'mnemosine pending' }), 68, '  ')}`);
 
     // --yes mode: it must not ask. Report what is left on defaults and move on.
     if (!ctx.rl || ctx.flags.yes) {
       ctx.print('');
-      ctx.print(`  Non-interactive mode: leaving ${pending.length} policies on their defaults.`);
+      ctx.print(`  ${t('init.policies.non_interactive', { count: pending.length })}`);
       for (const p of pending) {
-        ctx.print(`    · ${p.key} = ${p.default_value ?? '(none)'}`);
+        ctx.print(`    · ${p.key} = ${p.default_value ?? t('init.policies.none')}`);
       }
       return;
     }
@@ -119,7 +120,7 @@ export class PoliciesSection implements SetupSection {
           entityId: entity.entityId,
           tenantId: entity.tenantId,
           currency: entity.currency,
-          text: previewText(WIZARD_LANGUAGE),
+          text: previewText(),
         }),
       }))
     );
@@ -129,7 +130,7 @@ export class PoliciesSection implements SetupSection {
       const result = await this.askOne(ctx, prepared[i], i + 1, prepared.length, entity.tenantId);
       if (result === 'quit') {
         ctx.print('');
-        ctx.print(`  Stopping here. The rest stay on their defaults.`);
+        ctx.print(`  ${t('init.policies.stopping')}`);
         break;
       }
       if (result === 'answered') answered++;
@@ -137,10 +138,9 @@ export class PoliciesSection implements SetupSection {
 
     const left = (await listPending({ tenantId: entity.tenantId })).length;
     ctx.print('');
-    ctx.print(
-      `  Defined ${answered} of ${prepared.length}.` +
-        (left > 0 ? ` ${left} still open — see \`mnemosine pending\`.` : ' Nothing left open.')
-    );
+    const rest =
+      left > 0 ? t('init.policies.still_open', { left, command: 'mnemosine pending' }) : t('init.policies.nothing_open');
+    ctx.print(`  ${t('init.policies.defined', { answered, total: prepared.length })} ${rest}`);
   }
 
   /** Presents one decision and records the answer. */
@@ -161,9 +161,9 @@ export class PoliciesSection implements SetupSection {
     // cannot disagree about it. `whyAsking`/`whatIDo`/`ifSkipped` are not
     // part of that wording and still come from the spec.
     const spec = getPolicySpec(row.key);
-    const wording = policyWording(row, panelTranslator(WIZARD_LANGUAGE));
+    const wording = policyWording(row, panelTranslator());
     const question = wording.question;
-    const extra = spec ? specWording(spec, panelTranslator(WIZARD_LANGUAGE)) : undefined;
+    const extra = spec ? specWording(spec, panelTranslator()) : undefined;
     const why = extra?.whyAsking ?? wording.impact;
     const what = extra?.whatIDo;
     // The same list is printed below and indexed by the typed number.
@@ -175,30 +175,28 @@ export class PoliciesSection implements SetupSection {
     // Explain BEFORE asking: the user should not have to guess why the
     // system wants this, nor what it will do with it.
     ctx.print('');
-    ctx.print(`     Why I ask: ${wrap(why, 68, '                ')}`);
-    if (what) {
-      ctx.print(`     What I do: ${wrap(what, 68, '                ')}`);
-    }
+    ctx.print(labelled(t('init.policies.why_i_ask'), why));
+    if (what) ctx.print(labelled(t('init.policies.what_i_do'), what));
 
     if (preview.length > 0) {
       ctx.print('');
-      ctx.print('     In your data:');
+      ctx.print(`     ${t('init.policies.in_your_data')}`);
       for (const line of preview) ctx.print(`       ${line}`);
     }
 
     ctx.print('');
     options.forEach((o, i) => {
       const isDefault = o.value === row.default_value;
-      ctx.print(`     ${i + 1}) ${o.label}${isDefault ? '   ← current default' : ''}`);
+      ctx.print(`     ${i + 1}) ${o.label}${isDefault ? `   ${t('init.policies.current_default')}` : ''}`);
     });
-    ctx.print(`     Enter = keep the default (${row.default_value})   ·   q = stop asking`);
+    ctx.print(`     ${t('init.policies.enter_keeps', { value: String(row.default_value) })}`);
 
     const raw = await ctx.askText('     > ');
     if (raw === null) return 'quit';
     const answer = raw.trim();
 
     if (answer === '') {
-      if (extra?.ifSkipped) ctx.print(`     Left open: ${extra.ifSkipped}`);
+      if (extra?.ifSkipped) ctx.print(`     ${t('init.policies.left_open', { text: extra.ifSkipped })}`);
       return 'skipped';
     }
     if (answer.toLowerCase() === 'q') return 'quit';
@@ -208,7 +206,7 @@ export class PoliciesSection implements SetupSection {
     // an integer that is also another option's value is asked, not guessed.
     let interpreted = interpretPolicyAnswer(answer, options);
     while (interpreted.kind === 'ambiguous') {
-      ctx.print(`     ${ambiguityQuestion(interpreted, WIZARD_LANGUAGE)}`);
+      ctx.print(`     ${ambiguityQuestion(interpreted)}`);
       const replyRaw = await ctx.askText('     p/v > ');
       if (replyRaw === null) return 'quit';
       const reply = resolveAmbiguity(replyRaw, interpreted);
@@ -228,7 +226,7 @@ export class PoliciesSection implements SetupSection {
       ctx.print(`     ✔ ${row.key} = ${chosen}`);
       return 'answered';
     } catch (err) {
-      ctx.print(`     Could not save: ${err instanceof Error ? err.message : String(err)}`);
+      ctx.print(`     ${t('init.policies.could_not_save', { message: err instanceof Error ? err.message : String(err) })}`);
       return 'skipped';
     }
   }
@@ -245,8 +243,8 @@ export class PoliciesSection implements SetupSection {
         level: all.length === 0 ? 'warn' : 'ok',
         detail:
           all.length === 0
-            ? 'Not seeded yet; run `mnemosine init` or `mnemosine pending`'
-            : `${all.length} policies, ${pending.length} still on defaults`,
+            ? t('init.policies.check.not_seeded', { init: 'mnemosine init', pending: 'mnemosine pending' })
+            : t('init.policies.check.summary', { count: all.length, pending: pending.length }),
       });
 
       // Policies that change what reaches the books deserve a nudge.
@@ -257,20 +255,24 @@ export class PoliciesSection implements SetupSection {
         checks.push({
           ...HIGH_IMPACT_POLICIES,
           level: 'warn',
-          detail:
-            `${highImpact.map((p) => p.key).join(', ')} still on defaults — ` +
-            'they change how invoices are booked',
+          detail: t('init.policies.check.high_impact', { keys: highImpact.map((p) => p.key).join(', ') }),
         });
       }
     } catch (err) {
       checks.push({
         ...POLICY_CATALOG,
         level: 'warn',
-        detail: `Could not read: ${err instanceof Error ? err.message : String(err)}`,
+        detail: t('init.policies.check.could_not_read', { message: err instanceof Error ? err.message : String(err) }),
       });
     }
     return checks;
   }
+}
+
+/** «     Why I ask: <text>», wrapped under itself and within 84 columns whatever the label's length. */
+function labelled(label: string, text: string): string {
+  const indent = ' '.repeat(5 + label.length + 1);
+  return `     ${label} ${wrap(text, 84 - indent.length, indent)}`;
 }
 
 /** Wraps long text keeping the wizard's indentation. */

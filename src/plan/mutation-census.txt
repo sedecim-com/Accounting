@@ -348,7 +348,7 @@ mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/memory-service.t
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/tools/policy-tools.ts	agent-panel-pinned-to-english: leerPanel would hand the agent English wording while `pending` paints the accountant in Spanish
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	preview-pinned-to-english: the "in your data" lines of the listing would come out English under es-MX
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	wording-pinned-to-english: the listing or the `define` prompt would paint the question and options in English under es-MX
-mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/init/s4-policies.ts	half-translated-wizard: the catalog text would come out Spanish beside the wizard's hand-written English labels
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/init/s4-policies.ts	half-translated-wizard: under es-MX the question and options would come out English beside the wizard's Spanish labels
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/pending-service.ts	board-summary-in-english: the work board would keep its hand-written English plural under es-MX
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/i18n/panel-text.ts	words-and-separators-disagree: a preview in Spanish would carry en-US separators
 mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/services/policy/pending-catalog.ts	text-key-born-spanish: the panel texts of the time zone would be keyed by the persisted Spanish name, and I23 would have to rename them too
@@ -830,7 +830,7 @@ anchor	src/plan/criteria/e0-0.ts	de: 'return { file: writeConfigPatch({ locale }
 anchor	src/plan/criteria/e0-0.ts	de: 'const file = userConfigPath(home);',
 anchor	src/plan/criteria/e0-0.ts	de: 'const locale = normalizeLocale(language);',
 anchor	src/plan/criteria/e0-0.ts	de: ' if (existingConfigIsUnusable(file)) {',
-anchor	src/plan/criteria/e0-0.ts	de: " ...RLS_CONTEXT,\n level: 'ok',\n detail: 'no tenant pinned yet",
+anchor	src/plan/criteria/e0-0.ts	de: " ...RLS_CONTEXT,\n level: 'ok',\n detail: t('init.infra.rls.no_tenant')",
 anchor	src/plan/criteria/e0-0.ts	de: ' /** Stable machine identity. See `CheckIdentity`. */\n id: string;',
 anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', name: 'Database' },",
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
@@ -1151,7 +1151,7 @@ anchor	src/plan/criteria/e1-3.ts	de: ' const valores = policyOptions(row.policy_
 anchor	src/plan/criteria/e1-3.ts	de: 'const wording = policyWording(fila, panelTranslator());',
 anchor	src/plan/criteria/e1-3.ts	de: 'text: previewText(),',
 anchor	src/plan/criteria/e1-3.ts	de: 'policyWording(p, panelTranslator())',
-anchor	src/plan/criteria/e1-3.ts	de: "const WIZARD_LANGUAGE = 'en' as const;",
+anchor	src/plan/criteria/e1-3.ts	de: 'const wording = policyWording(row, panelTranslator());',
 anchor	src/plan/criteria/e1-3.ts	de: "summary: t('pending.board.draft', { count: r.rows.length }),",
 anchor	src/plan/criteria/e1-3.ts	de: 'const locale = FORMAT_LOCALE[language];',
 anchor	src/plan/criteria/e1-3.ts	de: " textKey: 'time_zone',",
