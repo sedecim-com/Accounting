@@ -56,7 +56,11 @@ export const DECIMALES_DIOT = 4;
 const TOLERANCIA = new Decimal('0.01');
 
 const cero = (): Decimal => new Decimal(0);
-const q = (d: Decimal): string => d.toDecimalPlaces(DECIMALES_DIOT).toFixed(DECIMALES_DIOT);
+// NOTE: never a signed zero: a negative total (an undo, MNE-001-682) times a box of no weight is -0.
+const q = (d: Decimal): string => {
+  const rounded = d.toDecimalPlaces(DECIMALES_DIOT);
+  return (rounded.isZero() ? cero() : rounded).toFixed(DECIMALES_DIOT);
+};
 
 export type TipoFactor = 'tasa' | 'cuota' | 'exento';
 
@@ -286,7 +290,7 @@ export function repartirProporcional(total: string, pesos: readonly PesoDeCasill
 export interface PorcionPagada {
   /** Lo aplicado al documento ANTES de este tramo. */
   aplicadoPrevio: string;
-  /** Lo aplicado en el tramo que se está declarando. */
+  /** Lo aplicado en el tramo que se está declarando; negative when the stretch undid more than it applied. */
   aplicadoAhora: string;
   /** El total del documento: el denominador de la razón. */
   totalDocumento: string;
@@ -334,6 +338,10 @@ export function acumuladoDelDocumento(
  * TELESCOPA, así que la suma de todos los tramos reproduce exactamente el
  * total y el último se lleva el resto — que es lo que impide que la base
  * declarada de un gasto en parcialidades quede tres diezmilésimos corta.
+ *
+ * A negative `aplicadoAhora` is a stretch that undid more than it applied
+ * (MNE-001-682): the same subtraction gives back, negative, exactly what the
+ * stretches that applied it put in.
  */
 export function porcionDelDocumento(magnitud: string, porcion: PorcionPagada): string {
   const previo = new Decimal(porcion.aplicadoPrevio || '0');
@@ -350,7 +358,7 @@ export function porcionDelDocumento(magnitud: string, porcion: PorcionPagada): s
     porcion.totalDocumento,
     porcion.tasaCambio
   );
-  return q(Decimal.max(new Decimal(hasta).minus(desde), cero()));
+  return q(new Decimal(hasta).minus(desde));
 }
 
 // ------------------------------------------------------------

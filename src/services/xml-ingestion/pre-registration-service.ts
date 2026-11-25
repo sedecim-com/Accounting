@@ -8,6 +8,7 @@ import {
 } from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import { getPolicySpec } from '../policy/pending-catalog.js';
+import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import {
   decideMetodoPago,
   entityUsesCashBasisIva,
@@ -940,8 +941,10 @@ export class PreRegistrationService {
     );
     if (doc.rows.length === 0 || !doc.rows[0].xml_content) return null;
 
-    const entidad = await query<{ tax_id: string; tenant_id: string }>(
-      `SELECT tax_id, tenant_id FROM legal_entities WHERE id = $1`,
+    // MNE-001-742: the two columns of `keepsMexicanBooks` ride on the read this door already made, so
+    // asking the entity before parking its VAT costs no statement.
+    const entidad = await query<{ tax_id: string; tenant_id: string; incorporation_country: string; accounting_standard: string }>(
+      `SELECT tax_id, tenant_id, incorporation_country, accounting_standard FROM legal_entities WHERE id = $1`,
       [preReg.entity_id]
     );
     if (entidad.rows.length === 0) {
@@ -1019,6 +1022,7 @@ export class PreRegistrationService {
       periodOpen: fechaContableHoy ? true : periodOpen,
       satStatus: mapearEstadoSat(doc.rows[0].sat_validation_status),
       answers,
+      cashBasisVat: keepsMexicanBooks(entidad.rows[0].incorporation_country, entidad.rows[0].accounting_standard),
       thresholds: {
         capitalizationThreshold: umbralCap,
         restaurantPolicy: polRestaurantes.value,

@@ -269,7 +269,9 @@ provides:
     # uploads: 54 pipe-separated fields per third party, whole pesos, UTF-8, CRLF between
     # records, per the SAT instructivo of January 2025 cited in
     # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
-    # refused). It generates only; a person uploads it (#307).
+    # refused). It generates only; a person uploads it (#307). A vendor payment unapplied
+    # or reversed leaves the month of the undo, netted inside its third party's record; a
+    # third party whose month nets negative is refused by name (MNE-001-682).
     # CONTRACT: the agent is told to write the entry and line descriptions of an
     # entity that keeps Mexican books in Spanish, whatever language it answers
     # in, because they become the Concepto of the Anexo 24 Polizas XML (#654,

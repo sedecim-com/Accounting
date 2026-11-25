@@ -8,6 +8,7 @@ import {
   LAYOUT_ANSWERS,
   SAT_SOURCE,
   layoutForYear,
+  serializeSatBatch,
   toWholeUnits,
 } from '../../../src/services/sat/diot/sat-batch.js';
 import { desgloseCero, type Desglose } from '../../../src/services/sat/diot/desglose.js';
@@ -171,6 +172,22 @@ describe('the SAT batch file (2025 layout)', () => {
     const msg = refusal(d);
     expect(msg).toContain('devoluciones, descuentos y bonificaciones');
     expect(msg).not.toContain('14 posiciones');
+  });
+
+  it('refuses a third party whose month nets negative once, with every field and the bill of the undone payment (MNE-001-682)', () => {
+    const d = diot();
+    const taken = { base: '-1000.0000', iva: '-160.0000' };
+    d.renglones = [d.renglones[0]];
+    d.renglones[0].desglose = { ...desgloseCero(), tasa16: taken };
+    d.renglones[0].ivaRetenido = '-106.6700';
+    d.renglones[0].documentos = [{
+      billId: 'b1', billNumber: 'BILL-UNDONE', metodo: 'PPD', origenDelMetodo: 'cfdi', ivaPagado: '-160.0000',
+      ivaRetenido: '-106.6700', desglose: { ...desgloseCero(), tasa16: taken },
+    }];
+    const { refusals } = serializeSatBatch(d, { proportion: 'taxed_only' });
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0].message).toContain('campo 12: -1000.0000; campo 22: -160.0000; campo 48: -106.6700');
+    expect(refusals[0].message).toContain('Gastos de un pago desaplicado o reversado en el mes: BILL-UNDONE.');
   });
 
   it('answers the seven layout questions, each from the cited SAT source', () => {
