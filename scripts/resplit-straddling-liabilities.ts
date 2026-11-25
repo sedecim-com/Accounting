@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true });
 import { enterTenant, closeDatabase } from '../src/database/connection.js';
 import { resplitStraddlingLiabilities } from '../src/services/payroll/common/employer-liability-service.js';
+import { getLanguage } from '../src/i18n/index.js';
+import { findingText } from '../src/i18n/payroll-finding-text.js';
 
 // ============================================================
 // Command-line wrapper over `resplitStraddlingLiabilities` (#231). The logic
@@ -52,7 +54,7 @@ async function main(): Promise<void> {
     }
     for (const row of r.removed) console.log(`  - ${row}`);
     for (const row of r.added) console.log(`  + ${row}`);
-    for (const f of r.findings) console.log(`  ⚠ ${f.codigo}: ${f.mensaje}`);
+    for (const f of r.findings) console.log(`  ⚠ ${f.codigo}: ${findingText(f, getLanguage())}`);
   }
   console.log(apply ? '\nApplied.' : '\nCensus only, nothing written. Re-run with --apply to write it.');
 }

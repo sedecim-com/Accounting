@@ -13,6 +13,7 @@ import {
 } from '../../../src/services/payroll/mx/isn-calculator.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
+import { findingText } from '../../../src/i18n/payroll-finding-text.js';
 
 const mockQuery = query as unknown as Mock;
 const mockPolicy = getPolicy as unknown as Mock;
@@ -70,8 +71,8 @@ describe('sin tasa capturada no hay cero: hay un hallazgo con nombre', () => {
     expect(h.codigo).toBe('isn_sin_tasa_capturada');
     expect(h.severidad).toBe('bloqueante');
     expect(h.estado).toBe('JAL');
-    expect(h.mensaje).toContain('JAL');
-    expect(h.mensaje).toContain('2026-03-01 a 2026-03-15');
+    expect(findingText(h, 'es')).toContain('JAL');
+    expect(findingText(h, 'es')).toContain('2026-03-01 a 2026-03-15');
     expect(hallazgosQueBloquean(r.hallazgos)).toHaveLength(1);
   });
 
@@ -90,7 +91,7 @@ describe('sin tasa capturada no hay cero: hay un hallazgo con nombre', () => {
 
     expect(r.porEstado).toEqual([]);
     expect(r.hallazgos[0].codigo).toBe('isn_sin_tasa_capturada');
-    expect(r.hallazgos[0].mensaje).toContain('ninguna cubre la fecha de causación 2026-03-15');
+    expect(findingText(r.hallazgos[0], 'es')).toContain('ninguna cubre la fecha de causación 2026-03-15');
   });
 });
 
@@ -162,8 +163,8 @@ describe('un régimen que el motor no sabe calcular se niega, no se aproxima', (
     expect(r.total).toBe('0.0000');
     expect(r.hallazgos[0].codigo).toBe('isn_regimen_no_soportado');
     expect(r.hallazgos[0].severidad).toBe('bloqueante');
-    expect(r.hallazgos[0].mensaje).toContain('escalonado');
-    expect(r.hallazgos[0].mensaje).toContain('JAL');
+    expect(findingText(r.hallazgos[0], 'es')).toContain('escalonado');
+    expect(findingText(r.hallazgos[0], 'es')).toContain('JAL');
   });
 
   it('el de exención tampoco: repartir una franquicia mensual sobre una quincena exime de más', async () => {
@@ -178,7 +179,7 @@ describe('un régimen que el motor no sabe calcular se niega, no se aproxima', (
 
     expect(r.porEstado).toEqual([]);
     expect(r.hallazgos[0].codigo).toBe('isn_regimen_no_soportado');
-    expect(r.hallazgos[0].mensaje).toContain('5000.0000');
+    expect(findingText(r.hallazgos[0], 'es')).toContain('5000.0000');
   });
 });
 
@@ -201,7 +202,7 @@ describe('el trabajador sin estado tiene impuesto: lo que falta es dónde', () =
     expect(r.total).toBe('1800.0000');
     const h = r.hallazgos.find((x) => x.codigo === 'isn_sin_estado_en_el_trabajador');
     expect(h?.severidad).toBe('bloqueante');
-    expect(h?.mensaje).toContain('2 recibo(s)');
+    expect(findingText(h!, 'es')).toContain('2 recibo(s)');
   });
 });
 
