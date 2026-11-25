@@ -596,7 +596,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
         ...isrOnOwnBase,
         tax_amount: amount.toNumber(),
         notes:
-          `${isrOnOwnBase.notes ?? 'ISR del periodo'} · on its own base ${isrOnOwnBase.tax_amount.toFixed(2)}; ` +
+          `${isrOnOwnBase.notes ?? 'ISR of the period'} · on its own base ${isrOnOwnBase.tax_amount.toFixed(2)}; ` +
           `other paychecks of the period ${otherRuns.paychecks}, base ${otherRuns.taxableIsr.toFixed(2)}, ` +
           `ISR caused ${otherRuns.isr.toFixed(2)}${separate ? ' · separate paycheck' : ''} [${isrPolicy.treatment}]`,
       };

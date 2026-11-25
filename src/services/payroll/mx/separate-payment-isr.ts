@@ -6,9 +6,9 @@ import { AccountingError } from '../../../utils/errors.js';
 // ============================================================
 // MX · THE ISR OF A PAYMENT MADE APART (#601, MNE-001-739)
 //
-// An aguinaldo paid in its own run of a period whose salary another paycheck
-// already paid: its ISR was computed on its own base alone, with the period's
-// tariff, as if it were all the worker earned in the period. How it is
+// A year-end bonus paid in its own run, in a period whose salary another
+// paycheck already paid: its ISR was computed on its own base alone, with the
+// period's tariff, as if it were all the worker earned in the period. How it is
 // computed is an accounting-treatment fork (the restriction of #601), so it is
 // the policy `separate_payment_isr` (AGENTS.md invariant 6, ADR-0006):
 //
@@ -20,11 +20,10 @@ import { AccountingError } from '../../../utils/errors.js';
 //     option, because the marginal rate of the tariff rises with the income.
 //   · regulation_optional_procedure: the optional procedure of RLISR art. 174
 //     for extraordinary payments. ITS TEXT IS NOT IN THE REPOSITORY (the
-//     research note docs/investigacion/2026-09-06-normas-y-motores/normas/
-//     fiscal-mx.md says the RLISR was not opened), so its arithmetic is not
-//     written from memory: the separate paycheck is refused, by key, until
-//     the text is in the corpus. A paycheck that is not separate keeps its
-//     own base.
+//     research note on Mexican tax law, fiscal-mx.md, says the RLISR was not
+//     opened), so its arithmetic is not written from memory: the separate
+//     paycheck is refused, by key, until the text is in the corpus. A
+//     paycheck that is not separate keeps its own base.
 //   · own_paycheck_base: as before, this paycheck's base alone.
 //
 // The key is read when the paycheck shares its period with another paycheck

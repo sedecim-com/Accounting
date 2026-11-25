@@ -1697,9 +1697,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.separate_payment_isr.why':
     'Pagar el aguinaldo en su propia corrida es común, y su ISR se puede calcular sobre el ingreso de todo el periodo, con el procedimiento opcional del Reglamento o sobre ese recibo solo: cada uno da una retención distinta. Gravado sobre su propia base, un aguinaldo de 10,000.00 pagado aparte de una quincena de 10,000.00 retiene 541.53; sobre la base del periodo, 1,384.28.',
   'policy.separate_payment_isr.what':
-    'Antes de retener el ISR de un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "period_accumulated_base" aplico la tarifa del periodo a su base del ISR más la de éste y retengo la diferencia con el ISR que ellos causaron, nunca menos de cero. Con "own_paycheck_base" la aplico sólo a la base de este recibo. Con "regulation_optional_procedure" me niego a calcular el recibo aparte y digo por qué. El recibo guarda el tratamiento y las cifras en su detalle de cálculo.',
+    'Antes de calcular el ISR de un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "period_accumulated_base" aplico la tarifa del periodo a su base del ISR más la de éste, y el recibo retiene la diferencia con el ISR que ellos causaron, nunca menos de cero. Con "own_paycheck_base" la aplico sólo a la base de este recibo. Con "regulation_optional_procedure" me niego a calcular el recibo aparte y digo por qué. El recibo guarda el tratamiento y las cifras en su detalle de cálculo.',
   'policy.separate_payment_isr.if_skipped':
-    'Aplico la tarifa del periodo a la base acumulada del periodo y retengo sólo la diferencia.',
+    'Aplico la tarifa del periodo a la base acumulada del periodo, y el recibo retiene sólo la diferencia.',
   'policy.separate_payment_isr.option.period_accumulated_base':
     'Sobre la base acumulada del periodo: la tarifa sobre todos los recibos del periodo juntos, menos el ISR que causaron los otros',
   'policy.separate_payment_isr.option.regulation_optional_procedure':
