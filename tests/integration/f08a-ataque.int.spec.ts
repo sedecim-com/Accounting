@@ -10,6 +10,7 @@ import { acumularPasivoPatronal } from '../../src/services/payroll/common/employ
 import { postPayRunToGL } from '../../src/services/payroll/common/gl-posting-service.js';
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
 import { entityScope } from '../../src/database/scope.js';
+import { findingText } from '../../src/i18n/payroll-finding-text.js';
 
 // ============================================================
 // F08a · ATAQUE
@@ -582,7 +583,7 @@ describe('E · el impuesto sobre nóminas', () => {
     const r = await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: corrida });
     const h = r.hallazgos.find((x) => x.codigo === 'isn_sin_tasa_capturada');
     expect(h).toBeTruthy();
-    expect(h!.mensaje).toContain('ninguna cubre la fecha de causación');
+    expect(findingText(h!, 'es')).toContain('ninguna cubre la fecha de causación');
   });
 
   it('un cambio de tasa dentro del periodo usa la de la causación y lo avisa', async () => {
@@ -828,7 +829,7 @@ describe('G · correr el cierre dos veces', () => {
     const h = r.hallazgos.find((x) => x.codigo === 'pasivo_mensual_y_por_corrida_a_la_vez');
     expect(h, 'el mes se cuenta dos veces y nadie lo dice').toBeTruthy();
     expect(h!.severidad).toBe('bloqueante');
-    expect(h!.mensaje).toContain('contado dos veces');
+    expect(findingText(h!, 'es')).toContain('contado dos veces');
   });
 
   it('recalcular el mismo recibo no deja renglones sueltos ni un segundo recibo', async () => {

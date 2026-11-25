@@ -1,5 +1,5 @@
 import { query } from '../../../database/connection.js';
-import { AccountingError, NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { AccountingError, NotFoundError, ValidationError, type ErrorMessageKey } from '../../../utils/errors.js';
 import { getPolicy, getPolicyNumber, exigirPisoLegal, type PolicyContext } from '../../policy/policy-service.js';
 import {
   aFechaUtc,
@@ -94,8 +94,8 @@ export interface FiniquitoResult {
   /** Base diaria ya topada por el art. 486, o null si no se pudo calcular. */
   seniority_premium_daily_base: string | null;
   seniority_premium_amount: string;
-  /** Por qué vale lo que vale — o por qué no se pudo calcular. */
-  seniority_premium_note: string;
+  /** Por qué vale lo que vale — o por qué no se pudo calcular. A key: `POST /finiquito` renders it. */
+  seniority_premium_note: ErrorMessageKey;
   /**
    * The minimum the art. 486 cap was measured with, and whose zone it is
    * (MNE-001-377). `declared_by: null` = nobody declared one: general, said so.
