@@ -114,7 +114,7 @@
     "src/services/accounting/iva-cash-basis.ts": "b667b3b282e3cd6a7b0368b2eef0e65ac4e5fa22",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "8ae68e0eb43262f45638744318fb319807307107",
     "src/services/integrations/mexico/pac/pac-router.ts": "e51f69e09c6cd2906d8174e81291114019f2d27e",
-    "src/api/rest/routes/invoices.ts": "0ad338785835cf68b51d536b153bc2151e63f27e",
+    "src/api/rest/routes/invoices.ts": "d48bb69d28bd040fa8c51a75eb90775d7f12863d",
     "src/ai/ingest-service.ts": "88ddc4bc1e5b23d9b9805421d384094554ab3491",
     "src/services/banking/matching.ts": "0e292826286cdfd0daf14f7692b244a7f780121d",
     "src/api/rest/routes/bank-reconciliation.ts": "ab53c7b851819ebaede52bc4ce86dab0901702d1",

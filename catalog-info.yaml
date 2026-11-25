@@ -338,6 +338,15 @@ external:
     # longer than the pool's lock_timeout answers 409 payrun.cfdi.stamp_in_progress. A folio
     # the PAC issued and the paycheck could not record answers 500 PAYROLL_CFDI_NOT_RECORDED
     # and names the folio.
+    # CONTRACT: POST /v1/invoices/:id/cfdi/stamp stamps an invoice once (MNE-001-763, #696),
+    # by the rule of MNE-001-736 (src/services/integrations/mexico/pac/stamp-once.ts). It
+    # holds the invoice's row (FOR NO KEY UPDATE) from its read to its write, in one
+    # transaction that stays open while the PAC answers. An invoice whose cfdi_status is
+    # `stamped` answers 409 ar.invoice.cfdi.already_stamped with the folio, its status and
+    # stamped_at, before the PAC is called; NULL, pending, failed and cancelled are stamped.
+    # A stamp that waits longer than the pool's lock_timeout answers 409
+    # ar.invoice.cfdi.stamp_in_progress. A folio the PAC issued and the invoice could not
+    # record answers 500 INVOICE_CFDI_NOT_RECORDED and names the folio and the PAC.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
     # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
     # `reasoning_effort` on chat turns, compaction summaries and the init probe only when
