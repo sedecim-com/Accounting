@@ -282,7 +282,10 @@ provides:
     # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
     # refused). It generates only; a person uploads it (#307). A vendor payment unapplied
     # or reversed leaves the month of the undo, netted inside its third party's record; a
-    # third party whose month nets negative is refused by name (MNE-001-682).
+    # third party whose month nets negative is refused by name (MNE-001-682). Under the
+    # panel key vendor_undo_iva_month = payment_month the undone application counts in no
+    # month instead, so the payment's month declares less and no month nets negative
+    # (MNE-001-754).
     # CONTRACT: the agent is told to write the entry and line descriptions of an
     # entity that keeps Mexican books in Spanish, whatever language it answers
     # in, because they become the Concepto of the Anexo 24 Polizas XML (#654,

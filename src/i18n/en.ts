@@ -2097,6 +2097,20 @@ export const EN = {
   'policy.note_reversal_after_cashing_iva.option.cashing_month':
     'Count it in the month of the cashing, as if the note had never been issued',
 
+  'policy.vendor_undo_iva_month.question':
+    'A vendor payment that released a bill\'s IVA is unapplied or reversed in a later month: in which month do the DIOT and the IVA workpaper take that IVA out?',
+  'policy.vendor_undo_iva_month.impact':
+    'Governs the DIOT and the IVA workpaper after `payment unapply` or `payment reverse` of a vendor payment applied in an earlier month; hechos.ts reads it once for each month either builds. Under either answer the ledger credits the creditable IVA (1130) on the day of the undo. With "undo_month" the papers take it out in the month of the undo, so the month it counted in keeps what it declared and every month ties out with the ledger. With "payment_month" the papers read the application as never having existed: the month it counted in no longer counts it and needs an amended return, and the month of the undo takes nothing out; the notice DIOT-PAYMENT-UNDONE says so in both months, and the tie-out names the cause in both. An undo dated in the month of the application nets there under either answer.',
+  'policy.vendor_undo_iva_month.rationale':
+    'The ledger takes the IVA out of 1130 on the day of the undo, and creditable IVA is the tax effectively paid on a bill (LIVA art. 5 fr. III, as the CFDI manual of this system carries it; the text of the LIVA is not in this system): after the undo the books show the bill owed again. Counting the undo in its own month changes no month already declared and keeps every month tied to the ledger, the conservative option of ADR-0006. When the application should never have existed, amending the month it counted in (CFF art. 32) is also accepted.',
+  'policy.vendor_undo_iva_month.why':
+    'A vendor reversal stores no cause, so I cannot tell a transfer that came back from an application that should never have existed. Some firms take the undo out in its own month, as the ledger does; others amend the month the payment counted in.',
+  'policy.vendor_undo_iva_month.what':
+    'With "undo_month" I take the undone IVA out in the month of the undo. With "payment_month" I count it in no month, and name, in the notice and the tie-out of both months, the amended return the month of the payment needs.',
+  'policy.vendor_undo_iva_month.if_skipped': 'I take it out in the month of the undo.',
+  'policy.vendor_undo_iva_month.option.undo_month': 'Take it out in the month of the undo, as the ledger does',
+  'policy.vendor_undo_iva_month.option.payment_month': 'Count it in no month, and amend the month of the payment',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
   'policy.cash_over_limit_outside_ingestion.impact':

@@ -246,7 +246,7 @@ describe('a vendor bill closed with an early-payment discount leaves nothing in 
     const { billId, vendorId } = await approvedBill('1000.00', '160.00');
     await paid(billId, vendorId, '1102.00', '58.00');
 
-    const { hechos: facts } = await withTransaction((client) => hechosDelMes(client, f.entityId, 2026, 8));
+    const { hechos: facts } = await withTransaction((client) => hechosDelMes(client, f.entityId, 2026, 8, 'undo_month'));
     const fact = facts.find((h) => h.billId === billId);
     expect(new Decimal(fact!.ivaPagado).toFixed(2)).toBe('152.00');
   }, 120_000);
