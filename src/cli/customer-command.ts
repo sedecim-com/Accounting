@@ -266,14 +266,12 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         try {
           new Decimal(opts.balanceGt);
         } catch {
-          throw usageError(`--balance-gt must be a number; got "${opts.balanceGt}".`);
+          throw usageError({ key: 'ar.customer.list.balance_not_number', params: { value: opts.balanceGt } });
         }
       }
       for (const state of opts.status ?? []) {
         if (!(CREDIT_STATUSES as readonly string[]).includes(state)) {
-          throw usageError(
-            `Unknown --status "${state}". A customer's lifecycle state is its credit state: ${CREDIT_STATUSES.join(', ')}.`
-          );
+          throw usageError({ key: 'ar.customer.list.status_unknown', params: { value: state, statuses: CREDIT_STATUSES.join(', ') } });
         }
       }
 
@@ -315,16 +313,10 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       // meaning here and are refused rather than silently ignored; the dated
       // register is `invoice list --customer <ref> --since … --until …`.
       if (opts.period || opts.since || opts.until) {
-        throw usageError(
-          '`customer show` is a point-in-time card: use --as-of for the reference date. ' +
-            'For a date range, use `invoice list --customer <ref> --since … --until …`.'
-        );
+        throw usageError({ key: 'ar.customer.show.point_in_time', params: { command: 'customer show', range: 'invoice list --customer <ref> --since … --until …' } });
       }
       if (opts.dateBasis && opts.dateBasis !== 'posting') {
-        throw usageError(
-          '--date-basis does not apply to a customer balance: it is built from the document ' +
-            'date of what was billed and the payment date of what was collected, both at once.'
-        );
+        throw usageError({ key: 'ar.customer.show.date_basis' });
       }
 
       const found = await resolveCustomer(ctx.entityId, ref);
@@ -333,7 +325,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         includeDocuments: true,
         asOf: opts.asOf,
       });
-      if (!card) throw notFound(`Customer ${ref} disappeared while reading it.`);
+      if (!card) throw notFound({ key: 'ar.customer.show.disappeared', params: { ref } });
 
       const invoices = (card.open_invoices as Record<string, unknown>[]) ?? [];
       const payments = (card.recent_payments as Record<string, unknown>[]) ?? [];
@@ -347,33 +339,36 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       const out = process.stdout;
       out.write(
         `\n${p.bold(customerLabel(card))} ` +
-          `${p.dim(String(card.customer_number))}${card.is_active ? '' : p.yellow('  [archived]')}\n`
+          `${p.dim(String(card.customer_number))}${card.is_active ? '' : p.yellow(`  ${t('ar.customer.show.archived')}`)}\n`
       );
+      // The labels pad to the longest one (16 at least, the English width).
+      const labels = ['tax_id', 'email', 'phone', 'terms', 'currency', 'credit_status', 'credit_limit', 'amount_due', 'past_due', 'book_value', 'oldest_due', 'as_of'] as const;
+      const width = Math.max(16, ...labels.map((l) => t(`ar.customer.show.${l}`).length + 1));
       const fact = (label: string, value: unknown) => {
         if (value === null || value === undefined || value === '') return;
-        out.write(`  ${p.dim(label.padEnd(16))}${day(value)}\n`);
+        out.write(`  ${p.dim(label.padEnd(width))}${day(value)}\n`);
       };
-      fact('Tax id', card.tax_id ? `${card.tax_id}${card.tax_id_type ? ` (${String(card.tax_id_type).toUpperCase()})` : ''}` : '');
-      fact('Email', card.email);
-      fact('Phone', card.phone);
-      fact('Terms', card.payment_terms);
-      fact('Currency', card.currency_code);
-      fact('Credit status', card.credit_status);
-      fact('Credit limit', card.credit_limit);
+      fact(t('ar.customer.show.tax_id'), card.tax_id ? `${card.tax_id}${card.tax_id_type ? ` (${String(card.tax_id_type).toUpperCase()})` : ''}` : '');
+      fact(t('ar.customer.show.email'), card.email);
+      fact(t('ar.customer.show.phone'), card.phone);
+      fact(t('ar.customer.show.terms'), card.payment_terms);
+      fact(t('ar.customer.show.currency'), card.currency_code);
+      fact(t('ar.customer.show.credit_status'), card.credit_status);
+      fact(t('ar.customer.show.credit_limit'), card.credit_limit);
       // What is still owed after cash AND credit notes — the same measure as an
       // invoice's `amount_due` — not "open balance", which read as cash only.
       // MNE-001-741: per currency, never added; the book value in the
       // functional currency only when a foreign currency is in it.
       const balances = card.balances_by_currency as CurrencyBalance[];
-      fact('Amount due', amountsByCurrency(balances) || card.open_balance);
-      fact('Past due', amountsByCurrency(balances.filter((b) => new Decimal(b.overdue_balance).gt(0)), 'overdue_balance'));
+      fact(t('ar.customer.show.amount_due'), amountsByCurrency(balances) || card.open_balance);
+      fact(t('ar.customer.show.past_due'), amountsByCurrency(balances.filter((b) => new Decimal(b.overdue_balance).gt(0)), 'overdue_balance'));
       if (balances.some((b) => b.currency_code !== card.book_currency)) {
         fact(t('ar.customer.show.book_value'), `${String(card.open_balance)} ${String(card.book_currency)}`);
       }
-      fact('Oldest due', card.oldest_due_date);
-      if (opts.asOf) out.write(`  ${p.dim('As of'.padEnd(16))}${opts.asOf}\n`);
+      fact(t('ar.customer.show.oldest_due'), card.oldest_due_date);
+      if (opts.asOf) out.write(`  ${p.dim(t('ar.customer.show.as_of').padEnd(width))}${opts.asOf}\n`);
 
-      out.write(`\n${p.bold('Open documents')} ${p.dim(`(${invoices.length})`)}\n`);
+      out.write(`\n${p.bold(t('ar.customer.show.open_documents'))} ${p.dim(`(${invoices.length})`)}\n`);
       if (invoices.length) {
         render(
           invoices.map((row) => ({
@@ -391,7 +386,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         );
       }
 
-      out.write(`\n${p.bold('Recent payments')} ${p.dim(`(${payments.length})`)}\n`);
+      out.write(`\n${p.bold(t('ar.customer.show.recent_payments'))} ${p.dim(`(${payments.length})`)}\n`);
       if (payments.length) {
         render(
           payments.map((row) => ({
@@ -437,14 +432,14 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         const ctx = await writeEntityOf(opts);
 
         if (!opts.name && !opts.firstName) {
-          throw usageError('A customer needs a name: pass --name "ACME SA" or --first-name.');
+          throw usageError({ key: 'ar.customer.create.name_missing' });
         }
         const taxIdType = opts.taxIdType ?? (opts.taxId ? inferTaxIdType(ctx.country) : undefined);
         if (taxIdType && !(TAX_ID_TYPES as readonly string[]).includes(taxIdType)) {
-          throw usageError(`Unknown --tax-id-type "${taxIdType}". Use one of: ${TAX_ID_TYPES.join(', ')}.`);
+          throw usageError({ key: 'ap.vendor.create.tax_id_type_unknown', params: { value: taxIdType, types: TAX_ID_TYPES.join(', ') } });
         }
         if (opts.currency && opts.currency.length !== 3) {
-          throw usageError(`--currency must be a 3-letter code; got "${opts.currency}".`);
+          throw usageError({ key: 'ar.customer.create.currency_invalid', params: { value: opts.currency } });
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -510,9 +505,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
           ...(opts.notes !== undefined ? { notes: opts.notes } : {}),
         };
         if (Object.keys(patch).length === 0) {
-          throw usageError(
-            'Nothing to change. Pass --name, --first-name, --last-name, --email, --phone, --terms or --notes.'
-          );
+          throw usageError({ key: 'ar.customer.edit.nothing_to_change' });
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -520,7 +513,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
           audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason },
         });
         process.stdout.write(
-          `${deps.palette.green('✔')} ${updated.customer_number} updated` +
+          `${deps.palette.green('✔')} ${t('ar.customer.edit.updated', { number: updated.customer_number })}` +
             (opts.reason ? deps.palette.dim(` — ${opts.reason}`) : '') +
             '\n'
         );
@@ -548,10 +541,10 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       });
 
       process.stdout.write(
-        `${deps.palette.green('✔')} ${target.customer_number} archived.` +
+        `${deps.palette.green('✔')} ${t('ar.customer.archive.archived', { number: target.customer_number })}` +
           (balance.open_documents > 0
             ? deps.palette.yellow(
-                ` ${balance.open_documents} open document(s) worth ${describeBalance(balance)} remain on the books.`
+                ` ${t('ar.customer.archive.open_documents', { count: balance.open_documents, balance: describeBalance(balance) })}`
               )
             : '') +
           '\n'
@@ -574,7 +567,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       const updated = await restoreCustomer(target.id, entityScope(ctx.tenantId, ctx.entityId), {
         audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason },
       });
-      process.stdout.write(`${deps.palette.green('✔')} ${updated.customer_number} is active again.\n`);
+      process.stdout.write(`${deps.palette.green('✔')} ${t('ar.customer.restore.active', { number: updated.customer_number })}\n`);
     })
   );
 
@@ -615,13 +608,13 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         );
       };
       fact('RFC', perfil.tax_id);
-      fact('Regime', perfil.tax_regime, perfil.tax_regime_name);
-      fact('Postal code', perfil.tax_postal_code);
+      fact(t('ar.customer.tax.regime'), perfil.tax_regime, perfil.tax_regime_name);
+      fact(t('ar.customer.tax.postal_code'), perfil.tax_postal_code);
       fact('UsoCFDI', perfil.uso_cfdi, perfil.uso_cfdi_name);
       out.write(
         perfil.complete
-          ? `\n${p.green('✔')} Complete: stamping has what the SAT padrón will be matched against.\n`
-          : `\n${p.yellow('▲')} Missing ${perfil.missing.join(', ')}: a CFDI for this customer would be rejected.\n`
+          ? `\n${p.green('✔')} ${t('ar.customer.tax.complete')}\n`
+          : `\n${p.yellow('▲')} ${t('ar.customer.tax.missing', { missing: perfil.missing.join(', ') })}\n`
       );
     })
   );
@@ -665,10 +658,10 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         }
         const p = deps.palette;
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(perfil.customer_number)} fiscal profile updated` +
+          `${p.green('✔')} ${t('ar.customer.tax.updated', { number: p.bold(perfil.customer_number) })}` +
             (perfil.complete
-              ? p.dim(' · complete\n')
-              : p.yellow(` · still missing ${perfil.missing.join(', ')}\n`))
+              ? p.dim(` · ${t('ar.customer.tax.updated_complete')}\n`)
+              : p.yellow(` · ${t('ar.customer.tax.still_missing', { missing: perfil.missing.join(', ') })}\n`))
         );
       })
   );
@@ -683,7 +676,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     run(async () => {
       const ctx = await entityOf(opts);
       if (opts.status?.length) {
-        throw usageError('`customer tax list` has no lifecycle filter: use --missing.');
+        throw usageError({ key: 'ar.customer.tax.list_no_status', params: { command: 'customer tax list' } });
       }
       const { rows, total } = await listCustomerTaxProfiles(
         entityScope(ctx.tenantId, ctx.entityId),
