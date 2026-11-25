@@ -4,6 +4,7 @@ import { ensureEntityAccounting } from '../../services/accounting/entity-account
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
 import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
+import { t } from '../../i18n/index.js';
 import { resolveEnvTarget, upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -36,7 +37,9 @@ export interface IdentidadDeps {
 
 export class IdentidadSection implements SetupSection {
   readonly id = 'identidad' as const;
-  readonly title = 'Fiscal identity (tenant, legal entity, fiscal year)';
+  get title(): string {
+    return t('init.identity.title');
+  }
   readonly required = true;
 
   constructor(private readonly deps: IdentidadDeps = {}) {}
@@ -63,10 +66,10 @@ export class IdentidadSection implements SetupSection {
         ? {
             ...FISCAL_YEAR,
             level: 'fail',
-            detail: 'no open periods: no journal entry can be posted',
+            detail: t('init.identity.check.no_open_periods'),
             fix: 'mnemosine init --section identity',
           }
-        : { ...FISCAL_YEAR, level: 'ok', detail: `${open} period(s) available` }
+        : { ...FISCAL_YEAR, level: 'ok', detail: t('init.identity.check.periods_available', { count: open }) }
     );
     return checks;
   }
@@ -88,9 +91,9 @@ export class IdentidadSection implements SetupSection {
     );
 
     if (existing.rows.length > 0) {
-      ctx.print(`  There are already ${existing.rows.length} entity(ies):`);
+      ctx.print(`  ${t('init.identity.existing', { count: existing.rows.length })}`);
       for (const e of existing.rows) ctx.print(`    · ${e.name} (${e.tax_id})`);
-      const add = await ctx.confirm('  Add another entity?', false);
+      const add = await ctx.confirm(`  ${t('init.identity.add_another')}`, false);
       if (!add) {
         // Pin the tenant of the first one so RLS stays active.
         await this.persistTenant(existing.rows[0].tenant_id, ctx);
@@ -100,26 +103,26 @@ export class IdentidadSection implements SetupSection {
       }
     }
 
-    const name = ctx.flags.entity ?? (await ctx.askText('  Legal entity name: '));
+    const name = ctx.flags.entity ?? (await ctx.askText(`  ${t('init.identity.name_prompt')} `));
     if (!name) {
-      ctx.print('  Without a name I cannot create the entity; section incomplete.');
+      ctx.print(`  ${t('init.identity.no_name')}`);
       return;
     }
-    const countryRaw = (ctx.flags.country ?? (await ctx.askText('  Country [MX/USA] (MX): ')) ?? 'MX')
-      .toUpperCase();
+    const countryPrompt = `  ${t('init.identity.country_prompt', { choices: 'MX/USA', default: 'MX' })} `;
+    const countryRaw = (ctx.flags.country ?? (await ctx.askText(countryPrompt)) ?? 'MX').toUpperCase();
     const country: Country = countryRaw === 'USA' ? 'USA' : 'MX';
     const cat = CATALOGS[country];
     const taxLabel = country === 'MX' ? 'RFC' : 'EIN';
     const taxId = ctx.flags.rfc ?? (await ctx.askText(`  ${taxLabel}: `));
     if (!taxId) {
-      ctx.print(`  Without ${taxLabel} I cannot create the entity; section incomplete.`);
+      ctx.print(`  ${t('init.identity.no_tax_id', { label: taxLabel })}`);
       return;
     }
     const currency = ctx.flags.currency ?? cat.currency;
 
     const created = await this.createEntity({ name, taxId, country, currency, cat });
     await this.persistTenant(created.tenantId, ctx);
-    ctx.print(`  ✔ Entity "${name}" created (${taxId}, ${country}, ${currency})`);
+    ctx.print(`  ✔ ${t('init.identity.created', { name, taxId, country, currency })}`);
     await this.ensureFiscalYear(created.entityId, ctx);
     await this.ensureContabilidad(created.entityId, created.tenantId, ctx);
   }
@@ -130,7 +133,7 @@ export class IdentidadSection implements SetupSection {
     upsertEnvVar(envPath, 'MNEMOSINE_TENANT', tenantId, ctx.print);
     process.env.MNEMOSINE_TENANT = tenantId;
     enterTenant(tenantId);
-    ctx.print(`  ✔ Tenant pinned in ${envPath} (RLS isolation active)`);
+    ctx.print(`  ✔ ${t('init.identity.tenant_pinned', { path: envPath })}`);
   }
 
   /**
@@ -184,20 +187,22 @@ export class IdentidadSection implements SetupSection {
     // el resto del alta, y queda trazado en created_by.
     const r = await ensureEntityAccounting(entityId, tenantId, entityId, { estrategia: 'auto' });
     if (r.cuentasBaseCreadas.length > 0) {
-      ctx.print(`  ✔ Chart of accounts seeded (${r.cuentasBaseCreadas.length} accounts)`);
+      ctx.print(`  ✔ ${t('init.identity.chart_seeded', { count: r.cuentasBaseCreadas.length })}`);
     } else if (r.teniaCatalogo) {
-      ctx.print('  ✔ Chart of accounts already present — kept as is');
+      ctx.print(`  ✔ ${t('init.identity.chart_kept')}`);
     }
     if (r.accountsCreated.length > 0) {
-      ctx.print(`  ✔ Control accounts added (${r.accountsCreated.length})`);
+      ctx.print(`  ✔ ${t('init.identity.control_accounts', { count: r.accountsCreated.length })}`);
     }
     if (r.rolesMapped > 0) {
-      ctx.print(`  ✔ Account roles mapped (${r.rolesMapped})`);
+      ctx.print(`  ✔ ${t('init.identity.roles_mapped', { count: r.rolesMapped })}`);
     }
     if (r.unmapped.length > 0) {
-      ctx.print(`  ⚠ ${r.unmapped.length} role(s) without an account in this chart:`);
-      for (const u of r.unmapped.slice(0, 6)) ctx.print(`      ${u.role} → expected code ${u.code}`);
-      ctx.print('      Map them with: mnemosine doctor');
+      ctx.print(`  ⚠ ${t('init.identity.roles_unmapped', { count: r.unmapped.length })}`);
+      for (const u of r.unmapped.slice(0, 6)) {
+        ctx.print(`      ${t('init.identity.expected_code', { role: u.role, code: u.code })}`);
+      }
+      ctx.print(`      ${t('init.identity.map_with', { command: 'mnemosine doctor' })}`);
     }
   }
 
@@ -211,18 +216,15 @@ export class IdentidadSection implements SetupSection {
     const year = new Date().getFullYear();
     const result = await ensureFiscalYear(entityId, year);
     if (result.created) {
-      ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods and the year-end adjustment period (13)`);
+      ctx.print(`  ✔ ${t('init.identity.year_created', { year })}`);
     } else if (result.periods === 0) {
       // The year row exists but carries no periods, so nothing can be posted.
       // ensureFiscalYear will not fill it in (the INSERT would collide on
       // UNIQUE(entity_id, year_number)); saying "already has periods" here
       // would tick a checkbox for a calendar that does not exist.
-      ctx.print(
-        `  ! Fiscal year ${year} exists but has no periods — nothing can be posted. ` +
-          `Delete the empty fiscal_years row and re-run, or build another year with \`mnemosine year create\`.`
-      );
+      ctx.print(`  ! ${t('init.identity.year_empty', { year, command: 'mnemosine year create' })}`);
     } else {
-      ctx.print(`  ✔ Fiscal year ${year} already has ${result.periods} periods`);
+      ctx.print(`  ✔ ${t('init.identity.year_has', { year, count: result.periods })}`);
     }
   }
 }
