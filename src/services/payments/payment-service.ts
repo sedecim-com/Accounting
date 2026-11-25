@@ -1324,6 +1324,11 @@ async function cobroParaEscribir(
  * ledger would apply or undo cash before it happened. A cheque's cashing
  * (MNE-001-556) is one of those events. A hard-closed or locked period is
  * refused by posting itself.
+ *
+ * MNE-001-779 · An application or a transfer is not dated before the day the
+ * bank cashed the receipt's check either, even when that cashing posted no
+ * entry. An unapply is not held to it: it re-parks what its row stores, and a
+ * row that released at the cashing has the cashing's entry above it.
  */
 async function receiptEventDate(
   client: pg.PoolClient,
@@ -1355,6 +1360,13 @@ async function receiptEventDate(
   );
   const recorded = toCalendarDate(receipt.payment_date);
   const since = last.rows[0]?.d && last.rows[0].d > recorded ? last.rows[0].d : recorded;
+  // MNE-001-779: a price paid by check is paid the day the bank cashes it (LIVA art. 1o.-B), and once
+  // cashed, an application causes the invoice's IVA on its own day. A cashing with the cash still on
+  // account posted no entry for `since` to see, so its day is read from the receipt. The later one speaks.
+  const cashedOn = receipt.check_cashed_date === null ? null : toCalendarDate(receipt.check_cashed_date);
+  if (event !== 'unapply' && cashedOn !== null && cashedOn >= since && date < cashedOn) {
+    throw new ValidationError({ key: `receipt.${event}.date_before_cashing` as const, params: { ...params, cashedOn } }, 'date');
+  }
   if (date < since) {
     throw new ValidationError(
       { key: `receipt.${event}.date_before_last_event` as const, params: { ...params, since } },
