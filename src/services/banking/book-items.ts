@@ -102,9 +102,8 @@ export async function listarPartidasDeLibros(
   }
   if (opts.overDays !== undefined) {
     if (!Number.isInteger(opts.overDays) || opts.overDays < 0) {
-      throw new ValidationError(
-        `\`overDays\` tiene que ser un número entero de días no negativo; llegó ${String(opts.overDays)}.`
-      );
+      // A developer's contract: the CLI parses --over-days before it calls.
+      throw new ValidationError(`\`overDays\` must be a non-negative whole number of days; got ${String(opts.overDays)}.`);
     }
     params.push(opts.overDays);
     condiciones.push(`AND (CURRENT_DATE - je.entry_date) > $${params.length}::int`);
@@ -213,12 +212,10 @@ export async function sellarPartidas(
     // que cuadra Σbanco = Σlibros + Σajustes con una partida de menos no
     // cuadra: descuadraría en silencio y el descuadre aparecería en la sesión,
     // lejos de aquí y sin quién lo explique.
-    throw new ValidationError(
-      `El sello de conciliación alcanzó ${selladas} de ${lineIds.length} partida(s). ` +
-        `Las que faltan ya estaban selladas, pertenecen a un asiento no contabilizado, ` +
-        `o no son de la misma entidad que el grupo ${groupId}. No se sella nada a medias: ` +
-        `revisa la lista con \`bank book-item list\` y vuelve a armar el grupo.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_book_item.partial_seal',
+      params: { sealed: selladas, count: lineIds.length, group: groupId },
+    });
   }
   return selladas;
 }
@@ -264,11 +261,10 @@ export async function liberarPartidas(
 
   const liberadas = r.rowCount ?? 0;
   if (liberadas !== lineIds.length) {
-    throw new ValidationError(
-      `Se liberaron ${liberadas} de ${lineIds.length} partida(s). Las que faltan no estaban ` +
-        `selladas, o su sello lo puso algo que no es un grupo de cotejo bancario de esta ` +
-        `entidad —la certificación de cuentas usa la misma columna— y no se levanta desde aquí.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_book_item.partial_release',
+      params: { released: liberadas, count: lineIds.length },
+    });
   }
   return liberadas;
 }

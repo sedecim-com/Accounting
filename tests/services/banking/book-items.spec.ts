@@ -150,7 +150,7 @@ describe('sellarPartidas', () => {
     const { doble } = cliente(2);
 
     await expect(sellarPartidas(doble, ['a', 'b', 'c'], 'grp-1')).rejects.toThrow(ValidationError);
-    await expect(sellarPartidas(doble, ['a', 'b', 'c'], 'grp-1')).rejects.toThrow(/2 de 3/);
+    await expect(sellarPartidas(doble, ['a', 'b', 'c'], 'grp-1')).rejects.toThrow(/2 of 3/);
   });
 
   it('no toca la base con una lista vacía', async () => {
@@ -190,6 +190,6 @@ describe('liberarPartidas', () => {
   it('avisa cuando alguna partida no se pudo liberar', async () => {
     const { doble } = cliente(0);
 
-    await expect(liberarPartidas(doble, ['jel-1'])).rejects.toThrow(/0 de 1/);
+    await expect(liberarPartidas(doble, ['jel-1'])).rejects.toThrow(/0 of 1/);
   });
 });

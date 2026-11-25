@@ -233,6 +233,57 @@ export const ES: Record<keyof typeof EN, string> = {
     'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que desapareció.',
   'error.VALIDATION_ERROR.payment.short_pay_forbidden':
     'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o cambia la política con `mnemosine pending reopen pago_corto_residual` (si ya estaba definida) y luego `mnemosine pending define pago_corto_residual`.',
+  // ---- MNE-001-725 · I9 by folder, part 2: the refusals of the bank match in src/services/banking; see en.ts ----
+  'error.VALIDATION_ERROR.bank_match.write_off_on_zero':
+    'El grupo cuadra exacto (residual 0.0000): no hay nada que cancelar, así que --residual write-off sobra. Usa keep o quita la bandera.',
+  'error.VALIDATION_ERROR.bank_match.residual_undeclared':
+    'El grupo no cuadra y nadie declaró qué hacer con lo que sobra. Banco {bank} = Libros {books} + Ajustes {adjustments} deja una diferencia de {difference}. Declárala con --residual keep (queda viva como partida conciliatoria) o --residual write-off --write-off-account <cuenta> (se cancela contra esa cuenta), o corrige las partidas del grupo.',
+  'error.VALIDATION_ERROR.bank_match.write_off_needs_account':
+    'Un residual de {difference} que se cancela necesita cuenta: --residual write-off exige --write-off-account. Sin ella el dinero se quedaría sin destino y el descuadre reaparecería en la sesión.',
+  'error.VALIDATION_ERROR.bank_match.write_off_account_with_keep':
+    '--write-off-account sólo tiene sentido con --residual write-off: un residual que se conserva no se cancela contra ninguna cuenta.',
+  'error.VALIDATION_ERROR.bank_match.repeated_id':
+    'El {side, select, bank {movimiento de banco} other {partida de libros}} {id} aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría afirmando el doble de lo que hay.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group':
+    'La partida {id} ya está sellada por el grupo de cotejo {group}. Desaplica ese cotejo antes de volver a cotejarla.',
+  'error.VALIDATION_ERROR.bank_match.session_other_account':
+    'La sesión {session} concilia otra cuenta bancaria: un cotejo no puede pertenecer a la conciliación de una cuenta distinta de la del movimiento.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_add':
+    "La sesión {session} está en '{status}': añadirle cotejos ahora reescribiría una aseveración ya firmada.",
+  'error.VALIDATION_ERROR.bank_match.preview_needs_target': 'Previsualizar necesita una cuenta bancaria (--account) o un movimiento concreto.',
+  'error.VALIDATION_ERROR.bank_match.apply_needs_transaction': 'Aplicar necesita al menos un movimiento: no hay nada que cotejar.',
+  'error.VALIDATION_ERROR.bank_match.apply_one_account':
+    'Todos los movimientos de un mismo `apply` tienen que ser de la misma cuenta bancaria: una sola transacción no puede ligarse a dos conciliaciones.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account_than_group':
+    'El movimiento {id} es de otra cuenta bancaria que la del grupo ({account}): un cotejo no puede quedar colgado de una cuenta que no es la suya.',
+  'error.VALIDATION_ERROR.bank_match.group_needs_bank': 'Un grupo de cotejo necesita al menos un movimiento de banco.',
+  'error.VALIDATION_ERROR.bank_match.group_needs_books': 'Un grupo de cotejo necesita al menos una partida de libros.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account':
+    'El movimiento {id} pertenece a otra cuenta bancaria: un grupo de cotejo no puede cruzar dos cuentas.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.period_closed':
+    "El movimiento {id} cae en un periodo '{status, select, missing {inexistente} other {{status}}}': no se cotejan movimientos de un periodo cerrado con llave.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.transaction_already_matched':
+    'El movimiento {id} ya tiene el cotejo vivo {match}: desaplícalo antes de meterlo en un grupo nuevo, o el mismo dinero quedaría cotejado dos veces.',
+  'error.VALIDATION_ERROR.bank_match.item_entry_not_posted':
+    "La partida {id} pertenece a un asiento en '{status}': sólo se coteja contra asientos contabilizados.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_already_matched':
+    'La partida {id} ya está cotejada: desaplica ese cotejo antes de incluirla en un grupo nuevo.',
+  'error.VALIDATION_ERROR.bank_match.opposite_directions':
+    'El grupo suma {bank} de banco contra {books} de libros: los dos lados apuntan en direcciones opuestas, así que el grupo cotejaría una entrada de dinero contra una salida.',
+  'error.VALIDATION_ERROR.bank_match.orphan_transaction':
+    'El movimiento {id} no recibe ninguna partida de libros: los ajustes y el residual lo absorben entero, así que quedaría marcado como cotejado sin nada que lo explique. Sácalo del grupo o dale una partida.',
+  'error.VALIDATION_ERROR.bank_match.orphan_item':
+    'La partida {id} no recibe ningún movimiento de banco: los ajustes y el residual la absorben entera, así que quedaría sellada sin cotejo que la explique. Sácala del grupo, o mete el movimiento de banco que la cubre.',
+  'error.VALIDATION_ERROR.bank_match.unapply_reason_unknown':
+    "Motivo de desaplicación desconocido: '{reason}'. Los admitidos son {known}. El motivo es un código y no prosa libre porque las causas tienen que poder contarse, no sólo leerse.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.already_unapplied':
+    'El cotejo {match} ya se desaplicó: deshacer lo ya deshecho no es un acto, y su fila sigue en el expediente con su motivo.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_unapply':
+    "La sesión {session} está en '{status}': deshacer un cotejo suyo reescribiría una aseveración ya firmada. Corrígela con una sesión nueva, no borrando ésta.",
+  'error.VALIDATION_ERROR.bank_book_item.partial_seal':
+    'El sello de conciliación alcanzó {sealed} de {count} partida(s). Las que faltan ya estaban selladas, pertenecen a un asiento no contabilizado, o no son de la misma entidad que el grupo {group}. No se sella nada a medias: revisa la lista con `bank book-item list` y vuelve a armar el grupo.',
+  'error.VALIDATION_ERROR.bank_book_item.partial_release':
+    'Se liberaron {released} de {count} partida(s). Las que faltan no estaban selladas, o su sello lo puso algo que no es un grupo de cotejo bancario de esta entidad —la certificación de cuentas usa la misma columna— y no se levanta desde aquí.',
   // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion; see en.ts ----
   'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR':
     'El CFDI lo emite "{name}" (RFC {rfc}), que no existe en el catálogo de proveedores de esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, con `mnemosine vendor create --tax-id {rfc}`, y vuelve a ejecutar (el pre-registro lo encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como viene en el comprobante.',
