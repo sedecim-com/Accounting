@@ -6583,6 +6583,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.current_liabilities': 'Pasivo a corto plazo',
   'report.category.long_term_liabilities': 'Pasivo a largo plazo',
   'report.category.equity': 'Capital contribuido',
+  'report.category.earned_capital': 'Capital ganado',
   'report.category.ori': 'Otros resultados integrales',
   'report.category.revenue': 'Ingresos',
   'report.category.cogs': 'Costo de ventas',

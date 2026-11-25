@@ -18,10 +18,11 @@ import { t, type Language, type TranslationKey } from './index.js';
 // that key with the language it actually has. The agent renders nothing: it
 // consumes `key` and its manual promises it.
 //
-// THERE ARE NINETEEN LABELS, NOT SIX. Six sections, and thirteen subsections
+// THERE ARE TWENTY LABELS, NOT SIX. Six sections, and fourteen subsections
 // that are not literals at all: `report-service.ts` builds them by prettifying
 // the stored `fs_category` (`cat.replace(/_/g, ' ')…`), whose domain is the
-// twelve values of migration 078's CHECK plus `other`. That prettifier was
+// thirteen values of the CHECK (078, widened by 346 with `earned_capital`)
+// plus `other`. That prettifier was
 // never a label — two of its outputs are not words («Ori», «Cogs») and a
 // third collides with the label of its own parent section («Equity» inside
 // «Equity»).
