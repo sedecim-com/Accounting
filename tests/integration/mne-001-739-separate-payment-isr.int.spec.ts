@@ -197,8 +197,9 @@ describe('the ISR of a payment made apart follows the panel key separate_payment
       const apart = await statementsOf(() => calculatePayRun(bonusRun, bonusInput, scope));
       // Round trips to Postgres, measured on develop ac9ff0be: 81 and 97. The
       // key adds one read to the paycheck that shares its period; the
-      // ordinary one is untouched.
-      expect({ ordinary, apart }).toEqual({ ordinary: 81, apart: 98 });
+      // ordinary one is untouched. MNE-001-636 adds two per run, whatever its
+      // paychecks: the check of the yearly parameters on the pay date.
+      expect({ ordinary, apart }).toEqual({ ordinary: 83, apart: 100 });
     });
   });
 

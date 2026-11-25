@@ -48,6 +48,12 @@ provides:
     # status (MNE-001-659, #601). It used to create a second one. Every other `run_type` is
     # created as before, and so is the first regular run of a period. Rollback: revert the
     # commit; no row was written differently.
+    # CONTRACT: POST /v1/payroll/pay-runs/:id/calculate answers `data.warnings`, a list (empty
+    # when none) of {table, key, value, since, dueFrom, payDate}: each yearly Mexican parameter
+    # (the two minimum wages from 1 January, the daily and monthly UMA from 1 February) whose
+    # value in force on the pay date began before its last due day (MNE-001-636, #953).
+    # Additive: no field is removed or renamed, and no amount changes. Rollback: revert the
+    # commit; nothing is migrated.
     # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
     # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
     # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
