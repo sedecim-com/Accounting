@@ -2,13 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
-import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
+import { query, closeDatabase, enterTenant, withTransaction } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
+import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-invoice-approval.js';
 
 // ============================================================
 // MNE-001-759 (#692) · `cfdi post` ASKS THE ENTITY BEFORE IT PARKS THE TAX
@@ -152,6 +153,23 @@ describe('an entity that does not keep Mexican books', () => {
     expect.soft(sold.lines).toEqual(['1120 9920.0000/0', '2120 0/1280.0000', '2180 0/640.0000', '4100 0/8000.0000']);
     expect(await collect(moved, sold.invoiceId, '9920.00')).toEqual(['1111 9920.0000/0', '1120 0/9920.0000']);
     expect(await owed(moved, '2181')).toBe('0.00');
+  }, 120_000);
+
+  it('the check both doors share still takes VAT and IEPS parked the Mexican way, as an agent\'s draft may be', async () => {
+    enterTenant(moved.f.tenantId);
+    const uuid = uuidv4().toUpperCase();
+    const up = await svc.processXMLUpload(moved.f.entityId, sale(uuid, true), 'manual_upload', moved.f.userId);
+    const c = moved.f.cuentas;
+    const lines = [['1120', 9920, null], ['4100', null, 8000], ['2125', null, 1280], ['2181', null, 640]] as const;
+    const rolledBack = new Error('rolled back');
+    await expect(withTransaction(async (client) => {
+      await registerIssuedInvoice(client, {
+        tenantId: moved.f.tenantId, entityId: moved.f.entityId, preRegistrationId: String(up.preRegistration.id), userId: moved.f.userId,
+        description: 'MNE-001-759', door: 'draft',
+        lines: lines.map(([code, debit, credit]) => ({ accountId: c[code], debit, credit })),
+      });
+      throw rolledBack;
+    })).rejects.toBe(rolledBack);
   }, 120_000);
 
   it('seeded with the neutral chart, which has no role for parked VAT, the sale posts its VAT to 2135 instead of waiting', async () => {

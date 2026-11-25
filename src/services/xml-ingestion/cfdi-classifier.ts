@@ -9,6 +9,7 @@ import {
 } from './cfdi-decisions.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import { reclassRoles } from '../accounting/iva-cash-basis.js';
+import { IEPS_DUE_ROLE, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
 import {
   isBorderRateFreight, isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding,
   unwithheldFeesPolicyOf, withholdingByLaw, withholdingMismatchPolicyOf, withholdingQualifierOf,
@@ -102,13 +103,32 @@ export interface ClassifyOptions {
    * MNE-001-742: `false` when the caller has read that the entity does not keep
    * Mexican books (`keepsMexicanBooks`). No payment releases VAT on those books,
    * so the VAT a received CFDI would park is posted to the role a payment would
-   * release it to. Absent, the taxonomy's roles are used as written.
+   * release it to. MNE-001-759: the same on a sale, whose VAT and IEPS no
+   * collection moves there (`offCashBasis`). Absent, the taxonomy's roles are
+   * used as written.
    */
   cashBasisVat?: boolean;
   /** Policy-resolved thresholds; without them the defaults are used. */
   thresholds?: PolicyThresholds;
   /** Where the withholding rates are read; Postgres' `legal_parameters` by default. */
   readLegalParameter?: LegalParameterReader;
+}
+
+/**
+ * Where the tax a CFDI would park goes on books that do not keep Mexican ones,
+ * by parked role. The pairs are the ones a vendor payment and a collection
+ * reclassify (iva-cash-basis.ts, ieps-cash-basis.ts), so the bill and invoice
+ * doors, the credit note and this one agree on where the tax of such books
+ * sits: MNE-001-742 for a purchase, MNE-001-759 for a sale.
+ */
+function offCashBasis(): Map<AccountRole, { role: AccountRole; description: string }> {
+  const received = reclassRoles('received');
+  const issued = reclassRoles('issued');
+  return new Map([
+    [received.from, { role: received.to, description: 'Creditable tax on the purchase (books off the Mexican cash basis)' }],
+    [issued.from, { role: issued.to, description: 'Tax on the sale (books off the Mexican cash basis)' }],
+    [IEPS_UNCOLLECTED_ROLE, { role: IEPS_DUE_ROLE, description: 'IEPS on the sale (books off the Mexican cash basis)' }],
+  ]);
 }
 
 export async function classifyXml(xml: string, opts: ClassifyOptions): Promise<Classification> {
@@ -282,14 +302,12 @@ export async function classifyParsed(
 
   const lines: ProposedLine[] = [];
   const missingRoles: AccountRole[] = [];
-  // MNE-001-742: the pair is the one a vendor payment reclassifies (iva-cash-basis.ts), so the
-  // bill door, the credit note and this one agree on where the VAT of such books sits.
-  const unparked = opts.cashBasisVat === false ? reclassRoles('received') : null;
+  const unparked = opts.cashBasisVat === false ? offCashBasis() : null;
   for (const t of matched.posting) {
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
-    const released = unparked !== null && t.role === unparked.from;
-    const role = t.role === 'gasto' && roleOverride ? roleOverride : released ? unparked.to : t.role;
+    const released = unparked?.get(t.role);
+    const role = t.role === 'gasto' && roleOverride ? roleOverride : released ? released.role : t.role;
     // MNE-001-147: ISR withheld on a lease has its own mapping when the
     // withholding layout splits it (withholding-accounts.ts); otherwise the
     // default one.
@@ -302,7 +320,7 @@ export async function classifyParsed(
       accountName: acct?.name ?? null,
       debit: t.side === 'debit' ? round2(amount) : null,
       credit: t.side === 'credit' ? round2(amount) : null,
-      description: released ? 'Creditable tax on the purchase (books off the Mexican cash basis)' : t.description,
+      description: released ? released.description : t.description,
     });
   }
 

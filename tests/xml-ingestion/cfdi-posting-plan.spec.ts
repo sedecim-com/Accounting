@@ -203,6 +203,31 @@ describe('an entity that does not keep Mexican books parks no VAT', () => {
   });
 });
 
+// MNE-001-759: the mirror on a sale, 8,000.00 + 1,280.00 = 9,280.00 PPD. Off Mexican books no collection moves its VAT.
+describe('an entity that does not keep Mexican books parks no VAT on a sale', () => {
+  const SALE = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml'), 'utf-8');
+  const planOf = () => planearAsiento({
+    entityId: ENTIDAD, entityRfc: 'SIN060101AB1', xml: SALE, referencia: 'INV', periodOpen: true, satStatus: 'vigente',
+    renglones: [{ line_number: 1, descripcion: 'Consulting', importe: 8000 }], cashBasisVat: false,
+  });
+
+  it('PPD: the 1,280.00 go to the due role (2120), and the line says why', async () => {
+    const plan = await planOf();
+    expect(plan.clasificacion.verdict).toBe('ready');
+    expect(lineaDe(plan, idDe('2120'))?.credit_amount).toBe('1280.0000');
+    expect(lineaDe(plan, idDe('2120'))?.description).toMatch(/off the Mexican cash basis/);
+    expect(lineaDe(plan, idDe('2125'))).toBeUndefined();
+    expect(plan.clasificacion.lines.map((l) => l.role)).toEqual(['cxc', 'ingreso', 'iva_trasladado']);
+  });
+
+  it('on a chart with no role for parked VAT the plan is postable: the role is never asked for', async () => {
+    withoutRole('iva_trasladado_no_cobrado');
+    const plan = await planOf();
+    expect(plan.clasificacion.missingRoles).toEqual([]);
+    expect(planContabilizable(plan)).toMatchObject({ ok: true });
+  });
+});
+
 describe('un plan incompleto no se contabiliza', () => {
   it('si a la entidad le falta la cuenta de un rol, se dice cuál y no se postea', async () => {
     withoutRole('iva_pendiente_acreditar');
