@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { block, compare, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
+import { block, compare, seed, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -183,6 +183,59 @@ describe('apretar — sólo baja', () => {
   it('un carril que desapareció sale de la línea base en vez de quedarse de adorno', () => {
     const b = tighten([lane('a', 1)], baselineOf({ a: 1, fantasma: 7 }));
     expect(Object.keys(b.lanes)).toEqual(['a']);
+  });
+});
+
+// ============================================================
+// A CLOSED LANE HAS NO BASELINE (MNE-001-405, #314)
+//
+// A lane that reached its target is held there by its own declaration, not by
+// a number in docs/language-baseline.json: raising that number is the manual
+// act the ratchet allows, and it would let the debt back in with --check green.
+// ============================================================
+describe('a closed lane: --check demands its target, with no baseline', () => {
+  const closed = (value: number, perFile?: Record<string, number>): Lane => ({
+    ...lane('help', value, perFile),
+    closed: true,
+    perEntryRule: 'register it by key',
+  });
+
+  it('above its target it is refused, whatever the baseline says', () => {
+    // The reproduction: a hand-raised baseline used to excuse it.
+    const h = compare([closed(1, { bank: 1 })], baselineOf({}));
+    expect(h.map((f) => f.detail)).toEqual([
+      'closed at 0, measures 1',
+      'bank: 0 → 1 — closed lane; register it by key',
+    ]);
+    expect(compare([lane('help', 1, { bank: 1 })], baselineOf({ help: 5 }, { help: { bank: 3 } }))).toEqual([]);
+    expect(compare([closed(1, { bank: 1 })], baselineOf({ help: 5 }, { help: { bank: 3 } })).length).toBeGreaterThan(0);
+  });
+
+  it('at its target with no baseline entry it passes, and is not «a new lane to seed»', () => {
+    expect(compare([closed(0)], baselineOf({}))).toEqual([]);
+  });
+
+  it('a baseline entry for it is a finding: it would be a ceiling a hand edit can raise', () => {
+    expect(compare([closed(0)], baselineOf({ help: 0 })).map((f) => f.detail)).toEqual([
+      'a closed lane has no baseline: remove its entry from docs/language-baseline.json',
+    ]);
+    expect(compare([closed(0)], baselineOf({}, { help: { bank: 0 } }))).toHaveLength(1);
+  });
+
+  it('--tighten and --seed never write it, and --tighten drops a leftover entry', () => {
+    const b = tighten([closed(0), lane('a', 1)], baselineOf({ help: 0, a: 2 }, { help: { bank: 1 } }));
+    expect(b.lanes).toEqual({ a: 1 });
+    expect(b.perFile).toEqual({});
+    const s = seed([closed(0, { bank: 0 }), lane('a', 1)], '2026-01-01');
+    expect(Object.keys(s.lanes)).toEqual(['a']);
+    expect(s.perFile).toEqual({});
+  });
+
+  it('the block shows its target as the ceiling, marked closed', () => {
+    const text = block([closed(0), lane('a', 1)], baselineOf({ a: 1 }));
+    expect(text).toContain('| `help` | help *(closed)* | 0 | 0 |');
+    expect(text).toContain('A *(closed)* lane has no baseline');
+    expect(block([lane('a', 1)], baselineOf({ a: 1 }))).not.toContain('closed');
   });
 });
 

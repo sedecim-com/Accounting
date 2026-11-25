@@ -3401,6 +3401,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'El movimiento {transaction} es del {date} y el cobro {receipt} del {receiptDate}: un cheque no se cobra antes de recibirse.',
   'bank.check.cashing.refused.period_closed':
     'El cobro del cheque del cobro {receipt} es del {date}, y ningún periodo abierto contiene esa fecha. Su IVA pertenece a ese mes y no se contabiliza con otra fecha: reabre antes el periodo.',
+  'bank.check.cashing.refused.entry_period_closed':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}, y sus facturas aplicadas el {date} causan su IVA ese día, el más tardío de los dos, y ningún periodo abierto lo contiene. Ese IVA no se contabiliza con otra fecha: reabre antes el periodo. No se escribió nada.',
   'bank.check.cashing.note.already_released':
     'Sin asiento: el cobro ya había liberado este IVA en su propia fecha.',
   'bank.check.cashing.note.nothing_to_release':
@@ -3422,6 +3424,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.cashing.refused.credit_matched':
     'El movimiento {transaction} está ligado por el cotejo vivo {match} a {type} {matched}, que no es ninguno de los cobros {receipt} ni un renglón de banco de sus pólizas: el abono pagó otra cosa. Si ese cotejo está mal, deshazlo con `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · cobro {payment}',
+  'bank.check.cashing.entry_after_cashing':
+    '(ese día se aplicó a sus facturas, después del cobro: su IVA se causa el más tardío de los dos días)',
   'bank.check.cashing.why':
     'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
     'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',

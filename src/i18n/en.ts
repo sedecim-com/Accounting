@@ -3637,6 +3637,8 @@ export const EN = {
     'Bank transaction {transaction} is dated {date} and receipt {receipt} {receiptDate}: a cheque is not cashed before it is received.',
   'bank.check.cashing.refused.period_closed':
     'The cashing of receipt {receipt} is dated {date}, and no open period holds that date. Its VAT belongs to that month and is not posted with another date: reopen the period first.',
+  'bank.check.cashing.refused.entry_period_closed':
+    'The bank cashed the cheque of receipt {receipt} on {cashedOn}, and its invoices applied on {date} cause their VAT that day, the later of the two, and no open period holds it. That VAT is not posted with another date: reopen the period first. Nothing was written.',
   'bank.check.cashing.note.already_released':
     'No entry: the receipt had already released this VAT on its own date.',
   'bank.check.cashing.note.nothing_to_release':
@@ -3658,6 +3660,8 @@ export const EN = {
   'bank.check.cashing.refused.credit_matched':
     'Bank transaction {transaction} is tied by the live match {match} to {type} {matched}, which is not among receipts {receipt} nor a bank line of their entries: the credit paid something else. If that match is wrong, undo it with `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · receipt {payment}',
+  'bank.check.cashing.entry_after_cashing':
+    '(its invoices were applied on that day, after the cashing: their VAT is caused on the later of the two days)',
   'bank.check.cashing.why':
     'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
     'the day it was received, so the VAT of this receipt is caused in that month.',

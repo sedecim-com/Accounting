@@ -31,6 +31,12 @@
  * new command is born into, so a new family with unkeyed help shows up as
  * "0 → n, no entry in the baseline" exactly like a new file would. The root
  * program and its global options are the family `mnemosine`.
+ *
+ * CLOSED AT 0 (MNE-001-405). MNE-001-428 keyed the last family, so the lane
+ * has no baseline any more: `closed` makes `language:status --check` demand 0
+ * by itself, and a hand-raised number in `docs/language-baseline.json` cannot
+ * let prose back in. The E0.0 criterion `cli-help-descriptions-lane-closed`
+ * guards the declaration.
  */
 import '../../english-locale.js';
 import type { Command } from 'commander';
@@ -116,6 +122,7 @@ export const helpLanes: LaneMeter = () => {
       examples: hits.slice(0, EXAMPLE_COUNT).map(line),
       perFile: sorted,
       perEntryRule: HELP_PER_ENTRY_RULE,
+      closed: true,
     } satisfies Lane,
   ];
 };
