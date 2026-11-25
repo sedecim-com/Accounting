@@ -2628,6 +2628,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El pago {payment} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
   'payment.apply.date_before_last_event':
     'El último asiento del pago {payment} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  // MNE-001-746: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'payment.apply.date_before_cashing':
+    'El banco cobró el cheque del pago {payment} el {cashedOn}: una aplicación fechada el {date} aplicaría su efectivo, y acreditaría el IVA que paga, antes de que el cheque se pagara. Féchala el {cashedOn} o después. No se aplicó nada.',
   'payment.apply.date_before_bill':
     '{bill} es del {billDate}: el efectivo aplicado el {date} lo saldaría antes de que existiera el gasto. Fecha la aplicación el {billDate} o después. No se aplicó nada.',
   'payment.apply.date_period_closed':
@@ -6733,6 +6736,19 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.deposit_file.run_not_approved':
     'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
     'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
+  // A paycheck that holds a payroll CFDI is not stamped again (MNE-001-736, #601).
+  'payrun.cfdi.already_stamped':
+    'El recibo {id} no se timbró otra vez: ya tiene un CFDI de nómina, folio {uuid} ({status}), timbrado el ' +
+    '{stamped_at}. Un segundo timbre sería un segundo CFDI ante el SAT por el mismo pago. No se envió nada al ' +
+    'PAC ni se escribió nada.',
+  'payrun.cfdi.stamp_in_progress':
+    'Este intento no timbró el recibo {id}: otro timbrado del mismo recibo, u otro cambio sobre él, sigue en ' +
+    'curso y este intento dejó de esperar. No envió nada al PAC ni escribió nada. Lee el recibo antes de ' +
+    'pedirlo de nuevo: si el otro timbrado terminó, el recibo ya lleva su folio.',
+  'payrun.cfdi.stamped_not_recorded':
+    'El recibo {id} SÍ se timbró: el PAC ({provider}) respondió con el folio {uuid}, y el folio no se pudo ' +
+    'escribir en el recibo. No lo timbres otra vez. Guarda este folio: el recibo no lo lleva, y es lo que ' +
+    'pide una cancelación.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
