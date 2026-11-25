@@ -115,7 +115,7 @@
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "8ae68e0eb43262f45638744318fb319807307107",
     "src/services/integrations/mexico/pac/pac-router.ts": "e51f69e09c6cd2906d8174e81291114019f2d27e",
     "src/api/rest/routes/invoices.ts": "d48bb69d28bd040fa8c51a75eb90775d7f12863d",
-    "src/ai/ingest-service.ts": "88ddc4bc1e5b23d9b9805421d384094554ab3491",
+    "src/ai/ingest-service.ts": "3b69b13da7ce98570093c3b66b02e44d0dc42c62",
     "src/services/banking/matching.ts": "0e292826286cdfd0daf14f7692b244a7f780121d",
     "src/api/rest/routes/bank-reconciliation.ts": "ab53c7b851819ebaede52bc4ce86dab0901702d1",
     "src/database/enums.ts": "6b9b2fecc4f8230fb9184d80c3f287d3bb3978d0",
