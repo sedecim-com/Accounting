@@ -266,6 +266,15 @@ export async function applyMigrations(
 
 async function runMigrations() {
   const client = await pool.connect();
+  // What a data migration reports with RAISE NOTICE (how many rows it moved,
+  // how many it left to a person: 104, 328, 346) reaches whoever runs this,
+  // not only a server log that by default keeps warnings and up. Only the ones
+  // that name their migration («346: …», «migration 346: …»): the «does not
+  // exist, skipping» notices of IF [NOT] EXISTS carry the same SQLSTATE and
+  // would bury them on a fresh install.
+  client.on('notice', (n) => {
+    if (/^(migration )?\d{3}: /.test(n.message ?? '')) console.log(`  ${n.message}`);
+  });
   let ok = false;
   try {
     ok = await applyMigrations(client, {

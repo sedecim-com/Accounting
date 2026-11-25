@@ -2682,6 +2682,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El cobro {receipt} no se puede desaplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se desaplicó nada.',
   'receipt.apply.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  // MNE-001-779: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'receipt.apply.date_before_cashing':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}: una aplicación fechada el {date} aplicaría su efectivo, y causaría el IVA que cobra, antes de que el cheque se pagara. Féchala el {cashedOn} o después. No se aplicó nada.',
   'receipt.unapply.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: una desaplicación fechada el {date} lo desharía antes de que ocurriera. Féchala el {since} o después. No se desaplicó nada.',
   'receipt.apply.date_before_invoice':
@@ -2808,6 +2811,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El cobro {receipt} no se puede traspasar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se escribió nada.',
   'receipt.transfer.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: un traspaso fechado el {date} cedería su efectivo antes de que eso ocurriera. Féchalo el {since} o después. No se escribió nada.',
+  // MNE-001-779: the bound of an application holds for a transfer, which takes a check only once cashed.
+  'receipt.transfer.date_before_cashing':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}: un traspaso fechado el {date} cedería su efectivo antes de que el cheque se pagara. Féchalo el {cashedOn} o después. No se escribió nada.',
   'receipt.reverse.has_transfer':
     'Parte del saldo a cuenta de {receipt} se traspasó a otro cliente ({transfers}): reversar el cobro dejaría ese crédito sin dinero detrás. Reversa primero el traspaso con `mnemosine receipt reverse <traspaso> --reason "<por qué>"`. No se escribió nada.',
   'receipt.reverse.transfer_applied':
@@ -6630,6 +6636,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.current_liabilities': 'Pasivo a corto plazo',
   'report.category.long_term_liabilities': 'Pasivo a largo plazo',
   'report.category.equity': 'Capital contribuido',
+  'report.category.earned_capital': 'Capital ganado',
   'report.category.ori': 'Otros resultados integrales',
   'report.category.revenue': 'Ingresos',
   'report.category.cogs': 'Costo de ventas',

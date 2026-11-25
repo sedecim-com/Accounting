@@ -93,7 +93,7 @@ export const NORMAL_BALANCES = ['debit', 'credit'] as const;
 export const ACCOUNT_FS_CATEGORIES = [
   'current_assets', 'non_current_assets',
   'current_liabilities', 'long_term_liabilities',
-  'equity', 'ori',
+  'equity', 'earned_capital', 'ori',
   'revenue', 'cogs', 'operating_expenses', 'other_income', 'other_expenses', 'tax',
 ] as const;
 

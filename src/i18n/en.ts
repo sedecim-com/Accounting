@@ -2893,6 +2893,9 @@ export const EN = {
     '{receipt} cannot be unapplied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was unapplied.',
   'receipt.apply.date_before_last_event':
     '{receipt} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  // MNE-001-779: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'receipt.apply.date_before_cashing':
+    'The bank cashed the cheque of {receipt} on {cashedOn}: an application dated {date} would apply its cash, and cause the IVA it collects, before the cheque was paid. Date it {cashedOn} or later. Nothing was applied.',
   'receipt.unapply.date_before_last_event':
     '{receipt} was last posted on {since}: an unapply dated {date} would undo it before it happened. Date it {since} or later. Nothing was unapplied.',
   'receipt.apply.date_before_invoice':
@@ -3019,6 +3022,9 @@ export const EN = {
     '{receipt} cannot be transferred on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was written.',
   'receipt.transfer.date_before_last_event':
     '{receipt} was last posted on {since}: a transfer dated {date} would give away its cash before that happened. Date it {since} or later. Nothing was written.',
+  // MNE-001-779: the bound of an application holds for a transfer, which takes a check only once cashed.
+  'receipt.transfer.date_before_cashing':
+    'The bank cashed the cheque of {receipt} on {cashedOn}: a transfer dated {date} would give away its cash before the cheque was paid. Date it {cashedOn} or later. Nothing was written.',
   'receipt.reverse.has_transfer':
     'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Reverse the transfer first with `mnemosine receipt reverse <transfer> --reason "<why>"`. Nothing was written.',
   'receipt.reverse.transfer_applied':
@@ -7290,6 +7296,7 @@ export const EN = {
   'report.category.current_liabilities': 'Current liabilities',
   'report.category.long_term_liabilities': 'Long-term liabilities',
   'report.category.equity': 'Contributed capital',
+  'report.category.earned_capital': 'Earned capital',
   'report.category.ori': 'Other comprehensive income',
   'report.category.revenue': 'Revenue',
   'report.category.cogs': 'Cost of sales',
