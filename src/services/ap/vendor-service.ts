@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
 import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/scope.js';
@@ -6,6 +7,7 @@ import { encrypt } from '../../utils/encryption.js';
 import { nextVendorNumber } from '../../utils/sequence.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { Vendor } from '../../types/index.js';
+import { bookAmountDueSql, LEDGER_SCALE, PAYABLE_OPEN_STATUSES } from '../reporting/report-service.js';
 
 // ============================================================
 // VENDOR MASTER — domain service
@@ -302,30 +304,123 @@ export async function getVendorById(
   const vendor = opts.includeBankSecrets ? { ...raw } : redactBankSecrets(raw);
 
   if (opts.includeActivity) {
-    // Money stays a string all the way out: a float round-trip is how an
-    // open balance stops matching the control account by a cent.
-    const bills = await query<{
-      bill_count: string; open_count: string; billed: string; open_balance: string; last_bill_date: string | null;
-    }>(
-      `SELECT COUNT(*)::text AS bill_count,
-              COUNT(*) FILTER (WHERE status NOT IN ('paid', 'void', 'cancelled'))::text AS open_count,
-              COALESCE(SUM(total_amount), 0)::text AS billed,
-              COALESCE(SUM(amount_due) FILTER (WHERE status NOT IN ('paid', 'void', 'cancelled')), 0)::text AS open_balance,
-              MAX(bill_date)::text AS last_bill_date
-       FROM bills WHERE vendor_id = $1`,
-      [id]
-    );
-    const payments = await query<{ payment_count: string; paid: string; last_payment_date: string | null }>(
-      `SELECT COUNT(*)::text AS payment_count,
-              COALESCE(SUM(payment_amount), 0)::text AS paid,
-              MAX(payment_date)::text AS last_payment_date
-       FROM vendor_payments WHERE vendor_id = $1`,
-      [id]
-    );
-    vendor.activity = { ...bills.rows[0], ...payments.rows[0] };
+    vendor.activity = await vendorActivity(id, String(raw.entity_id));
   }
 
   return vendor;
+}
+
+/** What one vendor's activity holds in ONE currency (MNE-001-741); `book_*` are in the functional currency. */
+export interface VendorCurrencyActivity {
+  currency_code: string;
+  bill_count: string;
+  open_count: string;
+  billed: string;
+  open_balance: string;
+  book_billed: string;
+  book_open_balance: string;
+  payment_count: string;
+  paid: string;
+  book_paid: string;
+}
+
+/**
+ * Bills and payments of one vendor, per currency, and their book values in
+ * the functional currency (MNE-001-741). Never a sum across currencies: the
+ * single figures (`billed`, `open_balance`, `paid`) are book values, each
+ * document at the rate it was posted at (`bookAmountDueSql`, the expression of
+ * the aging and of ap reconcile). Open means what ap reconcile weighs
+ * (`PAYABLE_OPEN_STATUSES`): a draft never reached the ledger and is not owed.
+ *
+ * Two statements, as before the change (bills, payments), each grouped by
+ * currency and bounded by the vendor and its entity; merged here in memory.
+ * Money stays a string all the way out: a float round-trip is how an open
+ * balance stops matching the control account by a cent.
+ */
+async function vendorActivity(vendorId: string, entityId: string): Promise<Record<string, unknown>> {
+  const open = `b.status = ANY($3::text[]) AND b.amount_due > 0`;
+  // LEFT JOIN from the entity: a vendor with no bills still learns its book currency.
+  const bills = await query<{
+    book_currency: string; currency_code: string | null; bill_count: string; open_count: string;
+    billed: string | null; open_balance: string; book_billed: string | null; book_open_balance: string;
+    last_bill_date: string | null;
+  }>(
+    `SELECT le.functional_currency AS book_currency, b.currency_code,
+            COUNT(b.id)::text AS bill_count,
+            COUNT(b.id) FILTER (WHERE ${open})::text AS open_count,
+            SUM(b.total_amount)::text AS billed,
+            COALESCE(SUM(b.amount_due) FILTER (WHERE ${open}), 0)::text AS open_balance,
+            SUM(${bookAmountDueSql('b', '$2', 'b.total_amount')})::text AS book_billed,
+            COALESCE(SUM(${bookAmountDueSql('b', '$2')}) FILTER (WHERE ${open}), 0)::text AS book_open_balance,
+            MAX(b.bill_date)::text AS last_bill_date
+       FROM legal_entities le
+       LEFT JOIN bills b ON b.entity_id = le.id AND b.vendor_id = $1
+      WHERE le.id = $2
+      GROUP BY le.functional_currency, b.currency_code
+      ORDER BY b.currency_code COLLATE "C"`,
+    [vendorId, entityId, [...PAYABLE_OPEN_STATUSES]]
+  );
+  const payments = await query<{
+    currency_code: string; payment_count: string; paid: string; book_paid: string; last_payment_date: string | null;
+  }>(
+    `SELECT p.currency_code,
+            COUNT(*)::text AS payment_count,
+            SUM(p.payment_amount)::text AS paid,
+            SUM(${bookAmountDueSql('p', '$2', 'p.payment_amount')})::text AS book_paid,
+            MAX(p.payment_date)::text AS last_payment_date
+       FROM vendor_payments p
+      WHERE p.vendor_id = $1 AND p.entity_id = $2
+      GROUP BY p.currency_code
+      ORDER BY p.currency_code COLLATE "C"`,
+    [vendorId, entityId]
+  );
+
+  const zero = (n: Decimal.Value | null | undefined) => new Decimal(n ?? 0);
+  const byCurrency = new Map<string, VendorCurrencyActivity>();
+  const slot = (code: string): VendorCurrencyActivity => {
+    let row = byCurrency.get(code);
+    if (!row) {
+      row = {
+        currency_code: code, bill_count: '0', open_count: '0', billed: '0', open_balance: '0',
+        book_billed: '0', book_open_balance: '0', payment_count: '0', paid: '0', book_paid: '0',
+      };
+      byCurrency.set(code, row);
+    }
+    return row;
+  };
+  let lastBill: string | null = null;
+  let lastPayment: string | null = null;
+  for (const b of bills.rows) {
+    if (b.currency_code === null) continue;
+    Object.assign(slot(b.currency_code.trim()), {
+      bill_count: b.bill_count, open_count: b.open_count, billed: b.billed ?? '0', open_balance: b.open_balance,
+      book_billed: b.book_billed ?? '0', book_open_balance: b.book_open_balance,
+    });
+    if (b.last_bill_date && (!lastBill || b.last_bill_date > lastBill)) lastBill = b.last_bill_date;
+  }
+  for (const p of payments.rows) {
+    Object.assign(slot(p.currency_code.trim()), {
+      payment_count: p.payment_count, paid: p.paid, book_paid: p.book_paid,
+    });
+    if (p.last_payment_date && (!lastPayment || p.last_payment_date > lastPayment)) lastPayment = p.last_payment_date;
+  }
+  const by_currency = [...byCurrency.values()].sort((a, b) => (a.currency_code < b.currency_code ? -1 : 1));
+  const total = (field: keyof VendorCurrencyActivity, scale?: number): string => {
+    const sum = by_currency.reduce((s, r) => s.plus(zero(r[field])), new Decimal(0));
+    return scale === undefined ? sum.toFixed(0) : sum.toFixed(scale);
+  };
+  return {
+    bill_count: total('bill_count'),
+    open_count: total('open_count'),
+    billed: total('book_billed', LEDGER_SCALE),
+    open_balance: total('book_open_balance', LEDGER_SCALE),
+    last_bill_date: lastBill,
+    payment_count: total('payment_count'),
+    paid: total('book_paid', LEDGER_SCALE),
+    last_payment_date: lastPayment,
+    book_currency: bills.rows[0]?.book_currency.trim() ?? null,
+    by_currency,
+  };
 }
 
 /**

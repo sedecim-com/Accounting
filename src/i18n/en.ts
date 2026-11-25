@@ -3611,6 +3611,7 @@ export const EN = {
 
   // MNE-001-220: receipt, invoice, customer and credit-note.
   /** `receipt apply` with no `--invoice`. */
+  'ar.customer.show.book_value': 'Book value',
   'ar.receipt.invoice_missing':
     'Name the invoice or invoices: --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>.',
   /** `receipt apply`: a bare invoice where its amount cannot come from --amount. */
@@ -6302,7 +6303,8 @@ export const EN = {
   'help.customer.list.description': 'List customers with terms, credit state and the balance they owe',
   'help.customer.list.argument.query': 'text to match in the customer name or number',
   'help.customer.list.option.overdue': 'only customers with something past due',
-  'help.customer.list.option.balance_gt': 'only customers owing more than this',
+  'help.customer.list.option.balance_gt':
+    'only customers whose balance at book value, in the functional currency, is more than this (a foreign document weighs at the rate it was posted at)',
   'help.customer.list.option.inactive': 'show archived customers instead of active ones',
   'help.customer.show.description': 'Show one customer: profile, tax id, credit, balance and open documents',
   'help.customer.show.argument.ref': 'customer number, name or id',

@@ -236,7 +236,9 @@ describe('MNE-001-741 · customer list --with-balance never adds currencies', ()
   it('--overdue lists both, and the help says which figure --balance-gt compares', async () => {
     expect(numbersOf(rowsOf<ListRow>(await cli('customer', ['list', '--overdue', '--json'])))).toEqual([ALFA, BETA]);
     const help = await cli('customer', ['list', '--help']);
-    expect(help.out).toMatch(/--balance-gt <amount>\s+only customers whose balance at book value, in the\s+functional currency/);
+    expect(help.out.replace(/\s+/g, ' ')).toContain(
+      '--balance-gt <amount> only customers whose balance at book value, in the functional currency, is more than this'
+    );
   });
 });
 

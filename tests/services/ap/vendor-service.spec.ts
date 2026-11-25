@@ -279,13 +279,48 @@ describe('getVendorById', () => {
     expect(await getVendorById('v1', SCOPE)).toBeNull();
   });
 
-  it('keeps money as strings and excludes settled documents from the open balance', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    mockQuery.mockResolvedValueOnce({ rows: [{ bill_count: '3', open_balance: '1160.0000' }] });
-    mockQuery.mockResolvedValueOnce({ rows: [{ payment_count: '1', paid: '500.0000' }] });
+  it('keeps money as strings, per currency, and the single figures are book values (MNE-001-741)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', entity_id: ENTITY }] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { book_currency: 'MXN', currency_code: 'MXN', bill_count: '2', open_count: '1', billed: '900.0000',
+          open_balance: '800.0000', book_billed: '900.0000', book_open_balance: '800.0000', last_bill_date: '2026-08-20' },
+        { book_currency: 'MXN', currency_code: 'USD', bill_count: '1', open_count: '1', billed: '500.0000',
+          open_balance: '500.0000', book_billed: '8750.0000', book_open_balance: '8750.0000', last_bill_date: '2026-08-21' },
+      ],
+    });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ currency_code: 'USD', payment_count: '1', paid: '100.0000', book_paid: '1800.0000', last_payment_date: '2026-09-01' }],
+    });
     const vendor = await getVendorById('v1', SCOPE, { includeActivity: true });
-    expect((vendor?.activity as Record<string, unknown>).open_balance).toBe('1160.0000');
-    expect(sql(1)).toMatch(/FILTER \(WHERE status NOT IN \('paid', 'void', 'cancelled'\)\)/);
+    const activity = vendor?.activity as Record<string, unknown>;
+    // 800 + 500 × 17.50; never 800 + 500.
+    expect(activity).toMatchObject({
+      bill_count: '3', open_count: '2', billed: '9650.0000', open_balance: '9550.0000', paid: '1800.0000',
+      book_currency: 'MXN', last_bill_date: '2026-08-21', payment_count: '1', last_payment_date: '2026-09-01',
+    });
+    expect((activity.by_currency as Array<{ currency_code: string; paid: string }>).map((c) => [c.currency_code, c.paid]))
+      .toEqual([['MXN', '0'], ['USD', '100.0000']]);
+    // Two statements, as before: bills and payments, each grouped by currency, bounded by vendor and entity.
+    expect(mockQuery.mock.calls).toHaveLength(3);
+    expect(sql(1)).toMatch(/GROUP BY le\.functional_currency, b\.currency_code/);
+    expect(sql(1)).toMatch(/b\.vendor_id = \$1/);
+    expect(sql(1)).toMatch(/WHERE le\.id = \$2/);
+    // Open is what ap reconcile weighs: a draft is not owed.
+    expect(mockQuery.mock.calls[1][1]).toEqual(['v1', ENTITY, ['approved', 'posted', 'partially_paid']]);
+    expect(sql(2)).toMatch(/ROUND\(p\.payment_amount \* p\.exchange_rate, 4\)/);
+    expect(sql(2)).toMatch(/p\.vendor_id = \$1 AND p\.entity_id = \$2/);
+  });
+
+  it('a vendor with no bills still says its book currency and owes nothing', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', entity_id: ENTITY }] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ book_currency: 'MXN', currency_code: null, bill_count: '0', open_count: '0', billed: null,
+        open_balance: '0', book_billed: null, book_open_balance: '0', last_bill_date: null }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    const activity = (await getVendorById('v1', SCOPE, { includeActivity: true }))?.activity as Record<string, unknown>;
+    expect(activity).toMatchObject({ bill_count: '0', open_balance: '0.0000', book_currency: 'MXN', by_currency: [] });
   });
 
   it('does not touch bills or payments when activity was not asked for', async () => {
