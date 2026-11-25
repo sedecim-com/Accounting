@@ -11,11 +11,15 @@ import {
   archiveCustomer,
   restoreCustomer,
   customerLabel,
+  amountsByCurrency,
+  describeBalance,
+  type CurrencyBalance,
   getCustomerTaxProfile,
   setCustomerTaxProfile,
   listCustomerTaxProfiles,
 } from '../services/ar/customer-service.js';
 import type { Palette } from './palette.js';
+import { t } from '../i18n/index.js';
 import { entityScope } from '../database/scope.js';
 import {
   declareRisk,
@@ -89,10 +93,16 @@ interface CommonOpts {
   dateBasis?: string;
 }
 
+// MNE-001-741: one row per customer, as before. What is owed per currency is
+// one cell (`open_by_currency`) for table and csv and a list
+// (`balances_by_currency`) for json; open_balance and overdue_balance are
+// book values in `book_currency`, the figure --balance-gt compares.
 const LIST_COLUMNS = [
   'customer_number', 'name', 'payment_terms', 'currency_code',
-  'credit_status', 'open_balance', 'overdue_balance', 'open_documents', 'is_active',
+  'credit_status', 'open_by_currency', 'open_balance', 'overdue_balance', 'book_currency',
+  'open_documents', 'is_active',
 ] as const;
+const JSON_LIST_COLUMNS = [...LIST_COLUMNS, 'balances_by_currency'] as const;
 
 const MONEY = ['open_balance', 'overdue_balance', 'credit_limit', 'open_documents'];
 
@@ -108,8 +118,11 @@ function summarize(row: Record<string, unknown>): Record<string, unknown> {
     currency_code: row.currency_code,
     credit_status: row.credit_status,
     // Money stays a decimal STRING all the way out (output contract).
+    open_by_currency: amountsByCurrency(row.balances_by_currency as CurrencyBalance[] | undefined),
     open_balance: row.open_balance ?? '',
     overdue_balance: row.overdue_balance ?? '',
+    book_currency: row.book_currency ?? '',
+    balances_by_currency: row.balances_by_currency ?? [],
     open_documents: row.open_documents ?? '',
     is_active: row.is_active,
     tax_id: row.tax_id ?? '',
@@ -281,7 +294,9 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         total,
         idField: 'customer_number',
         numeric: MONEY,
-        fields: opts.fields ?? LIST_COLUMNS.join(','),
+        fields:
+          opts.fields ??
+          (['json', 'ndjson'].includes(resolveFormat(opts)) ? JSON_LIST_COLUMNS : LIST_COLUMNS).join(','),
       });
     })
   );
@@ -347,8 +362,14 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       fact('Credit limit', card.credit_limit);
       // What is still owed after cash AND credit notes — the same measure as an
       // invoice's `amount_due` — not "open balance", which read as cash only.
-      fact('Amount due', card.open_balance);
-      fact('Past due', card.overdue_balance);
+      // MNE-001-741: per currency, never added; the book value in the
+      // functional currency only when a foreign currency is in it.
+      const balances = card.balances_by_currency as CurrencyBalance[];
+      fact('Amount due', amountsByCurrency(balances) || card.open_balance);
+      fact('Past due', amountsByCurrency(balances.filter((b) => new Decimal(b.overdue_balance).gt(0)), 'overdue_balance'));
+      if (balances.some((b) => b.currency_code !== card.book_currency)) {
+        fact(t('ar.customer.show.book_value'), `${String(card.open_balance)} ${String(card.book_currency)}`);
+      }
       fact('Oldest due', card.oldest_due_date);
       if (opts.asOf) out.write(`  ${p.dim('As of'.padEnd(16))}${opts.asOf}\n`);
 
@@ -360,11 +381,13 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
             date: day(row.invoice_date),
             due: day(row.due_date),
             status: row.status,
+            currency: row.currency_code,
             total: row.total_amount,
             due_amount: row.amount_due,
+            book_due: row.book_amount_due,
             days_overdue: row.days_overdue,
           })),
-          { format: 'table', numeric: ['total', 'due_amount', 'days_overdue'] }
+          { format: 'table', numeric: ['total', 'due_amount', 'book_due', 'days_overdue'] }
         );
       }
 
@@ -528,7 +551,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         `${deps.palette.green('✔')} ${target.customer_number} archived.` +
           (balance.open_documents > 0
             ? deps.palette.yellow(
-                ` ${balance.open_documents} open document(s) worth ${balance.open_balance} remain on the books.`
+                ` ${balance.open_documents} open document(s) worth ${describeBalance(balance)} remain on the books.`
               )
             : '') +
           '\n'

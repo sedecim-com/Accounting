@@ -3,6 +3,7 @@
 ## Vendors
 - Creating a vendor leaves an audit row (G3): who, when, and which fields — bank details never travel into `audit_log`, not even already-encrypted, because that table is append-only (033) and a CLABE that lands there does not come out even by rotating the key; what is recorded is `bank_details_on_file: true`.
 - Data: vendor_number (V-...), company_name, tax_id (RFC/EIN), terms, default expense account, is_1099_vendor flag (USA), bank data ENCRYPTED (account/CLABE/routing — you will never see them in the clear).
+- `vendor show --include activity` IS PER CURRENCY (MNE-001-741): `activity.by_currency` gives, per currency, the bills, the open ones, what was billed, the open balance and what was paid, in that currency and at book value. `billed`, `open_balance` and `paid` are book values in `book_currency`, the entity's functional currency (each document, or payment, at the rate it was posted at), never dollars added to pesos. Open means what `ap reconcile` weighs (approved, posted, partially paid): a draft never reached the ledger and is not owed, so the vendors' open balances add up to the subledger.
 - YOU: search_vendors. Human: POST/PATCH /v1/vendors.
 
 ## Vendor invoices (bills)

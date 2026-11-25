@@ -61,6 +61,8 @@ import {
   archiveCustomer,
   restoreCustomer,
   customerLabel,
+  amountsByCurrency,
+  describeBalance,
   OPEN_INVOICE_STATUSES,
   NEVER_RECEIVABLE_STATUSES,
   CUSTOMER_UPDATABLE_FIELDS,
@@ -173,6 +175,52 @@ describe('listCustomers', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await listCustomers(ENTITY);
     expect(sql(1)).toMatch(/ORDER BY COALESCE\(c\.company_name, c\.first_name\)/);
+  });
+});
+
+describe('MNE-001-741 · the balance per customer never adds currencies', () => {
+  it('groups by the document currency and weighs the book value, still in the two statements of the list', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await listCustomers(ENTITY, { withBalance: true, balanceGreaterThan: '1000' });
+    expect(mockQuery.mock.calls).toHaveLength(2);
+    for (const call of [0, 1]) {
+      expect(sql(call)).toMatch(/GROUP BY i\.currency_code/);
+      // The book value of the report layer, with the functional currency of the entity ($1) read once.
+      expect(sql(call)).toMatch(
+        /CASE WHEN i\.currency_code IS NULL OR i\.currency_code = \(SELECT functional_currency FROM legal_entities WHERE id = \$1\) THEN a\.amount ELSE ROUND\(a\.amount \* i\.exchange_rate, 4\) END/
+      );
+      expect(sql(call)).toMatch(/ORDER BY cur\.currency_code COLLATE "C"/);
+      // --balance-gt compares the book value, never a sum of raw amounts.
+      expect(sql(call)).toMatch(/COALESCE\(SUM\(cur\.book_open\), 0\) AS open_balance/);
+      expect(sql(call)).toMatch(/bal\.open_balance > \$\d+/);
+    }
+    expect(sql(1)).toMatch(/bal\.book_currency, bal\.balances_by_currency/);
+  });
+
+  it('the detail reads the entity of the customer once, not per document', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ open_balance: '0', balances_by_currency: [] }] });
+    await getCustomerBalance(CUSTOMER);
+    expect(mockQuery.mock.calls).toHaveLength(1);
+    expect(sql(0)).toMatch(/WHERE id = \(SELECT entity_id FROM customers WHERE id = \$1\)\)/);
+  });
+
+  it('each open document on the card says its currency and its book value', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await listCustomerOpenInvoices(CUSTOMER);
+    expect(sql(0)).toMatch(/i\.currency_code/);
+    expect(sql(0)).toMatch(/ROUND\(d\.amount \* i\.exchange_rate, 4\) END AS book_amount_due/);
+  });
+
+  it('prints the balance per currency, and the book value only when a foreign currency is in it', () => {
+    const usd = { currency_code: 'USD', open_documents: 1, open_balance: '300.0000', overdue_balance: '0',
+      book_open_balance: '5250.0000', book_overdue_balance: '0' };
+    const mxn = { ...usd, currency_code: 'MXN', open_balance: '2400.0000', book_open_balance: '2400.0000' };
+    expect(amountsByCurrency([mxn, usd])).toBe('MXN 2400.0000; USD 300.0000');
+    expect(describeBalance({ balances_by_currency: [usd], open_balance: '5250.0000', book_currency: 'MXN' }))
+      .toBe('USD 300.0000 (book value 5250.0000 MXN)');
+    expect(describeBalance({ balances_by_currency: [mxn], open_balance: '2400.0000', book_currency: 'MXN' }))
+      .toBe('MXN 2400.0000');
   });
 });
 
@@ -344,10 +392,14 @@ describe('updateCustomer', () => {
 describe('archiveCustomer — archiving is not collecting', () => {
   it('refuses while the customer still owes something', async () => {
     mockQuery.mockResolvedValueOnce({
-      rows: [{ open_balance: '11600.0000', overdue_balance: '0', open_documents: 1, oldest_due_date: null }],
+      rows: [{
+        open_balance: '11600.0000', overdue_balance: '0', open_documents: 1, oldest_due_date: null, book_currency: 'MXN',
+        balances_by_currency: [{ currency_code: 'MXN', open_documents: 1, open_balance: '11600.0000', overdue_balance: '0',
+          book_open_balance: '11600.0000', book_overdue_balance: '0' }],
+      }],
     });
     await expect(archiveCustomer(CUSTOMER, SCOPE)).rejects.toThrow(
-      expect.objectContaining({ name: 'ValidationError', message: expect.stringContaining('11600.0000') })
+      expect.objectContaining({ name: 'ValidationError', message: expect.stringContaining('totalling MXN 11600.0000.') })
     );
     // Nothing was written.
     expect(mockQuery.mock.calls).toHaveLength(1);

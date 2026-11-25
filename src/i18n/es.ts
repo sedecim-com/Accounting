@@ -3374,6 +3374,7 @@ export const ES: Record<keyof typeof EN, string> = {
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
 
+  'ar.customer.show.book_value': 'Valor en libros',
   'ar.receipt.invoice_missing':
     'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
   'ar.receipt.invoice_without_amount':
@@ -5660,7 +5661,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Lista los clientes con sus condiciones de pago, su estado de crédito y el saldo que deben',
   'help.customer.list.argument.query': 'texto que se busca en el nombre o en el número del cliente',
   'help.customer.list.option.overdue': 'sólo los clientes con algo vencido',
-  'help.customer.list.option.balance_gt': 'sólo los clientes que deben más de este importe',
+  'help.customer.list.option.balance_gt':
+    'sólo los clientes cuyo saldo a valor en libros, en la moneda funcional, pase de este importe (un documento en otra moneda pesa al tipo de cambio con que se registró)',
   'help.customer.list.option.inactive': 'muestra los clientes archivados en vez de los activos',
   'help.customer.show.description':
     'Muestra un cliente: perfil, identificador fiscal, crédito, saldo y documentos abiertos',

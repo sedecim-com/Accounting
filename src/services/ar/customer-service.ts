@@ -7,6 +7,11 @@ import { generateEntryNumber } from '../../utils/sequence.js';
 import type { Customer } from '../../types/index.js';
 import { SAT_CATALOGS } from '../xml-ingestion/sat-catalogs.js';
 import { todayForCustomer, todayForEntity } from '../policy/today.js';
+// NOTE: an import cycle (report-service imports amountDueAsOfSql from here).
+// It is safe: both sides export functions and constants read at call time,
+// never while the modules load. The book value has ONE definition, and it
+// lives in the report layer (E4.2).
+import { bookAmountDueSql } from '../reporting/report-service.js';
 
 // ============================================================
 // CUSTOMERS (AR master data) — domain service
@@ -80,13 +85,50 @@ export interface AuditContext {
   action?: 'create' | 'update' | 'delete';
 }
 
-export interface CustomerBalance {
-  /** Sum of amount_due over open documents, as a decimal string. */
+/** What a customer owes in ONE currency (MNE-001-741). Amounts in `currency_code`, `book_*` in the functional one. */
+export interface CurrencyBalance {
+  currency_code: string;
+  open_documents: number;
   open_balance: string;
-  /** The part of it already past due at the reference date. */
+  overdue_balance: string;
+  book_open_balance: string;
+  book_overdue_balance: string;
+}
+
+export interface CustomerBalance {
+  /**
+   * What the customer owes, at book value in the functional currency
+   * (`book_currency`): each open document's amount_due at the rate it was
+   * posted at, the figure ar reconcile weighs against the control account
+   * (MNE-001-741). Balances of different currencies are never added raw.
+   */
+  open_balance: string;
+  /** The part of it already past due at the reference date, at book value. */
   overdue_balance: string;
   open_documents: number;
   oldest_due_date: string | null;
+  /** The entity's functional currency: the one open_balance is in. */
+  book_currency: string;
+  /** Per document currency, ordered by its code. */
+  balances_by_currency: CurrencyBalance[];
+}
+
+/**
+ * «MXN 2400.0000; USD 1000.0000»: the per-currency balance as one cell, for
+ * the formats that cannot carry a list. Never a sum across currencies.
+ */
+export function amountsByCurrency(
+  balances: CurrencyBalance[] | undefined,
+  field: 'open_balance' | 'overdue_balance' = 'open_balance'
+): string {
+  return (balances ?? []).map((b) => `${b.currency_code} ${b[field]}`).join('; ');
+}
+
+/** The per-currency balance, and its book value when a foreign currency is in it. */
+export function describeBalance(balance: Pick<CustomerBalance, 'balances_by_currency' | 'open_balance' | 'book_currency'>): string {
+  const foreign = (balance.balances_by_currency ?? []).some((b) => b.currency_code !== balance.book_currency);
+  const text = amountsByCurrency(balance.balances_by_currency);
+  return foreign ? `${text} (book value ${balance.open_balance} ${balance.book_currency})` : text;
 }
 
 export interface CustomerFilters {
@@ -102,7 +144,11 @@ export interface CustomerFilters {
   withBalance?: boolean;
   /** Only customers with something past due at `asOf`. Implies withBalance. */
   overdueOnly?: boolean;
-  /** Only customers owing more than this (decimal string). Implies withBalance. */
+  /**
+   * Only customers owing more than this (decimal string), compared with
+   * `open_balance`: the book value in the functional currency, the one unit
+   * every customer's balance can be weighed in. Implies withBalance.
+   */
   balanceGreaterThan?: string;
   /** Reference date for "overdue"; defaults to today. */
   asOf?: string;
@@ -228,25 +274,59 @@ function openDocumentExpr(
  * invoices per customer instead of a query per row, and the same expression
  * for the list, the detail and the archive guard — three places that must
  * never disagree about what a customer owes.
+ *
+ * MNE-001-741: grouped by the document's currency inside, folded to one row
+ * per customer outside. The single figures are book values in the functional
+ * currency (`bookAmountDueSql`, the aging's and ar reconcile's expression);
+ * the raw amounts stay per currency. `entityParam` names the entity whose
+ * functional currency is read, uncorrelated so it is read once. OFFSET 0
+ * keeps the document's balance from being inlined into every sum below.
  */
 function balanceLateral(
   customerRef: string,
   asOfParam: string,
   statusParam: string,
-  reconstruct: boolean
+  reconstruct: boolean,
+  entityParam: string
 ): string {
   const { amount, where } = openDocumentExpr(asOfParam, statusParam, reconstruct);
+  const overdue = `i.due_date < ${asOfParam}::date`;
   return `LEFT JOIN LATERAL (
-      SELECT COALESCE(SUM(d.amount), 0) AS open_balance,
-             COALESCE(SUM(CASE WHEN i.due_date < ${asOfParam}::date THEN d.amount ELSE 0 END), 0) AS overdue_balance,
-             COUNT(*)::int AS open_documents,
-             MIN(i.due_date) FILTER (WHERE i.due_date < ${asOfParam}::date) AS oldest_due_date
-      FROM invoices i
-      CROSS JOIN LATERAL (SELECT ${amount} AS amount) d
-      WHERE i.customer_id = ${customerRef}
-        AND d.amount > 0
-        AND ${where}
+      SELECT COALESCE(SUM(cur.book_open), 0) AS open_balance,
+             COALESCE(SUM(cur.book_overdue), 0) AS overdue_balance,
+             COALESCE(SUM(cur.documents), 0)::int AS open_documents,
+             MIN(cur.oldest_due_date) AS oldest_due_date,
+             (SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) AS book_currency,
+             COALESCE(json_agg(json_build_object(
+               'currency_code', cur.currency_code,
+               'open_documents', cur.documents,
+               'open_balance', cur.open::text,
+               'overdue_balance', cur.overdue::text,
+               'book_open_balance', cur.book_open::text,
+               'book_overdue_balance', cur.book_overdue::text
+             ) ORDER BY cur.currency_code COLLATE "C"), '[]'::json) AS balances_by_currency
+      FROM (
+        SELECT i.currency_code,
+               COUNT(*)::int AS documents,
+               SUM(d.amount) AS open,
+               SUM(CASE WHEN ${overdue} THEN d.amount ELSE 0 END) AS overdue,
+               SUM(d.book) AS book_open,
+               SUM(CASE WHEN ${overdue} THEN d.book ELSE 0 END) AS book_overdue,
+               MIN(i.due_date) FILTER (WHERE ${overdue}) AS oldest_due_date
+        FROM invoices i
+        CROSS JOIN LATERAL (SELECT ${amount} AS amount OFFSET 0) a
+        CROSS JOIN LATERAL (SELECT a.amount, ${bookAmountDueSql('i', entityParam, 'a.amount')} AS book) d
+        WHERE i.customer_id = ${customerRef}
+          AND a.amount > 0
+          AND ${where}
+        GROUP BY i.currency_code
+      ) cur
     ) bal ON true`;
+}
+
+/** The entity of customer `$customerParam`, as an uncorrelated subquery: read once per statement. */
+function entityOfCustomer(customerParam: string): string {
+  return `(SELECT entity_id FROM customers WHERE id = ${customerParam})`;
 }
 
 /** The status list the aggregate binds, which flips meaning with the mode. */
@@ -291,9 +371,10 @@ export async function listCustomers(
     params.push(filters.asOf ?? (await todayForEntity(entityId)));
     const statusParam = `$${i++}`;
     params.push(statusesFor(reconstruct));
-    join = ` ${balanceLateral('c.id', asOfParam, statusParam, reconstruct)}`;
+    join = ` ${balanceLateral('c.id', asOfParam, statusParam, reconstruct, '$1')}`;
     balanceColumns =
-      ', bal.open_balance, bal.overdue_balance, bal.open_documents, bal.oldest_due_date';
+      ', bal.open_balance, bal.overdue_balance, bal.open_documents, bal.oldest_due_date,' +
+      ' bal.book_currency, bal.balances_by_currency';
 
     if (filters.overdueOnly) where.push('bal.overdue_balance > 0');
     if (filters.balanceGreaterThan !== undefined) {
@@ -357,15 +438,16 @@ export async function getCustomerBalance(
 ): Promise<CustomerBalance> {
   const reconstruct = asOf !== undefined;
   const result = await query<CustomerBalance>(
-    `SELECT bal.open_balance, bal.overdue_balance, bal.open_documents, bal.oldest_due_date
+    `SELECT bal.open_balance, bal.overdue_balance, bal.open_documents, bal.oldest_due_date,
+            bal.book_currency, bal.balances_by_currency
      FROM (SELECT $1::uuid AS id) c
-     ${balanceLateral('c.id', '$2', '$3', reconstruct)}`,
+     ${balanceLateral('c.id', '$2', '$3', reconstruct, entityOfCustomer('$1'))}`,
     [customerId, asOf ?? (await todayForCustomer(customerId)), statusesFor(reconstruct)]
   );
   return result.rows[0];
 }
 
-/** The documents behind the balance, on the same two-mode footing. */
+/** The documents behind the balance, on the same two-mode footing, each in its currency and at book value. */
 export async function listCustomerOpenInvoices(
   customerId: string,
   asOf?: string
@@ -373,11 +455,12 @@ export async function listCustomerOpenInvoices(
   const reconstruct = asOf !== undefined;
   const { amount, where } = openDocumentExpr('$2', '$3', reconstruct);
   const result = await query(
-    `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status,
+    `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status, i.currency_code,
             i.total_amount, i.amount_paid, d.amount AS amount_due,
+            ${bookAmountDueSql('i', entityOfCustomer('$1'), 'd.amount')} AS book_amount_due,
             ($2::date - i.due_date) AS days_overdue
      FROM invoices i
-     CROSS JOIN LATERAL (SELECT ${amount} AS amount) d
+     CROSS JOIN LATERAL (SELECT ${amount} AS amount OFFSET 0) d
      WHERE i.customer_id = $1 AND d.amount > 0 AND ${where}
      ORDER BY i.due_date ASC`,
     [customerId, asOf ?? (await todayForCustomer(customerId)), statusesFor(reconstruct)]
@@ -597,7 +680,7 @@ export async function archiveCustomer(
   if (balance.open_documents > 0 && !opts.allowWithBalance) {
     throw new ValidationError(
       `Cannot archive a customer with ${balance.open_documents} open document(s) ` +
-        `totalling ${balance.open_balance}. Collect or void them first, or override with --force and a --reason.`
+        `totalling ${describeBalance(balance)}. Collect or void them first, or override with --force and a --reason.`
     );
   }
   const customer = await updateCustomer(

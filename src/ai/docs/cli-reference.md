@@ -4020,7 +4020,7 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --overdue                                only customers with something past due
-  --balance-gt <amount>                    only customers owing more than this
+  --balance-gt <amount>                    only customers whose balance at book value, in the functional currency, is more than this (a foreign document weighs at the rate it was posted at)
   --inactive                               show archived customers instead of active ones
   -h, --help                               display help for command
 
