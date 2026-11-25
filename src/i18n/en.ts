@@ -291,6 +291,31 @@ export const EN = {
   'error.VALIDATION_ERROR.payment.short_pay_forbidden':
     'The policy `pago_corto_residual` of this firm is set to "prohibir": no bill is closed by paying less. Ask the vendor for the credit note and apply it, or change the policy with `mnemosine pending reopen pago_corto_residual` (if it was already defined) and then `mnemosine pending define pago_corto_residual`.',
 
+  // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion that were Spanish prose (issue #151) ----
+  // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each
+  // site printed. Role ids, commands, flags and the `--direction` values are
+  // parameters or literals, never translated.
+  // pre-registration-service.ts
+  'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR':
+    'The CFDI is issued by "{name}" (RFC {rfc}), who is not in this entity\'s vendor catalog. Posting it here would register the counterparty with the name and RFC the XML carries (master data written by a third party, approved by no one) and then recognize the liability in the ledger. Two ways out: register the vendor yourself with `mnemosine vendor create --tax-id {rfc}` and run again (the pre-registration will find it by RFC); or repeat the command with --allow-new-vendor if you accept creating it as the receipt states it.',
+  'error.AP_ACCOUNT_MISSING':
+    'The entity has no account for the role "cxp" (vendors). Seed the books with: mnemosine init --section identity',
+  'error.MISSING_ROLE_ACCOUNT.seed_identity':
+    'The entity has no account for the role "{role}". Seed the books with: mnemosine init --section identity',
+  'error.REP_SIN_XML': 'The XML of the payment receipt is not kept.',
+  'error.ENTITY_NOT_FOUND.pre_registration': "The pre-registration's entity does not exist.",
+  'error.REP_SIN_PAGOS': 'The receipt is of type P but carries no payments complement: there is nothing to link.',
+  'error.CFDI_REQUIERE_DECISION.not_a_party':
+    'The receipt is from {issuer} to {receiver} and the entity is {entity}: it is not a party to the transaction. Check whether it was uploaded to the wrong entity.',
+  // cfdi-posting-plan.ts
+  'error.CFDI_REQUIERE_DECISION.missing_accounts':
+    'The entity has no account for: {missing}. Seed the books with: mnemosine init --section identity',
+  'error.CFDI_REQUIERE_DECISION.unbalanced': 'The proposed entry does not balance: debits {debits} vs credits {credits}.',
+  // cfdi-query-service.ts
+  'error.VALIDATION_ERROR.cfdi.direction': 'Unreadable --direction "{direction}": the values are emitido, recibido and ajeno.',
+  'error.RESOURCE_NOT_FOUND.classification_trail':
+    'Classification with id {uuid} not found (the trail exists for what was ingested since F02; earlier CFDIs were classified and their trail discarded)',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

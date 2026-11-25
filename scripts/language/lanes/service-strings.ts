@@ -34,9 +34,10 @@
  * the user which panel command to run. Leaving logs out would need a list of sinks, the thing this
  * lane does not keep; turning one into English needs no key.
  *
- * TWO FILES ARE LEFT OUT, by name and with the reason in `SERVICE_EXCLUDED`.
+ * THREE FILES ARE LEFT OUT, by name and with the reason in `SERVICE_EXCLUDED`.
  * The test pins that what the recognizer still finds in the law seed is only
- * its «…» quotes, so new Spanish prose there still shows up red.
+ * its «…» quotes, and in the CFDI catalogues only the values of SAT_CATALOGS,
+ * so new Spanish prose in either still shows up red.
  *
  * The lanes are disjoint: `spanish-user-strings-cli` walks `src/cli/`, this
  * one the five folders of `SERVICE_SURFACES`, and the two English CLI lanes
@@ -68,6 +69,10 @@ export const SERVICE_EXCLUDED: Readonly<Record<string, string>> = {
   'src/services/jurisdiction/legal-parameters-seed.ts':
     'each source note is English; the Spanish left is the law quoted verbatim in «…» in its official ' +
     'language, as the evidence for the figure, and a translated quote would no longer be the law',
+  // MNE-001-728 (#151): the ruling of I9 by folder, part 5, on the data of src/services/xml-ingestion.
+  'src/services/xml-ingestion/sat-catalogs.ts':
+    'data: the SAT\'s own descriptions of c_RegimenFiscal, c_UsoCFDI, c_MetodoPago, c_FormaPago and the ' +
+    'cancellation reasons, the authority\'s names as published (rule 5 of docs/language.md), never translated',
 };
 
 /**
