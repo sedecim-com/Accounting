@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { currentTenant } from '../database/connection.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 import {
   barrerEntregasVencidas,
   TOPE_POR_INQUILINO,
@@ -88,19 +88,15 @@ export function registerWebhookSweepCommand(
 
   const delivery =
     subscription.commands.find((x) => x.name() === 'delivery') ??
-    subscription.command('delivery').alias('entrega').description('Outbound delivery log and retries');
+    describeCommand(subscription.command('delivery').alias('entrega'), 'help.subscription.delivery.description');
 
-  const sweep = delivery
-    .command('sweep')
-    .alias('barrer')
-    .description(
-      'Retry every outbound delivery whose retry time has passed, with exponential backoff; ' +
-        'deliveries that exhaust their attempts are declared dead and reported (call this from cron)'
-    )
-    .option('-t, --tenant <id>', 'Tenant to sweep (defaults to MNEMOSINE_TENANT)')
-    .option('--all-tenants', 'Sweep every active tenant, each under its own tenant context')
-    .option('-n, --limit <n>', 'Max deliveries per tenant in this pass', String(TOPE_POR_INQUILINO))
-    .option('--json', 'JSON output');
+  const sweep = describeCommand(delivery.command('sweep').alias('barrer'), 'help.subscription.delivery.sweep.description');
+  optionByKey(sweep, '-t, --tenant <id>', 'help.subscription.delivery.sweep.option.tenant');
+  optionByKey(sweep, '--all-tenants', 'help.subscription.delivery.sweep.option.all_tenants');
+  optionByKey(sweep, '-n, --limit <n>', 'help.subscription.delivery.sweep.option.limit', {
+    defaultValue: String(TOPE_POR_INQUILINO),
+  });
+  optionByKey(sweep, '--json', 'help.subscription.delivery.sweep.option.json');
 
   // EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: parsean contra
   // el commander embarcado (lo comprueba tests/cli/ejemplos-de-ayuda.spec.ts).

@@ -75,6 +75,10 @@ interface LocalizedText {
  *   · `src/cli/payroll-isn-command.ts:1315` y `:1318` — `-a, --all` y
  *     `-s, --status` hablan de pasivos liquidados, no de «archived and closed».
  *
+ * NOTE: since #314 none of them writes over the text in place any more: each
+ * rewording goes through `describeOption` with a key of its own (MNE-001-239,
+ * 240 and 428), so it is translated. This check stays for the next one.
+ *
  * Sin esta comprobación el gancho de `Help` rendía la CLAVE y las cuatro
  * sobrescrituras desaparecían de la ayuda: la bandera volvía a describirse en
  * genérico y el documento de `src/ai/docs/cli-reference.md` lo enseñaba en

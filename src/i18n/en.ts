@@ -7206,6 +7206,61 @@ export const EN = {
   'help.outbox.run.argument.id': 'operation ids to execute; omit to review the whole queue interactively',
   'help.outbox.run.option.entity': 'Legal entity (id, RFC or name fragment)',
   'help.outbox.run.option.user': 'Who executes (default: sole active user of the tenant)',
+  // ==== MNE-001-428 · help by key, audit, backup, status, subscription and completion (issue #314) ====
+  'help.audit.description': 'Read the audit trail: who changed what, when, and from which value',
+  'help.audit.list.description': 'Audit trail of mutations: who, when, which object, and which fields changed',
+  'help.audit.list.option.user': 'only entries written by this user (email); this command attributes nothing',
+  'help.audit.list.option.since': 'inclusive lower bound on the entry timestamp (YYYY-MM-DD)',
+  'help.audit.list.option.until': 'inclusive upper bound on the entry timestamp (YYYY-MM-DD)',
+  'help.audit.list.option.actor': 'human | agent | agent:<session> (see the note on --actor agent)',
+  'help.audit.list.option.action': 'one of: {actions}',
+  'help.audit.list.option.object': 'object family: {families}; with no value, lists them',
+  'help.audit.list.option.entity_type': 'exact audit_log.entity_type value, when the family is not enough',
+  'help.audit.show.description': 'One audit entry in full: the value before, the value after, and the reason',
+  'help.audit.show.option.user': 'only entries written by this user (email); this command attributes nothing',
+  'help.audit.show.argument.id': 'audit_log row id (the id column of `audit list`)',
+  'help.backup.description':
+    'Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)',
+  'help.backup.create.description': 'Take a logical dump of the WHOLE installation with its schema-version manifest',
+  'help.backup.create.option.tenant':
+    'NOT here: this dump is not scoped. A per-tenant archive is `mnemosine backup export --tenant <id>`',
+  'help.backup.create.option.entity': 'NOT here: a per-entity archive is `mnemosine backup export --entity <idOrName>`',
+  'help.backup.create.option.target': 'directory to write into (default: {dir})',
+  'help.backup.create.option.json': 'JSON output',
+  'help.backup.export.description':
+    "Logical EXPORT of ONE tenant (or one entity): consistent, scoped by the database's own RLS, with a manifest. NOT a restorable backup",
+  'help.backup.export.option.tenant': 'tenant (firm) to export (defaults to --tenant / MNEMOSINE_TENANT)',
+  'help.backup.export.option.entity': 'narrow it further to one legal entity of that tenant',
+  'help.backup.export.option.target': 'directory to write into (default: {dir})',
+  'help.backup.export.option.json': 'JSON output',
+  'help.backup.list.description':
+    'List known backups and exports with their date, scope, size, schema version and whether their hash still matches',
+  'help.backup.list.option.target': 'directory to read (default: {dir})',
+  'help.backup.verify.description':
+    'Verify a backup against its manifest; with --restore, rehearse the restore and run the ledger checks',
+  'help.backup.verify.argument.file': 'backup file to verify',
+  'help.backup.verify.option.restore':
+    'RESTORE it into a throwaway database and run the ledger checks (the only real proof)',
+  'help.backup.verify.option.strict': 'exit 4 on warnings too',
+  'help.backup.restore.description': 'Restore a backup into a NEW database; never over an existing one',
+  'help.backup.restore.argument.file': 'backup file to restore',
+  'help.backup.restore.option.target': 'name of the NEW database to create and restore into',
+  'help.backup.restore.option.json': 'JSON output',
+  'help.status.description': 'Health snapshot: config, live provider probes, database and RLS (redacted, shareable)',
+  'help.status.option.all': 'Probe every configured profile, not only the active failover chain',
+  'help.status.option.tenant': 'Tenant (for the RLS-active check)',
+  'help.status.option.json': 'JSON output (same redacted structure, for support tickets)',
+  'help.status.option.strict':
+    'Also exit 1 when any provider probe fails or is skipped (by default only database unreachability fails the command)',
+  'help.subscription.delivery.description': 'Outbound delivery log and retries',
+  'help.subscription.delivery.sweep.description':
+    'Retry every outbound delivery whose retry time has passed, with exponential backoff; deliveries that exhaust their attempts are declared dead and reported (call this from cron)',
+  'help.subscription.delivery.sweep.option.tenant': 'Tenant to sweep (defaults to MNEMOSINE_TENANT)',
+  'help.subscription.delivery.sweep.option.all_tenants': 'Sweep every active tenant, each under its own tenant context',
+  'help.subscription.delivery.sweep.option.limit': 'Max deliveries per tenant in this pass',
+  'help.subscription.delivery.sweep.option.json': 'JSON output',
+  'help.completion.description': 'Print a shell completion script (bash, zsh) on stdout',
+  'help.completion.argument.shell': 'Shell to generate for: {list} or {last}',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
