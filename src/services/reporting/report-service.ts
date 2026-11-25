@@ -39,7 +39,8 @@ import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../
 //                   per sale and receipt movement, the DIOT's exempt
 //                   revenue, the cash-flow statement's movement by
 //                   account and its non-cash entries, and its tie-out's
-//                   opening and movement of cash; T14, #101). This is
+//                   opening and movement of cash and residue suspects;
+//                   T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -1847,6 +1848,98 @@ export async function queryOpeningAndMovement(
     [entityId, opts.startDate, opts.endDate, [...opts.accountIds]]
   );
   return r.rows[0] ?? { opening: '0', movement: '0' };
+}
+
+export interface EntryEffectByCounterpartRow {
+  entry_number: string;
+  /**
+   * Text from Postgres (`::text`), never a Date: `pg` hands a DATE over as
+   * local midnight, and turning it back to ISO west of UTC moves it back a
+   * day (an entry of the 25th printed as of the 24th).
+   */
+  entry_date: string;
+  description: string | null;
+  /** The entry's share of its net on cash for this counterpart, unrounded numeric as text. Positive = cash came in. */
+  effect: string;
+  counterpart_code: string;
+  counterpart_name: string;
+  counterpart_type: string;
+  counterpart_subtype: string | null;
+  counterpart_fs: string | null;
+  counterpart_role: string | null;
+}
+
+/**
+ * The effect on cash of each posted entry in the range, by counterpart: the
+ * rows the tie-out's residue suspects are picked from (`sospechososDelResiduo`,
+ * MNE-001-434). ONE statement for the whole set, with the cash ids as one
+ * array, never one read per entry or account.
+ *
+ * `cash` is each entry's net (debit − credit) on `accountIds`, only for the
+ * entries that moved cash. `counterparts` spreads that net over the entry's
+ * other lines in proportion to their amount (debit + credit): an entry with
+ * one bank payment and three different charges cannot lay the whole payment
+ * on each of them. The split stays in SQL numeric, so the caller rounds once
+ * and the rounding is the one it always had.
+ *
+ * Closing entries count and no closing policy is read, as in
+ * queryOpeningAndMovement: a closing entry never touches cash. The inner
+ * (jel JOIN je) pair, with the range inside the JOIN, keeps draft and void
+ * lines out; the entity is bound on the entry's side, the account's and the
+ * role's. The tie-break orders by `entry_date::text`, the same expression the
+ * GROUP BY holds: Postgres rejects a bare `entry_date` there. `limit` is the
+ * row limit as given; the caller filters the rows and asks for more than it
+ * keeps.
+ */
+export async function queryEntryEffectByCounterpart(
+  entityId: string,
+  opts: { accountIds: readonly string[]; startDate: string; endDate: string; limit: number }
+): Promise<EntryEffectByCounterpartRow[]> {
+  const r = await query<EntryEffectByCounterpartRow>(
+    `WITH cash AS (
+       SELECT jel.journal_entry_id AS je_id,
+              SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) AS effect
+         FROM (journal_entry_lines jel
+          JOIN journal_entries je
+            ON je.id = jel.journal_entry_id
+           AND je.status = 'posted'
+           AND je.entity_id = $1
+           AND je.entry_date BETWEEN $2 AND $3)
+        WHERE jel.account_id = ANY($4::uuid[])
+        GROUP BY jel.journal_entry_id
+       HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) <> 0
+     ),
+     counterparts AS (
+       SELECT e.je_id,
+              jel.account_id,
+              e.effect * (COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
+                / NULLIF(SUM(COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
+                         OVER (PARTITION BY e.je_id), 0) AS effect
+         FROM cash e
+         JOIN journal_entry_lines jel ON jel.journal_entry_id = e.je_id
+        WHERE NOT (jel.account_id = ANY($4::uuid[]))
+     )
+     SELECT je.entry_number,
+            je.entry_date::text AS entry_date,
+            je.description,
+            SUM(c.effect)::text AS effect,
+            a.code AS counterpart_code,
+            a.name AS counterpart_name,
+            a.account_type AS counterpart_type,
+            a.account_subtype AS counterpart_subtype,
+            a.fs_category AS counterpart_fs,
+            MIN(ar.role) AS counterpart_role
+       FROM counterparts c
+       JOIN journal_entries je ON je.id = c.je_id AND je.entity_id = $1
+       JOIN accounts a ON a.id = c.account_id AND a.entity_id = $1
+       LEFT JOIN account_roles ar ON ar.account_id = a.id AND ar.entity_id = $1
+      GROUP BY je.entry_number, je.entry_date::text, je.description,
+               a.code, a.name, a.account_type, a.account_subtype, a.fs_category
+      ORDER BY ABS(SUM(c.effect)) DESC, je.entry_date::text, je.entry_number
+      LIMIT $5`,
+    [entityId, opts.startDate, opts.endDate, [...opts.accountIds], opts.limit]
+  );
+  return r.rows;
 }
 
 // ------------------------------------------------------------

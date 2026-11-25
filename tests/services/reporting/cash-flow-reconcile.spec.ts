@@ -27,27 +27,37 @@ vi.mock('../../../src/services/reporting/cash-flow-service.js', async (importOri
 // so a test can say which layer was asked, with what, and how many times.
 vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
-  return { ...real, queryOpeningAndMovement: vi.fn(real.queryOpeningAndMovement) };
+  return {
+    ...real,
+    queryOpeningAndMovement: vi.fn(real.queryOpeningAndMovement),
+    queryEntryEffectByCounterpart: vi.fn(real.queryEntryEffectByCounterpart),
+  };
 });
 
 import {
   cuentasDeEfectivo,
   movimientoRealDeEfectivo,
   ROLES_DE_EFECTIVO,
+  sospechososDelResiduo,
 } from '../../../src/services/reporting/cash-flow-reconcile.js';
 import { resolveCashAccounts } from '../../../src/services/reporting/cash-flow-service.js';
-import { queryOpeningAndMovement } from '../../../src/services/reporting/report-service.js';
+import {
+  queryEntryEffectByCounterpart,
+  queryOpeningAndMovement,
+} from '../../../src/services/reporting/report-service.js';
 import { query } from '../../../src/database/connection.js';
 
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const mockQuery = query as unknown as Mock;
 const resolver = resolveCashAccounts as unknown as Mock;
 const cashReader = queryOpeningAndMovement as unknown as Mock;
+const suspectReader = queryEntryEffectByCounterpart as unknown as Mock;
 
 beforeEach(() => {
   mockQuery.mockReset();
   resolver.mockClear();
   cashReader.mockClear();
+  suspectReader.mockClear();
 });
 
 describe('cuentasDeEfectivo — the tie-out asks the statement\'s resolver', () => {
@@ -137,6 +147,111 @@ describe('movimientoRealDeEfectivo — the tie-out reads its cash through report
       movimientoRealDeEfectivo(ENTITY, { startDate: '2026-01-01', endDate: '2026-01-31', criterio: 'rol' })
     ).rejects.toThrow(/account role set efectivo/);
     expect(cashReader).not.toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sospechososDelResiduo — the residue suspects read the ledger through report-service (MNE-001-434)', () => {
+  const JANUARY = { startDate: '2026-01-01', endDate: '2026-01-31' };
+  const CASH_IDS = ['id-1110', 'id-1111'];
+  const row = (
+    code: string,
+    effect: string,
+    extra: Partial<{
+      description: string;
+      counterpart_type: string;
+      counterpart_subtype: string | null;
+      counterpart_fs: string | null;
+      counterpart_role: string | null;
+    }> = {}
+  ) => ({
+    entry_number: `PD-${code}`,
+    entry_date: '2026-01-15',
+    description: `Póliza ${code}`,
+    effect,
+    counterpart_code: code,
+    counterpart_name: `Cuenta ${code}`,
+    counterpart_type: 'equity',
+    counterpart_subtype: null,
+    counterpart_fs: null,
+    counterpart_role: null,
+    ...extra,
+  });
+  // January by hand: a capital contribution of 50 000.00 into the bank, a
+  // 30 000.00 machine paid from it, and 5 000.00 collected from a customer.
+  const CONTRIBUTION = row('3100', '50000.000000000000000000', { counterpart_fs: 'contributed_capital' });
+  const EQUIPMENT = row('1210', '-30000.000000000000000000', {
+    counterpart_type: 'asset',
+    counterpart_subtype: 'fixed_asset',
+    counterpart_fs: 'non_current_assets',
+    counterpart_role: 'activo_fijo',
+  });
+  const COLLECTION = row('1120', '5000.000000000000000000', { counterpart_type: 'asset', counterpart_role: 'cxc' });
+
+  it('asks queryEntryEffectByCounterpart once, with the cash ids, the range and four times the limit', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [CONTRIBUTION, EQUIPMENT, COLLECTION] })
+      .mockResolvedValueOnce({ rows: [{ in_table: true }] });
+    const s = await sospechososDelResiduo(ENTITY, { ...JANUARY, cuentas: CASH_IDS, limite: 10 });
+    expect(suspectReader.mock.calls).toEqual([
+      [ENTITY, { accountIds: CASH_IDS, startDate: '2026-01-01', endDate: '2026-01-31', limit: 40 }],
+    ]);
+    // The ledger statement, then the fixed-asset question: it is not the
+    // ledger's, so it stays here, as its own query, bound to the entity.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(String(mockQuery.mock.calls[1][0])).toMatch(/SELECT EXISTS \(\s*SELECT 1 FROM fixed_assets fa\s+WHERE fa\.entity_id = \$1/);
+    expect(mockQuery.mock.calls[1][1]).toEqual([ENTITY, '2026-01-01', '2026-01-31']);
+    expect(s).toEqual([
+      {
+        entry_number: 'PD-3100',
+        entry_date: '2026-01-15',
+        description: 'Póliza 3100',
+        efecto_en_efectivo: '50000.0000',
+        counterpart_code: '3100',
+        counterpart_name: 'Cuenta 3100',
+        counterpart_type: 'equity',
+        categoria_probable: 'financiamiento',
+        motivo: 'sin_reclamar',
+      },
+      {
+        entry_number: 'PD-1210',
+        entry_date: '2026-01-15',
+        description: 'Póliza 1210',
+        efecto_en_efectivo: '-30000.0000',
+        counterpart_code: '1210',
+        counterpart_name: 'Cuenta 1210',
+        counterpart_type: 'asset',
+        categoria_probable: 'inversion',
+        motivo: 'doble_conteo',
+      },
+    ]);
+  });
+
+  it('an investing counterpart with no fixed-asset row in the period is no suspect', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [EQUIPMENT, COLLECTION] })
+      .mockResolvedValueOnce({ rows: [{ in_table: false }] });
+    expect(await sospechososDelResiduo(ENTITY, { ...JANUARY, cuentas: CASH_IDS, limite: 10 })).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('without an investing counterpart the fixed-asset question is not asked, and the limit cuts the list', async () => {
+    const LOAN = row('2200', '-1000.000000000000000000', {
+      counterpart_type: 'liability',
+      counterpart_subtype: 'long_term_liability',
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [CONTRIBUTION, COLLECTION, LOAN] });
+    const s = await sospechososDelResiduo(ENTITY, { ...JANUARY, cuentas: CASH_IDS, limite: 1 });
+    expect(suspectReader.mock.calls[0][1]).toMatchObject({ limit: 4 });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(s.map((x) => [x.counterpart_code, x.efecto_en_efectivo, x.motivo])).toEqual([
+      ['3100', '50000.0000', 'sin_reclamar'],
+    ]);
+  });
+
+  it('no movement of cash: an empty list from one statement', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await sospechososDelResiduo(ENTITY, { ...JANUARY, cuentas: CASH_IDS, limite: 10 })).toEqual([]);
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 });
