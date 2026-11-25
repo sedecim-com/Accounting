@@ -177,13 +177,16 @@ export async function readEmploymentSubsidySeparateRun(
 
 /**
  * What the employee's OTHER paychecks of the same pay period already carry:
- * the subsidy they caused and, since MNE-001-658, the IMSS and INFONAVIT they
- * charged. One read answers both questions, so a paycheck asks once.
+ * the subsidy they caused, since MNE-001-658 the IMSS and INFONAVIT they
+ * charged, and since MNE-001-739 the ISR they caused. One read answers all
+ * of them, so a paycheck asks once.
  */
 export interface OtherPaychecksInPeriod {
   paychecks: number;
   /** Their ISR base (`paychecks.taxable_wages_isr`). */
   taxableIsr: Decimal;
+  /** The tariff ISR they caused, before the subsidy (`paychecks.isr_withheld`). */
+  isr: Decimal;
   /** The subsidy they caused: credited against their ISR plus delivered in cash. */
   subsidy: Decimal;
   /** The worker's and the employer's IMSS quota they charged. */
@@ -219,6 +222,7 @@ export async function otherPaychecksInPeriod(ctx: {
   const r = await query<{
     paychecks: number;
     taxable: string;
+    isr: string;
     subsidy: string;
     imss_employee: string;
     imss_employer: string;
@@ -228,6 +232,7 @@ export async function otherPaychecksInPeriod(ctx: {
   }>(
     `SELECT COUNT(*)::int AS paychecks,
             COALESCE(SUM(p.taxable_wages_isr), 0) AS taxable,
+            COALESCE(SUM(p.isr_withheld), 0) AS isr,
             COALESCE(SUM(p.subsidio_empleo), 0) AS subsidy,
             COALESCE(SUM(p.imss_employee), 0) AS imss_employee,
             COALESCE(SUM(p.imss_employer), 0) AS imss_employer,
@@ -247,6 +252,7 @@ export async function otherPaychecksInPeriod(ctx: {
   return {
     paychecks: row?.paychecks ?? 0,
     taxableIsr: new Decimal(row?.taxable ?? 0),
+    isr: new Decimal(row?.isr ?? 0),
     subsidy: new Decimal(row?.subsidy ?? 0),
     imssEmployee: new Decimal(row?.imss_employee ?? 0),
     imssEmployer: new Decimal(row?.imss_employer ?? 0),

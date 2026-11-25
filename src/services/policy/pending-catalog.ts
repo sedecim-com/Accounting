@@ -2456,6 +2456,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I recompute on the combined income of the period and credit only the difference.',
     priority: 42,
   },
+  // #601 · MNE-001-739. How the ISR of a paycheck paid apart is withheld (the
+  // restriction of #601). Read by `readSeparatePaymentIsr`
+  // (payroll/mx/separate-payment-isr.ts), through `calculatePaycheck`.
+  {
+    key: 'separate_payment_isr',
+    textKey: 'separate_payment_isr',
+    category: 'fiscal',
+    question:
+      'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), on what base is its ISR withheld?',
+    impact:
+      'It decides the ISR withheld, the net pay and the payroll CFDI of a paycheck that shares its pay period with another paycheck of the worker, or that is itself separate (a run other than the regular one, or a paycheck that pays only aguinaldo). Read by separate-payment-isr.ts. With "period_accumulated_base" the period\'s tariff is applied to the ISR base of the period\'s paychecks together, and the paycheck withholds that less the ISR the others already caused, never below zero, whichever was calculated first. With "own_paycheck_base" each paycheck is taxed on its own base alone. "regulation_optional_procedure" is refused: the separate paycheck is not calculated until the text of the procedure is in this system.',
+    options: [
+      { value: 'period_accumulated_base', label: 'On the period\'s accumulated base: the tariff on all the paychecks of the period together, less the ISR the others caused' },
+      {
+        value: 'regulation_optional_procedure',
+        label: 'The optional procedure of the Regulation for extraordinary payments (RLISR art. 174): not available until its text is in this system',
+      },
+      { value: 'own_paycheck_base', label: 'On the paycheck alone: each paycheck taxed on its own base, as the engine did before' },
+    ],
+    defaultValue: 'period_accumulated_base',
+    defaultRationale:
+      'The tariff of LISR art. 96 is the one published for the pay period, and it is applied to the income of that period. Its marginal rate rises with the income, so the tariff on the period\'s income together never withholds less than the tariffs of each paycheck alone: it is the conservative option of ADR-0006, decision 1. The optional procedure of the Regulation for extraordinary payments (RLISR art. 174) is not compared, because this system does not carry its text.',
+    whyAsking:
+      'Paying the aguinaldo in its own run is common, and its ISR can be computed on the income of the whole period, by the optional procedure of the Regulation, or on that paycheck alone: each gives a different withholding. Taxed on its own base, an aguinaldo of 10,000.00 paid apart from a fortnight of 10,000.00 withholds 541.53; on the period\'s base, 1,384.28.',
+    whatIDo:
+      'Before withholding the ISR of a paycheck, I read the other calculated, approved or paid paychecks of the same worker and period. With "period_accumulated_base" I apply the period\'s tariff to their ISR base plus this one and withhold the difference with the ISR they caused, never below zero. With "own_paycheck_base" I apply it to this paycheck\'s base alone. With "regulation_optional_procedure" I refuse to calculate the separate paycheck and say why. The paycheck records the treatment and the figures in its calculation details.',
+    ifSkipped: 'I apply the period\'s tariff to the accumulated base of the period and withhold only the difference.',
+    priority: 42,
+  },
   // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
   // old-age quota to two decimals and gives no rounding rule. Read by
   // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer

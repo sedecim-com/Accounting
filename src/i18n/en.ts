@@ -1794,6 +1794,25 @@ export const EN = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
 
+  'policy.separate_payment_isr.question':
+    'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), on what base is its ISR withheld?',
+  'policy.separate_payment_isr.impact':
+    'It decides the ISR withheld, the net pay and the payroll CFDI of a paycheck that shares its pay period with another paycheck of the worker, or that is itself separate (a run other than the regular one, or a paycheck that pays only aguinaldo). Read by separate-payment-isr.ts. With "period_accumulated_base" the period\'s tariff is applied to the ISR base of the period\'s paychecks together, and the paycheck withholds that less the ISR the others already caused, never below zero, whichever was calculated first. With "own_paycheck_base" each paycheck is taxed on its own base alone. "regulation_optional_procedure" is refused: the separate paycheck is not calculated until the text of the procedure is in this system.',
+  'policy.separate_payment_isr.rationale':
+    'The tariff of LISR art. 96 is the one published for the pay period, and it is applied to the income of that period. Its marginal rate rises with the income, so the tariff on the period\'s income together never withholds less than the tariffs of each paycheck alone: it is the conservative option of ADR-0006, decision 1. The optional procedure of the Regulation for extraordinary payments (RLISR art. 174) is not compared, because this system does not carry its text.',
+  'policy.separate_payment_isr.why':
+    'Paying the aguinaldo in its own run is common, and its ISR can be computed on the income of the whole period, by the optional procedure of the Regulation, or on that paycheck alone: each gives a different withholding. Taxed on its own base, an aguinaldo of 10,000.00 paid apart from a fortnight of 10,000.00 withholds 541.53; on the period\'s base, 1,384.28.',
+  'policy.separate_payment_isr.what':
+    'Before withholding the ISR of a paycheck, I read the other calculated, approved or paid paychecks of the same worker and period. With "period_accumulated_base" I apply the period\'s tariff to their ISR base plus this one and withhold the difference with the ISR they caused, never below zero. With "own_paycheck_base" I apply it to this paycheck\'s base alone. With "regulation_optional_procedure" I refuse to calculate the separate paycheck and say why. The paycheck records the treatment and the figures in its calculation details.',
+  'policy.separate_payment_isr.if_skipped':
+    'I apply the period\'s tariff to the accumulated base of the period and withhold only the difference.',
+  'policy.separate_payment_isr.option.period_accumulated_base':
+    'On the period\'s accumulated base: the tariff on all the paychecks of the period together, less the ISR the others caused',
+  'policy.separate_payment_isr.option.regulation_optional_procedure':
+    'The optional procedure of the Regulation for extraordinary payments (RLISR art. 174): not available until its text is in this system',
+  'policy.separate_payment_isr.option.own_paycheck_base':
+    'On the paycheck alone: each paycheck taxed on its own base, as the engine did before',
+
   'policy.imss_old_age_band_edge.question':
     'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
   'policy.imss_old_age_band_edge.impact':
@@ -7416,6 +7435,8 @@ export const EN = {
     'written on the paycheck. Do not stamp it again. Keep this folio: the paycheck does not carry it, and it is ' +
     'what a cancellation needs.',
   // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.separate_payment_isr.regulation_procedure_not_in_corpus':
+    'The policy {key} says to withhold the ISR of this separate paycheck by the optional procedure of the Regulation (RLISR art. 174), and this system does not carry the text of that procedure, so it does not compute it from memory. Nothing was calculated. Answer {key} with another option in mnemosine pending, or have the text added to the normative corpus first.',
   'payroll.employment_subsidy.excess_rule_unknown':
     'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +
     'and only 0 or 1 is a rule: 1 hands the subsidy in excess of the ISR to the worker in cash, 0 hands over nothing. ' +

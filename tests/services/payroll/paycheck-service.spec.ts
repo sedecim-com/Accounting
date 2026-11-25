@@ -166,6 +166,8 @@ function policies(treatment: string, decided: boolean): void {
           ? { key, value: 'truncated_to_hundredths', defined: true, question: 'q', rationale: null }
         : key === 'imss_old_age_minimum_wage_area'
           ? { key, value: 'employer_registration_area', defined: false, question: 'q', rationale: null }
+        : key === 'separate_payment_isr'
+          ? { key, value: 'period_accumulated_base', defined: false, question: 'q', rationale: null }
         : { key, value: treatment, defined: decided, question: 'q', rationale: null }
   );
 }
@@ -520,7 +522,8 @@ describe('the subsidy rounding is the entity policy (#298)', () => {
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'diario_al_centavo'
         : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
-        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area'
+        : key === 'separate_payment_isr' ? 'period_accumulated_base' : 'cuenta_por_cobrar_fisco',
       defined: true, question: 'q', rationale: null,
     }));
     const seen: Array<string | undefined> = [];
@@ -585,7 +588,8 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
         : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income'
         : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
-        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area'
+        : key === 'separate_payment_isr' ? 'period_accumulated_base' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
@@ -615,7 +619,8 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
         : key === 'employment_subsidy_separate_run' ? 'none_on_separate_paycheck'
         : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
-        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area' : 'cuenta_por_cobrar_fisco',
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area'
+        : key === 'separate_payment_isr' ? 'period_accumulated_base' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
@@ -727,5 +732,80 @@ describe("a run's paycheck is written on the run's transaction (MNE-001-657)", (
     await calculatePaycheck(ENTRADA);
     expect(ownTransaction).toHaveBeenCalledTimes(1);
     expect(insercionDelRecibo().sql).toMatch(/INSERT INTO paychecks/);
+  });
+});
+
+describe('the ISR of a paycheck that shares its period follows separate_payment_isr (MNE-001-739)', () => {
+  // A tariff double of 10 % of the base, so each figure is worked by hand:
+  // this paycheck 3 000.00 → 300.00; another paycheck of the period with a
+  // base of 1 500.00 that caused 100.00 (less than its 150.00, as an earlier
+  // rule could leave it); together 4 500.00 → 450.00.
+  const answer = (treatment: string, runType = 'regular', others = 1): void => {
+    mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
+      key,
+      value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
+        : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income'
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge'
+        : key === 'imss_old_age_minimum_wage_area' ? 'employer_registration_area'
+        : key === 'separate_payment_isr' ? treatment : 'cuenta_por_cobrar_fisco',
+      defined: key === 'separate_payment_isr', question: 'q', rationale: null,
+    }));
+    const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
+    mockQuery.mockImplementation(async (sql: string, args: unknown[]) =>
+      /FROM paychecks/.test(sql)
+        ? { rows: [{ paychecks: others, taxable: others ? '1500.00' : '0', isr: others ? '100.00' : '0', subsidy: '0' }] }
+        : /FROM pay_runs/.test(sql)
+          ? { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1', run_type: runType }] }
+          : base(sql, args)
+    );
+    calculadoras.set('MX:isr', {
+      jurisdiction: 'MX',
+      taxType: 'isr',
+      calculate: async (input): Promise<TaxOutput> => ({
+        jurisdiction: 'MX', tax_type: 'isr', tax_amount: input.taxable_wages / 10,
+        taxable_wages_used: input.taxable_wages, notes: 'Art. 96 LISR quincenal',
+      }),
+    });
+    doble('MX', 'subsidio_empleo', { tax_amount: 0, is_credit: true });
+  };
+  const isrStored = (): unknown => insercionDelRecibo().params[23];
+  const detail = (): unknown =>
+    (JSON.parse(insercionDelRecibo().params[31] as string) as Record<string, unknown>).separate_payment_isr;
+
+  it('period_accumulated_base: the tariff on the period together, less what the others caused (450 − 100 = 350)', async () => {
+    answer('period_accumulated_base');
+    await calculatePaycheck(ENTRADA);
+    expect(isrStored()).toBe(350);
+    expect(detail()).toEqual({
+      treatment: 'period_accumulated_base', answered_by_firm: true, separate: false, other_paychecks: 1,
+      other_taxable_isr: '1500.00', other_isr: '100.00', isr_of_period: '450.00', isr_on_own_base: '300.00',
+    });
+    expect(renglonesEscritos().find((r) => r.tax_type === 'isr')!.notas).toMatch(/\[period_accumulated_base\]/);
+  });
+
+  it('own_paycheck_base: this paycheck alone, as before (300)', async () => {
+    answer('own_paycheck_base');
+    await calculatePaycheck(ENTRADA);
+    expect(isrStored()).toBe(300);
+  });
+
+  it('regulation_optional_procedure: a regular paycheck keeps its own base, a bonus run is refused by key and writes nothing', async () => {
+    answer('regulation_optional_procedure');
+    await calculatePaycheck(ENTRADA);
+    expect(isrStored()).toBe(300);
+    clienteEspia.query.mockClear();
+    answer('regulation_optional_procedure', 'bonus');
+    await expect(calculatePaycheck(ENTRADA)).rejects.toMatchObject({
+      messageKey: { key: 'payroll.separate_payment_isr.regulation_procedure_not_in_corpus' },
+    });
+    expect(clienteEspia.query).not.toHaveBeenCalled();
+  });
+
+  it('a regular paycheck alone in its period does not read the key and records nothing', async () => {
+    answer('regulation_optional_procedure', 'regular', 0);
+    await calculatePaycheck(ENTRADA);
+    expect(isrStored()).toBe(300);
+    expect(mockGetPolicy).not.toHaveBeenCalledWith(expect.anything(), 'separate_payment_isr', undefined);
+    expect(detail()).toBeUndefined();
   });
 });

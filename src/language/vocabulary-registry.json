@@ -6476,6 +6476,38 @@
     },
     {
       "class": "policy-key",
+      "where": "separate_payment_isr",
+      "es": "separate_payment_isr",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-739): how the ISR of a paycheck that shares its pay period with another, or is itself separate, is withheld."
+    },
+    {
+      "class": "policy-value",
+      "where": "separate_payment_isr/period_accumulated_base",
+      "es": "period_accumulated_base",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the period's tariff on the ISR base of the period's paychecks together, less the ISR the others caused."
+    },
+    {
+      "class": "policy-value",
+      "where": "separate_payment_isr/regulation_optional_procedure",
+      "es": "regulation_optional_procedure",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the optional procedure of RLISR art. 174 for extraordinary payments; refused while its text is not in the corpus."
+    },
+    {
+      "class": "policy-value",
+      "where": "separate_payment_isr/own_paycheck_base",
+      "es": "own_paycheck_base",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: each paycheck taxed on its own base alone, as the engine did before."
+    },
+    {
+      "class": "policy-key",
       "where": "imss_old_age_band_edge",
       "es": "imss_old_age_band_edge",
       "en": null,
