@@ -85,6 +85,7 @@ import {
   queryPeriodMovementByAccount,
   queryEntryMovementsTouching,
   queryOpeningAndMovement,
+  queryEntryEffectByCounterpart,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1342,6 +1343,64 @@ describe('the cash-flow tie-out read (MNE-001-433)', () => {
   it('does not repeat the sum E1.2 counts five times in this file', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-01-31' });
+    expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
+  });
+});
+
+describe('the residue suspects read (MNE-001-434)', () => {
+  const OPTS = { accountIds: ['id-1110', 'id-1111'], startDate: '2026-01-01', endDate: '2026-01-31', limit: 40 };
+  const ROW = {
+    entry_number: 'PD-0003',
+    entry_date: '2026-01-15',
+    description: 'Amortización de préstamo con intereses',
+    effect: '-2000.000000000000000000',
+    counterpart_code: '3100',
+    counterpart_name: 'Capital Social',
+    counterpart_type: 'equity',
+    counterpart_subtype: null,
+    counterpart_fs: 'contributed_capital',
+    counterpart_role: null,
+  };
+
+  it('queryEntryEffectByCounterpart: one statement, the net on cash per entry spread over its other lines', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [ROW] });
+    const r = await queryEntryEffectByCounterpart(ENTITY, OPTS);
+    expect(r).toEqual([ROW]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const s = sql(0);
+    // Each posted entry's net on the cash ids, in the range, only when it moved
+    // cash: the inner (jel JOIN je) pair, with the entity and the range inside.
+    expect(s).toMatch(
+      /^WITH cash AS \( SELECT jel\.journal_entry_id AS je_id, SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) AS effect FROM \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.status = 'posted' AND je\.entity_id = \$1 AND je\.entry_date BETWEEN \$2 AND \$3\) WHERE jel\.account_id = ANY\(\$4::uuid\[\]\) GROUP BY jel\.journal_entry_id HAVING SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) <> 0 \)/
+    );
+    // The split stays in SQL numeric: effect × line ÷ Σ lines of the entry,
+    // over the lines that are not cash.
+    expect(s).toContain(
+      'counterparts AS ( SELECT e.je_id, jel.account_id, e.effect * (COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0)) / NULLIF(SUM(COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0)) OVER (PARTITION BY e.je_id), 0) AS effect FROM cash e JOIN journal_entry_lines jel ON jel.journal_entry_id = e.je_id WHERE NOT (jel.account_id = ANY($4::uuid[])) )'
+    );
+    // The entity bound on the entry's side, the account's and the role's.
+    expect(s).toContain(
+      'FROM counterparts c JOIN journal_entries je ON je.id = c.je_id AND je.entity_id = $1 JOIN accounts a ON a.id = c.account_id AND a.entity_id = $1 LEFT JOIN account_roles ar ON ar.account_id = a.id AND ar.entity_id = $1'
+    );
+    expect(s).toContain('SUM(c.effect)::text AS effect');
+    expect(s).toContain('MIN(ar.role) AS counterpart_role');
+    expect(s).toMatch(
+      /GROUP BY je\.entry_number, je\.entry_date::text, je\.description, a\.code, a\.name, a\.account_type, a\.account_subtype, a\.fs_category ORDER BY ABS\(SUM\(c\.effect\)\) DESC, je\.entry_date::text, je\.entry_number LIMIT \$5$/
+    );
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-01-31', ['id-1110', 'id-1111'], 40]);
+  });
+
+  it('reads no table outside the ledger, and no closing policy: a closing entry never touches cash', async () => {
+    vi.mocked(criterioDeCierreEnInformes).mockClear();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntryEffectByCounterpart(ENTITY, OPTS)).toEqual([]);
+    expect(sql(0)).not.toMatch(/fixed_assets|EXISTS|entry_type/);
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat the sum E1.2 counts five times in this file', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryEffectByCounterpart(ENTITY, OPTS);
     expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
   });
 });
