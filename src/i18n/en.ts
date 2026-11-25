@@ -7235,6 +7235,7 @@ export const EN = {
   'report.category.current_liabilities': 'Current liabilities',
   'report.category.long_term_liabilities': 'Long-term liabilities',
   'report.category.equity': 'Contributed capital',
+  'report.category.earned_capital': 'Earned capital',
   'report.category.ori': 'Other comprehensive income',
   'report.category.revenue': 'Revenue',
   'report.category.cogs': 'Cost of sales',

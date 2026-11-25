@@ -49,6 +49,7 @@ const SECTION_OF_CATEGORY: Record<FsCategory, StatementSection> = {
   current_liabilities: 'liabilities',
   long_term_liabilities: 'liabilities',
   equity: 'equity',
+  earned_capital: 'equity',
   ori: 'equity',
   revenue: 'income',
   other_income: 'income',
