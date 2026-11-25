@@ -21,6 +21,7 @@ import {
   NoEmailError,
 } from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
+import { t, type Language } from '../../../i18n/index.js';
 import { ROLES as CATALOGO_DE_ROLES, hasPermission, type Permission } from '../../../auth/roles.js';
 
 // Extend Express Request
@@ -105,7 +106,7 @@ function resolverEntidadActiva(
   // quiso decir el cliente es exactamente la clase de decisión que no debe
   // tomar la capa de autenticación.
   if (Array.isArray(cabecera)) {
-    throw new ForbiddenError('x-entity-id viene repetida: la petición actúa sobre una sola entidad');
+    throw new ForbiddenError({ key: 'error.FORBIDDEN.entity_header_repeated' });
   }
 
   const pedida = cabecera.trim();
@@ -266,6 +267,41 @@ export function requirePermission(...permissions: string[]) {
   return guarda;
 }
 
+/** Where a request named an entity, as `requireEntityAccess` reads them. */
+type EntitySource = 'header' | 'route' | 'body' | 'query';
+interface NamedEntity {
+  readonly source: EntitySource;
+  readonly value: string;
+}
+
+/** The sources a request named, each in `language`, joined with '; ' in every language. */
+function namedList(named: readonly NamedEntity[], language: Language | undefined): string {
+  return named
+    .map((n) => t('error.VALIDATION_ERROR.entity.named_source', { source: n.source, value: n.value }, language))
+    .join('; ');
+}
+
+/**
+ * A request that names two different entities (MNE-001-729, #151). A param is
+ * a flat string, so the list of sources is kept and rendered again in the
+ * reader's language, as `RequestValidationError` does with its issues.
+ */
+class SeveralEntitiesNamed extends ValidationError {
+  constructor(
+    private readonly count: number,
+    private readonly named: readonly NamedEntity[]
+  ) {
+    super(
+      { key: 'error.VALIDATION_ERROR.entity.several_named', params: { count, named: namedList(named, 'en') } },
+      'entity_id'
+    );
+  }
+
+  override localized(language?: Language): string {
+    return t('error.VALIDATION_ERROR.entity.several_named', { count: this.count, named: namedList(this.named, language) }, language);
+  }
+}
+
 export function requireEntityAccess(req: Request, _res: Response, next: NextFunction): void {
   if (!req.user) {
     throw new UnauthorizedError();
@@ -293,17 +329,17 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
   // que ese campo no dice si el cliente pidió algo: mezclarlo con lo nombrado
   // haría que un `?entity_id=B` legítimo, sin cabecera, chocara contra la
   // entidad que el token trae de relleno.
-  const nombradas: Array<{ fuente: string; valor: string }> = [];
-  const anota = (fuente: string, v: unknown): void => {
-    if (typeof v === 'string' && v.length > 0) nombradas.push({ fuente, valor: v });
+  const nombradas: NamedEntity[] = [];
+  const anota = (source: EntitySource, v: unknown): void => {
+    if (typeof v === 'string' && v.length > 0) nombradas.push({ source, value: v });
   };
-  anota('la cabecera x-entity-id', req.headers?.['x-entity-id']);
-  anota('la ruta (:entity_id)', req.params.entity_id);
-  anota('el cuerpo', (req.body as { entity_id?: string } | undefined)?.entity_id);
+  anota('header', req.headers?.['x-entity-id']);
+  anota('route', req.params.entity_id);
+  anota('body', (req.body as { entity_id?: string } | undefined)?.entity_id);
   const enQuery = req.query.entity_id;
-  for (const v of Array.isArray(enQuery) ? enQuery : [enQuery]) anota('la cadena de consulta (?entity_id=)', v);
+  for (const v of Array.isArray(enQuery) ? enQuery : [enQuery]) anota('query', v);
 
-  const distintas = [...new Set(nombradas.map((n) => n.valor))];
+  const distintas = [...new Set(nombradas.map((n) => n.value))];
 
   // DOS ENTIDADES DISTINTAS EN UNA PETICIÓN SE RECHAZAN, AUNQUE LAS DOS SEAN
   // SUYAS.
@@ -319,14 +355,7 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
   // Aquí no hay forma de saber cuál de las dos iba a usar el manejador. La
   // única respuesta correcta es no adivinar.
   if (distintas.length > 1) {
-    throw new ValidationError(
-      'La petición nombra ' +
-        `${distintas.length} entidades distintas (` +
-        nombradas.map((n) => `${n.fuente}: ${n.valor}`).join('; ') +
-        '). Cada ruta usa la fuente que le corresponde y la bitácora registra la de la cabecera, ' +
-        'así que con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
-      'entity_id'
-    );
+    throw new SeveralEntitiesNamed(distintas.length, nombradas);
   }
 
   // Una sola entidad nombrada MANDA sobre la de relleno, y con ella se

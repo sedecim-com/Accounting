@@ -6,6 +6,8 @@ import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
 import { declararRiesgoRuta } from '../risk.js';
+import { t } from '../../../i18n/index.js';
+import { responseLanguage } from '../middleware/locale.js';
 
 // PUBLIC verification endpoints — NO authentication required
 // These expose cryptographic proofs so third parties can verify
@@ -44,14 +46,17 @@ const DIGEST_HEX = /^(0x)?[0-9a-f]{64}$/i;
 // prueba. La distinción importa porque el auditor tiene que saber que la
 // contabilidad está ahí y que lo que falta es el anclaje.
 // ============================================================
-function rechazarSimulada(res: Response, que: string): void {
+/** What a simulated proof is, as `error.ATTESTATION_SIMULATED` names it. */
+type SimulatedProof = 'entry_attestation' | 'period_commitment' | 'bitcoin_anchor' | 'anchor_proof';
+
+function rechazarSimulada(res: Response, what: SimulatedProof): void {
+  // The message follows the negotiated language, so a cache keys on it; the
+  // envelope stays the one this router always wrote.
+  res.vary('Accept-Language');
   res.status(501).json({
     errors: [{
       code: 'ATTESTATION_SIMULATED',
-      message:
-        `${que} existe, pero su anclaje es SIMULADO: ningún hash se escribió en ninguna cadena, ` +
-        `así que no hay nada que un tercero pueda comprobar. Este endpoint se niega a presentarlo ` +
-        `como prueba. Volverá a responder cuando exista un adaptador de cadena real.`,
+      message: t('error.ATTESTATION_SIMULATED', { what }, responseLanguage(res)),
     }],
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
@@ -103,7 +108,7 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
 
   const a = attestation.rows[0];
   if (a.is_simulated) {
-    rechazarSimulada(res, 'La atestación de ese asiento');
+    rechazarSimulada(res, 'entry_attestation');
     return;
   }
   const chains = Array.isArray(a.chain_attestations) ? a.chain_attestations : [];
@@ -111,6 +116,8 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
   // Check Bitcoin anchor
   const btcProof = await bitcoinAnchorService.getBitcoinProof(entryHash);
 
+  // The step of a simulated Bitcoin anchor follows the negotiated language.
+  if (btcProof?.isSimulated) res.vary('Accept-Language');
   res.json({
     data: {
       entryHash,
@@ -157,7 +164,7 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
           btcProof && !btcProof.isSimulated
             ? '6. Verify Bitcoin OP_RETURN contains expected Merkle root'
             : btcProof
-              ? '6. El anclaje de Bitcoin es SIMULADO: no hay OP_RETURN en la cadena que comprobar'
+              ? t('api.public_verification.bitcoin_simulated_step', {}, responseLanguage(res))
               : '',
         ].filter(Boolean),
         codeSnippet: `
@@ -243,7 +250,7 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
   // la carga útil de la prueba: el sello del periodo y su `entryCount`. Un
   // compromiso simulado se servía sin autenticar, sin marca y sin rechazo.
   if (commitment.rows[0].is_simulated) {
-    rechazarSimulada(res, 'El compromiso de ese periodo');
+    rechazarSimulada(res, 'period_commitment');
     return;
   }
 
@@ -471,7 +478,7 @@ router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Respo
   // encontraría que la transacción no existe: es la mentira más cara posible,
   // porque quien la descubre es el tercero al que ya se la enseñaron.
   if (a.is_simulated) {
-    rechazarSimulada(res, 'Ese anclaje de Bitcoin');
+    rechazarSimulada(res, 'bitcoin_anchor');
     return;
   }
   res.json({
@@ -513,7 +520,7 @@ router.get('/bitcoin/proof/:entryHash', asyncHandler(async (req: Request, res: R
   // anclaje fabricado es entregar una receta que termina en un explorador
   // diciendo «no encontrada».
   if (proof.isSimulated) {
-    rechazarSimulada(res, 'La prueba de anclaje de ese asiento');
+    rechazarSimulada(res, 'anchor_proof');
     return;
   }
 

@@ -158,11 +158,15 @@ describe('requireEntityAccess ante fuentes que se contradicen', () => {
       );
       throw new Error('debió rechazar');
     } catch (e) {
-      const msg = (e as Error).message;
-      expect(msg).toContain('cabecera');
-      expect(msg).toContain('cuerpo');
-      expect(msg).toContain(MIA);
-      expect(msg).toContain(OTRA_MIA);
+      // The message is English; the Spanish render names the same sources.
+      for (const msg of [(e as Error).message, (e as ValidationError).localized('es')]) {
+        expect(msg).toMatch(/header|cabecera/);
+        expect(msg).toMatch(/body|cuerpo/);
+        expect(msg).toContain(MIA);
+        expect(msg).toContain(OTRA_MIA);
+      }
+      expect((e as ValidationError).localized('es')).toContain('la cabecera x-entity-id: ');
+      expect((e as Error).message).toContain('the x-entity-id header: ');
     }
   });
 
