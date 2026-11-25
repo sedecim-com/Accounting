@@ -84,6 +84,7 @@ import {
   queryIncomeStatementRows,
   queryPeriodMovementByAccount,
   queryEntryMovementsTouching,
+  queryOpeningAndMovement,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1287,6 +1288,61 @@ describe('the cash-flow statement reads (MNE-001-052)', () => {
     for (const call of [0, 1]) {
       expect(sql(call)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
     }
+  });
+});
+
+describe('the cash-flow tie-out read (MNE-001-433)', () => {
+  it('queryOpeningAndMovement: one statement, the opening before the range and the movement inside it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '3800.0000', movement: '977.0000' }] });
+    const r = await queryOpeningAndMovement(ENTITY, {
+      accountIds: ['id-1110', 'id-1111'],
+      startDate: '2026-02-01',
+      endDate: '2026-02-28',
+    });
+    expect(r).toEqual({ opening: '3800.0000', movement: '977.0000' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const s = sql(0);
+    expect(s).toMatch(
+      /COALESCE\(SUM\(CASE WHEN je\.entry_date < \$2 THEN COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\) ELSE 0 END\), 0\)::text AS opening/
+    );
+    expect(s).toMatch(
+      /COALESCE\(SUM\(CASE WHEN je\.entry_date BETWEEN \$2 AND \$3 THEN COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\) ELSE 0 END\), 0\)::text AS movement/
+    );
+    // The inner (jel JOIN je) pair, with the entity bound on the entry's side
+    // and on the account's, and the cut at the end of the range.
+    expect(s).toMatch(
+      /FROM \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.status = 'posted' AND je\.entity_id = \$1 AND je\.entry_date <= \$3\) JOIN accounts a ON a\.id = jel\.account_id AND a\.entity_id = \$1 WHERE jel\.account_id = ANY\(\$4::uuid\[\]\)$/
+    );
+    expect(s).not.toMatch(/LEFT JOIN|GROUP BY/);
+    expect(params(0)).toEqual([ENTITY, '2026-02-01', '2026-02-28', ['id-1110', 'id-1111']]);
+  });
+
+  it('counts the closing entries and reads no closing policy: a closing entry never touches cash', async () => {
+    vi.mocked(criterioDeCierreEnInformes).mockClear();
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '0', movement: '0' }] });
+    await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-12-31' });
+    expect(sql(0)).not.toContain('entry_type');
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('a range that ends before it starts goes to Postgres as given, so its answer is today\'s', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '5000.0000', movement: '0' }] });
+    const r = await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-03-01', endDate: '2026-01-15' });
+    expect(r).toEqual({ opening: '5000.0000', movement: '0' });
+    expect(params(0)).toEqual([ENTITY, '2026-03-01', '2026-01-15', ['id-1111']]);
+  });
+
+  it('a missing row reads as zero, as the consumer read it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(
+      await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-01-31' })
+    ).toEqual({ opening: '0', movement: '0' });
+  });
+
+  it('does not repeat the sum E1.2 counts five times in this file', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-01-31' });
+    expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
   });
 });
 
