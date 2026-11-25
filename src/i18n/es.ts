@@ -233,6 +233,24 @@ export const ES: Record<keyof typeof EN, string> = {
     'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que desapareció.',
   'error.VALIDATION_ERROR.payment.short_pay_forbidden':
     'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o cambia la política con `mnemosine pending reopen pago_corto_residual` (si ya estaba definida) y luego `mnemosine pending define pago_corto_residual`.',
+  // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion; see en.ts ----
+  'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR':
+    'El CFDI lo emite "{name}" (RFC {rfc}), que no existe en el catálogo de proveedores de esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, con `mnemosine vendor create --tax-id {rfc}`, y vuelve a ejecutar (el pre-registro lo encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como viene en el comprobante.',
+  'error.AP_ACCOUNT_MISSING':
+    'La entidad no tiene cuenta para el rol "cxp" (proveedores). Siembra la contabilidad con: mnemosine init --section identity',
+  'error.MISSING_ROLE_ACCOUNT.seed_identity':
+    'La entidad no tiene cuenta para el rol "{role}". Siembra la contabilidad con: mnemosine init --section identity',
+  'error.REP_SIN_XML': 'No se conserva el XML del comprobante de pago.',
+  'error.ENTITY_NOT_FOUND.pre_registration': 'La entidad del pre-registro no existe.',
+  'error.REP_SIN_PAGOS': 'El comprobante es de tipo P pero no trae complemento de pagos: no hay nada que ligar.',
+  'error.CFDI_REQUIERE_DECISION.not_a_party':
+    'El comprobante es de {issuer} para {receiver} y la entidad es {entity}: no es parte de la operación. Revisa si se subió a la entidad equivocada.',
+  'error.CFDI_REQUIERE_DECISION.missing_accounts':
+    'La entidad no tiene cuenta para: {missing}. Siembra la contabilidad con: mnemosine init --section identity',
+  'error.CFDI_REQUIERE_DECISION.unbalanced': 'El asiento propuesto no cuadra: cargos {debits} vs abonos {credits}.',
+  'error.VALIDATION_ERROR.cfdi.direction': '--direction ilegible "{direction}": emitido, recibido o ajeno.',
+  'error.RESOURCE_NOT_FOUND.classification_trail':
+    'Clasificación with id {uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró) not found',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

@@ -6,7 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
+import { AppError, NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
+import { responseLanguage } from '../middleware/locale.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { declararRiesgoRuta } from '../risk.js';
@@ -587,7 +588,8 @@ router.post('/pre-registrations/bulk', declararRiesgoRuta({ riesgo: 'irreversibl
           results.push({ id, status: 'error', error: `Unknown action: ${action}` });
       }
     } catch (err) {
-      results.push({ id, status: 'error', error: (err as Error).message });
+      // A keyed refusal in the negotiated language, as the single route's error handler gives it.
+      results.push({ id, status: 'error', error: err instanceof AppError ? err.localized(responseLanguage(res)) : (err as Error).message });
     }
   }
 
