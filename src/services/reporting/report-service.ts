@@ -35,7 +35,8 @@ import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../
 //                   read a balance to guard money (the AR and AP
 //                   reconciliations, the prepaid backing, the
 //                   external-ledger diff, the close's fixed-asset box,
-//                   the FX revaluation line, the IVA paper's withholding
+//                   the FX revaluation line, its foreign balances and
+//                   its marker's net, the IVA paper's withholding
 //                   per sale and receipt movement, the DIOT's exempt
 //                   revenue, the cash-flow statement's movement by
 //                   account and its non-cash entries, and its tie-out's
@@ -1939,6 +1940,99 @@ export async function queryEntryEffectByCounterpart(
       LIMIT $5`,
     [entityId, opts.startDate, opts.endDate, [...opts.accountIds], opts.limit]
   );
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// FX REVALUATION READS (MNE-001-617, #101)
+//
+// The two sums the closing revaluation (`revalueForeignBalances`,
+// fx-revaluation.ts) reads from the ledger before it posts, on the caller's
+// transaction client: the run holds its period FOR UPDATE, and a reading taken
+// outside that transaction would not be serialised with a second run of the
+// same period. Neither reads a policy, so nothing here leaves the transaction.
+// Each keeps inside the statement what decides WHICH lines are summed (the
+// receivable, payable and bank scope; the gain and loss accounts left out):
+// taking it out would cost a second query.
+// ------------------------------------------------------------
+
+export interface ForeignBalanceRow {
+  account_id: string;
+  code: string;
+  currency: string;
+  /** Foreign balance, debit positive. */
+  foreign: string;
+  /** Its functional value in the books, debit positive. */
+  book: string;
+}
+
+/**
+ * The foreign balances of receivables, payables and banks at the period's last
+ * day, per account and currency (MNE-001-083): the lines of the entity's
+ * receivable, payable and bank role accounts and of every bank account's GL
+ * account, tagged with a currency other than the functional one, on posted
+ * entries dated up to the cut. The FX columns give the foreign balance and the
+ * functional ones its book value.
+ */
+export async function queryForeignBalancesByAccount(
+  entityId: string,
+  closingDate: string,
+  functional: string,
+  client?: pg.PoolClient
+): Promise<ForeignBalanceRow[]> {
+  const text = `WITH scope AS (
+       SELECT account_id FROM account_roles
+        WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco')
+       UNION
+       SELECT gl_account_id FROM bank_accounts WHERE entity_id = $1
+     )
+     SELECT l.account_id, a.code, l.currency_code AS currency,
+            SUM(COALESCE(l.foreign_debit, 0) - COALESCE(l.foreign_credit, 0))::text AS foreign,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS book
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN accounts a ON a.id = l.account_id AND a.entity_id = je.entity_id
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.entry_date <= $2::date
+        AND l.account_id IN (SELECT account_id FROM scope)
+        AND l.currency_code IS NOT NULL AND l.currency_code <> $3
+      GROUP BY l.account_id, a.code, l.currency_code
+      ORDER BY a.code, l.currency_code`;
+  const values = [entityId, closingDate, functional];
+  const r = client
+    ? await client.query<ForeignBalanceRow>(text, values)
+    : await query<ForeignBalanceRow>(text, values);
+  return r.rows;
+}
+
+export interface RevaluationNetRow {
+  account_id: string;
+  /** Debit-positive net (debit − credit) of the given entries on the account. */
+  net: string;
+}
+
+/**
+ * Per account, the net the given entries left, leaving out the entity's
+ * exchange gain and loss role accounts: those lines are the counterpart, not
+ * a revalued balance. It is the ledger side of
+ * the revaluation's marker check (`assertMarkerMatchesLedger`, MNE-001-083):
+ * the period's `fx_revaluation` entries, read by id from an entity-bound read,
+ * must net per account what the marker rows say.
+ */
+export async function queryRevaluationNetByAccount(
+  entityId: string,
+  entryIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<RevaluationNetRow[]> {
+  const text = `SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net
+         FROM journal_entry_lines
+        WHERE journal_entry_id = ANY($1::uuid[])
+          AND account_id NOT IN (SELECT account_id FROM account_roles
+                                  WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria'))
+        GROUP BY account_id`;
+  const values = [[...entryIds], entityId];
+  const r = client
+    ? await client.query<RevaluationNetRow>(text, values)
+    : await query<RevaluationNetRow>(text, values);
   return r.rows;
 }
 
