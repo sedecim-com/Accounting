@@ -279,7 +279,7 @@ describe('a firm rule that sets auto and requires document_type = credit_note', 
 });
 
 describe('what the note reads besides its bill', () => {
-  it('T4 · the VAT of the bill in 1130, as a PUE and as a PPD credited the old way: the note credits 1130 and the workpaper warns', async () => {
+  it('T4 · the VAT of the bill in 1130, as a PUE and as a PPD credited the old way: the note credits 1130 and the workpaper subtracts it', async () => {
     const october: Edit = (x) => x.replaceAll(/2026-0[89]-/g, '2026-10-');
     for (const method of ['PUE', 'PPD'] as const) {
       // NOTE: seeded, not posted: no door debits 1130 against vendors for a PPD since cash-basis VAT, nor for a PUE after MNE-001-492.
@@ -288,8 +288,11 @@ describe('what the note reads besides its bill', () => {
       await post(n);
       expect(await linesOf(n.uuid)).toEqual(['1130 0/320.0000', '2110 2320.0000/0', '6100 0/2000.0000']);
     }
-    const { findings } = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 10 });
-    expect(findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje).toMatch(/nota de crédito/);
+    const { findings, figures } = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 10 });
+    // MNE-001-760: the two notes' 640.00 come off the creditable side (the PUE's 1,280.00 less 640.00). The gap
+    // left is the seeded PPD's 1,280.00, credited in 1130 and never paid: 640.00 against the ledger's 1,920.00.
+    expect(figures.creditable.tasa16.iva).toBe('640.0000');
+    expect(findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje).toMatch(/suma 640\.0000 .* es 1920\.0000/);
   }, 120_000);
 
   // MNE-001-632 (#692): the second half of the plan's T11.

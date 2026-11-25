@@ -6742,6 +6742,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'other {# de sus recibos ya tienen}} un CFDI de nómina o un lote de depósito, y volver a calcular ' +
     'reemplaza todos los recibos de la corrida. No se cambió nada.',
   'payrun.calculate.changed_meanwhile': 'La corrida {id} cambió mientras se calculaba. No se escribió nada.',
+  // A yearly parameter whose new row is not loaded by the pay date (MNE-001-636, #953).
+  'payrun.calculate.stale_parameter':
+    '{parameter}: en la fecha de pago {pay_date} sigue vigente {value}, desde el {since}. Su valor nuevo ' +
+    'debía regir desde el {due} y no está cargado, así que la corrida se calcula con {value}; no se cambió ' +
+    'ningún importe. Carga el valor nuevo de su publicación en el DOF y vuelve a calcular la corrida.',
+  'payroll.parameter.minimum_wage_general': 'Salario mínimo general',
+  'payroll.parameter.minimum_wage_border': 'Salario mínimo de la Zona Libre de la Frontera Norte',
+  'payroll.parameter.uma_daily': 'UMA diaria',
+  'payroll.parameter.uma_monthly': 'UMA mensual',
   'payrun.approve.confirm':
     'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
     'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',

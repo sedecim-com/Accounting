@@ -7405,6 +7405,15 @@ export const EN = {
     'other {# of its paychecks already have}} a payroll CFDI or a deposit batch, and calculating again ' +
     'replaces every paycheck of the run. Nothing was changed.',
   'payrun.calculate.changed_meanwhile': 'Run {id} changed while it was being calculated. Nothing was written.',
+  // A yearly parameter whose new row is not loaded by the pay date (MNE-001-636, #953).
+  'payrun.calculate.stale_parameter':
+    '{parameter}: on the pay date {pay_date} the value in force is still {value}, which rules since {since}. ' +
+    'Its new value was due from {due} and is not loaded, so the run is calculated with {value}; no amount ' +
+    'was changed. Load the new value from its DOF publication and calculate the run again.',
+  'payroll.parameter.minimum_wage_general': 'General minimum wage',
+  'payroll.parameter.minimum_wage_border': 'Minimum wage of the northern border free zone',
+  'payroll.parameter.uma_daily': 'Daily UMA',
+  'payroll.parameter.uma_monthly': 'Monthly UMA',
   'payrun.approve.confirm':
     'You are about to APPROVE run {id} ({employees, plural, one {# employee} other {# employees}}, ' +
     'net pay {net}) and write its employer liability. Approval is not undone. Continue?',
