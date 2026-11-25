@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import Decimal from 'decimal.js';
 
 // ============================================================
 // OVERTIME IS EXEMPT BY LISR ART. 93 FR. I (#297, MNE-001-110)
@@ -32,10 +33,14 @@ interface Law {
   weeks?: string;
   /** What other runs of the same pay period already used. */
   used?: { exempt: string; hours: string };
+  /** The zone row `minimumWageZoneOf` reads (MNE-001-633); the entity's default when omitted. */
+  zone?: { entity_zone: string; entity_declared: boolean; employee_zone: string | null };
+  /** The border minimum of the year; `null` = not loaded. */
+  border?: string | null;
 }
 
 /** The law as migration 164 seeds it; the LFT limit is dated by the reform of DOF 01-05-2026. */
-function law({ policy = 'exempt_by_law', weeks = 'calendar_days_over_seven', used }: Law = {}): void {
+function law({ policy = 'exempt_by_law', weeks = 'calendar_days_over_seven', used, zone, border = '440.87' }: Law = {}): void {
   mockPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
     key,
     value: key === OVERTIME_POLICY_KEY ? policy : key === OVERTIME_WEEKS_POLICY_KEY ? weeks : null,
@@ -57,8 +62,15 @@ function law({ policy = 'exempt_by_law', weeks = 'calendar_days_over_seven', use
         }],
       };
     }
-    if (/FROM tax_parameters/.test(sql)) return { rows: [{ params: { uma_daily: '117.31' } }] };
+    if (/FROM tax_parameters/.test(sql)) {
+      const params: Record<string, string> = { uma_daily: '117.31', salario_minimo_general_diario: '315.04' };
+      if (border !== null) params.salario_minimo_frontera_diario = border;
+      return { rows: [{ params }] };
+    }
     if (/FROM paycheck_earnings/.test(sql)) return { rows: [used ?? { exempt: '0', hours: '0' }] };
+    if (/FROM legal_entities/.test(sql)) {
+      return { rows: [zone ?? { entity_zone: 'general', entity_declared: false, employee_zone: null }] };
+    }
     throw new Error(`unexpected query: ${sql.slice(0, 60)}`);
   });
 }
@@ -202,5 +214,94 @@ describe('isrPartsOf: overtime (LISR art. 93 fr. I)', () => {
     const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 1000 }], null);
     expect(p.taxable.toFixed(2)).toBe('1000.00');
     expect(mockPolicy).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// THE MINIMUM-WAGE WORKER (#196, MNE-001-633)
+//
+// The 50 % and the 5-UMA cap are those of «los demás trabajadores» (the
+// sentence migration 164 quotes); the worker who earns the minimum wage of
+// their zone has the overtime exempt in full (normas/fiscal-mx.md:97). Earning
+// it = annual_salary / 365 at most the daily minimum of the zone on the
+// payment date: 315.04 general, 440.87 border in 2026.
+// ============================================================
+
+/** A contractual daily wage stored as its annual salary (÷ 365, as the finiquito reads it). */
+const paidDaily = (daily: string) => ({ ...WEEK, annualSalary: new Decimal(daily).times(365).toFixed(2) });
+
+describe('isrPartsOf: overtime of a worker who earns the minimum wage of their zone (fr. I, first sentence)', () => {
+  it('ACCEPTANCE: at the general minimum the overtime is exempt in full, beyond the 5 UMA cap', async () => {
+    law();
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 2000, hours: 9 }], paidDaily('315.04'));
+    expect(p.exempt.toFixed(2)).toBe('2000.00');
+    expect(p.taxable.toFixed(2)).toBe('0.00');
+    const [sql, params] = mockQuery.mock.calls.find(([s]) => /FROM legal_entities/.test(String(s))) as [string, unknown[]];
+    expect(String(sql)).toMatch(/le\.tenant_id = \$2/);
+    expect(params).toEqual(['n-1', 't-1', 'e-1']);
+  });
+
+  it('ACCEPTANCE: at the border minimum, in the border zone, the overtime is exempt in full', async () => {
+    law({ zone: { entity_zone: 'general', entity_declared: true, employee_zone: 'northern_border' } });
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 991.96, hours: 9 }], paidDaily('440.87'));
+    expect(p.exempt.toFixed(2)).toBe('991.96');
+  });
+
+  it('the border minimum in an entity of the general zone is above the minimum: 50 %', async () => {
+    law();
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 991.96, hours: 9 }], paidDaily('440.87'));
+    expect(p.exempt.toFixed(2)).toBe('495.98');
+  });
+
+  it('a declared border entity gives its worker at the border minimum the full exemption', async () => {
+    law({ zone: { entity_zone: 'northern_border', entity_declared: true, employee_zone: null } });
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 991.96, hours: 9 }], paidDaily('440.87'));
+    expect(p.exempt.toFixed(2)).toBe('991.96');
+  });
+
+  it('below the minimum counts as the minimum; one cent above it keeps the 50 %', async () => {
+    law();
+    const [below] = await isrPartsOf([{ earning_type: 'overtime', amount: 600, hours: 9 }], paidDaily('300.00'));
+    expect(below.exempt.toFixed(2)).toBe('600.00');
+    const [above] = await isrPartsOf([{ earning_type: 'overtime', amount: 600, hours: 9 }], paidDaily('315.05'));
+    expect(above.exempt.toFixed(2)).toBe('300.00');
+  });
+
+  it('above every zone\'s minimum, or with no annual salary, the zone is not even read', async () => {
+    law();
+    await isrPartsOf([{ earning_type: 'overtime', amount: 1000, hours: 8 }], paidDaily('500.00'));
+    await isrPartsOf([{ earning_type: 'overtime', amount: 1000, hours: 8 }], { ...WEEK, annualSalary: null });
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 1000, hours: 8 }], WEEK);
+    expect(p.exempt.toFixed(2)).toBe('500.00');
+    expect(mockQuery.mock.calls.some(([s]) => /FROM legal_entities/.test(String(s)))).toBe(false);
+  });
+
+  it('a border zone whose minimum is not loaded is not read as the general one: 50 %', async () => {
+    law({ border: null, zone: { entity_zone: 'northern_border', entity_declared: true, employee_zone: null } });
+    // Another payment date: `getTaxParameters` caches the parameters by date.
+    const [p] = await isrPartsOf(
+      [{ earning_type: 'overtime', amount: 600, hours: 9 }],
+      { ...paidDaily('315.04'), payDate: '2026-07-22' }
+    );
+    expect(p.exempt.toFixed(2)).toBe('300.00');
+  });
+
+  it('the LFT limit still binds, and triple-paid hours stay taxed whole', async () => {
+    law();
+    await expect(
+      isrPartsOf([{ earning_type: 'overtime', amount: 800, hours: 10 }], paidDaily('315.04'))
+    ).rejects.toThrow(/labour limit for this period is 9/);
+    const parts = await isrPartsOf(
+      [{ earning_type: 'overtime', amount: 708.84, hours: 9 }, { earning_type: 'overtime_triple', amount: 354.42 }],
+      paidDaily('315.04')
+    );
+    expect(parts.map((q) => q.exempt.toFixed(2))).toEqual(['708.84', '0.00']);
+  });
+
+  it('overtime_isr_exemption=taxed_in_full still taxes the minimum-wage worker\'s overtime whole', async () => {
+    law({ policy: 'taxed_in_full' });
+    const [p] = await isrPartsOf([{ earning_type: 'overtime', amount: 708.84, hours: 9 }], paidDaily('315.04'));
+    expect(p.taxable.toFixed(2)).toBe('708.84');
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });

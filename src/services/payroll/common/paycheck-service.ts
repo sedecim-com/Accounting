@@ -214,6 +214,7 @@ async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_i
     id: string;
     country_code: 'MX' | 'US';
     sbc: string | null;
+    annual_salary: string | null;
     tipo_regimen_sat: string | null;
     riesgo_puesto: string | null;
     infonavit_credit_type: string | null;
@@ -223,7 +224,7 @@ async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_i
     residence_state: string | null;
     work_city: string | null;
   }>(
-    `SELECT id, country_code, sbc, tipo_regimen_sat, riesgo_puesto,
+    `SELECT id, country_code, sbc, annual_salary, tipo_regimen_sat, riesgo_puesto,
             infonavit_credit_type, infonavit_credit_value,
             w4_data, work_state, residence_state, work_city
      FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3`,
@@ -272,6 +273,7 @@ function isrContextOf(
         payDate: toCalendarDate(period.pay_date),
         entityId: period.entity_id,
         periodDays: daysInPeriod,
+        annualSalary: emp.annual_salary,
       }
     : null;
 }

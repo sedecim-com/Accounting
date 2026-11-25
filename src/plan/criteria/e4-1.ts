@@ -3063,7 +3063,7 @@ export const E4_1: Criterio[] = [
     paquete: 'E4.1',
     id: 'overtime-exempt-by-fraction-one-as-the-panel-says',
     enunciado:
-      'Overtime is exempt by half, up to 5 UMA of the payment date per week of the period and within the dated LFT limit (LISR art. 93 fr. I), unless the panel key overtime_isr_exemption says to tax it whole',
+      'Overtime is exempt by half, up to 5 UMA of the payment date per week of the period and within the dated LFT limit (LISR art. 93 fr. I), and in full for a worker who earns the minimum wage of their zone, unless the panel key overtime_isr_exemption says to tax it whole',
     mutantes: [
       {
         archivo: 'src/services/payroll/mx/isr-exemption.ts',
@@ -3114,6 +3114,13 @@ export const E4_1: Criterio[] = [
         a: 'if (false) {',
         porque: 'an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open',
       },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: '    law.share = new Decimal(1);',
+        a: '    law.share = new Decimal(0);',
+        porque:
+          'THE DEFECT OF MNE-001-633, made worse: the overtime of a worker who earns the minimum wage of their zone is taxed whole, while fr. I exempts all of it',
+      },
     ],
     evaluar: () => {
       // #297 (MNE-001-110). Fraction I: half the double-paid overtime, capped
@@ -3139,6 +3146,10 @@ export const E4_1: Criterio[] = [
       }
       if (!/toDecimalPlaces\(2\)\.minus\(used\.exempt\),/.test(src) || !/hoursLeft: maxHours\.minus\(used\.hours\),/.test(src)) {
         return falla('other runs of the same pay period no longer use up the overtime cap and hours');
+      }
+      if (!/law\.share = new Decimal\(1\);\s*law\.room = new Decimal\(Infinity\);/.test(src) ||
+          !/annualSalary: emp\.annual_salary,/.test(codigoDe('src/services/payroll/common/paycheck-service.ts'))) {
+        return falla('the overtime of a worker who earns the minimum wage of their zone is no longer exempt in full (fr. I, first sentence, MNE-001-633)');
       }
       if (!/getPolicy\(\{ tenantId: mx\.tenantId, entityId: mx\.entityId \}, OVERTIME_POLICY_KEY\)/.test(src)) {
         return falla('the overtime_isr_exemption key has no reader: the panel decides nothing');

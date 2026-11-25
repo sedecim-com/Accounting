@@ -145,7 +145,7 @@ describe('the overtime of a worker who earns the minimum wage of their zone is e
     expect(await paycheck(worker, 6613.05, 2094.13, august)).toBe('6613.05 / 2094.13');
   });
 
-  it('cost: a worker above every zone\'s minimum sends no statement more; a minimum-wage worker, one', async () => {
+  it('cost: a worker above every zone\'s minimum sends nothing more; a minimum-wage worker, one statement', async () => {
     await setEntityMinimumWageZone(f.entityId, f.tenantId, 'general', { userId: f.userId, tenantId: f.tenantId });
     const above = await employee('MX-633-06', '500.00');
     const minimum = await employee('MX-633-07', '315.04');
@@ -155,8 +155,10 @@ describe('the overtime of a worker who earns the minimum wage of their zone is e
     const runB = await runIn(9, 2);
     const rich = await statementsOf(() => paycheck(above, 7500, 1496.44, runA));
     const poor = await statementsOf(() => paycheck(minimum, 4725.6, 1496.44, runB));
-    // Measured on develop 5cbcf91c: 95 and 103 (the low wage also reads the
-    // employment subsidy). The minimum-wage worker adds the read of the zone.
-    expect({ rich, poor }).toEqual({ rich: 95, poor: 104 });
+    // Round trips, measured on develop 5cbcf91c: 95 and 103 (the low wage
+    // also reads the employment subsidy). The minimum-wage worker adds one
+    // statement, the zone by primary key, which `query` sends in four round
+    // trips (BEGIN, the tenant, the read, COMMIT). The other adds none.
+    expect({ rich, poor }).toEqual({ rich: 95, poor: 107 });
   });
 });
