@@ -177,7 +177,8 @@ const CASES: Case[] = [
     expected: {
       schema: 'mnemosine.error/1',
       exit_code: 5,
-      key: null,
+      // MNE-001-627: the refusal is written by key now; its English is the text of before.
+      key: 'error.PERIOD_CLOSED.no_open_period',
       params: {},
       message: 'No open fiscal period found for the entry date',
       remedy: null,
