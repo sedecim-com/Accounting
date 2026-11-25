@@ -126,14 +126,17 @@ describe('cliStringsLanes', () => {
     expect(lane.perEntryRule).toBe(CLI_STRINGS_PER_ENTRY_RULE);
   });
 
-  it('its command, through a pipe, gives its value (the listing is larger than a pipe buffer)', () => {
-    const listing = execSync(lane.command.replace(/\s*\|\s*wc -l$/, ''), {
-      cwd: ROOT,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    expect(listing.length).toBeGreaterThan(65_536);
+  it('its command, through a pipe, gives its value, and its exit keeps an output larger than a pipe buffer', () => {
     expect(Number(execSync(lane.command, { cwd: ROOT, encoding: 'utf8' }).trim())).toBe(lane.value);
+    // The listing shrinks as I8b pays the lane (under 64 KiB since MNE-001-802), so
+    // the exit it ends with is checked on its own, with an output larger than a
+    // pipe buffer: `process.exit` there cuts it at 65,536 bytes.
+    const big = execSync(
+      'npx tsx -e "const { exitWhenDrained } = require(\'./scripts/lib/exit-when-drained.ts\'); ' +
+        'process.stdout.write(\'x\'.repeat(200000)); exitWhenDrained(0);" | wc -c',
+      { cwd: ROOT, encoding: 'utf8' }
+    );
+    expect(Number(big.trim())).toBe(200_000);
   }, 120_000);
 
   it('the ratchet reports a file that grew over its floor and a new file born with debt', () => {

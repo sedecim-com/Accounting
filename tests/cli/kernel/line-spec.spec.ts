@@ -14,7 +14,7 @@ import { parseLineSpec } from '../../../src/cli/bill-command.js';
 import {
   parseInvoiceLine,
   resolveInvoiceTaxRate,
-  LEGACY_INVOICE_TAX_KEY_WARNING,
+  legacyInvoiceTaxKeyWarning,
 } from '../../../src/cli/invoice-command.js';
 
 // One --line grammar for entry, bill and invoice (#327, MNE-001-100): key=value
@@ -147,8 +147,8 @@ describe('invoice --line', () => {
       tax_rate: '16',
       usedLegacyTaxKey: true,
     });
-    expect(LEGACY_INVOICE_TAX_KEY_WARNING).toMatch(/tax-rate=/);
-    expect(LEGACY_INVOICE_TAX_KEY_WARNING).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
+    expect(legacyInvoiceTaxKeyWarning()).toMatch(/tax-rate=/);
+    expect(legacyInvoiceTaxKeyWarning()).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
   });
 
   it('refuses price with unit-price, or qty with quantity, in one line', () => {

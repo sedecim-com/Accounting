@@ -45,7 +45,7 @@ import {
   optionByKey,
   argumentByKey,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
+import { confirmarConReintento, yesNoPrompt } from './kernel/confirmacion.js';
 import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
 import { todayFor, zoneFor } from '../services/policy/today.js';
 import {
@@ -55,6 +55,7 @@ import {
   parseKeyValueLine,
   type LineGrammar,
 } from './kernel/line-spec.js';
+import { t, type MessageParams, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine invoice · factura
@@ -168,10 +169,10 @@ const INVOICE_LINE_KEYS_HELP = lineKeysHelp([
   ['project', 'project id'],
 ]);
 
-/** One stderr line, once per invocation, when a line used the bare `tax=`. */
-export const LEGACY_INVOICE_TAX_KEY_WARNING =
-  'tax= in an invoice line is the RATE in percent; write tax-rate= so it cannot be read as an amount. ' +
-  `tax= stops working in ${LEGACY_LINE_FORMS_RETIRE_IN}.`;
+/** One stderr line, once per invocation, when a line used the bare `tax=`; read when printed. */
+export function legacyInvoiceTaxKeyWarning(): string {
+  return t('ar.invoice.line.legacy_tax_key', { version: LEGACY_LINE_FORMS_RETIRE_IN });
+}
 
 /**
  * One `--line` spec (or one object of --from-file), in the one grammar of
@@ -188,8 +189,8 @@ export function parseInvoiceLine(spec: string | Record<string, unknown>): Record
       ? parseKeyValueLine(spec, { grammar: INVOICE_LINE_GRAMMAR }).fields
       : normalizeLineRecord(spec, INVOICE_LINE_GRAMMAR);
   const label = typeof spec === 'string' ? spec : JSON.stringify(spec);
-  if (!fields.account) throw usageError(`Line "${label}" has no account=<code>.`);
-  if (!(fields.price ?? fields['unit-price'])) throw usageError(`Line "${label}" has no price=<amount>.`);
+  if (!fields.account) throw usageError({ key: 'ledger.entry.line.no_account', params: { spec: label } });
+  if (!(fields.price ?? fields['unit-price'])) throw usageError({ key: 'ar.invoice.line.no_price', params: { spec: label } });
   return fields;
 }
 
@@ -234,7 +235,7 @@ async function invoiceLinesFrom(
       project_id: fields.project ?? null,
     });
   }
-  if (legacyTax) process.stderr.write(palette.dim(`  ${LEGACY_INVOICE_TAX_KEY_WARNING}\n`));
+  if (legacyTax) process.stderr.write(palette.dim(`  ${legacyInvoiceTaxKeyWarning()}\n`));
   return lines;
 }
 
@@ -363,28 +364,27 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
    * An irreversible act needs a human yes. Without a terminal there is nobody
    * to ask, so the command refuses instead of assuming consent.
    */
-  const confirmOrAbort = async (opts: CommonOpts, question: string): Promise<void> => {
+  const confirmOrAbort = async (opts: CommonOpts, question: { key: TranslationKey; params: MessageParams }): Promise<void> => {
     if (opts.yes) return;
+    const asked = t(question.key, question.params);
     if (deps.confirm) {
-      if (await deps.confirm(question)) return;
+      if (await deps.confirm(asked)) return;
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure, ` +
-          'or with --dry-run to see the effect first.'
-      );
+      throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        yesNoPrompt(question)
+        yesNoPrompt(asked)
       );
       if (veredicto.si) return;
+      // The reason nests as the key `noEntendi` renders, so the refusal reads in one language.
       throw abortedByUser(
         veredicto.incomprendida !== undefined
-          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          ? { key: 'ar.confirm.aborted', params: { reason: { key: 'confirm_answer_not_understood', params: { answer: veredicto.incomprendida } } } }
           : undefined
       );
     } finally {
@@ -406,17 +406,14 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
 
       for (const state of opts.status ?? []) {
         if (!INVOICE_STATUSES.includes(state)) {
-          throw usageError(`Unknown --status "${state}". Use one of: ${INVOICE_STATUSES.join(', ')}.`);
+          throw usageError({ key: 'ledger.period.status_unknown', params: { value: state, statuses: INVOICE_STATUSES.join(', ') } });
         }
       }
       if (opts.dateBasis === 'value') {
-        throw usageError(
-          '--date-basis value is not available on an invoice: the value date belongs to the cash ' +
-            'that settles it, not to the document. Use --date-basis document or posting.'
-        );
+        throw usageError({ key: 'ar.invoice.list.date_basis_value' });
       }
       if (opts.period && (opts.since || opts.until)) {
-        throw usageError('Use --period or --since/--until, not both.');
+        throw usageError({ key: 'ar.invoice.list.period_or_range' });
       }
 
       let since = opts.since;
@@ -431,7 +428,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       if (opts.overdueDays !== undefined) {
         overdueDays = Number(opts.overdueDays);
         if (!Number.isSafeInteger(overdueDays) || overdueDays < 0) {
-          throw usageError(`--overdue-days must be a non-negative whole number; got "${opts.overdueDays}".`);
+          throw usageError({ key: 'cli.flag.error_not_whole_number', params: { name: '--overdue-days', value: opts.overdueDays } });
         }
       }
 
@@ -487,7 +484,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         includeAllocations: true,
         includeLedger: true,
       });
-      if (!full) throw notFound(`Invoice ${ref} disappeared while reading it.`);
+      if (!full) throw notFound({ key: 'ar.invoice.show.disappeared', params: { ref } });
 
       const lines = (full.lines as Record<string, unknown>[]) ?? [];
       const allocations = (full.payment_allocations as Record<string, unknown>[]) ?? [];
@@ -503,33 +500,30 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         `\n${p.bold(String(full.invoice_number))} ${p.dim(String(full.status))}  ` +
           `${full.customer_name ?? ''}\n`
       );
-      const fact = (label: string, value: unknown) => {
-        if (value === null || value === undefined || value === '') return;
-        out.write(`  ${p.dim(label.padEnd(18))}${day(value)}\n`);
-      };
-      fact('Invoice date', full.invoice_date);
-      fact('Due date', full.due_date);
-      fact('Subtotal', full.subtotal);
-      fact('Tax', full.tax_amount);
-      fact('Total', `${full.total_amount} ${full.currency_code}`);
-      fact('Paid', full.amount_paid);
-      fact('Due', full.amount_due);
-      fact('PO', full.po_number);
-      fact('Memo', full.memo);
-      fact(
-        'Ledger entry',
-        full.journal_entry_number
+      // Subtotal, Total and CFDI read the same in Spanish. The labels pad to the longest
+      // one (18 at least, the English width), so the column lines up in every language.
+      const facts: Array<[string, unknown]> = [
+        [t('ar.invoice.show.invoice_date'), full.invoice_date],
+        [t('ar.invoice.show.due_date'), full.due_date],
+        ['Subtotal', full.subtotal],
+        [t('ar.invoice.show.tax'), full.tax_amount],
+        ['Total', `${full.total_amount} ${full.currency_code}`],
+        [t('ar.invoice.show.paid'), full.amount_paid],
+        [t('ar.invoice.show.due'), full.amount_due],
+        [t('ar.invoice.show.po'), full.po_number],
+        [t('ar.invoice.show.memo'), full.memo],
+        [t('ar.invoice.show.ledger_entry'), full.journal_entry_number
           ? `${full.journal_entry_number} (${full.journal_entry_status})`
-          : p.dim('not posted — run `invoice issue`')
-      );
-      fact(
-        'CFDI',
-        full.cfdi_uuid
-          ? `${full.cfdi_uuid} (${full.cfdi_status})`
-          : p.dim('not stamped — this is a local document')
-      );
+          : p.dim(t('ar.invoice.show.not_posted', { command: 'invoice issue' }))],
+        ['CFDI', full.cfdi_uuid ? `${full.cfdi_uuid} (${full.cfdi_status})` : p.dim(t('ar.invoice.show.not_stamped'))],
+      ];
+      const width = Math.max(18, ...facts.map(([label]) => label.length + 1));
+      for (const [label, value] of facts) {
+        if (value === null || value === undefined || value === '') continue;
+        out.write(`  ${p.dim(label.padEnd(width))}${day(value)}\n`);
+      }
 
-      out.write(`\n${p.bold('Lines')} ${p.dim(`(${lines.length})`)}\n`);
+      out.write(`\n${p.bold(t('ar.invoice.show.lines'))} ${p.dim(`(${lines.length})`)}\n`);
       if (lines.length) {
         render(
           lines.map((line) => ({
@@ -545,7 +539,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         );
       }
 
-      out.write(`\n${p.bold('Cash applied')} ${p.dim(`(${allocations.length})`)}\n`);
+      out.write(`\n${p.bold(t('ar.invoice.show.cash_applied'))} ${p.dim(`(${allocations.length})`)}\n`);
       if (allocations.length) {
         render(
           allocations.map((row) => ({
@@ -593,9 +587,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         const customer = await resolveCustomer(ctx.entityId, opts.customer);
 
         if (!customer.is_active) {
-          throw blockedByState(
-            `${customer.customer_number} is archived. Restore it with \`customer restore\` before billing it.`
-          );
+          throw blockedByState({ key: 'ar.invoice.create.customer_archived', params: { number: customer.customer_number, command: 'customer restore' } });
         }
 
         const specs = [
@@ -603,10 +595,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           ...(opts.fromFile ? readLineFile(opts.fromFile) : []),
         ];
         if (specs.length === 0) {
-          throw usageError(
-            'An invoice needs at least one line: pass --line "account=<code>;qty=<n>;price=<amount>;tax-rate=<%>" ' +
-              '(repeatable) or --from-file <path>.'
-          );
+          throw usageError({ key: 'ar.invoice.create.lines_missing' });
         }
 
         // Today is the day in the entity's zona_horaria, not the process clock (a UTC server
@@ -614,20 +603,17 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         const invoiceDate = opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
         const dueDate = opts.dueDate ?? dueDateFromTerms(customer.payment_terms, invoiceDate);
         if (!dueDate) {
-          throw usageError(
-            `Cannot derive a due date from this customer's terms ("${customer.payment_terms}"). ` +
-              'Pass --due-date <YYYY-MM-DD>.'
-          );
+          throw usageError({ key: 'ar.invoice.create.terms_unreadable', params: { terms: String(customer.payment_terms) } });
         }
         if (dueDate < invoiceDate) {
-          throw usageError(`--due-date ${dueDate} falls before the invoice date ${invoiceDate}.`);
+          throw usageError({ key: 'ar.invoice.due_before_date', params: { due: dueDate, date: invoiceDate } });
         }
 
         const lines = await invoiceLinesFrom(ctx.entityId, specs, deps.palette, (account) => {
           if (account.account_type !== AccountType.REVENUE && account.account_type !== AccountType.CONTRA_ASSET) {
             process.stderr.write(
               deps.palette.yellow(
-                `Note: ${account.code} ${account.name} has type "${account.account_type}", not revenue.\n`
+                `${t('ar.invoice.create.not_revenue', { code: account.code, name: account.name, type: account.account_type })}\n`
               )
             );
           }
@@ -653,9 +639,9 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         }
         const p = deps.palette;
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(created.invoice_number)} drafted for ${customerLabel(customer)} ` +
-            `${p.dim(`(${created.total_amount} ${created.currency_code}, due ${day(created.due_date)})`)}\n` +
-            p.dim('  Nothing was posted and nothing was stamped. Post it with `invoice issue`.\n')
+          `${p.green('✔')} ${t('ar.invoice.create.drafted', { number: p.bold(created.invoice_number), customer: customerLabel(customer) })} ` +
+            `${p.dim(t('ar.invoice.amount_due_on', { amount: created.total_amount, currency: created.currency_code, date: day(created.due_date) }))}\n` +
+            p.dim(`  ${t('ar.invoice.create.not_posted', { command: 'invoice issue' })}\n`)
         );
       })
   );
@@ -681,28 +667,19 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const p = deps.palette;
 
       if (target.journal_entry_id) {
-        throw blockedByState(
-          `${target.invoice_number} was already issued and is in the ledger. ` +
-            'Correct it with `invoice void`, which reverses the entry and leaves the trail.'
-        );
+        throw blockedByState({ key: 'ar.invoice.issue.already_issued', params: { number: target.invoice_number, command: 'invoice void' } });
       }
       if (target.status === InvoiceStatus.VOID || target.status === InvoiceStatus.CANCELLED) {
-        throw blockedByState(`${target.invoice_number} is ${target.status} and can never be issued.`);
+        throw blockedByState({ key: 'ar.invoice.issue.never', params: { number: target.invoice_number, status: target.status } });
       }
       if (!new Decimal(target.total_amount).greaterThan(0)) {
-        throw validationFailed(
-          `${target.invoice_number} totals ${target.total_amount}. An invoice with no amount posts nothing; ` +
-            'add lines with `invoice edit` or void it.'
-        );
+        throw validationFailed({ key: 'ar.invoice.issue.zero_total', params: { number: target.invoice_number, total: target.total_amount, command: 'invoice edit' } });
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       if (!dryRun) {
-        await confirmOrAbort(
-          opts,
-          `Post ${target.invoice_number} (${target.total_amount} ${target.currency_code}) to the ledger? This cannot be undone.`
-        );
+        await confirmOrAbort(opts, { key: 'ar.invoice.issue.confirm', params: { number: target.invoice_number, amount: target.total_amount, currency: target.currency_code } });
       }
 
       const result = await issueInvoice(target.id, reviewer.userId, {
@@ -731,10 +708,12 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       }
 
       const out = process.stdout;
+      const entryNumber = result.entry?.entry_number;
       out.write(
         dryRun
-          ? `\n${p.bold(`Would post ${target.invoice_number}`)} ${p.dim(`as ${result.entry?.entry_number ?? 'no entry'}`)}\n\n`
-          : `${p.green('✔')} ${p.bold(target.invoice_number)} issued as ${result.entry?.entry_number ?? '(no entry)'}\n`
+          ? `\n${p.bold(t('ar.invoice.issue.would_post', { number: target.invoice_number }))} ` +
+              `${p.dim(t('ar.invoice.issue.as_entry', { entry: entryNumber ?? t('ar.invoice.issue.no_entry') }))}\n\n`
+          : `${p.green('✔')} ${t('ar.invoice.issue.issued', { number: p.bold(target.invoice_number), entry: entryNumber ?? `(${t('ar.invoice.issue.no_entry')})` })}\n`
       );
       if (result.entryLines.length) {
         render(
@@ -750,8 +729,8 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       out.write(
         p.dim(
           dryRun
-            ? '\n  Nothing was written. Re-run without --dry-run to post it.\n'
-            : '  The document is posted, not stamped and not delivered.\n'
+            ? `\n  ${t('ar.invoice.issue.dry_run_note')}\n`
+            : `  ${t('ar.invoice.issue.posted_note')}\n`
         )
       );
     })
@@ -777,23 +756,20 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const p = deps.palette;
 
       if (target.status === InvoiceStatus.VOID) {
-        throw blockedByState(`${target.invoice_number} is already void.`);
+        throw blockedByState({ key: 'ledger.entry.void.already_void', params: { number: target.invoice_number } });
       }
       if (target.status === InvoiceStatus.PAID) {
-        throw blockedByState(
-          `${target.invoice_number} is paid. Unapply the cash first, or issue a credit note.`
-        );
+        throw blockedByState({ key: 'ar.invoice.void.paid', params: { number: target.invoice_number } });
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       if (!dryRun) {
-        await confirmOrAbort(
-          opts,
-          `Void ${target.invoice_number} (${target.total_amount} ${target.currency_code})` +
-            (target.journal_entry_id ? ' and reverse its ledger entry' : '') +
-            '?'
-        );
+        const reverse = target.journal_entry_id ? 'yes' : 'no';
+        await confirmOrAbort(opts, {
+          key: 'ar.invoice.void.confirm',
+          params: { number: target.invoice_number, amount: target.total_amount, currency: target.currency_code, reverse },
+        });
       }
 
       const result = await voidInvoice(target.id, reviewer.userId, { entityId: ctx.entityId, reason, dryRun });
@@ -817,12 +793,12 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       }
       process.stdout.write(
         (dryRun
-          ? `${p.bold(`Would void ${target.invoice_number}`)}`
-          : `${p.green('✔')} ${p.bold(target.invoice_number)} voided`) +
+          ? `${p.bold(t('ar.invoice.void.would_void', { number: target.invoice_number }))}`
+          : `${p.green('✔')} ${t('ar.invoice.void.voided', { number: p.bold(target.invoice_number) })}`) +
           (result.reversalEntryId
-            ? p.dim(dryRun ? ' and reverse its ledger entry.' : ' and its ledger entry reversed.')
-            : p.dim(' (it had never reached the ledger).')) +
-          (dryRun ? p.dim(' Nothing was written.') : '') +
+            ? p.dim(` ${t(dryRun ? 'ar.invoice.void.would_reverse' : 'ar.invoice.void.reversed')}`)
+            : p.dim(` ${t('ar.invoice.void.never_posted')}`)) +
+          (dryRun ? p.dim(` ${t('ar.invoice.dry_run')}`) : '') +
           '\n'
       );
     })
@@ -853,10 +829,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         const ctx = await writeEntityOf(opts);
         const target = await resolveInvoice(ctx.entityId, ref);
         if (target.status !== InvoiceStatus.DRAFT) {
-          throw blockedByState(
-            `${target.invoice_number} is "${target.status}". Only a draft can be edited: ` +
-              'correct an issued invoice with `invoice void` or a credit note.'
-          );
+          throw blockedByState({ key: 'ar.invoice.edit.not_draft', params: { number: target.invoice_number, status: target.status, command: 'invoice void' } });
         }
 
         const specs = [
@@ -865,7 +838,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         ];
         const lines = specs.length > 0 ? await invoiceLinesFrom(ctx.entityId, specs, deps.palette) : undefined;
         if (opts.dueDate && opts.date && opts.dueDate < opts.date) {
-          throw usageError(`--due-date ${opts.dueDate} falls before the invoice date ${opts.date}.`);
+          throw usageError({ key: 'ar.invoice.due_before_date', params: { due: opts.dueDate, date: opts.date } });
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -888,9 +861,9 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         }
         const p = deps.palette;
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(updated.invoice_number)} edited ` +
-            `${p.dim(`(${updated.total_amount} ${updated.currency_code}, due ${day(updated.due_date)})`)}\n` +
-            p.dim('  Still a draft: nothing posted, nothing stamped.\n')
+          `${p.green('✔')} ${t('ar.invoice.edit.edited', { number: p.bold(updated.invoice_number) })} ` +
+            `${p.dim(t('ar.invoice.amount_due_on', { amount: updated.total_amount, currency: updated.currency_code, date: day(updated.due_date) }))}\n` +
+            p.dim(`  ${t('ar.invoice.edit.still_draft')}\n`)
         );
       })
   );
@@ -916,25 +889,18 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const p = deps.palette;
 
       if (target.status !== InvoiceStatus.DRAFT) {
-        throw blockedByState(
-          `${target.invoice_number} is "${target.status}". Only a draft can be deleted; ` +
-            'an issued invoice is voided, which leaves the reversal trail.'
-        );
+        throw blockedByState({ key: 'ar.invoice.delete.not_draft', params: { number: target.invoice_number, status: target.status } });
       }
 
       if (dryRun) {
         process.stdout.write(
-          `${p.bold(`Would delete ${target.invoice_number}`)} ${p.dim(
-            `(${target.total_amount} ${target.currency_code}, draft). The folio would remain as a documented gap.`
+          `${p.bold(t('ar.invoice.delete.would_delete', { number: target.invoice_number }))} ${p.dim(
+            t('ar.invoice.delete.would_delete_detail', { amount: target.total_amount, currency: target.currency_code })
           )}\n`
         );
         return;
       }
-      await confirmOrAbort(
-        opts,
-        `Delete draft ${target.invoice_number} (${target.total_amount} ${target.currency_code})? ` +
-          'The document is erased; only the audit trail keeps its numbers.'
-      );
+      await confirmOrAbort(opts, { key: 'ar.invoice.delete.confirm', params: { number: target.invoice_number, amount: target.total_amount, currency: target.currency_code } });
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const result = await deleteDraftInvoice(
@@ -948,8 +914,8 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         return;
       }
       process.stdout.write(
-        `${p.green('✔')} ${p.bold(result.invoiceNumber)} deleted ` +
-          p.dim('· the folio stays as a gap that `invoice series check` will report as explained.\n')
+        `${p.green('✔')} ${t('ar.invoice.delete.deleted', { number: p.bold(result.invoiceNumber) })} ` +
+          p.dim(`· ${t('ar.invoice.delete.gap_note', { command: 'invoice series check' })}\n`)
       );
     })
   );
@@ -967,9 +933,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       // The selection group carries --status for every list; a folio counter
       // has no lifecycle, so the flag is refused rather than ignored.
       if (opts.status?.length) {
-        throw usageError(
-          '`invoice series list` has no lifecycle state to filter on: a folio series is a counter, not a document.'
-        );
+        throw usageError({ key: 'ar.invoice.series.list.no_status', params: { command: 'invoice series list' } });
       }
       const rows = await listEntitySequences(ctx.entityId);
       const limited = opts.all ? rows : rows.slice(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 50));
@@ -1003,7 +967,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       if (opts.year !== undefined) {
         year = Number(opts.year);
         if (!Number.isSafeInteger(year) || year < 1900 || year > 9999) {
-          throw usageError(`--year must be a four-digit year; got "${opts.year}".`);
+          throw usageError({ key: 'ar.invoice.series.check.year_invalid', params: { value: opts.year } });
         }
       }
       const series = await checkInvoiceSeries(ctx.entityId, { year });
@@ -1035,20 +999,17 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       } else {
         for (const s of series) {
           process.stdout.write(
-            `${p.bold(`INV ${s.year}`)} ${p.dim(`· ${s.used} used, counter at ${s.counterAt}`)}\n`
+            `${p.bold(`INV ${s.year}`)} ${p.dim(`· ${t('ar.invoice.series.check.usage', { used: s.used, counter: s.counterAt })}`)}\n`
           );
         }
         if (rows.length === 0) {
-          process.stdout.write(`${p.green('✔')} No gaps: the series is continuous.\n`);
+          process.stdout.write(`${p.green('✔')} ${t('ar.invoice.series.check.no_gaps')}\n`);
         } else {
           render(rows, { format: 'table' });
           process.stdout.write(
             sinExplicar > 0
-              ? p.yellow(
-                  `\n${sinExplicar} gap(s) WITHOUT a trail: a transaction rolled back mid-issue, or worse. ` +
-                    'Each folio needs an explanation an auditor will accept.\n'
-                )
-              : p.dim('\nEvery gap has its audit trail (deleted drafts with a reason).\n')
+              ? p.yellow(`\n${t('ar.invoice.series.check.unexplained', { count: sinExplicar })}\n`)
+              : p.dim(`\n${t('ar.invoice.series.check.all_explained')}\n`)
           );
         }
       }
@@ -1068,14 +1029,14 @@ function readLineFile(path: string): Array<Record<string, unknown>> {
   try {
     parsed = JSON.parse(readFileSync(path, 'utf-8'));
   } catch (err) {
-    throw usageError(`Cannot read ${path} as JSON: ${(err as Error).message}`);
+    throw usageError({ key: 'ar.invoice.file.unreadable', params: { path, message: (err as Error).message } });
   }
   if (!Array.isArray(parsed)) {
-    throw usageError(`${path} must contain a JSON array of line objects.`);
+    throw usageError({ key: 'ar.invoice.file.not_array', params: { path } });
   }
   return parsed.map((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw usageError(`${path} contains a line that is not an object.`);
+      throw usageError({ key: 'ar.invoice.file.line_not_object', params: { path } });
     }
     return entry as Record<string, unknown>;
   });

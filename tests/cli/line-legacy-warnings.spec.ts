@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
-import { registerInvoiceCommand, LEGACY_INVOICE_TAX_KEY_WARNING } from '../../src/cli/invoice-command.js';
+import { registerInvoiceCommand, legacyInvoiceTaxKeyWarning } from '../../src/cli/invoice-command.js';
 import { registerBillCommand } from '../../src/cli/bill-command.js';
 import { LEGACY_COMMA_WARNING } from '../../src/cli/kernel/line-spec.js';
 
@@ -105,7 +105,7 @@ describe('invoice create: the legacy tax= key', () => {
   it('is read as the rate, and warns exactly once for two legacy lines', async () => {
     await run([...INVOICE, '--line', 'account=4100;price=1000;tax=16', '--line', 'account=4200;price=1000;tax=16']);
     expect(exitCode, String(errs[0])).toBe(0);
-    expect(occurrences(stderr, LEGACY_INVOICE_TAX_KEY_WARNING)).toBe(1);
+    expect(occurrences(stderr, legacyInvoiceTaxKeyWarning())).toBe(1);
     const lines = (createInvoice.mock.calls[0][0] as { lines: Array<{ tax_rate: string }> }).lines;
     expect(lines.map((l) => l.tax_rate)).toEqual(['16', '16']);
   });
