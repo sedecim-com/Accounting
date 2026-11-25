@@ -117,26 +117,36 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
       } else {
         const out = process.stdout;
         out.write(
-          `\n${p.bold('AR reconciliation')} ${p.dim(`· control ${r.control_account?.code ?? ''} ${r.control_account?.name ?? ''}`)}\n\n`
+          `\n${p.bold(t('ar.reconcile.title'))} ` +
+            `${p.dim(`· ${t('ar.reconcile.header', { code: r.control_account?.code ?? '', name: r.control_account?.name ?? '' })}`)}\n\n`
         );
+        // The fixed labels set the width (28 at least, the English one); a long foreign row overflows as before.
+        const control = t('ar.reconcile.row.control_balance');
+        const open = t('ar.reconcile.row.open_invoices');
+        const unapplied = `− ${t('ar.reconcile.row.unapplied_credit_notes')}`;
+        const fx = `+ ${t('ar.reconcile.row.fx_revaluation')}`;
+        const net = t('ar.reconcile.row.subledger_net');
+        const width = Math.max(28, ...[control, open, unapplied, fx, net].map((label) => label.length + 1));
         const linea = (label: string, value: string) =>
-          out.write(`  ${p.dim(label.padEnd(28))}${value.padStart(14)}\n`);
-        linea('Control account balance', r.control_balance);
-        linea('Open invoices', r.open_invoices);
-        for (const f of r.foreign_open) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
-        linea('− Credit notes unapplied', r.unapplied_credit_notes);
-        for (const f of r.foreign_unapplied) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
+          out.write(`  ${p.dim(label.padEnd(width))}${value.padStart(14)}\n`);
+        const foreign = (f: { currency: string; foreign: string }) =>
+          `  ${t('ap.reconcile.row.foreign', { currency: f.currency, foreign: f.foreign })}`;
+        linea(control, r.control_balance);
+        linea(open, r.open_invoices);
+        for (const f of r.foreign_open) linea(foreign(f), f.book);
+        linea(unapplied, r.unapplied_credit_notes);
+        for (const f of r.foreign_unapplied) linea(foreign(f), f.book);
         // MNE-001-112: this control has no cut-off date, so a revaluation and its
         // day-1 mirror net to zero; the line shows only when a mirror is missing.
-        if (r.fx_revaluation !== '0.00') linea('+ FX revaluation (NIF B-15)', r.fx_revaluation);
-        linea('Subledger net', r.subledger_net);
+        if (r.fx_revaluation !== '0.00') linea(fx, r.fx_revaluation);
+        linea(net, r.subledger_net);
         out.write(
           r.balanced
-            ? `\n${p.green('✔')} Balanced.\n`
-            : `\n${p.red('✘')} Delta ${p.bold(r.delta)} — the subledger and the ledger tell different stories.\n`
+            ? `\n${p.green('✔')} ${t('ap.reconcile.balanced')}\n`
+            : `\n${p.red('✘')} ${t('ar.reconcile.delta', { delta: p.bold(r.delta) })}\n`
         );
         if (r.manual_entries.length) {
-          out.write(`\n${p.bold('Manual entries touching the control account')} ${p.dim(`(${r.manual_entries.length})`)}\n`);
+          out.write(`\n${p.bold(t('ar.reconcile.manual_entries'))} ${p.dim(`(${r.manual_entries.length})`)}\n`);
           render(
             r.manual_entries.map((m) => ({
               entry: m.entry_number,
@@ -147,7 +157,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
             { format: 'table', numeric: ['amount'] }
           );
           out.write(
-            p.dim('  A manual entry on a control account is the classic cause of a delta nobody can find.\n')
+            p.dim(`  ${t('ar.reconcile.manual_note')}\n`)
           );
         }
       }
@@ -197,16 +207,17 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
         );
       } else {
         const out = process.stdout;
-        out.write(`\n${p.bold('AR checks')} ${p.dim(`· ${ctx.entityName}`)}\n\n`);
+        out.write(`\n${p.bold(t('ar.check.title'))} ${p.dim(`· ${ctx.entityName}`)}\n\n`);
         for (const r of results) {
           const icono =
             r.level === 'clean' ? p.green('✔') : r.level === 'warning' ? p.yellow('▲') : p.red('✘');
           out.write(`  ${icono} ${r.name.padEnd(24)} ${p.dim(detailOf(r))}\n`);
           for (const s of r.sample) out.write(`      ${p.dim(`· ${s}`)}\n`);
         }
+        const blockingText = t('ar.check.blocking', { count: blocking });
         out.write(
-          `\n${blocking ? p.red(`${blocking} blocking`) : p.green('0 blocking')} · ` +
-            `${warnings ? p.yellow(`${warnings} warning(s)`) : p.dim('0 warnings')}\n`
+          `\n${blocking ? p.red(blockingText) : p.green(blockingText)} · ` +
+            `${warnings ? p.yellow(t('ar.check.warnings', { count: warnings })) : p.dim(t('ar.check.no_warnings'))}\n`
         );
       }
 
