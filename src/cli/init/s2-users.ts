@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { query, currentTenant } from '../../database/connection.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
+import { t } from '../../i18n/index.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -42,7 +43,9 @@ const USERS: CheckIdentity = { id: 'active-users-and-owner', name: 'Users' };
 
 export class UsuariosSection implements SetupSection {
   readonly id = 'usuarios' as const;
-  readonly title = 'Users and roles';
+  get title(): string {
+    return t('init.users.title');
+  }
   readonly required = false; // the seed may have created one
 
   async status(): Promise<SectionStatus> {
@@ -68,14 +71,14 @@ export class UsuariosSection implements SetupSection {
     if (n === 0) {
       return [{
         ...USERS, level: 'fail',
-        detail: 'no active user: review/outbox/questions cannot attribute',
+        detail: t('init.users.check.none'),
         fix: 'mnemosine init --section users',
       }];
     }
     if (owners === 0) {
       return [{
         ...USERS, level: 'warn',
-        detail: `${n} user(s) but none with the owner role`,
+        detail: t('init.users.check.no_owner', { count: n }),
         fix: 'mnemosine init --section users',
       }];
     }
@@ -83,8 +86,8 @@ export class UsuariosSection implements SetupSection {
     // that is correct, but it is worth saying before it surprises anyone.
     return [{
       ...USERS, level: 'ok',
-      detail: `${n} active, ${owners} owner(s)`,
-      ...(n > 1 ? { fix: 'with multiple users, review/questions require --user <email>' } : {}),
+      detail: t('init.users.check.summary', { count: n, owners }),
+      ...(n > 1 ? { fix: t('init.users.check.multiple', { flag: '--user <email>' }) } : {}),
     }];
   }
 
@@ -100,33 +103,34 @@ export class UsuariosSection implements SetupSection {
     );
 
     if (existing.rows.length > 0) {
-      ctx.print(`  Current users:`);
+      ctx.print(`  ${t('init.users.current')}`);
       for (const u of existing.rows) {
         const roles = Array.isArray(u.roles) ? u.roles.join(', ') : String(u.roles);
-        ctx.print(`    · ${u.email} [${roles || 'no role'}]`);
+        ctx.print(`    · ${u.email} [${roles || t('init.users.no_role')}]`);
       }
-      if (!(await ctx.confirm('  Add another user?', false))) return;
+      if (!(await ctx.confirm(`  ${t('init.users.add_another')}`, false))) return;
     }
 
-    const email = ctx.flags.user ?? (await ctx.askText('  User email: '));
+    const email = ctx.flags.user ?? (await ctx.askText(`  ${t('init.users.email_prompt')} `));
     if (!email || !email.includes('@')) {
-      ctx.print('  Invalid email; section incomplete.');
+      ctx.print(`  ${t('init.users.invalid_email')}`);
       return;
     }
 
-    ctx.print('  Available roles:');
+    ctx.print(`  ${t('init.users.roles')}`);
     const names = Object.keys(ROLES) as RoleName[];
     names.forEach((r, i) => ctx.print(`    ${i + 1}) ${r} — ${ROLES[r].label}`));
-    const pick = await ctx.askText(`  Role [1-${names.length}] (1): `, '1');
+    const pick = await ctx.askText(`  ${t('init.users.role_prompt', { count: names.length })} `, '1');
     const idx = Math.min(Math.max(parseInt(pick ?? '1', 10) || 1, 1), names.length) - 1;
     const role = names[idx];
 
     // The password is asked with hidden echo and is NEVER printed or logged.
-    const password = await ctx.askSecret(`  Password (minimum ${MIN_PASSWORD} characters): `);
+    const password = await ctx.askSecret(`  ${t('init.users.password_prompt', { min: MIN_PASSWORD })} `);
     const refused = passwordRefusal(password ?? '');
     if (password === null || refused !== null) {
-      ctx.print(`  ${refused ?? ''} Section incomplete.`);
-      ctx.print('  Without a terminal: mnemosine user create --email <address> --role <name> --password-stdin');
+      ctx.print(`  ${refused ?? ''} ${t('init.users.section_incomplete')}`);
+      const command = 'mnemosine user create --email <address> --role <name> --password-stdin';
+      ctx.print(`  ${t('init.users.without_terminal', { command })}`);
       return;
     }
 
@@ -141,7 +145,7 @@ export class UsuariosSection implements SetupSection {
         JSON.stringify([role]), JSON.stringify(ROLES[role].permissions),
       ]
     );
-    ctx.print(`  ✔ User ${email} created with role ${role}`);
+    ctx.print(`  ✔ ${t('init.users.created', { email, role })}`);
   }
 
   /**
@@ -159,7 +163,7 @@ export class UsuariosSection implements SetupSection {
         [named]
       );
       if (found.rows.length === 0) {
-        ctx.print(`  Tenant ${named} does not exist; section incomplete (see: mnemosine tenant list).`);
+        ctx.print(`  ${t('init.users.tenant_missing', { tenant: named, command: 'mnemosine tenant list' })}`);
         return null;
       }
       return found.rows[0].id;
@@ -169,14 +173,14 @@ export class UsuariosSection implements SetupSection {
       `SELECT id, name FROM public.tenants ORDER BY created_at ASC`
     );
     if (all.rows.length === 0) {
-      ctx.print('  Configure the identity section first (there is no tenant).');
+      ctx.print(`  ${t('init.users.no_tenant')}`);
       return null;
     }
     if (all.rows.length > 1) {
-      ctx.print('  This installation has more than one tenant: name the firm with --tenant.');
-      ctx.print('  Choosing for you could give this login another firm\'s books:');
+      ctx.print(`  ${t('init.users.many_tenants', { flag: '--tenant' })}`);
+      ctx.print(`  ${t('init.users.choosing_for_you')}`);
       for (const t of all.rows) ctx.print(`    - ${t.name} → ${t.id}`);
-      ctx.print('  Section incomplete.');
+      ctx.print(`  ${t('init.users.section_incomplete')}`);
       return null;
     }
     return all.rows[0].id;
