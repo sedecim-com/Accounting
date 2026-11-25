@@ -143,6 +143,61 @@ export const EN = {
   'error.TENANT_NO_RESUELTO.entry':
     'The tenant of entity {entity} could not be determined: the entry is not written without an audit trail.',
 
+  // part 2 (MNE-001-627): the AccountingError of the folder that were English
+  // prose. The English is the text each site printed, byte for byte.
+  // ar-ap-posting.ts
+  'error.CREDIT_NOTE_ALREADY_POSTED': "{note} already has an entry or is not this entity's: no second one is linked.",
+  'error.FX_BANK_CURRENCY_MISMATCH':
+    '{payment} is in {currency} but its bank account is kept in {bankCurrency}. The bank converted the money at its own rate, which this payment does not carry: record it against a {currency} bank account, or record the conversion separately.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.no_live_allocation':
+    '{payment}: no live allocation to invoice {invoice} is waiting for its released IVA, so the amount an unapply would re-park cannot be recorded.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.release_not_recorded':
+    '{payment}: {unreleased} live allocations released no IVA and {recorded} recorded it, so an unapply could not tell them from rows that never stored one.',
+  'error.PAYMENT_ALREADY_POSTED.payment': "{payment} already has an entry or is not this entity's: no second one is linked.",
+  'error.ADVANCE_SPLIT_MISMATCH': "{payment}: the advance's base {base} plus its IVA {iva} is not the {remaining} left on account.",
+  'error.PAYMENT_ALREADY_POSTED.transfer':
+    "{transfer} already has an entry or is not this entity's transfer: no second one is linked.",
+  // closing-conductor.ts and period-close.ts
+  'error.PERIOD_NOT_FOUND': 'Fiscal period not found',
+  'error.UNKNOWN_CLOSING_STEP': 'Unknown step "{step}". The steps are: {steps}.',
+  // discount-vat-correction.ts and vat-overcredit.ts
+  'error.MISSING_ROLE_ACCOUNT.no_account': '{entity} has no account for the {role} role.',
+  // fiscal-calendar-service.ts
+  'error.PERIOD_NOT_FUTURE':
+    "{period} is '{status}', not 'future'. Only a future period can be opened; reopening a closed period is a separate, audited operation.",
+  // fx-revaluation.ts
+  'error.FX_POLITICA_DESCONOCIDA.policy':
+    '{policy} is "{value}" and this reader only understands {known}. Fix it with mnemosine pending.',
+  'error.MISSING_ROLE_ACCOUNT.fx_revaluation': 'No account is mapped to the role "{role}" in this entity.',
+  // ieps-cash-basis.ts: `event` is the caller's word for what causes the IEPS
+  'error.MISSING_ROLE_ACCOUNT.ieps':
+    'No account is mapped to the role "{role}" on this entity, and an invoice parked IEPS that this {event, select, collection {collection} unapply {unapply} other {{event}}} causes (LIEPS art. 10). Map it with: mnemosine account map set (or check with: mnemosine doctor)',
+  // iva-cash-basis.ts
+  'error.IVA_ROLE_UNRESOLVED.same_role':
+    'The CFDI taxonomy sends the VAT of a received PPD to {role}: a payment would have nowhere to release it from. Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.',
+  // journal-entry-service.ts
+  'error.ENTRY_NOT_FOUND.ref': 'Journal entry {entry} not found',
+  // period-close.ts
+  'error.PERIOD_NOT_OPEN': 'Period is not in open status',
+  'error.CANNOT_CLOSE_PERIOD': 'Cannot close period: {issues}',
+  'error.PERIOD_NOT_SOFT_CLOSED': 'Period must be in soft_close status before hard close',
+  // posting.ts
+  'error.PERIOD_CLOSED.no_open_period': 'No open fiscal period found for the entry date',
+  'error.VALIDATION_FAILED': 'Validation failed: {errors}',
+  'error.ENTRY_NOT_FOUND': 'Journal entry not found',
+  'error.ALREADY_POSTED.post': 'Journal entry is already posted',
+  'error.ENTRY_VOID.post': 'Cannot post a voided entry',
+  'error.PERIOD_NOT_FOUND.posting': 'Fiscal period not found while posting',
+  'error.PERIOD_CLOSED.in_flight': "{period} is '{status}': it closed while this entry was in flight; nothing was posted",
+  'error.ENTRY_NOT_POSTED':
+    "Only posted entries can be reversed; {entry} is '{status}' and never touched the ledger — reject or void it instead",
+  'error.ALREADY_REVERSED': 'Entry {entry} already has a reversal — reversing again would corrupt balances',
+  'error.ASSET_CARD_NOT_REFRESHED':
+    'Entry {entry} is a depreciation entry and its asset is not in this entity: the reversal was not posted',
+  'error.ALREADY_VOID': 'Journal entry is already voided',
+  // vat-overcredit.ts
+  'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" is not a value this system knows ({known}); nothing was posted.',
+
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments that were Spanish prose (issue #151) ----
   // `error.VALIDATION_ERROR.payment.<case>` for a ValidationError, beside the
   // `schema.*` cases of MNE-001-152; `error.<CODE>[.<case>]` for an

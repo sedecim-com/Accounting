@@ -359,8 +359,7 @@ export async function iepsMoveLines(
     if (!id) {
       throw new AccountingError(
         'MISSING_ROLE_ACCOUNT',
-        `No account is mapped to the role "${role}" on this entity, and an invoice parked IEPS that this ` +
-          `${event} causes (LIEPS art. 10). Map it with: mnemosine account map set (or check with: mnemosine doctor)`
+        { key: 'error.MISSING_ROLE_ACCOUNT.ieps', params: { role, event } }
       );
     }
     return id;

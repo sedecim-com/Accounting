@@ -753,7 +753,7 @@ export async function updateDraftEntry(
       [entityId, ref.trim()]
     );
     if (bloqueada.rows.length === 0) {
-      throw new AccountingError('ENTRY_NOT_FOUND', `Journal entry ${ref} not found`);
+      throw new AccountingError('ENTRY_NOT_FOUND', { key: 'error.ENTRY_NOT_FOUND.ref', params: { entry: ref } });
     }
     const entry = bloqueada.rows[0];
     if (entry.status === JournalEntryStatus.POSTED) {

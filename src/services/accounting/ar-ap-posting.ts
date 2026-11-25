@@ -577,7 +577,7 @@ export async function postCreditNoteEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'CREDIT_NOTE_ALREADY_POSTED',
-      `${note.credit_note_number} already has an entry or is not this entity's: no second one is linked.`
+      { key: 'error.CREDIT_NOTE_ALREADY_POSTED', params: { note: note.credit_note_number } }
     );
   }
   return entry;
@@ -643,9 +643,10 @@ export function assertBankCurrency(
   if (bank.currency && bank.currency !== paymentCurrency) {
     throw new AccountingError(
       'FX_BANK_CURRENCY_MISMATCH',
-      `${paymentNumber} is in ${paymentCurrency} but its bank account is kept in ${bank.currency}. ` +
-        'The bank converted the money at its own rate, which this payment does not carry: record it ' +
-        `against a ${paymentCurrency} bank account, or record the conversion separately.`
+      {
+        key: 'error.FX_BANK_CURRENCY_MISMATCH',
+        params: { payment: paymentNumber, currency: paymentCurrency, bankCurrency: bank.currency },
+      }
     );
   }
 }
@@ -905,8 +906,10 @@ export async function postCustomerPaymentEntry(
     if (!stored.rowCount) {
       throw new AccountingError(
         'PAYMENT_ALLOCATION_NOT_FOUND',
-        `${payment.payment_number}: no live allocation to invoice ${item.documentId} is waiting for its ` +
-          'released IVA, so the amount an unapply would re-park cannot be recorded.'
+        {
+          key: 'error.PAYMENT_ALLOCATION_NOT_FOUND.no_live_allocation',
+          params: { payment: payment.payment_number, invoice: item.documentId },
+        }
       );
     }
   }
@@ -933,8 +936,10 @@ export async function postCustomerPaymentEntry(
     if (zeroed.rowCount !== unreleased.rows.length) {
       throw new AccountingError(
         'PAYMENT_ALLOCATION_NOT_FOUND',
-        `${payment.payment_number}: ${unreleased.rows.length} live allocations released no IVA and ` +
-          `${zeroed.rowCount ?? 0} recorded it, so an unapply could not tell them from rows that never stored one.`
+        {
+          key: 'error.PAYMENT_ALLOCATION_NOT_FOUND.release_not_recorded',
+          params: { payment: payment.payment_number, unreleased: unreleased.rows.length, recorded: zeroed.rowCount ?? 0 },
+        }
       );
     }
   }
@@ -947,7 +952,7 @@ export async function postCustomerPaymentEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'PAYMENT_ALREADY_POSTED',
-      `${payment.payment_number} already has an entry or is not this entity's: no second one is linked.`
+      { key: 'error.PAYMENT_ALREADY_POSTED.payment', params: { payment: payment.payment_number } }
     );
   }
   return difference ? { ...entry, realisedFx: difference } : entry;
@@ -995,8 +1000,15 @@ async function functionalReceiptLines(
   if (!advanceBase.plus(advanceIva).equals(remanente)) {
     throw new AccountingError(
       'ADVANCE_SPLIT_MISMATCH',
-      `${payment.payment_number}: the advance's base ${advanceBase.toFixed(2)} plus its IVA ${advanceIva.toFixed(2)} ` +
-        `is not the ${remanente.toFixed(2)} left on account.`
+      {
+        key: 'error.ADVANCE_SPLIT_MISMATCH',
+        params: {
+          payment: payment.payment_number,
+          base: advanceBase.toFixed(2),
+          iva: advanceIva.toFixed(2),
+          remaining: remanente.toFixed(2),
+        },
+      }
     );
   }
   const rolesPedidos = ['cxc', ...(remanente.greaterThan(0) ? ['anticipo_clientes'] : []),
@@ -2022,7 +2034,7 @@ export async function postCustomerCreditTransferEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'PAYMENT_ALREADY_POSTED',
-      `${transfer.transfer_number} already has an entry or is not this entity's transfer: no second one is linked.`
+      { key: 'error.PAYMENT_ALREADY_POSTED.transfer', params: { transfer: transfer.transfer_number } }
     );
   }
   return entry;

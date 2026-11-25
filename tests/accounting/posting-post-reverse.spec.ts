@@ -220,7 +220,7 @@ describe('reverseJournalEntry · NIF B-1', () => {
   // MNE-001-627 (#151): the refusals throw by key; the English is today's, and a Spanish session reads Spanish.
   it('las negativas del motor van por clave: inglés de hoy en message, español al pintarlas', async () => {
     arnes.actual = reglasReversa(asientoFalso({ status: 'posted', reversed_by_entry_id: 'espejo-previo' } as Partial<JournalEntry>));
-    const reversed = await reverseJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e as AccountingError);
+    const reversed = (await reverseJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e)) as AccountingError;
     expect(reversed).toMatchObject({
       code: 'ALREADY_REVERSED',
       messageKey: { key: 'error.ALREADY_REVERSED', params: { entry: 'JE-2026-00007' } },
@@ -229,7 +229,7 @@ describe('reverseJournalEntry · NIF B-1', () => {
     expect(reversed.localized('es')).toBe('La póliza JE-2026-00007 ya tiene reversión — revertirla otra vez corrompería los saldos');
 
     arnes.actual = reglas(asientoFalso({ status: 'posted' } as Partial<JournalEntry>));
-    const posted = await postJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e as AccountingError);
+    const posted = (await postJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e)) as AccountingError;
     expect(posted).toMatchObject({ code: 'ALREADY_POSTED', messageKey: { key: 'error.ALREADY_POSTED.post' }, message: 'Journal entry is already posted' });
     expect(posted.localized('es')).toBe('La póliza ya está aplicada');
   });
