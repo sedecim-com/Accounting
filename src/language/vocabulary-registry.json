@@ -6180,6 +6180,30 @@
     },
     {
       "class": "policy-key",
+      "where": "vendor_undo_iva_month",
+      "es": "vendor_undo_iva_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-754): in which month the DIOT and the IVA workpaper take out a vendor payment unapplied or reversed in a later month."
+    },
+    {
+      "class": "policy-value",
+      "where": "vendor_undo_iva_month/undo_month",
+      "es": "undo_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the papers take it out in the month of the undo, as the ledger does."
+    },
+    {
+      "class": "policy-value",
+      "where": "vendor_undo_iva_month/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the papers count it in no month, and the month of the payment is amended."
+    },
+    {
+      "class": "policy-key",
       "where": "year_seal_with_unsealed_months",
       "es": "year_seal_with_unsealed_months",
       "en": null,

@@ -3090,6 +3090,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 60,
   },
   {
+    // MNE-001-754 (#855, part 2 of MNE-001-682) · A vendor payment undone in a
+    // later month. The ledger is the same under either answer; the answer
+    // decides the papers' month. Reader: `readVendorUndoIvaMonth` (sat/diot),
+    // which the DIOT and the IVA workpaper call once for each month they build.
+    key: 'vendor_undo_iva_month',
+    textKey: 'vendor_undo_iva_month',
+    category: 'fiscal',
+    question:
+      'A vendor payment that released a bill\'s IVA is unapplied or reversed in a later month: in which month do the DIOT and the IVA workpaper take that IVA out?',
+    impact:
+      'Governs the DIOT and the IVA workpaper after `payment unapply` or `payment reverse` of a vendor payment applied in an earlier month; hechos.ts reads it once for each month either builds. ' +
+      'Under either answer the ledger credits the creditable IVA (1130) on the day of the undo. ' +
+      'With "undo_month" the papers take it out in the month of the undo, so the month it counted in keeps what it declared and every month ties out with the ledger. ' +
+      'With "payment_month" the papers read the application as never having existed: the month it counted in no longer counts it and needs an amended return, and the month of the undo takes nothing out; the notice DIOT-PAYMENT-UNDONE says so in both months, and the tie-out names the cause in both. ' +
+      'An undo dated in the month of the application nets there under either answer.',
+    options: [
+      { value: 'undo_month', label: 'Take it out in the month of the undo, as the ledger does' },
+      { value: 'payment_month', label: 'Count it in no month, and amend the month of the payment' },
+    ],
+    defaultValue: 'undo_month',
+    defaultRationale:
+      'The ledger takes the IVA out of 1130 on the day of the undo, and creditable IVA is the tax effectively paid on a bill (LIVA art. 5 fr. III, as the CFDI manual of this system carries it; the text of the LIVA is not in this system): after the undo the books show the bill owed again. ' +
+      'Counting the undo in its own month changes no month already declared and keeps every month tied to the ledger, the conservative option of ADR-0006. ' +
+      'When the application should never have existed, amending the month it counted in (CFF art. 32) is also accepted.',
+    whyAsking:
+      'A vendor reversal stores no cause, so I cannot tell a transfer that came back from an application that should never have existed. Some firms take the undo out in its own month, as the ledger does; others amend the month the payment counted in.',
+    whatIDo:
+      'With "undo_month" I take the undone IVA out in the month of the undo. With "payment_month" I count it in no month, and name, in the notice and the tie-out of both months, the amended return the month of the payment needs.',
+    ifSkipped: 'I take it out in the month of the undo.',
+    priority: 61,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live

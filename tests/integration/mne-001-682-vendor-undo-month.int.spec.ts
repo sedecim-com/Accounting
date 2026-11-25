@@ -139,18 +139,20 @@ function wholeGapNamed(m: Month): void {
   expect(explained, m.tieOut[0]).toBe(gap);
 }
 
-/** Each build reads the key once, and how many statements it runs. */
+/** How many statements a build runs, and how many of them read the key. */
 async function reads(build: (client: pg.PoolClient) => Promise<unknown>): Promise<{ statements: number; ofKey: number }> {
   return withTransaction(async (client) => {
     const seen = { statements: 0, ofKey: 0 };
     const counting = new Proxy(client, {
-      get(target, prop) {
+      get(target, prop): unknown {
         const v: unknown = Reflect.get(target, prop);
-        if (prop !== 'query' || typeof v !== 'function') return typeof v === 'function' ? v.bind(target) : v;
-        return (...args: unknown[]) => {
+        if (typeof v !== 'function') return v;
+        const fn = (v as (...a: unknown[]) => unknown).bind(target);
+        if (prop !== 'query') return fn;
+        return (...args: unknown[]): unknown => {
           seen.statements += 1;
           if (Array.isArray(args[1]) && args[1].includes(KEY)) seen.ofKey += 1;
-          return (v as (...a: unknown[]) => unknown).apply(target, args);
+          return fn(...args);
         };
       },
     });
@@ -342,7 +344,6 @@ describe.each<Answer>(['undo_month', 'payment_month'])('vendor_undo_iva_month = 
     const scope = { tenantId: f.tenantId, entityId: f.entityId };
     const wp = await reads((client) => buildIvaWorkpaper({ ...scope, year: 2026, month: 5, client }));
     const diot = await reads((client) => construirDiot({ ...scope, anio: 2026, mes: 5, client }));
-    console.info(`statements, May with the cases above (${answer}): workpaper ${wp.statements}, DIOT ${diot.statements}`);
     expect([wp.ofKey, diot.ofKey]).toEqual([1, 1]);
   }, 240_000);
 });

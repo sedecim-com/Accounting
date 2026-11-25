@@ -13,7 +13,7 @@ import {
   DECIMALES_DIOT,
   type PoliticaBaseExenta,
 } from './desglose.js';
-import { hechosDelMes, rangoDelMes, type HechoPagado } from './hechos.js';
+import { hechosDelMes, rangoDelMes, readVendorUndoIvaMonth, type HechoPagado } from './hechos.js';
 import { bloquean, type Hallazgo } from './hallazgos.js';
 import { normalizarRfc } from './rfc.js';
 import { resolverTercero, type PoliticasDelTercero, type TerceroCrudo } from './tercero.js';
@@ -255,6 +255,8 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     // Applied by the SAT batch serializer (sat-batch.ts): it decides which
     // creditable-IVA box of the 2025 layout carries the IVA paid.
     const pProportion = await getPolicy(ctx, 'diot_creditable_iva_proportion', client);
+    // MNE-001-754: the month that takes out an undone vendor payment, read once and handed to the facts.
+    const pUndoMonth = await readVendorUndoIvaMonth(ctx, client);
 
     const politicas: PoliticaAplicada[] = [
       pTipoOperacion,
@@ -262,6 +264,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
       pBaseExenta,
       pForeignOperation,
       pProportion,
+      pUndoMonth,
     ].map((p) => ({
       clave: p.key,
       valor: p.value,
@@ -296,7 +299,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     };
 
     // ── EL HECHO ────────────────────────────────────────────────────────
-    const { hechos, hallazgos: hallazgosDelMayor } = await hechosDelMes(client, entityId, anio, mes);
+    const { hechos, hallazgos: hallazgosDelMayor } = await hechosDelMes(client, entityId, anio, mes, pUndoMonth.value);
     hallazgos.push(...hallazgosDelMayor);
 
     // ── EL DESGLOSE, DOCUMENTO POR DOCUMENTO ────────────────────────────

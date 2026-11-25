@@ -1991,6 +1991,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.note_reversal_after_cashing_iva.option.cashing_month':
     'Contarlo en el mes del cobro, como si la nota nunca se hubiera emitido',
 
+  'policy.vendor_undo_iva_month.question':
+    'Un pago a proveedor que liberó el IVA de un gasto se desaplica o se reversa en un mes posterior: ¿en qué mes sacan ese IVA la DIOT y el papel de trabajo del IVA?',
+  'policy.vendor_undo_iva_month.impact':
+    'Gobierna la DIOT y el papel de trabajo del IVA después de `payment unapply` o `payment reverse` de un pago a proveedor aplicado en un mes anterior; hechos.ts la lee una vez por cada mes que cualquiera de los dos arma. Con cualquiera de las dos respuestas el mayor abona el IVA acreditable (1130) el día del deshacer. Con "undo_month" los papeles lo sacan en el mes del deshacer, así que el mes en que contó conserva lo que declaró y cada mes cuadra con el mayor. Con "payment_month" los papeles leen la aplicación como si nunca hubiera existido: el mes en que contó deja de contarla y necesita una complementaria, y el mes del deshacer no saca nada; el aviso DIOT-PAYMENT-UNDONE lo dice en los dos meses, y el cotejo nombra la causa en los dos. Un deshacer fechado en el mes de la aplicación se netea ahí con cualquiera de las dos respuestas.',
+  'policy.vendor_undo_iva_month.rationale':
+    'El mayor saca el IVA de la 1130 el día del deshacer, y el IVA acreditable es el impuesto efectivamente pagado sobre un gasto (LIVA art. 5 fr. III, como lo trae el manual de CFDI de este sistema; el texto de la LIVA no está en este sistema): después del deshacer los libros dicen que el gasto se debe otra vez. Contar el deshacer en su propio mes no cambia ningún mes ya declarado y deja cada mes amarrado al mayor, la opción conservadora de ADR-0006. Cuando la aplicación nunca debió existir, también se acepta corregir con una complementaria el mes en que contó (CFF art. 32).',
+  'policy.vendor_undo_iva_month.why':
+    'Una reversa de pago a proveedor no guarda su causa, así que no distingo una transferencia que regresó de una aplicación que nunca debió existir. Algunos despachos sacan el deshacer en su propio mes, como el mayor; otros corrigen el mes en que contó el pago.',
+  'policy.vendor_undo_iva_month.what':
+    'Con "undo_month" saco el IVA deshecho en el mes del deshacer. Con "payment_month" no lo cuento en ningún mes, y nombro, en el aviso y en el cotejo de los dos meses, la complementaria que necesita el mes del pago.',
+  'policy.vendor_undo_iva_month.if_skipped': 'Lo saco en el mes del deshacer.',
+  'policy.vendor_undo_iva_month.option.undo_month': 'Sacarlo en el mes del deshacer, como el mayor',
+  'policy.vendor_undo_iva_month.option.payment_month': 'No contarlo en ningún mes, y corregir el mes del pago',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
