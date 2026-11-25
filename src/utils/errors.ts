@@ -13,14 +13,34 @@ export interface ErrorMessageKey {
   readonly params?: MessageParams;
 }
 
+/**
+ * A keyed message some of whose parameters are lists of keyed items
+ * (MNE-001-726, the refusals of the DIOT batch file): each item renders in the
+ * language of its frame, and the items join with `join`. A param is a flat
+ * string, so a list that must follow the reader's language cannot be one.
+ */
+export interface KeyedText extends ErrorMessageKey {
+  readonly lists?: Readonly<Record<string, { readonly join: string; readonly items: readonly KeyedText[] }>>;
+}
+
+/** The params of `text` with each of its lists rendered in `language`. */
+function paramsIn(text: KeyedText, language: Language | undefined): MessageParams {
+  if (text.lists === undefined) return text.params ?? {};
+  const params: Record<string, string | number> = { ...text.params };
+  for (const [name, list] of Object.entries(text.lists)) {
+    params[name] = list.items.map((item) => t(item.key, paramsIn(item, language), language)).join(list.join);
+  }
+  return params;
+}
+
 export class AppError extends Error {
   /** The key the message was written with, when it was. Absent for prose errors. */
-  public readonly messageKey?: ErrorMessageKey;
+  public readonly messageKey?: KeyedText;
 
   constructor(
     public statusCode: number,
     public code: string,
-    message: string | ErrorMessageKey,
+    message: string | KeyedText,
     public field?: string,
     public details?: Record<string, unknown>
   ) {
@@ -29,9 +49,13 @@ export class AppError extends Error {
     // trace and in a log, and a log whose language depends on who made the
     // request cannot be searched. The reader's language is applied only when
     // the message is rendered — see `localized`.
-    super(typeof message === 'string' ? message : t(message.key, message.params ?? {}, 'en'));
+    super(typeof message === 'string' ? message : t(message.key, paramsIn(message, 'en'), 'en'));
     this.name = 'AppError';
-    if (typeof message !== 'string') this.messageKey = message;
+    if (typeof message !== 'string') {
+      // With lists, `params` also carries them in English, so a reader of
+      // `messageKey` (the CLI's JSON envelope) still has every placeholder.
+      this.messageKey = message.lists ? { ...message, params: paramsIn(message, 'en') } : message;
+    }
   }
 
   /**
@@ -41,7 +65,7 @@ export class AppError extends Error {
    */
   localized(language?: Language): string {
     return this.messageKey
-      ? t(this.messageKey.key, this.messageKey.params ?? {}, language)
+      ? t(this.messageKey.key, paramsIn(this.messageKey, language), language)
       : this.message;
   }
 }
