@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { withTransaction } from '../../../database/connection.js';
+import type { TranslationKey } from '../../../i18n/index.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
@@ -113,15 +114,14 @@ function exigirCriterio<T extends string>(
   conocidos: Record<string, T>,
   clave: string,
   valor: string,
-  consecuencia: string
+  /** The refusal names the policy and says what hangs on its answer (MNE-001-730). */
+  key: TranslationKey
 ): T {
   const criterio = conocidos[valor];
   if (!criterio) {
     const admitidos = Object.keys(conocidos);
     throw new ValidationError(
-      `La política ${clave} vale "${valor}" y este motor sólo entiende ` +
-        `${admitidos.join(', ')}. No se elige uno por ti: ${consecuencia} ` +
-        `Corrígela con \`mnemosine pending define ${clave} <${admitidos.join('|')}>\`.`,
+      { key, params: { value: valor, known: admitidos.join(', '), choices: admitidos.join('|') } },
       clave
     );
   }
@@ -133,9 +133,7 @@ export function criterioProvisionDe(valor: string): CriterioProvision {
     PROVISIONES_CONOCIDAS,
     'provision_cuotas_patronales',
     valor,
-    'de esa respuesta depende si las cuotas patronales se apuntan con cada corrida o una ' +
-      'vez al mes, y aplicar la omisión como si fuera tu criterio deja el pasivo del mes ' +
-      'repartido entre dos formas de contarlo.'
+    'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales'
   );
 }
 
@@ -144,9 +142,7 @@ export function criterioCausacionDe(valor: string): CriterioCausacionIsn {
     CAUSACIONES_CONOCIDAS,
     'isn_momento_de_causacion',
     valor,
-    'de esa respuesta depende a qué MES pertenece el ISN de una nómina que cruza el fin de ' +
-      'mes, y con él su fecha límite: un pasivo apuntado un mes antes de lo decidido no se ' +
-      'distingue de uno correcto hasta que llega el requerimiento.'
+    'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion'
   );
 }
 
@@ -200,11 +196,7 @@ export interface EntradaAcumulacion {
 function partesDeFecha(fecha: string): { anio: number; mes: number } {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
   if (!m) {
-    throw new ValidationError(
-      `Se esperaba una fecha 'YYYY-MM-DD' y llegó "${fecha}": una fecha ilegible aquí ` +
-        'produciría una fecha límite plausible y falsa.',
-      'fecha'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payroll.date_unreadable', params: { date: fecha } }, 'fecha');
   }
   return { anio: Number(m[1]), mes: Number(m[2]) };
 }
@@ -472,17 +464,12 @@ async function acumular(
     [payRunId, tenantId]
   );
   if (corrida.rowCount === 0) {
-    throw new ValidationError(
-      `No existe la corrida de nómina ${payRunId} en este inquilino.`,
-      'pay_run_id'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payroll.pay_run_not_found', params: { payRunId } }, 'pay_run_id');
   }
   const c = corrida.rows[0];
   if (c.status !== 'approved' && c.status !== 'paid') {
     throw new ValidationError(
-      `La corrida ${payRunId} está en estado "${c.status}": el pasivo patronal se apunta ` +
-        'cuando la corrida se cierra (approved o paid), no antes. Apuntarlo sobre números ' +
-        'que todavía pueden cambiar deja un pasivo que no corresponde a ningún recibo.',
+      { key: 'error.VALIDATION_ERROR.payroll.pay_run_not_closed', params: { payRunId, status: c.status } },
       'status'
     );
   }

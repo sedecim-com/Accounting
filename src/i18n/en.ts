@@ -316,6 +316,30 @@ export const EN = {
   'error.RESOURCE_NOT_FOUND.classification_trail':
     'Classification with id {uuid} not found (the trail exists for what was ingested since F02; earlier CFDIs were classified and their trail discarded)',
 
+  // ---- MNE-001-730 · I9 by folder, part 7: the refusals of src/services/payroll that were Spanish prose (issue #151) ----
+  // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each
+  // site printed. Policy keys, their values, commands and `termination_reason`
+  // are literals or parameters, never translated.
+  // the employer liability and the ISN: an answer of the panel the engine does not know
+  'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales':
+    'The policy provision_cuotas_patronales is set to "{value}" and this engine only understands {known}. None is chosen for you: that answer decides whether the employer contributions are booked with each run or once a month, and applying the default as if it were your criterion leaves the month\'s liability split between two ways of counting it. Correct it with `mnemosine pending define provision_cuotas_patronales <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion':
+    'The policy isn_momento_de_causacion is set to "{value}" and this engine only understands {known}. None is chosen for you: that answer decides which MONTH the ISN of a payroll that crosses the month end belongs to, and with it its due date: a liability booked a month earlier than decided cannot be told from a correct one until the authority\'s demand arrives. Correct it with `mnemosine pending define isn_momento_de_causacion <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_estado_que_causa':
+    'The policy isn_estado_que_causa is set to "{value}" and this engine only understands {known}. None is chosen for you: that answer decides which state the ISN is declared to, and applying the default as if it were your criterion is how a firm ends up owing a state for years. Correct it with `mnemosine pending define isn_estado_que_causa <{choices}>`.',
+  // the employer liability
+  'error.VALIDATION_ERROR.payroll.date_unreadable':
+    'Expected a date \'YYYY-MM-DD\' and got "{date}": an unreadable date here would produce a plausible and false due date.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_found': 'Pay run {payRunId} does not exist in this tenant.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_closed':
+    'Pay run {payRunId} is in status "{status}": the employer liability is booked when the run closes (approved or paid), not before. Booking it on figures that can still change leaves a liability that matches no payslip.',
+  // the three readers of the employment subsidy's policies: one sentence, three codes
+  'error.POLICY_VALUE_UNKNOWN.payroll_reader':
+    'The policy {policy} is set to "{value}" and this reader only understands {known}. Correct it in mnemosine pending.',
+  // the severance settlement
+  'error.VALIDATION_ERROR.payroll.termination_reason':
+    'termination_reason is invalid or missing: expected {known}. It decides whether a seniority premium is owed, which for a long-serving worker is the largest item of the severance settlement, so it has no default.',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

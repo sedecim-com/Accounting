@@ -131,17 +131,18 @@ export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
     // changes on February 1st, so a year is not enough to know which one
     // applies, and a default of «today» would recompute January with March.
     if (!input.pay_date) {
+      // The input contract of this calculator, for a developer: every caller passes the date.
       throw new Error(
-        'El subsidio al empleo se calcula con la ley vigente en la fecha de pago, y esta entrada ' +
-          'no trae fecha de pago: la UMA cambia el 1 de febrero y el año no basta para saber cuál rige.'
+        'The employment subsidy is computed with the law in force on the payment date, and this input ' +
+          'carries no payment date: the UMA changes on February 1st and the year is not enough to know which one rules.'
       );
     }
     const rounding = input.employment_subsidy_rounding;
     if (!rounding) {
       throw new Error(
-        `El subsidio al empleo necesita la política ${EMPLOYMENT_SUBSIDY_ROUNDING_POLICY}: el decreto no ` +
-          'dice cómo redondear, así que lo decide el despacho y no esta calculadora. Léela con ' +
-          'readEmploymentSubsidyRounding y pásala en la entrada.'
+        `The employment subsidy needs the policy ${EMPLOYMENT_SUBSIDY_ROUNDING_POLICY}: the decree does not ` +
+          'say how to round, so the firm decides it and not this calculator. Read it with ' +
+          'readEmploymentSubsidyRounding and pass it in the input.'
       );
     }
     const days = subsidyDaysInPeriod(pay_frequency);
