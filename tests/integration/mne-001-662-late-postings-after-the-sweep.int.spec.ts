@@ -172,6 +172,11 @@ describe('A · accept_unsealed: a sale posted to a soft-closed December after th
     expect(await runLedgerChecks(b.f.entityId, [CHECK])).toEqual([]);
     const st = await getPeriodCloseStatus(b.january, b.f.entityId);
     expect(st.checklist.find((c) => c.codigo === 'ledger-integrity')?.is_complete).toBe(true);
+    // December goes back to its close: a period left reopened is a finding of
+    // the doctor (`checkReopenedPeriods`, read across the whole database by
+    // aud3-silencios), and this spec must not leave one behind.
+    const back = await softClosePeriod(b.periods.get(12)!, b.f.entityId, b.f.userId);
+    expect(back.status).toBe('soft_close');
   });
 });
 
