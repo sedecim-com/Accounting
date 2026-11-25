@@ -6,6 +6,7 @@ import { checkDatabase, checkMigrations, checkEncryptionKey } from '../../ai/doc
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import { findEnvFile, userEnvPath } from '../../config/env-file.js';
+import { t } from '../../i18n/index.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -43,7 +44,7 @@ export function upsertEnvVar(envPath: string, key: string, value: string, warn?:
   const mode = fs.statSync(envPath).mode & 0o777;
   if (mode !== 0o600) {
     fs.chmodSync(envPath, 0o600);
-    warn?.(`  ! ${envPath} was mode ${mode.toString(8)}; tightened to 600 (it holds secrets)`);
+    warn?.(`  ! ${t('init.infra.env_tightened', { path: envPath, mode: mode.toString(8) })}`);
   }
 }
 
@@ -79,12 +80,15 @@ export async function resolveEnvTarget(ctx: SectionContext, cwd: string, home?: 
   const interactive = ctx.rl !== null;
   let useLocal = inCheckout;
   if (interactive) {
-    ctx.print(`  No .env found. Here: ${local}`);
-    ctx.print(`                 User: ${userFile}`);
-    useLocal = await ctx.confirm('  Create it here (Yes) or in the user directory (No)?', inCheckout);
+    const here = `  ${t('init.infra.no_env')} ${t('init.infra.here')}`;
+    const user = t('init.infra.user_dir');
+    ctx.print(`${here} ${local}`);
+    ctx.print(`${user.padStart(here.length)} ${userFile}`);
+    useLocal = await ctx.confirm(`  ${t('init.infra.create_here')}`, inCheckout);
   }
   const target = useLocal ? local : userFile;
-  ctx.print(`  .env location: ${target}${interactive ? '' : ' (no terminal: chosen without asking)'}`);
+  const how = interactive ? '' : ` ${t('init.infra.chosen_without_asking')}`;
+  ctx.print(`  ${t('init.infra.env_location', { path: target })}${how}`);
   if (!useLocal) {
     const dir = path.dirname(target);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -104,7 +108,9 @@ export interface InfraDeps {
 
 export class InfraSection implements SetupSection {
   readonly id = 'infra' as const;
-  readonly title = 'Infrastructure (database, migrations, encryption)';
+  get title(): string {
+    return t('init.infra.title');
+  }
   readonly required = true;
 
   constructor(private readonly deps: InfraDeps = {}) {}
@@ -155,7 +161,7 @@ export class InfraSection implements SetupSection {
       return {
         ...RLS_CONTEXT,
         level: 'ok',
-        detail: 'no tenant pinned yet (the identity section pins it)',
+        detail: t('init.infra.rls.no_tenant'),
       };
     }
     try {
@@ -169,21 +175,21 @@ export class InfraSection implements SetupSection {
         return {
           ...RLS_CONTEXT,
           level: 'fail',
-          detail: `app.current_tenant is "${applied ?? ''}" instead of "${tenant}": queries would run unscoped`,
-          fix: 'Check MNEMOSINE_TENANT in .env; the connection module must apply the tenant on every query',
+          detail: t('init.infra.rls.unscoped', { applied: applied ?? '', tenant }),
+          fix: t('init.infra.rls.unscoped_fix'),
         };
       }
       return {
         ...RLS_CONTEXT,
         level: 'ok',
-        detail: `tenant ${tenant} scoped · ${r.rows[0].entities} entities visible`,
+        detail: t('init.infra.rls.scoped', { tenant, count: r.rows[0].entities }),
       };
     } catch (err) {
       return {
         ...RLS_CONTEXT,
         level: 'fail',
-        detail: `scoped SELECT failed: ${(err as Error).message}`,
-        fix: 'npm run migrate (the legal_entities table or its RLS policies may be missing)',
+        detail: t('init.infra.rls.select_failed', { message: (err as Error).message }),
+        fix: t('init.infra.rls.select_failed_fix', { command: 'npm run migrate' }),
       };
     }
   }
@@ -197,10 +203,10 @@ export class InfraSection implements SetupSection {
       if (fs.existsSync(example)) {
         fs.copyFileSync(example, this.envPath);
         fs.chmodSync(this.envPath, 0o600);
-        ctx.print(`  Created ${this.envPath} from .env.example`);
+        ctx.print(`  ${t('init.infra.created_from_example', { path: this.envPath })}`);
       } else {
         fs.writeFileSync(this.envPath, '', { mode: 0o600 });
-        ctx.print(`  Created an empty ${this.envPath}`);
+        ctx.print(`  ${t('init.infra.created_empty', { path: this.envPath })}`);
       }
     }
 
@@ -210,7 +216,7 @@ export class InfraSection implements SetupSection {
       const key = (this.deps.randomKey ?? defaultRandomKey)();
       upsertEnvVar(this.envPath, 'ENCRYPTION_KEY', key, ctx.print);
       process.env.ENCRYPTION_KEY = key;
-      ctx.print('  Generated a dedicated 256-bit ENCRYPTION_KEY (the previous one was the example key)');
+      ctx.print(`  ${t('init.infra.key_generated')}`);
     }
 
     // 3. Connection
@@ -218,15 +224,15 @@ export class InfraSection implements SetupSection {
     if (db.level === 'fail') {
       ctx.print(`  ✘ ${db.detail}`);
       const url = await ctx.askText(
-        '  DATABASE_URL (Enter to keep the current one): ',
+        `  ${t('init.infra.database_url')} `,
         readEnvVar(this.envPath, 'DATABASE_URL') ?? undefined
       );
       if (url) {
         upsertEnvVar(this.envPath, 'DATABASE_URL', url, ctx.print);
         process.env.DATABASE_URL = url;
-        ctx.print('  Saved DATABASE_URL. Restart the command to reconnect.');
+        ctx.print(`  ${t('init.infra.database_url_saved')}`);
       } else {
-        ctx.print('  Start PostgreSQL and run again: docker compose up -d postgres');
+        ctx.print(`  ${t('init.infra.start_postgres')}`);
       }
       return; // without a database we cannot continue
     }
@@ -238,13 +244,13 @@ export class InfraSection implements SetupSection {
     });
     if (mig.level === 'fail') {
       ctx.print(`  ${mig.detail}`);
-      if (await ctx.confirm('  Apply the migrations now?', true)) {
+      if (await ctx.confirm(`  ${t('init.infra.apply_migrations')}`, true)) {
         try {
           (this.deps.runMigrations ?? defaultRunMigrations)();
-          ctx.print('  ✔ Migrations applied');
+          ctx.print(`  ✔ ${t('init.infra.migrations_applied')}`);
         } catch (err) {
-          ctx.print(`  ✘ Failed: ${(err as Error).message}`);
-          ctx.print('  Run manually: npm run migrate');
+          ctx.print(`  ✘ ${t('init.infra.failed', { message: (err as Error).message })}`);
+          ctx.print(`  ${t('init.infra.run_manually', { command: 'npm run migrate' })}`);
         }
       }
     } else {
@@ -255,7 +261,7 @@ export class InfraSection implements SetupSection {
     // the identity section, and re-running infra must not reset its state.
     const rls = await this.checkRlsContext();
     ctx.print(`  ${rls.level === 'ok' ? '✔' : '✘'} RLS: ${rls.detail}`);
-    if (rls.level === 'fail' && rls.fix) ctx.print(`     Fix: ${rls.fix}`);
+    if (rls.level === 'fail' && rls.fix) ctx.print(`     ${t('init.infra.fix', { fix: rls.fix })}`);
   }
 }
 

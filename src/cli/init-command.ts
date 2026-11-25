@@ -2,12 +2,13 @@ import * as readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
 import {
-  buildSections, BADGE,
+  buildSections, badge,
   type InitFlags, type SectionContext, type SetupSection,
 } from './init/index.js';
 import { runDoctor } from '../ai/doctor-service.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine init
@@ -37,7 +38,7 @@ export function readSecretFromTty(prompt: string, out: NodeJS.WritableStream = s
   return new Promise((resolve) => {
     if (!stdin.isTTY) {
       // Sin terminal no hay forma de ocultar el eco: no se pide el secreto.
-      out.write(prompt + '(skipped: no interactive terminal)\n');
+      out.write(`${prompt}${t('init.secret.skipped')}\n`);
       resolve(null);
       return;
     }
@@ -90,8 +91,8 @@ export function makeSectionContext(
     if (nonInteractive) return fallback ?? null;
     const raw = await rl.question(prompt).catch(() => null);
     if (raw === null) return fallback ?? null;
-    const t = raw.trim();
-    return t === '' ? (fallback ?? null) : t;
+    const answer = raw.trim();
+    return answer === '' ? (fallback ?? null) : answer;
   };
 
   const askSecret = async (prompt: string): Promise<string | null> => {
@@ -130,13 +131,13 @@ export function resolveSectionId(input: string): string {
 
 async function renderStatus(sections: SetupSection[], c: InitCliDeps['palette']): Promise<void> {
   console.log('');
-  console.log(c.bold('Configuration status'));
+  console.log(c.bold(t('init.status.title')));
   console.log('');
   for (const s of sections) {
     const st = await s.status();
-    const badge = st === 'ok' ? BADGE.ok : c.dim(BADGE[st]);
-    const req = s.required ? '' : c.dim(' (optional)');
-    console.log(`  ${badge}  ${s.title}${req}`);
+    const shown = st === 'ok' ? badge('ok') : c.dim(badge(st));
+    const req = s.required ? '' : c.dim(` ${t('init.status.optional')}`);
+    console.log(`  ${shown}  ${s.title}${req}`);
   }
   console.log('');
 }
@@ -152,9 +153,6 @@ export interface InitWizardResult {
 }
 
 export type InitWizardOptions = InitFlags & { section?: string; rescue?: boolean };
-
-const SEED_WITH_DATA = 'Say hello and give me a quick health check of my books.';
-const SEED_FRESH = 'Say hello and tell me what you can do once I load my accounting.';
 
 /** Same TTY + NO_COLOR gating as the CLI's palette; used by rescue callers. */
 function defaultPalette(): InitCliDeps['palette'] {
@@ -181,7 +179,10 @@ export async function runInitWizard(
   const selected = wanted ? sections.filter((s) => s.id === wanted) : sections;
   if (selected.length === 0) {
     console.error(
-      `Unknown section: "${opts.section}". Options: language, infra, identity, users, ai, policies, import`
+      t('init.wizard.unknown_section', {
+        section: opts.section ?? '',
+        options: 'language, infra, identity, users, ai, policies, import',
+      })
     );
     return { completed: false, offerChat: false };
   }
@@ -195,21 +196,10 @@ export async function runInitWizard(
     if (opts.rescue) {
       // The entry flow already showed the welcome; go straight to the point,
       // and promise what the design guarantees: interruption costs nothing.
-      console.log(
-        c.dim(
-          "  Let's get you set up. Enter accepts the value in parentheses; Ctrl+C pauses — " +
-            'your progress is saved because state lives in the system, not a file.'
-        )
-      );
+      console.log(c.dim(`  ${t('init.wizard.rescue_intro')}`));
     } else {
-      console.log(c.bold('Mnemosine setup'));
-      console.log(
-        c.dim(
-          interactive
-            ? '  Only asking for what is missing. Enter accepts the value in parentheses.'
-            : '  Non-interactive mode: using defaults and flags.'
-        )
-      );
+      console.log(c.bold(t('init.wizard.title')));
+      console.log(c.dim(`  ${t(interactive ? 'init.wizard.interactive' : 'init.wizard.non_interactive')}`));
     }
 
     const ctx = makeSectionContext(rl ?? null, opts, deps);
@@ -217,17 +207,17 @@ export async function runInitWizard(
     for (const section of selected) {
       const before = await section.status();
       console.log('');
-      console.log(c.bold(section.title) + c.dim(`  [${BADGE[before]}]`));
+      console.log(c.bold(section.title) + c.dim(`  [${badge(before)}]`));
 
       // Idempotencia: lo ya configurado no se vuelve a preguntar, salvo
       // unless that section is requested explicitly with --section.
       if (before === 'ok' && !wanted) {
-        console.log(c.dim('  Already configured; moving on.'));
+        console.log(c.dim(`  ${t('init.wizard.already_configured')}`));
         continue;
       }
       if (!section.required && before !== 'ok' && !wanted) {
-        if (!(await ctx.confirm('  Configure now?', false))) {
-          console.log(c.dim('  Skipped. It will show as pending in init --status.'));
+        if (!(await ctx.confirm(`  ${t('init.wizard.configure_now')}`, false))) {
+          console.log(c.dim(`  ${t('init.wizard.skipped')}`));
           continue;
         }
       }
@@ -236,7 +226,7 @@ export async function runInitWizard(
 
     // Close: full doctor — the same verification each section uses.
     console.log('');
-    console.log(c.bold('Final verification'));
+    console.log(c.bold(t('init.wizard.final_verification')));
     const report = await runDoctor();
     for (const ch of report.checks) {
       const mark = ch.level === 'ok' ? '✔' : ch.level === 'warn' ? '⚠' : c.red('✘');
@@ -246,7 +236,7 @@ export async function runInitWizard(
 
     console.log('');
     if (report.worst === 'fail') {
-      console.log('Some items are still unresolved. Run again: mnemosine init');
+      console.log(t('init.wizard.unresolved', { command: 'mnemosine init' }));
       console.log('');
       return { completed: false, offerChat: false };
     }
@@ -256,32 +246,29 @@ export async function runInitWizard(
     if (interactive && rl) {
       const importSection = sections.find((s) => s.id === 'importar');
       const hasData = importSection ? (await importSection.status()) === 'ok' : false;
-      const seed = hasData ? SEED_WITH_DATA : SEED_FRESH;
+      const seed = t(hasData ? 'init.wizard.seed_with_data' : 'init.wizard.seed_fresh');
 
-      if (await ctx.confirm('Start chatting now?', true)) {
+      if (await ctx.confirm(t('init.wizard.start_chat'), true)) {
         if (opts.rescue) {
           // Announce exactly what happens next; the ENTRY FLOW does it.
-          console.log(
-            `I'll open the chat and send your first message: "${seed}". ` +
-              '(The agent reads your real data — this may take a few seconds.)'
-          );
+          console.log(t('init.wizard.opening_chat', { seed }));
           console.log('');
           return { completed: true, offerChat: true, seedMessage: seed };
         }
         // init command mode: chat is a sibling command, not launchable from
         // inside this action — hand over the receipt instead.
-        console.log('Open the chat with: mnemosine');
+        console.log(t('init.wizard.open_chat_with', { command: 'mnemosine' }));
         console.log('');
         return { completed: true, offerChat: false };
       }
     }
 
-    console.log('Ready. Try:');
-    console.log(c.dim('  mnemosine chat      converse with your accounting'));
-    console.log(c.dim('  mnemosine review    approve or reject pending drafts'));
-    console.log(c.dim('  mnemosine status    where things stand'));
-    console.log(c.dim('  mnemosine pending   what needs your attention'));
-    console.log(c.dim('  mnemosine doctor    system health'));
+    console.log(t('init.wizard.ready'));
+    console.log(c.dim(`  mnemosine chat      ${t('init.wizard.try.chat')}`));
+    console.log(c.dim(`  mnemosine review    ${t('init.wizard.try.review')}`));
+    console.log(c.dim(`  mnemosine status    ${t('init.wizard.try.status')}`));
+    console.log(c.dim(`  mnemosine pending   ${t('init.wizard.try.pending')}`));
+    console.log(c.dim(`  mnemosine doctor    ${t('init.wizard.try.doctor')}`));
     console.log('');
     return { completed: true, offerChat: false };
   } finally {
