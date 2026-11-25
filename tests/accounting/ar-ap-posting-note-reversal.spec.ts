@@ -7,14 +7,23 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(async (_entity: string, _date: string, _type: string, _desc: string, _lines: unknown, _user: string,
     opts: { sourceId: string }) => ({ id: `pair:${opts.sourceId}` })),
 }));
+// MNE-001-616: the held IVA is read through report-service. The real helper
+// runs (its SQL reaches the fake client below), wrapped in a spy so a test can
+// say which layer was asked, with what, and on which client.
+vi.mock('../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/reporting/report-service.js')>();
+  return { ...real, queryHeldNoteIvaByCashedReceipt: vi.fn(real.queryHeldNoteIvaByCashedReceipt) };
+});
 
 import type pg from 'pg';
 import {
   followNoteReversal, HELD_RESTITUTION_REVERSAL_SOURCE, HELD_RESTITUTION_UNDONE_TAG,
 } from '../../src/services/accounting/ar-ap-posting.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
+import { queryHeldNoteIvaByCashedReceipt } from '../../src/services/reporting/report-service.js';
 
 const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
+const heldReader = queryHeldNoteIvaByCashedReceipt as unknown as ReturnType<typeof vi.fn>;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000612';
 const USER = 'u0000000-0000-0000-0000-000000000612';
@@ -103,6 +112,7 @@ function pairs(): Array<[string, string, Array<[string, string | null, string | 
 
 beforeEach(() => {
   mockCreate.mockClear();
+  heldReader.mockClear();
   queries = [];
   mirrorDate = '2026-07-10';
   noteLines = [line()];
@@ -154,6 +164,22 @@ describe('followNoteReversal · the pair', () => {
       ['2026-07-10', 'pay-B', '19.2000', '19.2000'],
     ]);
     expect(out.map((e) => e.id)).toEqual(['pair:pay-A', 'pair:pay-B']);
+  });
+});
+
+describe('followNoteReversal · reads the held IVA through report-service (MNE-001-616)', () => {
+  it('asks queryHeldNoteIvaByCashedReceipt once, on the reversal\'s client, and posts what it sums', async () => {
+    // By hand: two held lines of one cashed cheque, 32.0000 + 8.0000 = 40.0000,
+    // one pair DR 2150 / CR 2120 40.0000.
+    noteLines = [line({ iva: '32.0000' }), line({ iva: '8.0000' })];
+    const client = fakeClient();
+    await followNoteReversal(client, NOTE, MIRROR, USER);
+    expect(heldReader.mock.calls).toEqual([[ENTITY, { noteEntryId: NOTE.id, mirrorEntryId: MIRROR.id }, client]]);
+    expect(queries.filter((q) => q.sql.includes('FROM journal_entry_lines l'))).toHaveLength(1);
+    expect(pairs()).toEqual([[
+      '2026-07-10', 'pay-A',
+      [['acct:anticipo_clientes', '40.0000', null], ['acct:iva_trasladado', null, '40.0000']],
+    ]]);
   });
 });
 

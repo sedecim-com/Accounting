@@ -20,7 +20,11 @@ import {
 } from '../sat/anexo24/balance-reader.js';
 import { naturDe, saldoDelMayor, type Natur } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
-import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
+import {
+  queryAccountAncestry,
+  queryLedgerNetsWithoutReversalPairs,
+  rollUpTrialBalanceRows,
+} from '../reporting/report-service.js';
 import {
   prepareOpeningInvoices,
   skippedUnderDraftMode,
@@ -1556,32 +1560,11 @@ export async function checkOpeningBalance(
   }
   const chart = opts.chartXml === undefined ? null : readMigrationChart(opts.chartXml, rfc);
   const asOf = dayAfterCutoff(source.header.anio, source.header.mes);
-  const ledger = await query<{
-    id: string;
-    code: string;
-    parent_code: string | null;
-    normal_balance: string;
-    codigo_agrupador_sat: string | null;
-    net: string;
-  }>(
-    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance, a.codigo_agrupador_sat,
-            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
-                       FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
-       FROM accounts a
-       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
-       LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-       LEFT JOIN journal_entries e
-              ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id
-             AND e.status = 'posted' AND e.entry_date <= $2::date
-             AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
-      WHERE a.entity_id = $1
-      GROUP BY a.id, a.code, p.code, a.normal_balance, a.codigo_agrupador_sat`,
-    [opts.entityId, asOf]
-  );
+  const ledger = await queryLedgerNetsWithoutReversalPairs(opts.entityId, asOf);
   const memorandum = new Set(opts.memorandumCodes ?? []);
   if (chart !== null) {
-    const isMemorandum = memorandumClassifier(chart, ledger.rows);
-    const { parentOf, natureOf: sourceNature } = sourceTree(ledger.rows, chart);
+    const isMemorandum = memorandumClassifier(chart, ledger);
+    const { parentOf, natureOf: sourceNature } = sourceTree(ledger, chart);
     const inside = memorandumInsideLedgerAccounts(source.rows, isMemorandum, parentOf, sourceNature);
     if (inside.length > 0) {
       const detail = inside
@@ -1593,16 +1576,16 @@ export async function checkOpeningBalance(
         { accounts: inside }
       );
     }
-    for (const code of [...source.rows.map((r) => r.numCta), ...ledger.rows.map((r) => r.code)]) {
+    for (const code of [...source.rows.map((r) => r.numCta), ...ledger.map((r) => r.code)]) {
       if (isMemorandum(code)) memorandum.add(code);
     }
   }
-  const shapes = shapesFromRows(ledger.rows);
+  const shapes = shapesFromRows(ledger);
   // Ours, rolled up the tree by THE roll-up (#323), since both sides of
   // compareToSource declare each ledger account with its subaccounts inside,
   // then written like a file row: each balance in the account's own nature.
   const rolled = rollUpTrialBalanceRows(
-    ledger.rows.map((r) => ({
+    ledger.map((r) => ({
       account_id: r.id,
       account_code: r.code,
       account_name: r.code,
@@ -1613,7 +1596,7 @@ export async function checkOpeningBalance(
     })),
     await queryAccountAncestry(opts.entityId)
   );
-  const natureOf = new Map(ledger.rows.map((r) => [r.code, naturDe(r.normal_balance)]));
+  const natureOf = new Map(ledger.map((r) => [r.code, naturDe(r.normal_balance)]));
   const ours: BalanceFileRow[] = rolled.map((r, i) => ({
     fila: i + 1,
     numCta: r.account_code,
