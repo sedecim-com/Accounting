@@ -2254,17 +2254,25 @@ export const E0_0: Criterio[] = [
     // question with no terminal. With the breakdown empty, `--tighten` drops
     // the lane from `perFile`, so every family's ground-given-back mutant now
     // anchors on `"perFile": {` and writes the breakdown back with one file.
+    //
+    // MNE-001-626 (230's split, part 2) keys the 38 English strings entry
+    // printed without a key, and the short English printed beside them. With
+    // it no leaf of the family is left in `cli-user-strings-without-key`, so a
+    // check 4 holds that: none of the six has an entry in its breakdown. The
+    // reused keys are period's active-entity note and unknown --status,
+    // account's unknown --type and ap's question with no terminal.
     enunciado:
-      'The ledger family (batch, account, fx, ledger, entry, period) prints no Spanish string from the code: its texts come from the I8.9 block of the catalogue, and the CLI lane of Spanish strings is at 0 (#271, MNE-001-229, MNE-001-230)',
+      'The ledger family (batch, account, fx, ledger, entry, period) prints no Spanish string and no English without a key from the code: its texts come from the I8.9 block of the catalogue, and the CLI lane of Spanish strings is at 0 (#271, MNE-001-229, MNE-001-230, MNE-001-626)',
     evaluar: () => {
-      const family = familySpeaksByKey('I8.9', 'ledger', [
+      const leaves = [
         'src/cli/batch-command.ts',
         'src/cli/account-command.ts',
         'src/cli/fx-command.ts',
         'src/cli/ledger-command.ts',
         'src/cli/entry-command.ts',
         'src/cli/period-command.ts',
-      ]);
+      ];
+      const family = familySpeaksByKey('I8.9', 'ledger', leaves);
       if (family.estado !== 'ok') return family;
       const LANE = 'spanish-user-strings-cli';
       const baseline = JSON.parse(crudoDe('docs/language-baseline.json')) as {
@@ -2279,7 +2287,13 @@ export const E0_0: Criterio[] = [
             ': the CLI writes Spanish strings in the code again, after I8 emptied it'
         );
       }
-      return family;
+      // 4 · No English without a key either (MNE-001-626).
+      const ENGLISH = 'cli-user-strings-without-key';
+      const unkeyed = leaves.filter((rel) => baseline.perFile?.[ENGLISH]?.[rel] !== undefined);
+      if (unkeyed.length) {
+        return falla(`${unkeyed.join(', ')} print English without a key again («${ENGLISH}»)`);
+      }
+      return ok(`${family.detalle}; none of its ${leaves.length} leaves prints English without a key`);
     },
     mutantes: [
       {
@@ -2317,6 +2331,18 @@ export const E0_0: Criterio[] = [
         de: '"spanish-user-strings-cli": 0,',
         a: '"spanish-user-strings-cli": 1,',
         porque: 'lane-not-at-zero: the lane total says the CLI carries one Spanish string again, with no file in the breakdown',
+      },
+      {
+        archivo: 'src/cli/entry-command.ts',
+        de: "key: 'ledger.entry.post.question'",
+        a: "key: 'Post {number} ({total}) to the ledger? This cannot be undone.' as never",
+        porque: 'string-back-in-the-code: entry post asks its question in English from the code again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"cli-user-strings-without-key": {',
+        a: '"cli-user-strings-without-key": {\n      "src/cli/entry-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records English without a key in entry again, which only check 4 sees',
       },
     ],
   },
