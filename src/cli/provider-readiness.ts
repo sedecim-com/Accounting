@@ -35,20 +35,14 @@ export function providerLines(c: ReadinessPalette, options: ReadinessOptions = {
   const out: string[] = [];
   for (const [name, p] of Object.entries(profiles)) {
     const state = states[name];
-    const isDefault = name === defaultName ? c.cyan(' ← default') : '';
+    const isDefault = name === defaultName ? c.cyan(` ${t('provider.list.default')}`) : '';
     const key = `${mark(state)} ${state.label}`;
     out.push(`${c.bold(name)}${isDefault}`);
-    out.push(c.dim(`  ${p.type} · ${p.model}${p.base_url ? ` · ${p.base_url}` : ''} · ${p.tools === false ? 'no tools' : 'tools'} · `) + key);
+    const tools = t(p.tools === false ? 'provider.list.no_tools' : 'provider.list.tools');
+    out.push(c.dim(`  ${p.type} · ${p.model}${p.base_url ? ` · ${p.base_url}` : ''} · ${tools} · `) + key);
     if (p.note) out.push(c.dim(`  ${p.note}`));
   }
-  out.push(
-    c.dim(
-      source
-        ? `\nConfig: ${source}`
-        : '\nUsing built-in profiles. Customize with mnemosine.config.json (or ~/.mnemosine/config.json) ' +
-            'and pick the default with "default_provider", MNEMOSINE_PROVIDER or --provider.'
-    )
-  );
+  out.push(c.dim(`\n${source ? t('provider.list.config', { source }) : t('provider.list.builtin')}`));
   return out;
 }
 
@@ -85,12 +79,12 @@ export function tickCredentialLine(options: ReadinessOptions = {}): string {
     readiness = providerReadiness(options);
   } catch {
     // Fixed text: the loader's error names files, and the tick's output is logged.
-    return 'provider: the configuration does not load (mnemosine doctor says why)';
+    return t('provider.tick.no_config', { command: 'mnemosine doctor' });
   }
   const { defaultName, states } = readiness;
   const state = states[defaultName];
-  if (!state) return `provider ${defaultName} does not exist (mnemosine doctor says more)`;
-  return `provider ${defaultName} · ${state.label} · the credential of the user running this tick`;
+  if (!state) return t('provider.tick.missing', { name: defaultName, command: 'mnemosine doctor' });
+  return t('provider.tick.line', { name: defaultName, credential: state.label });
 }
 
 /**

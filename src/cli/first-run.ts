@@ -3,6 +3,7 @@ import { envFileCandidates } from '../config/env-file.js';
 import { configFilePaths } from '../ai/providers/config.js';
 import { providerReadiness } from '../ai/providers/credential-state.js';
 import { missingCredentialHint } from './provider-readiness.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // FIRST-RUN DETECTION
@@ -12,8 +13,9 @@ import { missingCredentialHint } from './provider-readiness.js';
 //   fresh   nothing configured yet → offer the init wizard
 //   broken  configured but not working → offer rescue/repair
 //   ready   DB up, entities exist, provider has a credential → chat
-// Each shortfall carries a human-readable reason; the entry flow
-// turns reasons into the exact next command (never dead-end).
+// Each shortfall carries a human-readable reason, in the user's
+// language; the entry flow turns reasons into the exact next command
+// (never dead-end), so each keeps a word repairCommandFor reads.
 //
 // The DB probe is injected for tests and lazy at runtime: merely
 // requiring this module must never spin up a connection pool.
@@ -62,7 +64,7 @@ function readinessVerdict(deps: DetectDeps, cwd: string, env: NodeJS.ProcessEnv)
   // A --provider that names no profile is a typo, not a broken machine: the
   // startup's own «does not exist» error, which lists the names, says more.
   if ((!profile || !state) && deps.provider) return { name };
-  if (!profile || !state) throw new Error(`provider ${name} does not exist`);
+  if (!profile || !state) throw new Error(t('init.first_run.provider_missing', { name }));
   return { name, notReady: missingCredentialHint(name, profile, state) ?? undefined };
 }
 
@@ -73,7 +75,7 @@ function errorMessage(err: unknown): string {
 function withTimeout<T>(run: () => Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error(`timed out after ${timeoutMs}ms`)),
+      () => reject(new Error(t('init.first_run.timed_out', { ms: timeoutMs }))),
       timeoutMs
     );
     timer.unref?.();
@@ -103,10 +105,10 @@ async function detect(deps: DetectDeps): Promise<SetupState> {
   const hasEnvFile = envFileCandidates(cwd, deps.home).some(fileExists);
   const hasConfigFile = configFilePaths(cwd).some(fileExists);
   if (!hasEnvFile && !hasConfigFile) {
-    return { state: 'fresh', reasons: ['no .env file (never configured)'] };
+    return { state: 'fresh', reasons: [t('init.first_run.no_env')] };
   }
   if (!env.DATABASE_URL) {
-    return { state: 'fresh', reasons: ['DATABASE_URL is not set (add it to your .env)'] };
+    return { state: 'fresh', reasons: [t('init.first_run.no_database_url', { variable: 'DATABASE_URL' })] };
   }
 
   // ─── broken vs ready: probe the live system ───
@@ -137,15 +139,15 @@ async function detect(deps: DetectDeps): Promise<SetupState> {
     await withTimeout(probeDb, timeoutMs);
     dbUp = true;
   } catch (err) {
-    reasons.push(`database unreachable: ${errorMessage(err)}`);
+    reasons.push(t('init.first_run.database_unreachable', { message: errorMessage(err) }));
   }
 
   if (dbUp) {
     try {
       entityCount = await withTimeout(countActiveEntities, timeoutMs);
-      if (entityCount === 0) reasons.push('no legal entities registered');
+      if (entityCount === 0) reasons.push(t('init.first_run.no_entities'));
     } catch (err) {
-      reasons.push(`database unreachable: ${errorMessage(err)}`);
+      reasons.push(t('init.first_run.database_unreachable', { message: errorMessage(err) }));
     }
   }
 
@@ -156,7 +158,7 @@ async function detect(deps: DetectDeps): Promise<SetupState> {
     if (verdict.notReady) reasons.push(verdict.notReady);
     else providerName = verdict.name;
   } catch {
-    reasons.push('AI provider not configured');
+    reasons.push(t('init.first_run.no_provider'));
   }
 
   return {
@@ -176,6 +178,6 @@ export async function detectSetupState(deps: DetectDeps = {}): Promise<SetupStat
   try {
     return await detect(deps);
   } catch (err) {
-    return { state: 'broken', reasons: [`setup check failed: ${errorMessage(err)}`] };
+    return { state: 'broken', reasons: [t('init.first_run.check_failed', { message: errorMessage(err) })] };
   }
 }
