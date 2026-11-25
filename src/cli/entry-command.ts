@@ -68,7 +68,13 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, SIDE_ALIASES, type LineGrammar } from './kernel/line-spec.js';
 import { AppError } from '../utils/errors.js';
-import { t } from '../i18n/index.js';
+import { t, type MessageParams, type TranslationKey } from '../i18n/index.js';
+
+/** A question to confirm, by key (MNE-001-626). */
+interface Question {
+  readonly key: TranslationKey;
+  readonly params: MessageParams;
+}
 
 // ============================================================
 // mnemosine entry · poliza
@@ -224,9 +230,9 @@ const ENTRY_LINE_KEYS_HELP = lineKeysHelp([
 export function parseEntryLine(spec: string): DraftLineInput {
   if (!isKeyValueLine(spec)) return parseLineFlag(spec);
   const { fields } = parseKeyValueLine(spec, { grammar: ENTRY_LINE_GRAMMAR });
-  if (!fields.account) throw usageError(`Line "${spec}" has no account=<code>.`);
+  if (!fields.account) throw usageError({ key: 'ledger.entry.line.no_account', params: { spec } });
   if ((fields.debit === undefined) === (fields.credit === undefined)) {
-    throw usageError(`Line "${spec}" needs exactly one of debit=<amount> or credit=<amount> (cargo=/abono=).`);
+    throw usageError({ key: 'ledger.entry.line.one_side', params: { spec } });
   }
   return { account: fields.account, debit: fields.debit, credit: fields.credit, description: fields.description };
 }
@@ -384,7 +390,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   const announceTarget = (opts: CommonOpts, ctx: { entityName: string }): void => {
     if (opts.entity) return;
     process.stderr.write(
-      deps.palette.dim(`  → ${ctx.entityName} (active entity; name another with --entity)\n`)
+      deps.palette.dim(`  ${t('ledger.period.active_entity', { entity: ctx.entityName })}\n`)
     );
   };
 
@@ -403,27 +409,30 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   const repeatNotice = (opts: { idempotencyKey?: string }, summary: string): void => {
     // A note, not data: stderr, so a --json pipe stays clean (output contract).
     process.stderr.write(
-      `↩ Idempotency hit: key "${opts.idempotencyKey}" already completed this act — ${summary}\n` +
-        '  Nothing was executed again; this is the recorded result.\n'
+      `${t('ledger.entry.idempotency_hit', { key: opts.idempotencyKey ?? '', what: summary })}\n`
     );
   };
 
-  const confirmOrAbort = async (opts: CommonOpts, question: string): Promise<void> => {
+  /**
+   * The question rides as a key: rendered in the active language for the
+   * prompt, and nested in the no-terminal refusal, whose `message` stays
+   * English for the --json envelope.
+   */
+  const confirmOrAbort = async (opts: CommonOpts, question: Question): Promise<void> => {
     if (opts.yes) return;
+    const asked = t(question.key, question.params);
     if (deps.confirm) {
-      if (await deps.confirm(question)) return;
+      if (await deps.confirm(asked)) return;
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure, or with --dry-run to see the effect first.`
-      );
+      throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        yesNoPrompt(question)
+        yesNoPrompt(asked)
       );
       if (veredicto.si) return;
       throw abortedByUser(
@@ -462,22 +471,19 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       // there is no document/value date column (catalog: --date-basis is
       // withdrawn for this command).
       if (opts.asOf) {
-        throw usageError('`entry list` filters a date RANGE: use --since and --until, not --as-of.');
+        throw usageError({ key: 'ledger.entry.list.as_of_unsupported' });
       }
       if (opts.dateBasis && opts.dateBasis !== 'posting') {
-        throw usageError(
-          `--date-basis ${opts.dateBasis} is not available: journal_entries stores one date ` +
-            '(entry_date, the ledger date). Only --date-basis posting is supported.'
-        );
+        throw usageError({ key: 'ledger.entry.list.date_basis_unavailable', params: { value: opts.dateBasis } });
       }
       for (const state of opts.status ?? []) {
         if (!(ENTRY_STATUSES as readonly string[]).includes(state)) {
-          throw usageError(`Unknown --status "${state}". Use one of: ${ENTRY_STATUSES.join(', ')}.`);
+          throw usageError({ key: 'ledger.period.status_unknown', params: { value: state, statuses: ENTRY_STATUSES.join(', ') } });
         }
       }
       for (const type of opts.type ?? []) {
         if (!(ENTRY_TYPES as readonly string[]).includes(type)) {
-          throw usageError(`Unknown --type "${type}". Use one of: ${ENTRY_TYPES.join(', ')}.`);
+          throw usageError({ key: 'ledger.account.type_unknown', params: { value: type, types: ENTRY_TYPES.join(', ') } });
         }
       }
 
@@ -563,17 +569,19 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         )}\n`
       );
       if (detail.description) out.write(`  ${detail.description}\n`);
-      if (detail.reference) out.write(p.dim(`  reference: ${detail.reference}\n`));
+      if (detail.reference) {
+        out.write(p.dim(`  ${t('ledger.entry.show.reference', { reference: detail.reference })}\n`));
+      }
       if (detail.reverses_entry_number) {
-        out.write(p.dim(`  reverses: ${detail.reverses_entry_number}\n`));
+        out.write(p.dim(`  ${t('ledger.entry.show.reverses', { number: detail.reverses_entry_number })}\n`));
       }
       if (detail.reversed_by_entry_number) {
         out.write(
-          p.yellow(`  reversed by: ${detail.reversed_by_entry_number} (this entry is annulled)\n`)
+          p.yellow(`  ${t('ledger.entry.show.reversed_by', { number: detail.reversed_by_entry_number })}\n`)
         );
       }
       out.write(
-        p.dim(`  totals: ${detail.total_debits} debit / ${detail.total_credits} credit\n\n`)
+        p.dim(`  ${t('ledger.entry.show.totals', { debits: detail.total_debits, credits: detail.total_credits })}\n\n`)
       );
       if (opts.lines !== false) {
         render(detail.lines.map(lineRow), {
@@ -627,7 +635,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       announceTarget(opts, ctx);
 
       if (opts.line?.length && opts.file) {
-        throw usageError('Pass either --line flags or a --file document, not both.');
+        throw usageError({ key: 'ledger.entry.lines_or_file' });
       }
       let lines: DraftLineInput[];
       let date = opts.date;
@@ -645,10 +653,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       } else if (opts.line?.length) {
         lines = opts.line.map(parseEntryLine);
       } else {
-        throw usageError(
-          'Nothing to record. Give the lines with --line "account=<code>;debit=<amount>" ' +
-            '(repeat it), or a JSON document with --file.'
-        );
+        throw usageError({ key: 'ledger.entry.create.nothing_to_record' });
       }
 
       const entryDate = date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
@@ -666,7 +671,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         // The dry run is the real check: same rules, same period resolution,
         // nothing written.
         const check = await checkDraftDocument(input);
-        printCheck(check, deps.palette, opts, 'Would draft');
+        printCheck(check, deps.palette, opts, 'ledger.entry.verdict.would_draft');
         return check.isValid ? ExitCode.OK : ExitCode.VALIDATION;
       }
 
@@ -678,9 +683,13 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       }
       const p = deps.palette;
       process.stdout.write(
-        `${p.green('✔')} ${p.bold(created.entry_number)} drafted ` +
-          `${p.dim(`(${lines.length} lines, ${created.total_debits} / ${created.total_credits})`)}\n` +
-          p.dim(`  Nothing moved in the ledger. Post it with: mnemosine entry post ${created.entry_number}\n`)
+        `${p.green('✔')} ${t('ledger.entry.create.drafted', { number: p.bold(created.entry_number) })} ` +
+          `${p.dim(t('ledger.entry.create.drafted_detail', {
+            count: lines.length,
+            debits: created.total_debits,
+            credits: created.total_credits,
+          }))}\n` +
+          p.dim(`  ${t('ledger.entry.create.not_posted', { number: created.entry_number })}\n`)
       );
     })
   );
@@ -697,10 +706,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     run(async () => {
       const ctx = await entityOf(opts);
       if (!opts.entry && !opts.file) {
-        throw usageError('Nothing to check: pass --entry <number> or --file <path>.');
+        throw usageError({ key: 'ledger.entry.check.nothing_to_check' });
       }
       if (opts.entry && opts.file) {
-        throw usageError('Check one thing at a time: --entry or --file, not both.');
+        throw usageError({ key: 'ledger.entry.check.one_at_a_time' });
       }
 
       const result = opts.entry
@@ -711,7 +720,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
             createdBy: '',
           });
 
-      printCheck(result, deps.palette, opts, 'Checked');
+      printCheck(result, deps.palette, opts, 'ledger.entry.verdict.checked');
       // A check that FOUND something exits 4 so it can gate a pipeline; a
       // check that could not run threw long before this line.
       return checkExitCode(
@@ -806,7 +815,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
       announceTarget(opts, ctx);
       if (opts.line?.length && opts.file) {
-        throw usageError('Pass either --line flags or a --file document, not both.');
+        throw usageError({ key: 'ledger.entry.lines_or_file' });
       }
       const patch: DraftPatch = {};
       if (opts.file) {
@@ -946,32 +955,32 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const { dryRun } = gateMutation(post, opts as Record<string, unknown>);
 
       if (target.status === JournalEntryStatus.POSTED) {
-        throw blockedByState(
-          `${target.entry_number} is already posted (${day(target.posted_date)}). ` +
-            'Correct it with `entry reverse`, which leaves an audit trail.'
-        );
+        throw blockedByState({
+          key: 'ledger.entry.post.already_posted',
+          params: { number: target.entry_number, date: day(target.posted_date) },
+        });
       }
       if (target.status === JournalEntryStatus.VOID) {
-        throw blockedByState(`${target.entry_number} is void and can never be posted.`);
+        throw blockedByState({ key: 'ledger.entry.post.void', params: { number: target.entry_number } });
       }
 
       const verdict = await checkExistingEntry(ctx.entityId, target.entry_number);
       if (dryRun) {
-        printCheck(verdict, deps.palette, opts, 'Would post');
+        printCheck(verdict, deps.palette, opts, 'ledger.entry.verdict.would_post');
         return verdict.isValid ? ExitCode.OK : ExitCode.VALIDATION;
       }
       if (!verdict.isValid) {
-        printCheck(verdict, deps.palette, opts, 'Cannot post');
+        printCheck(verdict, deps.palette, opts, 'ledger.entry.verdict.cannot_post');
         throw validationFailed(
-          `${target.entry_number} does not pass validation, so it was not posted.`,
+          { key: 'ledger.entry.post.invalid', params: { number: target.entry_number } },
           { errors: verdict.errors }
         );
       }
 
-      await confirmOrAbort(
-        opts,
-        `Post ${target.entry_number} (${target.total_debits}) to the ledger? This cannot be undone.`
-      );
+      await confirmOrAbort(opts, {
+        key: 'ledger.entry.post.question',
+        params: { number: target.entry_number, total: target.total_debits },
+      });
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const acto = await conLlave(
@@ -980,7 +989,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         async () => summarize((await postJournalEntry(target.id, reviewer.userId)) as unknown as Record<string, unknown>)
       );
       if (acto.repetido) {
-        repeatNotice(opts, `${acto.resultado.entry_number} posted (${acto.resultado.total_debits})`);
+        repeatNotice(opts, t('ledger.entry.post.recorded', {
+          number: String(acto.resultado.entry_number),
+          amounts: `(${String(acto.resultado.total_debits)})`,
+        }));
         if (opts.json) render([acto.resultado], { json: true });
         return;
       }
@@ -990,8 +1002,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         return;
       }
       process.stdout.write(
-        `${deps.palette.green('✔')} ${deps.palette.bold(String(acto.resultado.entry_number))} posted ` +
-          `${deps.palette.dim(`(${acto.resultado.total_debits} / ${acto.resultado.total_credits})`)}\n`
+        `${deps.palette.green('✔')} ${t('ledger.entry.post.recorded', {
+          number: deps.palette.bold(String(acto.resultado.entry_number)),
+          amounts: deps.palette.dim(`(${String(acto.resultado.total_debits)} / ${String(acto.resultado.total_credits)})`),
+        })}\n`
       );
     })
   );
@@ -1016,23 +1030,23 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const { dryRun, reason } = gateMutation(reverse, opts as Record<string, unknown>);
 
       if (target.status !== JournalEntryStatus.POSTED) {
-        throw blockedByState(
-          `${target.entry_number} is '${target.status}' and never touched the ledger, so there is ` +
-            'nothing to mirror. Use `entry void` on a draft.'
-        );
+        throw blockedByState({
+          key: 'ledger.entry.reverse.not_posted',
+          params: { number: target.entry_number, status: target.status },
+        });
       }
       if (target.reversed_by_entry_id) {
-        throw blockedByState(
-          `${target.entry_number} already has a reversal. A second mirror would double the correction.`
-        );
+        throw blockedByState({ key: 'ledger.entry.reverse.already_reversed', params: { number: target.entry_number } });
       }
 
       const detail = await getJournalEntryDetail(ctx.entityId, target.entry_number);
       if (dryRun) {
         const p = deps.palette;
         process.stdout.write(
-          `\n${p.bold('Would create the mirror of ' + target.entry_number)} ` +
-            `${p.dim(`dated ${opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }))}, posted immediately`)}\n\n`
+          `\n${p.bold(t('ledger.entry.reverse.would_mirror', { number: target.entry_number }))} ` +
+            `${p.dim(t('ledger.entry.reverse.would_mirror_detail', {
+              date: opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId })),
+            }))}\n\n`
         );
         render(
           detail.lines.map((line) => ({
@@ -1044,15 +1058,15 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
           { ...opts, format: 'table', numeric: ['debit', 'credit'] }
         );
         process.stdout.write(
-          p.dim(`\n  ${target.entry_number} stays posted and unchanged; the two are linked.\n`)
+          p.dim(`\n  ${t('ledger.entry.reverse.stays_posted', { number: target.entry_number })}\n`)
         );
         return;
       }
 
-      await confirmOrAbort(
-        opts,
-        `Reverse ${target.entry_number} (${target.total_debits})? The mirror posts immediately.`
-      );
+      await confirmOrAbort(opts, {
+        key: 'ledger.entry.reverse.question',
+        params: { number: target.entry_number, total: target.total_debits },
+      });
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const acto = await conLlave(
@@ -1075,14 +1089,19 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         }
       );
       if (acto.repetido) {
-        repeatNotice(opts, `${acto.resultado.entry_number} posted as the reversal of ${acto.resultado.reversal_of}`);
+        repeatNotice(opts, t('ledger.entry.reverse.recorded', {
+          number: acto.resultado.entry_number,
+          original: acto.resultado.reversal_of,
+        }));
         return;
       }
 
       process.stdout.write(
-        `${deps.palette.green('✔')} ${deps.palette.bold(String(acto.resultado.entry_number))} posted as the reversal of ` +
-          `${target.entry_number}.\n` +
-          deps.palette.dim(`  ${target.entry_number} is unchanged and now linked to its mirror.\n`)
+        `${deps.palette.green('✔')} ${t('ledger.entry.reverse.recorded', {
+          number: deps.palette.bold(String(acto.resultado.entry_number)),
+          original: target.entry_number,
+        })}.\n` +
+          deps.palette.dim(`  ${t('ledger.entry.reverse.linked', { number: target.entry_number })}\n`)
       );
     })
   );
@@ -1105,28 +1124,28 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const { dryRun, reason } = gateMutation(voidCmd, opts as Record<string, unknown>);
 
       if (target.status === JournalEntryStatus.VOID) {
-        throw blockedByState(`${target.entry_number} is already void.`);
+        throw blockedByState({ key: 'ledger.entry.void.already_void', params: { number: target.entry_number } });
       }
       const posted = target.status === JournalEntryStatus.POSTED;
       if (posted && target.reversed_by_entry_id) {
-        throw blockedByState(
-          `${target.entry_number} was already annulled by its reversal. A second one would double the correction.`
-        );
+        throw blockedByState({ key: 'ledger.entry.void.already_reversed', params: { number: target.entry_number } });
       }
 
       const effect = posted
-        ? `${target.entry_number} is posted, so it will NOT change state: a linked mirror entry is ` +
-          'created and posted, which is how a posted entry is annulled without making the trial ' +
-          'balance disagree with the balances.'
-        : `${target.entry_number} is '${target.status}' and never reached the ledger, so it is ` +
-          'marked void. Its number is kept and never reused.';
+        ? t('ledger.entry.void.effect_posted', { number: target.entry_number })
+        : t('ledger.entry.void.effect_draft', { number: target.entry_number, status: target.status });
 
       if (dryRun) {
-        process.stdout.write(`\n${deps.palette.bold('Would void ' + target.entry_number)}\n  ${effect}\n\n`);
+        process.stdout.write(
+          `\n${deps.palette.bold(t('ledger.entry.void.would_void', { number: target.entry_number }))}\n  ${effect}\n\n`
+        );
         return;
       }
 
-      await confirmOrAbort(opts, `Void ${target.entry_number} (${target.total_debits})?`);
+      await confirmOrAbort(opts, {
+        key: 'ledger.entry.void.question',
+        params: { number: target.entry_number, total: target.total_debits },
+      });
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const acto = await conLlave(
@@ -1138,13 +1157,19 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         }
       );
       if (acto.repetido) {
-        repeatNotice(opts, `${acto.resultado.entry_number} annulled (now '${acto.resultado.status}')`);
+        repeatNotice(opts, t('ledger.entry.void.recorded', {
+          number: acto.resultado.entry_number,
+          state: t('ledger.entry.void.state', { status: acto.resultado.status }),
+        }));
         return;
       }
 
       const p = deps.palette;
       process.stdout.write(
-        `${p.green('✔')} ${p.bold(String(acto.resultado.entry_number))} annulled ${p.dim(`(now '${acto.resultado.status}')`)}\n` +
+        `${p.green('✔')} ${t('ledger.entry.void.recorded', {
+          number: p.bold(String(acto.resultado.entry_number)),
+          state: p.dim(t('ledger.entry.void.state', { status: acto.resultado.status })),
+        })}\n` +
           p.dim(`  ${effect}\n`)
       );
     })
@@ -1156,7 +1181,7 @@ function printCheck(
   result: EntryCheckResult,
   p: Palette,
   opts: { json?: boolean; format?: string; quiet?: boolean; fields?: string | boolean; output?: string },
-  headline: string
+  headline: TranslationKey
 ): void {
   if (opts.json || (opts.format && opts.format !== 'table')) {
     render(
@@ -1178,17 +1203,22 @@ function printCheck(
   }
 
   const out = process.stdout;
-  const label = result.entry_number ?? '(new entry)';
+  const label = result.entry_number ?? t('ledger.entry.verdict.new_entry');
   out.write(
-    `\n${p.bold(`${headline}: ${label}`)}  ` +
-      `${p.dim(`${result.entry_date} · ${result.period_name} (${result.period_status}) · ${result.line_count} lines`)}\n\n`
+    `\n${p.bold(`${t(headline)}: ${label}`)}  ` +
+      `${p.dim(t('ledger.entry.verdict.context', {
+        date: result.entry_date,
+        period: result.period_name,
+        status: result.period_status,
+        count: result.line_count,
+      }))}\n\n`
   );
   for (const error of result.errors) out.write(`  ${p.red('✘')} ${error}\n`);
   for (const warning of result.warnings) out.write(`  ${p.yellow('!')} ${warning}\n`);
   if (result.isValid && result.warnings.length === 0) {
-    out.write(`  ${p.green('✔')} All seven rules pass.\n`);
+    out.write(`  ${p.green('✔')} ${t('ledger.entry.verdict.all_rules_pass')}\n`);
   } else if (result.isValid) {
-    out.write(`  ${p.green('✔')} No blocking errors.\n`);
+    out.write(`  ${p.green('✔')} ${t('ledger.entry.verdict.no_blocking')}\n`);
   }
   out.write('\n');
 }
