@@ -6,6 +6,8 @@ import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { AppError, ConflictError, NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
+import { t } from '../../../i18n/index.js';
+import { responseLanguage } from '../middleware/locale.js';
 import { logger } from '../../../utils/logger.js';
 import { attestEntryAsync } from '../../../services/accounting/index.js';
 import { recordCustomerPayment } from '../../../services/payments/payment-service.js';
@@ -177,12 +179,14 @@ router.post('/:id/send', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
   // de honestidad no veía porque su regex no reconocía «email service». La
   // marca es registro legítimo (el usuario envió la factura por su propio
   // correo); la respuesta ahora dice eso y nada más.
+  // The note follows the negotiated language, so a cache keys on it.
+  res.vary('Accept-Language');
   res.json({
     data: {
       marked_sent: true,
       sent_to: to,
       transmitted: false,
-      note: 'La factura queda registrada como enviada; el sistema no transmite correo. El envío es del usuario.',
+      note: t('api.invoices.send_note', {}, responseLanguage(res)),
     },
     meta: meta(req),
   });
@@ -463,10 +467,7 @@ router.post('/:id/cfdi/cancel', declararRiesgoRuta({ riesgo: 'externo', escribe:
   // guarda), esperar el acuse, archivarlo por bytes, y encadenar la reversa del
   // asiento contable. Media cancelación es peor que ninguna.
   throw new NotImplementedError(
-    'mnemosine todavía no cancela CFDI ante el SAT. Cancela en el portal de tu PAC ' +
-      'o en el del SAT, y después reversa el asiento con `mnemosine entry reverse ' +
-      '<numero> --reason "CFDI cancelado, acuse <folio>"`. Cuando exista, la ' +
-      'cancelación irá por pac-router con acuse archivado y reversa encadenada.',
+    { key: 'error.NOT_IMPLEMENTED.cfdi_cancellation' },
     { invoice_id: req.params.id, cancellation_reason, replacement_uuid: replacement_uuid ?? null }
   );
 
