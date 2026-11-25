@@ -1998,10 +1998,10 @@ function exigirMovimientoCompatible(mov: FilaMovimientoDeCobro, pago: FilaPagoCo
 // (MNE-001-558; #623, comment 6961035083).
 //
 // AN INVOICE APPLIED AFTER THE CREDIT IS CAUSED ON ITS OWN DAY (MNE-001-794).
-// Cash on account pays an invoice the day it is applied to it, and a cheque
+// Cash on account pays an invoice the day it is applied to it, and a check
 // pays the day the bank cashes it (LIVA art. 1o.-B), so an invoice's IVA and
 // IEPS are caused on the later of the two: the day the IVA paper counts them
-// (`countedOn`). A cheque applied while held and then cashed by an earlier
+// (`countedOn`). A check applied while held and then cashed by an earlier
 // credit (applied today, last month's statement reconciled) posts that part
 // on the application's day, in its own entry, and what the bank's day causes
 // by itself stays on it; the receipt keeps the bank's day.
@@ -2432,10 +2432,10 @@ interface LiveAllocation {
  * MNE-001-794 · `amount` of one invoice split over its live rows by the cash
  * each applied (the last takes the remainder), each part on the day it is
  * caused: the later of the cashing and the day the row was applied (LIVA art.
- * 1o.-B: the cheque pays when the bank cashes it, the cash on account pays the
+ * 1o.-B: the check pays when the bank cashes it, the cash on account pays the
  * invoice when it is applied), the day the IVA paper counts it (`countedOn`).
  * With `nets`, a row that took an advance's IVA (deferred under
- * `cheque_advance_before_cashing`, MNE-001-573) keeps up to that IVA on the
+ * `defer_to_cashing`, MNE-001-573) keeps up to that IVA on the
  * cashing day, where it nets against the advance the bank's day causes: the
  * paper counts the advance there and, in the row's month, the share less it.
  *
@@ -2480,7 +2480,7 @@ interface CashingPart {
 /**
  * MNE-001-794 · A receipt's release, one part per day, in day order. What the
  * bank's day causes by itself stays on it: an advance's IVA (MNE-001-558) and
- * the IVA and IEPS of the cash an unapply put back on account while the cheque
+ * the IVA and IEPS of the cash an unapply put back on account while the check
  * was held (MNE-001-572/586/608). Each invoice's IVA and IEPS go on the days
  * `partsByDay` gave them. A part with nothing to move is no entry.
  */

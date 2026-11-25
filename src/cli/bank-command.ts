@@ -1206,9 +1206,9 @@ function interesesComoDocumento(r: ResultadoDeIntereses): Row {
 
 /**
  * A vendor cheque's cashing, or a receipt's with the IVA of an advance it caused (MNE-001-558).
- * MNE-001-794 · a receipt whose parts are caused on several days posts one entry per day: `entradas`.
+ * MNE-001-794 · a receipt whose parts are caused on several days posts one entry per day: `entryViews`.
  */
-type CheckCashingView = ResultadoDeCobroDeCheque & { advanceIva?: string | null; entradas?: CheckCashingView[] };
+type CheckCashingView = ResultadoDeCobroDeCheque & { advanceIva?: string | null; entryViews?: CheckCashingView[] };
 
 /**
  * MNE-001-556 · a customer cheque's cashing in the shape the command shows a
@@ -1238,7 +1238,7 @@ function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
   if (r.entries.length < 2) return whole;
   return {
     ...whole,
-    entradas: r.entries.map((e) => ({
+    entryViews: r.entries.map((e) => ({
       ...whole,
       releasedOn: e.date,
       periodo: e.period ? { nombre: e.period.name, status: e.period.status } : null,
@@ -1543,13 +1543,13 @@ const leerConParsers: LeerExtracto = ({ contenido, formato, perfil }) =>
 function archivosAImportar(posicionales: string[], dir: string | undefined): string[] {
   const candidatos = [...posicionales];
   if (dir !== undefined) {
-    let entradas;
+    let entryViews;
     try {
-      entradas = readdirSync(dir, { withFileTypes: true });
+      entryViews = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
       throw usageError(t('bank.dir.unreadable', { dir, error: (err as Error).message }));
     }
-    const dentro = entradas
+    const dentro = entryViews
       .filter((e) => e.isFile() && !e.name.startsWith('.'))
       .map((e) => path.join(dir, e.name))
       .sort();
@@ -6002,8 +6002,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
          */
         const mostrar = (r: CheckCashingView): void => {
           // MNE-001-794 · one block per entry, each with its own day and month.
-          if (r.entradas) {
-            r.entradas.forEach(mostrar);
+          if (r.entryViews) {
+            r.entryViews.forEach(mostrar);
             return;
           }
           const out = process.stdout;
@@ -6082,7 +6082,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               date: previo[0].fechaDeCobro,
               amount: previo.reduce((sum, x) => sum.plus(x.reclasificado), new Decimal(0)).toFixed(4),
               // MNE-001-794 · every month an entry falls in, a deposit's and a split receipt's.
-              period: [...new Set(previo.flatMap((x) => (x.entradas ?? [x])
+              period: [...new Set(previo.flatMap((x) => (x.entryViews ?? [x])
                 .map((e) => e.periodo?.nombre ?? t('bank.check.reconcile.no_period'))))].join(', '),
             }),
         });
@@ -6105,7 +6105,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                   by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })),
                   // MNE-001-794 · the day of its first entry, and one row per entry when its parts fall on several days.
                   entry_date: r.releasedOn,
-                  entries: (r.entradas ?? (r.releasedOn ? [r] : [])).map((e) => ({
+                  entries: (r.entryViews ?? (r.releasedOn ? [r] : [])).map((e) => ({
                     entry_date: e.releasedOn, period: e.periodo?.nombre ?? null, reclassified: e.reclasificado,
                     journal_entry: e.entryId, entry_number: e.entryNumber,
                   })),
@@ -6118,7 +6118,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (!opts.json) {
             if (opts.yes === true || dryRun) mostrar(r);
             // MNE-001-794 · one line per entry, each with its month.
-            for (const e of r.entradas ?? [r]) {
+            for (const e of r.entryViews ?? [r]) {
               process.stdout.write(
                 `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
                   e.checkNumber ?? e.paymentNumber
