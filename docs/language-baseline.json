@@ -1473,9 +1473,6 @@
       "src/utils/xml-reader.ts": 4,
       "src/utils/zod-client-errors.ts": 1
     },
-    "docs-spanish-twins-stale": {
-      "docs/language.es.md": 1
-    },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
     },
