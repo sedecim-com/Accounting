@@ -124,8 +124,14 @@ export async function leerRegistroDelSubsidio(
   if (!valor) {
     throw new AccountingError(
       'SUBSIDIO_REGISTRO_DESCONOCIDO',
-      `La política ${CLAVE_POLITICA_SUBSIDIO_ENTREGADO} vale "${politica.value}" y este lector sólo ` +
-        `entiende ${Object.keys(REGISTROS_CONOCIDOS).join(', ')}. Corrígela en mnemosine pending.`
+      {
+        key: 'error.POLICY_VALUE_UNKNOWN.payroll_reader',
+        params: {
+          policy: CLAVE_POLITICA_SUBSIDIO_ENTREGADO,
+          value: politica.value,
+          known: Object.keys(REGISTROS_CONOCIDOS).join(', '),
+        },
+      }
     );
   }
   return { valor, decididoPorElDespacho: politica.defined };
