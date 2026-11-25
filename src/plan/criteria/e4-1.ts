@@ -1765,7 +1765,8 @@ export const E4_1: Criterio[] = [
       if (!existe(p)) return falla('no hay calculador de ISN: el impuesto sobre nóminas sigue sin existir');
       const isn = codigoDe(p);
       const negativas = ['isn_sin_tasa_capturada', 'isn_regimen_no_soportado', 'isn_sin_estado_en_el_trabajador'];
-      const faltan = negativas.filter((h) => !isn.includes(h));
+      // MNE-001-815: the finding's code, not its catalogue key, which also carries the name.
+      const faltan = negativas.filter((h) => !isn.includes(`codigo: '${h}'`));
       if (faltan.length > 0) {
         return falla(
           `el motor del ISN no se niega ante ${faltan.join(', ')}: un estado sin tasa capturada, un ` +
@@ -1878,9 +1879,10 @@ export const E4_1: Criterio[] = [
           'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
       },
       {
+        // MNE-001-815: the note is a key, and its Spanish twin names the figure that is missing.
         archivo: 'src/services/payroll/mx/finiquito-math.ts',
-        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
-        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        de: "      key: 'payroll.finiquito.seniority_premium.not_calculated',",
+        a: "      key: 'payroll.finiquito.seniority_premium.not_owed',",
         porque:
           'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
       },
@@ -1911,7 +1913,7 @@ export const E4_1: Criterio[] = [
       // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
       //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
       //    general le paga 45 298.80 de menos a un trabajador fronterizo.
-      if (!/SIN CALCULAR/.test(src)) {
+      if (!/key: 'payroll\.finiquito\.seniority_premium\.not_calculated'/.test(src)) {
         return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
       }
 

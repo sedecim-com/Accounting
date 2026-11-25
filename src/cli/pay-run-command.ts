@@ -21,7 +21,7 @@ import type { StaleAnnualParameter } from '../services/payroll/mx/annual-paramet
 import type { ResultadoAcumulacion } from '../services/payroll/common/employer-liability-service.js';
 import { ConflictError } from '../utils/errors.js';
 import { parseForClient } from '../utils/zod-client-errors.js';
-import { t, type TranslationKey } from '../i18n/index.js';
+import { getLanguage, t, type TranslationKey } from '../i18n/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import { registerPayRunPostCommand } from './pay-run-post-command.js';
@@ -45,6 +45,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { findingText } from '../i18n/payroll-finding-text.js';
 
 // ============================================================
 // mnemosine pay-run · corrida — MNE-001-068 (#306, part 2/4)
@@ -447,14 +448,16 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
                 dry_run: dryRun,
                 repeated,
                 liabilities: liabilityRows(result),
-                findings: result.hallazgos.map((h) => ({ code: h.codigo, severity: h.severidad, message: h.mensaje })),
+                findings: result.hallazgos.map((h) => ({
+                  code: h.codigo, severity: h.severidad, message: findingText(h, getLanguage()),
+                })),
               },
             ],
             { ...opts, idField: 'id' }
           );
         } else {
           render(liabilityRows(result), { ...opts, idField: 'tax_type', numeric: ['amount'] });
-          for (const h of result.hallazgos) process.stderr.write(p.yellow(`  ⚠ ${h.codigo}: ${h.mensaje}\n`));
+          for (const h of result.hallazgos) process.stderr.write(p.yellow(`  ⚠ ${h.codigo}: ${findingText(h, getLanguage())}\n`));
           const done = dryRun ? 'payrun.approve.dry_run' : repeated ? 'payrun.approve.repeated' : 'payrun.approve.done';
           process.stderr.write(`${dryRun ? p.yellow('◑') : p.green('✔')} ${t(done, { id, status: runAfter.status })}\n`);
         }
