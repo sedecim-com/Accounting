@@ -63,7 +63,7 @@ export {
 
 export { linesToSplit, vatLinesOfCfdi, type CfdiTaxSummary } from './cfdi-split.js';
 
-export { hechosDelMes, rangoDelMes, APPLIED_ON, type HechoPagado, type RangoDelMes } from './hechos.js';
+export { hechosDelMes, rangoDelMes, APPLIED_ON, UNDONE_ON, type HechoPagado, type RangoDelMes } from './hechos.js';
 
 export {
   exigirEntregable,

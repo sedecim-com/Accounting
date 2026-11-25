@@ -111,6 +111,24 @@ import type { Hallazgo } from './hallazgos.js';
 // was kept, reads its payment's date as it always did, so no month already
 // shown moves.
 //
+// THE DAY OF AN UNDO (MNE-001-682, #855)
+//
+// `payment unapply` re-parks the IVA its application credited and `payment
+// reverse` mirrors every entry of the payment, both dated on the day of the
+// undo, which the row stores (`UNDONE_ON`). The facts follow the ledger: an
+// application counts from its day until the day it was undone, so the month
+// it counted in keeps what it declared, whenever it is built, and the month of
+// the undo takes it out: a bill's month is what stood applied at its end less
+// what stood at its start, and it can be negative. An undo dated in the
+// application's own month nets with it there. The credit is a right that
+// needs the tax paid on a bill (LIVA art. 5o. fr. III), so it is given up when
+// the books say the bill is owed again and its cash is back on account, which
+// credits nothing until it is applied; a receipt, whose IVA is a debt once the
+// money is in, keeps it caused. The month of the undo says so
+// (`DIOT-PAYMENT-UNDONE`), because an application that should never have
+// existed may call for an amended return of the month it counted in instead
+// (CFF art. 32).
+//
 // ============================================================
 
 /** Un documento y el tramo suyo que este mes declaró como pagado. */
@@ -130,6 +148,12 @@ export interface HechoPagado {
   ivaPagado: string;
   /** El IVA retenido a este tercero en el tramo, en moneda funcional. */
   ivaRetenido: string;
+  /**
+   * What the month undid of the payments applied to the bill, in its currency
+   * ('0.0000' when nothing): `ivaPagado`, `ivaRetenido` and `porcion` are
+   * already net of it, and negative when it outweighs what the month applied.
+   */
+  undoneInMonth: string;
   porcion: PorcionPagada;
   renglones: RenglonDeGasto[];
 }
@@ -154,9 +178,15 @@ interface FilaGasto {
   cfdi_uuid: string | null;
   aplicado_hasta_fin?: string;
   aplicado_hasta_inicio?: string;
+  undone_in_month?: string;
+  undone_from_before?: string;
+  counted_since?: string | null;
 }
 
-const q = (d: Decimal): string => d.toDecimalPlaces(DECIMALES_DIOT).toFixed(DECIMALES_DIOT);
+const q = (d: Decimal): string => {
+  const rounded = d.toDecimalPlaces(DECIMALES_DIOT);
+  return (rounded.isZero() ? new Decimal(0) : rounded).toFixed(DECIMALES_DIOT);
+};
 
 /** Primer y último día del mes, como los espera Postgres. */
 export function rangoDelMes(anio: number, mes: number): RangoDelMes {
@@ -240,9 +270,39 @@ export const APPLIED_ON = `COALESCE(pa.applied_on, vp.payment_date)`;
 export const APPLICATION_CREDIT_DATE = `date_larger(${APPLIED_ON}, ${CREDIT_DATE})`;
 
 /**
- * Los gastos a los que un pago del mes les aplicó dinero, con lo acumulado al
- * cierre del mes y al cierre del mes ANTERIOR. Each application counts on its
- * own day, `APPLICATION_CREDIT_DATE` (MNE-001-679).
+ * CONTRACT: the day a vendor application was undone, by `payment unapply` or
+ * by its payment's `payment reverse`: both close the row with the day of the
+ * event (`unapplied_at`, migrations 105 and 118), the day of the entry that
+ * took its IVA out of the creditable account. NULL while the row is live. The
+ * DIOT and the IVA workpaper (SAT deliverables) take the application out in
+ * the month of this day (MNE-001-682): they change compatibly, only in a month
+ * in which an application was undone, by what the ledger took out of it.
+ * NOTE: a timestamp written from a date and read back as one on the same pool,
+ * as migration 105 prescribes for a reader "as of" a day.
+ */
+export const UNDONE_ON = `pa.unapplied_at::date`;
+
+/** The two days of an application, for `stoodOn`: `cd.credited_on` and `cd.undone_on`. */
+const EVENT_DAYS = `CROSS JOIN LATERAL (SELECT ${APPLICATION_CREDIT_DATE} AS credited_on, ${UNDONE_ON} AS undone_on) cd`;
+
+/**
+ * True when the application stood on `day`: counted by then and not undone by
+ * then. One undone before its credit day (a cheque unapplied before the bank
+ * cashed it) never stands, as the ledger never credited it.
+ */
+const stoodOn = (day: string): string =>
+  `(cd.credited_on <= ${day} AND (cd.undone_on IS NULL OR cd.undone_on > ${day}))`;
+
+/** An application the month undid: one that counted before the month, when `before` is set. */
+const undoneInMonth = (before = false): string =>
+  `(cd.undone_on >= $2::date AND cd.undone_on <= $3::date AND cd.credited_on ${before ? '< $2::date' : '<= cd.undone_on'})`;
+
+/**
+ * The bills whose applied amount the month moved, with what stood applied at
+ * the month's end and at the end of the month BEFORE. Each application counts
+ * from its own day, `APPLICATION_CREDIT_DATE` (MNE-001-679), until the day it
+ * was undone, `UNDONE_ON` (MNE-001-682): a month that undid more than it
+ * applied comes back with the lower figure at its end.
  *
  * LA ENTIDAD SE ACOTA DOS VECES A PROPÓSITO. `payment_applications` no tiene
  * `entity_id` —es la tabla puente—, así que la frontera tiene que venir de
@@ -256,18 +316,21 @@ async function gastosPagadosEnElMes(
   entityId: string,
   rango: RangoDelMes
 ): Promise<FilaGasto[]> {
+  const atEnd = `COALESCE(SUM(pa.amount_applied) FILTER (WHERE ${stoodOn('$3::date')}), 0)`;
+  const atStart = `COALESCE(SUM(pa.amount_applied) FILTER (WHERE ${stoodOn('($2::date - 1)')}), 0)`;
   const { rows } = await client.query<FilaGasto>(
     `SELECT b.id, b.bill_number, b.vendor_id,
             b.tax_amount::text, b.total_amount::text, b.exchange_rate::text,
             b.amount_paid::text, b.terms, b.memo, b.cfdi_uuid,
-            COALESCE(SUM(pa.amount_applied)
-              FILTER (WHERE cd.credited_on <= $3::date), 0)::text AS aplicado_hasta_fin,
-            COALESCE(SUM(pa.amount_applied)
-              FILTER (WHERE cd.credited_on < $2::date), 0)::text AS aplicado_hasta_inicio
+            ${atEnd}::text AS aplicado_hasta_fin,
+            ${atStart}::text AS aplicado_hasta_inicio,
+            COALESCE(SUM(pa.amount_applied) FILTER (WHERE ${undoneInMonth()}), 0)::text AS undone_in_month,
+            COALESCE(SUM(pa.amount_applied) FILTER (WHERE ${undoneInMonth(true)}), 0)::text AS undone_from_before,
+            to_char(MIN(cd.credited_on) FILTER (WHERE ${undoneInMonth(true)}), 'YYYY-MM-DD') AS counted_since
        FROM bills b
        JOIN payment_applications pa ON pa.bill_id = b.id
        JOIN vendor_payments vp ON vp.id = pa.payment_id
-      CROSS JOIN LATERAL (SELECT ${APPLICATION_CREDIT_DATE} AS credited_on) cd
+      ${EVENT_DAYS}
       WHERE b.entity_id = $1
         AND vp.entity_id = $1
         AND vp.journal_entry_id IS NOT NULL
@@ -276,8 +339,7 @@ async function gastosPagadosEnElMes(
         AND b.status NOT IN ('void', 'cancelled')
       GROUP BY b.id, b.bill_number, b.vendor_id, b.tax_amount, b.total_amount,
                b.exchange_rate, b.amount_paid, b.terms, b.memo, b.cfdi_uuid
-     HAVING COALESCE(SUM(pa.amount_applied) FILTER (WHERE cd.credited_on <= $3::date), 0)
-          > COALESCE(SUM(pa.amount_applied) FILTER (WHERE cd.credited_on <  $2::date), 0)
+     HAVING ${atEnd} <> ${atStart}
       ORDER BY b.bill_number`,
     [entityId, rango.desde, rango.hasta]
   );
@@ -427,11 +489,12 @@ async function retencionesDe(
 }
 
 /**
- * What each bill has applied by vendor payments credited up to `hasta`. Both
- * ends of the bridge are scoped, and the applications are the ones
- * `gastosPagadosEnElMes` counts, on the same day (`APPLICATION_CREDIT_DATE`):
- * a cheque that waits for its cashing has paid nothing yet (MNE-001-559), and
- * cash on account pays the day it is applied (MNE-001-679).
+ * What each bill has applied on `hasta` by vendor payments. Both ends of the
+ * bridge are scoped, and the applications are the ones `gastosPagadosEnElMes`
+ * counts, on the same days (`stoodOn`): a cheque that waits for its cashing
+ * has paid nothing yet (MNE-001-559), cash on account pays the day it is
+ * applied (MNE-001-679), and an application undone by then pays no more
+ * (MNE-001-682).
  */
 async function appliedThrough(
   client: pg.PoolClient,
@@ -446,9 +509,10 @@ async function appliedThrough(
        FROM payment_applications pa
        JOIN bills b ON b.id = pa.bill_id
        JOIN vendor_payments vp ON vp.id = pa.payment_id
+      ${EVENT_DAYS}
       WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
         AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
-        AND ${APPLICATION_CREDIT_DATE} <= $3::date
+        AND ${stoodOn('$3::date')}
       GROUP BY pa.bill_id`,
     [entityId, [...billIds], hasta]
   );
@@ -580,6 +644,7 @@ export async function hechosDelMes(
     ivaCabecera: g.tax_amount,
     ivaPagado,
     ivaRetenido: porcionDelDocumento(retenciones.get(g.id) ?? '0', porcion),
+    undoneInMonth: q(new Decimal(g.undone_in_month ?? '0')),
     porcion,
     renglones: linesToSplit(renglones.get(g.id) ?? [], g.tax_amount, summaries.get(g.id)),
   });
@@ -620,7 +685,10 @@ export async function hechosDelMes(
     hechos.push(arma(g, 'bill', porcion, ivaPagado));
   }
 
-  // ── El pago: el incremento del mes, con el tope de lo aparcado ─────────
+  // ── The payment: what the month moved, capped by what the bill parked ──
+  // Signed (MNE-001-682): a month that undid more than it applied gives back
+  // the difference of the same two cumulatives, so the months still add up to
+  // the bill.
   for (const g of byPayment) {
     const hastaFin = g.aplicado_hasta_fin ?? '0';
     const hastaInicio = g.aplicado_hasta_inicio ?? '0';
@@ -648,7 +716,7 @@ export async function hechosDelMes(
       ),
       aparcado
     );
-    const ivaPagado = Decimal.max(acumFin.minus(acumInicio), new Decimal(0));
+    const ivaPagado = acumFin.minus(acumInicio);
 
     const sinTope = new Decimal(porcionDelDocumento(g.tax_amount, porcion));
     if (sinTope.greaterThan(ivaPagado)) {
@@ -666,6 +734,22 @@ export async function hechosDelMes(
     }
 
     hechos.push(arma(g, 'payment', porcion, q(ivaPagado)));
+
+    const undone = new Decimal(g.undone_from_before ?? '0');
+    if (undone.greaterThan(0)) {
+      hallazgos.push({
+        codigo: 'DIOT-PAYMENT-UNDONE',
+        severidad: 'aviso',
+        documentId: g.id,
+        documentNumber: g.bill_number,
+        mensaje:
+          `Bill ${g.bill_number}: this month undid ${q(undone)} of vendor payments applied to it (unapplied or ` +
+          `reversed), which had counted since ${g.counted_since ?? rango.desde}. The month takes them out, as the ` +
+          `ledger did, and declares ${q(ivaPagado)} of IVA for the bill; the month they counted in keeps what it ` +
+          `declared. If the application should never have existed (the money never left, or it paid another ` +
+          `bill), the return of that month may need an amended one instead (CFF art. 32).`,
+      });
+    }
   }
 
   // ── The cheque: what the month does not credit yet, or credited early ──

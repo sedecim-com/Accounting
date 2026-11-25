@@ -18,6 +18,7 @@ import { backAsAdvance, HELD_RESTITUTION_TAG, keptCashOf, KEPT_RESTITUTION_TAG, 
 import {
   acumuladoDelDocumento,
   APPLIED_ON,
+  UNDONE_ON,
   desglosarDocumento,
   desgloseCero,
   hechosDelMes,
@@ -121,7 +122,9 @@ import {
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition. Cash on account
 //                  counts the day it was applied to its bill (MNE-001-679,
-//                  `APPLICATION_CREDIT_DATE`). Plus the bank fees
+//                  `APPLICATION_CREDIT_DATE`), and leaves in the month it
+//                  was unapplied or its payment reversed, never in the one it
+//                  counted in (MNE-001-682, `UNDONE_ON`). Plus the bank fees
 //                  (MNE-001-566, `bank-fee-iva.ts`), which no bill carries: the
 //                  charge is their payment (MNE-001-041), so their IVA counts
 //                  in the month its entry moved 1130.
@@ -2334,14 +2337,15 @@ async function chargedOfMonth(
  * picked: the bill's own entry (a `bill` fact) or, for a `payment` fact, the
  * entries dated in the month of the payments applied to it in the month: their
  * own, their applications' (`vendor_application`, MNE-001-679) and the cashing
- * entries of the cheques cashed in it. Both the selection of bills and which
- * event each one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits,
- * not the method); this only looks the entries up.
+ * entries of the cheques cashed in it, and the entries that took the VAT out
+ * of an application the month undid (MNE-001-682). Both the selection of bills
+ * and which event each one has stay `hechosDelMes`'s (MNE-001-491: where the
+ * VAT sits, not the method); this only looks the entries up.
  */
 async function billEntryIds(
   client: pg.PoolClient,
   entityId: string,
-  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'event'>>,
+  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'event' | 'undoneInMonth'>>,
   range: RangoDelMes
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -2392,6 +2396,32 @@ async function billEntryIds(
       [entityId, byPayment, range.desde, range.hasta]
     );
     for (const r of later.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
+    // An application the month undid (MNE-001-682): the unapplication's entry,
+    // dated the day its row was closed, and the mirrors a reversal posted that
+    // day. Asked only when a fact of the month says it undid something.
+    // NOTE: neither entry names its bill, so two bills one payment was undone
+    // from on the same day each trace both.
+    const undone = facts.filter((h) => h.event === 'payment' && !new Decimal(h.undoneInMonth).isZero()).map((h) => h.billId);
+    if (undone.length > 0) {
+      const undoes = await client.query<{ id: string; entry: string }>(
+        `SELECT DISTINCT pa.bill_id AS id, e.id::text AS entry
+           FROM payment_applications pa
+           JOIN vendor_payments vp ON vp.id = pa.payment_id
+           JOIN bills b ON b.id = pa.bill_id
+           JOIN journal_entries je ON je.source_id = vp.id AND je.entity_id = vp.entity_id AND je.status = 'posted'
+                                  AND je.source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication',
+                                                         '${ORIGEN_COBRO_DE_CHEQUE}')
+           LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = je.entity_id
+          CROSS JOIN LATERAL (VALUES (je.id, je.source_type = 'vendor_unapplication' AND je.entry_date = ${UNDONE_ON}),
+                                     (m.id, m.entry_date = ${UNDONE_ON})) e(id, hit)
+          WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
+            AND vp.status <> 'void'
+            AND ${UNDONE_ON} >= $3::date AND ${UNDONE_ON} <= $4::date AND e.hit
+          ORDER BY 1, 2`,
+        [entityId, undone, range.desde, range.hasta]
+      );
+      for (const r of undoes.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
+    }
   }
   return out;
 }
