@@ -237,10 +237,11 @@ usa.
 npm run mnemosine -- providers
 ```
 
-Cada renglón imprime `tools` o `no tools` junto al tipo, el modelo, la URL base y
-si la variable de la credencial está puesta. Si el tuyo dice `no tools`, cambia
+Cada renglón imprime `tools` o `no tools` (en español, `herramientas` o
+`sin herramientas`) junto al tipo, el modelo, la URL base y si la variable de la
+credencial está puesta. Si el tuyo dice `no tools` o `sin herramientas`, cambia
 de perfil (`--provider`, `MNEMOSINE_PROVIDER` o `default_provider`). Si dice
-`tools` y aun así el modelo no las llama, el problema es el modelo: elige uno
+`tools` (o `herramientas`) y aun así el modelo no las llama, el problema es el modelo: elige uno
 instalado que soporte funciones.
 
 **Cómo saber si te está pasando sin darte cuenta.** El arnés tiene una red:
