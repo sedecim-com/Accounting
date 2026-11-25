@@ -36,11 +36,7 @@ export const tenantContext: RequestHandler = (req, _res, next) => {
   // La alternativa —dejarlo pasar sin contexto— es justamente el caso en
   // que un rol dueño ve el sistema entero.
   if (!tenantId) {
-    next(
-      new UnauthorizedError(
-        'El token no identifica un inquilino: la petición no puede acotarse y se rechaza.'
-      )
-    );
+    next(new UnauthorizedError({ key: 'error.UNAUTHORIZED.no_tenant' }));
     return;
   }
 

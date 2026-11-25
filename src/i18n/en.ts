@@ -316,7 +316,48 @@ export const EN = {
   'error.RESOURCE_NOT_FOUND.classification_trail':
     'Classification with id {uuid} not found (the trail exists for what was ingested since F02; earlier CFDIs were classified and their trail discarded)',
 
-  // ---- MNE-001-730 · I9 by folder, part 7: the refusals of src/services/payroll that were Spanish prose (issue #151) ----
+  // ---- MNE-001-729 · I9 by folder, part 6: the messages of src/api/rest that reached the caller in Spanish prose (issue #151) ----
+  // `error.<CODE>[.<case>]` for an error, codes unchanged; `api.<router>.<case>` for
+  // a text a route writes into a response body. The Spanish twin is the text each
+  // site printed. Header names, fields, commands and values are parameters or
+  // literals, never translated.
+  // middleware/auth.ts
+  'error.FORBIDDEN.entity_header_repeated': 'x-entity-id is repeated: a request acts on a single entity',
+  'error.VALIDATION_ERROR.entity.several_named':
+    "The request names {count} different entities ({named}). Each route uses the source that belongs to it and the audit log records the header's, so with two there is no knowing which one was worked on. Send only one.",
+  /** One item of `named` above; the items are joined with '; ' in every language. */
+  'error.VALIDATION_ERROR.entity.named_source':
+    '{source, select, header {the x-entity-id header} route {the route (:entity_id)} body {the body} other {the query string (?entity_id=)}}: {value}',
+  // the idempotency middleware
+  'error.VALIDATION_ERROR.idempotency_key.repeated':
+    'The request carries {count} {header} headers. Send exactly one: with two, which one wins would silently decide whether this act is repeated or not.',
+  'error.VALIDATION_ERROR.idempotency_key.empty':
+    'The {header} header is empty. Remove it, or send a key: an empty key deduplicates nothing and makes it look as if it did.',
+  'error.VALIDATION_ERROR.idempotency_key.too_long': 'The idempotency key is {length} characters long and the maximum is {max}.',
+  'error.VALIDATION_ERROR.idempotency_key.malformed':
+    'The idempotency key "{value}" carries characters that are not accepted. Use letters, digits and _ . : @ + / = - (a UUID works). The comma and the space are left out on purpose: that is how TWO headers arrive once the server joins them, and such a key is not the one anybody sent — the retry would not match and the act would be repeated silently.',
+  'error.VALIDATION_ERROR.idempotency_key.no_tenant':
+    'Cannot honour {header}: the request does not identify a tenant, and consumed keys are kept per tenant.',
+  // middleware/tenant-context.ts
+  'error.UNAUTHORIZED.no_tenant': 'The token does not identify a tenant: the request cannot be scoped and is refused.',
+  // routes/xml-ingestion.ts
+  'error.VALIDATION_ERROR.xml.batch_cap': 'xml_contents must be an array of at most {max} documents.',
+  'error.FORBIDDEN.detail.issued_payment_receipt': 'An issued payment receipt records customer collections.',
+  // routes/invoices.ts
+  'api.invoices.send_note': 'The invoice is recorded as sent; the system does not transmit email. Sending it is up to the user.',
+  'error.NOT_IMPLEMENTED.cfdi_cancellation':
+    "mnemosine does not cancel CFDIs before the SAT yet. Cancel in your PAC's portal or in the SAT's, then reverse the entry with `mnemosine entry reverse <number> --reason \"CFDI cancelled, acknowledgment <folio>\"`. When it exists, cancellation will go through pac-router with the acknowledgment archived and a chained reversal.",
+  // routes/blockchain.ts
+  'api.blockchain.simulated_attestations':
+    '{simulated} of {total} attestations on this page are SIMULATED: their txHash, block number and explorer link are fabricated and match no transaction. They are no proof before a third party.',
+  'api.blockchain.simulated_anchors':
+    '{simulated} of {total} anchors on this page are SIMULATED: their txid was made up locally and does not exist on Bitcoin. Do not publish them as proof before a third party, nor share an explorer link to them.',
+  // routes/public-verification.ts
+  'error.ATTESTATION_SIMULATED':
+    '{what, select, entry_attestation {The attestation of that entry} period_commitment {The commitment of that period} bitcoin_anchor {That Bitcoin anchor} other {The anchor proof of that entry}} exists, but its anchoring is SIMULATED: no hash was written to any chain, so there is nothing a third party can check. This endpoint refuses to present it as proof. It will answer again when a real chain adapter exists.',
+  'api.public_verification.bitcoin_simulated_step': '6. The Bitcoin anchor is SIMULATED: there is no OP_RETURN on the chain to check',
+
+  // ---- MNE-001-730 ·I9 by folder, part 7: the refusals of src/services/payroll that were Spanish prose (issue #151) ----
   // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each
   // site printed. Policy keys, their values, commands and `termination_reason`
   // are literals or parameters, never translated.

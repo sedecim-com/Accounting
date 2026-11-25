@@ -4,6 +4,8 @@ import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { EN } from '../../src/i18n/en.js';
+import { ES } from '../../src/i18n/es.js';
 
 /**
  * UNA PRUEBA FABRICADA ES PEOR QUE NINGUNA.
@@ -92,6 +94,10 @@ describe('el endpoint público', () => {
     // Un 404 diría «no existe». El auditor tiene que saber que la
     // contabilidad está ahí y que lo que no está es el anclaje.
     expect(fuenteRouter).toMatch(/res\.status\(501\)[\s\S]{0,200}ATTESTATION_SIMULATED/);
-    expect(fuenteRouter).toMatch(/anclaje es SIMULADO/);
+    // The refusal is a catalogue key since MNE-001-729: the router names it,
+    // and its Spanish says what it always said.
+    expect(fuenteRouter).toContain("t('error.ATTESTATION_SIMULATED'");
+    expect(ES['error.ATTESTATION_SIMULATED']).toMatch(/anclaje es SIMULADO/);
+    expect(EN['error.ATTESTATION_SIMULATED']).toMatch(/anchoring is SIMULATED/);
   });
 });

@@ -185,30 +185,23 @@ function llaveDe(req: Request): string | undefined {
   // Por si algún día el runtime sí entrega arreglo: no se elige una. Cuál
   // gana decidiría en silencio si el acto se deduplica o se repite.
   if (Array.isArray(cruda)) {
-    throw new ValidationError(
-      `La petición trae ${cruda.length} cabeceras ${CABECERA_LLAVE}. Manda exactamente una: ` +
-        'con dos, cuál manda decidiría en silencio si este acto se repite o no.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.idempotency_key.repeated',
+      params: { count: cruda.length, header: CABECERA_LLAVE },
+    });
   }
   const clave = cruda.trim();
   if (clave.length === 0) {
-    throw new ValidationError(
-      `La cabecera ${CABECERA_LLAVE} viene vacía. Quítala, o manda una llave: una llave vacía ` +
-        'no deduplica nada y hace creer que sí.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.idempotency_key.empty', params: { header: CABECERA_LLAVE } });
   }
   if (clave.length > LARGO_MAX_CLAVE) {
-    throw new ValidationError(
-      `La llave de idempotencia mide ${clave.length} caracteres y el máximo es ${LARGO_MAX_CLAVE}.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.idempotency_key.too_long',
+      params: { length: clave.length, max: LARGO_MAX_CLAVE },
+    });
   }
   if (!FORMA_DE_LLAVE.test(clave)) {
-    throw new ValidationError(
-      `La llave de idempotencia "${clave}" trae caracteres que no se admiten. Usa letras, ` +
-        'dígitos y _ . : @ + / = - (un UUID sirve). La coma y el espacio quedan fuera a ' +
-        'propósito: es como llegan DOS cabeceras unidas por el servidor, y una llave así no es ' +
-        'la que mandó nadie — el reintento no casaría y el acto se repetiría en silencio.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.idempotency_key.malformed', params: { value: clave } });
   }
   return clave;
 }
@@ -252,12 +245,7 @@ export function bajoLlaveDeIdempotencia(): RequestHandler {
     // enterarse si no se le puede prometer.
     const tenantId = req.tenantId;
     if (!tenantId) {
-      next(
-        new ValidationError(
-          `No se puede honrar ${CABECERA_LLAVE}: la petición no identifica un inquilino, y las ` +
-            'llaves consumadas se guardan por inquilino.'
-        )
-      );
+      next(new ValidationError({ key: 'error.VALIDATION_ERROR.idempotency_key.no_tenant', params: { header: CABECERA_LLAVE } }));
       return;
     }
 
@@ -355,7 +343,7 @@ export function bajoLlaveDeIdempotencia(): RequestHandler {
           // después de un acto que sí ocurrió, y ése se escribe: un reintento
           // va a repetirlo y tiene que quedar dicho con qué llave.
           if (!(err instanceof NoSeGraba)) {
-            logger.error('El acto salió pero la llave de idempotencia no se pudo grabar', {
+            logger.error('The act went out but the idempotency key could not be recorded', {
               alcance,
               clave,
               error: err instanceof Error ? err.message : String(err),
