@@ -155,7 +155,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
       const shown = findings.map(({ detail_key, detail_params, ...f }) =>
         detail_key ? { ...f, detalle: t(detail_key, detail_params) } : f
       );
-      render(shown as unknown as Row[], { ...opts, idField: 'referencia' });
+      render(shown, { ...opts, idField: 'referencia' });
       const blocking = findings.filter((f) => f.severity === 'blocking').length;
       const warning = findings.filter((f) => f.severity === 'warning').length;
       process.stderr.write(
