@@ -7,6 +7,7 @@ import {
   cfdiDirection,
   entityRfcOf,
   foreignCfdiReason,
+  reasonText,
   type CfdiDirection,
 } from '../services/xml-ingestion/pre-registration-service.js';
 import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
@@ -340,7 +341,7 @@ export async function ingestCfdiFiles(opts: {
         return {
           file: name,
           status: code === 'CFDI_REQUIERE_DECISION' ? 'blocked' : 'error',
-          detail: (err as Error).message,
+          detail: reasonText(err),
         };
       }
     }

@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 614,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1934
+    "spanish-user-strings-services": 1872
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1755,13 +1755,11 @@
       "src/services/webhooks/barrido-entregas.ts": 3,
       "src/services/webhooks/politica-reintento.ts": 3,
       "src/services/xml-ingestion/account-roles-seed.ts": 46,
-      "src/services/xml-ingestion/cfdi-posting-plan.ts": 4,
-      "src/services/xml-ingestion/cfdi-query-service.ts": 3,
-      "src/services/xml-ingestion/issued-invoice-approval.ts": 1,
-      "src/services/xml-ingestion/pre-registration-service.ts": 12,
+      "src/services/xml-ingestion/cfdi-posting-plan.ts": 2,
+      "src/services/xml-ingestion/cfdi-query-service.ts": 1,
+      "src/services/xml-ingestion/pre-registration-service.ts": 3,
       "src/services/xml-ingestion/received-credit-note-posting.ts": 1,
-      "src/services/xml-ingestion/rep-linkage.ts": 20,
-      "src/services/xml-ingestion/sat-catalogs.ts": 48
+      "src/services/xml-ingestion/rep-linkage.ts": 20
     }
   }
 }

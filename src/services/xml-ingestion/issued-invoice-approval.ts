@@ -20,10 +20,13 @@ export interface ApprovedDraftInvoice {
   close(journalEntryId: string): Promise<void>;
 }
 
+/** The role of the CFDI's local taxes (ISH and other state taxes), as the check row names it. */
+const LOCAL_TAX_ROLE = 'impuestos_locales_por_pagar';
+
 /** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
-  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, 'impuestos_locales_por_pagar',
+  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, LOCAL_TAX_ROLE,
 ];
 
 /**
@@ -325,8 +328,8 @@ export async function registerIssuedInvoice(
       cfdi: ieps,
     },
     {
-      figure: 'transferred local taxes (impuestos_locales_por_pagar)',
-      entry: net(accountsOf('impuestos_locales_por_pagar'), 'credit'),
+      figure: `transferred local taxes (${LOCAL_TAX_ROLE})`,
+      entry: net(accountsOf(LOCAL_TAX_ROLE), 'credit'),
       cfdi: money(localTaxes),
     },
     {

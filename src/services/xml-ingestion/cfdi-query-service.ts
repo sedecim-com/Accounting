@@ -51,7 +51,7 @@ export async function listCfdis(
   f: FiltrosCfdi = {}
 ): Promise<{ rows: FilaCfdi[]; total: number }> {
   if (f.direction && !['emitido', 'recibido', 'ajeno'].includes(f.direction)) {
-    throw new ValidationError(`--direction ilegible "${f.direction}": emitido, recibido o ajeno.`);
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.cfdi.direction', params: { direction: f.direction } });
   }
   const cond: string[] = ['xd.entity_id = $1'];
   const params: unknown[] = [entityId];
@@ -194,10 +194,7 @@ export async function getClassificationTrail(
   );
   const trail = theOnlyRow(uuid, r.rows);
   if (!trail) {
-    throw new NotFoundError(
-      'Clasificación',
-      `${uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró)`
-    );
+    throw new NotFoundError({ key: 'error.RESOURCE_NOT_FOUND.classification_trail', params: { uuid } });
   }
   return trail;
 }

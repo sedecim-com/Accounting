@@ -122,8 +122,9 @@ export class RequestValidationError extends ValidationError {
 }
 
 export class NotFoundError extends AppError {
-  constructor(resource: string, id?: string) {
-    super(404, 'RESOURCE_NOT_FOUND', `${resource}${id ? ` with id ${id}` : ''} not found`);
+  /** `resource` and `id` build an English message; a key alone is the whole message, by catalogue. */
+  constructor(resource: string | ErrorMessageKey, id?: string) {
+    super(404, 'RESOURCE_NOT_FOUND', typeof resource === 'string' ? `${resource}${id ? ` with id ${id}` : ''} not found` : resource);
     this.name = 'NotFoundError';
   }
 }
