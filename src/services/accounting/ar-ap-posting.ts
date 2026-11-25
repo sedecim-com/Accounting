@@ -1933,16 +1933,19 @@ export async function followNoteReversal(
   const held = await client.query<{ payment_id: string; payment_number: string; invoice_id: string; iva: string; day: string }>(
     `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
             SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
-            GREATEST(m.entry_date, MAX(c.entry_date))::text AS day
+            GREATEST(m.entry_date, cp.check_cashed_date)::text AS day
        FROM journal_entry_lines l
        JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
        JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
        JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
                                 AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
-       JOIN journal_entries c ON c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
-                             AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false
       WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
-      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date
+        -- MNE-001-794: a cashing may post one entry per day, so it is asked for, not joined (a join would sum
+        -- the note's lines once per entry), and the day is the bank's, the one every entry of it once carried.
+        AND EXISTS (SELECT 1 FROM journal_entries c
+                     WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
+                       AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)
+      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date, cp.check_cashed_date
       ORDER BY cp.payment_number`,
     [note.entity_id, note.id, mirror.id]
   );

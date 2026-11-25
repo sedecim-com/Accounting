@@ -792,7 +792,7 @@ describe('a cheque applied after the credit that cashed it', () => {
     ]);
     expect(await query<{ iva: string }>(
       'SELECT iva_reclass_amount::text AS iva FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL ORDER BY created_at', [id]
-    ).then((r) => r.rows.map((x) => x.iva)), 'the oldest row stores what the cashing released').toEqual(['160.0000', '0.0000']);
+    ).then((r) => r.rows.map((x) => x.iva)), 'each row stores what its day released').toEqual(['80.0000', '80.0000']);
 
     const [june, july] = [await paper(b, 6), await paper(b, 7)];
     expect([at16(june), june.ledger.iva_trasladado]).toEqual([{ base: '500.00', iva: '80.00' }, '-80.0000']);
