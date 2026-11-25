@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { Lane } from '../../scripts/language/lane.js';
 import { compare } from '../../scripts/language-status.js';
 import { judgeLanguage, userStringsUnder } from '../../scripts/language/extract.js';
+import { SAT_CATALOGS } from '../../src/services/xml-ingestion/sat-catalogs.js';
 import {
   SERVICE_EXCLUDED,
   SERVICE_STRINGS_PER_ENTRY_RULE,
@@ -26,6 +27,7 @@ import {
 const ROOT = path.resolve(__dirname, '..', '..');
 const SAT_CATALOGUE = 'src/services/accounting/sat-agrupadores-catalogo.ts';
 const LAW_SEED = 'src/services/jurisdiction/legal-parameters-seed.ts';
+const CFDI_CATALOGUES = 'src/services/xml-ingestion/sat-catalogs.ts';
 
 describe('serviceUserStrings: what is counted', () => {
   it('counts Spanish prose whether it reaches the error directly or through a variable, and logs too', () => {
@@ -48,7 +50,7 @@ describe('serviceUserStrings: what is counted', () => {
     const code = "export const ROWS = [['101', 'Caja y efectivo de la entidad', 1]];";
     expect(serviceUserStrings(code, 'src/services/accounting/elsewhere.ts')).toHaveLength(1);
     expect(serviceUserStrings(code, SAT_CATALOGUE)).toEqual([]);
-    expect(Object.keys(SERVICE_EXCLUDED)).toEqual([SAT_CATALOGUE, LAW_SEED]);
+    expect(Object.keys(SERVICE_EXCLUDED)).toEqual([SAT_CATALOGUE, LAW_SEED, CFDI_CATALOGUES]);
     expect(SERVICE_EXCLUDED[SAT_CATALOGUE]).toMatch(/SAT/);
     expect(userStringsUnder(SAT_CATALOGUE).length).toBeGreaterThan(0);
     expect(serviceUserStringsUnder(SAT_CATALOGUE)).toEqual([]);
@@ -74,6 +76,19 @@ describe('the law seed is left out only for its verbatim quotes', () => {
   });
 });
 
+describe('the CFDI catalogues are left out only for the SAT\'s own names (MNE-001-728)', () => {
+  it('every string the shared recognizer finds there is a value of SAT_CATALOGS', () => {
+    const names = new Set<string>(
+      Object.values(SAT_CATALOGS).flatMap((table) => Object.values(table as Record<string, string>))
+    );
+    const hits = userStringsUnder(CFDI_CATALOGUES);
+    expect(hits.length).toBeGreaterThan(0);
+    for (const hit of hits) expect(names.has(hit.text), `${hit.file}:${hit.line} ${hit.text}`).toBe(true);
+    expect(serviceUserStringsUnder(CFDI_CATALOGUES)).toEqual([]);
+    expect(SERVICE_EXCLUDED[CFDI_CATALOGUES]).toMatch(/SAT/);
+  });
+});
+
 describe('serviceStringsLanes', () => {
   let lane: Lane;
   beforeAll(() => {
@@ -91,6 +106,7 @@ describe('serviceStringsLanes', () => {
     expect(Object.keys(perFile).every((file) => SERVICE_SURFACES.some((dir) => file.startsWith(`${dir}/`)))).toBe(true);
     expect(perFile[SAT_CATALOGUE]).toBeUndefined();
     expect(perFile[LAW_SEED]).toBeUndefined();
+    expect(perFile[CFDI_CATALOGUES]).toBeUndefined();
     expect(lane.perEntryRule).toBe(SERVICE_STRINGS_PER_ENTRY_RULE);
   });
 
