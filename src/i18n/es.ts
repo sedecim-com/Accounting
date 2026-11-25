@@ -295,6 +295,38 @@ export const ES: Record<keyof typeof EN, string> = {
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
   'error.VALIDATION_ERROR.payroll.termination_reason':
     'termination_reason inválido o ausente: se esperaba {known}. Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más grande del finiquito, así que no tiene valor por omisión.',
+  // ---- MNE-001-815 · I9 by folder, part 7b: the findings and notes of src/services/payroll; see en.ts ----
+  'payroll.finding.isn_sin_estado_en_el_trabajador':
+    '{count} recibo(s) del periodo {start} a {end} suman {base} sin estado que los cause: el ISN de esa base no se puede calcular ni declarar. Captura el estado de trabajo del trabajador, o cambia la política isn_estado_que_causa a domicilio_fiscal si tu criterio es declararlo todo en el domicilio de la entidad.',
+  'payroll.finding.isn_sin_tasa_capturada.none':
+    'No hay tasa de ISN capturada para {state} en el periodo {start} a {end} (causación {causation}). La base de {base} de {count} recibo(s) queda SIN calcular: no se declara cero, se declara que falta el dato. Captura la tasa con su fundamento en mx_isn_tasas_estatales.',
+  'payroll.finding.isn_sin_tasa_capturada.not_in_force':
+    '{state} tiene {count} vigencia(s) capturada(s) que tocan el periodo {start} a {end} o su causación, pero ninguna cubre la fecha de causación {causation}: la base de {base} queda sin calcular. Revisa vigencia_desde/vigencia_hasta.',
+  'payroll.finding.isn_regimen_no_soportado':
+    'La tasa de ISN de {state} vigente desde {since} está capturada como régimen «{regime}»{exempt, select, none {} other { (exime {exempt} al mes)}}, y este motor sólo sabe calcular tasa plana. La base de {base} del periodo {start} a {end} NO se calcula: aplicarle la tasa como si fuera plana daría un importe de la magnitud correcta y del valor equivocado.',
+  'payroll.finding.isn_tasa_cambia_dentro_del_periodo':
+    '{state} cambió de tasa dentro del periodo {start} a {end}: se aplicó la vigente al {causation} ({rate}, desde {since}) a la base completa, sin partirla por días.',
+  'payroll.finding.recibos_de_otra_entidad_en_la_corrida':
+    '{count} recibo(s) mexicanos de esta corrida son de trabajadores de OTRA entidad legal y no entran en el pasivo de {entityId}, que es la del calendario de la corrida. Su IMSS, INFONAVIT e ISN no quedan acumulados en ninguna parte.',
+  'payroll.finding.imss_patronal_en_cero':
+    'La corrida tiene {count} recibo(s) mexicanos y el IMSS patronal suma cero. Revisa el SBC de esos trabajadores: sin él no hay cuota que acumular y el costo laboral de la corrida queda corto.',
+  'payroll.finding.pasivo_por_corrida_absorbido_por_el_mensual':
+    '{count} renglón(es) de cuotas patronales que esta corrida había apuntado por su cuenta se retiraron: `provision_cuotas_patronales` dice ahora «mensual_al_cierre» y el renglón del mes ya los incluye. Dejarlos habría duplicado el IMSS patronal del mes.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez':
+    'Hay {count} renglón(es) de cuotas patronales provisionados AL CIERRE DEL MES en los meses que toca esta corrida ({rows}), y esta corrida los está apuntando además POR CORRIDA porque `provision_cuotas_patronales` cambió a «por_corrida». Lo provisionado queda contado dos veces. El renglón mensual agrega varias corridas y este cierre no lo puede retirar sin llevarse el pasivo de las demás: resuélvelo a mano antes de declarar.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez.row': '{taxType} {amount} del mes que inicia el {monthStart}',
+  'payroll.finding.share_in_already_settled_month':
+    'La corrida cruza el cambio de mes: {days} día(s) cotizados, del {start} al {end}, caen en el mes que inicia el {monthStart}, que ya tiene {settled, select, rows {{closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados} sua {su archivo del SUA ya generado} other {{closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados y su archivo del SUA ya generado}}. Esa parte de las cuotas llega después de cerrado el mes: el SUA ya generado la declara de menos y, si el renglón del mes ya se depositó, no se reescribe. Presenta la complementaria de ese mes.',
+  'payroll.finding.pasivo_reubicado_de_mes':
+    '{count} renglón(es) de pasivo de esta corrida cambiaron de mes en este cierre y el apunte anterior se retiró: la respuesta de `isn_momento_de_causacion` mueve el ISN al mes del devengo o al del pago, y dejar los dos habría duplicado el impuesto. Revisa las fechas límite del mes que se vació y del que se llenó.',
+  'payroll.finding.pasivo_ya_depositado_no_se_toca':
+    '{count} renglón(es) de pasivo ya no están en \'pending\' —depositados, dispensados o marcados como tardíos— y NO se reescribieron: {rows}. Cambiarles el importe borraría la evidencia de lo que se pagó.',
+  'payroll.finiquito.seniority_premium.not_owed':
+    'no se devenga: la renuncia paga prima de antigüedad sólo con quince años cumplidos (LFT art. 162 fr. III)',
+  'payroll.finiquito.seniority_premium.not_calculated':
+    'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. Se deben {days} días de prima de antigüedad y NO están en este total',
+  'payroll.finiquito.seniority_premium.calculated':
+    '{days} días × {base} (LFT art. 162 fr. I, base topada por el 486 con un mínimo de {minimumWage})',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

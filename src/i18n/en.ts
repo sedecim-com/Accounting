@@ -381,6 +381,41 @@ export const EN = {
   'error.VALIDATION_ERROR.payroll.termination_reason':
     'termination_reason is invalid or missing: expected {known}. It decides whether a seniority premium is owed, which for a long-serving worker is the largest item of the severance settlement, so it has no default.',
 
+  // ---- MNE-001-815 · I9 by folder, part 7b: the findings and notes of src/services/payroll (issue #151) ----
+  // Rendered by the surface in its reader's language; the Spanish twin is the text each site wrote.
+  // Codes, policy keys, values, tables, columns and law articles are literals.
+  'payroll.finding.isn_sin_estado_en_el_trabajador':
+    '{count} payslip(s) of the period {start} to {end} add up to {base} with no state that causes them: the ISN of that base cannot be computed or declared. Capture the worker\'s work state, or change the policy isn_estado_que_causa to domicilio_fiscal if your criterion is to declare it all at the entity\'s address.',
+  'payroll.finding.isn_sin_tasa_capturada.none':
+    'No ISN rate is captured for {state} in the period {start} to {end} (causation {causation}). The base of {base} of {count} payslip(s) is NOT computed: zero is not declared, the missing figure is. Capture the rate with its legal basis in mx_isn_tasas_estatales.',
+  'payroll.finding.isn_sin_tasa_capturada.not_in_force':
+    '{state} has {count} captured validity period(s) that touch the period {start} to {end} or its causation, but none covers the causation date {causation}: the base of {base} is not computed. Check vigencia_desde/vigencia_hasta.',
+  'payroll.finding.isn_regimen_no_soportado':
+    'The ISN rate of {state} in force since {since} is captured as regime «{regime}»{exempt, select, none {} other { (it exempts {exempt} a month)}}, and this engine can only compute a flat rate. The base of {base} of the period {start} to {end} is NOT computed: applying the rate as if it were flat would give an amount of the right size and the wrong value.',
+  'payroll.finding.isn_tasa_cambia_dentro_del_periodo':
+    '{state} changed its rate within the period {start} to {end}: the rate in force on {causation} ({rate}, since {since}) was applied to the whole base, without splitting it by days.',
+  'payroll.finding.recibos_de_otra_entidad_en_la_corrida':
+    '{count} Mexican payslip(s) of this run belong to workers of ANOTHER legal entity and are not part of the liability of {entityId}, which is the entity of the run\'s schedule. Their IMSS, INFONAVIT and ISN are not accrued anywhere.',
+  'payroll.finding.imss_patronal_en_cero':
+    'The run has {count} Mexican payslip(s) and the employer IMSS adds up to zero. Check the SBC of those workers: without it there is no contribution to accrue and the labour cost of the run falls short.',
+  'payroll.finding.pasivo_por_corrida_absorbido_por_el_mensual':
+    '{count} employer contribution row(s) this run had booked on its own were removed: `provision_cuotas_patronales` now says «mensual_al_cierre» and the month\'s row already includes them. Leaving them would have doubled the employer IMSS of the month.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez':
+    'There are {count} employer contribution row(s) provisioned AT MONTH END in the months this run touches ({rows}), and this run is also booking them PER RUN because `provision_cuotas_patronales` changed to «por_corrida». The provision is counted twice. The monthly row adds up several runs and this close cannot remove it without taking the liability of the others with it: resolve it by hand before filing.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez.row': '{taxType} {amount} of the month starting {monthStart}',
+  'payroll.finding.share_in_already_settled_month':
+    'The run crosses the month end: {days} contribution day(s), from {start} to {end}, fall in the month starting {monthStart}, which already has {settled, select, rows {{closedRows} employer IMSS/INFONAVIT row(s) already deposited} sua {its SUA file already generated} other {{closedRows} employer IMSS/INFONAVIT row(s) already deposited and its SUA file already generated}}. That share of the contributions arrives after the month was closed: the SUA already generated declares it short and, if the month\'s row was already deposited, it is not rewritten. File the complementary return for that month.',
+  'payroll.finding.pasivo_reubicado_de_mes':
+    '{count} liability row(s) of this run changed month in this close and the previous entry was removed: the answer of `isn_momento_de_causacion` moves the ISN to the month of accrual or to the month of payment, and leaving both would have doubled the tax. Check the due dates of the month that was emptied and of the one that was filled.',
+  'payroll.finding.pasivo_ya_depositado_no_se_toca':
+    '{count} liability row(s) are no longer in \'pending\' —deposited, waived or marked late— and were NOT rewritten: {rows}. Changing their amount would erase the evidence of what was paid.',
+  'payroll.finiquito.seniority_premium.not_owed':
+    'not earned: a resignation pays a seniority premium only after fifteen full years of service (LFT art. 162 fr. III)',
+  'payroll.finiquito.seniority_premium.not_calculated':
+    'NOT CALCULATED: the minimum wage of the zone is missing, and the cap of art. 486 hangs on it. {days} days of seniority premium are owed and are NOT in this total',
+  'payroll.finiquito.seniority_premium.calculated':
+    '{days} days × {base} (LFT art. 162 fr. I, base capped by art. 486 with a minimum wage of {minimumWage})',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

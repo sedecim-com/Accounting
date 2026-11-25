@@ -18,7 +18,7 @@ import {
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { renderHallazgos } from './e-accounting-command.js';
 import type { Palette } from './palette.js';
-import { t, type TranslationKey } from '../i18n/index.js';
+import { getLanguage, t, type TranslationKey } from '../i18n/index.js';
 import {
   ExitCode,
   abortedByUser,
@@ -46,6 +46,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { calendarDateOf, isRealCalendarDate } from '../utils/calendar-date.js';
+import { findingText } from '../i18n/payroll-finding-text.js';
 
 // ============================================================
 // mnemosine isn · mnemosine tax-deposit — LA PUERTA DEL IMPUESTO QUE NO
@@ -1248,7 +1249,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
             severity: h.severidad === 'bloqueante' ? 'blocking' : 'warning',
             nombre: h.codigo,
             referencia: h.estado ?? '',
-            detalle: h.mensaje,
+            detalle: findingText(h, getLanguage()),
           })),
           c
         );

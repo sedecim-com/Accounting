@@ -6,6 +6,7 @@ import {
   type EntradaFiniquito,
 } from '../../../src/services/payroll/mx/finiquito-math.js';
 import Decimal from 'decimal.js';
+import { t } from '../../../src/i18n/index.js';
 
 /**
  * LA PRESTACIÓN MÁS GRANDE DEL FINIQUITO NO SE CALCULABA.
@@ -112,7 +113,7 @@ describe('el finiquito con su prima', () => {
       motivo_baja: 'renuncia',
     });
     expect(r.prima_antiguedad_importe).toBe('0.0000');
-    expect(r.prima_antiguedad_nota).toMatch(/no se devenga.*quince años/i);
+    expect(t(r.prima_antiguedad_nota.key, {}, 'es')).toMatch(/no se devenga.*quince años/i);
   });
 
   it('SIN el salario mínimo NO se inventa el tope: se nombra lo que falta', () => {
@@ -123,9 +124,9 @@ describe('el finiquito con su prima', () => {
     const r = calcularFiniquito(sinMinimo as EntradaFiniquito);
     expect(r.prima_antiguedad_importe).toBe('0.0000');
     expect(r.prima_antiguedad_base_diaria).toBeNull();
-    expect(r.prima_antiguedad_nota).toMatch(/SIN CALCULAR/);
+    expect(r.prima_antiguedad_nota.key).toBe('payroll.finiquito.seniority_premium.not_calculated');
     // Y dice CUÁNTOS días se deben, que es lo accionable.
-    expect(r.prima_antiguedad_nota).toMatch(/180 días/);
+    expect(r.prima_antiguedad_nota.params).toEqual({ days: 180 });
   });
 
   it('la zona de frontera cambia el finiquito en 45 298.80', () => {
