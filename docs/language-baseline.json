@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 758,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1920
+    "spanish-user-strings-services": 1872
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1764,8 +1764,7 @@
       "src/services/xml-ingestion/cfdi-query-service.ts": 1,
       "src/services/xml-ingestion/pre-registration-service.ts": 3,
       "src/services/xml-ingestion/received-credit-note-posting.ts": 1,
-      "src/services/xml-ingestion/rep-linkage.ts": 20,
-      "src/services/xml-ingestion/sat-catalogs.ts": 48
+      "src/services/xml-ingestion/rep-linkage.ts": 20
     }
   }
 }
