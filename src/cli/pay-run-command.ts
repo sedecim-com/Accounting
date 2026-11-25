@@ -17,6 +17,7 @@ import {
   type PayRunSummary,
 } from '../services/payroll/common/pay-run-service.js';
 import { hallazgosQueBloquean } from '../services/payroll/common/employer-liability-service.js';
+import { staleParameterText } from '../services/payroll/mx/annual-parameters.js';
 import type { ResultadoAcumulacion } from '../services/payroll/common/employer-liability-service.js';
 import { ConflictError } from '../utils/errors.js';
 import { parseForClient } from '../utils/zod-client-errors.js';
@@ -33,6 +34,7 @@ import {
   gateMutation,
   legible,
   render,
+  resolveFormat,
   requireExplicitEntity,
   usageError,
   withContext,
@@ -329,7 +331,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
       const scope = await scopeForWrite(opts);
       const reviewer = await resolveReviewer(scope.tenantId, opts.user);
       const before = await getPayRun(id, scope);
-      await blockedOnConflict(() =>
+      const calculation = await blockedOnConflict(() =>
         calculatePayRun(
           id,
           {
@@ -341,7 +343,13 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
           scope
         )
       );
-      render([payRunRow(await getPayRun(id, scope))], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      // A yearly parameter the pay date found without its new row (MNE-001-636):
+      // a field of the row in JSON, otherwise a line on stderr.
+      const warnings = calculation.warnings.map(staleParameterText);
+      const row = payRunRow(await getPayRun(id, scope));
+      const asJson = ['json', 'ndjson'].includes(resolveFormat(opts));
+      render([asJson ? { ...row, warnings } : row], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      if (!asJson) for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
       if (legible(opts)) process.stderr.write(p.dim(`  ${t('payrun.calculate.next', { id })}\n`));
     })
   );

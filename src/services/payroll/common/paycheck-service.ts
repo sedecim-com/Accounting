@@ -115,6 +115,9 @@ export interface CalculatedPaycheck {
    */
   subsidio_entregado_efectivo: string;
   breakdown: Record<string, number>;
+  /** The period's payment date, 'YYYY-MM-DD', as the paycheck read it: the run checks its dated parameters on it. */
+  pay_date: string;
+  country_code: string;
 }
 
 /**
@@ -991,5 +994,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     net_pay: netPay,
     subsidio_entregado_efectivo: subsidioEntregado.toFixed(4),
     breakdown,
+    pay_date: toCalendarDate(period.pay_date),
+    country_code: emp.country_code,
   };
 }

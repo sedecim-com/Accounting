@@ -12,6 +12,7 @@ import { dispatchEvent } from '../../webhooks/webhook-service.js';
 import { payRunStateTransitions } from '../../../api/rest/middleware/metrics.js';
 import type { Scope } from '../../../database/scope.js';
 import { alcanceDeCorrida, periodoEnEntidad } from './alcance-nomina.js';
+import { staleAnnualParameters, type StaleAnnualParameter } from '../mx/annual-parameters.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 
 // ============================================================
@@ -119,12 +120,17 @@ export async function createPayRun(input: PayRunInput, scope: Scope): Promise<st
  * A second calculation REPLACES: the run holds the employees of the last
  * inputs and nobody else, which is what makes its totals the sum of its
  * paychecks. Whoever sent a run in several calls sends it in one.
+ *
+ * It answers with its WARNINGS (MNE-001-636, #953): a Mexican run paid after
+ * the day a yearly parameter takes its new value, with no row from that day,
+ * names the value it used and since when (`annual-parameters.ts`). A warning
+ * changes no amount and stops nothing.
  */
 export async function calculatePayRun(
   payRunId: string,
   input: PayRunInput,
   scope: Scope
-): Promise<void> {
+): Promise<PayRunCalculation> {
   const totals = await withTransaction((client) => calculateRunOn(client, payRunId, input, scope));
   // After the commit: a webhook never announces a calculation that rolled back.
   await dispatchEvent(input.tenant_id, 'payroll.run.calculated', {
@@ -134,6 +140,12 @@ export async function calculatePayRun(
     employee_count: input.employee_inputs.length,
   });
   payRunStateTransitions.inc({ from: 'draft', to: 'calculated', country: 'unknown' });
+  return { warnings: totals.warnings };
+}
+
+/** What a calculation answers besides what it wrote. */
+export interface PayRunCalculation {
+  warnings: StaleAnnualParameter[];
 }
 
 /** The writes of one calculation, on the transaction that makes them one. */
@@ -142,7 +154,7 @@ async function calculateRunOn(
   payRunId: string,
   input: PayRunInput,
   scope: Scope
-): Promise<{ gross: string; net: string }> {
+): Promise<{ gross: string; net: string; warnings: StaleAnnualParameter[] }> {
   // LA PRIMERA ESCRITURA ES LA PUERTA, y no tenía cerradura: `WHERE id = $1`
   // a secas. Medido contra Postgres, `POST /pay-runs/<corrida de B>/calculate`
   // con una sesión de A contestaba 200 y dejaba la corrida de B con
@@ -182,6 +194,7 @@ async function calculateRunOn(
   let totalEeTax = new Decimal(0);
   let totalErTax = new Decimal(0);
   let totalNet = new Decimal(0);
+  let mexicanPayDate: string | undefined;
 
   // Overtime is checked for EVERY employee before the first paycheck is
   // calculated (MNE-001-110): a refused line costs no paycheck's work.
@@ -264,7 +277,11 @@ async function calculateRunOn(
     totalEeTax = totalEeTax.plus(result.employee_taxes);
     totalErTax = totalErTax.plus(result.employer_taxes);
     totalNet = totalNet.plus(result.net_pay);
+    if (result.country_code === 'MX') mexicanPayDate ??= result.pay_date;
   }
+
+  // Once per run, on the pay date every paycheck of the run shares: never per paycheck.
+  const warnings = mexicanPayDate ? await staleAnnualParameters(mexicanPayDate, client) : [];
 
   // El cierre lleva el alcance OTRA VEZ, con su propio índice. No es
   // redundante por gusto: la puerta de arriba y este cierre son dos viajes
@@ -301,7 +318,7 @@ async function calculateRunOn(
   if (closing.rowCount !== 1) {
     throw new ConflictError({ key: 'payrun.calculate.changed_meanwhile', params: { id: payRunId } });
   }
-  return { gross: totalGross.toFixed(2), net: totalNet.toFixed(2) };
+  return { gross: totalGross.toFixed(2), net: totalNet.toFixed(2), warnings };
 }
 
 export interface PayRunSummary {
