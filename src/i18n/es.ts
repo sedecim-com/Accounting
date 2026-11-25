@@ -2628,6 +2628,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El pago {payment} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
   'payment.apply.date_before_last_event':
     'El último asiento del pago {payment} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  // MNE-001-746: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'payment.apply.date_before_cashing':
+    'El banco cobró el cheque del pago {payment} el {cashedOn}: una aplicación fechada el {date} aplicaría su efectivo, y acreditaría el IVA que paga, antes de que el cheque se pagara. Féchala el {cashedOn} o después. No se aplicó nada.',
   'payment.apply.date_before_bill':
     '{bill} es del {billDate}: el efectivo aplicado el {date} lo saldaría antes de que existiera el gasto. Fecha la aplicación el {billDate} o después. No se aplicó nada.',
   'payment.apply.date_period_closed':

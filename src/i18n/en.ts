@@ -2824,6 +2824,9 @@ export const EN = {
     '{payment} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
   'payment.apply.date_before_last_event':
     '{payment} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  // MNE-001-746: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'payment.apply.date_before_cashing':
+    'The bank cashed the cheque of {payment} on {cashedOn}: an application dated {date} would apply its cash, and credit the VAT it pays, before the cheque was paid. Date it {cashedOn} or later. Nothing was applied.',
   'payment.apply.date_before_bill':
     '{bill} is dated {billDate}: cash applied on {date} would settle it before the bill existed. Date the application {billDate} or later. Nothing was applied.',
   'payment.apply.date_period_closed':
