@@ -666,9 +666,10 @@ const REMEDIOS: ReadonlyArray<{ patron: RegExp; comando: string; enReporteDeErro
     comando: 'mnemosine doctor   (and check DATABASE_URL in .env)',
     enReporteDeError: true,
   },
-  { patron: /entit|identity|rfc|tenant/, comando: 'mnemosine init --section identity', enReporteDeError: false },
+  // The stems after `entit` and `provider` read the reasons of detectSetupState in the other language (MNE-001-799).
+  { patron: /entit|entidad|identity|rfc|tenant/, comando: 'mnemosine init --section identity', enReporteDeError: false },
   {
-    patron: /provider|api.?key|model|credential|anthropic|ollama|hermes/,
+    patron: /provider|proveedor|api.?key|model|credential|anthropic|ollama|hermes/,
     comando: 'mnemosine init --section ai',
     enReporteDeError: false,
   },
