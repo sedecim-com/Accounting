@@ -2390,6 +2390,14 @@ export const EN = {
    *  el parámetro viajaría en inglés dentro de la frase española. */
   'cli.error.did_you_mean_one_of': '(Did you mean one of {suggestions}?)',
 
+  // --- The machine error of a leaf asked for JSON (MNE-001-698) ---------
+  /** `src/cli/kernel/error-envelope.ts`: the message of a failure of the
+   *  driver or the system, whose raw text stays out of a machine error. */
+  'cli.error.internal':
+    'The command failed on an internal error (database, network or system); ' +
+    'its details are not part of a machine error.',
+  'cli.error.internal_remedy': 'Run the same command without --json to read the details.',
+
   // --- El diccionario de banderas (`src/cli/kernel/flags.ts`) ----------
   'cli.flag.entity': 'legal entity to operate on (defaults to the active one)',
   'cli.flag.tenant_scope': 'tenant (firm) whose data to scope to',

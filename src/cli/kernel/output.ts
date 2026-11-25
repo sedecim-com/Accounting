@@ -57,6 +57,16 @@ export type Format = (typeof FORMATS)[number];
 /** Envelope version. Bump only on a breaking field change; it is an API. */
 export const SCHEMA_VERSION = 1;
 
+/**
+ * The error envelope a failing leaf writes on stderr when it was asked for
+ * JSON (MNE-001-698, PRD-003 RF-36; `kernel/error-envelope.ts`). Its `schema`
+ * field reads `mnemosine.error/1`: a name, so a reader tells it from the data
+ * envelope by its first field, and a version that moves under the same rule
+ * as SCHEMA_VERSION. It is an API too.
+ */
+export const ERROR_SCHEMA_NAME = 'mnemosine.error';
+export const ERROR_SCHEMA_VERSION = 1;
+
 export type Row = Record<string, unknown>;
 
 export interface RenderOptions {

@@ -94,6 +94,9 @@ import {
   exitCodeFor,
   batchExitCode,
   CliError,
+  setErrorOutput,
+  machineErrorOutput,
+  writeErrorEnvelope,
   ExitCode,
   installHelpChrome,
   describeCommand,
@@ -358,18 +361,59 @@ function isInterrupt(err: unknown): boolean {
   return code === 'ABORT_ERR' || code === 'ERR_USE_AFTER_CLOSE';
 }
 
-export function reportError(err: unknown): void {
+/** What a model provider's failure says: its headline and, when there is one, the next step. */
+function providerFailure(err: unknown): { message: string; remedy: string | null } | null {
   if (err instanceof Anthropic.AuthenticationError) {
-    console.error(ce.red('\nAuthentication error with the Anthropic API.'));
-    console.error(t('provider.credential.anthropic_rejected'));
-  } else if (err instanceof OpenAI.AuthenticationError) {
-    console.error(ce.red('\nThe provider rejected the credential (401).'));
-    console.error('Check the environment variable named by api_key_env in the profile (mnemosine providers).');
-  } else if (err instanceof OpenAI.APIConnectionError) {
-    console.error(ce.red('\nCould not connect to the provider endpoint.'));
-    console.error('If it is a local model (ollama, hermes-agent), check that the server is running.');
-  } else if (err instanceof Anthropic.APIError || err instanceof OpenAI.APIError) {
-    console.error(ce.red(`\nProvider API error (${err.status}): ${err.message}`));
+    return { message: 'Authentication error with the Anthropic API.', remedy: t('provider.credential.anthropic_rejected') };
+  }
+  if (err instanceof OpenAI.AuthenticationError) {
+    return {
+      message: 'The provider rejected the credential (401).',
+      remedy: 'Check the environment variable named by api_key_env in the profile (mnemosine providers).',
+    };
+  }
+  if (err instanceof OpenAI.APIConnectionError) {
+    return {
+      message: 'Could not connect to the provider endpoint.',
+      remedy: 'If it is a local model (ollama, hermes-agent), check that the server is running.',
+    };
+  }
+  if (err instanceof Anthropic.APIError || err instanceof OpenAI.APIError) {
+    return { message: `Provider API error (${err.status}): ${err.message}`, remedy: null };
+  }
+  return null;
+}
+
+/** The text a person reads for a failure that is not a provider's (see the I7 and I9 notes in reportError). */
+function errorText(err: unknown): string {
+  return err instanceof CliError || err instanceof AppError
+    ? err.localized()
+    : err instanceof Error
+      ? err.message
+      : String(err);
+}
+
+/**
+ * Reports a failure on stderr. `exitCode` is the code the process will exit
+ * with; a leaf whose exit is not `exitCodeFor(err)` (`sat download`) passes its
+ * own, because the machine envelope states it.
+ */
+export function reportError(err: unknown, exitCode: number = exitCodeFor(err)): void {
+  const provider = providerFailure(err);
+  // MNE-001-698 · A LEAF ASKED FOR JSON FAILS IN JSON: one envelope, by the
+  // kernel's single renderer (kernel/error-envelope.ts). The prose below is
+  // not reached; without --json it prints, byte for byte, what it printed.
+  if (machineErrorOutput()) {
+    writeErrorEnvelope(
+      err,
+      exitCode,
+      provider ?? { remedy: err instanceof CliError ? null : remedioParaMensaje(errorText(err)) }
+    );
+    return;
+  }
+  if (provider) {
+    console.error(ce.red(`\n${provider.message}`));
+    if (provider.remedy) console.error(provider.remedy);
   } else {
     // I7 · UN `CliError` SE RINDE, NO SE IMPRIME.
     //
@@ -385,12 +429,7 @@ export function reportError(err: unknown): void {
     // `message` is English when it was written by key, and `localized()` renders
     // that key in the active language. One born from prose returns its message
     // unchanged, so for those this branch prints exactly what it printed before.
-    const mensaje =
-      err instanceof CliError || err instanceof AppError
-        ? err.localized()
-        : err instanceof Error
-          ? err.message
-          : String(err);
+    const mensaje = errorText(err);
     console.error(ce.red(`\n${mensaje}`));
     // El redactor de remedios existía y solo lo veía el arranque desnudo
     // (renderBrokenFlow): cualquier otra hoja escupía «role postgres does
@@ -1216,6 +1255,9 @@ export function fijarInquilinoDeLaOrden(actionCommand: Command): InquilinoDeLaSe
 }
 
 program.hook('preAction', async (thisCommand, actionCommand) => {
+  // First, before anything here can throw: whether a failure of this leaf is
+  // reported as prose or as the machine envelope (MNE-001-698).
+  setErrorOutput(actionCommand.opts());
   const inquilino = fijarInquilinoDeLaOrden(actionCommand);
 
   // DE DÓNDE SALIÓ EL INQUILINO, dicho cuando importa. El caso peligroso es
