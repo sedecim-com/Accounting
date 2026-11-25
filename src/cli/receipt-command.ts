@@ -45,7 +45,7 @@ import {
   argumentByKey,
   describeCommand,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
+import { confirmarConReintento, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
@@ -307,10 +307,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure, ` +
-          'or with --dry-run to see the effect first.'
-      );
+      throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
@@ -321,7 +318,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       if (veredicto.si) return;
       throw abortedByUser(
         veredicto.incomprendida !== undefined
-          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          ? { key: 'ar.confirm.aborted', params: { reason: { key: 'confirm_answer_not_understood', params: { answer: veredicto.incomprendida } } } }
           : undefined
       );
     } finally {
@@ -471,14 +468,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
 
         if (target && !COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
-          throw blockedByState(
-            `${target.invoice_number} is "${target.status}". ` +
-              (target.status === InvoiceStatus.PAID
-                ? 'It is already settled.'
-                : target.status === InvoiceStatus.DRAFT
-                  ? 'Issue it first: an invoice has to be in the ledger before cash can be applied to it.'
-                  : `Only ${COBRABLES.join(', ')} invoices can be collected.`)
-          );
+          const reason = target.status === InvoiceStatus.PAID ? 'paid' : target.status === InvoiceStatus.DRAFT ? 'draft' : 'other';
+          const params = { number: target.invoice_number, status: target.status, reason, collectable: COBRABLES.join(', ') };
+          throw blockedByState({ key: 'ar.receipt.record.not_collectable', params });
         }
 
         // Con --on-account el excedente sobre el saldo queda como anticipo;
@@ -492,7 +484,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // reach the INSERT and surface Postgres' uuid syntax error. The name is
         // echoed because a fragment may match an account the operator did not mean.
         const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
-        if (bank) process.stderr.write(p.dim(`Bank account: ${bank.account_name}\n`));
+        if (bank) process.stderr.write(p.dim(`${t('ap.payment.bank_account', { name: bank.account_name })}\n`));
         const entrada: EntradaPago = {
           entityId: ctx.entityId,
           // With both, the customer named is what the service checks the invoice against.
@@ -530,19 +522,17 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         if (opts.dryRun) {
           imprimirRegistro(previo, p, label, remanente, true, opts.json === true);
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
         await confirmOrAbort(
           opts,
           target
-            ? `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
-              (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
-              (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
-              (previo.advance ? ` (${t('receipt.advance.label')}: ${excessFigures(previo.advance)})` : '') +
-              (bank ? ` into ${bank.account_name}` : '') +
-              ` in ${ctx.entityName}? This posts to the ledger.`
+            ? t('ar.receipt.record.confirm', { amount: opts.amount, currency: target.currency_code, invoice: target.invoice_number, entity: ctx.entityName,
+                balances: doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '', left: remanente.greaterThan(0) ? 'yes' : 'none', leftAmount: remanente.toFixed(2),
+                advance: previo.advance ? ` (${t('receipt.advance.label')}: ${excessFigures(previo.advance)})` : '', bank: bank ? 'yes' : 'none', bankName: bank?.account_name ?? '',
+              })
             : t('receipt.advance.confirm', {
                 amount: opts.amount, customer: label, entity: ctx.entityName,
                 figures: previo.advance ? ` (${advanceFigures(previo.advance)})` : '',
@@ -631,13 +621,17 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       out.write(
         `\n${p.bold(cobro.payment_number)} ${p.dim(cobro.status)}  ${cobro.customer_name ?? ''}\n`
       );
+      // The labels pad to the longest one (18 at least, the English width); REP reads the same in Spanish.
+      const labels = ['date', 'amount', 'method', 'reference', 'on_account', 'reversed', 'reversal_cause', 'cause_stated'] as const;
+      const others = [t('receipt.cheque.cashed_label'), t('receipt.advance.label'), t('ar.invoice.show.ledger_entry')];
+      const width = Math.max(18, ...[...labels.map((l) => t(`ar.receipt.show.${l}`)), ...others].map((label) => label.length + 1));
       const fact = (label: string, value: string | number | null | undefined) => {
         if (value === null || value === undefined || value === '') return;
-        out.write(`  ${p.dim(label.padEnd(18))}${String(value)}\n`);
+        out.write(`  ${p.dim(label.padEnd(width))}${String(value)}\n`);
       };
-      fact('Date', dateOnly(cobro.payment_date));
-      fact('Amount', `${cobro.payment_amount} ${cobro.currency_code}`);
-      fact('Method', cobro.payment_method);
+      fact(t('ar.receipt.show.date'), dateOnly(cobro.payment_date));
+      fact(t('ar.receipt.show.amount'), `${cobro.payment_amount} ${cobro.currency_code}`);
+      fact(t('ar.receipt.show.method'), cobro.payment_method);
       // MNE-001-556: a cheque's VAT is caused the day the bank cashes it, so the receipt says whether it has.
       if (cobro.payment_method === 'check' && (cobro.check_cashed_tx_id || cobro.status === 'completed')) {
         fact(
@@ -647,12 +641,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             : t('receipt.cheque.not_cashed')
         );
       }
-      fact('Reference', cobro.reference_number);
-      fact('On account', cobro.unapplied_amount !== '0.00' ? cobro.unapplied_amount : null);
+      fact(t('ar.receipt.show.reference'), cobro.reference_number);
+      fact(t('ar.receipt.show.on_account'), cobro.unapplied_amount !== '0.00' ? cobro.unapplied_amount : null);
       const { advance_base: base, advance_tax_rate: treatment, advance_iva: iva } = cobro;
       const isAdvance = base !== null && treatment !== null && iva !== null;
       if (isAdvance) fact(t('receipt.advance.label'), advanceFigures({ base, treatment, iva }));
-      fact('Ledger entry', cobro.journal_entry_number);
+      fact(t('ar.invoice.show.ledger_entry'), cobro.journal_entry_number);
       // A receipt that is all advance owes the advance CFDI the client issues, not a REP.
       const allAdvance = isAdvance && new Decimal(base).plus(iva).equals(cobro.payment_amount);
       fact(
@@ -664,15 +658,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             : p.yellow(t('ar.receipt.no_rep'))
       );
       if (cobro.reversed_at) {
-        fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
+        fact(t('ar.receipt.show.reversed'), p.yellow(new Date(cobro.reversed_at).toISOString()));
         // MNE-001-499: a transfer moved no money, so it has no cause to state.
-        fact('Reversal cause', cobro.payment_method === 'balance_transfer'
-          ? t('receipt.cause.none_for_transfer') : (cobro.reversal_cause ?? 'not stated'));
+        fact(t('ar.receipt.show.reversal_cause'), cobro.payment_method === 'balance_transfer'
+          ? t('receipt.cause.none_for_transfer') : (cobro.reversal_cause ?? t('ar.receipt.show.cause_not_stated')));
         // Later than the reversal when the cause was stated afterwards (MNE-001-511).
-        if (cobro.reversal_cause_stated_at) fact('Cause stated', new Date(cobro.reversal_cause_stated_at).toISOString());
+        if (cobro.reversal_cause_stated_at) fact(t('ar.receipt.show.cause_stated'), new Date(cobro.reversal_cause_stated_at).toISOString());
       }
 
-      out.write(`\n${p.bold('Applications')} ${p.dim(`(${cobro.aplicaciones.length})`)}\n`);
+      out.write(`\n${p.bold(t('ar.receipt.show.applications'))} ${p.dim(`(${cobro.aplicaciones.length})`)}\n`);
       if (cobro.aplicaciones.length) {
         render(
           cobro.aplicaciones.map((a) => ({
@@ -706,9 +700,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       run(async () => {
         const ctx = await entityOf(opts);
         if (opts.status?.length) {
-          throw usageError(
-            'Filter collections with --unapplied or --needs-rep: the status column follows the money, not a workflow.'
-          );
+          throw usageError({ key: 'ar.receipt.list.status_filter' });
         }
         const customerId = opts.customer
           ? String((await resolveCustomer(ctx.entityId, opts.customer)).id)
@@ -798,15 +790,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (dryRun) {
           imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null, previo.date);
           for (const w of twice) process.stderr.write(p.yellow(`${w}\n`));
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
-            `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
-            `on ${previo.date} in ${ctx.entityName}? This posts to the ledger.` +
+          t('ar.receipt.apply.confirm', {
+            documents: previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', '),
+            payment: cobro.payment_number, before: previo.remanenteAnterior, after: previo.remanenteNuevo, date: previo.date, entity: ctx.entityName }) +
             twice.map((w) => `\n${w}`).join('')
         );
 
@@ -865,24 +857,25 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               ? ` · ${t('receipt.unapply.iva_kept_later_month', { iva: r.ivaKeptCaused, key: 'plain_receipt_unapply_iva', month: r.date.slice(0, 7) })}`
               : ` · ${t('receipt.unapply.iva_kept', { iva: r.ivaKeptCaused })}`;
 
+        // The IVA parked again, as a suffix; empty when none.
+        const reparked = (r: typeof previo): string => !new Decimal(r.ivaReAparcado).greaterThan(0) ? ''
+          : p.dim(` · ${t('ar.receipt.unapply.reparked', { iva: r.ivaReAparcado, estimate: r.ivaEstimado ? 'yes' : 'no' })}`);
+        const doc = previo.documento;
+        const said = { before: doc.saldoAnterior, after: doc.saldoNuevo, withheld: withheldText(doc), advance: advanceText(doc, 'receipt.advance.iva_restored'), invoice: doc.numero };
+
         if (dryRun) {
           atCashing(previo.ivaAtCashing);
           process.stdout.write(
-            `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
-              (new Decimal(previo.ivaReAparcado).greaterThan(0)
-                ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-                : '') + p.dim(keptText(previo)) + '\n'
+            `${p.bold(t('ar.receipt.unapply.would', { amount: previo.desaplicado, invoice: doc.numero }))} ` +
+              p.dim(t('ar.receipt.unapply.would_detail', { ...said, date: previo.date })) + reparked(previo) + p.dim(keptText(previo)) + '\n'
           );
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
-            `The cash stays on account; the invoice reopens.${keptText(previo)}`
+          t('ar.receipt.unapply.confirm', { ...said, amount: previo.desaplicado, payment: cobro.payment_number, date: previo.date, kept: keptText(previo) })
         );
 
         const result = await unapplyCustomerPayment(
@@ -910,11 +903,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           return;
         }
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
-            (new Decimal(result.ivaReAparcado).greaterThan(0)
-              ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
-              : '') + p.dim(keptText(result)) + '\n'
+          `${p.green('✔')} ${t('ar.receipt.unapply.done', { payment: p.bold(result.paymentNumber), invoice: p.bold(result.documento.numero) })} ` +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}`) +
+            reparked(result) + p.dim(keptText(result)) + '\n'
         );
         atCashing(result.ivaAtCashing);
       })
@@ -961,8 +952,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         if (dryRun) {
           process.stdout.write(
-            `${p.bold(`Would reverse ${cobro.payment_number}`)} ${p.dim(
-              `· ${previo.reversals.length} entry(ies) mirrored, ${previo.documentosReabiertos.length} invoice(s) reopened`
+            `${p.bold(t('ar.receipt.reverse.would', { payment: cobro.payment_number }))} ${p.dim(
+              `· ${t('ar.receipt.reverse.would_detail', { entries: previo.reversals.length, invoices: previo.documentosReabiertos.length })}`
             )}\n`
           );
           for (const d of previo.documentosReabiertos) {
@@ -970,16 +961,14 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           }
           process.stdout.write(`  ${causeText(previo)}\n`);
           for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Reverse ${cobro.payment_number} (${cobro.payment_amount} ${cobro.currency_code}; ${causeText(previo)})? ` +
-            `${previo.reversals.length} ledger entry(ies) get a mirror and ` +
-            `${previo.documentosReabiertos.length} invoice(s) reopen.` +
-            warnings.map((w) => `\n${w}`).join('')
+          t('ar.receipt.reverse.confirm', { payment: cobro.payment_number, amount: cobro.payment_amount, currency: cobro.currency_code, cause: causeText(previo),
+            entries: previo.reversals.length, invoices: previo.documentosReabiertos.length }) + warnings.map((w) => `\n${w}`).join('')
         );
 
         const result = await reverseCustomerPayment(
@@ -1004,10 +993,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           return;
         }
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(result.paymentNumber)} reversed ` +
+          `${p.green('✔')} ${t('ar.receipt.reverse.done', { payment: p.bold(result.paymentNumber) })} ` +
             p.dim(
               `· ${result.reversals.map((r) => `${r.of}→${r.entryNumber}`).join(', ')} · ` +
-                `${result.documentosReabiertos.length} invoice(s) reopened · ${causeText(result)}\n`
+                `${t('ar.receipt.reverse.reopened', { count: result.documentosReabiertos.length })} · ${causeText(result)}\n`
             )
         );
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
@@ -1027,7 +1016,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(causeRecord, '--json', 'help.receipt.cause.record.option.json');
   declareRisk(causeRecord, {
     risk: 'irreversible',
-    llave: { innecesaria: 'a cause is written once: a repeat finds the receipt with its cause and is refused' },
+    llave: { innecesaria: t('ar.receipt.cause.key_unneeded') },
     agent: false,
     writes: 'customer_payments.reversal_cause, customer_payments.reversal_cause_stated_at',
   });
@@ -1054,7 +1043,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (dryRun) {
           process.stdout.write(`${t('receipt.cause.would_state', { number: preview.paymentNumber, cause: preview.cause })}\n`);
           for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
@@ -1162,7 +1151,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(traceRecord, '--json', 'help.receipt.trace.record.option.json');
   declareRisk(traceRecord, {
     risk: 'irreversible',
-    llave: { innecesaria: 'only empty fields are filled: a repeat finds them filled and reports them unchanged' },
+    llave: { innecesaria: t('ar.receipt.trace.key_unneeded') },
     agent: false,
     writes: "customer_payments: its empty trace columns (the cheque number, the customer's bank and account, the bank account)",
   });
@@ -1252,7 +1241,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const preview = await transferCustomerCredit(ctx.entityId, source.id, args, reviewer.userId, { dryRun: true });
         if (dryRun) {
           printTransfer(preview, p, true, opts.json === true);
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
         await confirmOrAbort(opts, t('receipt.transfer.confirm', {
@@ -1350,12 +1339,12 @@ function imprimirRegistro(
   }
   process.stdout.write(
     (ensayo
-      ? `${p.bold(`Would record ${doc ? `${doc.saldoAnterior} → ${doc.saldoNuevo} on ${etiqueta}` : `an advance on account`}`)}`
+      ? p.bold(doc ? t('ap.payment.create.would_record', { before: doc.saldoAnterior, after: doc.saldoNuevo, bill: etiqueta }) : t('ar.receipt.record.would_record_advance'))
       : `${p.green('✔')} ${p.bold(result.paymentNumber)} · ${p.bold(etiqueta)}` +
         (doc ? p.dim(` ${doc.saldoAnterior} → ${doc.saldoNuevo} (${doc.estado})`) : '')) +
-      (remanente.greaterThan(0) ? p.dim(` · ${remanente.toFixed(2)} on account`) : '') +
+      (remanente.greaterThan(0) ? p.dim(` · ${t('ar.receipt.on_account', { amount: remanente.toFixed(2) })}`) : '') +
       (result.advance ? p.dim(` · ${t('receipt.advance.label')}: ${excessFigures(result.advance)}`) : '') +
-      (result.journalEntry ? p.dim(` · entry ${result.journalEntry.entry_number}`) : '') +
+      (result.journalEntry ? p.dim(` · ${t('ap.payment.entry', { entry: result.journalEntry.entry_number })}`) : '') +
       '\n'
   );
   if (result.journalEntry?.description?.includes('IVA')) {
@@ -1370,9 +1359,9 @@ function imprimirRegistro(
 function withheldText(d: { withholdingIsr?: string; withholdingIva?: string }): string {
   const parts = [
     ['ISR', d.withholdingIsr],
-    ['VAT', d.withholdingIva],
+    [t('ar.receipt.withheld.vat'), d.withholdingIva],
   ].filter(([, v]) => v !== undefined && new Decimal(v).greaterThan(0));
-  return parts.length === 0 ? '' : `; withheld ${parts.map(([k, v]) => `${k} ${v}`).join(' + ')}`;
+  return parts.length === 0 ? '' : `; ${t('ar.receipt.withheld', { parts: parts.map(([k, v]) => `${k} ${v}`).join(' + ') })}`;
 }
 
 /** MNE-001-422 · The advance's IVA a document's event cancels or restores, as a suffix; empty when none. */
@@ -1434,11 +1423,11 @@ function imprimirAplicacion(
     );
     return;
   }
-  const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
+  const prefijo = ensayo ? p.bold(t('ar.receipt.apply.would')) : `${p.green('✔')} ${t('ar.receipt.apply.applied', { payment: p.bold(paymentNumber) })}`;
   process.stdout.write(
     `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
-      p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo} · ${date}`) +
-      (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
+      p.dim(`· ${t('ap.payment.apply.on_account', { before: remanenteAnterior, after: remanenteNuevo, date })}`) +
+      (entryNumber ? p.dim(` · ${t('ap.payment.entry', { entry: entryNumber })}`) : '') +
       '\n'
   );
 }
