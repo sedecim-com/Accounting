@@ -4405,6 +4405,61 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.entry.import.repeated': ' [repetido: lote de la primera corrida]',
   'ledger.entry.import.not_in_ledger':
     'El lote NO tocó el mayor: se valida y aplica con la familia batch (check/post); mientras, es inspeccionable por batch_id.',
+  // MNE-001-626: entry, its English without a key.
+  'ledger.entry.line.no_account': 'La línea "{spec}" no tiene account=<código>.',
+  'ledger.entry.line.one_side':
+    'La línea "{spec}" necesita exactamente uno de debit=<importe> o credit=<importe> (cargo=/abono=).',
+  'ledger.entry.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya consumó este acto — {what}\n  Nada se ejecutó otra vez; esto es el resultado grabado.',
+  'ledger.entry.list.as_of_unsupported': '`entry list` filtra un RANGO de fechas: usa --since y --until, no --as-of.',
+  'ledger.entry.list.date_basis_unavailable':
+    '--date-basis {value} no está disponible: journal_entries guarda una sola fecha (entry_date, la fecha contable). Sólo se admite --date-basis posting.',
+  'ledger.entry.show.reference': 'referencia: {reference}',
+  'ledger.entry.show.reverses': 'reversa a: {number}',
+  'ledger.entry.show.reversed_by': 'reversada por: {number} (esta póliza está anulada)',
+  'ledger.entry.show.totals': 'totales: {debits} cargos / {credits} abonos',
+  'ledger.entry.lines_or_file': 'Pasa banderas --line o un documento --file, no ambos.',
+  'ledger.entry.create.nothing_to_record':
+    'Nada que registrar. Da las líneas con --line "account=<código>;debit=<importe>" (repítela), o un documento JSON con --file.',
+  'ledger.entry.create.drafted': '{number} creada como borrador',
+  'ledger.entry.create.drafted_detail':
+    '({count, plural, one {# línea} other {# líneas}}, {debits} / {credits})',
+  'ledger.entry.create.not_posted': 'Nada se movió en el mayor. Contabilízala con: mnemosine entry post {number}',
+  'ledger.entry.verdict.would_draft': 'Crearía el borrador',
+  'ledger.entry.verdict.checked': 'Verificada',
+  'ledger.entry.verdict.would_post': 'Contabilizaría',
+  'ledger.entry.verdict.cannot_post': 'No se puede contabilizar',
+  'ledger.entry.verdict.new_entry': '(póliza nueva)',
+  'ledger.entry.verdict.context': '{date} · {period} ({status}) · {count, plural, one {# línea} other {# líneas}}',
+  'ledger.entry.verdict.all_rules_pass': 'Pasan las siete reglas.',
+  'ledger.entry.verdict.no_blocking': 'Sin errores bloqueantes.',
+  'ledger.entry.check.nothing_to_check': 'Nada que verificar: pasa --entry <número> o --file <ruta>.',
+  'ledger.entry.check.one_at_a_time': 'Verifica una cosa a la vez: --entry o --file, no ambos.',
+  'ledger.entry.post.already_posted':
+    '{number} ya está contabilizada ({date}). Corrígela con `entry reverse`, que deja rastro de auditoría.',
+  'ledger.entry.post.void': '{number} está anulada y nunca podrá contabilizarse.',
+  'ledger.entry.post.invalid': '{number} no pasa la validación, así que no se contabilizó.',
+  'ledger.entry.post.question': '¿Contabilizar {number} ({total}) en el mayor? Esto no se puede deshacer.',
+  'ledger.entry.post.recorded': '{number} contabilizada {amounts}',
+  'ledger.entry.reverse.not_posted':
+    "{number} está '{status}' y nunca tocó el mayor, así que no hay nada que reflejar. Usa `entry void` sobre un borrador.",
+  'ledger.entry.reverse.already_reversed': '{number} ya tiene una reversa. Un segundo espejo duplicaría la corrección.',
+  'ledger.entry.reverse.would_mirror': 'Crearía el espejo de {number}',
+  'ledger.entry.reverse.would_mirror_detail': 'con fecha {date}, contabilizado de inmediato',
+  'ledger.entry.reverse.stays_posted': '{number} sigue contabilizada y sin cambios; las dos quedan ligadas.',
+  'ledger.entry.reverse.question': '¿Reversar {number} ({total})? El espejo se contabiliza de inmediato.',
+  'ledger.entry.reverse.recorded': '{number} contabilizada como reversa de {original}',
+  'ledger.entry.reverse.linked': '{number} queda sin cambios y ahora ligada a su espejo.',
+  'ledger.entry.void.already_void': '{number} ya está anulada.',
+  'ledger.entry.void.already_reversed': '{number} ya quedó anulada por su reversa. Una segunda duplicaría la corrección.',
+  'ledger.entry.void.effect_posted':
+    '{number} está contabilizada, así que NO cambiará de estado: se crea y se contabiliza una póliza espejo ligada, que es como se anula una póliza contabilizada sin que la balanza de comprobación discrepe de los saldos.',
+  'ledger.entry.void.effect_draft':
+    "{number} está '{status}' y nunca llegó al mayor, así que se marca anulada. Su número se conserva y nunca se reutiliza.",
+  'ledger.entry.void.would_void': 'Anularía {number}',
+  'ledger.entry.void.question': '¿Anular {number} ({total})?',
+  'ledger.entry.void.recorded': '{number} anulada {state}',
+  'ledger.entry.void.state': "(ahora '{status}')",
   // MNE-001-230: period and year.
   'ledger.period.active_entity': '→ {entity} (entidad activa; nombra otra con --entity)',
   'ledger.period.remedy.close_again': 'Vuelve a cerrarlo con: {close}',

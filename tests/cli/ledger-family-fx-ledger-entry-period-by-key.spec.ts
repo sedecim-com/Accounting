@@ -592,7 +592,9 @@ describe('I8.9 · fx, ledger, entry, period and year speak by key', () => {
 
   it('every key of this part has a row, and every row names a key of the catalogue', async () => {
     const { EN } = await import('../../src/i18n/en.js');
-    const ours = /^ledger\.(fx|ledger|entry|period)\./;
+    // entry's other keys, its English without a key, are MNE-001-626's
+    // (tests/cli/ledger-family-entry-english-by-key.spec.ts).
+    const ours = /^ledger\.(fx|ledger|period)\.|^ledger\.entry\.(preview|edit|export|import)\./;
     const keys = Object.keys(EN).filter((k) => ours.test(k));
     expect(new Set(CASES.map((c) => c.key).filter((k) => ours.test(k)))).toEqual(new Set(keys));
     for (const c of CASES) expect(EN, c.key).toHaveProperty([c.key]);
