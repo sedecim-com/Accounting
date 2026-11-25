@@ -6737,7 +6737,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'other {# de sus recibos ya tienen}} un CFDI de nómina o un lote de depósito, y volver a calcular ' +
     'reemplaza todos los recibos de la corrida. No se cambió nada.',
   'payrun.calculate.changed_meanwhile': 'La corrida {id} cambió mientras se calculaba. No se escribió nada.',
-  // Un parámetro anual cuya fila nueva no está cargada a la fecha de pago (MNE-001-636, #953).
+  // A yearly parameter whose new row is not loaded by the pay date (MNE-001-636, #953).
   'payrun.calculate.stale_parameter':
     '{parameter}: en la fecha de pago {pay_date} sigue vigente {value}, desde el {since}. Su valor nuevo ' +
     'debía regir desde el {due} y no está cargado, así que la corrida se calcula con {value}; no se cambió ' +

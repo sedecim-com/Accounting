@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { lastDueOnOrBefore, MX_ANNUAL_PARAMETERS } from '../../../src/services/payroll/mx/annual-parameters.js';
+import { staleParameterText } from '../../../src/cli/pay-run-command.js';
 
 // MNE-001-636 (#953): the due day of a yearly parameter, on or before a pay date.
 describe('lastDueOnOrBefore', () => {
@@ -23,5 +24,18 @@ describe('MX_ANNUAL_PARAMETERS', () => {
       'tax_parameters:uma_daily 02-01',
       'legal_parameters:uma.monthly 02-01',
     ]);
+  });
+
+  it('the terminal names every one of them by its catalogue label, never by its raw key', () => {
+    for (const p of MX_ANNUAL_PARAMETERS) {
+      const text = staleParameterText({
+        table: p.table, key: p.key, value: '1.00', since: '2026-01-01', dueFrom: '2027-01-01', payDate: '2027-01-15',
+      });
+      expect(text.startsWith(`${p.key}:`), text).toBe(false);
+      expect(text).toContain('1.00');
+      expect(text).toContain('2026-01-01');
+      expect(text).toContain('2027-01-01');
+      expect(text).toContain('2027-01-15');
+    }
   });
 });
