@@ -3313,6 +3313,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.no_number': 'sin folio',
   'bank.check.reconcile.dated_by_bank':
     '(lo fecha el banco: movimiento {transaction}, {amount})',
+  'bank.check.reconcile.label.entry_date': 'asiento del',
+  'bank.check.reconcile.entry_after_cashing':
+    '(ese día se aplicó a sus gastos, después del cobro: el IVA se acredita el más tardío de los dos días)',
   'bank.check.reconcile.no_open_period': 'sin periodo abierto en esa fecha',
   'bank.check.reconcile.no_period': 'sin periodo',
   'bank.check.reconcile.why':
@@ -3327,6 +3330,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.already_cleared': 'cheque cobrado el {date}',
   'bank.check.reconcile.changed_meanwhile':
     'El pago {payment} («{status}») cambió mientras se registraba el cobro de su cheque, o no es un pago completado. No se escribió nada.',
+  'bank.check.reconcile.several_release_days':
+    'El banco cobró el cheque del pago {payment} el {cashedOn}, y el IVA de sus aplicaciones se acredita el más tardío entre ese día y el de cada aplicación: {days}. Un cobro postea un asiento con una sola fecha, así que no se escribió nada. Desaplica las aplicaciones fechadas después del {first}, registra el cobro y vuelve a aplicarlas.',
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',

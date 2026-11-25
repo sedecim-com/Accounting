@@ -1222,6 +1222,8 @@ function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
       importe: r.transaction.amount, descripcion: r.transaction.description,
     },
     fechaDeCobro: r.cashedOn,
+    // A customer check's entry is always dated by its bank credit: no second day to show.
+    releasedOn: null,
     periodo: r.period ? { nombre: r.period.name, status: r.period.status } : null,
     reclasificado: r.released,
     porGasto: r.byInvoice.map((i) => ({ billId: i.invoiceId, billNumber: i.invoiceNumber, importe: i.amount })),
@@ -6002,6 +6004,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               })
             )}`
           );
+          // MNE-001-778 · applied after the bank's charge: the entry takes the later day.
+          if (r.releasedOn !== null && r.releasedOn !== r.fechaDeCobro) {
+            renglon(
+              t('bank.check.reconcile.label.entry_date'),
+              `${r.releasedOn} ${p.dim(t('bank.check.reconcile.entry_after_cashing'))}`
+            );
+          }
           renglon(
             t('bank.match.preview.label.period'),
             r.periodo
@@ -6070,7 +6079,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                   ...doc, advance_iva: r.advanceIva ?? null,
                   by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })),
                 }
-              : { ...doc, by_bill: byDocument };
+              : { ...doc, by_bill: byDocument, entry_date: r.releasedOn };
           });
           render(rows, { json: true, idField: 'id' });
         }
