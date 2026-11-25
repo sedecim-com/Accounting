@@ -690,6 +690,7 @@ mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/service
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	the hours stop adding up across the lines of a paycheck: two lines of 9 h in one week are both half-exempted
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an off-cycle run of the same period gets a fresh cap for the same weeks of service, and ISR is under-withheld
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	THE DEFECT OF MNE-001-633, made worse: the overtime of a worker who earns the minimum wage of their zone is taxed whole, while fr. I exempts all of it
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -1479,6 +1480,7 @@ anchor	src/plan/criteria/e4-1.ts	de: 'if (law.hoursLeft.isNegative()) {',
 anchor	src/plan/criteria/e4-1.ts	de: 'law.hoursLeft = law.hoursLeft.minus(hours);',
 anchor	src/plan/criteria/e4-1.ts	de: 'toDecimalPlaces(2).minus(used.exempt),',
 anchor	src/plan/criteria/e4-1.ts	de: "if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) {",
+anchor	src/plan/criteria/e4-1.ts	de: ' law.share = new Decimal(1);',
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',
