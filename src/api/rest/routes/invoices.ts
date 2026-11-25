@@ -2,11 +2,11 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
 import { schemaMessage } from '../../../utils/zod-client-errors.js';
-import { query } from '../../../database/connection.js';
+import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
+import { AppError, ConflictError, NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
+import { logger } from '../../../utils/logger.js';
 import { attestEntryAsync } from '../../../services/accounting/index.js';
 import { recordCustomerPayment } from '../../../services/payments/payment-service.js';
 import {
@@ -18,6 +18,7 @@ import {
 } from '../../../services/ar/invoice-service.js';
 import { buildInvoiceCfdiXml } from '../../../services/sat/cfdi40/income-cfdi-service.js';
 import { estadoParaPersistir } from '../../../services/integrations/mexico/pac/simulacion.js';
+import { cfdiIsFreeToStamp, FREE_TO_STAMP } from '../../../services/integrations/mexico/pac/stamp-once.js';
 import type { Invoice } from '../../../types/index.js';
 import { declararRiesgoRuta } from '../risk.js';
 import { arregloAcotado, MAX_RENGLONES_POR_DOCUMENTO } from '../topes.js';
@@ -254,52 +255,148 @@ router.post('/:id/void', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
   res.json({ data: invoice, meta: meta(req) });
 }));
 
+/** What the PAC answered, kept outside the transaction that writes it down. */
+interface IssuedCfdi {
+  cfdi?: { uuid: string; provider: string };
+}
+
+/**
+ * The PAC issued a CFDI and the invoice does not carry its UUID: the write
+ * failed, or the transaction was lost while the PAC worked. The UUID is said
+ * here, in the answer and in the log, because nothing else remembers it.
+ */
+function stampNotRecorded(invoiceId: string, cfdi: { uuid: string; provider: string }, cause: unknown): AppError {
+  logger.error('invoice_cfdi_stamped_not_recorded', {
+    invoiceId,
+    cfdiUuid: cfdi.uuid,
+    provider: cfdi.provider,
+    error: cause instanceof Error ? cause.message : 'the write of the UUID touched no row',
+  });
+  return new AppError(500, 'INVOICE_CFDI_NOT_RECORDED', {
+    key: 'ar.invoice.cfdi.stamped_not_recorded',
+    params: { id: invoiceId, uuid: cfdi.uuid, provider: cfdi.provider },
+  });
+}
+
 // POST /v1/invoices/:id/cfdi/stamp (Mexico)
 router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 'invoices.cfdi_uuid/cfdi_status; TIMBRA ante un PAC' }), requirePermission('invoices:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { pacRouter } = await import('../../../services/integrations/mexico/pac/pac-router.js');
+  const invoiceId = req.params.id;
+  const entityId = req.entityId!;
 
-  // LA FRONTERA VA AQUÍ, Y NO MÁS ABAJO (TEN-10).
-  //
-  // A partir de `pacRouter.stamp` el comprobante EXISTE ante el SAT y ya no hay
-  // 404 que lo deshaga: si el alcance se comprobara después, el acto externo e
-  // irreversible ya habría ocurrido sobre la factura de la sociedad hermana.
-  //
-  // Y timbrarla no es lo peor. El UPDATE de abajo le PISA el `cfdi_uuid`, y ahí
-  // vivía el folio con el que se cancela: el CFDI anterior queda huérfano e
-  // incancelable desde el sistema. RLS no lo tapa —acota por INQUILINO, y las
-  // dos sociedades son del mismo despacho—, que es exactamente el eje que
-  // `scope.ts` existe para defender.
-  //
-  // Cero filas significa a la vez «no existe» y «no es tuya», y las dos salen
-  // por el mismo 404 con el mismo cuerpo: distinguirlas reabriría por prosa el
-  // oráculo que el SQL acaba de cerrar.
-  const alcance = entityScope(req.tenantId!, req.entityId!);
-  const factura = await requireByIdInScope<Invoice>('invoices', req.params.id, alcance);
+  // ONE TRANSACTION, AND THE INVOICE'S ROW HELD FROM THE READ TO THE WRITE
+  // (MNE-001-763, #696; the rule of MNE-001-736). Two stamps of one invoice at
+  // once both read it unstamped and both reached the PAC, and a second stamp
+  // overwrote the folio of the first. The lock is released by the COMMIT, or by
+  // Postgres if the process dies, so no marker is left that someone has to
+  // clear; the price is one pooled connection and one row for as long as the
+  // PAC takes. The other stamp waits for it, bounded by the pool's
+  // `lock_timeout`, and then reads the row as the first one left it.
+  const issued: IssuedCfdi = {};
+  const stamped = await withTransaction(async (tx) => {
+    // LA FRONTERA VA AQUÍ, Y NO MÁS ABAJO (TEN-10).
+    //
+    // A partir de `pacRouter.stamp` el comprobante EXISTE ante el SAT y ya no hay
+    // 404 que lo deshaga: si el alcance se comprobara después, el acto externo e
+    // irreversible ya habría ocurrido sobre la factura de la sociedad hermana.
+    // RLS no lo tapa —acota por INQUILINO, y las dos sociedades son del mismo
+    // despacho—, que es exactamente el eje que `scope.ts` existe para defender:
+    // el predicado es el que `requireByIdInScope` escribe para una entidad.
+    //
+    // Cero filas significa a la vez «no existe» y «no es tuya», y las dos salen
+    // por el mismo 404 con el mismo cuerpo: distinguirlas reabriría por prosa el
+    // oráculo que el SQL acaba de cerrar.
+    //
+    // FOR NO KEY UPDATE, not FOR UPDATE: while the PAC answers, an insert that
+    // only references the invoice (an application of a collection) is not held.
+    const { rows } = await tx.query<{
+      id: string;
+      cfdi_uuid: string | null;
+      cfdi_status: string | null;
+      stamped_at: Date | null;
+    }>(
+      `SELECT i.id, i.cfdi_uuid, i.cfdi_status, i.stamped_at
+         FROM invoices i
+        WHERE i.id = $1 AND i.entity_id = $2
+          FOR NO KEY UPDATE OF i`,
+      [invoiceId, entityId]
+    ).catch((error: unknown) => {
+      // 55P03 lock_not_available: `lock_timeout` ran out while another stamp, or
+      // another writer of the invoice, held the row. This attempt sent nothing.
+      if ((error as { code?: string }).code === '55P03') {
+        throw new ConflictError({ key: 'ar.invoice.cfdi.stamp_in_progress', params: { id: invoiceId } });
+      }
+      throw error;
+    });
+    const factura = rows[0];
+    if (!factura) throw new NotFoundError('Invoice', invoiceId);
 
-  // The whole CFDI 4.0 ingreso (Emisor, Receptor, Conceptos, Impuestos), valid
-  // against the SAT's XSD. It carries no Sello yet: sealing is MNE-001-296, and
-  // until then a PAC that requires a sealed document rejects it.
-  const xml = await buildInvoiceCfdiXml(factura.id, req.entityId!);
+    // THE INVOICE'S OWN CFDI, READ UNDER THE LOCK ABOVE, before anything is
+    // built or sent. A stamp that waited for another one reads the row as that
+    // one left it.
+    if (!cfdiIsFreeToStamp(factura.cfdi_status)) {
+      throw new ConflictError({
+        key: 'ar.invoice.cfdi.already_stamped',
+        params: {
+          id: invoiceId,
+          uuid: factura.cfdi_uuid ?? '-',
+          status: factura.cfdi_status ?? '-',
+          stamped_at: factura.stamped_at?.toISOString() ?? '-',
+        },
+      });
+    }
 
-  // Stamp via multi-PAC router with automatic failover
-  const result = await pacRouter.stamp(xml, {
-    tenantId: req.user!.tenant_id,
-    userId: req.user!.user_id,
+    // The whole CFDI 4.0 ingreso (Emisor, Receptor, Conceptos, Impuestos), valid
+    // against the SAT's XSD. It carries no Sello yet: sealing is MNE-001-296, and
+    // until then a PAC that requires a sealed document rejects it. Read on the
+    // held client: a second connection per stamp would let a burst of stamps
+    // starve the pool, each holding one and waiting for another.
+    const xml = await buildInvoiceCfdiXml(factura.id, entityId, undefined, tx);
+
+    // Stamp via multi-PAC router with automatic failover.
+    //
+    // The transaction is open and idle while the PAC works. `pg` hands the loss
+    // of a connection somebody holds to its `error` event, and with nobody
+    // listening Node ends the process: the listener is what lets the write below
+    // fail and say which UUID it could not record. A lost connection keeps it,
+    // because the driver reports the loss twice and is then dropped by the pool.
+    let lost = false;
+    const connectionLost = (): void => {
+      lost = true;
+    };
+    tx.on('error', connectionLost);
+    const result = await pacRouter
+      .stamp(xml, { tenantId: req.user!.tenant_id, userId: req.user!.user_id })
+      .finally(() => {
+        if (!lost) tx.off('error', connectionLost);
+      });
+    issued.cfdi = { uuid: result.uuid, provider: result.provider_used };
+
+    // Un folio fabricado por un adaptador simulado NUNCA se guarda como
+    // 'stamped': quedaría indistinguible de uno emitido por el SAT.
+    const { cfdi_status, nota } = estadoParaPersistir(result);
+
+    // The write names its invoice by the scope and by the state it was read in.
+    // The lock makes any other count unreachable; it is checked all the same,
+    // because a UUID that is not written down is a CFDI nobody can cancel.
+    const written = await tx.query(
+      `UPDATE invoices SET
+        cfdi_uuid = $1, cfdi_status = $2,
+        pac_provider = $3, stamped_at = NOW(),
+        memo = CASE WHEN $4::text IS NULL THEN memo
+                    ELSE COALESCE(memo, '') || E'\n' || $4::text END
+       WHERE id = $5 AND entity_id = $6
+         AND (cfdi_status IS NULL OR cfdi_status = ANY($7::text[]))`,
+      [result.uuid, cfdi_status, result.provider_used, nota, invoiceId, entityId, FREE_TO_STAMP]
+    );
+    if (written.rowCount !== 1) throw stampNotRecorded(invoiceId, issued.cfdi, undefined);
+    return { result, cfdi_status, nota };
+  }).catch((error: unknown) => {
+    // Nothing reached the PAC, or the refusal is already the one above.
+    if (!issued.cfdi || (error instanceof AppError && error.code === 'INVOICE_CFDI_NOT_RECORDED')) throw error;
+    throw stampNotRecorded(invoiceId, issued.cfdi, error);
   });
-
-  // Un folio fabricado por un adaptador simulado NUNCA se guarda como
-  // 'stamped': quedaría indistinguible de uno emitido por el SAT.
-  const { cfdi_status, nota } = estadoParaPersistir(result);
-
-  await query(
-    `UPDATE invoices SET
-      cfdi_uuid = $1, cfdi_status = $2,
-      pac_provider = $3, stamped_at = NOW(),
-      memo = CASE WHEN $4::text IS NULL THEN memo
-                  ELSE COALESCE(memo, '') || E'\n' || $4::text END
-     WHERE id = $5 AND entity_id = $6`,
-    [result.uuid, cfdi_status, result.provider_used, nota, req.params.id, req.entityId!]
-  );
+  const { result, cfdi_status, nota } = stamped;
 
   res.json({
     data: {

@@ -1,12 +1,14 @@
 import { query } from '../../../database/connection.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
+import type { Queryable } from '../../../utils/sequence.js';
 import { buildValidatedIncomeCfdi, type IncomeCfdiInput } from './income-cfdi.js';
 
 // ============================================================
 // Reads what the CFDI needs and hands it to the builder (#105 · MNE-001-295).
 // Every read is bound to the entity: the invoice, its lines, the issuer and the
 // customer all come through `entity_id`, so an id from a sibling company finds
-// nothing (TEN-10).
+// nothing (TEN-10). A caller that holds the invoice's row in a transaction
+// hands its client, so the reads ride on that connection (MNE-001-763).
 // ============================================================
 
 /** `YYYY-MM-DDThh:mm:ss` on the wall clock of Mexico City, the CFDI Fecha. */
@@ -42,9 +44,10 @@ interface InvoiceRow {
 export async function loadIncomeCfdiInput(
   invoiceId: string,
   entityId: string,
-  at: Date = new Date()
+  at: Date = new Date(),
+  db: Queryable = { query }
 ): Promise<IncomeCfdiInput> {
-  const { rows } = await query<InvoiceRow>(
+  const { rows } = await db.query<InvoiceRow>(
     `SELECT i.invoice_number, i.currency_code, i.exchange_rate::text, i.subtotal::text, i.total_amount::text,
             e.tax_id AS e_rfc, e.name AS e_name, e.tax_regime AS e_regime, e.tax_postal_code AS e_postal,
             e.tax_id_type AS e_id_type,
@@ -64,7 +67,7 @@ export async function loadIncomeCfdiInput(
     throw new ValidationError('A CFDI for a customer without an RFC (foreign receiver) is not supported yet');
   }
 
-  const lines = await query<{
+  const lines = await db.query<{
     line_number: number; description: string | null; quantity: string; unit_price: string;
     tax_code: string | null; tax_rate: string | null; cfdi_product_code: string | null; cfdi_unit_code: string | null;
   }>(
@@ -101,6 +104,11 @@ export async function loadIncomeCfdiInput(
 }
 
 /** The unsealed, XSD-valid CFDI 4.0 ingreso for an invoice of the entity. */
-export async function buildInvoiceCfdiXml(invoiceId: string, entityId: string, at?: Date): Promise<string> {
-  return buildValidatedIncomeCfdi(await loadIncomeCfdiInput(invoiceId, entityId, at));
+export async function buildInvoiceCfdiXml(
+  invoiceId: string,
+  entityId: string,
+  at?: Date,
+  db?: Queryable
+): Promise<string> {
+  return buildValidatedIncomeCfdi(await loadIncomeCfdiInput(invoiceId, entityId, at, db));
 }

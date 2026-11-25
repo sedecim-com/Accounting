@@ -7,7 +7,8 @@ import { AppError, ConflictError, NotFoundError, ValidationError } from '../../.
 import { logger } from '../../../utils/logger.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
-import { CFDI_STATUSES, PAY_RUN_TYPES } from '../../../database/enums.js';
+import { cfdiIsFreeToStamp, FREE_TO_STAMP } from '../../integrations/mexico/pac/stamp-once.js';
+import { PAY_RUN_TYPES } from '../../../database/enums.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 import { storedIsrParts } from './isr-exemption.js';
 import { runIsReleased, type PayRunStatus } from '../common/pay-run-release.js';
@@ -25,35 +26,15 @@ interface CfdiStampResult {
   no_certificado_sat: string;
 }
 
-type CfdiStatus = (typeof CFDI_STATUSES)[number];
-
 /**
  * CONTRACT: a paycheck that holds a payroll CFDI is not stamped again
- * (MNE-001-736, #601). A second stamp is a second CFDI before the SAT for the
- * same payment, and it took the first UUID off the paycheck, the only place
- * that remembered it.
- *
- * `stamped` holds one. The other three do not: a paycheck with no status is
- * shown as `pending` (paycheck-read-service.ts); `failed` is how the UUID a
- * simulated adapter made up is stored, and the SAT never saw it; a `cancelled`
- * CFDI is replaced by a new one. No door cancels a payroll CFDI yet: this is
- * the door left for it.
- *
- * A record with every status on purpose: one added to CFDI_STATUSES does not
- * compile until someone decides it here. The column has no CHECK, so a value
- * this code does not know is refused: it is not known to be free.
+ * (MNE-001-736, #601). The rule is the one the income CFDI follows too, in
+ * stamp-once.ts: `stamped` holds the paycheck; no status, `pending`, `failed`
+ * and `cancelled` let it be stamped. A paycheck with no status is shown as
+ * `pending` (paycheck-read-service.ts). No door cancels a payroll CFDI yet:
+ * `cancelled` is the door left for it.
  */
-const HOLDS_A_PAYROLL_CFDI: Record<CfdiStatus, boolean> = {
-  pending: false,
-  stamped: true,
-  cancelled: false,
-  failed: false,
-};
-const FREE_TO_STAMP = CFDI_STATUSES.filter((status) => !HOLDS_A_PAYROLL_CFDI[status]);
-
-export function paycheckIsFreeToStamp(status: string | null): boolean {
-  return status === null || (FREE_TO_STAMP as readonly string[]).includes(status);
-}
+export const paycheckIsFreeToStamp = cfdiIsFreeToStamp;
 
 /** What the PAC answered, kept outside the transaction that writes it down. */
 interface Issued {

@@ -3658,6 +3658,19 @@ export const EN = {
   /** The reason `invoice delete` does not honor --idempotency-key. */
   'ar.invoice.delete_by_state':
     'the delete is unrepeatable only through the state of the draft, not through the key',
+  // An invoice that holds a CFDI is not stamped again (MNE-001-763, #696).
+  'ar.invoice.cfdi.already_stamped':
+    'Invoice {id} was not stamped again: it already has a CFDI, folio {uuid} ({status}), stamped at ' +
+    '{stamped_at}. A second stamp would be a second CFDI before the SAT for the same sale. Nothing was sent ' +
+    'to the PAC and nothing was written.',
+  'ar.invoice.cfdi.stamp_in_progress':
+    'Invoice {id} was not stamped by this attempt: another stamp of it, or another change to it, is still in ' +
+    'progress and this attempt stopped waiting. It sent nothing to the PAC and wrote nothing. Read the invoice ' +
+    'before asking again: if the other stamp ended, the invoice carries its folio.',
+  'ar.invoice.cfdi.stamped_not_recorded':
+    'Invoice {id} WAS stamped: the PAC ({provider}) answered with folio {uuid}, and the folio could not be ' +
+    'written on the invoice. Do not stamp it again. Keep this folio: the invoice does not carry it, and it is ' +
+    'what a cancellation needs.',
   /** The reason `credit-note issue` does not honor --idempotency-key. */
   'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
   // ==== end of I8.3 ====

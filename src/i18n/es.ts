@@ -3409,6 +3409,19 @@ export const ES: Record<keyof typeof EN, string> = {
   'ar.invoice.retry_void_mirror': 'un reintento vuelve a postear el espejo de la anulación',
   'ar.invoice.delete_by_state':
     'el borrado sólo es irrepetible por estado del borrador, no por llave',
+  // An invoice that holds a CFDI is not stamped again (MNE-001-763, #696).
+  'ar.invoice.cfdi.already_stamped':
+    'La factura {id} no se timbró otra vez: ya tiene un CFDI, folio {uuid} ({status}), timbrado el ' +
+    '{stamped_at}. Un segundo timbre sería un segundo CFDI ante el SAT por la misma venta. No se envió nada al ' +
+    'PAC ni se escribió nada.',
+  'ar.invoice.cfdi.stamp_in_progress':
+    'Este intento no timbró la factura {id}: otro timbrado de la misma factura, u otro cambio sobre ella, sigue ' +
+    'en curso y este intento dejó de esperar. No envió nada al PAC ni escribió nada. Lee la factura antes de ' +
+    'pedirlo de nuevo: si el otro timbrado terminó, la factura ya lleva su folio.',
+  'ar.invoice.cfdi.stamped_not_recorded':
+    'La factura {id} SÍ se timbró: el PAC ({provider}) respondió con el folio {uuid}, y el folio no se pudo ' +
+    'escribir en la factura. No la timbres otra vez. Guarda este folio: la factura no lo lleva, y es lo que ' +
+    'pide una cancelación.',
   'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
 
