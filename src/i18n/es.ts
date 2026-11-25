@@ -4268,6 +4268,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.ledger.check.blocking_checks': 'las verificaciones bloqueantes',
   'ledger.ledger.check.findings':
     '{blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}}, {warning, plural, one {# advertencia} other {# advertencias}}',
+  'ledger.ledger.check.year_sweep':
+    'posteada en {period} el {posted}, después de que {sealed} barrió el ejercicio el {sealed_at}: {accounts} ya no cuadran con ese barrido. Cierra {sealed} otra vez (period reopen y después close dos veces), o reversa la póliza',
   'ledger.ledger.stale_draft.days_unreadable': '--days ilegible: "{value}".',
   'ledger.ledger.stale_draft.found':
     '{count, plural, one {# borrador} other {# borradores}} con más de {days, plural, one {# día} other {# días}}. Se aplican con entry post, o se retiran.',

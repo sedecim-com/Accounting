@@ -10564,7 +10564,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity; empty lists them)
+  --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity, year-sweep; empty lists them)
   --account <code>                         scope the balance check to one account
   --period <expr>                          scope the balance check to one fiscal period: 2026-07, its id, or part of its name
   -h, --help                               display help for command

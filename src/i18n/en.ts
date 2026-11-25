@@ -4909,6 +4909,9 @@ export const EN = {
   'ledger.ledger.check.blocking_checks': 'the blocking checks',
   'ledger.ledger.check.findings':
     '{blocking, plural, one {# blocking finding} other {# blocking findings}}, {warning, plural, one {# warning} other {# warnings}}',
+  /** MNE-001-662: the `year-sweep` finding of one entry. `sealed` is the year's last period; `accounts`, codes. */
+  'ledger.ledger.check.year_sweep':
+    'posted to {period} on {posted}, after {sealed} swept the fiscal year on {sealed_at}: {accounts} no longer agree with that sweep. Close {sealed} again (period reopen, then close twice), or reverse the entry',
   /** `ledger stale-draft list`. */
   'ledger.ledger.stale_draft.days_unreadable': 'Unreadable --days: "{value}".',
   'ledger.ledger.stale_draft.found':

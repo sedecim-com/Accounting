@@ -1,5 +1,6 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
+import { t } from '../../i18n/index.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
 import { resolveAccount } from './account-service.js';
 
@@ -19,6 +20,8 @@ import { resolveAccount } from './account-service.js';
 //                tabla declara (ending = beginning + cargos − abonos) y el
 //                encadenamiento ending(N) = beginning(N+1) tras un cierre duro
 //   audit-trail  (bloqueante)  posteados sin fila 'post' en audit_log
+//   year-sweep   (blocking)    income or expense posted to a sealed fiscal
+//                year after its sweep (MNE-001-662, see checkYearSweep)
 //   continuity   (advertencia) huecos en la serie anual del folio —
 //                desde R3 el contador solo se consume si la transacción
 //                comete, así que un hueco es un hecho raro que merece
@@ -32,15 +35,21 @@ export interface LedgerFinding {
   detalle: string;
 }
 
-export const LEDGER_CHECK_NAMES = ['balance', 'audit-trail', 'continuity'] as const;
+export const LEDGER_CHECK_NAMES = ['balance', 'audit-trail', 'continuity', 'year-sweep'] as const;
 export type LedgerCheckName = (typeof LEDGER_CHECK_NAMES)[number];
-const BLOQUEANTES: LedgerCheckName[] = ['balance', 'audit-trail'];
+const BLOQUEANTES: LedgerCheckName[] = ['balance', 'audit-trail', 'year-sweep'];
 
 export interface LedgerCheckFilters {
   /** Código de cuenta: acota `balance` a una sola cuenta. */
   account?: string;
   /** Nombre (o fragmento) del periodo fiscal: acota `balance`. */
   period?: string;
+  /**
+   * The id of a period about to close (not a CLI flag): `year-sweep` then names
+   * only the sealed years that period follows in books order, the ones whose
+   * swept result it inherits.
+   */
+  closing?: string;
 }
 
 /**
@@ -311,10 +320,94 @@ async function checkContinuity(entityId: string): Promise<LedgerFinding[]> {
   }));
 }
 
+/**
+ * MNE-001-662 (#602). INCOME OR EXPENSE POSTED TO A SEALED YEAR AFTER ITS SWEEP.
+ *
+ * A fiscal year is sealed when its last period (the highest period_number:
+ * period 13, or December in a year that kept twelve) is 'hard_close' or
+ * 'locked'; that hard close posted the sweep into equity with what the ledger
+ * held at that moment, and stamped `hard_close_date`. A month that is not
+ * hard-closed still takes entries (validation.ts, a soft close only warns), so
+ * an entry posted to another period of that year afterwards is outside the
+ * swept result. `fiscal_years.status` does not mark the seal: under
+ * `year_seal_with_unsealed_months` = 'accept_unsealed' the year stays 'open'.
+ *
+ * Two conditions, both needed, in one statement bounded by the entity:
+ *  - the entry was posted after the seal (`posted_date > hard_close_date`)
+ *    to another period of that year, and moves a revenue or expense account,
+ *    the universe the sweep sweeps. The sealing period itself never qualifies:
+ *    it takes entries only while it is not sealed, and the seal that follows
+ *    sweeps them;
+ *  - that account's balance over the year is not zero any more. So a late
+ *    entry and its reversal pass, a new sweep (the period closed again) passes,
+ *    and a residue the firm accepted at the seal (`severidad_resultado_sin_barrer`
+ *    = 'avisar') with no late posting on it is not reopened here.
+ *
+ * With `closing`, only the sealed years before that period: the months of the
+ * same year still close, so the late entry can be fixed and the seal redone.
+ */
+async function checkYearSweep(entityId: string, f: LedgerCheckFilters): Promise<LedgerFinding[]> {
+  const result = await query<{
+    entry_number: string; period_name: string; posted: string; sealed: string; sealed_at: string; accounts: string;
+  }>(
+    `WITH sealed AS (
+       SELECT last.id, last.fiscal_year_id, last.period_name, last.hard_close_date
+         FROM fiscal_periods last
+        WHERE last.entity_id = $1
+          AND last.status IN ('hard_close', 'locked') AND last.hard_close_date IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM fiscal_periods later
+                           WHERE later.entity_id = last.entity_id AND later.fiscal_year_id = last.fiscal_year_id
+                             AND later.period_number > last.period_number)
+          AND ($2::uuid IS NULL OR EXISTS (
+                SELECT 1 FROM fiscal_periods c
+                 WHERE c.id = $2::uuid AND c.entity_id = $1
+                   AND (c.start_date, c.period_number) > (last.start_date, last.period_number)))
+     ), late AS (
+       SELECT DISTINCT s.id AS sealed_id, s.period_name AS sealed, s.hard_close_date, je.id AS entry_id, je.entry_number,
+              je.posted_date, fp.period_name, jel.account_id
+         FROM sealed s
+         JOIN fiscal_periods fp ON fp.entity_id = $1 AND fp.fiscal_year_id = s.fiscal_year_id AND fp.id <> s.id
+         JOIN journal_entries je
+           ON je.entity_id = $1 AND je.fiscal_period_id = fp.id AND je.status = 'posted'
+          AND je.posted_date > s.hard_close_date
+         JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+         JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1 AND a.account_type IN ('revenue', 'expense')
+     ), unswept AS (
+       SELECT s.id AS sealed_id, ab.account_id
+         FROM sealed s
+         JOIN fiscal_periods fp ON fp.entity_id = $1 AND fp.fiscal_year_id = s.fiscal_year_id
+         JOIN account_balances ab ON ab.fiscal_period_id = fp.id AND ab.entity_id = $1
+        WHERE ab.account_id IN (SELECT l.account_id FROM late l WHERE l.sealed_id = s.id)
+        GROUP BY s.id, ab.account_id
+       HAVING SUM(ab.debit_total - ab.credit_total) <> 0
+     )
+     SELECT l.entry_number, l.period_name, l.sealed,
+            to_char(l.posted_date, 'YYYY-MM-DD') AS posted,
+            to_char(l.hard_close_date, 'YYYY-MM-DD') AS sealed_at,
+            string_agg(a.code, ', ' ORDER BY a.code COLLATE "C") AS accounts
+       FROM late l
+       JOIN unswept u ON u.sealed_id = l.sealed_id AND u.account_id = l.account_id
+       JOIN accounts a ON a.id = l.account_id
+      GROUP BY l.sealed_id, l.sealed, l.hard_close_date, l.entry_id, l.entry_number, l.period_name, l.posted_date
+      ORDER BY l.posted_date, l.entry_number COLLATE "C"
+      LIMIT 100`,
+    [entityId, f.closing ?? null]
+  );
+  return result.rows.map((r) => ({
+    check: 'year-sweep',
+    severity: 'blocking' as const,
+    referencia: r.entry_number,
+    detalle: t('ledger.ledger.check.year_sweep', {
+      period: r.period_name, posted: r.posted, sealed: r.sealed, sealed_at: r.sealed_at, accounts: r.accounts,
+    }),
+  }));
+}
+
 const RUNNERS: Record<LedgerCheckName, (entityId: string, f: LedgerCheckFilters) => Promise<LedgerFinding[]>> = {
   balance: checkBalance,
   'audit-trail': (e) => checkAuditTrail(e),
   continuity: (e) => checkContinuity(e),
+  'year-sweep': checkYearSweep,
 };
 
 /** Sin nombres corre las BLOQUEANTES (el contrato del catálogo). */
