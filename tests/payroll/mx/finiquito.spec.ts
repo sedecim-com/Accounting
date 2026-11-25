@@ -479,7 +479,7 @@ describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XII
       { ...DISMISSAL, termination_date: '2026-05-29', last_paid_through: '2026-05-15' },
       CTX
     );
-    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(r.seniority_premium_note.key).toBe('payroll.finiquito.seniority_premium.not_calculated');
     expect(handed().payments).toBeNull();
   });
 });
@@ -561,7 +561,7 @@ describe('Finiquito MX — the minimum-wage zone', () => {
     // Another date, so the parameters are read again and not taken from the cache.
     const r = await calculateFiniquito({ ...TERMINATION, termination_date: '2026-07-31', last_paid_through: '2026-07-15' }, CTX);
     expect(r.seniority_premium_amount).toBe('0.0000');
-    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(r.seniority_premium_note.key).toBe('payroll.finiquito.seniority_premium.not_calculated');
     expect(r.seniority_premium_minimum_wage.daily_amount).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import type { ErrorMessageKey } from '../../../utils/errors.js';
 
 // ============================================================
 // LA ARITMÉTICA DEL FINIQUITO, SIN POSTGRES (D1a)
@@ -384,8 +385,9 @@ export interface DesgloseFiniquito {
    * Un cero sin explicación es indistinguible de un cero por no saber, y aquí
    * las dos cosas ocurren: hay bajas que no la devengan y hay bajas que sí,
    * pero cuyo tope no se puede fijar sin el salario mínimo de la zona.
+   * A catalogue key: the surface renders it in its reader's language (MNE-001-815).
    */
-  prima_antiguedad_nota: string;
+  prima_antiguedad_nota: ErrorMessageKey;
   total: string;
 }
 
@@ -502,25 +504,26 @@ export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito 
   const primaAntiguedadDias = devenga ? 12 * cumplidos : 0;
   let primaAntiguedadBase: Decimal | null = null;
   let primaAntiguedadImporte = new Decimal(0);
-  let primaAntiguedadNota: string;
+  let primaAntiguedadNota: ErrorMessageKey;
 
   if (!devenga) {
-    primaAntiguedadNota =
-      'no se devenga: la renuncia paga prima de antigüedad sólo con quince años cumplidos (LFT art. 162 fr. III)';
+    primaAntiguedadNota = { key: 'payroll.finiquito.seniority_premium.not_owed' };
   } else if (entrada.salario_minimo_diario === undefined) {
     // NO SE INVENTA. El tope del art. 486 cuelga del salario mínimo de la zona,
     // y suponer el general le paga de menos a un trabajador fronterizo: 180
     // días × 630.08 contra × 881.74 son 45 298.80 de diferencia. Un importe que
     // no se puede calcular se nombra, no se cifra en cero en silencio.
-    primaAntiguedadNota =
-      'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. ' +
-      `Se deben ${primaAntiguedadDias} días de prima de antigüedad y NO están en este total`;
+    primaAntiguedadNota = {
+      key: 'payroll.finiquito.seniority_premium.not_calculated',
+      params: { days: primaAntiguedadDias },
+    };
   } else {
     primaAntiguedadBase = baseDiariaDePrima(salarioDiario, new Decimal(entrada.salario_minimo_diario));
     primaAntiguedadImporte = primaAntiguedadBase.times(primaAntiguedadDias);
-    primaAntiguedadNota =
-      `${primaAntiguedadDias} días × ${primaAntiguedadBase.toFixed(DECIMALES)} ` +
-      `(LFT art. 162 fr. I, base topada por el 486 con un mínimo de ${entrada.salario_minimo_diario})`;
+    primaAntiguedadNota = {
+      key: 'payroll.finiquito.seniority_premium.calculated',
+      params: { days: primaAntiguedadDias, base: primaAntiguedadBase.toFixed(DECIMALES), minimumWage: entrada.salario_minimo_diario },
+    };
   }
 
   // El total suma lo REDONDEADO, no los intermedios: así el importe que se
