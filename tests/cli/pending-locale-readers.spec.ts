@@ -9,7 +9,7 @@ import { Command } from 'commander';
 // READERS that build their own translator or text object at the edge:
 //
 //   · `leerPanel`                     (the agent's panel, policy-tools.ts)
-//   · `PoliciesSection.askOne`        (the init wizard, which stays English)
+//   · `PoliciesSection.askOne`        (the init wizard, chrome and text together)
 //   · `pending define/dismiss/reopen` (prompt, preview, messages)
 //   · `getPendingBoard`               (the work board's summaries)
 //
@@ -135,7 +135,7 @@ describe('leerPanel (the agent panel) follows the active language', () => {
 });
 
 // ------------------------------------------------------------
-describe('the init wizard keeps ONE language: English, chrome and catalog text together', () => {
+describe('the init wizard keeps ONE language, the active one, for chrome and catalog text (MNE-001-479)', () => {
   function harness(answers: string[]) {
     const lines: string[] = [];
     let i = 0;
@@ -152,22 +152,23 @@ describe('the init wizard keeps ONE language: English, chrome and catalog text t
     };
   }
 
-  it('under es the question, why/what, options and preview are English like the labels around them', async () => {
+  it('under es the question, why/what, options and preview are Spanish like the labels around them', async () => {
     setLanguage('es');
     const h = harness(['']);
     await new PoliciesSection().configure(h.ctx);
     const text = h.out().replace(/\s+/g, ' ');
-    expect(text).toContain('Why I ask:');
-    expect(text).toContain(SPEC.question);
-    expect(text).toContain(SPEC.whyAsking!.replace(/\s+/g, ' '));
-    expect(text).toContain(SPEC.options[0].label);
-    expect(text).not.toContain(es(policyTextKey(SPEC.textKey, 'question')));
-    // The preview text handed to the query is bound to English too.
+    expect(text).toContain('Por qué lo pregunto:');
+    expect(text).toContain(es(policyTextKey(SPEC.textKey, 'question')));
+    expect(text).toContain(es(policyTextKey(SPEC.textKey, 'why')).replace(/\s+/g, ' '));
+    expect(text).toContain(es(policyOptionKey(SPEC.textKey, SPEC.options[0].value)));
+    expect(text).not.toContain('Why I ask:');
+    expect(text).not.toContain(SPEC.question);
+    // The preview text handed to the query is bound to Spanish too.
     const { text: previewText } = mockPreview.mock.calls[0][1] as { text: { t(k: string): string } };
-    expect(previewText.t('policy_preview.inventory.none')).toBe(t('policy_preview.inventory.none', {}, 'en'));
+    expect(previewText.t('policy_preview.inventory.none')).toBe(t('policy_preview.inventory.none', {}, 'es'));
   });
 
-  it('under es an ambiguous answer is asked in English', async () => {
+  it('under es an ambiguous answer is asked in Spanish', async () => {
     setLanguage('es');
     // Typing 2 is option 2 (whose value is 1) AND the value of option 1.
     mockListPending.mockResolvedValue([
@@ -179,7 +180,7 @@ describe('the init wizard keeps ONE language: English, chrome and catalog text t
     ]);
     const h = harness(['2', '']);
     await new PoliciesSection().configure(h.ctx);
-    expect(h.out()).toContain('Type p for option 2');
+    expect(h.out()).toContain('Escribe p para la opción 2');
   });
 });
 

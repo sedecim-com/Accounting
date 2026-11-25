@@ -5132,6 +5132,95 @@ export const EN = {
   'ledger.period.year.carry.unchanged':
     'The opening balances of {period} already are the closing balances of {source}: nothing to correct, and nothing was written.',
   // ==== end of I8.9 ====
+  // ==== I8b · run-time strings by key, family init, part 1 (MNE-001-479, issue #150) ====
+  // `src/cli/init-command.ts`, `init/section.ts`, `init/s0-infra.ts` and
+  // `init/s4-policies.ts`. The English is what those files printed, byte for
+  // byte ("There are 1 decisions" included); the Spanish takes its plural.
+  // Commands, paths and policy keys are parameters, never translated.
+  'init.badge.ok': 'configured',
+  'init.badge.partial': 'incomplete',
+  'init.badge.missing': 'pending',
+  'init.secret.skipped': '(skipped: no interactive terminal)',
+  'init.status.title': 'Configuration status',
+  'init.status.optional': '(optional)',
+  'init.wizard.unknown_section': 'Unknown section: "{section}". Options: {options}',
+  'init.wizard.rescue_intro':
+    "Let's get you set up. Enter accepts the value in parentheses; Ctrl+C pauses — your progress is saved because state lives in the system, not a file.",
+  'init.wizard.title': 'Mnemosine setup',
+  'init.wizard.interactive': 'Only asking for what is missing. Enter accepts the value in parentheses.',
+  'init.wizard.non_interactive': 'Non-interactive mode: using defaults and flags.',
+  'init.wizard.already_configured': 'Already configured; moving on.',
+  'init.wizard.configure_now': 'Configure now?',
+  'init.wizard.skipped': 'Skipped. It will show as pending in init --status.',
+  'init.wizard.final_verification': 'Final verification',
+  'init.wizard.unresolved': 'Some items are still unresolved. Run again: {command}',
+  'init.wizard.start_chat': 'Start chatting now?',
+  /** The first message the chat sends for the person, chosen by whether the books hold data. */
+  'init.wizard.seed_with_data': 'Say hello and give me a quick health check of my books.',
+  'init.wizard.seed_fresh': 'Say hello and tell me what you can do once I load my accounting.',
+  'init.wizard.opening_chat':
+    'I\'ll open the chat and send your first message: "{seed}". (The agent reads your real data — this may take a few seconds.)',
+  'init.wizard.open_chat_with': 'Open the chat with: {command}',
+  'init.wizard.ready': 'Ready. Try:',
+  'init.wizard.try.chat': 'converse with your accounting',
+  'init.wizard.try.review': 'approve or reject pending drafts',
+  'init.wizard.try.status': 'where things stand',
+  'init.wizard.try.pending': 'what needs your attention',
+  'init.wizard.try.doctor': 'system health',
+  'init.infra.title': 'Infrastructure (database, migrations, encryption)',
+  'init.infra.env_tightened': '{path} was mode {mode}; tightened to 600 (it holds secrets)',
+  /** «No .env found. Here: <path>», and «User: <path>» under it with the colons aligned. */
+  'init.infra.no_env': 'No .env found.',
+  'init.infra.here': 'Here:',
+  'init.infra.user_dir': 'User:',
+  'init.infra.create_here': 'Create it here (Yes) or in the user directory (No)?',
+  'init.infra.env_location': '.env location: {path}',
+  'init.infra.chosen_without_asking': '(no terminal: chosen without asking)',
+  'init.infra.created_from_example': 'Created {path} from .env.example',
+  'init.infra.created_empty': 'Created an empty {path}',
+  'init.infra.key_generated':
+    'Generated a dedicated 256-bit ENCRYPTION_KEY (the previous one was the example key)',
+  'init.infra.database_url': 'DATABASE_URL (Enter to keep the current one):',
+  'init.infra.database_url_saved': 'Saved DATABASE_URL. Restart the command to reconnect.',
+  'init.infra.start_postgres': 'Start PostgreSQL and run again: docker compose up -d postgres',
+  'init.infra.apply_migrations': 'Apply the migrations now?',
+  'init.infra.migrations_applied': 'Migrations applied',
+  'init.infra.failed': 'Failed: {message}',
+  'init.infra.run_manually': 'Run manually: {command}',
+  'init.infra.fix': 'Fix: {fix}',
+  'init.infra.rls.no_tenant': 'no tenant pinned yet (the identity section pins it)',
+  'init.infra.rls.unscoped': 'app.current_tenant is "{applied}" instead of "{tenant}": queries would run unscoped',
+  'init.infra.rls.unscoped_fix':
+    'Check MNEMOSINE_TENANT in .env; the connection module must apply the tenant on every query',
+  'init.infra.rls.scoped': 'tenant {tenant} scoped · {count} entities visible',
+  'init.infra.rls.select_failed': 'scoped SELECT failed: {message}',
+  'init.infra.rls.select_failed_fix': '{command} (the legal_entities table or its RLS policies may be missing)',
+  'init.policies.title': 'Accounting policies',
+  'init.policies.no_entity': 'No entity resolved yet; policies are configured after the entity exists.',
+  'init.policies.all_defined': 'All policies are already defined.',
+  'init.policies.intro_count': 'There are {count} decisions I cannot make on my own.',
+  'init.policies.intro_firm': "They depend on your firm's criteria, not on a rule I can look up.",
+  /** Wrapped at 68 columns where it is printed. */
+  'init.policies.intro_skip':
+    'You can skip any of them: each has a working default, and whatever you leave open stays visible in `{command}`.',
+  'init.policies.non_interactive': 'Non-interactive mode: leaving {count} policies on their defaults.',
+  'init.policies.none': '(none)',
+  'init.policies.stopping': 'Stopping here. The rest stay on their defaults.',
+  'init.policies.defined': 'Defined {answered} of {total}.',
+  'init.policies.still_open': '{left} still open — see `{command}`.',
+  'init.policies.nothing_open': 'Nothing left open.',
+  'init.policies.why_i_ask': 'Why I ask:',
+  'init.policies.what_i_do': 'What I do:',
+  'init.policies.in_your_data': 'In your data:',
+  'init.policies.current_default': '← current default',
+  'init.policies.enter_keeps': 'Enter = keep the default ({value})   ·   q = stop asking',
+  'init.policies.left_open': 'Left open: {text}',
+  'init.policies.could_not_save': 'Could not save: {message}',
+  'init.policies.check.not_seeded': 'Not seeded yet; run `{init}` or `{pending}`',
+  'init.policies.check.summary': '{count} policies, {pending} still on defaults',
+  'init.policies.check.high_impact': '{keys} still on defaults — they change how invoices are booked',
+  'init.policies.check.could_not_read': 'Could not read: {message}',
+  // ==== end of I8b · init, part 1 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is
