@@ -93,6 +93,8 @@ function balanceSheetFixture(): BalanceSheetReport {
     assets,
     liabilities,
     equity,
+    // ORI 1,200.00 + the result of the period 300.00 (NIF C-11, MNE-001-652).
+    earned_capital: { key: 'earned_capital', total: '1500.0000', subsections: ['ori', 'result_of_the_period'] },
     total_liabilities_and_equity: '2000.0000',
     out_of_balance: '0.0000',
     is_balanced: true,
@@ -155,7 +157,10 @@ interface Section {
 }
 
 interface ReportEnvelope {
-  data: Record<string, unknown> & { assets?: Section; liabilities?: Section; equity?: Section; revenue?: Section; expenses?: Section };
+  data: Record<string, unknown> & {
+    assets?: Section; liabilities?: Section; equity?: Section; revenue?: Section; expenses?: Section;
+    earned_capital?: { key: string; name: string; total: string; subsections: string[] };
+  };
   meta: { timestamp: string; version: string; language?: string };
 }
 
@@ -268,6 +273,17 @@ describe('the balance sheet, asked for in two languages', () => {
     expect(subsection(en.body.data.equity!, 'ori').name).toBe(EN.ori);
     expect(subsection(es.body.data.equity!, 'result_of_the_period').name).toBe(ES.result_of_the_period);
     expect(subsection(en.body.data.equity!, 'result_of_the_period').name).toBe(EN.result_of_the_period);
+  });
+
+  it('names earned capital as the CLI table does, keeps its key, and carries its total (MNE-001-652)', async () => {
+    const es = await call(BALANCE_SHEET, 'es');
+    const en = await call(BALANCE_SHEET, 'en');
+    expect(es.body.data.earned_capital).toEqual({
+      key: 'earned_capital', name: 'Capital ganado', total: '1500.0000', subsections: ['ori', 'result_of_the_period'],
+    });
+    expect(en.body.data.earned_capital).toEqual({
+      key: 'earned_capital', name: 'Earned capital', total: '1500.0000', subsections: ['ori', 'result_of_the_period'],
+    });
   });
 
   it('does NOT change a single key with the language', async () => {
