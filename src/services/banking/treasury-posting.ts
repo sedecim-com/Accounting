@@ -2304,7 +2304,6 @@ export async function recordCustomerChecksCashing(
       if (!periods.has(date)) periods.set(date, await periodoDeLaFecha(client, entityId, date));
       return periods.get(date) ?? null;
     };
-    const period = await periodOf(credit.date);
     for (const [i, receipt] of receipts.entries()) {
       for (const part of parts[i]) {
         if (!periodoCerrado(await periodOf(part.date))) continue;
@@ -2379,7 +2378,8 @@ export async function recordCustomerChecksCashing(
         transaction: { id: credit.id, date: credit.date, amount: credit.amount, description: credit.description },
         cashedOn: credit.date,
         releasedOn: entry?.date ?? null,
-        period: entry ? entry.period : asPeriod(period),
+        // The credit's month when nothing is posted, looked up only then.
+        period: entry ? entry.period : asPeriod(await periodOf(credit.date)),
         released: released.toFixed(ESCALA),
         iepsReleased: iepsReleased.toFixed(ESCALA),
         byInvoice: releases.map(({ invoiceId, invoiceNumber, amount, date }) => ({ invoiceId, invoiceNumber, amount, date })),

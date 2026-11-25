@@ -29,7 +29,8 @@ const MIRROR = { id: 'mirror-je' };
 // per receipt. The guards live in that SQL, so the fake below answers BY
 // THE SHAPE OF THE SQL: it drops a line for each guard only when the query
 // states that guard, and dates each pair with GREATEST(mirror, cashing) only
-// when the query asks for it. A guard taken out of the SQL lets its line
+// when the query asks for it (the cashing's day is the receipt's since
+// MNE-001-794, which can post a cashing in several entries). A guard taken out of the SQL lets its line
 // through, and the test that names it goes red. The real query runs against
 // Postgres in tests/integration/mne-001-612-held-note-reversed-after-cashing.int.spec.ts.
 // ============================================================
@@ -71,12 +72,12 @@ function fakeClient(): pg.PoolClient {
         (!sql.includes("WHERE l.tags ? 'held_restitution'") || l.held) &&
         (!sql.includes("cp.status = 'completed'") || l.receiptStatus === 'completed') &&
         (!sql.includes('cp.check_cashed_tx_id IS NOT NULL') || l.cashed) &&
-        (!sql.includes("JOIN journal_entries c ON") || l.cashing !== null) &&
+        (!sql.includes('FROM journal_entries c WHERE') || l.cashing !== null) &&
         (!sql.includes("c.status = 'posted'") || l.cashing?.posted === true) &&
         (!sql.includes('c.reversed_by_entry_id IS NULL') || l.cashing?.reversed === false));
       const byReceipt = new Map<string, { payment_id: string; payment_number: string; invoice_id: string; iva: number; day: string }>();
       for (const l of kept) {
-        const day = sql.includes('GREATEST(m.entry_date, MAX(c.entry_date))') && l.cashing && l.cashing.date > mirrorDate
+        const day = sql.includes('GREATEST(m.entry_date, cp.check_cashed_date)') && l.cashing && l.cashing.date > mirrorDate
           ? l.cashing.date
           : mirrorDate;
         const row = byReceipt.get(l.payment) ?? { payment_id: l.payment, payment_number: `PMT-${l.payment}`, invoice_id: l.invoice, iva: 0, day };
