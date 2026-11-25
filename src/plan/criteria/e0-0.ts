@@ -1218,8 +1218,8 @@ export const E0_0: Criterio[] = [
         // identidad de UN constructor de los ochenta y tantos, dejando el
         // rótulo puesto. Es el estado exacto de este archivo antes de I11.
         archivo: 'src/cli/init/s0-infra.ts',
-        de: "        ...RLS_CONTEXT,\n        level: 'ok',\n        detail: 'no tenant pinned yet",
-        a: "        name: 'RLS context',\n        level: 'ok',\n        detail: 'no tenant pinned yet",
+        de: "        ...RLS_CONTEXT,\n        level: 'ok',\n        detail: t('init.infra.rls.no_tenant')",
+        a: "        name: 'RLS context',\n        level: 'ok',\n        detail: t('init.infra.rls.no_tenant')",
         porque:
           'chequeo-anónimo: un solo constructor pierde su identidad y conserva el rótulo, que es invisible en pantalla',
       },
