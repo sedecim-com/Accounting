@@ -37,6 +37,11 @@ provides:
     # GET /v1/fiscal-periods/:id/close-status of that period gains the box
     # `year-months-sealed` and `unsealed_periods`; no box is renamed and no other period's
     # answer changes. Rollback: revert the commit; the panel row stays and nothing reads it.
+    # CONTRACT: POST /v1/fiscal-periods/:id/soft-close and /hard-close of a period that follows
+    # a sealed fiscal year answer 422 CANNOT_CLOSE_PERIOD while that year holds income or
+    # expense posted after its sweep (MNE-001-662, #602); they used to close. close-status of
+    # that period shows the box `ledger-integrity` incomplete, naming `year-sweep: <folio>`;
+    # no box is added or renamed. Rollback: revert the commit; nothing is migrated.
     # CONTRACT: POST /v1/payroll/pay-runs answers 409 RESOURCE_ALREADY_EXISTS when the period
     # already has a run of type `regular` that is not voided and the new one is regular too
     # (`run_type` omitted is regular); the message names the period, the run it has and its
