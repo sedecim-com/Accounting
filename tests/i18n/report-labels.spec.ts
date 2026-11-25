@@ -3,6 +3,7 @@ import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import {
   REPORT_SECTION_KEYS,
   reportCategoryLabel,
+  reportGroupLabel,
   reportSectionLabel,
   localizedSection,
 } from '../../src/i18n/report-labels.js';
@@ -55,7 +56,7 @@ const CATEGORIES: ReadonlyArray<readonly [string, string, string]> = [
   ['current_liabilities', 'Pasivo a corto plazo', 'Current liabilities'],
   ['long_term_liabilities', 'Pasivo a largo plazo', 'Long-term liabilities'],
   ['equity', 'Capital contribuido', 'Contributed capital'],
-  ['earned_capital', 'Capital ganado', 'Earned capital'],
+  ['earned_capital', 'Reservas y resultados acumulados', 'Reserves and retained earnings'],
   ['ori', 'Otros resultados integrales', 'Other comprehensive income'],
   ['revenue', 'Ingresos', 'Revenue'],
   ['cogs', 'Costo de ventas', 'Cost of sales'],
@@ -141,6 +142,40 @@ describe('what the old prettifier got wrong, and the catalog does not', () => {
     expect(reportCategoryLabel('equity', 'es')).toBe('Capital contribuido');
     expect(reportSectionLabel('equity', 'en')).toBe('Equity');
     expect(reportCategoryLabel('equity', 'en')).toBe('Contributed capital');
+  });
+});
+
+describe('earned capital: the group and the category that share its key (MNE-001-652)', () => {
+  // NIF B-6 presents capital contable as contributed plus earned capital, and
+  // NIF C-11 (migration 346's header) puts the reserves, the accumulated
+  // results and the ORI in earned capital. The GROUP spans three subsections;
+  // the CATEGORY `earned_capital` is one of them. Labelled alike, the statement
+  // would print two «Total de Capital ganado» lines with different amounts.
+  it('the group reads «Capital ganado» in Spanish and "Earned capital" in English', () => {
+    expect(reportGroupLabel('earned_capital', 'es')).toBe('Capital ganado');
+    expect(reportGroupLabel('earned_capital', 'en')).toBe('Earned capital');
+  });
+
+  it('the category is labelled for what it holds, not as the group that contains it', () => {
+    for (const language of ['es', 'en'] as const) {
+      expect(reportCategoryLabel('earned_capital', language)).not.toBe(reportGroupLabel('earned_capital', language));
+    }
+    expect(reportCategoryLabel('earned_capital', 'es')).toBe('Reservas y resultados acumulados');
+    expect(reportCategoryLabel('earned_capital', 'en')).toBe('Reserves and retained earnings');
+  });
+
+  it('no category label says «contribuido» but the contributed one', () => {
+    for (const [key, es, en] of CATEGORIES) {
+      if (key === 'equity') continue;
+      expect(es, key).not.toMatch(/contribuido/i);
+      expect(en, key).not.toMatch(/contributed/i);
+    }
+  });
+
+  it('a group nobody has a label for prints its identifier, and the namespaces lend nothing', () => {
+    expect(reportGroupLabel('contributed_capital', 'es')).toBe('contributed_capital');
+    expect(reportGroupLabel('equity', 'es')).toBe('equity');
+    expect(reportGroupLabel('ori', 'en')).toBe('ori');
   });
 });
 
