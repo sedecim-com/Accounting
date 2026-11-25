@@ -86,6 +86,8 @@ mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	g
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/fx-command.ts	string-back-in-the-code: fx rate show says a carried rate in Spanish in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/period-command.ts	string-back-in-the-code: period reopen refuses an open period in Spanish in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	lane-not-at-zero: the lane total says the CLI carries one Spanish string again, with no file in the breakdown
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/entry-command.ts	string-back-in-the-code: entry post asks its question in English from the code again, and its key is left unread
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records English without a key in entry again, which only check 4 sees
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -887,6 +889,8 @@ anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
 anchor	src/plan/criteria/e0-0.ts	de: "'ledger.fx.show.carried'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ledger.period.reopen.not_closed'",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": 0,',
+anchor	src/plan/criteria/e0-0.ts	de: "key: 'ledger.entry.post.question'",
+anchor	src/plan/criteria/e0-0.ts	de: '"cli-user-strings-without-key": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',

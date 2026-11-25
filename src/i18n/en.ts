@@ -5064,6 +5064,74 @@ export const EN = {
   'ledger.entry.import.repeated': ' [repeated: the batch of the first run]',
   'ledger.entry.import.not_in_ledger':
     'The batch did NOT touch the ledger: it is checked and posted with the batch family (check/post); meanwhile, it can be inspected by batch_id.',
+  // MNE-001-626: entry's English, which it printed without a key. The note on
+  // the active entity is period's key, the question with no terminal is ap's,
+  // and the unknown --status and --type are period's and account's. «{count}
+  // lines» stays as English printed it, «1 lines» included: the acceptance
+  // keeps the English byte for byte.
+  /** `--line`, as `create` and `edit` read it. */
+  'ledger.entry.line.no_account': 'Line "{spec}" has no account=<code>.',
+  'ledger.entry.line.one_side': 'Line "{spec}" needs exactly one of debit=<amount> or credit=<amount> (cargo=/abono=).',
+  /** A replayed `post`, `reverse` or `void`. `what` is the act's own `recorded` line. */
+  'ledger.entry.idempotency_hit':
+    '↩ Idempotency hit: key "{key}" already completed this act — {what}\n  Nothing was executed again; this is the recorded result.',
+  /** `entry list`. */
+  'ledger.entry.list.as_of_unsupported': '`entry list` filters a date RANGE: use --since and --until, not --as-of.',
+  'ledger.entry.list.date_basis_unavailable':
+    '--date-basis {value} is not available: journal_entries stores one date (entry_date, the ledger date). Only --date-basis posting is supported.',
+  /** `entry show`: the card a terminal gets. */
+  'ledger.entry.show.reference': 'reference: {reference}',
+  'ledger.entry.show.reverses': 'reverses: {number}',
+  'ledger.entry.show.reversed_by': 'reversed by: {number} (this entry is annulled)',
+  'ledger.entry.show.totals': 'totals: {debits} debit / {credits} credit',
+  /** `entry create` and `entry edit`. `number` arrives in bold in `drafted`. */
+  'ledger.entry.lines_or_file': 'Pass either --line flags or a --file document, not both.',
+  'ledger.entry.create.nothing_to_record':
+    'Nothing to record. Give the lines with --line "account=<code>;debit=<amount>" (repeat it), or a JSON document with --file.',
+  'ledger.entry.create.drafted': '{number} drafted',
+  'ledger.entry.create.drafted_detail': '({count} lines, {debits} / {credits})',
+  'ledger.entry.create.not_posted': 'Nothing moved in the ledger. Post it with: mnemosine entry post {number}',
+  /** The verdict of `create --dry-run`, `check` and `post`: its headline, then where the entry lands. */
+  'ledger.entry.verdict.would_draft': 'Would draft',
+  'ledger.entry.verdict.checked': 'Checked',
+  'ledger.entry.verdict.would_post': 'Would post',
+  'ledger.entry.verdict.cannot_post': 'Cannot post',
+  'ledger.entry.verdict.new_entry': '(new entry)',
+  'ledger.entry.verdict.context': '{date} · {period} ({status}) · {count} lines',
+  'ledger.entry.verdict.all_rules_pass': 'All seven rules pass.',
+  'ledger.entry.verdict.no_blocking': 'No blocking errors.',
+  /** `entry check`. */
+  'ledger.entry.check.nothing_to_check': 'Nothing to check: pass --entry <number> or --file <path>.',
+  'ledger.entry.check.one_at_a_time': 'Check one thing at a time: --entry or --file, not both.',
+  /** `entry post`. `amounts` is the parenthesised total, dim on the receipt. */
+  'ledger.entry.post.already_posted':
+    '{number} is already posted ({date}). Correct it with `entry reverse`, which leaves an audit trail.',
+  'ledger.entry.post.void': '{number} is void and can never be posted.',
+  'ledger.entry.post.invalid': '{number} does not pass validation, so it was not posted.',
+  'ledger.entry.post.question': 'Post {number} ({total}) to the ledger? This cannot be undone.',
+  'ledger.entry.post.recorded': '{number} posted {amounts}',
+  /** `entry reverse`. */
+  'ledger.entry.reverse.not_posted':
+    "{number} is '{status}' and never touched the ledger, so there is nothing to mirror. Use `entry void` on a draft.",
+  'ledger.entry.reverse.already_reversed': '{number} already has a reversal. A second mirror would double the correction.',
+  'ledger.entry.reverse.would_mirror': 'Would create the mirror of {number}',
+  'ledger.entry.reverse.would_mirror_detail': 'dated {date}, posted immediately',
+  'ledger.entry.reverse.stays_posted': '{number} stays posted and unchanged; the two are linked.',
+  'ledger.entry.reverse.question': 'Reverse {number} ({total})? The mirror posts immediately.',
+  'ledger.entry.reverse.recorded': '{number} posted as the reversal of {original}',
+  'ledger.entry.reverse.linked': '{number} is unchanged and now linked to its mirror.',
+  /** `entry void`. `state` is the dim «(now '…')». */
+  'ledger.entry.void.already_void': '{number} is already void.',
+  'ledger.entry.void.already_reversed':
+    '{number} was already annulled by its reversal. A second one would double the correction.',
+  'ledger.entry.void.effect_posted':
+    '{number} is posted, so it will NOT change state: a linked mirror entry is created and posted, which is how a posted entry is annulled without making the trial balance disagree with the balances.',
+  'ledger.entry.void.effect_draft':
+    "{number} is '{status}' and never reached the ledger, so it is marked void. Its number is kept and never reused.",
+  'ledger.entry.void.would_void': 'Would void {number}',
+  'ledger.entry.void.question': 'Void {number} ({total})?',
+  'ledger.entry.void.recorded': '{number} annulled {state}',
+  'ledger.entry.void.state': "(now '{status}')",
   // MNE-001-230: period and year. «I take it as a no» is bank's key, and the
   // question with no terminal is ap's.
   /** The note of every write that lands in the active entity. */
