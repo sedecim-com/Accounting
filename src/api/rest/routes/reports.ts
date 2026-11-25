@@ -17,7 +17,7 @@ import {
   type MetodoDeFlujo,
 } from '../../../services/reporting/cash-flow-service.js';
 import { toCsv, csvAttachment } from '../../../utils/csv.js';
-import { localizedSection } from '../../../i18n/report-labels.js';
+import { localizedSection, reportGroupLabel } from '../../../i18n/report-labels.js';
 import type { Language } from '../../../i18n/index.js';
 import { responseLanguage, responseLocale } from '../middleware/locale.js';
 import { todayForEntity } from '../../../services/policy/today.js';
@@ -196,6 +196,9 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
       assets: localizedSection(report.assets, language),
       liabilities: localizedSection(report.liabilities, language),
       equity: localizedSection(report.equity, language),
+      // Reserves, results, the result of the period and ORI (NIF C-11): named
+      // in the negotiated language, as the CLI table names it (MNE-001-652).
+      earned_capital: { ...report.earned_capital, name: reportGroupLabel(report.earned_capital.key, language) },
       total_liabilities_and_equity: report.total_liabilities_and_equity,
       // El sobre CALCULABA estas dos y las tiraba: getBalanceSheet las publica
       // (report-service.ts:1031-1032) y aquí se quedaban fuera, así que un

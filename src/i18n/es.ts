@@ -107,6 +107,48 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.ENTITY_NOT_FOUND.posting': 'La entidad {entity} no existe o no es visible.',
   'error.TENANT_NO_RESUELTO.entry':
     'No se pudo determinar el inquilino de la entidad {entity}: el asiento no se escribe sin rastro de auditoría.',
+  // part 2 (MNE-001-627); see en.ts
+  'error.CREDIT_NOTE_ALREADY_POSTED': '{note} ya tiene póliza o no es de esta entidad: no se enlaza otra.',
+  'error.FX_BANK_CURRENCY_MISMATCH':
+    '{payment} está en {currency}, pero su cuenta bancaria se lleva en {bankCurrency}. El banco convirtió el dinero a su propio tipo de cambio, que este pago no trae: regístralo contra una cuenta bancaria en {currency}, o registra la conversión por separado.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.no_live_allocation':
+    '{payment}: ninguna aplicación vigente a la factura {invoice} espera su IVA liberado, así que no se puede registrar el monto que una desaplicación volvería a aparcar.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.release_not_recorded':
+    '{payment}: {unreleased} aplicación(es) vigente(s) no liberaron IVA y {recorded} lo registraron, así que una desaplicación no podría distinguirlas de las filas que nunca lo guardaron.',
+  'error.PAYMENT_ALREADY_POSTED.payment': '{payment} ya tiene póliza o no es de esta entidad: no se enlaza otra.',
+  'error.ADVANCE_SPLIT_MISMATCH': '{payment}: la base del anticipo {base} más su IVA {iva} no suman los {remaining} que quedan a cuenta.',
+  'error.PAYMENT_ALREADY_POSTED.transfer':
+    '{transfer} ya tiene póliza o no es una transferencia de esta entidad: no se enlaza otra.',
+  'error.PERIOD_NOT_FOUND': 'No se encontró el periodo fiscal',
+  'error.UNKNOWN_CLOSING_STEP': 'Paso desconocido "{step}". Los pasos son: {steps}.',
+  'error.MISSING_ROLE_ACCOUNT.no_account': '{entity} no tiene cuenta para el rol {role}.',
+  'error.PERIOD_NOT_FUTURE':
+    "{period} está '{status}', no 'future'. Sólo se abre un periodo futuro; reabrir un periodo cerrado es otra operación, que queda auditada.",
+  'error.FX_POLITICA_DESCONOCIDA.policy':
+    'La política {policy} vale "{value}" y este lector solo entiende {known}. Corrige la política en mnemosine pending.',
+  'error.MISSING_ROLE_ACCOUNT.fx_revaluation': 'No hay cuenta mapeada al rol "{role}" en esta entidad.',
+  'error.MISSING_ROLE_ACCOUNT.ieps':
+    'No hay cuenta mapeada al rol "{role}" en esta entidad, y una factura aparcó IEPS que se causa con {event, select, collection {este cobro} unapply {esta desaplicación} other {{event}}} (LIEPS art. 10). Mapea la cuenta con: mnemosine account map set (o revisa con: mnemosine doctor)',
+  'error.IVA_ROLE_UNRESOLVED.same_role':
+    'La taxonomía CFDI manda el IVA de un PPD recibido a {role}: un pago no tendría de dónde liberarlo. Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.',
+  'error.ENTRY_NOT_FOUND.ref': 'No se encontró la póliza {entry}',
+  'error.PERIOD_NOT_OPEN': 'El periodo no está abierto',
+  'error.CANNOT_CLOSE_PERIOD': 'No se puede cerrar el periodo: {issues}',
+  'error.PERIOD_NOT_SOFT_CLOSED': 'El periodo debe estar en soft_close antes del cierre definitivo',
+  'error.PERIOD_CLOSED.no_open_period': 'No hay un periodo fiscal abierto para la fecha de la póliza',
+  'error.VALIDATION_FAILED': 'La póliza no pasó la validación: {errors}',
+  'error.ENTRY_NOT_FOUND': 'No se encontró la póliza',
+  'error.ALREADY_POSTED.post': 'La póliza ya está aplicada',
+  'error.ENTRY_VOID.post': 'No se puede aplicar una póliza anulada',
+  'error.PERIOD_NOT_FOUND.posting': 'No se encontró el periodo fiscal al aplicar la póliza',
+  'error.PERIOD_CLOSED.in_flight': "{period} está '{status}': se cerró mientras esta póliza estaba en curso; no se aplicó nada",
+  'error.ENTRY_NOT_POSTED':
+    "Sólo se revierte una póliza aplicada; {entry} está en '{status}' y nunca tocó el mayor — recházala o anúlala",
+  'error.ALREADY_REVERSED': 'La póliza {entry} ya tiene reversión — revertirla otra vez corrompería los saldos',
+  'error.ASSET_CARD_NOT_REFRESHED':
+    'La póliza {entry} es de depreciación y su activo no está en esta entidad: la reversión no se aplicó',
+  'error.ALREADY_VOID': 'La póliza ya está anulada',
+  'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" no es un valor que este sistema conozca ({known}); no se aplicó nada.',
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
   'error.VALIDATION_ERROR.payment.destination_bank_both':
     'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
@@ -6657,7 +6699,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.current_liabilities': 'Pasivo a corto plazo',
   'report.category.long_term_liabilities': 'Pasivo a largo plazo',
   'report.category.equity': 'Capital contribuido',
-  'report.category.earned_capital': 'Capital ganado',
+  'report.category.earned_capital': 'Reservas y resultados acumulados',
   'report.category.ori': 'Otros resultados integrales',
   'report.category.revenue': 'Ingresos',
   'report.category.cogs': 'Costo de ventas',
@@ -6666,6 +6708,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.other_expenses': 'Otros gastos',
   'report.category.tax': 'Impuestos',
   'report.category.other': 'Otros',
+  'report.group.earned_capital': 'Capital ganado',
   'report.total_of': 'Total de {name}',
   'report.total_liabilities_and_equity': 'Suma del pasivo y el capital contable',
   'report.net_income': 'Utilidad neta',

@@ -252,8 +252,10 @@ async function closingRate(
   if (!(policy.value in CLOSING_SOURCE)) {
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `closing_exchange_rate_source is "${policy.value}" and this reader only understands ` +
-        `${Object.keys(CLOSING_SOURCE).join(', ')}. Fix it with mnemosine pending.`
+      {
+        key: 'error.FX_POLITICA_DESCONOCIDA.policy',
+        params: { policy: 'closing_exchange_rate_source', value: policy.value, known: Object.keys(CLOSING_SOURCE).join(', ') },
+      }
     );
   }
   const source = CLOSING_SOURCE[policy.value];
@@ -271,8 +273,10 @@ async function assertReversalPolicy(client: pg.PoolClient, ctx: { tenantId: stri
   if (!REVERSAL_POLICY.has(policy.value)) {
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `fx_revaluation_reversal is "${policy.value}" and this reader only understands ` +
-        `${[...REVERSAL_POLICY].join(', ')}. Fix it with mnemosine pending.`
+      {
+        key: 'error.FX_POLITICA_DESCONOCIDA.policy',
+        params: { policy: 'fx_revaluation_reversal', value: policy.value, known: [...REVERSAL_POLICY].join(', ') },
+      }
     );
   }
 }
@@ -283,7 +287,7 @@ async function roleAccount(client: pg.PoolClient, entityId: string, role: string
     [entityId, role]
   );
   if (!r.rows[0]) {
-    throw new AccountingError('MISSING_ROLE_ACCOUNT', `No account is mapped to the role "${role}" in this entity.`);
+    throw new AccountingError('MISSING_ROLE_ACCOUNT', { key: 'error.MISSING_ROLE_ACCOUNT.fx_revaluation', params: { role } });
   }
   return r.rows[0].account_id;
 }

@@ -19,7 +19,7 @@ import {
 } from '../services/reporting/materialized-view-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { getLanguage, t } from '../i18n/index.js';
-import { reportSectionLabel, reportSubsectionLabel } from '../i18n/report-labels.js';
+import { reportGroupLabel, reportSectionLabel, reportSubsectionLabel } from '../i18n/report-labels.js';
 
 // ============================================================
 // A REPORT LABEL IS COMPOSED WHEN PRINTED, NOT WHEN THE ROW IS BUILT
@@ -38,11 +38,21 @@ const keyOf = (value: unknown): string => (typeof value === 'string' ? value : '
 
 const sectionOf = (value: string): string => (value === '' ? '' : reportSectionLabel(value));
 const categoryOf = (value: string): string => (value === '' ? '' : reportSubsectionLabel(value, getLanguage()));
+/**
+ * The balance sheet's `category`: a `group` row stores the key of its group,
+ * which is spelled like a category (`earned_capital`), so it is labelled from
+ * the group namespace (MNE-001-652).
+ */
+const categoryOrGroupOf = (value: string, row: Row): string =>
+  row.line === 'group' ? reportGroupLabel(value) : categoryOf(value);
 
 /** The balance sheet's `name`: account names pass through, subtotals get composed. */
 function balanceSheetName(value: string, row: Row): string {
   if (row.line === 'subtotal') {
     return t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) });
+  }
+  if (row.line === 'group') {
+    return t('report.total_of', { name: reportGroupLabel(keyOf(row.category)) });
   }
   if (row.line === 'total') {
     return row.section === ''
@@ -465,6 +475,15 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
             section: section.key, category: sub.key, code: '',
             name: '', amount: sub.total, line: 'subtotal',
           });
+          // Earned capital spans three subsections (NIF C-11): its total
+          // follows the last of them. Its own `line`, so a script that sums
+          // the subtotals does not count it twice (MNE-001-652).
+          if (section === bs.equity && sub.key === bs.earned_capital.subsections.at(-1)) {
+            rows.push({
+              section: section.key, category: bs.earned_capital.key, code: '',
+              name: '', amount: bs.earned_capital.total, line: 'group',
+            });
+          }
         }
         rows.push({
           section: section.key, category: '', code: '',
@@ -483,7 +502,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         ...opts,
         total: rows.length,
         idField: 'code',
-        labelled: { section: sectionOf, category: categoryOf, name: balanceSheetName },
+        labelled: { section: sectionOf, category: categoryOrGroupOf, name: balanceSheetName },
       });
 
       // The accounting identity, enforced rather than explained away.

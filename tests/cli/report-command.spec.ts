@@ -781,8 +781,12 @@ function mockBalanceSheet(): void {
       key: 'equity', name: 'Equity', total: '600.0000',
       subsections: [
         {
-          key: 'equity', name: 'Equity', total: '500.0000',
-          accounts: [{ id: 'c', code: '3000', name: 'Capital social', balance: '500.0000' }],
+          key: 'equity', name: 'Equity', total: '300.0000',
+          accounts: [{ id: 'c', code: '3000', name: 'Capital social', balance: '300.0000' }],
+        },
+        {
+          key: 'earned_capital', name: 'Earned Capital', total: '200.0000',
+          accounts: [{ id: 'e', code: '3200', name: 'Resultado de Ejercicios Anteriores', balance: '200.0000' }],
         },
         {
           key: 'ori', name: 'Ori', total: '100.0000',
@@ -790,6 +794,8 @@ function mockBalanceSheet(): void {
         },
       ],
     },
+    // Reserves and results 200.00 + ORI 100.00 (NIF C-11), MNE-001-652.
+    earned_capital: { key: 'earned_capital', total: '300.0000', subsections: ['earned_capital', 'ori'] },
     total_liabilities_and_equity: '1000.0000',
     out_of_balance: '0.0000',
     is_balanced: true,
@@ -877,6 +883,7 @@ describe('report labels: no column or line says what it is not', () => {
           { key: 'result_of_the_period', name: 'Result Of The Period', total: '300.0000', accounts: [] },
         ],
       },
+      earned_capital: { key: 'earned_capital', total: '300.0000', subsections: ['result_of_the_period'] },
       total_liabilities_and_equity: '800.0000',
       out_of_balance: '0.0000',
       is_balanced: true,
@@ -959,10 +966,13 @@ describe('report balance-sheet show: what a person reads, and what a script read
     'liabilities,current_liabilities,2110,Proveedores,400.0000,account',
     'liabilities,current_liabilities,,,400.0000,subtotal',
     'liabilities,,,,400.0000,total',
-    'equity,equity,3000,Capital social,500.0000,account',
-    'equity,equity,,,500.0000,subtotal',
+    'equity,equity,3000,Capital social,300.0000,account',
+    'equity,equity,,,300.0000,subtotal',
+    'equity,earned_capital,3200,Resultado de Ejercicios Anteriores,200.0000,account',
+    'equity,earned_capital,,,200.0000,subtotal',
     'equity,ori,3600,Otros Resultados Integrales,100.0000,account',
     'equity,ori,,,100.0000,subtotal',
+    'equity,earned_capital,,,300.0000,group',
     'equity,,,,600.0000,total',
     ',,,,1000.0000,total',
     '',
@@ -1046,10 +1056,13 @@ describe('report balance-sheet show: what a person reads, and what a script read
     '| Pasivo | Pasivo a corto plazo | 2110 | Proveedores | 400.0000 | account |',
     '| Pasivo | Pasivo a corto plazo |  | Total de Pasivo a corto plazo | 400.0000 | subtotal |',
     '| Pasivo |  |  | Total de Pasivo | 400.0000 | total |',
-    '| Capital contable | Capital contribuido | 3000 | Capital social | 500.0000 | account |',
-    '| Capital contable | Capital contribuido |  | Total de Capital contribuido | 500.0000 | subtotal |',
+    '| Capital contable | Capital contribuido | 3000 | Capital social | 300.0000 | account |',
+    '| Capital contable | Capital contribuido |  | Total de Capital contribuido | 300.0000 | subtotal |',
+    '| Capital contable | Reservas y resultados acumulados | 3200 | Resultado de Ejercicios Anteriores | 200.0000 | account |',
+    '| Capital contable | Reservas y resultados acumulados |  | Total de Reservas y resultados acumulados | 200.0000 | subtotal |',
     '| Capital contable | Otros resultados integrales | 3600 | Otros Resultados Integrales | 100.0000 | account |',
     '| Capital contable | Otros resultados integrales |  | Total de Otros resultados integrales | 100.0000 | subtotal |',
+    '| Capital contable | Capital ganado |  | Total de Capital ganado | 300.0000 | group |',
     '| Capital contable |  |  | Total de Capital contable | 600.0000 | total |',
     '|  |  |  | Suma del pasivo y el capital contable | 1000.0000 | total |',
     '',
@@ -1065,10 +1078,13 @@ describe('report balance-sheet show: what a person reads, and what a script read
     '| Liabilities | Current liabilities | 2110 | Proveedores | 400.0000 | account |',
     '| Liabilities | Current liabilities |  | Total Current liabilities | 400.0000 | subtotal |',
     '| Liabilities |  |  | Total Liabilities | 400.0000 | total |',
-    '| Equity | Contributed capital | 3000 | Capital social | 500.0000 | account |',
-    '| Equity | Contributed capital |  | Total Contributed capital | 500.0000 | subtotal |',
+    '| Equity | Contributed capital | 3000 | Capital social | 300.0000 | account |',
+    '| Equity | Contributed capital |  | Total Contributed capital | 300.0000 | subtotal |',
+    '| Equity | Reserves and retained earnings | 3200 | Resultado de Ejercicios Anteriores | 200.0000 | account |',
+    '| Equity | Reserves and retained earnings |  | Total Reserves and retained earnings | 200.0000 | subtotal |',
     '| Equity | Other comprehensive income | 3600 | Otros Resultados Integrales | 100.0000 | account |',
     '| Equity | Other comprehensive income |  | Total Other comprehensive income | 100.0000 | subtotal |',
+    '| Equity | Earned capital |  | Total Earned capital | 300.0000 | group |',
     '| Equity |  |  | Total Equity | 600.0000 | total |',
     '|  |  |  | Total liabilities and equity | 1000.0000 | total |',
     '',
@@ -1112,13 +1128,17 @@ describe('report balance-sheet show: what a person reads, and what a script read
     };
 
     const subtotals = payload.rows.filter((r) => r.line === 'subtotal');
-    expect(subtotals).toHaveLength(4);
+    expect(subtotals).toHaveLength(5);
     for (const row of subtotals) {
       expect(row.name, `the subtotal of ${row.category} stored prose`).toBe('');
     }
     // The section totals too, and the grand total, which is the last row and is
     // written out whole: no section, no category, no code, no name.
     expect(payload.rows.filter((r) => r.line === 'total').map((r) => r.name)).toEqual(['', '', '', '']);
+    // And the earned-capital line (MNE-001-652): its key, its amount, no prose.
+    expect(payload.rows.filter((r) => r.line === 'group')).toEqual([
+      { section: 'equity', category: 'earned_capital', code: '', name: '', amount: '300.0000', line: 'group' },
+    ]);
     expect(payload.rows.at(-1)).toEqual({
       section: '', category: '', code: '', name: '', amount: '1000.0000', line: 'total',
     });
@@ -1128,6 +1148,7 @@ describe('report balance-sheet show: what a person reads, and what a script read
     expect(human).toContain('Total de Activo circulante');
     expect(human).toContain('Total de Pasivo a corto plazo');
     expect(human).toContain('Total de Otros resultados integrales');
+    expect(human).toContain('Total de Capital ganado');
   });
 
   it('the grand total says its own sentence, not «Total de » with nothing after it', async () => {
@@ -1350,7 +1371,7 @@ describe('report-command.ts coins no report label of its own', () => {
 
   it('both statements hand the kernel their labellers, so the table can render them', () => {
     const text = source();
-    expect(text).toContain('labelled: { section: sectionOf, category: categoryOf, name: balanceSheetName }');
+    expect(text).toContain('labelled: { section: sectionOf, category: categoryOrGroupOf, name: balanceSheetName }');
     expect(text).toContain('labelled: { section: sectionOf, name: incomeStatementName }');
   });
 

@@ -343,7 +343,12 @@ export async function correctDiscountVat(
           );
           const accountOf = (role: string): string => {
             const found = accounts.rows.find((r) => r.role === role);
-            if (!found) throw new AccountingError('MISSING_ROLE_ACCOUNT', `${x.entityName} has no account for the ${role} role.`);
+            if (!found) {
+              throw new AccountingError('MISSING_ROLE_ACCOUNT', {
+                key: 'error.MISSING_ROLE_ACCOUNT.no_account',
+                params: { entity: x.entityName, role },
+              });
+            }
             return found.account_id;
           };
 

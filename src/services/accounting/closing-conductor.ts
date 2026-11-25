@@ -831,7 +831,7 @@ async function periodStatus(entityId: string, periodId: string): Promise<string>
     [periodId, entityId]
   );
   if (r.rows.length === 0) {
-    throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found');
+    throw new AccountingError('PERIOD_NOT_FOUND', { key: 'error.PERIOD_NOT_FOUND' });
   }
   return r.rows[0].status;
 }
@@ -1020,7 +1020,7 @@ export async function conductClose(
   if (requested !== undefined && !isClosingStep(requested)) {
     throw new AccountingError(
       'UNKNOWN_CLOSING_STEP',
-      `Unknown step "${requested}". The steps are: ${CLOSING_STEPS.join(', ')}.`
+      { key: 'error.UNKNOWN_CLOSING_STEP', params: { step: requested, steps: CLOSING_STEPS.join(', ') } }
     );
   }
 

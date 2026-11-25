@@ -1063,6 +1063,94 @@ describe('the result of the period belongs to equity', () => {
   });
 });
 
+// ============================================================
+// MNE-001-652 (#597) · CONTRIBUTED CAPITAL, THEN EARNED CAPITAL
+//
+// NIF B-6 presents capital contable as contributed capital plus earned
+// capital, and NIF C-11 (migration 346's header) puts the reserves, the
+// accumulated results and the ORI in earned capital; the result of the period
+// is an accumulated result not yet swept. Hand figures: bank 3,800.00 = share
+// capital 2,500.00 + legal reserve 100.00 + prior years 400.00 + ORI 500.00 +
+// the result of the period 300.00. Earned capital: 1,300.00.
+//
+// The ORI account is numbered 3050 on purpose, BEFORE the reserve: the order
+// of the statement must come from what each line is, not from a code.
+// ============================================================
+
+describe('equity presents contributed capital, then earned capital (MNE-001-652)', () => {
+  const EQUITY_ROWS = [
+    { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '3800.0000' },
+    { id: 'o', code: '3050', name: 'Superávit por revaluación', account_type: 'equity', fs_category: 'ori', balance: '-500.0000' },
+    { id: 'c', code: '3100', name: 'Capital social', account_type: 'equity', fs_category: 'equity', balance: '-2500.0000' },
+    { id: 'r', code: '3150', name: 'Reserva legal', account_type: 'equity', fs_category: 'earned_capital', balance: '-100.0000' },
+    { id: 'p', code: '3200', name: 'Resultado de ejercicios anteriores', account_type: 'equity', fs_category: 'earned_capital', balance: '-400.0000' },
+  ];
+
+  async function sheet(rows: typeof EQUITY_ROWS, unclosed: string) {
+    mockQuery.mockResolvedValueOnce({ rows });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: unclosed }] });
+    return getBalanceSheet(ENTITY, { asOfDate: '2026-12-31' });
+  }
+
+  it('orders the subsections contributed, reserves and results, result of the period, ORI', async () => {
+    const bs = await sheet(EQUITY_ROWS, '-300.0000');
+    expect(bs.equity.subsections.map((s) => [s.key, s.total])).toEqual([
+      ['equity', '2500.0000'],
+      ['earned_capital', '500.0000'],
+      ['result_of_the_period', '300.0000'],
+      ['ori', '500.0000'],
+    ]);
+    expect(bs.equity.total).toBe('3800.0000');
+    expect(bs.is_balanced).toBe(true);
+    // Still two queries: the grouping reads what the one statement query brought.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('totals earned capital over the reserves, the results, the result of the period and the ORI', async () => {
+    const bs = await sheet(EQUITY_ROWS, '-300.0000');
+    expect(bs.earned_capital).toEqual({
+      key: 'earned_capital',
+      total: '1300.0000',
+      subsections: ['earned_capital', 'result_of_the_period', 'ori'],
+    });
+    // Contributed + earned = equity, with nothing left over.
+    expect(Number(bs.equity.subsections[0].total) + Number(bs.earned_capital.total)).toBe(3800);
+  });
+
+  it('a loss of the period reduces earned capital', async () => {
+    const bs = await sheet(EQUITY_ROWS, '200.0000');
+    expect(bs.earned_capital.total).toBe('800.0000');
+    expect(bs.equity.total).toBe('3300.0000');
+  });
+
+  it('an entity with only contributed capital has no earned capital to present', async () => {
+    const bs = await sheet(
+      [
+        { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '2500.0000' },
+        { id: 'c', code: '3100', name: 'Capital social', account_type: 'equity', fs_category: 'equity', balance: '-2500.0000' },
+      ],
+      '0'
+    );
+    expect(bs.earned_capital).toEqual({ key: 'earned_capital', total: '0.0000', subsections: [] });
+  });
+
+  it('a category outside both components keeps its own line, after earned capital', async () => {
+    // An equity account with no fs_category (`other`), numbered first of all.
+    const bs = await sheet(
+      [
+        { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '3810.0000' },
+        { id: 'x', code: '3010', name: 'Sin clasificar', account_type: 'equity', fs_category: '', balance: '-10.0000' },
+        ...EQUITY_ROWS.slice(1),
+      ],
+      '-300.0000'
+    );
+    expect(bs.equity.subsections.map((s) => s.key)).toEqual([
+      'equity', 'earned_capital', 'result_of_the_period', 'ori', 'other',
+    ]);
+    expect(bs.earned_capital.total).toBe('1300.0000');
+  });
+});
+
 describe('income statement', () => {
   it('keeps the historical HAVING by default and widens it only on request', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
