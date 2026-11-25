@@ -161,10 +161,10 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     moves its share to 2180 (ieps-cash-basis.ts). An entity with no account
  *     for that role refuses a PPD with IEPS, naming the backfill (#699);
  *   - all of the above on Mexican books. On an entity that does not keep them
- *     (keepsMexicanBooks) no collection moves tax, so the VAT counts on
- *     iva_trasladado and iva_trasladado_no_cobrado together, the IEPS on
- *     ieps_por_pagar and ieps_trasladado_no_cobrado together, whatever the
- *     MetodoPago, and 2181 is never asked for (MNE-001-759).
+ *     (keepsMexicanBooks) no collection moves tax, so each tax counts on its
+ *     due role and its parked role together (2120 with 2125, 2180 with
+ *     2181), whatever the MetodoPago, and 2181 is never asked for
+ *     (MNE-001-759).
  */
 export async function registerIssuedInvoice(
   client: pg.PoolClient,
