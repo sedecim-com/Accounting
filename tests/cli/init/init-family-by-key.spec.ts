@@ -84,7 +84,7 @@ describe('under es-MX the init family prints Spanish', () => {
   it('the frame: title, mode, badge, skip notice, final verification and the ready list', async () => {
     setLanguage('es');
     const out: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((l?: unknown) => void out.push(String(l ?? '')));
+    vi.spyOn(console, 'log').mockImplementation((...a: string[]) => void out.push(a.join(' ')));
     sections.list = [{
       id: 'usuarios', title: 'X', required: false,
       status: async () => 'partial', verify: async () => [], configure: async () => {},
