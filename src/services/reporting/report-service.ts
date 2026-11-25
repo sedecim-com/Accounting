@@ -37,8 +37,9 @@ import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../
 //                   external-ledger diff, the close's fixed-asset box,
 //                   the FX revaluation line, the IVA paper's withholding
 //                   per sale and receipt movement, the DIOT's exempt
-//                   revenue, and the cash-flow statement's movement by
-//                   account and its non-cash entries; T14, #101). This is
+//                   revenue, the cash-flow statement's movement by
+//                   account and its non-cash entries, and its tie-out's
+//                   opening and movement of cash; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -1797,6 +1798,55 @@ export async function queryEntryMovementsTouching(
     [entityId, opts.startDate, opts.endDate, [...opts.withLineOn], [...opts.withoutLineOn]]
   );
   return r.rows;
+}
+
+export interface OpeningAndMovementRow {
+  /** Accumulated posted balance (debit − credit) before `startDate`. */
+  opening: string;
+  /** Posted movement (debit − credit) from `startDate` to `endDate`. */
+  movement: string;
+}
+
+/**
+ * The opening balance and the movement of a set of accounts, summed over the
+ * set: the real cash movement the cash-flow statement is tied out against
+ * (`movimientoRealDeEfectivo`, MNE-001-433). ONE statement, so one snapshot:
+ * two reads through the pool would take two, and an entry dated before the
+ * range that committed between them would show up as a residue that is not
+ * there. The opening is accumulated from the ledger, not read from
+ * `account_balances.beginning_balance`, which only a hard close seeds.
+ *
+ * Closing entries count, and no closing policy is read: a closing entry
+ * sweeps results against equity and never touches cash, and the tie-out
+ * compares facts of the ledger, not a presentation. A range that ends before
+ * it starts goes to Postgres as given: the opening is the balance at
+ * `endDate` and the movement is zero. The inner (jel JOIN je) pair, with the
+ * date cut inside the JOIN, keeps draft and void lines out; the entity is
+ * bound on the entry's side and the account's.
+ */
+export async function queryOpeningAndMovement(
+  entityId: string,
+  opts: { accountIds: readonly string[]; startDate: string; endDate: string }
+): Promise<OpeningAndMovementRow> {
+  const r = await query<OpeningAndMovementRow>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN je.entry_date < $2
+                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
+                    ELSE 0 END), 0)::text AS opening,
+       COALESCE(SUM(CASE WHEN je.entry_date BETWEEN $2 AND $3
+                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
+                    ELSE 0 END), 0)::text AS movement
+       FROM (journal_entry_lines jel
+        JOIN journal_entries je
+          ON je.id = jel.journal_entry_id
+         AND je.status = 'posted'
+         AND je.entity_id = $1
+         AND je.entry_date <= $3)
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
+      WHERE jel.account_id = ANY($4::uuid[])`,
+    [entityId, opts.startDate, opts.endDate, [...opts.accountIds]]
+  );
+  return r.rows[0] ?? { opening: '0', movement: '0' };
 }
 
 // ------------------------------------------------------------
