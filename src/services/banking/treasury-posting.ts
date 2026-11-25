@@ -12,6 +12,7 @@ import {
   iepsCausedByReceipt, iepsHeldForCashing, iepsMoveLines, iepsMovedForInvoice, type IepsMove,
 } from '../accounting/ieps-cash-basis.js';
 import { JournalEntryType } from '../../types/index.js';
+import { APPLIED_ON } from '../sat/diot/hechos.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
@@ -1449,6 +1450,11 @@ export interface ResultadoDeCobroDeCheque {
   movimiento: { id: string; fecha: string; importe: string; descripcion: string | null };
   /** EL DÍA DEL COBRO: lo dice el banco, no el operador ni el reloj. */
   fechaDeCobro: string;
+  /**
+   * MNE-001-778 · the day the release entry is dated: the cashing day, or the
+   * later day its applications were applied on. Null when nothing is released.
+   */
+  releasedOn: string | null;
   periodo: { nombre: string; status: string } | null;
   /** Total reclasificado de 1135 a 1130. Cero es un resultado legítimo. */
   reclasificado: string;
@@ -1496,6 +1502,17 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * and this act releases it; a cheque whose own entry credited the IVA on its
  * signing day, as all did before MNE-001-508 and as a foreign-currency one
  * still does, records its cashing here and moves nothing.
+ *
+ * THE RELEASE IS DATED ON THE LATER OF THE CHARGE AND THE APPLICATION
+ * (MNE-001-778). Cash on account pays a bill the day it is applied to it, and a
+ * payment by check is made the day the bank cashes it (the VAT law, articles
+ * 5o. III and 1o.-B), so the VAT of an application is creditable on the later
+ * of the two days: the day the DIOT and the IVA workpaper count it
+ * (`APPLICATION_CREDIT_DATE`, in the DIOT facts). An application dated after
+ * the bank's charge (applied today, then last month's statement reconciled)
+ * releases on its own day; the cashing keeps the bank's day. One act posts one
+ * entry with one date, so a release whose applications fall on two such days
+ * is refused, naming them.
  */
 export async function conciliarCheque(
   entityId: string,
@@ -1575,13 +1592,6 @@ export async function conciliarCheque(
       );
     }
 
-    // EL PERIODO DEL COBRO, ANTES DE ESCRIBIR NADA. Aquí no se omite y se sigue
-    // —como en las comisiones— porque el acto es UNO: si el asiento no se puede
-    // fechar en el mes del cobro, escribir sólo `check_cleared_date` dejaría el
-    // pago diciendo que el cheque se cobró y el mayor sin el IVA reclasificado,
-    // que es el descuadre que este comando existe para no producir.
-    const periodo = await periodoDeLaFecha(client, entityId, fechaDeCobro);
-
     // LA REGLA DEL COBRO ES LIVA, NO NIF. Una entidad no mexicana no acredita
     // IVA: el impuesto de su factura no es IVA acreditable y no hay nada
     // aparcado en 1135 que liberar. Preguntar antes evita recorrer la máquina
@@ -1591,14 +1601,33 @@ export async function conciliarCheque(
     // rate: releasing here with no rate would move its dollars as pesos.
     const inFunctional =
       flujoDeEfectivo && pago.currency_code === (await functionalCurrencyOf(client, entityId));
-    const { items, alreadyCredited } = inFunctional
-      ? await vatHeldByVendorCheck(client, entityId, pago.id)
-      : { items: [], alreadyCredited: flujoDeEfectivo };
+    const { items, alreadyCredited, releaseDays } = inFunctional
+      ? await vatHeldByVendorCheck(client, entityId, pago.id, fechaDeCobro)
+      : { items: [], alreadyCredited: flujoDeEfectivo, releaseDays: [] };
     const totalIva = items.reduce((s, i) => s.plus(i.amount), new Decimal(0));
+    if (releaseDays.length > 1) {
+      throw new ValidationError({
+        key: 'bank.check.reconcile.several_release_days',
+        params: {
+          payment: pago.payment_number, cashedOn: fechaDeCobro,
+          days: releaseDays.join(', '), first: releaseDays[0],
+        },
+      });
+    }
+    const entryDay = releaseDays[0] ?? fechaDeCobro;
+
+    // EL PERIODO DEL ASIENTO, ANTES DE ESCRIBIR NADA. Aquí no se omite y se sigue
+    // —como en las comisiones— porque el acto es UNO: si el asiento no se puede
+    // fechar en el mes del cobro, escribir sólo `check_cleared_date` dejaría el
+    // pago diciendo que el cheque se cobró y el mayor sin el IVA reclasificado,
+    // que es el descuadre que este comando existe para no producir.
+    // MNE-001-778: the month of the entry's day, which is the cashing's unless
+    // the applications it releases were applied later. Nothing is written yet.
+    const periodo = await periodoDeLaFecha(client, entityId, entryDay);
 
     if (totalIva.greaterThan(0) && periodoCerrado(periodo)) {
       throw new ValidationError(
-        `El cobro es del ${fechaDeCobro} y ${motivoDePeriodo(periodo, fechaDeCobro)}. La ` +
+        `El cobro es del ${fechaDeCobro} y ${motivoDePeriodo(periodo, entryDay)}. La ` +
           `reclasificación de IVA de un cheque PERTENECE al mes del cobro —bajo la LIVA el pago ` +
           `se entiende efectuado al cobrarse—, así que no se postea con otra fecha: reabre el ` +
           `periodo con \`mnemosine close --reopen\` o deja constancia del cobro cuando se pueda ` +
@@ -1641,7 +1670,8 @@ export async function conciliarCheque(
         entityId,
         // LA FECHA DEL ASIENTO ES LA DEL COBRO. Ni hoy, ni la del cheque, ni
         // —por medianoche UTC— la víspera del cobro: ver `fechaDelAsiento`.
-        fechaDelAsiento(fechaDeCobro),
+        // MNE-001-778: or the later day its applications were applied on.
+        fechaDelAsiento(entryDay),
         JournalEntryType.AUTO_RECONCILIATION,
         `Cheque ${pago.check_number ?? pago.payment_number} cleared ${fechaDeCobro} - IVA reclassified 1135 to 1130`,
         lineas,
@@ -1735,6 +1765,7 @@ export async function conciliarCheque(
         descripcion: movimiento.descripcion,
       },
       fechaDeCobro,
+      releasedOn: totalIva.greaterThan(0) ? entryDay : null,
       periodo: periodo ? { nombre: periodo.period_name, status: periodo.status } : null,
       reclasificado: totalIva.toFixed(ESCALA),
       porGasto: items.map((i) => ({
@@ -1776,24 +1807,33 @@ interface VatHeldByCheck {
  * A NULL on a live row counts as released: what it released cannot be known,
  * and releasing again would credit the IVA twice. `alreadyCredited` says a
  * share was left out for that reason or because it was stored in full.
+ *
+ * MNE-001-778 · `releaseDays`: the distinct days, in order, on which what is
+ * released becomes creditable: for each live application of a released bill,
+ * the later of the cashing day and the day it was applied (`APPLIED_ON`, which
+ * reads a row with no stored day as its payment's date, never after the
+ * cashing). Read by the statement that already locks those rows.
  */
 async function vatHeldByVendorCheck(
   client: pg.PoolClient,
   entityId: string,
-  paymentId: string
-): Promise<{ items: VatHeldByCheck[]; alreadyCredited: boolean }> {
+  paymentId: string,
+  cashedOn: string
+): Promise<{ items: VatHeldByCheck[]; alreadyCredited: boolean; releaseDays: string[] }> {
   const items: VatHeldByCheck[] = [];
+  const days = new Set<string>();
   let alreadyCredited = false;
   for (const share of await ivaReclassificationsFor(client, 'received', entityId, paymentId)) {
-    const live = await client.query<{ id: string; stored: string | null }>(
-      `SELECT pa.id, pa.iva_reclass_amount::text AS stored
+    const live = await client.query<{ id: string; stored: string | null; releases_on: string }>(
+      `SELECT pa.id, pa.iva_reclass_amount::text AS stored,
+              to_char(date_larger(${APPLIED_ON}, $4::date), 'YYYY-MM-DD') AS releases_on
          FROM payment_applications pa
          JOIN vendor_payments vp ON vp.id = pa.payment_id
         WHERE pa.payment_id = $1 AND pa.bill_id = $2 AND vp.entity_id = $3
           AND pa.unapplied_at IS NULL
         ORDER BY pa.created_at, pa.id
         FOR UPDATE OF pa`,
-      [paymentId, share.documentId, entityId]
+      [paymentId, share.documentId, entityId, cashedOn]
     );
     const stored = live.rows.reduce((s, r) => s.plus(r.stored ?? '0'), new Decimal(0));
     const held = live.rows.some((r) => r.stored === null)
@@ -1809,8 +1849,10 @@ async function vatHeldByVendorCheck(
       amount: held.toFixed(ESCALA),
       applicationId: live.rows[0].id,
     });
+    for (const r of live.rows) days.add(r.releases_on);
   }
-  return { items, alreadyCredited };
+  // ISO days: their string order is their calendar order.
+  return { items, alreadyCredited, releaseDays: [...days].sort() };
 }
 
 /**

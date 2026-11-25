@@ -3534,6 +3534,9 @@ export const EN = {
   'bank.check.reconcile.no_number': 'no number',
   'bank.check.reconcile.dated_by_bank':
     '(the bank dates it: transaction {transaction}, {amount})',
+  'bank.check.reconcile.label.entry_date': 'entry dated',
+  'bank.check.reconcile.entry_after_cashing':
+    '(its bills were applied on that day, after the cashing: the VAT is credited on the later of the two days)',
   'bank.check.reconcile.no_open_period': 'no open period on that date',
   'bank.check.reconcile.no_period': 'no period',
   'bank.check.reconcile.why':
@@ -3549,6 +3552,8 @@ export const EN = {
   'bank.check.reconcile.already_cleared': 'check cleared on {date}',
   'bank.check.reconcile.changed_meanwhile':
     'Payment {payment} ("{status}") changed while the cashing of its cheque was being recorded, or it is not a completed payment. Nothing was written.',
+  'bank.check.reconcile.several_release_days':
+    'The bank cashed the cheque of payment {payment} on {cashedOn}, and the VAT of its applications is credited on the later of that day and the day each was applied: {days}. One cashing posts one entry with one date, so nothing was written. Unapply the applications dated after {first}, record the cashing, and apply them again.',
   'bank.check.reconcile.summary':
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':

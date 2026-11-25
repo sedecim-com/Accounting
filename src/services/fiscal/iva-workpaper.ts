@@ -2377,6 +2377,8 @@ async function billEntryIds(
     // A cheque cashed in the month (MNE-001-559): its cashing entry is the one
     // that credited the IVA, so the bill traces to it. One whose own entry
     // credited the IVA has no cashing entry, and its payment entry is above.
+    // The cashing entry is found by its own day: since MNE-001-778 it is the
+    // later day its applications were applied on when that follows the bank's.
     // Cash on account applied in the month (MNE-001-679): the application's
     // entry credited the IVA, dated the day its row stores. A row with no
     // stored day names no entry and keeps its payment's, above.
@@ -2390,7 +2392,7 @@ async function billEntryIds(
         WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
           AND vp.status <> 'void'
           AND ((je.source_type = '${ORIGEN_COBRO_DE_CHEQUE}'
-                AND vp.check_cleared_date >= $3::date AND vp.check_cleared_date <= $4::date)
+                AND je.entry_date >= $3::date AND je.entry_date <= $4::date)
             OR (je.source_type = 'vendor_application' AND je.entry_date = pa.applied_on
                 AND pa.applied_on >= $3::date AND pa.applied_on <= $4::date))
         ORDER BY 1, 2`,
