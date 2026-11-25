@@ -77,6 +77,9 @@ import {
   totalTrialBalance,
   getTrialBalance,
   queryAccountAncestry,
+  queryLedgerNetsWithoutReversalPairs,
+  queryInvoiceEntryNetOnAccount,
+  queryHeldNoteIvaByCashedReceipt,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -1861,5 +1864,109 @@ describe('queryAccountAncestry — one recursive CTE, scoped and cycle-safe', ()
     expect(sql(0)).not.toContain('UNION ALL');
     expect(m.get('a')).toEqual({ level: 1, ancestors: [] });
     expect(m.get('b')).toEqual({ level: 2, ancestors: ['a'] });
+  });
+});
+
+// ============================================================
+// MNE-001-616 · the three ledger sums that lived in ar-ap-posting.ts and
+// opening-balance.ts, moved here verbatim. Each test pins the predicates
+// that decide the figure, the parameter order, and the connection it runs on.
+// ============================================================
+
+/** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+const E1_2_COUNTED_SUM = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+
+describe('queryLedgerNetsWithoutReversalPairs — the opening check\'s ledger (MNE-001-616)', () => {
+  it('every account of the entity, with its parent, net at the cut, reversal pairs left out', async () => {
+    const rows = [
+      { id: 'id-1110', code: '1110', parent_code: null, normal_balance: 'debit', codigo_agrupador_sat: '102.01', net: '1000.0000' },
+      { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', codigo_agrupador_sat: null, net: '-1000.0000' },
+    ];
+    mockQuery.mockResolvedValueOnce({ rows });
+    expect(await queryLedgerNetsWithoutReversalPairs(ENTITY, '2026-01-01')).toEqual(rows);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01']);
+    const s = sql(0);
+    expect(s).toMatch(
+      /^SELECT a\.id, a\.code, p\.code AS parent_code, a\.normal_balance, a\.codigo_agrupador_sat, COALESCE\(SUM\(COALESCE\(l\.debit_amount, 0\) - COALESCE\(l\.credit_amount, 0\)\) FILTER \(WHERE e\.id IS NOT NULL\), 0\)::text AS net FROM accounts a/
+    );
+    // An account without lines still comes back, at zero: LEFT JOINs, and the
+    // entry's predicates inside its ON so a draft line is dropped, not its account.
+    expect(s).toContain('LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id');
+    expect(s).toContain('LEFT JOIN journal_entry_lines l ON l.account_id = a.id');
+    expect(s).toContain(
+      "LEFT JOIN journal_entries e ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id AND e.status = 'posted' AND e.entry_date <= $2::date AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL"
+    );
+    expect(s).toMatch(/WHERE a\.entity_id = \$1 GROUP BY a\.id, a\.code, p\.code, a\.normal_balance, a\.codigo_agrupador_sat$/);
+    expect(s).not.toContain('entry_type');
+    expect(s).not.toContain(E1_2_COUNTED_SUM);
+  });
+});
+
+describe('queryInvoiceEntryNetOnAccount — what a receivable was born with (MNE-001-616)', () => {
+  it('the net the invoice\'s own entry left on the account, on the caller\'s transaction client', async () => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [{ born: '17500.0001' }] });
+    const born = await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc', { query: clientQuery } as never);
+    expect(born).toBe('17500.0001');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(String(text).replace(/\s+/g, ' ')).toBe(
+      'SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born FROM invoices i ' +
+        'JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id ' +
+        'WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3'
+    );
+    expect(values).toEqual(['inv-1', ENTITY, 'acc-cxc']);
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('reads through the pool without a client, and a document with no line reads as null', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ born: null }] });
+    expect(await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc')).toBeNull();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc')).toBeNull();
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(params(0)).toEqual(['inv-1', ENTITY, 'acc-cxc']);
+  });
+});
+
+describe('queryHeldNoteIvaByCashedReceipt — the held IVA a reversed note gives back (MNE-001-616)', () => {
+  it('one statement on the caller\'s client: per cashed receipt, the note\'s held lines summed, entity-scoped', async () => {
+    const rows = [{ payment_id: 'pay-A', payment_number: 'PMT-A', invoice_id: 'inv-S', iva: '40.0000', day: '2026-07-10' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryHeldNoteIvaByCashedReceipt(
+      ENTITY,
+      { noteEntryId: 'note-je', mirrorEntryId: 'mirror-je' },
+      { query: clientQuery } as never
+    );
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    const s = String(text).replace(/\s+/g, ' ');
+    expect(values).toEqual([ENTITY, 'note-je', 'mirror-je']);
+    expect(s).toContain("SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva");
+    expect(s).toContain('GREATEST(m.entry_date, cp.check_cashed_date)::text AS day');
+    expect(s).toContain('JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1');
+    expect(s).toContain('JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1');
+    expect(s).toContain(
+      "JOIN customer_payments cp ON cp.id::text = l.tags -> 'held_restitution' ->> 'payment_id' AND cp.entity_id = $1 " +
+        "AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL"
+    );
+    expect(s).toContain("WHERE l.tags ? 'held_restitution'");
+    // The cashing is asked for, not joined: a join would sum the note's lines once per cashing entry.
+    expect(s).toContain(
+      "AND EXISTS (SELECT 1 FROM journal_entries c WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' " +
+        "AND c.source_id = cp.id AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)"
+    );
+    expect(s).toMatch(
+      /GROUP BY cp\.id, cp\.payment_number, l\.tags -> 'held_restitution' ->> 'invoice_id', m\.entry_date, cp\.check_cashed_date ORDER BY cp\.payment_number$/
+    );
+    expect(s).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryHeldNoteIvaByCashedReceipt(ENTITY, { noteEntryId: 'note-je', mirrorEntryId: 'mirror-je' })).toEqual([]);
+    expect(params(0)).toEqual([ENTITY, 'note-je', 'mirror-je']);
   });
 });

@@ -35,6 +35,7 @@ import {
   type TipoCambioResuelto as FxRate,
 } from './moneda-origen.js';
 import { tenantDe } from '../audit/audit-log.js';
+import { queryHeldNoteIvaByCashedReceipt, queryInvoiceEntryNetOnAccount } from '../reporting/report-service.js';
 
 // ============================================================
 // AR/AP → GL POSTING
@@ -1149,14 +1150,7 @@ async function receivableCredit(
   const cumulative = prior.plus(app.aplicado);
   const atRate = (x: Decimal): Decimal => new Decimal(convertirAFuncional(x.toFixed(4), app.tasaHistorica));
   if (app.documentTotal !== undefined && cumulative.equals(app.documentTotal)) {
-    const born = await client.query<{ born: string | null }>(
-      `SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born
-         FROM invoices i
-         JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id
-        WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3`,
-      [app.billId, entityId, arAccount]
-    );
-    const bornDebit = born.rows[0]?.born;
+    const bornDebit = await queryInvoiceEntryNetOnAccount(entityId, app.billId, arAccount, client);
     if (bornDebit) return new Decimal(bornDebit).minus(atRate(prior)).toFixed(4);
   }
   return atRate(cumulative).minus(atRate(prior)).toFixed(4);
@@ -1942,26 +1936,8 @@ export async function followNoteReversal(
   mirror: { id: string },
   userId: string
 ): Promise<JournalEntry[]> {
-  const held = await client.query<{ payment_id: string; payment_number: string; invoice_id: string; iva: string; day: string }>(
-    `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
-            GREATEST(m.entry_date, cp.check_cashed_date)::text AS day
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
-       JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
-       JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
-                                AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
-      WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
-        -- MNE-001-794: a cashing may post one entry per day, so it is asked for, not joined (a join would sum
-        -- the note's lines once per entry), and the day is the bank's, the one every entry of it once carried.
-        AND EXISTS (SELECT 1 FROM journal_entries c
-                     WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
-                       AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)
-      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date, cp.check_cashed_date
-      ORDER BY cp.payment_number`,
-    [note.entity_id, note.id, mirror.id]
-  );
-  const due = held.rows.filter((x) => new Decimal(x.iva).greaterThan('0.00005'));
+  const held = await queryHeldNoteIvaByCashedReceipt(note.entity_id, { noteEntryId: note.id, mirrorEntryId: mirror.id }, client);
+  const due = held.filter((x) => new Decimal(x.iva).greaterThan('0.00005'));
   if (due.length === 0) return [];
   const { to } = reclassRoles('issued');
   const roles = await roleAccounts(client, note.entity_id, ['anticipo_clientes', to]);
