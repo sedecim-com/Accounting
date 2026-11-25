@@ -1359,6 +1359,86 @@ export const E0_0: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'cli-help-descriptions-lane-closed',
+    // MNE-001-405 (issue #314). The series 231 to 428 keyed every help
+    // description of the CLI, and this closes the lane that measured them.
+    // Three claims, each against one way of giving the ground back:
+    //   1. The lane declares `closed`, so `--check` demands 0 by itself.
+    //   2. `compare` judges a closed lane by `closedLaneFindings`, not by the
+    //      baseline; without the call the declaration is decoration.
+    //   3. The baseline has no entry for the lane, neither total nor family:
+    //      a number there is a ceiling that a hand edit can raise.
+    // The live count is `language:status --check`'s, which CI runs; this reads
+    // the sources through the seam, so each mutant below turns it red.
+    enunciado:
+      'Every CLI help description renders from a catalogue key: the lane that counts the ones without a key is closed at 0, with no baseline that a hand edit could raise (#314, MNE-001-405)',
+    evaluar: () => {
+      const LANE = 'help-descriptions-without-key';
+      const LANE_FILE = 'scripts/language/lanes/help.ts';
+      const METER = 'scripts/language-status.ts';
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [LANE_FILE, METER, BASELINE]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+      if (!new RegExp(`id: '${LANE}',[^}]*\\n\\s*closed: true,\\n\\s*\\} satisfies Lane`).test(crudoDe(LANE_FILE))) {
+        return falla(`«${LANE}» is not declared closed: its 0 is a baseline number again, which a hand edit can raise`);
+      }
+      const meter = crudoDe(METER);
+      if (
+        !/^\s*if \(c\.closed\) \{\n\s*findings\.push\(\.\.\.closedLaneFindings\(c, base\)\);\n\s*continue;/m.test(meter) ||
+        !/^\s*if \(c\.value > c\.target\) \{/m.test(meter)
+      ) {
+        return falla('`compare` does not judge a closed lane against its target: `--check` would let unkeyed help back in');
+      }
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (Object.keys(baseline.lanes ?? {}).length === 0) {
+        return falla(`${BASELINE} has no lanes: the absence of «${LANE}» proves nothing`);
+      }
+      if (baseline.lanes?.[LANE] !== undefined || baseline.perFile?.[LANE] !== undefined) {
+        return falla(`${BASELINE} has an entry for «${LANE}» again: a ceiling a hand edit can raise`);
+      }
+      return ok(`«${LANE}» is closed at 0, judged by its target, with no entry in ${BASELINE}`);
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/language/lanes/help.ts',
+        de: '      closed: true,\n    } satisfies Lane,',
+        a: '    } satisfies Lane,',
+        porque: 'lane-reopened: the help lane is a ratchet again, so a hand-raised baseline lets prose help back in',
+      },
+      {
+        archivo: 'scripts/language-status.ts',
+        de: '      findings.push(...closedLaneFindings(c, base));\n',
+        a: '',
+        porque: 'closed-not-judged: compare skips a closed lane, so --check passes whatever the help lane measures',
+      },
+      {
+        archivo: 'scripts/language-status.ts',
+        de: '  if (c.value > c.target) {',
+        a: '  if (c.value > c.target + 1) {',
+        porque: 'target-loosened: a closed lane may carry one unkeyed description more than its target',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"lanes": {',
+        a: '"lanes": {\n    "help-descriptions-without-key": 1,',
+        porque: 'ceiling-back: the baseline holds a number for the help lane again, which a hand edit raises',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "help-descriptions-without-key": { "status": 1 },',
+        porque: 'family-back: the breakdown lets the status family carry one unkeyed description again',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
     id: 'cli-yes-no-prompt-built-by-kernel',
     // MNE-001-217 (issue #262, I8.0). Twenty leaves wrote `[y/N]` by hand, so a
     // question already translated to Spanish still ended in English. The kernel

@@ -95,6 +95,7 @@ The ratchet's ceilings, written by the meter itself from `docs/language-baseline
 This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
 in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
 trace is the diff. The live figures are read with `npm run language:status`.
+A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refuses anything above it.
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
@@ -116,7 +117,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 0 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
 | `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 709 | 0 |
 | `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
 | `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1934 | 0 |

@@ -33,6 +33,11 @@ mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/doctor-s
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/i18n/locale.ts	limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	src/cli/mnemosine.ts	sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	docs/language-baseline.json	terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language/lanes/help.ts	lane-reopened: the help lane is a ratchet again, so a hand-raised baseline lets prose help back in
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language-status.ts	closed-not-judged: compare skips a closed lane, so --check passes whatever the help lane measures
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language-status.ts	target-loosened: a closed lane may carry one unkeyed description more than its target
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	docs/language-baseline.json	ceiling-back: the baseline holds a number for the help lane again, which a hand edit raises
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	docs/language-baseline.json	family-back: the breakdown lets the status family carry one unkeyed description again
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/kernel/confirmacion.ts	kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]
@@ -828,6 +833,11 @@ anchor	src/plan/criteria/e0-0.ts	de: ' /** Stable machine identity. See `CheckId
 anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', name: 'Database' },",
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
 anchor	src/plan/criteria/e0-0.ts	de: 'installHelpChrome(program);',
+anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
+anchor	src/plan/criteria/e0-0.ts	de: ' closed: true,\n } satisfies Lane,',
+anchor	src/plan/criteria/e0-0.ts	de: ' findings.push(...closedLaneFindings(c, base));\n',
+anchor	src/plan/criteria/e0-0.ts	de: ' if (c.value > c.target) {',
+anchor	src/plan/criteria/e0-0.ts	de: '"lanes": {',
 anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
 anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',

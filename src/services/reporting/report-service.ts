@@ -1359,12 +1359,41 @@ export async function queryUnclosedEarnings(
   return result.rows[0]?.balance ?? '0';
 }
 
+// CONTRIBUTED CAPITAL, THEN EARNED CAPITAL (MNE-001-652 · #597)
+//
+// NIF B-6 presents equity as contributed capital plus earned
+// capital, and NIF C-11 (migration 346's header) puts the reserves, the
+// accumulated results and the ORI in earned capital. The result of the period
+// is an accumulated result not yet swept, so it is earned capital as well. One
+// rule, not a choice: no panel key (#597, comment of 24 Nov).
+//
+// `equity` is contributed capital (346's COMMENT). Earned capital spans three
+// subsections, so it gets its own total, `BalanceSheetReport.earned_capital`.
+// Inside it the order follows the chart's numbering: reserves and results
+// (3150-3300), the unswept result, ORI (3600). Ordered by key, never by an
+// account code: a chart that numbers ORI first must still print it last.
+
+/** Equity's subsections, in the order the statement presents them. */
+const EQUITY_ORDER = ['equity', 'earned_capital', 'result_of_the_period', 'ori'] as const;
+
+/** The subsections that NIF C-11 counts as earned capital. */
+export const EARNED_CAPITAL_SUBSECTIONS: readonly string[] = EQUITY_ORDER.slice(1);
+
+/** Earned capital: its total, and the keys of the subsections it groups, in order. */
+export interface EarnedCapital {
+  key: 'earned_capital';
+  total: string;
+  subsections: string[];
+}
+
 export interface BalanceSheetReport {
   entity_id: string;
   as_of_date: string;
   assets: BalanceSheetSection;
   liabilities: BalanceSheetSection;
   equity: BalanceSheetSection;
+  /** Reserves, accumulated results, the result of the period and ORI (NIF C-11). */
+  earned_capital: EarnedCapital;
   total_liabilities_and_equity: string;
   /** assets.total − (liabilities.total + equity.total). Zero when the books are sound. */
   out_of_balance: string;
@@ -1397,6 +1426,15 @@ export async function getBalanceSheet(
     equity.total = new Decimal(equity.total).plus(earnings).toFixed(scale);
   }
 
+  // A stable sort: a category outside both components keeps its code order,
+  // after them.
+  const rank = (key: string): number => {
+    const at = (EQUITY_ORDER as readonly string[]).indexOf(key);
+    return at === -1 ? EQUITY_ORDER.length : at;
+  };
+  equity.subsections.sort((a, b) => rank(a.key) - rank(b.key));
+  const earned = equity.subsections.filter((s) => EARNED_CAPITAL_SUBSECTIONS.includes(s.key));
+
   const totalLiabilitiesAndEquity = new Decimal(liabilities.total)
     .plus(new Decimal(equity.total))
     .toFixed(scale);
@@ -1408,6 +1446,11 @@ export async function getBalanceSheet(
     assets,
     liabilities,
     equity,
+    earned_capital: {
+      key: 'earned_capital',
+      total: earned.reduce((sum, s) => sum.plus(s.total), new Decimal(0)).toFixed(scale),
+      subsections: earned.map((s) => s.key),
+    },
     total_liabilities_and_equity: totalLiabilitiesAndEquity,
     out_of_balance: outOfBalance.toFixed(scale),
     is_balanced: outOfBalance.isZero(),
