@@ -293,6 +293,9 @@ scripts/verify.sh                 # ya con integración y con los criterios ▶
 - **En Claude Code en la web**, el hook `SessionStart` (`.claude/hooks/session-start.sh`) corre `scripts/setup.sh --local-cluster`. Esa bandera arranca el Postgres del contenedor y le pone la contraseña de desarrollo: es sólo para contenedores desechables.
 - **En tu máquina**, `setup.sh` usa el Postgres que responda en `TEST_ADMIN_DATABASE_URL`. Si no responde ninguno y hay Docker, levanta el contenedor `mnemosine-postgres` con la versión de CI. Con otra versión mayor, avisa y sigue.
 - **El `.env`** lo escribe sólo si no existe, y nunca reescribe uno tuyo. `scripts/verify.sh` lee de ahí las URLs de base, igual que los procesos Node.
+- **El orden del texto.** Las bases de la CI ordenan el texto con `en_US.utf8`: minúsculas antes que mayúsculas, y sin mirar los signos en la primera pasada. `setup.sh` y la suite de integración crean sus bases con ese orden (MNE-001-753):
+  - si el Postgres local no trae ese locale, usan un sustituto de ICU y lo dicen en una línea; ordena igual salvo entre dos textos con las mismas letras y cifras que difieren en sus signos;
+  - una base que ya existía con otro orden no se toca: `setup.sh` avisa en cada corrida y dice cómo igualarla.
 
 Lo que hace por dentro, por si hay que hacerlo a mano:
 
