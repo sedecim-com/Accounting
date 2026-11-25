@@ -414,7 +414,7 @@ export async function correctionPeriodOf(
     if (!(CORRECTION_PERIODS as readonly string[]).includes(value)) {
       throw new AccountingError(
         'POLICY_VALUE_UNKNOWN',
-        `${key} = "${value}" is not a value this system knows (${CORRECTION_PERIODS.join(' | ')}); nothing was posted.`
+        { key: 'error.POLICY_VALUE_UNKNOWN', params: { policy: key, value, known: CORRECTION_PERIODS.join(' | ') } }
       );
     }
     optionOf.set(x.entityId, value as CorrectionPeriod);
@@ -537,7 +537,12 @@ export async function correctVatOvercredit(
         );
         const accountOf = (role: string): string => {
           const found = accounts.rows.find((r) => r.role === role);
-          if (!found) throw new AccountingError('MISSING_ROLE_ACCOUNT', `${x.entityName} has no account for the ${role} role.`);
+          if (!found) {
+            throw new AccountingError('MISSING_ROLE_ACCOUNT', {
+              key: 'error.MISSING_ROLE_ACCOUNT.no_account',
+              params: { entity: x.entityName, role },
+            });
+          }
           return found.account_id;
         };
 
