@@ -115,8 +115,10 @@ export async function readEmploymentSubsidyRounding(
   if (!value) {
     throw new AccountingError(
       'EMPLOYMENT_SUBSIDY_ROUNDING_UNKNOWN',
-      `La política ${EMPLOYMENT_SUBSIDY_ROUNDING_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_ROUNDINGS.join(', ')}. Corrígela en mnemosine pending.`
+      {
+        key: 'error.POLICY_VALUE_UNKNOWN.payroll_reader',
+        params: { policy: EMPLOYMENT_SUBSIDY_ROUNDING_POLICY, value: policy.value, known: KNOWN_ROUNDINGS.join(', ') },
+      }
     );
   }
   return value;
@@ -168,8 +170,10 @@ export async function readEmploymentSubsidySeparateRun(
   if (!value) {
     throw new AccountingError(
       'EMPLOYMENT_SUBSIDY_SEPARATE_RUN_UNKNOWN',
-      `La política ${EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_SEPARATE_RUN_TREATMENTS.join(', ')}. Corrígela en mnemosine pending.`
+      {
+        key: 'error.POLICY_VALUE_UNKNOWN.payroll_reader',
+        params: { policy: EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, value: policy.value, known: KNOWN_SEPARATE_RUN_TREATMENTS.join(', ') },
+      }
     );
   }
   return value;

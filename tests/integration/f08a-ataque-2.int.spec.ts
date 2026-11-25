@@ -414,7 +414,7 @@ describe('5 Â· una respuesta que el lector no entiende no se colapsa a la omisiÃ
     );
     await expect(
       acumularPasivoPatronal({ tenantId: e.f.tenantId, payRunId: e.payRunId })
-    ).rejects.toThrow(/isn_momento_de_causacion vale "pagos"/);
+    ).rejects.toThrow(/isn_momento_de_causacion is set to "pagos"/);
     // Y no deja medio pasivo escrito con el criterio que no era.
     expect(await pasivosDe(e)).toEqual([]);
   });
@@ -436,7 +436,7 @@ describe('5 Â· una respuesta que el lector no entiende no se colapsa a la omisiÃ
     );
     await expect(
       acumularPasivoPatronal({ tenantId: e.f.tenantId, payRunId: e.payRunId })
-    ).rejects.toThrow(/provision_cuotas_patronales vale "mensual"/);
+    ).rejects.toThrow(/provision_cuotas_patronales is set to "mensual"/);
     expect(await pasivosDe(e)).toEqual([]);
   });
 
@@ -446,7 +446,7 @@ describe('5 Â· una respuesta que el lector no entiende no se colapsa a la omisiÃ
     );
     await expect(
       acumularPasivoPatronal({ tenantId: e.f.tenantId, payRunId: e.payRunId })
-    ).rejects.toThrow(/isn_estado_que_causa vale "domicilio"/);
+    ).rejects.toThrow(/isn_estado_que_causa is set to "domicilio"/);
     expect(await pasivosDe(e)).toEqual([]);
   });
 });
@@ -678,6 +678,6 @@ describe('7 Â· el pasivo patronal no se cruza entre inquilinos', () => {
   it('y una acumulaciÃ³n no alcanza la corrida de otro inquilino', async () => {
     await expect(
       acumularPasivoPatronal({ tenantId: dos.f.tenantId, payRunId: uno.payRunId })
-    ).rejects.toThrow(/No existe la corrida/);
+    ).rejects.toThrow(/does not exist in this tenant/);
   });
 });
