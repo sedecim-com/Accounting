@@ -275,18 +275,22 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   create.addHelpText('after', EXAMPLES.create);
   create.action((opts: CommonOpts & { period?: string; type: string }) =>
     run(async () => {
-      if (!opts.period) throw usageError({ key: 'payrun.create.period_required' });
+      const period = opts.period;
+      if (!period) throw usageError({ key: 'payrun.create.period_required' });
       const scope = await scopeForWrite(opts);
       const reviewer = await resolveReviewer(scope.tenantId, opts.user);
-      const id = await createPayRun(
-        {
-          tenant_id: scope.tenantId,
-          pay_period_id: opts.period,
-          run_type: opts.type as (typeof PAY_RUN_TYPES)[number],
-          employee_inputs: [],
-          created_by: reviewer.userId,
-        },
-        scope
+      // A period that already has its regular run is a state, not a key clash: exit 5.
+      const id = await blockedOnConflict(() =>
+        createPayRun(
+          {
+            tenant_id: scope.tenantId,
+            pay_period_id: period,
+            run_type: opts.type as (typeof PAY_RUN_TYPES)[number],
+            employee_inputs: [],
+            created_by: reviewer.userId,
+          },
+          scope
+        )
       );
       render([payRunRow(await getPayRun(id, scope))], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
       if (legible(opts)) process.stderr.write(p.dim(`  ${t('payrun.create.next', { id })}\n`));

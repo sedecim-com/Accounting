@@ -8161,7 +8161,8 @@ Options:
 
 Commands:
   create|crear [options]             Create a draft run over a pay period; the
-                                     tax year is fixed from the period
+                                     tax year is fixed from the period, and a
+                                     period holds one regular run
   calculate|calcular [options] <id>  Calculate gross to net for each employee in
                                      the inputs file and total the run; a run
                                      that is not approved can be calculated
@@ -8180,7 +8181,8 @@ Commands:
 ```
 Usage: mnemosine pay-run create|crear [options]
 
-Create a draft run over a pay period; the tax year is fixed from the period
+Create a draft run over a pay period; the tax year is fixed from the period, and
+a period holds one regular run
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

@@ -4631,7 +4631,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.description':
     'Corridas de nómina de un periodo de pago: crear, calcular de bruto a neto, aprobar y contabilizar la póliza',
   'help.pay_run.create.description':
-    'Crea una corrida en borrador sobre un periodo de pago; el ejercicio fiscal se toma del periodo',
+    'Crea una corrida en borrador sobre un periodo de pago; el ejercicio fiscal se toma del periodo, ' +
+    'y un periodo lleva una sola corrida ordinaria (tipo regular)',
   'help.pay_run.create.option.period': 'periodo de pago de la entidad activa (su id)',
   'help.pay_run.create.option.type': 'tipo de corrida: {types}',
   'help.pay_run.calculate.description':
@@ -6662,6 +6663,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.create.period_required':
     'Falta --period: una corrida es de un periodo de pago de la entidad, y no se adivina del reloj.',
   'payrun.create.next': 'Sigue: `mnemosine pay-run calculate {id} --file <insumos.json>`.',
+  // A period holds one regular run (MNE-001-659, #601).
+  'payrun.create.regular_run_exists':
+    'El periodo de pago {period} ya tiene una corrida ordinaria, {run}, en estado {status}: un periodo lleva ' +
+    'una sola corrida ordinaria (tipo regular). No se creó ninguna corrida. Esa corrida se vuelve a calcular ' +
+    'mientras no esté aprobada; un pago aparte del ordinario (un aguinaldo, un finiquito, un pago fuera de ' +
+    'ciclo) va en una corrida de ese tipo (bonus, final, off_cycle).',
   'payrun.calculate.file_required':
     'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
   'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',

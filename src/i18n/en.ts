@@ -5293,7 +5293,8 @@ export const EN = {
   'help.pay_run.description':
     'Payroll runs of a pay period: create, calculate gross to net, approve, post the entry',
   'help.pay_run.create.description':
-    'Create a draft run over a pay period; the tax year is fixed from the period',
+    'Create a draft run over a pay period; the tax year is fixed from the period, ' +
+    'and a period holds one regular run',
   'help.pay_run.create.option.period': 'pay period of the active entity (its id)',
   'help.pay_run.create.option.type': 'run type: {types}',
   'help.pay_run.calculate.description':
@@ -7322,6 +7323,12 @@ export const EN = {
   'payrun.create.period_required':
     'Missing --period: a run belongs to one pay period of the entity, and it is not guessed from the clock.',
   'payrun.create.next': 'Next: `mnemosine pay-run calculate {id} --file <inputs.json>`.',
+  // A period holds one regular run (MNE-001-659, #601).
+  'payrun.create.regular_run_exists':
+    'Pay period {period} already has a regular run, {run}, in status {status}: a period holds one regular run. ' +
+    'No run was created. That run is calculated again while it is not approved; a payment apart from the ' +
+    'regular one (a year-end bonus, a final settlement, an off-cycle payment) goes in a run of that type ' +
+    '(bonus, final, off_cycle).',
   'payrun.calculate.file_required':
     'Missing --file: the employee inputs of the period (earnings and deductions) come from a JSON file.',
   'payrun.calculate.next': 'Next: `mnemosine pay-run approve {id} --dry-run` to see what approving writes.',

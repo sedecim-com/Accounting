@@ -42,25 +42,66 @@ export interface PayRunInput {
  * before calling, but a second door (the terminal) that forgot the check would
  * hang a run of this tenant on a sibling company's period. With the predicate
  * here, every caller gets the same 404 for a foreign period and a missing one.
+ *
+ * CONTRACT: A PERIOD HOLDS ONE REGULAR RUN (MNE-001-659, #601). The regular
+ * run is the period's ordinary payroll (`TipoNomina` O); what is paid apart
+ * from it goes in a run of its own type (bonus, final, off_cycle), and those
+ * are created as before. A second regular run was accepted, and it is two
+ * ordinary paychecks for one worker and one period. It is refused (409)
+ * whatever the status of the one that stands, except `voided`: an unapproved
+ * run is calculated again, not doubled, and an approved one is sealed.
+ *
+ * The read of the period LOCKS its row, so two creations over one period go
+ * one after the other; `pay_runs` has no unique index for this. The insert
+ * carries the condition itself and answers with the run that stands. That
+ * probe must be a statement AFTER the lock, never a subquery of the locking
+ * read: under READ COMMITTED a statement sees what was committed when it
+ * began, which is before it waited.
  */
 export async function createPayRun(input: PayRunInput, scope: Scope): Promise<string> {
   const entity = scope.kind === 'entity' ? ` AND ${periodoEnEntidad('pay_periods.id', 3)}` : '';
-  const periodResult = await query<{ tax_year: number }>(
-    `SELECT tax_year FROM pay_periods WHERE id = $1 AND tenant_id = $2${entity}`,
-    scope.kind === 'entity'
-      ? [input.pay_period_id, scope.tenantId, scope.entityId]
-      : [input.pay_period_id, scope.tenantId]
-  );
-  if (periodResult.rows.length === 0) throw new NotFoundError('Pay period', input.pay_period_id);
-  const taxYear = periodResult.rows[0].tax_year;
-
   const id = uuidv4();
-  await query(
-    `INSERT INTO pay_runs (id, tenant_id, pay_period_id, run_type, status, tax_year_used, created_by)
-     VALUES ($1, $2, $3, $4, 'draft', $5, $6)`,
-    [id, scope.tenantId, input.pay_period_id, input.run_type || 'regular', taxYear, input.created_by]
-  );
-  return id;
+  return withTransaction(async (client) => {
+    // NO KEY UPDATE: it stops another creation, and not the FOR KEY SHARE a
+    // foreign key takes on the period.
+    const periodResult = await client.query<{ tax_year: number }>(
+      `SELECT tax_year FROM pay_periods WHERE id = $1 AND tenant_id = $2${entity}
+          FOR NO KEY UPDATE OF pay_periods`,
+      scope.kind === 'entity'
+        ? [input.pay_period_id, scope.tenantId, scope.entityId]
+        : [input.pay_period_id, scope.tenantId]
+    );
+    if (periodResult.rows.length === 0) throw new NotFoundError('Pay period', input.pay_period_id);
+
+    // One row back is the regular run that stands, and nothing was inserted;
+    // none is the run created. `standing` is not read for another run type.
+    const standing = await client.query<{ id: string; status: string }>(
+      `WITH standing AS (
+         SELECT id, status FROM pay_runs
+          WHERE pay_period_id = $3 AND tenant_id = $2
+            AND run_type = 'regular' AND status <> 'voided'
+            AND $4::varchar = 'regular'
+          ORDER BY created_at, id
+          LIMIT 1
+       ), created AS (
+         INSERT INTO pay_runs (id, tenant_id, pay_period_id, run_type, status, tax_year_used, created_by)
+         SELECT $1::uuid, $2, $3, $4::varchar, 'draft', $5::int, $6::uuid
+          WHERE NOT EXISTS (SELECT 1 FROM standing)
+       )
+       SELECT id, status FROM standing`,
+      [
+        id, scope.tenantId, input.pay_period_id, input.run_type || 'regular',
+        periodResult.rows[0].tax_year, input.created_by,
+      ]
+    );
+    if (standing.rows.length > 0) {
+      throw new ConflictError({
+        key: 'payrun.create.regular_run_exists',
+        params: { period: input.pay_period_id, run: standing.rows[0].id, status: standing.rows[0].status },
+      });
+    }
+    return id;
+  });
 }
 
 /**

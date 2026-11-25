@@ -37,6 +37,12 @@ provides:
     # GET /v1/fiscal-periods/:id/close-status of that period gains the box
     # `year-months-sealed` and `unsealed_periods`; no box is renamed and no other period's
     # answer changes. Rollback: revert the commit; the panel row stays and nothing reads it.
+    # CONTRACT: POST /v1/payroll/pay-runs answers 409 RESOURCE_ALREADY_EXISTS when the period
+    # already has a run of type `regular` that is not voided and the new one is regular too
+    # (`run_type` omitted is regular); the message names the period, the run it has and its
+    # status (MNE-001-659, #601). It used to create a second one. Every other `run_type` is
+    # created as before, and so is the first regular run of a period. Rollback: revert the
+    # commit; no row was written differently.
     # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
     # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
     # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the

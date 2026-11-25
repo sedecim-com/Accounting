@@ -41,6 +41,9 @@ const RECIBO_B = randomUUID();
 // calendario que cruzar. El mutante moría de hambre, no de frontera.
 const EMPLEADO_A = randomUUID();
 const PERIODO_A = randomUUID();
+// A period of A with no run: a period holds one regular run (MNE-001-659), and
+// PERIODO_A is seeded with two.
+const PERIOD_A_WITHOUT_RUN = randomUUID();
 const CORRIDA_A = randomUUID();
 const APROBADA_A = randomUUID();
 const RECIBO_A = randomUUID();
@@ -97,6 +100,11 @@ beforeAll(async () => {
     `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year)
      VALUES ($1,$2,$3,'2026-03-01','2026-03-15','2026-03-15',2026)`,
     [PERIODO_A, a.tenantId, horarioA]
+  );
+  await query(
+    `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year)
+     VALUES ($1,$2,$3,'2026-03-16','2026-03-31','2026-03-31',2026)`,
+    [PERIOD_A_WITHOUT_RUN, a.tenantId, horarioA]
   );
   for (const [id, estado] of [[CORRIDA_A, 'calculated'], [APROBADA_A, 'approved']] as const) {
     await query(
@@ -193,7 +201,7 @@ describe('y la cadena PROPIA sigue funcionando', () => {
   });
 
   it('la corrida propia se crea sobre el periodo propio', async () => {
-    const r = await pedir(srv, 'POST', '/payroll/pay-runs', { pay_period_id: PERIODO_A });
+    const r = await pedir(srv, 'POST', '/payroll/pay-runs', { pay_period_id: PERIOD_A_WITHOUT_RUN });
     expect(r.status, `contestó ${r.status}`).toBe(201);
   });
 

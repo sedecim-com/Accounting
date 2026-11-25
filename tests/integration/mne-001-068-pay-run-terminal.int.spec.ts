@@ -159,6 +159,18 @@ describe('pay-run create · calculate · approve from the terminal', () => {
     expect(row.tax_year).toBe(2026);
   });
 
+  // MNE-001-659: a period holds one regular run, and the terminal says which.
+  it('a second regular create over the same period is blocked, names the run and writes none', async () => {
+    const r = await cli(['create', '--period', periodId, '--json']);
+    expect(r.exitCode).toBe(5);
+    expect(r.errs[0]).toMatchObject({
+      key: 'payrun.create.regular_run_exists',
+      params: { period: periodId, run: runId, status: 'draft' },
+    });
+    const { rows } = await query<{ id: string }>('SELECT id FROM pay_runs WHERE pay_period_id = $1', [periodId]);
+    expect(rows).toEqual([{ id: runId }]);
+  });
+
   it('calculate writes one paycheck per employee, with the employer IMSS quota, and totals the run', async () => {
     const r = await cli(['calculate', runId, '--file', inputsFile, '--json']);
     expect(r.exitCode, String(r.errs[0])).toBe(0);
