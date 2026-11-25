@@ -314,7 +314,7 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
   // Espejo de la casilla 5b: los hallazgos BLOQUEANTES de runLedgerChecks,
   // que ya vienen como renglones señalables.
   'ledger-integrity': async (entityId, periodId, limit) => {
-    const hallazgos = await runLedgerChecks(entityId, undefined, { period: periodId });
+    const hallazgos = await runLedgerChecks(entityId, undefined, { period: periodId, closing: periodId });
     const bloqueantes = hallazgos.filter((h) => h.severity === 'blocking');
     return {
       total: bloqueantes.length,

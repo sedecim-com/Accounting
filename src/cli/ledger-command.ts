@@ -80,7 +80,7 @@ Examples:
   # One named check, scoped to a single account and period.
   mnemosine ledger check --check balance --account 1120 --period 2026-07
   # Every check, with warnings blocking too.
-  mnemosine ledger check --check balance,audit-trail,continuity --strict
+  mnemosine ledger check --check balance,audit-trail,continuity,year-sweep --strict
 `,
   staleDraftList: `
 Examples:
@@ -151,7 +151,11 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
         account: opts.account,
         period: opts.period,
       });
-      render(findings as unknown as Row[], { ...opts, idField: 'referencia' });
+      // A finding with a catalogue key is painted in the reader's language here, at the edge.
+      const shown = findings.map(({ detail_key, detail_params, ...f }) =>
+        detail_key ? { ...f, detalle: t(detail_key, detail_params) } : f
+      );
+      render(shown, { ...opts, idField: 'referencia' });
       const blocking = findings.filter((f) => f.severity === 'blocking').length;
       const warning = findings.filter((f) => f.severity === 'warning').length;
       process.stderr.write(

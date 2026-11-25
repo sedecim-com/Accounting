@@ -1066,7 +1066,10 @@ export async function getPeriodCloseStatus(
   // (balance, audit-trail), que es el contrato del catálogo; `balance` se
   // acota a este periodo, `audit-trail` es del mayor entero a propósito: un
   // posteo sin autor es un hecho sin autor, esté en el mes que esté.
-  const hallazgosMayor = await runLedgerChecks(entityId, undefined, { period: periodId });
+  // MNE-001-662 (#602): `closing` makes `year-sweep` name the sealed years
+  // this period follows, so the next close waits until period 13 is closed
+  // again, while the months of that same year can still close.
+  const hallazgosMayor = await runLedgerChecks(entityId, undefined, { period: periodId, closing: periodId });
   const bloqueantesMayor = hallazgosMayor.filter((h) => h.severity === 'blocking');
   checklist.push({
     codigo: 'ledger-integrity',
