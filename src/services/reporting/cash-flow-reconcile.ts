@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { query, currentTenant } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { LEDGER_SCALE } from './report-service.js';
+import { LEDGER_SCALE, queryOpeningAndMovement } from './report-service.js';
 // The two modules import each other: the statement takes the cash roles and
 // subtypes from here, and this file takes the statement's resolver. Neither
 // reads the other at load time, only inside functions, so either may load
@@ -299,6 +299,10 @@ export async function cuentasDeEfectivo(
  * barre resultados contra capital y no toca una sola cuenta de efectivo, así
  * que excluirlos no cambiaría una cifra y sí introduciría un criterio de
  * presentación donde aquí sólo hay hechos del libro.
+ *
+ * The ledger read is `queryOpeningAndMovement` in report-service
+ * (MNE-001-433): one statement for the opening and the movement, so one
+ * snapshot, and the same answer as before on every range.
  */
 export async function movimientoRealDeEfectivo(
   entityId: string,
@@ -319,32 +323,15 @@ export async function movimientoRealDeEfectivo(
           : `Marca las cuentas de efectivo con account_subtype en (${SUBTIPOS_DE_EFECTIVO.join(', ')}).`)
     );
   }
-  const ids = cuentas.map((c) => c.account_id);
 
-  // El par (jel JOIN je) va entre paréntesis y con el predicado de fecha
-  // DENTRO del JOIN, igual que en report-service: encadenar dos JOIN sueltos
-  // deja pasar líneas de asientos en borrador o anulados.
-  const r = await query<{ inicial: string; variacion: string }>(
-    `SELECT
-       COALESCE(SUM(CASE WHEN je.entry_date < $2
-                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
-                    ELSE 0 END), 0)::text AS inicial,
-       COALESCE(SUM(CASE WHEN je.entry_date BETWEEN $2 AND $3
-                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
-                    ELSE 0 END), 0)::text AS variacion
-       FROM (journal_entry_lines jel
-        JOIN journal_entries je
-          ON je.id = jel.journal_entry_id
-         AND je.status = 'posted'
-         AND je.entity_id = $1
-         AND je.entry_date <= $3)
-       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
-      WHERE jel.account_id = ANY($4::uuid[])`,
-    [entityId, opts.startDate, opts.endDate, ids]
-  );
+  const r = await queryOpeningAndMovement(entityId, {
+    accountIds: cuentas.map((c) => c.account_id),
+    startDate: opts.startDate,
+    endDate: opts.endDate,
+  });
 
-  const inicial = cero(r.rows[0]?.inicial);
-  const variacion = cero(r.rows[0]?.variacion);
+  const inicial = cero(r.opening);
+  const variacion = cero(r.movement);
   return {
     criterio,
     criterio_definido: politica.defined,
