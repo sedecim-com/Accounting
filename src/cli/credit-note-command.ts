@@ -35,7 +35,8 @@ import {
   argumentByKey,
   describeCommand,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
+import { confirmarConReintento, yesNoPrompt } from './kernel/confirmacion.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine credit-note · nota-credito
@@ -171,10 +172,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       throw abortedByUser();
     }
     if (!process.stdin.isTTY) {
-      throw abortedByUser(
-        `${question} — there is no terminal to ask on. Re-run with --yes once you are sure, ` +
-          'or with --dry-run to see the effect first.'
-      );
+      throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question } });
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
@@ -185,7 +183,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       if (veredicto.si) return;
       throw abortedByUser(
         veredicto.incomprendida !== undefined
-          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          ? { key: 'ar.confirm.aborted', params: { reason: { key: 'confirm_answer_not_understood', params: { answer: veredicto.incomprendida } } } }
           : undefined
       );
     } finally {
@@ -217,10 +215,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       run(async () => {
         const ctx = await writeEntityOf(opts);
         if (!opts.invoice && !opts.customer) {
-          throw usageError(
-            'A credit note needs its target: --invoice <ref> (recommended: the fiscal tie drives the IVA) ' +
-              'or --customer <ref> for a standalone note.'
-          );
+          throw usageError({ key: 'ar.credit_note.create.target_missing' });
         }
         const factura = opts.invoice ? await resolveInvoice(ctx.entityId, opts.invoice) : null;
         const cliente = opts.customer ? await resolveCustomer(ctx.entityId, opts.customer) : null;
@@ -248,10 +243,10 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
         }
         const p = deps.palette;
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(nota.credit_note_number)} drafted ` +
-            `${p.dim(`(${nota.type}, ${nota.total_amount} ${nota.currency_code}` +
-              (factura ? `, credits ${factura.invoice_number}` : cliente ? `, ${customerLabel(cliente)}` : '') + ')')}\n` +
-            p.dim('  Nothing was posted. Post it with `credit-note issue`, then `credit-note apply`.\n')
+          `${p.green('✔')} ${t('ar.credit_note.create.drafted', { number: p.bold(nota.credit_note_number) })} ` +
+            `${p.dim(t('ar.credit_note.create.drafted_detail', { type: nota.type, amount: nota.total_amount, currency: nota.currency_code,
+              target: factura ? 'invoice' : cliente ? 'customer' : 'none', invoice: factura?.invoice_number ?? '', customer: cliente ? customerLabel(cliente) : '' }))}\n` +
+            p.dim(`  ${t('ar.credit_note.create.not_posted', { issue: 'credit-note issue', apply: 'credit-note apply' })}\n`)
         );
       })
   );
@@ -276,25 +271,20 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       }
       const out = process.stdout;
       out.write(`\n${p.bold(nota.credit_note_number)} ${p.dim(nota.status)}  ${nota.customer_name ?? ''}\n`);
-      const fact = (label: string, value: string | number | null | undefined) => {
-        if (value === null || value === undefined || value === '') return;
-        out.write(`  ${p.dim(label.padEnd(18))}${String(value)}\n`);
-      };
-      fact('Type', nota.type);
-      fact('Date', day(nota.credit_date));
-      fact('Credits invoice', nota.invoice_number);
-      fact('Relates to CFDI', nota.relates_to_uuid);
-      fact('Subtotal', nota.subtotal);
-      fact('Tax', nota.tax_amount);
-      fact('Total', `${nota.total_amount} ${nota.currency_code}`);
-      fact('Applied', nota.amount_applied);
-      fact('Available', nota.amount_available);
-      fact('Reason', nota.reason);
-      fact(
-        'Ledger entry',
-        nota.journal_entry_number ?? p.dim('not posted — run `credit-note issue`')
-      );
-      out.write(`\n${p.bold('Applications')} ${p.dim(`(${nota.aplicaciones.length})`)}\n`);
+      // Subtotal and Total read the same in Spanish; the labels pad to the longest (18 at least, the English width).
+      const facts: Array<[string, string | number | null | undefined]> = [
+        [t('ar.credit_note.show.type'), nota.type], [t('ar.receipt.show.date'), day(nota.credit_date)],
+        [t('ar.credit_note.show.credits_invoice'), nota.invoice_number], [t('ar.credit_note.show.relates_to'), nota.relates_to_uuid],
+        ['Subtotal', nota.subtotal], [t('ar.invoice.show.tax'), nota.tax_amount], ['Total', `${nota.total_amount} ${nota.currency_code}`],
+        [t('ar.credit_note.show.applied'), nota.amount_applied], [t('ar.credit_note.show.available'), nota.amount_available], [t('ar.credit_note.show.reason'), nota.reason],
+        [t('ar.invoice.show.ledger_entry'), nota.journal_entry_number ?? p.dim(t('ar.invoice.show.not_posted', { command: 'credit-note issue' }))],
+      ];
+      const width = Math.max(18, ...facts.map(([label]) => label.length + 1));
+      for (const [label, value] of facts) {
+        if (value === null || value === undefined || value === '') continue;
+        out.write(`  ${p.dim(label.padEnd(width))}${String(value)}\n`);
+      }
+      out.write(`\n${p.bold(t('ar.receipt.show.applications'))} ${p.dim(`(${nota.aplicaciones.length})`)}\n`);
       if (nota.aplicaciones.length) {
         render(
           nota.aplicaciones.map((a) => ({
@@ -323,7 +313,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
         const ctx = await entityOf(opts);
         for (const state of opts.status ?? []) {
           if (!(CREDIT_NOTE_STATUSES as readonly string[]).includes(state)) {
-            throw usageError(`Unknown --status "${state}". Use one of: ${CREDIT_NOTE_STATUSES.join(', ')}.`);
+            throw usageError({ key: 'ledger.period.status_unknown', params: { value: state, statuses: CREDIT_NOTE_STATUSES.join(', ') } });
           }
         }
         const customerId = opts.customer
@@ -382,18 +372,15 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       const p = deps.palette;
 
       if (nota.status !== 'draft') {
-        throw blockedByState(
-          `${nota.credit_note_number} is "${nota.status}"` +
-            (nota.journal_entry_id ? ' and already in the ledger.' : ' and can no longer be issued.')
-        );
+        const params = { number: nota.credit_note_number, status: nota.status, posted: nota.journal_entry_id ? 'yes' : 'no' };
+        throw blockedByState({ key: 'ar.credit_note.issue.not_draft', params });
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       if (!dryRun) {
         await confirmOrAbort(
           opts,
-          `Post ${nota.credit_note_number} (${new Decimal(nota.total_amount).toFixed(2)} ${nota.currency_code} ` +
-            `against the receivable) to the ledger? This cannot be undone.`
+          t('ar.credit_note.issue.confirm', { number: nota.credit_note_number, amount: new Decimal(nota.total_amount).toFixed(2), currency: nota.currency_code })
         );
       }
 
@@ -411,14 +398,16 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
         }], { json: true });
         return;
       }
+      const entryNumber = result.journalEntry?.entry_number;
       process.stdout.write(
         (dryRun
-          ? `${p.bold(`Would post ${result.creditNoteNumber}`)} ${p.dim(`as ${result.journalEntry?.entry_number ?? 'no entry'}`)}`
-          : `${p.green('✔')} ${p.bold(result.creditNoteNumber)} issued as ${result.journalEntry?.entry_number ?? '(no entry)'}`) +
+          ? `${p.bold(t('ar.invoice.issue.would_post', { number: result.creditNoteNumber }))} ` +
+            p.dim(t('ar.invoice.issue.as_entry', { entry: entryNumber ?? t('ar.invoice.issue.no_entry') }))
+          : `${p.green('✔')} ${t('ar.invoice.issue.issued', { number: p.bold(result.creditNoteNumber), entry: entryNumber ?? `(${t('ar.invoice.issue.no_entry')})` })}`) +
           p.dim(
             dryRun
-              ? ' · nothing was written.\n'
-              : ' · the note is now the customer\'s credit; apply it with `credit-note apply`.\n'
+              ? ` · ${t('ar.credit_note.issue.nothing_written')}\n`
+              : ` · ${t('ar.credit_note.issue.now_credit', { command: 'credit-note apply' })}\n`
           )
       );
     })
@@ -445,10 +434,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
         const p = deps.palette;
         const specs = opts.invoice ?? [];
         if (specs.length === 0) {
-          throw usageError(
-            'Say which invoice(s): --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>. ' +
-              'An issued note with nothing applied already IS the customer\'s credit — no command needed for that.'
-          );
+          throw usageError({ key: 'ar.credit_note.apply.invoice_missing' });
         }
         const pares = specs.map((spec) => {
           const i = spec.lastIndexOf(':');
@@ -456,10 +442,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
             return { ref: spec.slice(0, i), amount: spec.slice(i + 1) };
           }
           if (specs.length > 1 || !opts.amount) {
-            throw usageError(
-              `The invoice "${spec}" has no amount. With several invoices each carries its own ` +
-                '("folio:amount"); with one it can go in --amount.'
-            );
+            throw usageError({ key: 'ar.credit_note.apply.no_amount', params: { spec } });
           }
           return { ref: spec, amount: opts.amount };
         });
@@ -476,19 +459,19 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
 
         if (opts.dryRun) {
           process.stdout.write(
-            `${p.bold(`Would apply ${nota.credit_note_number}`)}: ` +
+            `${p.bold(t('ap.payment.apply.would', { payment: nota.credit_note_number }))}: ` +
               previo.documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo}`).join(', ') +
-              p.dim(` · available ${previo.disponibleAnterior} → ${previo.disponibleNuevo}\n`)
+              p.dim(` · ${t('ar.credit_note.apply.available', { before: previo.disponibleAnterior, after: previo.disponibleNuevo })}\n`)
           );
-          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          process.stderr.write(p.dim(`${t('ap.payment.dry_run')}\n`));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Apply ${nota.credit_note_number} to ${previo.documentos
-            .map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo})`)
-            .join(', ')} in ${ctx.entityName}?`
+          t('ar.credit_note.apply.confirm', {
+            number: nota.credit_note_number, documents: previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo})`).join(', '), entity: ctx.entityName,
+          })
         );
 
         const result = await applyCreditNote(ctx.entityId, nota.id, aplicaciones, reviewer.userId);
@@ -509,9 +492,9 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
           return;
         }
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(result.creditNoteNumber)} applied: ` +
+          `${p.green('✔')} ${t('ar.credit_note.apply.applied', { number: p.bold(result.creditNoteNumber) })}: ` +
             result.documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})`).join(', ') +
-            p.dim(` · available ${result.disponibleNuevo} · note ${result.notaStatus}\n`)
+            p.dim(` · ${t('ar.credit_note.apply.applied_detail', { available: result.disponibleNuevo, status: result.notaStatus })}\n`)
         );
       })
   );
