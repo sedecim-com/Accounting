@@ -251,6 +251,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.cfdi.direction': '--direction ilegible "{direction}": emitido, recibido o ajeno.',
   'error.RESOURCE_NOT_FOUND.classification_trail':
     'Clasificación with id {uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró) not found',
+  // ---- MNE-001-730 · I9 by folder, part 7: the refusals of src/services/payroll; see en.ts ----
+  'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales':
+    'La política provision_cuotas_patronales vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende si las cuotas patronales se apuntan con cada corrida o una vez al mes, y aplicar la omisión como si fuera tu criterio deja el pasivo del mes repartido entre dos formas de contarlo. Corrígela con `mnemosine pending define provision_cuotas_patronales <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion':
+    'La política isn_momento_de_causacion vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende a qué MES pertenece el ISN de una nómina que cruza el fin de mes, y con él su fecha límite: un pasivo apuntado un mes antes de lo decidido no se distingue de uno correcto hasta que llega el requerimiento. Corrígela con `mnemosine pending define isn_momento_de_causacion <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_estado_que_causa':
+    'La política isn_estado_que_causa vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende a qué estado se le declara el ISN, y aplicar la omisión como si fuera tu criterio es cómo se le acaba debiendo a un estado durante años. Corrígela con `mnemosine pending define isn_estado_que_causa <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.date_unreadable':
+    'Se esperaba una fecha \'YYYY-MM-DD\' y llegó "{date}": una fecha ilegible aquí produciría una fecha límite plausible y falsa.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_found': 'No existe la corrida de nómina {payRunId} en este inquilino.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_closed':
+    'La corrida {payRunId} está en estado "{status}": el pasivo patronal se apunta cuando la corrida se cierra (approved o paid), no antes. Apuntarlo sobre números que todavía pueden cambiar deja un pasivo que no corresponde a ningún recibo.',
+  'error.POLICY_VALUE_UNKNOWN.payroll_reader':
+    'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
+  'error.VALIDATION_ERROR.payroll.termination_reason':
+    'termination_reason inválido o ausente: se esperaba {known}. Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más grande del finiquito, así que no tiene valor por omisión.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

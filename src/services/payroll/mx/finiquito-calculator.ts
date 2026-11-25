@@ -322,11 +322,10 @@ export async function calculateFiniquito(
   // Se valida aquí y no en la ruta porque la cáscara es lo que TODOS los
   // llamadores atraviesan; la ruta sólo traduce el error a 4xx.
   if (!MOTIVOS_DE_BAJA.includes(input.termination_reason)) {
-    throw new ValidationError(
-      `termination_reason inválido o ausente: se esperaba ${MOTIVOS_DE_BAJA.join(', ')}. ` +
-      'Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más ' +
-      'grande del finiquito, así que no tiene valor por omisión.'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.payroll.termination_reason',
+      params: { known: MOTIVOS_DE_BAJA.join(', ') },
+    });
   }
 
   const anioBaja = new Date(input.termination_date).getUTCFullYear();

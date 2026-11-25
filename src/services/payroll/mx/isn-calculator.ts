@@ -390,13 +390,12 @@ const CRITERIOS_ESTADO_CONOCIDOS: Record<string, CriterioEstadoIsn> = {
 export function criterioEstadoDe(valor: string): CriterioEstadoIsn {
   const criterio = CRITERIOS_ESTADO_CONOCIDOS[valor];
   if (!criterio) {
+    const known = Object.keys(CRITERIOS_ESTADO_CONOCIDOS);
     throw new ValidationError(
-      `La política isn_estado_que_causa vale "${valor}" y este motor sólo entiende ` +
-        `${Object.keys(CRITERIOS_ESTADO_CONOCIDOS).join(', ')}. No se elige uno por ti: ` +
-        'de esa respuesta depende a qué estado se le declara el ISN, y aplicar la omisión ' +
-        'como si fuera tu criterio es cómo se le acaba debiendo a un estado durante años. ' +
-        `Corrígela con \`mnemosine pending define isn_estado_que_causa ` +
-        `<${Object.keys(CRITERIOS_ESTADO_CONOCIDOS).join('|')}>\`.`,
+      {
+        key: 'error.VALIDATION_ERROR.payroll.policy.isn_estado_que_causa',
+        params: { value: valor, known: known.join(', '), choices: known.join('|') },
+      },
       'isn_estado_que_causa'
     );
   }
