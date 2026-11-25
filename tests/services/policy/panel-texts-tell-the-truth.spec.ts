@@ -281,3 +281,46 @@ describe('separate_payment_isr — the text says what the reader does, and cites
     expect(norms(t('policy.separate_payment_isr.rationale', {}, 'es'))).toEqual(['LISR', 'RLISR']);
   });
 });
+
+// MNE-001-754 (#855). The month an undone vendor payment leaves the papers.
+// The text names its reader, says the two callers read it once a month, and
+// cites LIVA art. 5 fr. III only for what the corpus carries of it.
+describe('vendor_undo_iva_month — the text names its reader and cites only what the corpus carries', () => {
+  const s = spec('vendor_undo_iva_month');
+  const source = (base: string): string => {
+    const files = sourcesNamed(base);
+    expect(files, base).toHaveLength(1);
+    return fs.readFileSync(files[0], 'utf8');
+  };
+
+  it('names hechos.ts as its reader, which declares the key and reads it, and the default is undo_month', () => {
+    expect(s.impact).toMatch(/hechos\.ts reads it once for each month either builds/);
+    const reader = source('hechos.ts');
+    expect(reader).toMatch(/VENDOR_UNDO_IVA_MONTH_KEY = 'vendor_undo_iva_month'/);
+    expect(reader).toMatch(/getPolicy\(ctx, VENDOR_UNDO_IVA_MONTH_KEY, client\)/);
+    expect(s.defaultValue).toBe('undo_month');
+    expect(s.options.map((o) => o.value)).toEqual(['undo_month', 'payment_month']);
+  });
+
+  it('the two callers of hechosDelMes read it once, before the facts, and hand the answer over', () => {
+    for (const base of ['diot-service.ts', 'iva-workpaper.ts']) {
+      const src = source(base);
+      expect(src.match(/await readVendorUndoIvaMonth\(ctx, client\)/g), base).toHaveLength(1);
+      expect(src, base).toMatch(/hechosDelMes\(client, entityId, [a-z]+, [a-z]+, [A-Za-z]+\.value\)/);
+    }
+  });
+
+  it('cites LIVA art. 5 fr. III as the CFDI manual carries it, and says the text of the LIVA is not here', () => {
+    expect(s.defaultRationale).toMatch(/LIVA art\. 5 fr\. III, as the CFDI manual of this system carries it; the text of the LIVA is not in this system/);
+    expect(fs.readFileSync(path.join(ROOT, 'src/ai/docs/mexico-cfdi.md'), 'utf8')).toMatch(/LIVA art\. 1-B, art\. 5-III/);
+    expect(s.defaultRationale).toMatch(/amending the month it counted in \(CFF art\. 32\) is also accepted/);
+  });
+
+  it('cites the same norms in English and in Spanish, and no other', () => {
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(LIVA art\. \d+|CFF art\. \d+|LISR|RMF|NIF [A-E]-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.vendor_undo_iva_month.rationale', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['CFF art. 32', 'LIVA art. 5']);
+    expect(norms(t('policy.vendor_undo_iva_month.rationale', {}, 'es'))).toEqual(['CFF art. 32', 'LIVA art. 5']);
+  });
+});

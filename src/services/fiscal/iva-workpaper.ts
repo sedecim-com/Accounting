@@ -26,6 +26,7 @@ import {
   ivaDelDesglose,
   porcionDelDocumento,
   rangoDelMes,
+  readVendorUndoIvaMonth,
   sumarDesgloses,
   type Desglose,
   type Hallazgo,
@@ -2593,7 +2594,9 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const charged = await chargedOfMonth(client, entityId, range);
     const findings: Hallazgo[] = [...charged.findings];
 
-    const { hechos: facts, hallazgos: factFindings } = await hechosDelMes(client, entityId, year, month);
+    // MNE-001-754: read once a month; under payment_month the facts name what they count apart from the ledger.
+    const undoMonth = await readVendorUndoIvaMonth(ctx, client);
+    const { hechos: facts, hallazgos: factFindings, apartFromLedger } = await hechosDelMes(client, entityId, year, month, undoMonth.value);
     findings.push(...factFindings);
     let creditable = desgloseCero();
     const billEntries = await billEntryIds(client, entityId, facts, range);
@@ -2642,7 +2645,10 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(),
       [...gapCauses(charged, receiptLedger, await reversedAfterCashing(client, ctx)), ...charged.noteCauses]
     );
-    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), [...fees.causes, ...receivedNotes.causes]);
+    tieOut(
+      findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'),
+      [...fees.causes, ...receivedNotes.causes, ...apartFromLedger.map((a) => ({ amount: new Decimal(a.iva), text: a.text }))]
+    );
     // Debits only: the month's settlement or offset entry credits the account,
     // and a net movement would read as zero once it is posted.
     tieOut(findings, 'IVA-WP-WITHHELD-VS-LEDGER', 'IVA retenido que las ventas del mes registraron al emitirse', 'iva_retenido_a_favor (cargos)', charged.withheldPostedAtIssuance, ledger.iva_retenido_a_favor.debit);
