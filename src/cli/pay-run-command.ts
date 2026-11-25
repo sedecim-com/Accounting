@@ -17,10 +17,11 @@ import {
   type PayRunSummary,
 } from '../services/payroll/common/pay-run-service.js';
 import { hallazgosQueBloquean } from '../services/payroll/common/employer-liability-service.js';
+import type { StaleAnnualParameter } from '../services/payroll/mx/annual-parameters.js';
 import type { ResultadoAcumulacion } from '../services/payroll/common/employer-liability-service.js';
 import { ConflictError } from '../utils/errors.js';
 import { parseForClient } from '../utils/zod-client-errors.js';
-import { t } from '../i18n/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import { registerPayRunPostCommand } from './pay-run-post-command.js';
@@ -33,6 +34,7 @@ import {
   gateMutation,
   legible,
   render,
+  resolveFormat,
   requireExplicitEntity,
   usageError,
   withContext,
@@ -152,6 +154,26 @@ export function parseEmployeeInputs(text: string, path: string): EmployeePayInpu
 }
 
 /** The run as one printable row. */
+/** The name of each parameter of `MX_ANNUAL_PARAMETERS`, by its key in its table. */
+const ANNUAL_PARAMETER_LABEL: Readonly<Record<string, TranslationKey>> = {
+  salario_minimo_general_diario: 'payroll.parameter.minimum_wage_general',
+  salario_minimo_frontera_diario: 'payroll.parameter.minimum_wage_border',
+  uma_daily: 'payroll.parameter.uma_daily',
+  'uma.monthly': 'payroll.parameter.uma_monthly',
+};
+
+/** A warning of `calculatePayRun` (MNE-001-636), in the language of the terminal. */
+export function staleParameterText(s: StaleAnnualParameter): string {
+  const label = ANNUAL_PARAMETER_LABEL[s.key];
+  return t('payrun.calculate.stale_parameter', {
+    parameter: label ? t(label) : s.key,
+    value: s.value,
+    since: s.since,
+    due: s.dueFrom,
+    pay_date: s.payDate,
+  });
+}
+
 export function payRunRow(r: PayRunSummary): Row {
   return {
     id: r.id,
@@ -329,7 +351,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
       const scope = await scopeForWrite(opts);
       const reviewer = await resolveReviewer(scope.tenantId, opts.user);
       const before = await getPayRun(id, scope);
-      await blockedOnConflict(() =>
+      const calculation = await blockedOnConflict(() =>
         calculatePayRun(
           id,
           {
@@ -341,7 +363,13 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
           scope
         )
       );
-      render([payRunRow(await getPayRun(id, scope))], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      // A yearly parameter the pay date found without its new row (MNE-001-636):
+      // a field of the row in JSON, otherwise a line on stderr.
+      const warnings = calculation.warnings.map(staleParameterText);
+      const row = payRunRow(await getPayRun(id, scope));
+      const asJson = ['json', 'ndjson'].includes(resolveFormat(opts));
+      render([asJson ? { ...row, warnings } : row], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      if (!asJson) for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
       if (legible(opts)) process.stderr.write(p.dim(`  ${t('payrun.calculate.next', { id })}\n`));
     })
   );

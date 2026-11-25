@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import type { PoolClient } from 'pg';
 import { query } from '../../../database/connection.js';
 import type { PayFrequency, FilingStatus, TaxInput } from './tax-engine.interface.js';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
@@ -194,6 +195,57 @@ export async function getTaxParameters(
   }
   paramCache.set(key, row.params);
   return row.params;
+}
+
+/** One key of the `tax_parameters` row in force on a date, and since when its value rules. */
+export interface TaxParameterSince {
+  key: string;
+  value: string;
+  /** 'YYYY-MM-DD': the first window, going back, that already held this value. */
+  since: string;
+}
+
+/**
+ * The value of each key in the `tax_parameters` row in force on `onDate`, and
+ * the date that VALUE has been in force since (MNE-001-636, #953).
+ *
+ * The row is chosen with `getTaxParameters`' own predicate. The start is not
+ * the row's: one row holds every parameter, and the window that opens on
+ * 1 February for the UMA carries the minimum wage that rules since 1 January.
+ * So it goes back over the earlier windows while the key keeps its value. One
+ * statement for all the keys; a key the row does not hold is left out, and no
+ * row in force gives an empty list (`getTaxParameters` is the one that throws).
+ */
+export async function taxParameterValuesSince(
+  jurisdiction: string,
+  keys: readonly string[],
+  onDate: string,
+  client?: PoolClient
+): Promise<TaxParameterSince[]> {
+  const sql = `WITH annual_windows AS (
+       SELECT effective_from, effective_to, params FROM tax_parameters
+        WHERE jurisdiction = $1 AND effective_from <= $2::date
+     ), in_force AS (
+       SELECT effective_from, params FROM annual_windows
+        WHERE effective_to IS NULL OR effective_to >= $2::date
+        ORDER BY effective_from DESC
+        LIMIT 1
+     )
+     SELECT k.key, f.params ->> k.key AS value,
+            to_char((SELECT MIN(w.effective_from) FROM annual_windows w
+                      WHERE w.effective_from <= f.effective_from
+                        AND w.effective_from > COALESCE(
+                              (SELECT MAX(o.effective_from) FROM annual_windows o
+                                WHERE o.effective_from < f.effective_from
+                                  AND (o.params ->> k.key) IS DISTINCT FROM (f.params ->> k.key)),
+                              '-infinity'::date)),
+                    'YYYY-MM-DD') AS since
+       FROM in_force f CROSS JOIN unnest($3::text[]) WITH ORDINALITY AS k(key, n)
+      WHERE f.params ? k.key
+      ORDER BY k.n`;
+  const params = [jurisdiction, onDate, [...keys]];
+  const r = client ? await client.query<TaxParameterSince>(sql, params) : await query<TaxParameterSince>(sql, params);
+  return r.rows;
 }
 
 /**
