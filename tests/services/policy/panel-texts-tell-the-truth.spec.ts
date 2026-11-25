@@ -234,3 +234,50 @@ describe('year_seal_with_unsealed_months — the text says what the seal does, a
     expect(norms(spanish)).toEqual(['NIF A-1', 'NIF B-1']);
   });
 });
+
+// MNE-001-739 (#601). The ISR of a paycheck paid apart. The text names its
+// reader, says what each option does, and cites the regulation only to say
+// its text is not in this system.
+describe('separate_payment_isr — the text says what the reader does, and cites only what the repository carries', () => {
+  const s = spec('separate_payment_isr');
+  const research = fs.readFileSync(
+    path.join(ROOT, 'docs/investigacion/2026-09-06-normas-y-motores/normas/fiscal-mx.md'), 'utf8'
+  );
+
+  it('names separate-payment-isr.ts as its reader, and that file reads the key', () => {
+    expect(s.impact).toMatch(/Read by separate-payment-isr\.ts/);
+    const file = sourcesNamed('separate-payment-isr.ts');
+    expect(file).toHaveLength(1);
+    const src = fs.readFileSync(file[0], 'utf8');
+    expect(src).toMatch(/SEPARATE_PAYMENT_ISR_POLICY = 'separate_payment_isr'/);
+    expect(src).toMatch(/getPolicy\(ctx, SEPARATE_PAYMENT_ISR_POLICY/);
+  });
+
+  it('the default is the accumulated base, and the text says it never withholds less than the paycheck alone', async () => {
+    const { isrOfPaycheckInPeriod } = await import('../../../src/services/payroll/mx/separate-payment-isr.js');
+    expect(s.defaultValue).toBe('period_accumulated_base');
+    expect(s.defaultRationale).toMatch(/never withholds less than the tariffs of each paycheck alone/);
+    const args = { separate: true, otherPaychecks: 1, ownBase: '541.53', onCombinedBase: '2588.54', alreadyCaused: '1204.26' };
+    expect(isrOfPaycheckInPeriod({ ...args, treatment: 'period_accumulated_base' }).toFixed(2)).toBe('1384.28');
+    expect(isrOfPaycheckInPeriod({ ...args, treatment: 'own_paycheck_base' }).toFixed(2)).toBe('541.53');
+  });
+
+  it('says the regulation\'s option is refused because its text is not here, which the research note confirms', async () => {
+    const { isrOfPaycheckInPeriod } = await import('../../../src/services/payroll/mx/separate-payment-isr.js');
+    expect(s.impact).toMatch(/"regulation_optional_procedure" is refused/);
+    expect(s.defaultRationale).toMatch(/RLISR art\. 174\) is not compared, because this system does not carry its text/);
+    expect(research).toMatch(/El RLISR \(art\. 174, retención opcional de aguinaldo\/PTU; art\. 177\) .* no se abrieron/);
+    expect(() => isrOfPaycheckInPeriod({
+      treatment: 'regulation_optional_procedure', separate: true, otherPaychecks: 0,
+      ownBase: 1, onCombinedBase: null, alreadyCaused: 0,
+    })).toThrow();
+  });
+
+  it('cites the same norms in English and in Spanish, and no other', () => {
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(LISR|RLISR|CFF|LFT|LSS|RMF|NIF [A-E]-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.separate_payment_isr.rationale', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['LISR', 'RLISR']);
+    expect(norms(t('policy.separate_payment_isr.rationale', {}, 'es'))).toEqual(['LISR', 'RLISR']);
+  });
+});
