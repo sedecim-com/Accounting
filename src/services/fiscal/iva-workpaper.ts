@@ -11,6 +11,7 @@ import {
 } from '../accounting/iva-cash-basis.js';
 import { saleSources, type SaleSource } from './sale-sources.js';
 import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
+import { receivedCreditNotesOfRange } from './received-credit-notes.js';
 import { bankFeesOfRange } from './bank-fee-iva.js';
 import { balancesInFavorBefore } from './filed-returns.js';
 import { overrideFindings, proposePriorCredit, type PriorBalance } from './prior-balance.js';
@@ -2094,7 +2095,8 @@ export interface DocumentContribution {
   documentNumber: string;
   /**
    * 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423).
-   * 'credit_note': an issued credit note, subtracted (MNE-001-565).
+   * 'credit_note': a credit note, subtracted: issued on the charged side (MNE-001-565),
+   * received on the creditable side (MNE-001-760; the id is its CFDI's row).
    * 'bank_fee': a bank fee's IVA, creditable at its charge (MNE-001-566); the id is its movement or its adjustment.
    */
   documentKind: 'invoice' | 'bill' | 'receipt' | 'credit_note' | 'bank_fee';
@@ -2622,6 +2624,11 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     creditable = sumarDesgloses(creditable, fees.breakdown);
     creditableContributions.push(...fees.contributions);
     findings.push(...fees.findings);
+    // MNE-001-760 · a received credit note, less what its own entry took out of 1130 (never what left 1135).
+    const receivedNotes = await receivedCreditNotesOfRange(client, entityId, range, exemptBase);
+    creditable = sumarDesgloses(creditable, receivedNotes.breakdown);
+    creditableContributions.push(...receivedNotes.contributions);
+    findings.push(...receivedNotes.findings);
 
     const ledger = await roleMovements(client, tenantId, entityId, range);
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
@@ -2635,7 +2642,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(),
       [...gapCauses(charged, receiptLedger, await reversedAfterCashing(client, ctx)), ...charged.noteCauses]
     );
-    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), fees.causes);
+    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), [...fees.causes, ...receivedNotes.causes]);
     // Debits only: the month's settlement or offset entry credits the account,
     // and a net movement would read as zero once it is posted.
     tieOut(findings, 'IVA-WP-WITHHELD-VS-LEDGER', 'IVA retenido que las ventas del mes registraron al emitirse', 'iva_retenido_a_favor (cargos)', charged.withheldPostedAtIssuance, ledger.iva_retenido_a_favor.debit);

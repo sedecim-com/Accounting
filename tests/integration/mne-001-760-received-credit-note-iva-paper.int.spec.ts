@@ -109,10 +109,7 @@ describe('the paper of the note\'s month', () => {
     expect(may.ledger.iva_acreditable).toBe('-16.0000');
     expect(tieOut(may)).toBeUndefined();
     expect(may.figures.creditable.tasa16).toEqual({ base: '-100.0000', iva: '-16.0000' });
-    expect(noteLines(may)).toEqual([expect.objectContaining({
-      entryIds: [note.entryId],
-      breakdown: expect.objectContaining({ tasa16: { base: '-100.0000', iva: '-16.0000' } }),
-    })]);
+    expect(noteLines(may).map((c) => [c.entryIds, c.breakdown.tasa16])).toEqual([[[note.entryId], { base: '-100.0000', iva: '-16.0000' }]]);
 
     // The DIOT is not changed by this task: the note's month declares no paid VAT for the bill.
     const diot = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: 5 });
