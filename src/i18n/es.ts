@@ -1688,6 +1688,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
 
+  'policy.separate_payment_isr.question':
+    'Cuando un trabajador recibe un segundo recibo en el mismo periodo de pago (un aguinaldo pagado en su propia corrida, por ejemplo), ¿sobre qué base se le retiene el ISR?',
+  'policy.separate_payment_isr.impact':
+    'Decide el ISR retenido, el neto y el CFDI de nómina de un recibo que comparte su periodo de pago con otro recibo del trabajador, o que es él mismo un recibo aparte (una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo). Lo lee separate-payment-isr.ts. Con "period_accumulated_base" la tarifa del periodo se aplica a la base del ISR de los recibos del periodo juntos, y el recibo retiene eso menos el ISR que los otros ya causaron, nunca menos de cero, sin importar cuál se calculó primero. Con "own_paycheck_base" cada recibo se grava sobre su propia base. "regulation_optional_procedure" se niega: el recibo aparte no se calcula hasta que el texto del procedimiento esté en este sistema.',
+  'policy.separate_payment_isr.rationale':
+    'La tarifa del art. 96 de la LISR es la que se publica para el periodo de pago, y se aplica al ingreso de ese periodo. Su tasa marginal sube con el ingreso, así que la tarifa sobre el ingreso del periodo junto nunca retiene menos que las tarifas de cada recibo por separado: es la opción conservadora del ADR-0006, decisión 1. El procedimiento opcional del Reglamento para pagos extraordinarios (art. 174 del RLISR) no se compara, porque este sistema no tiene su texto.',
+  'policy.separate_payment_isr.why':
+    'Pagar el aguinaldo en su propia corrida es común, y su ISR se puede calcular sobre el ingreso de todo el periodo, con el procedimiento opcional del Reglamento o sobre ese recibo solo: cada uno da una retención distinta. Gravado sobre su propia base, un aguinaldo de 10,000.00 pagado aparte de una quincena de 10,000.00 retiene 541.53; sobre la base del periodo, 1,384.28.',
+  'policy.separate_payment_isr.what':
+    'Antes de retener el ISR de un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "period_accumulated_base" aplico la tarifa del periodo a su base del ISR más la de éste y retengo la diferencia con el ISR que ellos causaron, nunca menos de cero. Con "own_paycheck_base" la aplico sólo a la base de este recibo. Con "regulation_optional_procedure" me niego a calcular el recibo aparte y digo por qué. El recibo guarda el tratamiento y las cifras en su detalle de cálculo.',
+  'policy.separate_payment_isr.if_skipped':
+    'Aplico la tarifa del periodo a la base acumulada del periodo y retengo sólo la diferencia.',
+  'policy.separate_payment_isr.option.period_accumulated_base':
+    'Sobre la base acumulada del periodo: la tarifa sobre todos los recibos del periodo juntos, menos el ISR que causaron los otros',
+  'policy.separate_payment_isr.option.regulation_optional_procedure':
+    'El procedimiento opcional del Reglamento para pagos extraordinarios (art. 174 del RLISR): no disponible hasta que su texto esté en este sistema',
+  'policy.separate_payment_isr.option.own_paycheck_base':
+    'Sobre el recibo solo: cada recibo gravado sobre su propia base, como lo hacía el motor',
+
   'policy.imss_old_age_band_edge.question':
     'Cuando el SBC de un trabajador queda apenas arriba del límite superior de un tramo de la cuota patronal de cesantía en edad avanzada y vejez, ¿qué tramo paga?',
   'policy.imss_old_age_band_edge.impact':
@@ -6748,6 +6767,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'escribir en el recibo. No lo timbres otra vez. Guarda este folio: el recibo no lo lleva, y es lo que ' +
     'pide una cancelación.',
   // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.separate_payment_isr.regulation_procedure_not_in_corpus':
+    'La política {key} dice que el ISR de este recibo aparte se retenga con el procedimiento opcional del Reglamento (art. 174 del RLISR), y este sistema no tiene el texto de ese procedimiento, así que no lo calcula de memoria. No se calculó nada. Contesta {key} con otra opción en mnemosine pending, o primero agrega el texto al corpus normativo.',
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
     'y sólo 0 o 1 es una regla: con 1 el subsidio que excede al ISR se entrega al trabajador en efectivo, con 0 no se ' +
