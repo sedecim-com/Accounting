@@ -2824,6 +2824,9 @@ export const EN = {
     '{payment} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
   'payment.apply.date_before_last_event':
     '{payment} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  // MNE-001-746: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'payment.apply.date_before_cashing':
+    'The bank cashed the cheque of {payment} on {cashedOn}: an application dated {date} would apply its cash, and credit the VAT it pays, before the cheque was paid. Date it {cashedOn} or later. Nothing was applied.',
   'payment.apply.date_before_bill':
     '{bill} is dated {billDate}: cash applied on {date} would settle it before the bill existed. Date the application {billDate} or later. Nothing was applied.',
   'payment.apply.date_period_closed':
@@ -7400,6 +7403,19 @@ export const EN = {
   'payrun.deposit_file.run_not_approved':
     'No deposit file was built for run {id}: it is {status}, and a deposit file is built only for a run ' +
     'that is approved or paid. Nothing was written.',
+  // A paycheck that holds a payroll CFDI is not stamped again (MNE-001-736, #601).
+  'payrun.cfdi.already_stamped':
+    'Paycheck {id} was not stamped again: it already has a payroll CFDI, folio {uuid} ({status}), stamped at ' +
+    '{stamped_at}. A second stamp would be a second CFDI before the SAT for the same payment. Nothing was sent ' +
+    'to the PAC and nothing was written.',
+  'payrun.cfdi.stamp_in_progress':
+    'Paycheck {id} was not stamped by this attempt: another stamp of it, or another change to it, is still in ' +
+    'progress and this attempt stopped waiting. It sent nothing to the PAC and wrote nothing. Read the paycheck ' +
+    'before asking again: if the other stamp ended, the paycheck carries its folio.',
+  'payrun.cfdi.stamped_not_recorded':
+    'Paycheck {id} WAS stamped: the PAC ({provider}) answered with folio {uuid}, and the folio could not be ' +
+    'written on the paycheck. Do not stamp it again. Keep this folio: the paycheck does not carry it, and it is ' +
+    'what a cancellation needs.',
   // The law row of the employment subsidy's excess over the ISR (#600).
   'payroll.employment_subsidy.excess_rule_unknown':
     'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +
