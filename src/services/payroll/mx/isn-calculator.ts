@@ -2,7 +2,7 @@ import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { getPolicy } from '../../policy/policy-service.js';
-import { ValidationError } from '../../../utils/errors.js';
+import { ValidationError, type ErrorMessageKey } from '../../../utils/errors.js';
 
 // ============================================================
 // ISN · EL IMPUESTO SOBRE NÓMINAS QUE NO EXISTÍA
@@ -58,8 +58,10 @@ export interface HallazgoNomina {
   /** Código estable: una prueba lo cuenta sin casar prosa. */
   codigo: string;
   severidad: SeveridadNomina;
-  /** En español, y nombrando SIEMPRE al estado y al periodo culpables. */
-  mensaje: string;
+  /** Naming ALWAYS the state and the period at fault: a key the surface renders (MNE-001-815), or prose. */
+  mensaje: string | ErrorMessageKey;
+  /** Parameters of `mensaje` that are lists of keys, rendered in the same language and joined with '; '. */
+  lists?: Readonly<Record<string, readonly ErrorMessageKey[]>>;
   /** Clave de la entidad federativa, cuando el hallazgo es de una. */
   estado?: string | null;
   /** El periodo que le falta, como «2026-03-01 a 2026-03-31». */
@@ -247,11 +249,10 @@ export async function calcularIsn(entrada: EntradaIsn): Promise<ResultadoIsn> {
         severidad: 'bloqueante',
         estado: null,
         periodo,
-        mensaje:
-          `${b.trabajadores} recibo(s) del periodo ${periodo} suman ${b.base} sin estado ` +
-          'que los cause: el ISN de esa base no se puede calcular ni declarar. Captura el ' +
-          'estado de trabajo del trabajador, o cambia la política isn_estado_que_causa ' +
-          'a domicilio_fiscal si tu criterio es declararlo todo en el domicilio de la entidad.',
+        mensaje: {
+          key: 'payroll.finding.isn_sin_estado_en_el_trabajador',
+          params: { count: b.trabajadores, start: periodoInicio, end: periodoFin, base: b.base },
+        },
       });
       continue;
     }
@@ -281,16 +282,13 @@ export async function calcularIsn(entrada: EntradaIsn): Promise<ResultadoIsn> {
         severidad: 'bloqueante',
         estado,
         periodo,
-        mensaje:
-          tasas.length === 0
-            ? `No hay tasa de ISN capturada para ${estado} en el periodo ${periodo} ` +
-              `(causación ${fechaCausacion}). La base de ${b.base} de ${b.trabajadores} ` +
-              'recibo(s) queda SIN calcular: no se declara cero, se declara que falta el dato. ' +
-              'Captura la tasa con su fundamento en mx_isn_tasas_estatales.'
-            : `${estado} tiene ${tasas.length} vigencia(s) capturada(s) que tocan el periodo ` +
-              `${periodo} o su causación, pero ninguna cubre la fecha de causación ` +
-              `${fechaCausacion}: la base de ${b.base} queda sin calcular. ` +
-              'Revisa vigencia_desde/vigencia_hasta.',
+        mensaje: {
+          key: tasas.length === 0
+            ? 'payroll.finding.isn_sin_tasa_capturada.none'
+            : 'payroll.finding.isn_sin_tasa_capturada.not_in_force',
+          params: { state: estado, count: tasas.length === 0 ? b.trabajadores : tasas.length,
+            start: periodoInicio, end: periodoFin, causation: fechaCausacion, base: b.base },
+        },
       });
       continue;
     }
@@ -305,13 +303,11 @@ export async function calcularIsn(entrada: EntradaIsn): Promise<ResultadoIsn> {
         severidad: 'bloqueante',
         estado,
         periodo,
-        mensaje:
-          `La tasa de ISN de ${estado} vigente desde ${vigente.vigenciaDesde} está capturada ` +
-          `como régimen «${vigente.regimen}»` +
-          (vigente.exencionMensual ? ` (exime ${vigente.exencionMensual} al mes)` : '') +
-          `, y este motor sólo sabe calcular tasa plana. La base de ${b.base} del periodo ` +
-          `${periodo} NO se calcula: aplicarle la tasa como si fuera plana daría un importe ` +
-          'de la magnitud correcta y del valor equivocado.',
+        mensaje: {
+          key: 'payroll.finding.isn_regimen_no_soportado',
+          params: { state: estado, since: vigente.vigenciaDesde, regime: vigente.regimen,
+            exempt: vigente.exencionMensual || 'none', base: b.base, start: periodoInicio, end: periodoFin },
+        },
       });
       continue;
     }
@@ -336,10 +332,11 @@ export async function calcularIsn(entrada: EntradaIsn): Promise<ResultadoIsn> {
         severidad: 'aviso',
         estado,
         periodo,
-        mensaje:
-          `${estado} cambió de tasa dentro del periodo ${periodo}: se aplicó la vigente ` +
-          `al ${fechaCausacion} (${vigente.tasa}, desde ${vigente.vigenciaDesde}) a la base ` +
-          'completa, sin partirla por días.',
+        mensaje: {
+          key: 'payroll.finding.isn_tasa_cambia_dentro_del_periodo',
+          params: { state: estado, start: periodoInicio, end: periodoFin, causation: fechaCausacion,
+            rate: vigente.tasa, since: vigente.vigenciaDesde },
+        },
       });
     }
 

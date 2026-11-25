@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 440,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1859
+    "spanish-user-strings-services": 1840
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1701,15 +1701,12 @@
       "src/services/integrations/mexico/pac/simulacion.ts": 4,
       "src/services/integrations/mexico/pac/sovos-reachcore-adapter.ts": 20,
       "src/services/payroll/common/employee-service.ts": 1,
-      "src/services/payroll/common/employer-liability-service.ts": 10,
       "src/services/payroll/common/gl-posting-service.ts": 3,
       "src/services/payroll/common/paycheck-service.ts": 8,
       "src/services/payroll/common/payroll-account-mapping-seed.ts": 11,
       "src/services/payroll/mx/cfdi-nomina-generator.ts": 5,
       "src/services/payroll/mx/employment-subsidy.ts": 1,
-      "src/services/payroll/mx/finiquito-math.ts": 3,
       "src/services/payroll/mx/imss-calculator.ts": 1,
-      "src/services/payroll/mx/isn-calculator.ts": 6,
       "src/services/payroll/mx/isr-calculator.ts": 3,
       "src/services/payroll/mx/sua-generator.ts": 3,
       "src/services/payroll/mx/subsidio-entregado.ts": 5,
