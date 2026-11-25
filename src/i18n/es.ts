@@ -2238,6 +2238,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'cli.error.did_you_mean': '(¿Querías decir {suggestion}?)',
   'cli.error.did_you_mean_one_of': '(¿Querías decir alguno de {suggestions}?)',
 
+  // --- The machine error of a leaf asked for JSON (MNE-001-698) ---------
+  'cli.error.internal':
+    'El comando falló por un error interno (de la base de datos, la red o el sistema); ' +
+    'sus detalles no forman parte de un error de máquina.',
+  'cli.error.internal_remedy': 'Corre el mismo comando sin --json para leer los detalles.',
+
   // --- El diccionario de banderas (`src/cli/kernel/flags.ts`) ----------
   'cli.flag.entity': 'entidad legal sobre la que operar (por omisión, la activa)',
   'cli.flag.tenant_scope': 'inquilino (despacho) al que se acota lo que se lee y se escribe',
