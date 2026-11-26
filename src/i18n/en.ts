@@ -6014,6 +6014,102 @@ export const EN = {
   'payroll.garnishment.archive.stays_on_file': 'The order stays on file. What stopped is the withholding: the engine reads is_active and nothing else.',
   'payrun.type_unknown': 'expected one of {types}',
   // ==== end of I8b · payroll ====
+  // ==== I8b · run-time strings by key, family close (MNE-001-805, issue #150) ====
+  // `closing`, `close`, `closing fx` and the period resolver they share: their English byte for byte (every "(s)"
+  // plural included), the Spanish with its plural; commands, steps, periods, statuses and check codes are parameters.
+  /** `renderCasillas`: a `--check` filter that selected nothing. */
+  'closing.check.none_selected': '(no checks selected)',
+  /** `count` is how many codes were unknown; the English keeps its "(s)". */
+  'closing.check.unknown_codes': '{count, plural, other {Unknown check code(s)}}: {codes}. Available: {available}.',
+  /** The AI-side blockers `closing check` notes on stderr; `command` is the leaf that clears them. */
+  'closing.check.ai_drafts': '{count} AI draft(s) dated inside the period block this close ({command})',
+  'closing.check.ai_questions': '{count} unanswered AI question(s) ({command})',
+  'closing.check.ai_outbox': '{count} queued external write(s) ({command})',
+  /** `closing preview` and `close`: the headings over the engine's blockers and warnings. */
+  'closing.readiness.blocking': 'Blocking:',
+  'closing.readiness.warnings': 'Warnings:',
+  'closing.preview.can_enter': 'The period can enter close.',
+  'closing.preview.cannot_enter': 'The period cannot enter close yet: resolve the blocking items above.',
+  /** `closing explain`: the remedy follows the label. */
+  'closing.explain.fix_with': 'fix with:',
+  'closing.explain.clean': 'nothing to explain: the check is clean for this period',
+  /** `resolveClosablePeriod`: `available` lists the closable periods, or is `closing.period.none`. */
+  'closing.period.none': 'none',
+  'closing.period.not_found': 'No period matches "{ref}". Closable: {available}.',
+  'closing.period.nothing_to_conduct': '{period} is already {status}: there is nothing left to conduct. Seal it with {command}.',
+  'closing.period.not_closable': '{period} is {status}: only open or soft-closed periods can be closed. Closable: {available}.',
+  'closing.period.none_to_preview': 'No open periods: nothing to preview or check.',
+  'closing.period.none_to_conduct': 'No open periods: nothing to conduct.',
+  'closing.period.none_to_seal': 'No closed period to seal yet. Name the period to seal an open one on purpose, e.g. {example}.',
+  /** `reason` is the kernel's «did not understand» sentence. */
+  'closing.confirm.taken_as_no': '{reason}; taking that as no.',
+  /** `closing run`. */
+  'closing.run.key_unneeded':
+    'the engines never post the same month twice and an advisory lock keeps two conductors off the same period: running again, with --resume when a run is open, duplicates nothing',
+  'closing.run.step_unknown': 'Unknown step "{step}". The steps are: {steps}.',
+  /** `run` is the conductor's own description of the open run. */
+  'closing.run.open_run': 'This period already has an open close run ({run}). Continue it with --resume, or look at it first with --dry-run.',
+  'closing.run.nothing_to_resume': 'Nothing to resume: this period has no open close run. Run it without --resume to start one.',
+  'closing.run.confirm':
+    'Conduct the close of {period}? Four of its steps post to the ledger, which does not admit undo, and the last one hard-closes the period.',
+  'closing.run.aborted': 'Nothing was done: the ledger was not touched.',
+  'closing.run.aborted_no_tty':
+    'Nothing was done: there is no terminal to confirm on. Add -y to conduct without asking, or --dry-run to see what is pending without writing.',
+  'closing.run.prior_attempt': '(also recorded by an earlier attempt of this run)',
+  /** `how` of the lines below: what a real run needs after a dry run. */
+  'closing.run.how_fresh': 'run it without --dry-run',
+  'closing.run.how_resume': 'run it with --resume',
+  'closing.run.how_wait': 'wait until the conductor acting on its run stops, then run it with --resume',
+  /** The last line of a run (`runClosingLine`); `command` and `seal` are commands, `step` a step name. */
+  'closing.run.line.completed': 'The close is conducted. Seal the dossier with {command}.',
+  'closing.run.line.stopped_seal': 'Stopped before the seal, as asked: the period is soft-closed. Seal it with {seal}.',
+  'closing.run.line.stopped': 'Stopped before {step}, as asked. The period stays open; continue with --resume.',
+  'closing.run.line.blocked': 'Blocked at {step}. Clear the blocking items, then continue with --resume.',
+  'closing.run.line.failed_seal': 'Failed at the seal: the period is soft-closed. Fix the cause, then seal it with {seal}.',
+  'closing.run.line.failed': 'Failed at {step}. Fix the cause, then continue with --resume.',
+  'closing.run.line.previewed_stop': 'Nothing was written. A real run would stop before {step}; to conduct, {how}.',
+  'closing.run.line.previewed_block': 'Nothing was written. The checklist would block at {step}: clear it, then {how}.',
+  'closing.run.line.previewed': 'Nothing was written. To conduct, {how}.',
+  /** `closing pack generate` and `closing pack verify`. */
+  'closing.pack.verify_with': 'verify it with: {command}',
+  'closing.pack.verify.cannot_read': 'Cannot read {file}.',
+  'closing.pack.verify.wrong_entity': 'This dossier belongs to "{dossier}" and the active entity is "{active}". Name the right one with --entity.',
+  'closing.pack.verify.as_of': '{entity} · as of {date}',
+  'closing.pack.verify.seal': 'the file agrees with its seal',
+  'closing.pack.verify.issued': 'these books issued a dossier with this seal',
+  'closing.pack.verify.figures': 'the figures reproduce against the books',
+  'closing.pack.verify.warning': 'warning:',
+  'closing.pack.verify.identity_changed':
+    'a name changed since sealing — the entity, the period or an account label (rows marked identity); no figure moved because of it',
+  'closing.pack.verify.envelope_differs': 'the envelope (who, when, which run) is not the one registered when it was issued',
+  /** The cells of the verify annex: English in the row (csv and tsv are read by scripts), labelled in the md table. */
+  'closing.pack.verify.row.issued': 'issued by these books',
+  'closing.pack.verify.row.not_issued': 'not issued',
+  'closing.pack.verify.row.as_registered': 'as registered',
+  'closing.pack.verify.row.differs': 'differs',
+  'closing.fx.revalue.key_unneeded':
+    'fx_revaluation_runs subtracts what earlier runs of the period posted: running it again posts only what moved since, or nothing',
+  /** `close`. `kind` is `close.kind.hard` or `close.kind.soft`; `mode` is `hard` or `soft`. */
+  'close.none_open': 'No open periods: nothing to close.',
+  'close.ready': 'Ready to close.',
+  'close.not_ready': 'Cannot close yet: resolve the blocking items above.',
+  'close.kind.hard': 'HARD close (irreversible)',
+  'close.kind.soft': 'soft close (reversible)',
+  'close.confirm.proceed': 'Proceed with {kind}?',
+  /** The same question as a nested key, so the English `message` of the no-terminal refusal stays English. */
+  'close.confirm.proceed_as': 'Proceed with {mode, select, hard {HARD close (irreversible)} other {soft close (reversible)}}?',
+  'close.confirm.type_name': 'A hard close cannot be undone. Type the period name ({period}) to confirm:',
+  'close.confirm.mismatch': 'That does not match {period}: nothing was closed.',
+  'close.dry_run.would': 'Would {mode, select, hard {hard} other {soft}} close {period}.',
+  'close.dry_run.nothing': '(dry-run: nothing was written)',
+  'close.idempotency_hit': 'Idempotency hit: key "{key}" already closed {period} (now {status}). Nothing was executed again.',
+  'close.done': '{period} is now {status} (by {email})',
+  'close.soft_reversible': 'Soft close is reversible. To seal it: {command}',
+  /** `renderCarryForward`: what a hard close's carry-forward reached. */
+  'close.carry.into': 'Beginning balances carried into: {periods}',
+  'close.carry.locked': '{period} is locked: its beginning balances were NOT rewritten.',
+  'close.carry.locked_detail': 'It and the periods after it still open at the old figures; book the correction in an open period.',
+  // ==== end of I8b · close ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is
