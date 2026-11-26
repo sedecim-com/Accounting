@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { registerInvoiceCommand, legacyInvoiceTaxKeyWarning } from '../../src/cli/invoice-command.js';
 import { registerBillCommand } from '../../src/cli/bill-command.js';
-import { LEGACY_COMMA_WARNING } from '../../src/cli/kernel/line-spec.js';
+import { legacyCommaWarning } from '../../src/cli/kernel/line-spec.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 // #327 (MNE-001-100): what people already type keeps working, with ONE stderr
 // warning per invocation. These drive the real commander with the services
@@ -123,13 +124,24 @@ describe('bill create: the legacy comma separator', () => {
   it('is read, and warns exactly once for two comma lines', async () => {
     await run([...BILL, '--line', 'account=5100,price=1,tax-amount=0', '--line', 'account=5100,price=1,tax-amount=0']);
     expect(exitCode, String(errs[0])).toBe(0);
-    expect(occurrences(stderr, LEGACY_COMMA_WARNING)).toBe(1);
+    expect(occurrences(stderr, legacyCommaWarning())).toBe(1);
     expect((createBill.mock.calls[0][0] as { lines: unknown[] }).lines).toHaveLength(2);
+  });
+
+  it('warns in Spanish under es-MX, once (MNE-001-806)', async () => {
+    setLanguage('es');
+    try {
+      await run([...BILL, '--line', 'account=5100,price=1,tax-amount=0', '--line', 'account=5100,price=1,tax-amount=0']);
+    } finally {
+      resetLanguage();
+    }
+    expect(exitCode, String(errs[0])).toBe(0);
+    expect(occurrences(stderr, 'Separar los pares de --line con "," está en desuso; sepáralos con ";"')).toBe(1);
   });
 
   it('says nothing for the canonical ";"', async () => {
     await run([...BILL, '--line', 'account=5100;price=1;tax-amount=0', '--line', 'account=5100;price=1;tax-amount=0']);
     expect(exitCode, String(errs[0])).toBe(0);
-    expect(stderr).not.toContain(LEGACY_COMMA_WARNING);
+    expect(stderr).not.toContain(legacyCommaWarning());
   });
 });
