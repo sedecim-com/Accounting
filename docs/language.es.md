@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: cc2e26af118876996e3b8c4008966e9ee211ec38
+> Gemela en español de [`language.md`](language.md) · source_sha: 094a587dd4bf4d6bd30a5b2e8282590c15416ad0
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -118,7 +118,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 377 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 313 | 0 |
 | `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
 | `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1815 | 0 |
 
