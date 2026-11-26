@@ -291,6 +291,66 @@ export const EN = {
   'error.VALIDATION_ERROR.payment.short_pay_forbidden':
     'The policy `pago_corto_residual` of this firm is set to "prohibir": no bill is closed by paying less. Ask the vendor for the credit note and apply it, or change the policy with `mnemosine pending reopen pago_corto_residual` (if it was already defined) and then `mnemosine pending define pago_corto_residual`.',
 
+  // ---- MNE-001-725 · I9 by folder, part 2: the refusals of the bank match in src/services/banking that were Spanish prose (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes unchanged: VALIDATION_ERROR for a
+  // ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The Spanish
+  // twin is the text each site printed. Ids, statuses, amounts, reason codes,
+  // commands and flags are parameters or literals, never translated.
+  // match-service.ts: the residual gate
+  'error.VALIDATION_ERROR.bank_match.write_off_on_zero':
+    'The group balances exactly (residual 0.0000): there is nothing to write off, so --residual write-off is not needed. Use keep or drop the flag.',
+  'error.VALIDATION_ERROR.bank_match.residual_undeclared':
+    'The group does not balance and no one declared what to do with the remainder. Bank {bank} = Books {books} + Adjustments {adjustments} leaves a difference of {difference}. Declare it with --residual keep (it stays alive as a reconciling item) or --residual write-off --write-off-account <account> (it is written off against that account), or correct the items of the group.',
+  'error.VALIDATION_ERROR.bank_match.write_off_needs_account':
+    'A residual of {difference} that is written off needs an account: --residual write-off requires --write-off-account. Without it the money would have nowhere to go and the imbalance would reappear in the session.',
+  'error.VALIDATION_ERROR.bank_match.write_off_account_with_keep':
+    '--write-off-account only makes sense with --residual write-off: a residual that is kept is not written off against any account.',
+  // match-service.ts: the group, its sides and its session
+  'error.VALIDATION_ERROR.bank_match.repeated_id':
+    'The {side, select, bank {bank transaction} other {book item}} {id} appears twice in the group: its amount would count double and the group would balance by asserting twice what there is.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group':
+    'Book item {id} is already sealed by match group {group}. Unapply that match before matching it again.',
+  'error.VALIDATION_ERROR.bank_match.session_other_account':
+    "Session {session} reconciles another bank account: a match cannot belong to the reconciliation of an account other than the transaction's.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_add':
+    "Session {session} is '{status}': adding matches to it now would rewrite an assertion already signed.",
+  'error.VALIDATION_ERROR.bank_match.preview_needs_target': 'Preview needs a bank account (--account) or a specific transaction.',
+  'error.VALIDATION_ERROR.bank_match.apply_needs_transaction': 'Apply needs at least one transaction: there is nothing to match.',
+  'error.VALIDATION_ERROR.bank_match.apply_one_account':
+    'All the transactions of one `apply` must be of the same bank account: one database transaction cannot be tied to two reconciliations.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account_than_group':
+    "Transaction {id} belongs to a bank account other than the group's ({account}): a match cannot hang from an account that is not its own.",
+  'error.VALIDATION_ERROR.bank_match.group_needs_bank': 'A match group needs at least one bank transaction.',
+  'error.VALIDATION_ERROR.bank_match.group_needs_books': 'A match group needs at least one book item.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account':
+    'Transaction {id} belongs to another bank account: a match group cannot span two accounts.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.period_closed':
+    "Transaction {id} falls in a period that is '{status, select, missing {nonexistent} other {{status}}}': transactions of a locked period are not matched.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.transaction_already_matched':
+    'Transaction {id} already has the live match {match}: unapply it before putting it in a new group, or the same money would be matched twice.',
+  'error.VALIDATION_ERROR.bank_match.item_entry_not_posted':
+    "Book item {id} belongs to an entry in '{status}': only posted entries are matched against.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_already_matched':
+    'Book item {id} is already matched: unapply that match before including it in a new group.',
+  'error.VALIDATION_ERROR.bank_match.opposite_directions':
+    'The group adds up {bank} of bank against {books} of books: the two sides point in opposite directions, so the group would match money coming in against money going out.',
+  'error.VALIDATION_ERROR.bank_match.orphan_transaction':
+    'Transaction {id} receives no book item: the adjustments and the residual absorb it whole, so it would be marked as matched with nothing to explain it. Take it out of the group or give it an item.',
+  'error.VALIDATION_ERROR.bank_match.orphan_item':
+    'Book item {id} receives no bank transaction: the adjustments and the residual absorb it whole, so it would be sealed with no match to explain it. Take it out of the group, or add the bank transaction that covers it.',
+  // match-service.ts: unapplying
+  'error.VALIDATION_ERROR.bank_match.unapply_reason_unknown':
+    "Unknown unapply reason: '{reason}'. The accepted ones are {known}. The reason is a code and not free prose because causes must be countable, not only readable.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.already_unapplied':
+    'Match {match} was already unapplied: undoing what is already undone is not an act, and its row stays on file with its reason.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_unapply':
+    "Session {session} is '{status}': undoing one of its matches would rewrite an assertion already signed. Correct it with a new session, not by erasing this one.",
+  // book-items.ts: the seal of the book items
+  'error.VALIDATION_ERROR.bank_book_item.partial_seal':
+    'The reconciliation seal reached {sealed} of {count} book item(s). The missing ones were already sealed, belong to an unposted entry, or are not of the same entity as group {group}. Nothing is sealed halfway: check the list with `bank book-item list` and build the group again.',
+  'error.VALIDATION_ERROR.bank_book_item.partial_release':
+    'Released {released} of {count} book item(s). The missing ones were not sealed, or their seal was set by something other than a bank match group of this entity (the account certification uses the same column) and it is not lifted from here.',
+
   // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion that were Spanish prose (issue #151) ----
   // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each
   // site printed. Role ids, commands, flags and the `--direction` values are

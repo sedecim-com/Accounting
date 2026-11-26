@@ -235,7 +235,7 @@ describe('el invariante 2 tiene dos lados', () => {
         },
         { userId: f.userId }
       )
-    ).rejects.toThrow(/no recibe ningún movimiento de banco/);
+    ).rejects.toThrow(/receives no bank transaction/);
 
     const sellos = await query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM journal_entry_lines
@@ -288,7 +288,7 @@ describe('la cuenta del grupo y la del movimiento', () => {
       correrCotejo(
         entityScope(f.tenantId, f.entityId), { cuentaId: otraCuenta, txId: tx }, { userId: f.userId }
       )
-    ).rejects.toThrow(/otra cuenta bancaria/);
+    ).rejects.toThrow(/a bank account other than the group's/);
 
     const vivos = await query<{ c: string }>(
       `SELECT COUNT(*)::text AS c FROM reconciliation_matches
