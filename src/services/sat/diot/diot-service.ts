@@ -77,12 +77,10 @@ export function proportionFindings(
       codigo: 'DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION',
       severidad: 'bloqueante',
       politica: 'diot_creditable_iva_proportion',
-      mensaje:
-        `El mayor registra ${exemptRevenue} de ingresos exentos en el ejercicio (cuentas con ` +
-        `agrupador ${EXEMPT_REVENUE_GROUPING_CODES.join(', ')}), y la política ` +
-        `diot_creditable_iva_proportion declara todo el IVA como de actividades exclusivamente ` +
-        `gravadas. Con actividades exentas el IVA acreditable sigue la proporción del art. 5 ` +
-        `frac. V LIVA: contesta la política con "block" y reparte el IVA en el portal.`,
+      mensaje: {
+        key: 'diot.finding.exempt_revenue_without_proportion',
+        params: { exemptRevenue, groupingCodes: EXEMPT_REVENUE_GROUPING_CODES.join(', ') },
+      },
     });
   }
   if (!policy.defined) {
@@ -90,10 +88,7 @@ export function proportionFindings(
       codigo: 'DIOT-PROPORTION-BY-DEFAULT',
       severidad: 'aviso',
       politica: 'diot_creditable_iva_proportion',
-      mensaje:
-        `Todo el IVA acreditable se declara como de actividades exclusivamente gravadas porque ` +
-        `la política diot_creditable_iva_proportion no está contestada. Confírmala si la entidad ` +
-        `no tiene actividades exentas.`,
+      mensaje: { key: 'diot.finding.proportion_by_default' },
     });
   }
   return findings;
@@ -276,9 +271,10 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
         codigo: 'DIOT-POLITICA-FUERA-DE-CATALOGO',
         severidad: 'bloqueante',
         politica: 'diot_iva_exento_y_base',
-        mensaje:
-          `La política diot_iva_exento_y_base vale "${pBaseExenta.value}", que no es ` +
-          `exigir_base, derivar_del_subtotal ni omitir_y_avisar.`,
+        mensaje: {
+          key: 'diot.finding.exempt_base_policy_out_of_catalogue',
+          params: { value: pBaseExenta.value, first: BASES_EXENTAS[0], second: BASES_EXENTAS[1], third: BASES_EXENTAS[2] },
+        },
       });
     }
     const politicaBaseExenta = (
@@ -314,9 +310,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
           severidad: 'bloqueante',
           documentId: h.billId,
           documentNumber: h.billNumber,
-          mensaje:
-            `El gasto ${h.billNumber} no tiene renglones guardados, así que su IVA no se puede ` +
-            `desglosar por tasa. La DIOT declara por tasa, no un total.`,
+          mensaje: { key: 'diot.finding.bill_without_lines', params: { billNumber: h.billNumber } },
         });
       }
 
@@ -347,9 +341,10 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
           codigo: 'DIOT-TERCERO-AJENO',
           severidad: 'bloqueante',
           vendorId,
-          mensaje:
-            `Los gastos ${acumulado.documentos.map((d) => d.billNumber).join(', ')} apuntan al ` +
-            `proveedor ${vendorId}, que no pertenece a esta entidad.`,
+          mensaje: {
+            key: 'diot.finding.vendor_of_another_entity',
+            params: { bills: acumulado.documentos.map((d) => d.billNumber).join(', '), vendorId },
+          },
         });
         continue;
       }

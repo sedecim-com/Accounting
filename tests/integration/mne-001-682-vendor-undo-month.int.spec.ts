@@ -12,6 +12,7 @@ import {
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { construirDiot } from '../../src/services/sat/diot/diot-service.js';
 import { serializeSatBatch } from '../../src/services/sat/diot/sat-batch.js';
+import { textIn } from '../../src/utils/errors.js';
 
 /**
  * MNE-001-682 (#855) · THE DIOT AND THE IVA WORKPAPER TAKE OUT AN UNAPPLIED OR
@@ -117,8 +118,8 @@ async function month(m: number, billId: string) {
     diot: inDiot ? `${inDiot.desglose.tasa16.base} / ${inDiot.desglose.tasa16.iva}` : null,
     withheld: inDiot?.ivaRetenido ?? null,
     entries: [...(inPaper?.entryIds ?? [])].sort(),
-    tieOut: wp.findings.filter((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER').map((h) => h.mensaje),
-    undone: diot.hallazgos.filter((h) => h.codigo === 'DIOT-PAYMENT-UNDONE' && h.documentId === billId).map((h) => h.mensaje),
+    tieOut: wp.findings.filter((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER').map((h) => textIn(h.mensaje, 'es')),
+    undone: diot.hallazgos.filter((h) => h.codigo === 'DIOT-PAYMENT-UNDONE' && h.documentId === billId).map((h) => textIn(h.mensaje, 'es')),
     diotBuilt: diot,
   };
 }

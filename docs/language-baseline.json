@@ -17,13 +17,13 @@
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 332,
-    "src-spanish-comment-lines": 28940,
+    "src-spanish-comment-lines": 28939,
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 274,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1740
+    "spanish-user-strings-services": 1718
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1432,7 +1432,7 @@
       "src/services/sat/diot/hechos.ts": 104,
       "src/services/sat/diot/index.ts": 9,
       "src/services/sat/diot/modelo.ts": 17,
-      "src/services/sat/diot/rfc.ts": 43,
+      "src/services/sat/diot/rfc.ts": 42,
       "src/services/sat/diot/sat-batch.ts": 5,
       "src/services/sat/diot/serializador.ts": 20,
       "src/services/sat/diot/tercero.ts": 33,
@@ -1712,12 +1712,9 @@
       "src/services/sat/cfdi-status.ts": 2,
       "src/services/sat/cfdi40/income-cfdi.ts": 1,
       "src/services/sat/diot/desglose.ts": 15,
-      "src/services/sat/diot/diot-service.ts": 5,
       "src/services/sat/diot/hechos.ts": 5,
-      "src/services/sat/diot/rfc.ts": 6,
       "src/services/sat/diot/sat-batch.ts": 2,
-      "src/services/sat/diot/serializador.ts": 10,
-      "src/services/sat/diot/tercero.ts": 10,
+      "src/services/sat/diot/serializador.ts": 9,
       "src/services/webhooks/barrido-entregas.ts": 3,
       "src/services/webhooks/politica-reintento.ts": 3,
       "src/services/xml-ingestion/account-roles-seed.ts": 46,

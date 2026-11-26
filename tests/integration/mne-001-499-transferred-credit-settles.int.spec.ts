@@ -18,7 +18,7 @@ import {
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { buildProvisionalIncomeTaxWorkpaper } from '../../src/services/fiscal/provisional-income-tax.js';
 import { listPaymentsAwaitingRep } from '../../src/services/accounting/rep-expected.js';
-import type { AppError } from '../../src/utils/errors.js';
+import { textIn, type AppError } from '../../src/utils/errors.js';
 
 // ============================================================
 // MNE-001-499 (#695, part 2/2) · THE TRANSFERRED CREDIT SETTLES B'S INVOICES,
@@ -402,7 +402,7 @@ describe('S5 · a treated TRF reversed gives A its whole advance back', () => {
     expect(r.documentos[0]).toMatchObject({ advanceIva: '160.00' });
     const june = await paper(f, 6);
     expect(ivaOf(june, [t.transferId])).toBe('0.00');
-    expect(june.findings.filter((h) => h.mensaje.includes(t.transferNumber))).toEqual([]);
+    expect(june.findings.filter((h) => textIn(h.mensaje, 'es').includes(t.transferNumber))).toEqual([]);
   }, 180_000);
 });
 

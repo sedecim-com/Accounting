@@ -113,14 +113,14 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 332 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28940 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28939 | 0 |
 | `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
 | `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 274 | 0 |
 | `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
-| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1740 | 0 |
+| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1718 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

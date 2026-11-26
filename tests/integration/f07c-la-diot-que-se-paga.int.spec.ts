@@ -13,7 +13,7 @@ import { JournalEntryType } from '../../src/types/index.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
 import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { seedPolicies, resolvePolicy, reopenPolicy } from '../../src/services/policy/policy-service.js';
-import { NotFoundError, ValidationError } from '../../src/utils/errors.js';
+import { NotFoundError, textIn, ValidationError } from '../../src/utils/errors.js';
 import {
   construirDiot,
   esEntregable,
@@ -369,8 +369,8 @@ describe('diot_tercero_sin_rfc decide, y se nota contra la base', () => {
     const diot = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes });
     expect(esEntregable(diot)).toBe(false);
     const h = diot.hallazgos.find((x) => x.codigo === 'DIOT-SIN-RFC');
-    expect(h?.mensaje).toContain('Anónimo SA');
-    expect(h?.mensaje).toContain(RFC_GENERICO_NACIONAL);
+    expect(textIn(h!.mensaje, 'en')).toContain('Anónimo SA');
+    expect(textIn(h!.mensaje, 'en')).toContain(RFC_GENERICO_NACIONAL);
     expect(diot.renglones.find((r) => r.tercero.vendorId === vendorId)).toBeUndefined();
     // El papel de trabajo SÍ se imprime: es lo que hace falta para arreglarlo.
     expect(PAPEL_DE_TRABAJO.serializar(diot)).toContain('DIOT-SIN-RFC');
@@ -529,11 +529,11 @@ describe('diot_creditable_iva_proportion against the ledger', () => {
     const blocking = (d: Awaited<ReturnType<typeof december>>) =>
       d.hallazgos.find((h) => h.codigo === 'DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
 
-    expect(blocking(await december())?.mensaje).toContain('500.0000');
+    expect(textIn(blocking(await december())!.mensaje, 'en')).toContain('500.0000');
     await post('2026-12-31', JournalEntryType.CLOSING, sister.cuentas['4100'], sister.cuentas['3300']);
     const afterClose = blocking(await december());
     expect(afterClose?.severidad).toBe('bloqueante');
-    expect(afterClose?.mensaje).toContain('500.0000');
+    expect(textIn(afterClose!.mensaje, 'en')).toContain('500.0000');
   }, 120_000);
 });
 
