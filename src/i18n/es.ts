@@ -378,6 +378,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. Se deben {days} días de prima de antigüedad y NO están en este total',
   'payroll.finiquito.seniority_premium.calculated':
     '{days} días × {base} (LFT art. 162 fr. I, base topada por el 486 con un mínimo de {minimumWage})',
+  // ---- MNE-001-726 · I9 by folder, part 3: the refusals of src/services/sat/diot; see en.ts ----
+  'error.VALIDATION_ERROR.diot.entity_not_mexican':
+    'La entidad {name} no es mexicana (país {country}). La DIOT es una obligación de la LIVA: no hay declaración informativa de operaciones con terceros que armar para una entidad que no causa IVA.',
+  'error.VALIDATION_ERROR.diot.entity_without_rfc':
+    'La entidad {name} no tiene RFC en el expediente y la DIOT se presenta a nombre de un contribuyente identificado.',
+  'error.VALIDATION_ERROR.diot.month':
+    'El mes de la DIOT es {month}. La declaración es mensual y no tiene mes 13: la balanza de cierre del Anexo 24 sí, ésta no.',
+  'error.DIOT_FORMATO_NO_FUNDAMENTADO':
+    'La DIOT de {period} se presenta con el layout del ejercicio 2024 y anteriores, que este repositorio no implementa: sólo está fundamentado el de 2025 en adelante ({url}, consultado el {consulted}). No se escribe con la forma nueva un periodo que la autoridad valida con la vieja.',
+  'error.DIOT_NO_ENTREGABLE.no_third_parties':
+    'La DIOT de {period} no tiene terceros que declarar: un archivo de lote vacío no es una declaración, y no se escribe.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch': 'La DIOT de {period} no cabe en el layout del SAT tal cual:\n  · {refusals}',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.operation':
+    '{who}: tipo de tercero {partyType} con tipo de operación {operation}, que el layout 2025 no admite (§3.1: {allowed}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country':
+    '{who}: el país "{country}" no es una clave de tres letras del catálogo de países del layout (§5, p. ej. USA; ZZZ para otro). Corrige el país de residencia del proveedor.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country_other':
+    '{who}: país ZZZ (Otro) exige especificar la jurisdicción, y el expediente no la tiene.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_long':
+    '{who}: la identificación fiscal pasa de 40 caracteres o el nombre de 300 (§3.1).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_wide':
+    '{who}: el importe {amount} no cabe en un campo numérico de {digits} posiciones.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.iva_without_acts':
+    '{who}: tiene IVA de {iva} (campo {ivaField}) sin un valor de los actos mayor a cero en el campo {valueField}, y el layout sólo admite el IVA cuando lo hay (§3.3).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.border_rate':
+    '{who}: tiene actos a la tasa del 8 %, y el layout los separa en región fronteriza NORTE (campos 8 y 18) y SUR (10 y 20). El expediente no dice en cuál está el proveedor.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.unnamed_rates': '{who}: tiene importes a tasas que el layout no nombra ({rates}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.foreign_zero_rate':
+    '{who}: tiene actos a tasa 0 % ({base}) de un proveedor extranjero. El campo 51 es para actos nacionales a tasa 0 %; lo de un extranjero va en el 53 (no objeto, sin establecimiento en México), en importación de servicios (IVA autodeterminado) o en el 49 (importación exenta), según la operación. Captúralo en el portal.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net':
+    '{who}: el neto del mes es negativo ({fields}): lo que el mes deshizo o devolvió supera a lo que pagó. Gastos de un pago desaplicado o reversado en el mes: {anyUndone, select, no {ninguno} other {{undone}}}. El layout no admite importes negativos y declara las devoluciones, descuentos y bonificaciones en sus propios campos de §3.2, que este archivo todavía no llena; captúralo en el portal.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field': 'campo {field}: {amount}',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
+    'La política diot_creditable_iva_proportion vale "{proportion}": la entidad aplica la proporción del art. 5 frac. V LIVA, que este sistema todavía no calcula. El IVA acreditable se reparte a mano en el portal.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

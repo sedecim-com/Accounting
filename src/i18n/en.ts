@@ -476,6 +476,49 @@ export const EN = {
   'payroll.finiquito.seniority_premium.calculated':
     '{days} days × {base} (LFT art. 162 fr. I, base capped by art. 486 with a minimum wage of {minimumWage})',
 
+  // ---- MNE-001-726 · I9 by folder, part 3: the refusals of src/services/sat/diot (issue #151) ----
+  // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each site
+  // printed. The layout's own words are literals: sections (§3.1), field numbers,
+  // the ZZZ country key, LIVA articles, the policy key and its value.
+  // construirDiot and its taxpayer
+  'error.VALIDATION_ERROR.diot.entity_not_mexican':
+    'The entity {name} is not Mexican (country {country}). The DIOT is an obligation under the LIVA: there is no informative return of operations with third parties to build for an entity that does not cause IVA.',
+  'error.VALIDATION_ERROR.diot.entity_without_rfc':
+    'The entity {name} has no RFC on file, and the DIOT is filed in the name of an identified taxpayer.',
+  'error.VALIDATION_ERROR.diot.month':
+    'The month of the DIOT is {month}. The return is monthly and has no month 13: the year-end trial balance of Anexo 24 does, this one does not.',
+  // the SAT serializer
+  'error.DIOT_FORMATO_NO_FUNDAMENTADO':
+    'The DIOT of {period} is filed with the layout of fiscal year 2024 and earlier, which this repository does not implement: only the one for 2025 onward is grounded ({url}, consulted on {consulted}). A period the authority validates with the old shape is not written in the new one.',
+  'error.DIOT_NO_ENTREGABLE.no_third_parties':
+    'The DIOT of {period} has no third parties to declare: an empty batch file is not a return, and it is not written.',
+  /** `refusals`: the items below, one per line, rendered in the same language. */
+  'error.DIOT_NO_ENTREGABLE.sat_batch': 'The DIOT of {period} does not fit the SAT layout as it stands:\n  · {refusals}',
+  // the refusals of the batch layout, one per third party and reason; `who` is the vendor and its RFC
+  'error.DIOT_NO_ENTREGABLE.sat_batch.operation':
+    '{who}: third-party type {partyType} with operation type {operation}, which the 2025 layout does not accept (§3.1: {allowed}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country':
+    '{who}: the country "{country}" is not a three-letter key of the layout\'s country catalogue (§5, e.g. USA; ZZZ for other). Correct the vendor\'s country of residence.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country_other':
+    '{who}: country ZZZ (Otro) requires the jurisdiction to be specified, and the record does not have it.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_long':
+    '{who}: the tax identification exceeds 40 characters or the name 300 (§3.1).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_wide':
+    '{who}: the amount {amount} does not fit in a numeric field of {digits} positions.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.iva_without_acts':
+    '{who}: it has IVA of {iva} (field {ivaField}) with no value of acts above zero in field {valueField}, and the layout only accepts the IVA when there is one (§3.3).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.border_rate':
+    '{who}: it has acts at the 8 % rate, and the layout splits them into the NORTHERN border region (fields 8 and 18) and the SOUTHERN one (10 and 20). The record does not say which one the vendor is in.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.unnamed_rates': '{who}: it has amounts at rates the layout does not name ({rates}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.foreign_zero_rate':
+    '{who}: it has 0 % acts ({base}) from a foreign vendor. Field 51 is for domestic 0 % acts; a foreign vendor\'s go in field 53 (not subject, no establishment in Mexico), in the import of services (self-assessed IVA) or in field 49 (exempt import), depending on the operation. Capture it in the portal.',
+  /** `fields`: the items `.field`, joined with '; '. `anyUndone` is `yes` or `no`; `undone` lists the bills. */
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net':
+    '{who}: the month\'s net is negative ({fields}): what the month undid or returned exceeds what it paid. Bills of a payment unapplied or reversed in the month: {anyUndone, select, no {none} other {{undone}}}. The layout accepts no negative amounts and declares returns, discounts and rebates in its own fields of §3.2, which this file does not fill yet; capture it in the portal.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field': 'field {field}: {amount}',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
+    'The policy diot_creditable_iva_proportion is set to "{proportion}": the entity applies the proportion of LIVA art. 5 frac. V, which this system does not compute yet. The creditable IVA is allocated by hand in the portal.',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

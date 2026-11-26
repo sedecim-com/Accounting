@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 337,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1785
+    "spanish-user-strings-services": 1768
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1720,11 +1720,11 @@
       "src/services/sat/cfdi-status.ts": 2,
       "src/services/sat/cfdi40/income-cfdi.ts": 1,
       "src/services/sat/diot/desglose.ts": 15,
-      "src/services/sat/diot/diot-service.ts": 8,
+      "src/services/sat/diot/diot-service.ts": 5,
       "src/services/sat/diot/hechos.ts": 5,
       "src/services/sat/diot/rfc.ts": 6,
-      "src/services/sat/diot/sat-batch.ts": 13,
-      "src/services/sat/diot/serializador.ts": 13,
+      "src/services/sat/diot/sat-batch.ts": 2,
+      "src/services/sat/diot/serializador.ts": 10,
       "src/services/sat/diot/tercero.ts": 10,
       "src/services/webhooks/barrido-entregas.ts": 3,
       "src/services/webhooks/politica-reintento.ts": 3,
