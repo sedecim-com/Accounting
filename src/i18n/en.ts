@@ -519,6 +519,50 @@ export const EN = {
   'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
     'The policy diot_creditable_iva_proportion is set to "{proportion}": the entity applies the proportion of LIVA art. 5 frac. V, which this system does not compute yet. The creditable IVA is allocated by hand in the portal.',
 
+  // ---- MNE-001-731 · I9 by folder, part 8: the refusals of src/services/assets (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes unchanged. The Spanish twin is the text each site
+  // printed. Fields, books, policy keys, their values and commands are literals or parameters.
+  // asset-lookup.ts: the class and the book the operator names
+  'error.VALIDATION_ERROR.asset.category_empty': '--category arrived empty: the asset needs its class.',
+  'error.VALIDATION_ERROR.asset.category_ambiguous':
+    '"{text}" matches {count} classes ({matches}). Type the full name or pass its id: taking the first one would depreciate against the accounts of another class for the whole life of the asset.',
+  'error.VALIDATION_ERROR.asset.category_unknown': 'This entity has no asset class named "{text}". The ones it has: {known}.',
+  'error.VALIDATION_ERROR.asset.book_unknown':
+    '--book "{declared}" does not exist: the two books are {first} and {second} (the accounting one of NIF C-6 and the tax one of the LISR).',
+  /** `defined`: `yes` when the firm answered the policy, `no` while its declared default governs. */
+  'error.VALIDATION_ERROR.asset.book_contradicts_policy':
+    '--book {requested} contradicts the panel: `base_depreciacion` is set to "{base}", so the book that reaches the ledger is {book}{defined, select, yes {} other { (declared default, nobody has answered)}}. This flag declares which book you believe you are operating on; it does not choose it: which of the two depreciations is posted is the firm\'s criterion, and it is answered with `mnemosine pending reopen base_depreciacion` (if it was already defined) and then `mnemosine pending define base_depreciacion`.',
+  // asset-service.ts: the registration
+  'error.VALIDATION_ERROR.asset.date_format': 'The date in {field} must come as "YYYY-MM-DD"; got "{value}".',
+  'error.VALIDATION_ERROR.asset.life_not_positive_integer':
+    'The useful life in {field} must be an integer greater than zero; got {value}.',
+  'error.VALIDATION_ERROR.asset.life_missing':
+    'Neither the registration nor the class says how long the asset lasts. Give `useful_life_years` or `useful_life_months`, or give the class its default life.',
+  'error.VALIDATION_ERROR.asset.life_years_months_mismatch':
+    'The years and months of useful life do not agree: {months} months fit in {derived} year(s) and {years} were declared. The years are the ceiling of the months divided by twelve (40 months are 4 years); correct one of the two, or leave the years out and they are derived.',
+  'error.VALIDATION_ERROR.asset.amount_not_a_number': 'The amount of {field} is not a number: "{value}".',
+  'error.VALIDATION_ERROR.asset.amount_not_finite': 'The amount of {field} is not finite: "{value}".',
+  'error.VALIDATION_ERROR.asset.cost_not_positive': 'The acquisition cost must be greater than zero; got {cost}.',
+  'error.VALIDATION_ERROR.asset.salvage_negative': 'The salvage value cannot be negative; got {salvage}.',
+  'error.VALIDATION_ERROR.asset.salvage_reaches_cost':
+    'The salvage value ({salvage}) cannot reach or exceed the acquisition cost ({cost}): the depreciable base would be zero or negative and the asset would not produce a single depreciation row.',
+  'error.VALIDATION_ERROR.asset.name_empty': 'The asset needs a name: `asset_name` arrived empty.',
+  'error.VALIDATION_ERROR.asset.category_inactive':
+    'The class "{name}" is deactivated: it takes no new assets. Reactivate it or choose another.',
+  'error.VALIDATION_ERROR.asset.start_before_acquisition':
+    'Depreciation cannot start on {start}, before the acquisition ({acquired}). If what you want is the full-month convention, leave out `depreciation_start_date` and the system derives it from the panel.',
+  'error.VALIDATION_ERROR.asset.accounts_missing':
+    'The asset is missing accounts ({fields}) and the class "{name}" has no defaults for them. Pass them with the registration or complete the class\'s accounts.',
+  'error.VALIDATION_ERROR.asset.accounts_rejected':
+    'These accounts are not in this entity\'s chart, or are header accounts that take no postings: {fields}.',
+  'error.RESOURCE_ALREADY_EXISTS.asset.number_taken': 'There is already an asset numbered "{number}" in this entity.',
+  // depreciation.ts: the guards before the run
+  'error.VALIDATION_ERROR.depreciation.policy_base_unknown':
+    'The policy `base_depreciacion` is set to "{value}", which is neither of the two possible bases ({known}). Correct it with `mnemosine pending reopen base_depreciacion` (if it was already defined) and then `mnemosine pending define base_depreciacion` before running the depreciation.',
+  'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
+    'The policy `convencion_primer_mes` is set to "{value}", which is neither of the two possible conventions ({known}). Correct it with `mnemosine pending reopen convencion_primer_mes` (if it was already defined) and then `mnemosine pending define convencion_primer_mes` before running the depreciation.',
+  'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'The tenant of entity {entityId} could not be determined.',
+
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':

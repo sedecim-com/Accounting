@@ -345,10 +345,7 @@ const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 function exigirFecha(valor: string, campo: string): string {
   const texto = valor.trim();
   if (!FECHA_ISO.test(texto)) {
-    throw new ValidationError(
-      `La fecha de ${campo} tiene que venir como "YYYY-MM-DD"; llegó "${valor}".`,
-      campo
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.date_format', params: { field: campo, value: valor } }, campo);
   }
   return texto;
 }
@@ -373,7 +370,7 @@ export function vidaUtilCoherente(
   const entero = (n: number, campo: string): number => {
     if (!Number.isInteger(n) || n <= 0) {
       throw new ValidationError(
-        `La vida útil en ${campo} tiene que ser un entero mayor que cero; llegó ${n}.`,
+        { key: 'error.VALIDATION_ERROR.asset.life_not_positive_integer', params: { field: campo, value: String(n) } },
         campo
       );
     }
@@ -382,12 +379,7 @@ export function vidaUtilCoherente(
 
   if (anios === undefined && meses === undefined) {
     if (porOmisionAnios === null) {
-      throw new ValidationError(
-        'Ni el alta ni la categoría dicen cuánto dura el activo. Indica ' +
-          '`useful_life_years` o `useful_life_months`, o dale a la categoría su ' +
-          'vida por omisión.',
-        'useful_life_years'
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.life_missing' }, 'useful_life_years');
     }
     const a = entero(porOmisionAnios, 'useful_life_years');
     return { anios: a, meses: a * 12 };
@@ -403,9 +395,7 @@ export function vidaUtilCoherente(
   const a = entero(anios, 'useful_life_years');
   if (a !== derivados) {
     throw new ValidationError(
-      `Los años y los meses de vida útil no casan: ${m} meses caben en ${derivados} ` +
-        `año(s) y se declararon ${a}. Los años son el techo de los meses entre doce ` +
-        `—40 meses son 4 años—; corrige uno de los dos u omite los años y se derivan.`,
+      { key: 'error.VALIDATION_ERROR.asset.life_years_months_mismatch', params: { months: m, derived: derivados, years: a } },
       'useful_life_years'
     );
   }
@@ -431,10 +421,10 @@ export function montosDelAlta(
     try {
       d = new Decimal(valor);
     } catch {
-      throw new ValidationError(`El importe de ${campo} no es un número: "${valor}".`, campo);
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.amount_not_a_number', params: { field: campo, value: valor } }, campo);
     }
     if (!d.isFinite()) {
-      throw new ValidationError(`El importe de ${campo} no es finito: "${valor}".`, campo);
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.amount_not_finite', params: { field: campo, value: valor } }, campo);
     }
     return d;
   };
@@ -442,22 +432,20 @@ export function montosDelAlta(
   const c = leer(costo, 'acquisition_cost');
   if (c.lessThanOrEqualTo(0)) {
     throw new ValidationError(
-      `El costo de adquisición tiene que ser mayor que cero; llegó ${c.toFixed(4)}.`,
+      { key: 'error.VALIDATION_ERROR.asset.cost_not_positive', params: { cost: c.toFixed(4) } },
       'acquisition_cost'
     );
   }
   const s = salvamento === undefined ? new Decimal(0) : leer(salvamento, 'salvage_value');
   if (s.isNegative()) {
     throw new ValidationError(
-      `El valor de salvamento no puede ser negativo; llegó ${s.toFixed(4)}.`,
+      { key: 'error.VALIDATION_ERROR.asset.salvage_negative', params: { salvage: s.toFixed(4) } },
       'salvage_value'
     );
   }
   if (s.greaterThanOrEqualTo(c)) {
     throw new ValidationError(
-      `El valor de salvamento (${s.toFixed(4)}) no puede alcanzar ni superar el costo ` +
-        `de adquisición (${c.toFixed(4)}): la base depreciable sería cero o negativa y ` +
-        `el activo no produciría un solo renglón de depreciación.`,
+      { key: 'error.VALIDATION_ERROR.asset.salvage_reaches_cost', params: { salvage: s.toFixed(4), cost: c.toFixed(4) } },
       'salvage_value'
     );
   }
@@ -540,7 +528,7 @@ export async function crearActivo(
 
     const nombre = datos.asset_name?.trim() ?? '';
     if (nombre.length === 0) {
-      throw new ValidationError('El activo necesita nombre: `asset_name` llegó vacío.', 'asset_name');
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.name_empty' }, 'asset_name');
     }
 
     const adquisicion = exigirFecha(datos.acquisition_date, 'acquisition_date');
@@ -562,8 +550,7 @@ export async function crearActivo(
     if (!categoria) throw new NotFoundError('Asset Category', datos.category_id);
     if (!categoria.is_active) {
       throw new ValidationError(
-        `La categoría "${categoria.name}" está dada de baja: no admite altas nuevas. ` +
-          'Reactívala o elige otra.',
+        { key: 'error.VALIDATION_ERROR.asset.category_inactive', params: { name: categoria.name } },
         'category_id'
       );
     }
@@ -614,9 +601,7 @@ export async function crearActivo(
     // usuario fije a mano un arranque anterior al día en que el bien existió.
     if (datos.depreciation_start_date !== undefined && inicio < adquisicion) {
       throw new ValidationError(
-        `La depreciación no puede arrancar el ${inicio}, antes de la adquisición ` +
-          `(${adquisicion}). Si lo que buscas es la convención de mes completo, omite ` +
-          '`depreciation_start_date` y el sistema la deriva del panel.',
+        { key: 'error.VALIDATION_ERROR.asset.start_before_acquisition', params: { start: inicio, acquired: adquisicion } },
         'depreciation_start_date'
       );
     }
@@ -639,9 +624,7 @@ export async function crearActivo(
     ].filter((c): c is string => c !== null);
     if (faltantes.length > 0) {
       throw new ValidationError(
-        `Faltan cuentas para el activo (${faltantes.join(', ')}) y la categoría ` +
-          `"${categoria.name}" no las trae por omisión. Pásalas en el alta o ` +
-          'complétale las cuentas a la categoría.',
+        { key: 'error.VALIDATION_ERROR.asset.accounts_missing', params: { fields: faltantes.join(', '), name: categoria.name } },
         faltantes[0]
       );
     }
@@ -666,8 +649,7 @@ export async function crearActivo(
     ].filter((c): c is string => c !== null);
     if (rechazadas.length > 0) {
       throw new ValidationError(
-        `Estas cuentas no están en el catálogo de esta entidad, o son de encabezado y ` +
-          `no admiten movimientos: ${rechazadas.join(', ')}.`,
+        { key: 'error.VALIDATION_ERROR.asset.accounts_rejected', params: { fields: rechazadas.join(', ') } },
         rechazadas[0]
       );
     }
@@ -764,9 +746,10 @@ export async function crearActivo(
       // 23505 es la UNIQUE(asset_number, entity_id). Se traduce porque el
       // mensaje de Postgres nombra el índice y no el problema.
       if ((err as { code?: string }).code === '23505') {
-        throw new ConflictError(
-          `Ya hay un activo con el número "${folio}" en esta entidad.`
-        );
+        throw new ConflictError({
+          key: 'error.RESOURCE_ALREADY_EXISTS.asset.number_taken',
+          params: { number: folio },
+        });
       }
       throw err;
     }

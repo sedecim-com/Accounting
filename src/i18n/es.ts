@@ -412,6 +412,43 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field': 'campo {field}: {amount}',
   'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
     'La política diot_creditable_iva_proportion vale "{proportion}": la entidad aplica la proporción del art. 5 frac. V LIVA, que este sistema todavía no calcula. El IVA acreditable se reparte a mano en el portal.',
+  // ---- MNE-001-731 · I9 by folder, part 8: the refusals of src/services/assets; see en.ts ----
+  'error.VALIDATION_ERROR.asset.category_empty': '--category llegó vacía: el activo necesita su clase.',
+  'error.VALIDATION_ERROR.asset.category_ambiguous':
+    '"{text}" casa con {count} categorías ({matches}). Escribe el nombre completo o pasa su id: elegir la primera depreciaría contra las cuentas de otra clase durante toda la vida del activo.',
+  'error.VALIDATION_ERROR.asset.category_unknown': 'No hay ninguna categoría llamada "{text}" en esta entidad. Las que hay: {known}.',
+  'error.VALIDATION_ERROR.asset.book_unknown':
+    '--book "{declared}" no existe: los dos libros son {first} y {second} (el contable de la NIF C-6 y el fiscal de la LISR).',
+  'error.VALIDATION_ERROR.asset.book_contradicts_policy':
+    '--book {requested} contradice al panel: `base_depreciacion` vale "{base}", así que el libro que llega al mayor es {book}{defined, select, yes {} other { (defecto declarado, nadie ha contestado)}}. Esta bandera declara sobre qué libro crees estar operando, no lo elige: cuál de las dos depreciaciones se postea es criterio del despacho y se contesta con `mnemosine pending reopen base_depreciacion` (si ya estaba definida) y luego `mnemosine pending define base_depreciacion`.',
+  'error.VALIDATION_ERROR.asset.date_format': 'La fecha de {field} tiene que venir como "YYYY-MM-DD"; llegó "{value}".',
+  'error.VALIDATION_ERROR.asset.life_not_positive_integer':
+    'La vida útil en {field} tiene que ser un entero mayor que cero; llegó {value}.',
+  'error.VALIDATION_ERROR.asset.life_missing':
+    'Ni el alta ni la categoría dicen cuánto dura el activo. Indica `useful_life_years` o `useful_life_months`, o dale a la categoría su vida por omisión.',
+  'error.VALIDATION_ERROR.asset.life_years_months_mismatch':
+    'Los años y los meses de vida útil no casan: {months} meses caben en {derived} año(s) y se declararon {years}. Los años son el techo de los meses entre doce —40 meses son 4 años—; corrige uno de los dos u omite los años y se derivan.',
+  'error.VALIDATION_ERROR.asset.amount_not_a_number': 'El importe de {field} no es un número: "{value}".',
+  'error.VALIDATION_ERROR.asset.amount_not_finite': 'El importe de {field} no es finito: "{value}".',
+  'error.VALIDATION_ERROR.asset.cost_not_positive': 'El costo de adquisición tiene que ser mayor que cero; llegó {cost}.',
+  'error.VALIDATION_ERROR.asset.salvage_negative': 'El valor de salvamento no puede ser negativo; llegó {salvage}.',
+  'error.VALIDATION_ERROR.asset.salvage_reaches_cost':
+    'El valor de salvamento ({salvage}) no puede alcanzar ni superar el costo de adquisición ({cost}): la base depreciable sería cero o negativa y el activo no produciría un solo renglón de depreciación.',
+  'error.VALIDATION_ERROR.asset.name_empty': 'El activo necesita nombre: `asset_name` llegó vacío.',
+  'error.VALIDATION_ERROR.asset.category_inactive':
+    'La categoría "{name}" está dada de baja: no admite altas nuevas. Reactívala o elige otra.',
+  'error.VALIDATION_ERROR.asset.start_before_acquisition':
+    'La depreciación no puede arrancar el {start}, antes de la adquisición ({acquired}). Si lo que buscas es la convención de mes completo, omite `depreciation_start_date` y el sistema la deriva del panel.',
+  'error.VALIDATION_ERROR.asset.accounts_missing':
+    'Faltan cuentas para el activo ({fields}) y la categoría "{name}" no las trae por omisión. Pásalas en el alta o complétale las cuentas a la categoría.',
+  'error.VALIDATION_ERROR.asset.accounts_rejected':
+    'Estas cuentas no están en el catálogo de esta entidad, o son de encabezado y no admiten movimientos: {fields}.',
+  'error.RESOURCE_ALREADY_EXISTS.asset.number_taken': 'Ya hay un activo con el número "{number}" en esta entidad.',
+  'error.VALIDATION_ERROR.depreciation.policy_base_unknown':
+    'La política `base_depreciacion` vale "{value}", que no es ninguna de las dos bases posibles ({known}). Corrígela con `mnemosine pending reopen base_depreciacion` (si ya estaba definida) y luego `mnemosine pending define base_depreciacion` antes de correr la depreciación.',
+  'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
+    'La política `convencion_primer_mes` vale "{value}", que no es ninguna de las dos convenciones posibles ({known}). Corrígela con `mnemosine pending reopen convencion_primer_mes` (si ya estaba definida) y luego `mnemosine pending define convencion_primer_mes` antes de correr la depreciación.',
+  'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'No se pudo determinar el inquilino de la entidad {entityId}.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
