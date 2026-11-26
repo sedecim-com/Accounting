@@ -5450,6 +5450,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'close.carry.locked': '{period} está bloqueado: sus saldos iniciales NO se reescribieron.',
   'close.carry.locked_detail': 'Él y los periodos que le siguen todavía abren con las cifras viejas; registra la corrección en un periodo abierto.',
   // ==== end of I8b · close ====
+  // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
+  'cli.line.pair_unreadable':
+    'No se puede leer la línea "{spec}". Cada parte es clave=valor, y las partes van separadas por ";": --line "account=5100;qty=2;price=350.00;description=Text".',
+  'cli.line.key_twice': 'La línea "{label}" da "{key}" dos veces (como "{first}" y como "{second}").',
+  'cli.line.unknown_keys':
+    '{count, plural, one {Clave desconocida} other {Claves desconocidas}} en --line: {unknown}. Claves conocidas: {known}.',
+  'cli.line.same_field': 'La línea "{label}" da un mismo campo dos veces: "{first}" y "{second}" son la misma clave. Escribe sólo una.',
+  'cli.line.legacy_comma':
+    'Separar los pares de --line con "," está en desuso; sepáralos con ";" (account=5100;qty=1;price=1000;tax-amount=160). Las comas dejan de funcionar en {version}.',
+  'cli.line.keys_heading': 'Claves que acepta --line (pares clave=valor separados por ";"; "_" y "-" son lo mismo):',
+  // ==== end of I8b · line-spec ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
   // default (src/gateway/app/messages.ts falls back to es).

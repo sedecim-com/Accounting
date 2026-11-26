@@ -155,7 +155,8 @@ const INVOICE_LINE_GRAMMAR: LineGrammar = {
   sameField: [['qty', 'quantity'], ['price', 'unit-price']],
 };
 
-const INVOICE_LINE_KEYS_HELP = lineKeysHelp([
+/** The key block of `invoice create --help`, built when the help is shown (its heading is keyed). */
+const invoiceLineKeysHelp = (): string => lineKeysHelp([
   ['account', 'revenue account code (required)'],
   ['qty', 'quantity; defaults to 1'],
   ['quantity', 'same as qty'],
@@ -572,7 +573,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   optionByKey(create, '--po-number <text>', 'help.invoice.create.option.po_number');
   optionByKey(create, '--json', 'help.invoice.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft)' });
-  create.addHelpText('after', INVOICE_LINE_KEYS_HELP);
+  create.addHelpText('after', invoiceLineKeysHelp);
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
