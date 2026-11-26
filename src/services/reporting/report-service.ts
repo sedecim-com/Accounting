@@ -19,6 +19,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
 import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
+import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -44,7 +45,7 @@ import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
 //                   opening and movement of cash and residue suspects,
 //                   the opening check's ledger, the receivable a
 //                   collection credits and the held IVA a reversed note
-//                   gives back; T14, #101). This is
+//                   gives back, an invoice's IVA taken, the VAT put back; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -2504,6 +2505,158 @@ export async function queryHeldNoteIvaByCashedReceipt(
       ORDER BY cp.payment_number`;
   const values = [entityId, entries.noteEntryId, entries.mirrorEntryId];
   const r = client ? await client.query<HeldNoteIvaRow>(text, values) : await query<HeldNoteIvaRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// IVA CASH-BASIS AND OVER-CREDIT READS (MNE-001-619, #101)
+//
+// Two sums the IVA cash basis reads from the ledger, on the caller's
+// transaction client: what an issued invoice's credit notes took from 2125
+// (`issuedVatStillParked`, iva-cash-basis.ts), read by the note or the unapply
+// that is about to post, and what correction entries already put back in 1135
+// for a bill (the over-credit census, vat-overcredit.ts), read again under the
+// bill's lock before a correction posts. Neither reads a policy, so nothing
+// here leaves the transaction. Each sum is a column of a statement that reads
+// the document's other figures, and moves with it: a read of its own would
+// cost a query per document, or a second one per run. The sources and roles
+// are the callers' parameters, as they always were: importing them here would
+// close a cycle back to those modules.
+// ------------------------------------------------------------
+
+export interface IssuedInvoiceVatTakenRow {
+  /** What the invoice's live collections stored as released from 2125. */
+  released: string;
+  /** The cash and withholdings of the live collections that stored no release. */
+  unknown: string;
+  /** Debit-positive net its posted, unreversed credit notes left on the parked-IVA account. */
+  notes: string;
+  tax: string;
+  total: string;
+}
+
+/**
+ * What an issued invoice's collections and credit notes took from 2125
+ * (MNE-001-575): the releases its live allocations stored, the cash of those
+ * that stored none (written before MNE-001-459, counted at their pro rata by
+ * the caller), and the net its posted, unreversed credit notes left on the
+ * entity's parked-IVA role account (`parkedRole`), with the invoice's tax and
+ * total. The invoice, the collections and the role are bound to the entity.
+ * Undefined when the entity has no such invoice.
+ */
+export async function queryIssuedInvoiceVatTaken(
+  entityId: string,
+  invoiceId: string,
+  parkedRole: string,
+  client?: pg.PoolClient
+): Promise<IssuedInvoiceVatTakenRow | undefined> {
+  const text = `SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released,
+            COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown,
+            COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                        FROM credit_notes cn
+                        JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note'
+                                               AND je.source_id = cn.id AND je.status = 'posted'
+                                               AND je.reversed_by_entry_id IS NULL
+                        JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                        JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                                             AND ar.role = $3 AND ar.qualifier IS NULL
+                       WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+      WHERE i.id = $2 AND i.entity_id = $1`;
+  const values = [entityId, invoiceId, parkedRole];
+  const r = client
+    ? await client.query<IssuedInvoiceVatTakenRow>(text, values)
+    : await query<IssuedInvoiceVatTakenRow>(text, values);
+  return r.rows[0];
+}
+
+export interface VatOvercreditBillRow {
+  tenant_id: string;
+  bill_id: string;
+  entity_id: string;
+  entity_name: string;
+  bill_number: string;
+  cfdi_uuid: string | null;
+  header: string;
+  total: string;
+  amount_due: string;
+  currency_code: string;
+  functional_currency: string | null;
+  xml_taxes: string;
+  tax_breakdown: unknown;
+  has_note: boolean;
+  /** Debit-positive net the bill's posted, unreversed corrections left on the pending-VAT account. */
+  corrected: string;
+  correction_entries: string | null;
+  roles: number;
+}
+
+/**
+ * The bills of the VAT over-credit census (MNE-001-562): per bill made from a
+ * received CFDI that transfers a tax other than VAT, of the tenant (one entity
+ * and one bill when named), on Mexican books and not void or cancelled, its
+ * header and totals, whether a received credit note stands (`noteSource`),
+ * what its posted, unreversed corrections (`correctionSource`) put back on the
+ * pending-VAT role account (`pendingRole`) and their numbers, and how many of
+ * the two roles the correction moves between the entity has.
+ *
+ * The bill's oldest xml_cfdi pre-registration of its own entity, as migration
+ * 328 and the REP linkage read it, and only when its summary lists a transfer
+ * that is not VAT: a CFDI with VAT alone and a bill with no CFDI never enter.
+ */
+export async function queryVatOvercreditBills(
+  tenantId: string,
+  scope: { entityId: string | null; billId: string | null },
+  keys: { noteSource: string; correctionSource: string; pendingRole: string; creditableRole: string },
+  client?: pg.PoolClient
+): Promise<VatOvercreditBillRow[]> {
+  const text = `
+SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bill_number, b.cfdi_uuid,
+       b.tax_amount::text AS header, b.total_amount::text AS total, b.amount_due::text AS amount_due,
+       b.currency_code, le.functional_currency, c.xml_taxes::text AS xml_taxes, c.tax_breakdown,
+       EXISTS (SELECT 1 FROM journal_entries n
+                WHERE n.entity_id = b.entity_id AND n.source_type = $3 AND n.source_id = b.id
+                  AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL) AS has_note,
+       COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                   FROM journal_entries k
+                   JOIN journal_entry_lines l ON l.journal_entry_id = k.id
+                   JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = b.entity_id
+                                        AND ar.role = $5 AND ar.qualifier IS NULL
+                  WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
+                    AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL), 0)::text AS corrected,
+       (SELECT string_agg(k.entry_number, ', ' ORDER BY k.entry_date, k.entry_number) FROM journal_entries k
+         WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
+           AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL) AS correction_entries,
+       (SELECT count(DISTINCT ar.role)::int FROM account_roles ar
+         WHERE ar.entity_id = b.entity_id AND ar.qualifier IS NULL AND ar.role IN ($5, $6)) AS roles
+  FROM (SELECT DISTINCT ON (p.bill_id) p.bill_id, p.entity_id, p.tax_amount AS xml_taxes, p.tax_breakdown
+          FROM pre_registrations p
+         WHERE p.source_type = 'xml_cfdi' AND p.bill_id IS NOT NULL
+         ORDER BY p.bill_id, p.created_at, p.id) c
+  JOIN bills b ON b.id = c.bill_id AND b.entity_id = c.entity_id
+  JOIN legal_entities le ON le.id = b.entity_id
+ WHERE le.tenant_id = $1
+   AND ($2::uuid IS NULL OR le.id = $2::uuid)
+   AND ($7::uuid IS NULL OR b.id = $7::uuid)
+   AND ${sqlKeepsMexicanBooks('le')}
+   AND b.status NOT IN ('void', 'cancelled')
+   AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.tax_breakdown->'traslados') = 'array'
+                                                       THEN c.tax_breakdown->'traslados' ELSE '[]'::jsonb END) x
+                WHERE lpad(COALESCE(x->>'impuesto', ''), 3, '0') <> '002')
+ ORDER BY le.name, b.bill_number, b.id`;
+  const values = [
+    tenantId, scope.entityId, keys.noteSource, keys.correctionSource, keys.pendingRole, keys.creditableRole, scope.billId,
+  ];
+  const r = client
+    ? await client.query<VatOvercreditBillRow>(text, values)
+    : await query<VatOvercreditBillRow>(text, values);
   return r.rows;
 }
 
