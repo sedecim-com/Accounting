@@ -148,7 +148,7 @@ describe('confirmarCierre: la doble compuerta del cierre', () => {
     });
     expect(v.procede).toBe(false);
     expect(v.mensaje).toContain('«salir»');
-    expect(v.mensaje).toContain('Cancelled.');
+    expect(v.mensaje).toContain('Cancelado.');
   });
 
   it('un sí en español basta para el cierre suave', async () => {
@@ -180,7 +180,7 @@ describe('confirmarCierre: la doble compuerta del cierre', () => {
     });
     expect(v.procede).toBe(false);
     expect(v.mensaje).toContain('July 2026');
-    expect(v.mensaje).toContain('nothing was closed');
+    expect(v.mensaje).toContain('no se cerró nada');
   });
 
   it('EOF en el nombre cancela el cierre duro', async () => {
@@ -359,14 +359,14 @@ describe('yesNoPrompt: the suffix comes from the catalogue', () => {
       prompts.push(p);
       return answers[prompts.length - 1] ?? null;
     };
-    const v = await confirmarCierre(ask, plain, 'soft close (reversible)', {
+    const v = await confirmarCierre(ask, plain, 'cierre suave (reversible)', {
       hard: false,
       periodName: 'July 2026',
     });
-    expect(v).toEqual({ procede: false, mensaje: 'Cancelled.' });
+    expect(v).toEqual({ procede: false, mensaje: 'Cancelado.' });
     expect(prompts).toEqual([
-      'Proceed with soft close (reversible)? [s/N] ',
-      'no entendí «salir»: responde y/s para sí, n para no\nProceed with soft close (reversible)? [s/N] ',
+      '¿Proceder con el cierre suave (reversible)? [s/N] ',
+      'no entendí «salir»: responde y/s para sí, n para no\n¿Proceder con el cierre suave (reversible)? [s/N] ',
     ]);
   });
 });
