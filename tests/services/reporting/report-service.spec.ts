@@ -91,6 +91,7 @@ import {
   queryEntryEffectByCounterpart,
   queryForeignBalancesByAccount,
   queryRevaluationNetByAccount,
+  queryIepsParkedByInvoice, queryIepsMovedForInvoice, queryIepsKeptOnAccount, queryIepsTakenByRows,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1479,6 +1480,125 @@ describe('the FX revaluation reads (MNE-001-617)', () => {
     expect(await queryRevaluationNetByAccount(ENTITY, ['je-r1'])).toEqual([]);
     expect(mockQuery).toHaveBeenCalledTimes(1);
     expect(params(0)).toEqual([['je-r1'], ENTITY]);
+  });
+});
+
+// MNE-001-618 · the four ledger sums of the IEPS on cash basis, moved here
+// verbatim from ieps-cash-basis.ts. Each test pins the whole statement, the
+// parameter order and the connection it runs on.
+describe('the IEPS cash-basis reads (MNE-001-618)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const FROM_ROLES =
+    'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+    'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL ';
+  const LIVE = "WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false ";
+  const onClient = (rows: unknown[]) => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    return { clientQuery, client: { query: clientQuery } as never };
+  };
+  const call = (clientQuery: Mock) => clientQuery.mock.calls[0] as [string, unknown[]];
+
+  it('parked: credit − debit on the uncollected role of the invoice\'s own posted, unreversed entry, on the caller\'s client', async () => {
+    // By hand: IEPS 8% on a 1 000.00 sale parks 80.0000 in 2181.
+    const { clientQuery, client } = onClient([{ ieps_parked: '80.0000' }]);
+    expect(await queryIepsParkedByInvoice(ENTITY, 'inv-a', client)).toBe('80.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'inv-a', 'ieps_trasladado_no_cobrado']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS ieps_parked ' +
+        FROM_ROLES +
+        "WHERE je.entity_id = $1 AND je.source_type = 'invoice' AND je.source_id = $2 " +
+        "AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND ar.role = $3"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('parked reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsParkedByInvoice(ENTITY, 'inv-a')).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'inv-a', 'ieps_trasladado_no_cobrado']);
+  });
+
+  it('moved: debit − credit on the uncollected role over the invoice\'s tagged lines, by one receipt or by all, on the caller\'s client', async () => {
+    // By hand: a collection of half the invoice moved 80.0000 × 1/2 = 40.0000 out of 2181.
+    const { clientQuery, client } = onClient([{ moved: '40.0000' }]);
+    expect(await queryIepsMovedForInvoice(ENTITY, 'inv-a', 'pay-1', client)).toBe('40.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', 'inv-a', 'pay-1']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = $2 AND l.tags -> 'ieps_release' ->> 'invoice_id' = $3 " +
+        "AND ($4::text IS NULL OR l.tags -> 'ieps_release' ->> 'payment_id' = $4::text)"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('moved by every receipt binds a null receipt, through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsMovedForInvoice(ENTITY, 'inv-a', null)).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', 'inv-a', null]);
+  });
+
+  it('kept: credit − debit over both IEPS roles on the receipt\'s tagged lines, on the caller\'s client', async () => {
+    // By hand: an unapply that kept 80.0000 caused left 2181 Cr 80.0000 alone on the receipt's tag.
+    const { clientQuery, client } = onClient([{ kept: '80.0000' }]);
+    expect(await queryIepsKeptOnAccount(ENTITY, 'pay-1', client)).toBe('80.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], 'pay-1']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = ANY($2::text[]) AND l.tags -> 'ieps_release' ->> 'payment_id' = $3"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('kept reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsKeptOnAccount(ENTITY, 'pay-1')).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], 'pay-1']);
+  });
+
+  it('taken: per allocation row, the share released from 2181 and the net over both roles, in one statement on the caller\'s client', async () => {
+    // By hand: row-1 released nothing and took 80 × 1 000 / 1 080 = 74.0741 from the cash on account.
+    const rows = [{ allocation_id: 'row-1', released: '0', taken: '74.0741' }];
+    const { clientQuery, client } = onClient(rows);
+    const ids = ['row-1', 'row-2'];
+    expect(await queryIepsTakenByRows(ENTITY, ids, client)).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1', 'row-2']]);
+    // A copy, not the caller's array.
+    expect(values[3]).not.toBe(ids);
+    expect(folded(text)).toBe(
+      "SELECT l.tags -> 'ieps_release' ->> 'allocation_id' AS allocation_id, " +
+        'SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = ANY($3::text[]) AND l.tags -> 'ieps_release' ->> 'allocation_id' = ANY($4::text[]) GROUP BY 1"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('taken reads through the pool without a client, and no tagged row is an empty list', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsTakenByRows(ENTITY, ['row-1'])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1']]);
   });
 });
 
