@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-// I8b · the platform speaks by key (MNE-001-808 part 1, #150). Under es-MX the refusals, headings, notes and
-// verdicts of `memory`, `entity`, `user` and `tenant` are Spanish from the catalogue, written here by hand before
-// the code; commands, flags, option values, ids and amounts pass through untranslated, and the
+// I8b · the platform speaks by key (MNE-001-808, #150). Under es-MX the refusals, headings, notes and verdicts
+// of `memory`, `entity`, `user`, `skills`, `approvals` and `tenant` are Spanish from the catalogue, written here
+// by hand before the code; commands, flags, option values, ids and amounts pass through untranslated, and the
 // machine formats of `entity show` keep their English. The English was compared by a dump.
 
 const CTX = { tenantId: 't1', entityId: 'e1', entityName: 'Entidad Sintetica SA', taxId: 'ESI010101AA1', country: 'MX', currency: 'MXN', accountingStandard: 'mx_nif' };
@@ -20,10 +20,15 @@ vi.mock('../../src/services/entity/entity-service.js', async (o) => ({ ...(await
 vi.mock('../../src/services/payroll/mx/minimum-wage-zone.js', async (o) => ({ ...(await o<Record<string, unknown>>()), minimumWageZoneOf: vi.fn(), setEntityMinimumWageZone: vi.fn() }));
 vi.mock('../../src/services/user/user-service.js', () => ({ listUsers: vi.fn(), createUser: vi.fn(), archiveUser: vi.fn(), resolveUserTenant: vi.fn(async () => 't1') }));
 vi.mock('../../src/services/tenant/tenant-service.js', () => ({ listTenants: vi.fn(async () => []), createTenant: vi.fn() }));
+vi.mock('../../src/ai/skills/skill-drafts.js', () => ({ approveSkillDraft: vi.fn(), rejectSkillDraft: vi.fn(), listSkillDrafts: vi.fn(), renderSkillDraftDiff: vi.fn(() => []) }));
+vi.mock('../../src/ai/skills/store.js', () => ({ listSkills: vi.fn(() => []), viewSkill: vi.fn(), visibleSkills: vi.fn(() => []) }));
+vi.mock('../../src/ai/approval-policy.js', async (o) => ({ ...(await o<Record<string, unknown>>()), grantApproval: vi.fn(async () => 'ap-1'), revokeApproval: vi.fn(), listApprovals: vi.fn() }));
 
 import { registerMemoryCommand, renderConflicts, renderDigestCoverage, renderMemory } from '../../src/cli/memory-command.js';
 import { registerEntityCommand } from '../../src/cli/entity-command.js';
 import { registerUserCommand, readPassword } from '../../src/cli/user-command.js';
+import { registerSkillsCommand, formatScanReportCard } from '../../src/cli/skills-command.js';
+import { registerApprovalsCommand } from '../../src/cli/approvals-command.js';
 import { registerTenantCommand } from '../../src/cli/tenant-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
@@ -32,6 +37,9 @@ import * as mem from '../../src/ai/memory-service.js';
 import * as ec from '../../src/cli/kernel/entity-context.js';
 import * as ent from '../../src/services/entity/entity-service.js';
 import * as mw from '../../src/services/payroll/mx/minimum-wage-zone.js';
+import * as sd from '../../src/ai/skills/skill-drafts.js';
+import * as st from '../../src/ai/skills/store.js';
+import * as ap from '../../src/ai/approval-policy.js';
 import * as tn from '../../src/services/tenant/tenant-service.js';
 
 const m = (f: unknown) => vi.mocked(f as (...a: unknown[]) => unknown);
@@ -45,7 +53,7 @@ function build(): Command {
   const program = new Command('mnemosine').exitOverride();
   const deps = { palette, home: HOME, shutdown: async (c: number) => { throw new Error(`exit ${c}`); },
     reportError: (e: unknown) => { const l = (e as { localized?: () => string }).localized; if (l) process.stderr.write(l.call(e)); } };
-  for (const register of [registerMemoryCommand, registerEntityCommand, registerTenantCommand]) register(program, deps as never);
+  for (const register of [registerMemoryCommand, registerEntityCommand, registerSkillsCommand, registerApprovalsCommand, registerTenantCommand]) register(program, deps as never);
   registerUserCommand(program, { ...deps, readSecret: async () => null, env: {}, stdin: Object.assign(Readable.from([]), { isTTY: false }) } as never);
   return program;
 }
@@ -167,9 +175,48 @@ describe('under es-MX, entity, user and tenant speak Spanish', () => {
   });
 });
 
+describe('under es-MX, skills and approvals speak Spanish', () => {
+  it('the scan card, the list, the drafts queue, the refusals, the grant and the revoke', async () => {
+    setLanguage('es');
+    expect(formatScanReportCard(null, palette as never)).toEqual(['  ⚠ falta el reporte del escaneo o está mal formado: trátalo como señalado']);
+    expect(formatScanReportCard({ threats: [] } as never, palette as never)).toEqual(['  ✔ escaneo de confianza: limpio']);
+    expect(formatScanReportCard({ threats: [{ kind: 'exec', line: 3, excerpt: 'rm' }] } as never, palette as never))
+      .toEqual(['  ⚠ escaneo de confianza: 1 amenaza; aprobar exige --accept-risk', '    [exec] línea 3: rm']);
+    m(sd.listSkillDrafts).mockResolvedValue([]);
+    const none = await es('skills', 'list');
+    expect(none).toContain('Habilidades');
+    expect(none).toContain('Ninguna habilidad es visible para esta entidad.');
+    expect(await es('skills', 'drafts')).toContain('Ningún borrador de habilidad espera revisión.');
+    m(st.listSkills).mockReturnValue([{ name: 'a', valid: false, gated: false }, { name: 'b', valid: true, gated: true }]);
+    m(sd.listSkillDrafts).mockResolvedValue([{ id: 'd1', skill_name: 's1', action: 'create', model: null, scan_report: { threats: [] } }]);
+    const list = await es('skills', 'list');
+    expect(list).toContain('a [inválida]');
+    expect(list).toContain('b [restringida]');
+    expect(list).toContain('1 cambio preparado espera revisión: mnemosine skills drafts');
+    const tty = process.stdin.isTTY;
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    const queue = await es('skills', 'drafts');
+    (process.stdin as { isTTY?: boolean }).isTTY = tty;
+    expect(queue).toContain('1 borrador de habilidad espera revisión, pero stdin no es una terminal.');
+    expect(queue).toContain('Córrelo en una terminal para aprobar o rechazar uno por uno, o usa --json para la salida de máquina.');
+    expect(await es('approvals', 'list', '--scope', 'todo')).toContain('--scope "todo" no es válido; se espera uno de: draft, external_op');
+    expect(await es('approvals', 'grant', '--scope', 'draft', '--mode', 'siempre')).toContain('--mode "siempre" no es válido; se espera uno de: once, session, always');
+    expect(await es('approvals', 'grant', '--scope', 'draft', '--mode', 'once')).toContain('El patrón está vacío; indica al menos uno de --kind, --max-amount, --provider, --operation');
+    m(ap.listApprovals).mockResolvedValue([]);
+    expect(await es('approvals', 'list')).toContain('No hay políticas de aprobación.');
+    m(ap.listApprovals).mockResolvedValue([{ id: 'ap-1', scope: 'draft', mode: 'always', revoked_at: null, pattern: {}, created_by: 'ana', last_used_at: '2026-07-01T00:00:00Z' }]);
+    expect(await es('approvals', 'list')).toContain('por ana último uso 2026-07-01T00:00:00.000Z');
+    const grant = await es('approvals', 'grant', '--scope', 'draft', '--mode', 'always', '--max-amount', '5000');
+    expect(grant).toContain('Política de aprobación concedida: ap-1 (draft, always)');
+    expect(grant).toContain('patrón: {"max_amount":"5000"}');
+    expect(grant).toContain("Aviso: una política 'always' sigue activa hasta que se revoca. Lo que puede autorizar tiene un tope de 5,000 que fija el piso (FLOOR_MAX_AUTO_POST = 50,000); nada puede subir ese límite.");
+    expect(await es('approvals', 'revoke', 'ap-1')).toContain('Política de aprobación ap-1 revocada.');
+  });
+});
+
 describe('the lane', () => {
-  it('counts no English string without a key in the four files', () => {
-    for (const f of ['memory', 'entity', 'user', 'tenant']) {
+  it('counts no English string without a key in the six files', () => {
+    for (const f of ['memory', 'entity', 'user', 'skills', 'approvals', 'tenant']) {
       const rel = `src/cli/${f}-command.ts`;
       expect(englishUserStrings(fs.readFileSync(path.resolve(rel), 'utf8'), rel), rel).toEqual([]);
     }

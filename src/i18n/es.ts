@@ -5598,6 +5598,33 @@ export const ES: Record<keyof typeof EN, string> = {
   'platform.compact.session_not_found': 'No se encontró la sesión en esta entidad.',
   'platform.compact.no_sessions': 'Esta entidad todavía no tiene sesiones.',
   // ==== end of I8b · platform, usage, webhooks, sweep and compact ====
+  // ==== I8b · run-time strings by key, family platform, part 2 (MNE-001-843, issue #150) ====
+  // Same keys, same order as en.ts; the plurals are ICU. Modes, scopes, flags and amounts are parameters.
+  'platform.skills.scan.missing': 'falta el reporte del escaneo o está mal formado: trátalo como señalado',
+  'platform.skills.scan.clean': 'escaneo de confianza: limpio',
+  'platform.skills.scan.threats': 'escaneo de confianza: {count, plural, one {# amenaza} other {# amenazas}}; aprobar exige --accept-risk',
+  'platform.skills.scan.threat_line': '[{kind}] línea {line}:',
+  'platform.skills.title': 'Habilidades',
+  'platform.skills.none_visible': 'Ninguna habilidad es visible para esta entidad.',
+  'platform.skills.mark.invalid': '[inválida]',
+  'platform.skills.mark.gated': '[restringida]',
+  'platform.skills.drafts_pending': '{count, plural, one {# cambio preparado espera revisión} other {# cambios preparados esperan revisión}}: mnemosine skills drafts',
+  'platform.skills.drafts.none': 'Ningún borrador de habilidad espera revisión.',
+  'platform.skills.drafts.not_a_terminal': '{count, plural, one {# borrador de habilidad espera} other {# borradores de habilidad esperan}} revisión, pero stdin no es una terminal.',
+  'platform.skills.drafts.run_in_terminal': 'Córrelo en una terminal para aprobar o rechazar uno por uno, o usa --json para la salida de máquina.',
+  'platform.skills.drafts.approved': 'Aprobado y escrito: skills/{name}',
+  'platform.skills.drafts.rejected': 'Rechazado.',
+  'platform.skills.drafts.skipped': 'Omitido; sigue pendiente.',
+  'platform.approvals.option_invalid': '--{flag} "{value}" no es válido; se espera uno de: {choices}',
+  'platform.approvals.pattern_empty': 'El patrón está vacío; indica al menos uno de --kind, --max-amount, --provider, --operation',
+  'platform.approvals.none': 'No hay políticas de aprobación.',
+  'platform.approvals.list.by': 'por {user}',
+  'platform.approvals.list.last_used': 'último uso {date}',
+  'platform.approvals.granted': 'Política de aprobación concedida: {id} ({scope}, {mode})',
+  'platform.approvals.pattern': 'patrón: {pattern}',
+  'platform.approvals.always_warning': "Aviso: una política 'always' sigue activa hasta que se revoca. Lo que puede autorizar tiene un tope de {cap} que fija el piso (FLOOR_MAX_AUTO_POST = {floor}); nada puede subir ese límite.",
+  'platform.approvals.revoked': 'Política de aprobación {id} revocada.',
+  // ==== end of I8b · platform, part 2 ====
   // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
   'cli.line.pair_unreadable':
     'No se puede leer la línea "{spec}". Cada parte es clave=valor, y las partes van separadas por ";": --line "account=5100;qty=2;price=350.00;description=Text".',
