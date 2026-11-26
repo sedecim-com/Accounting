@@ -53,7 +53,7 @@ function refusal(schema: z.core.$ZodType): ZodNoTraducible {
 
 /** A string schema that carries the array cap of topes.ts, which only an array may carry. */
 function capOnAString(): z.core.$ZodType {
-  const capped = arregloAcotado(z.string(), { tope: 3, plural: 'rows', salida: 'Split the request.' });
+  const capped = arregloAcotado(z.string(), { tope: 3, refusal: 'error.VALIDATION_ERROR.cap.invoice_lines' });
   const cap = capped._zod.def.checks?.at(-1);
   if (cap === undefined) throw new Error('arregloAcotado built no cap check');
   return z.string().check(cap as never);
