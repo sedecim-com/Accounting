@@ -194,11 +194,10 @@ export async function readFilingRounding(ctx: PolicyContext, client?: pg.PoolCli
   const policy = await getPolicy(ctx, FILING_ROUNDING_POLICY, client);
   const value = KNOWN_ROUNDINGS.find((r) => r === policy.value);
   if (!value) {
-    throw new AccountingError(
-      'FILING_ROUNDING_UNKNOWN',
-      `La política ${FILING_ROUNDING_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_ROUNDINGS.join(', ')}. Corrígela en mnemosine pending.`
-    );
+    throw new AccountingError('FILING_ROUNDING_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN.fiscal_reader',
+      params: { policy: FILING_ROUNDING_POLICY, value: String(policy.value), known: KNOWN_ROUNDINGS.join(', ') },
+    });
   }
   return value;
 }
@@ -218,11 +217,10 @@ export async function readCreditableProration(
   const policy = await getPolicy(ctx, CREDITABLE_PRORATION_POLICY, client);
   const value = KNOWN_PRORATIONS.find((r) => r === policy.value);
   if (!value) {
-    throw new AccountingError(
-      'CREDITABLE_PRORATION_UNKNOWN',
-      `La política ${CREDITABLE_PRORATION_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_PRORATIONS.join(', ')}. Corrígela en mnemosine pending.`
-    );
+    throw new AccountingError('CREDITABLE_PRORATION_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN.fiscal_reader',
+      params: { policy: CREDITABLE_PRORATION_POLICY, value: String(policy.value), known: KNOWN_PRORATIONS.join(', ') },
+    });
   }
   return value;
 }
@@ -2561,7 +2559,7 @@ export function priorBalanceOf(raw: string | undefined): string {
   }
   if (value === null || !value.isFinite() || value.isNegative()) {
     throw new ValidationError(
-      `El saldo a favor de periodos anteriores vale "${String(raw)}": debe ser un importe de cero o más.`,
+      { key: 'error.VALIDATION_ERROR.iva_workpaper.prior_balance_amount', params: { value: String(raw) } },
       'priorBalanceInFavor'
     );
   }
@@ -2571,7 +2569,7 @@ export function priorBalanceOf(raw: string | undefined): string {
 export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaWorkpaper> {
   const { tenantId, entityId, year, month } = opts;
   if (!Number.isInteger(month) || month < 1 || month > 12) {
-    throw new ValidationError(`El mes ${String(month)} no existe: el IVA definitivo es mensual.`, 'month');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.iva_workpaper.month', params: { month: String(month) } }, 'month');
   }
   const reason = opts.priorBalanceReason?.trim() || undefined;
   if ((opts.priorBalanceInFavor === undefined) !== (reason === undefined)) {
@@ -2585,7 +2583,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     ]);
     if (!rowCount) throw new NotFoundError('Entidad legal', entityId);
     if (!(await entityUsesCashBasisIva(client, entityId))) {
-      throw new ValidationError('La entidad no causa IVA mexicano: no hay IVA definitivo que calcular.', 'entity_id');
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.iva_workpaper.entity_without_mexican_iva' }, 'entity_id');
     }
     const ctx = { tenantId, entityId };
     const range = rangoDelMes(year, month);

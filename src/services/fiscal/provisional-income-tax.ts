@@ -154,11 +154,10 @@ export async function readSalesReturnsTreatment(
   const policy = await getPolicy(ctx, SALES_RETURNS_POLICY, client);
   const value = KNOWN_TREATMENTS.find((t) => t === policy.value);
   if (!value) {
-    throw new AccountingError(
-      'SALES_RETURNS_TREATMENT_UNKNOWN',
-      `La política ${SALES_RETURNS_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_TREATMENTS.join(', ')}. Corrígela en mnemosine pending.`
-    );
+    throw new AccountingError('SALES_RETURNS_TREATMENT_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN.fiscal_reader',
+      params: { policy: SALES_RETURNS_POLICY, value: String(policy.value), known: KNOWN_TREATMENTS.join(', ') },
+    });
   }
   return value;
 }
@@ -231,7 +230,8 @@ function amountOf(raw: string | undefined, field: string): string {
     value = null;
   }
   if (value === null || !value.isFinite() || value.isNegative()) {
-    throw new ValidationError(`${field} vale "${String(raw)}": debe ser un importe de cero o más.`, field);
+    throw new ValidationError(
+      { key: 'error.VALIDATION_ERROR.isr_workpaper.amount', params: { field, value: String(raw) } }, field);
   }
   return value.toFixed(4);
 }
@@ -246,7 +246,7 @@ export async function buildProvisionalIncomeTaxWorkpaper(
 ): Promise<ProvisionalIncomeTaxWorkpaper> {
   const { tenantId, entityId, year, month } = opts;
   if (!Number.isInteger(month) || month < 1 || month > 12) {
-    throw new ValidationError(`El mes ${String(month)} no existe: el pago provisional es mensual.`, 'month');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.isr_workpaper.month', params: { month: String(month) } }, 'month');
   }
   const ptuPaid = amountOf(opts.ptuPaidInYear, 'ptuPaidInYear');
   const prior = amountOf(opts.priorProvisionalPayments, 'priorProvisionalPayments');
@@ -258,7 +258,7 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     );
     if (entity.length === 0) throw new NotFoundError('Entidad legal', entityId);
     if (!(await entityUsesCashBasisIva(client, entityId))) {
-      throw new ValidationError('La entidad no lleva libros mexicanos: no hay ISR provisional que calcular.', 'entity_id');
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.isr_workpaper.entity_without_mexican_books' }, 'entity_id');
     }
     const ctx = { tenantId, entityId };
     const scope = entityScope(tenantId, entityId);
