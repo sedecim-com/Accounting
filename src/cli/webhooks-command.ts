@@ -11,6 +11,7 @@ import {
   type WebhookSourceKind,
 } from '../ai/webhooks/intake.js';
 import { describeCommand, exitCodeFor, optionByKey, usageError, ExitCode } from './kernel/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine webhooks (alias: ganchos)
@@ -36,12 +37,15 @@ export interface WebhooksCommandDeps {
   reportError: (err: unknown) => void;
 }
 
-const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : 'never');
+const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : t('platform.webhooks.never'));
+
+/** A column as wide as the English one, or as its label in the reader's language plus two. */
+const column = (key: TranslationKey, width: number): number => Math.max(width, t(key).length + 2);
 
 function parseSourceKind(value: string): WebhookSourceKind {
   const normalized = value.trim().toLowerCase() as WebhookSourceKind;
   if (!WEBHOOK_SOURCE_KINDS.includes(normalized)) {
-    throw usageError(`Invalid --source "${value}". Use one of: ${WEBHOOK_SOURCE_KINDS.join(', ')}.`);
+    throw usageError({ key: 'platform.webhooks.source_invalid', params: { value, kinds: WEBHOOK_SOURCE_KINDS.join(', ') } });
   }
   return normalized;
 }
@@ -67,17 +71,13 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         const issued = await issueWebhookToken(ctx, { name, sourceKind, createdBy });
 
         console.log('');
-        console.log(c.bold(`Webhook token "${issued.token.name}" created (${sourceKind}).`));
+        console.log(c.bold(t('platform.webhooks.created', { name: issued.token.name, source: sourceKind })));
         console.log('');
-        console.log(`  Endpoint:  POST /v1/ai/webhooks/${issued.token.name}`);
-        console.log(`  Header:    Authorization: Bearer ${c.cyan(issued.rawToken)}`);
+        const width = Math.max(t('platform.label.endpoint').length, t('platform.label.header').length) + 2;
+        console.log(`  ${t('platform.label.endpoint').padEnd(width)}POST /v1/ai/webhooks/${issued.token.name}`);
+        console.log(`  ${t('platform.label.header').padEnd(width)}Authorization: Bearer ${c.cyan(issued.rawToken)}`);
         console.log('');
-        console.log(
-          c.yellow(
-            '  SAVE THE TOKEN NOW. It is shown only this once: the database keeps only ' +
-              'its hash and it cannot be recovered. If lost, disable this token and create a new one.'
-          )
-        );
+        console.log(c.yellow(`  ${t('platform.webhooks.save_token')}`));
         console.log('');
         await deps.shutdown(0);
       } catch (err) {
@@ -100,16 +100,16 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         } else {
           console.log('');
           if (tokens.length === 0) {
-            console.log(c.dim('  No webhook tokens. Create one with `mnemosine webhooks create <name>`.'));
+            console.log(c.dim(`  ${t('platform.webhooks.none')}`));
           } else {
-            console.log(
-              c.bold(`  ${'NAME'.padEnd(24)}${'SOURCE'.padEnd(20)}${'STATE'.padEnd(10)}LAST USED`)
-            );
+            const [name, source, state] = [column('platform.webhooks.column.name', 24), column('platform.webhooks.column.source', 20), column('platform.webhooks.column.state', 10)];
+            console.log(c.bold(`  ${t('platform.webhooks.column.name').padEnd(name)}${t('platform.webhooks.column.source').padEnd(source)}` +
+              `${t('platform.webhooks.column.state').padEnd(state)}${t('platform.webhooks.column.last_used')}`));
             const zone = await zoneFor(ctx);
-            for (const t of tokens) {
-              const state = t.enabled ? 'enabled' : c.dim('disabled');
+            for (const tok of tokens) {
+              const label = t('platform.webhooks.state', { enabled: String(tok.enabled) });
               console.log(
-                `  ${t.name.padEnd(24)}${t.source_kind.padEnd(20)}${state.padEnd(10)}${fmtDate(t.last_used_at, zone)}`
+                `  ${tok.name.padEnd(name)}${tok.source_kind.padEnd(source)}${(tok.enabled ? label : c.dim(label)).padEnd(state)}${fmtDate(tok.last_used_at, zone)}`
               );
             }
           }
@@ -131,10 +131,10 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         const ctx = await resolveEntity(opts.entity);
         const disabled = await disableWebhookToken(ctx, name);
         if (disabled) {
-          console.log(`Webhook token "${name}" disabled.`);
+          console.log(t('platform.webhooks.disabled', { name }));
           await deps.shutdown(0);
         } else {
-          console.log(c.yellow(`No enabled webhook token named "${name}" in this entity.`));
+          console.log(c.yellow(t('platform.webhooks.not_found', { name })));
           await deps.shutdown(ExitCode.NOT_FOUND);
         }
       } catch (err) {
@@ -152,7 +152,7 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
       try {
         const limit = Number.parseInt(opts.limit, 10);
         if (!Number.isFinite(limit) || limit < 1) {
-          throw usageError(`Invalid --limit "${opts.limit}": use a positive number.`);
+          throw usageError({ key: 'platform.limit_invalid', params: { limit: opts.limit } });
         }
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
@@ -162,21 +162,20 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         } else {
           console.log('');
           if (rows.length === 0) {
-            console.log(c.dim('  No webhook deliveries recorded for this entity.'));
+            console.log(c.dim(`  ${t('platform.webhooks.no_deliveries')}`));
           } else {
-            console.log(
-              c.bold(
-                `  ${'RECEIVED'.padEnd(18)}${'TOKEN'.padEnd(20)}${'STATUS'.padEnd(11)}${'DRAFTS'.padEnd(8)}DOCUMENT`
-              )
-            );
+            // TOKEN is the same word in both languages, so it stays fixed text.
+            const widths = [column('platform.webhooks.column.received', 18), 20, column('platform.webhooks.column.status', 11), column('platform.webhooks.column.drafts', 8)];
+            const heads = [t('platform.webhooks.column.received'), 'TOKEN', t('platform.webhooks.column.status'), t('platform.webhooks.column.drafts')];
+            console.log(c.bold(`  ${heads.map((h, i) => h.padEnd(widths[i])).join('')}${t('platform.webhooks.column.document')}`));
             const zone = await zoneFor(ctx);
             for (const d of rows) {
               const suspicious = Array.isArray(d.suspicion) && d.suspicion.length > 0;
               const doc = d.document_key.length > 44 ? `${d.document_key.slice(0, 43)}…` : d.document_key;
               console.log(
-                `  ${fmtDate(d.received_at, zone).padEnd(18)}${d.token_name.padEnd(20)}` +
-                  `${d.status.padEnd(11)}${String(d.drafts_created).padEnd(8)}${doc}` +
-                  (suspicious ? ` ${c.yellow('[suspicious content]')}` : '')
+                `  ${fmtDate(d.received_at, zone).padEnd(widths[0])}${d.token_name.padEnd(widths[1])}` +
+                  `${d.status.padEnd(widths[2])}${String(d.drafts_created).padEnd(widths[3])}${doc}` +
+                  (suspicious ? ` ${c.yellow(t('platform.webhooks.suspicious'))}` : '')
               );
             }
           }

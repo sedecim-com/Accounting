@@ -21,6 +21,7 @@ vi.mock('../../src/services/webhooks/barrido-entregas.js', async (importOriginal
 import { registerWebhookSweepCommand } from '../../src/cli/webhook-sweep-command.js';
 import { barrerEntregasVencidas } from '../../src/services/webhooks/barrido-entregas.js';
 import { currentTenant } from '../../src/database/connection.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 
 const mockBarrido = barrerEntregasVencidas as unknown as Mock;
 const mockTenant = currentTenant as unknown as Mock;
@@ -210,5 +211,41 @@ describe('lo que el barrido cuenta, el comando lo dice', () => {
     const p = makePrograma();
     await p.parseAsync(['subscription', 'delivery', 'sweep', '-t', 'tenant-a', '--live'], { from: 'user' });
     expect(codigos).toEqual([0]);
+  });
+});
+
+// I8b · part 13 (MNE-001-809, #150): under es-MX the sweep speaks Spanish from the catalogue, written here by hand
+// before the code; flags, paths and counts pass through, and --json keeps its bytes.
+describe('under es-MX, the sweep speaks Spanish', () => {
+  afterEach(() => { resetLanguage(); });
+  const es = async (...argv: string[]): Promise<string> => {
+    setLanguage('es');
+    let err = '';
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((c) => { err += String(c); return true; });
+    await makePrograma().parseAsync(['subscription', 'delivery', 'sweep', ...argv], { from: 'user' });
+    spy.mockRestore();
+    const refusals = errores.map((e) => (e as { localized: () => string }).localized());
+    return [...logs, err, ...refusals].join('\n');
+  };
+
+  it('the refusals keep exit 1, the sandbox, the ignored key, the verdict and the two warnings', async () => {
+    expect(await es('--limit', '0')).toContain('--limit "0" no válido: usa un número positivo.');
+    mockTenant.mockReturnValue(undefined);
+    expect(await es()).toContain('El barrido necesita un alcance: pasa --tenant <uuid> (o define MNEMOSINE_TENANT) para barrer un despacho, o --all-tenants');
+    expect(codigos).toEqual([1, 1]);
+    mockTenant.mockReturnValue('tenant-a');
+    mockBarrido.mockResolvedValue({ ...resultadoVacio, vencidas: 3, reintentables: 1, muertas: 1, congeladas: 1 });
+    logs = [];
+    const census = await es('--idempotency-key', 'k1');
+    expect(census).toContain('sandbox: no se envió nada. Un webhook no tiene destino de pruebas: la URL es la del cliente. Agrega --live para reintentar de verdad.');
+    expect(census).toContain('--idempotency-key no aplica al barrido: cada entrega ya lleva su propia llave estable (X-Webhook-ID), y deduplicar pasadas enteras saltaría entregas vencidas.');
+    expect(census).toContain('Se barrería: despachos 1 · vencidas 3 · entregadas 0 · reintentables 1 · muertas 1 · congeladas 1');
+    expect(census).toContain('1 entrega vencida pertenece a una suscripción DESACTIVADA y se dejó intacta: ni se reintentó ni se mató.');
+    logs = [];
+    const live = await es('--live', '-y');
+    expect(live).toContain('Se barrió: despachos 1');
+    expect(live).toContain('1 entrega agotó sus intentos y ahora está MUERTA: no se volverá a reintentar. Su id está en las líneas de arriba; la CLI todavía no tiene un verbo para listarla o reenviarla, la API sí: `GET /v1/webhooks/<subscriptionId>/deliveries?status=failed` y `POST /v1/webhooks/deliveries/<deliveryId>/retry`.');
+    logs = [];
+    expect(await es('--live', '-y', '--json')).toContain('"inquilinosRevisados": 1');
   });
 });

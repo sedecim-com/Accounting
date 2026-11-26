@@ -7,6 +7,7 @@ import {
 } from '../ai/usage-ledger.js';
 import { PRECIOS_VIGENTES_A } from '../ai/providers/prices.js';
 import { describeCommand, exitCodeFor, optionByKey, usageError } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine usage
@@ -38,11 +39,11 @@ export function parseSince(value: string | undefined, now: Date = new Date()): D
   if (rel) {
     const days = Number(rel[1]);
     if (!Number.isSafeInteger(days) || days > MAX_SINCE_DAYS) {
-      throw usageError(`Invalid --since value "${value}": relative windows are capped at ${MAX_SINCE_DAYS}d.`);
+      throw usageError({ key: 'platform.usage.since_capped', params: { value, max: MAX_SINCE_DAYS } });
     }
     const parsed = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     if (Number.isNaN(parsed.getTime())) {
-      throw usageError(`Invalid --since value "${value}": the resulting date is out of range.`);
+      throw usageError({ key: 'platform.usage.since_out_of_range', params: { value } });
     }
     return parsed;
   }
@@ -50,14 +51,14 @@ export function parseSince(value: string | undefined, now: Date = new Date()): D
     const parsed = new Date(`${trimmed}T00:00:00`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
-  throw usageError(`Invalid --since value "${value}". Use Nd (e.g. 7d, 30d) or YYYY-MM-DD.`);
+  throw usageError({ key: 'platform.usage.since_invalid', params: { value } });
 }
 
 export function parseGroupBy(value: string | undefined): UsageGroupBy {
   if (!value) return 'model';
   const normalized = value.trim().toLowerCase() as UsageGroupBy;
   if (!GROUP_CHOICES.includes(normalized)) {
-    throw usageError(`Invalid --by value "${value}". Use one of: ${GROUP_CHOICES.join(', ')}.`);
+    throw usageError({ key: 'platform.usage.by_invalid', params: { value, choices: GROUP_CHOICES.join(', ') } });
   }
   return normalized;
 }
@@ -73,6 +74,7 @@ const fmtUsd = (n: number): string => `$${n.toFixed(4)}`;
 
 const KEY_WIDTH = 30;
 const NUM_WIDTH = 11;
+const COLUMNS = ['turns', 'input', 'output', 'cache_read', 'cache_write', 'cost'] as const;
 
 function line(key: string, cells: string[], bold?: (s: string) => string): string {
   const row = `  ${key.padEnd(KEY_WIDTH)}${cells.map((c) => c.padStart(NUM_WIDTH)).join('')}`;
@@ -87,23 +89,23 @@ export function formatUsageTable(
 ): string[] {
   const out: string[] = [
     '',
-    c.bold(`Usage by ${groupBy} (costs are local estimates, not billing)`),
+    c.bold(t('platform.usage.title', { groupBy })),
     // La fecha de corte de los precios viaja con cada reporte (S1): un
     // estimado con tabla vieja debe leerse como lo que es.
-    c.dim(`  price table as of ${PRECIOS_VIGENTES_A} — providers reprice without notice`),
+    c.dim(`  ${t('platform.usage.prices_as_of', { date: PRECIOS_VIGENTES_A })}`),
     '',
   ];
 
   if (summary.rows.length === 0) {
-    out.push(c.dim('  No usage recorded for this entity in the selected window.'));
+    out.push(c.dim(`  ${t('platform.usage.empty')}`));
     out.push('');
     return out;
   }
 
-  out.push(line(groupBy.toUpperCase(), ['TURNS', 'INPUT', 'OUTPUT', 'CACHE RD', 'CACHE WR', 'EST. USD'], c.bold));
+  out.push(line(groupBy.toUpperCase(), COLUMNS.map((k) => t(`platform.usage.column.${k}`)), c.bold));
   for (const r of summary.rows) {
     const key = groupBy === 'model' && r.provider ? `${r.key} (${r.provider})` : r.key;
-    const cost = r.unpricedTurns === r.turns ? c.dim('unpriced') : fmtUsd(r.costUsd);
+    const cost = r.unpricedTurns === r.turns ? c.dim(t('platform.usage.unpriced')) : fmtUsd(r.costUsd);
     out.push(
       line(key.length > KEY_WIDTH ? `${key.slice(0, KEY_WIDTH - 1)}…` : key, [
         fmt(r.turns), fmt(r.inputTokens), fmt(r.outputTokens),
@@ -120,12 +122,7 @@ export function formatUsageTable(
     ], c.bold)
   );
   if (summary.totals.unpricedTurns > 0) {
-    out.push(
-      c.dim(
-        `  ${summary.totals.unpricedTurns} turn(s) on models missing from the local price table: ` +
-          'tokens counted, cost excluded from the total.'
-      )
-    );
+    out.push(c.dim(`  ${t('platform.usage.unpriced_turns', { count: summary.totals.unpricedTurns })}`));
   }
   out.push('');
   return out;

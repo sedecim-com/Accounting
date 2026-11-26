@@ -2,7 +2,8 @@ import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { currentTenant } from '../database/connection.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { CliError, describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 import {
   barrerEntregasVencidas,
   TOPE_POR_INQUILINO,
@@ -65,10 +66,10 @@ interface SweepOpts extends Record<string, unknown> {
 }
 
 function resumen(r: ResultadoBarrido): string {
-  return (
-    `tenants ${r.inquilinosRevisados} · due ${r.vencidas} · delivered ${r.entregadas} · ` +
-    `retryable ${r.reintentables} · dead ${r.muertas} · frozen ${r.congeladas}`
-  );
+  return t('platform.sweep.summary', {
+    tenants: r.inquilinosRevisados, due: r.vencidas, delivered: r.entregadas,
+    retryable: r.reintentables, dead: r.muertas, frozen: r.congeladas,
+  });
 }
 
 /**
@@ -135,17 +136,14 @@ Examples:
 
       const limite = Number.parseInt(opts.limit, 10);
       if (!Number.isFinite(limite) || limite < 1) {
-        throw new Error(`Invalid --limit "${opts.limit}": use a positive number.`);
+        // A CliError of exit 1, the code the plain Error it replaces gave.
+        throw new CliError({ key: 'platform.limit_invalid', params: { limit: opts.limit } });
       }
 
       bootstrapTenant(opts.tenant);
       const tenantId = opts.allTenants ? undefined : currentTenant();
       if (!opts.allTenants && !tenantId) {
-        throw new Error(
-          'The sweep needs a scope: pass --tenant <uuid> (or set MNEMOSINE_TENANT) to sweep one ' +
-            'tenant, or --all-tenants to sweep every active tenant. It does not default to ' +
-            'everything: crossing every tenant is a decision, not a fallback.'
-        );
+        throw new CliError({ key: 'platform.sweep.scope_required' });
       }
 
       // SIN --live NO SE ENTREGA. Un webhook no tiene ambiente de
@@ -154,18 +152,10 @@ Examples:
       // fingir un envío, y lo dice.
       const soloCenso = dryRun || !live;
       if (soloCenso && !dryRun) {
-        console.log(
-          c.dim(
-            'sandbox: nothing was sent. A webhook has no test endpoint — the URL is the ' +
-              'customer\'s. Add --live to actually retry.'
-          )
-        );
+        console.log(c.dim(t('platform.sweep.sandbox')));
       }
       if (opts.idempotencyKey) {
-        process.stderr.write(
-          '  --idempotency-key does not apply to the sweep: each delivery already carries its own ' +
-            'stable key (X-Webhook-ID), and deduplicating whole passes would skip due deliveries.\n'
-        );
+        process.stderr.write(`  ${t('platform.sweep.key_ignored')}\n`);
       }
 
       const resultado = await barrerEntregasVencidas({
@@ -179,25 +169,12 @@ Examples:
         console.log(JSON.stringify(resultado, null, 2));
       } else {
         console.log('');
-        console.log(c.bold(`  ${soloCenso ? 'Would sweep' : 'Swept'}: ${resumen(resultado)}`));
+        console.log(c.bold(`  ${t('platform.sweep.verdict', { mode: soloCenso ? 'census' : 'live' })}: ${resumen(resultado)}`));
         if (resultado.congeladas > 0) {
-          console.log(
-            c.yellow(
-              `  ${resultado.congeladas} due deliver(ies) belong to DISABLED subscriptions and were ` +
-                'left untouched — neither retried nor killed.'
-            )
-          );
+          console.log(c.yellow(`  ${t('platform.sweep.frozen', { count: resultado.congeladas })}`));
         }
         if (!soloCenso && resultado.muertas > 0) {
-          console.log(
-            c.yellow(
-              `  ${resultado.muertas} deliver(y/ies) exhausted their attempts and are now DEAD: ` +
-                'they will not be retried again. Their ids are in the lines above; the CLI has no ' +
-                'verb to list or resend them yet, the API does: ' +
-                '`GET /v1/webhooks/<subscriptionId>/deliveries?status=failed` and ' +
-                '`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'
-            )
-          );
+          console.log(c.yellow(`  ${t('platform.sweep.dead', { count: resultado.muertas })}`));
         }
         console.log('');
       }

@@ -753,7 +753,7 @@ mirror	memory	E5.1 cli-leaf-preserves-exit-code	src/cli/memory-command.ts	códig
 mirror	memory	E5.1 eval-harness-measures-shipped-surface	scripts/eval-clasificador.ts	clasificador-más-ancho: buildTools sin lista devuelve las 25 herramientas mientras la ingesta embarca 11, así que el arnés juzgaría a un agente que nadie corre — y la cabecera del propio arnés lo prohíbe por escrito
 mirror	memory	E5.1 batch-cfdi-scoped-and-recorded	src/cli/init/s5-import.ts	la-clase-a-medias: se reparó la hoja de `ingest` y quedó vivo el segundo camino — el alta clasifica una carpeta entera con las 25 herramientas, brazo externo incluido, y sin dejar una sola fila de corrida
 mirror	memory	E5.1 messages-cite-live-commands	src/services/policy/policy-hint.ts	el-verbo-muerto: `pending` nunca tuvo el verbo `resolve` y catorce mensajes mandaban ahí al contador en plena semana de cierre (#300)
-mirror	memory	E5.1 messages-cite-live-commands	src/cli/webhook-sweep-command.ts	el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)
+mirror	memory	E5.1 messages-cite-live-commands	src/i18n/en.ts	el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)
 mirror	memory	E5.1 messages-cite-live-commands	src/services/banking/reconciliation-adjustments.ts	el-verbo-muerto tras una hoja: `review` es interactivo y no declara argumentos, así que `reject` sólo puede ser un verbo que no tiene (#300)
 mirror	memory	E5.1 messages-cite-live-commands	src/services/fiscal/inpc/inpc-service.ts	la-familia-muerta: una invocación de una familia que el binario no tiene, sin la frase que la declara ausente (#300)
 mirror	memory	E5.1 shared-project-file-runs-and-sends-nothing-unapproved	src/ai/providers/config.ts	credential-carried: a project file with a key in a header or a command loads again, and the key goes out as written
@@ -1550,7 +1550,7 @@ anchor	src/plan/criteria/e5-1.ts	de: ' await deps.shutdown(exitCodeFor(err));',
 anchor	src/plan/criteria/e5-1.ts	de: ' herramientas: SUPERFICIE_INGESTA,',
 anchor	src/plan/criteria/e5-1.ts	de: ' herramientas: SUPERFICIE_INGESTA,',
 anchor	src/plan/criteria/e5-1.ts	de: 'y luego \\`mnemosine pending define ${key}\\`',
-anchor	src/plan/criteria/e5-1.ts	de: "'`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'",
+anchor	src/plan/criteria/e5-1.ts	de: "and `POST /v1/webhooks/deliveries/<deliveryId>/retry`.',",
 anchor	src/plan/criteria/e5-1.ts	de: 'Recházalo en \\`mnemosine review\\`',
 anchor	src/plan/criteria/e5-1.ts	de: "'Cargar la serie del INEGI/DOF: `mnemosine inpc import`, que todavía no existe, es el comando '",
 anchor	src/plan/criteria/e5-1.ts	de: 'const handWritten = isProject ? projectFileCredentialFields(raw) : [];',

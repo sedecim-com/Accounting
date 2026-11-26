@@ -1700,9 +1700,10 @@ export const E5_1: Criterio[] = [
           'el-verbo-muerto: `pending` nunca tuvo el verbo `resolve` y catorce mensajes mandaban ahí al contador en plena semana de cierre (#300)',
       },
       {
-        archivo: 'src/cli/webhook-sweep-command.ts',
-        de: "'`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'",
-        a: "'`mnemosine subscription delivery " + "list <subscriptionId>`.'",
+        // The sweep's DEAD note lives in the catalogue since MNE-001-809; the mutant follows it there.
+        archivo: 'src/i18n/en.ts',
+        de: "and `POST /v1/webhooks/deliveries/<deliveryId>/retry`.',",
+        a: "and `mnemosine subscription delivery " + "list <subscriptionId>`.',",
         porque:
           'el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)',
       },

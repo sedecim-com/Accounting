@@ -67,15 +67,16 @@ function envelopeOf(stderr: string): Envelope {
 }
 
 describe('MNE-001-698 · usage: the leaf refuses what was typed', () => {
-  it('with --json: exit 2, stdout empty, one envelope with the prose message and no key', () => {
+  // Since MNE-001-809 the refusal is keyed: the envelope names its key and holes, and the message stays English.
+  it('with --json: exit 2, stdout empty, one envelope with the English message and its key', () => {
     const r = run(['usage', '--since', '7w', '--json']);
     expect(r.status, r.stderr).toBe(2);
     expect(r.stdout).toBe('');
     expect(envelopeOf(r.stderr)).toEqual({
       schema: 'mnemosine.error/1',
       exit_code: 2,
-      key: null,
-      params: {},
+      key: 'platform.usage.since_invalid',
+      params: { value: '7w' },
       message: 'Invalid --since value "7w". Use Nd (e.g. 7d, 30d) or YYYY-MM-DD.',
       remedy: null,
     });

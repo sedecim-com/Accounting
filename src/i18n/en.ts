@@ -6330,6 +6330,71 @@ export const EN = {
   'platform.user.create.email_required': '--email is required.',
   'platform.user.create.role_required': '--role is required: a login never gets a role by default.',
   // ==== end of I8b · platform, part 1 ====
+  // ==== I8b · run-time strings by key, family platform, usage, webhooks, sweep and compact (MNE-001-809, issue #150) ====
+  // `usage`, `webhooks`, `subscription delivery sweep` and `compact`: their English byte for byte (every "(s)", "(ies)"
+  // and "(y/ies)" plural included). Commands, flags, option values, paths, ids and counts are parameters or fixed text.
+  'platform.usage.since_capped': 'Invalid --since value "{value}": relative windows are capped at {max}d.',
+  'platform.usage.since_out_of_range': 'Invalid --since value "{value}": the resulting date is out of range.',
+  'platform.usage.since_invalid': 'Invalid --since value "{value}". Use Nd (e.g. 7d, 30d) or YYYY-MM-DD.',
+  'platform.usage.by_invalid': 'Invalid --by value "{value}". Use one of: {choices}.',
+  /** `groupBy` is the option value (model, provider, day, session), never translated. */
+  'platform.usage.title': 'Usage by {groupBy} (costs are local estimates, not billing)',
+  'platform.usage.prices_as_of': 'price table as of {date} — providers reprice without notice',
+  'platform.usage.empty': 'No usage recorded for this entity in the selected window.',
+  /** The numeric columns of `usage`, right-aligned in 11 characters. */
+  'platform.usage.column.turns': 'TURNS',
+  'platform.usage.column.input': 'INPUT',
+  'platform.usage.column.output': 'OUTPUT',
+  'platform.usage.column.cache_read': 'CACHE RD',
+  'platform.usage.column.cache_write': 'CACHE WR',
+  'platform.usage.column.cost': 'EST. USD',
+  'platform.usage.unpriced': 'unpriced',
+  'platform.usage.unpriced_turns': '{count} turn(s) on models missing from the local price table: tokens counted, cost excluded from the total.',
+  /** `webhooks deliveries` and `subscription delivery sweep`. */
+  'platform.limit_invalid': 'Invalid --limit "{limit}": use a positive number.',
+  'platform.webhooks.source_invalid': 'Invalid --source "{value}". Use one of: {kinds}.',
+  'platform.webhooks.created': 'Webhook token "{name}" created ({source}).',
+  /** The label column of `webhooks create`: padded to the longest label of the language, plus two. */
+  'platform.label.endpoint': 'Endpoint:',
+  'platform.label.header': 'Header:',
+  'platform.webhooks.save_token': 'SAVE THE TOKEN NOW. It is shown only this once: the database keeps only its hash and it cannot be recovered. If lost, disable this token and create a new one.',
+  'platform.webhooks.none': 'No webhook tokens. Create one with `mnemosine webhooks create <name>`.',
+  /** The columns of `webhooks list` and `webhooks deliveries`: each as wide as the English one, or its label plus two. */
+  'platform.webhooks.column.name': 'NAME',
+  'platform.webhooks.column.source': 'SOURCE',
+  'platform.webhooks.column.state': 'STATE',
+  'platform.webhooks.column.last_used': 'LAST USED',
+  'platform.webhooks.column.received': 'RECEIVED',
+  'platform.webhooks.column.status': 'STATUS',
+  'platform.webhooks.column.drafts': 'DRAFTS',
+  'platform.webhooks.column.document': 'DOCUMENT',
+  'platform.webhooks.state': '{enabled, select, true {enabled} other {disabled}}',
+  'platform.webhooks.never': 'never',
+  'platform.webhooks.disabled': 'Webhook token "{name}" disabled.',
+  'platform.webhooks.not_found': 'No enabled webhook token named "{name}" in this entity.',
+  'platform.webhooks.no_deliveries': 'No webhook deliveries recorded for this entity.',
+  'platform.webhooks.suspicious': '[suspicious content]',
+  'platform.sweep.scope_required': 'The sweep needs a scope: pass --tenant <uuid> (or set MNEMOSINE_TENANT) to sweep one tenant, or --all-tenants to sweep every active tenant. It does not default to everything: crossing every tenant is a decision, not a fallback.',
+  'platform.sweep.sandbox': "sandbox: nothing was sent. A webhook has no test endpoint — the URL is the customer's. Add --live to actually retry.",
+  'platform.sweep.key_ignored': '--idempotency-key does not apply to the sweep: each delivery already carries its own stable key (X-Webhook-ID), and deduplicating whole passes would skip due deliveries.',
+  /** `census` when nothing was sent (--dry-run, or no --live); anything else when the sweep posted. */
+  'platform.sweep.verdict': '{mode, select, census {Would sweep} other {Swept}}',
+  'platform.sweep.summary': 'tenants {tenants} · due {due} · delivered {delivered} · retryable {retryable} · dead {dead} · frozen {frozen}',
+  'platform.sweep.frozen': '{count} due deliver(ies) belong to DISABLED subscriptions and were left untouched — neither retried nor killed.',
+  'platform.sweep.dead': '{count} deliver(y/ies) exhausted their attempts and are now DEAD: they will not be retried again. Their ids are in the lines above; the CLI has no verb to list or resend them yet, the API does: `GET /v1/webhooks/<subscriptionId>/deliveries?status=failed` and `POST /v1/webhooks/deliveries/<deliveryId>/retry`.',
+  'platform.compact.title': 'Compaction dry-run (offline estimate, ~4 chars/token)',
+  /** The three lines under the title carry their own alignment, one per language; counts come formatted. */
+  'platform.compact.session': 'session   {id}',
+  'platform.compact.transcript': 'transcript {messages} messages, ~{tokens} tokens',
+  'platform.compact.keep_tail': 'keep tail  ~{tokens} tokens (intact)',
+  'platform.compact.nothing': 'Nothing to compact: the transcript fits within the recent-tail budget.',
+  'platform.compact.would': 'A live /compact would:',
+  'platform.compact.summarize': 'summarize {count} older messages (~{tokens} tokens)',
+  'platform.compact.keep': 'keep {count} recent messages (~{tokens} tokens)',
+  'platform.compact.dry_run_only': "Dry-run only: compaction rewrites the MODEL'S in-flight view, so it runs inside chat (/compact). The Postgres transcript is never modified.",
+  'platform.compact.session_not_found': 'Session not found for this entity.',
+  'platform.compact.no_sessions': 'No sessions yet for this entity.',
+  // ==== end of I8b · platform, usage, webhooks, sweep and compact ====
   // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
   // The one --line grammar that entry, invoice and bill read: its English byte for byte ("key(s)" included), the
   // Spanish with its plural; the keys as typed, the separator, the sample lines and the version are never translated.
