@@ -17,6 +17,7 @@ import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
 import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
+import { queryFeeVatParked } from '../reporting/report-service.js';
 import { advanceBackOnAccount, heldIepsLeft, keptOnAccount, storedAdvanceTreatment } from '../payments/customer-advance.js';
 
 // ============================================================
@@ -813,6 +814,8 @@ export interface OpcionesDeComisiones {
  * two would leave a residue in 1135 that nothing ever clears.
  *
  * Only `posted` entries count: a reversed fee has nothing left to release.
+ * The sum is the report layer's (`queryFeeVatParked`, MNE-001-621), read on
+ * this transaction's client.
  */
 async function releaseFeeVat(
   client: pg.PoolClient,
@@ -823,18 +826,8 @@ async function releaseFeeVat(
   const roles = await roleAccounts(client, entityId, ['iva_acreditable', 'iva_pendiente_acreditar'] as const);
   const pending = roles.get('iva_pendiente_acreditar');
   if (!pending) return null;
-  const parked = await client.query<{ parked: string }>(
-    `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-      WHERE je.entity_id = $1
-        AND je.source_type = ANY($2::text[])
-        AND je.source_id = $3
-        AND je.status = 'posted'
-        AND l.account_id = $4`,
-    [entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]
-  );
-  const iva = new Decimal(parked.rows[0]?.parked ?? '0');
+  const parked = await queryFeeVatParked([entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending], client);
+  const iva = new Decimal(parked);
   if (iva.lessThanOrEqualTo(0)) return null;
   const amount = iva.toFixed(ESCALA);
 

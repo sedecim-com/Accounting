@@ -1,6 +1,40 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import Decimal from 'decimal.js';
+
+// MNE-001-621: the VAT a fee still has parked in 1135 is read through
+// report-service. The real reader runs (its SQL reaches the fake client
+// below), wrapped in a spy so a test can say which layer was asked, with what,
+// and on which connection. The transaction, the release entry, the bank
+// account lookup, the tenant and the cash-basis flag are faked: what is tested
+// is what the release reads. The pure breakdowns below use none of them.
+vi.mock('../../../src/database/connection.js', () => ({
+  query: vi.fn(),
+  withTransaction: vi.fn(),
+  currentTenant: vi.fn(() => 'ten-1'),
+}));
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return { ...real, queryFeeVatParked: vi.fn(real.queryFeeVatParked) };
+});
+vi.mock('../../../src/services/accounting/posting.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/accounting/posting.js')>();
+  return { ...real, createJournalEntry: vi.fn(), attestEntryAsync: vi.fn() };
+});
+vi.mock('../../../src/services/accounting/iva-cash-basis.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/accounting/iva-cash-basis.js')>();
+  return { ...real, entityUsesCashBasisIva: vi.fn(async () => true) };
+});
+vi.mock('../../../src/services/banking/bank-statement-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/banking/bank-statement-service.js')>();
+  return { ...real, resolverCuentaBancaria: vi.fn(async () => ({ id: 'bank-1', account_name: 'Cuenta de cheques' })) };
+});
+vi.mock('../../../src/services/audit/audit-log.js', () => ({
+  registrarAuditoria: vi.fn(async () => undefined),
+  tenantDe: vi.fn(async () => 'ten-1'),
+}));
+
 import {
+  contabilizarComisiones,
   desglosarComision,
   desglosarComisionConIvaDeclarado,
   desglosarInteres,
@@ -13,6 +47,10 @@ import {
   CUSTOMER_CHECK_CASHING_SOURCE,
 } from '../../../src/services/banking/treasury-posting.js';
 import { ValidationError } from '../../../src/utils/errors.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
+import { createJournalEntry } from '../../../src/services/accounting/posting.js';
+import { queryFeeVatParked } from '../../../src/services/reporting/report-service.js';
+import type pg from 'pg';
 
 /**
  * LA ARITMÉTICA DE LOS TRES ASIENTOS, SIN POSTGRES DETRÁS.
@@ -203,5 +241,78 @@ describe('the treasury `source_type`s', () => {
     for (const origen of ORIGENES_DE_TESORERIA) {
       expect(ajenos).not.toContain(origen);
     }
+  });
+});
+
+// ============================================================
+// MNE-001-621 (#101) · THE FEE VAT RELEASE READS REPORT-SERVICE
+//
+// One fee of 116.00 posted earlier, its month open: at 16% it is 100.00 +
+// 16.00, so its entry parked Dr 16.0000 in 1135. Running the month releases
+// what is still parked, Dr 16.0000 − Cr 0.0000 = 16.0000, to 1130; running it
+// again finds Dr 16.0000 − Cr 16.0000 = 0.0000 and releases nothing. The fake
+// client answers what Postgres would; the figures are checked by hand.
+// ============================================================
+
+describe('the fee VAT release reads through report-service (MNE-001-621)', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const parkedRead = vi.mocked(queryFeeVatParked);
+  const posted = vi.mocked(createJournalEntry);
+
+  /** A transaction client for `bank fee post`: answers each statement by its text, and refuses any other. */
+  function client(parked: string) {
+    const q = vi.fn(async (text: string) => {
+      const s = String(text);
+      if (s.includes('JOIN legal_entities e')) {
+        return { rows: [{ id: 'bank-1', account_name: 'Cuenta de cheques', account_type: 'checking', currency_code: 'MXN', gl_de_la_entidad: 'acc-1111', moneda_funcional: 'MXN' }] };
+      }
+      if (s.includes('FROM bank_transactions bt')) {
+        return { rows: [{ id: 'mov-1', fecha: '2026-03-31', importe: '-116.0000', descripcion: 'Comision por manejo de cuenta', contraparte: null }] };
+      }
+      if (s.includes('SELECT id, entry_number')) return { rows: [{ id: 'je-fee', entry_number: 'P-0001' }] };
+      if (s.includes('FROM fiscal_periods')) return { rows: [{ id: 'per-3', period_name: '2026-03', status: 'open' }] };
+      if (s.includes('FROM account_roles')) {
+        return { rows: [{ role: 'iva_acreditable', account_id: 'acc-1130' }, { role: 'iva_pendiente_acreditar', account_id: 'acc-1135' }] };
+      }
+      if (s.includes('AS parked')) return { rows: [{ parked }] };
+      throw new Error(`unexpected statement: ${s.slice(0, 80)}`);
+    });
+    return { c: { query: q } as unknown as pg.PoolClient, q };
+  }
+
+  function run(parked: string) {
+    parkedRead.mockClear();
+    posted.mockReset();
+    posted.mockResolvedValue({ id: 'je-release', entry_number: 'P-0002' } as never);
+    vi.mocked(query).mockReset();
+    const { c, q } = client(parked);
+    vi.mocked(withTransaction).mockImplementation(async (fn) => fn(c) as never);
+    return { c, q, done: contabilizarComisiones(ENTITY, 'bank-1', { periodo: '2026-03', iva: { modo: 'tasa', tasa: '0.16' }, userId: 'user-1' }) };
+  }
+
+  it('releases the 16.0000 still parked, read once through queryFeeVatParked on the transaction client', async () => {
+    const { c, q, done } = run('16.0000');
+    const r = await done;
+    expect(parkedRead.mock.calls).toEqual([[[ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135'], c]]);
+    expect(q.mock.calls.filter(([s]) => String(s).includes('AS parked'))).toHaveLength(1);
+    expect(vi.mocked(query)).not.toHaveBeenCalled();
+    expect(r.omitidas.map((o) => o.motivo)).toEqual(['ya-contabilizada']);
+    expect(r.releases.map((v) => [v.transactionId, v.iva, v.entryId])).toEqual([['mov-1', '16.0000', 'je-release']]);
+    expect(r.totales.ivaReleased).toBe('16.0000');
+    expect(posted).toHaveBeenCalledTimes(1);
+    const lines = posted.mock.calls[0][4] as { account_id: string; debit_amount: string | null; credit_amount: string | null }[];
+    expect(lines.map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acc-1130', '16.0000', null],
+      ['acc-1135', null, '16.0000'],
+    ]);
+  });
+
+  it('run again, 16.0000 − 16.0000 = 0.0000 is left: one read, no entry, no release', async () => {
+    const { c, done } = run('0.0000');
+    const r = await done;
+    expect(parkedRead.mock.calls).toEqual([[[ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135'], c]]);
+    expect(posted).not.toHaveBeenCalled();
+    expect(r.releases).toEqual([]);
+    expect(r.totales.ivaReleased).toBe('0.0000');
   });
 });
