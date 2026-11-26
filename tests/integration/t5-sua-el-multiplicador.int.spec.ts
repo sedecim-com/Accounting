@@ -260,7 +260,7 @@ describe('the straddling week is split by the contribution days of each month', 
     );
     try {
       await expect(generateSuaFile(f.tenantId, f.entityId, 2026, 3)).rejects.toThrow(
-        /no cuadra con el pasivo patronal/
+        /does not match the employer liability already recorded/
       );
       // Y no queda declaración escrita: un 'draft' descuadrado es el archivo
       // que alguien acaba subiendo al SUA sin volver a mirarlo.
@@ -346,7 +346,7 @@ describe('the straddling week is split by the contribution days of each month', 
     // The state a deploy leaves behind: March's file declares 214.29 against
     // the 500.00 booked whole, and the cross-check refuses it.
     await expect(generateSuaFile(f.tenantId, f.entityId, 2026, 3)).rejects.toThrow(
-      /no cuadra con el pasivo patronal/
+      /does not match the employer liability already recorded/
     );
 
     // The census writes nothing and names the run.

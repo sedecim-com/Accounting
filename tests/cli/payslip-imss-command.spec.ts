@@ -222,7 +222,7 @@ describe('imss sua export: findings by key, not by Spanish prose', () => {
     });
   });
 
-  // The refusal is a plain ValidationError (the E4.1 floor reads the throw):
+  // The refusal is a SuaMismatchError, a ValidationError (the E4.1 floor reads the throw):
   // only one carrying findings is the mismatch; any other is rethrown as is.
   it('recognizes the mismatch refusal by its findings, and nothing else', () => {
     const refused = new ValidationError('no cuadra', undefined, { findings: [mismatch] });

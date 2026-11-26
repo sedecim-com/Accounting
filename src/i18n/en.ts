@@ -510,6 +510,31 @@ export const EN = {
   'payroll.finiquito.seniority_premium.calculated':
     '{days} days × {base} (LFT art. 162 fr. I, base capped by art. 486 with a minimum wage of {minimumWage})',
 
+  // ---- MNE-001-822 · I9 by folder, part 7c: the SUA cross-check and the data gaps of src/services/payroll (issue #151) ----
+  // The SUA findings render inside `imss.sua.mismatch`; their stored detail stays the Spanish twin.
+  // Each gap is a 500 with its own code, `error.<CODE>[.<case>]`. The Spanish twin is the text each
+  // site printed. Buckets, policies, values, tables, frequencies and law articles are literals or parameters.
+  'payroll.sua.finding.no_liability':
+    'the file declares {file} of {concept} and no liability row is recorded for {monthStart}..{monthEnd} to check it against: the figure comes from one road only and nobody confirms it',
+  'payroll.sua.finding.mismatch':
+    '{concept}: the file declares {file} and the recorded liability says {ledger} (difference {difference}). If a period crosses the month end and its liability was recorded before the split by contribution days, that row carries it whole in one month: `npm run backfill:straddling-liabilities -- --tenant <id>` splits it',
+  'error.PAYROLL_ACCOUNT_MAPPING_MISSING.subsidy_in_cash':
+    'Missing payroll_account_mapping for bucket: {bucket}. The run handed over {amount} of employment subsidy in cash and the policy subsidio_al_empleo_entregado_registro says to record it as {value}.',
+  'error.EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED':
+    'There is no employment subsidy rule for the period "{frequency}": the decree prorates by days over 30.4, and only the week (7), the fortnight (15) and the month have an art. 96 tariff to credit it against. Set the payroll up as weekly, fortnightly or monthly.',
+  'error.ISR_TARIFF_PERIOD_UNSUPPORTED':
+    'No art. 96 tariff is published for the period "{frequency}": Anexo 8 publishes daily, 7, 10 and 15 days and monthly, and no 14-day one. The MONTHLY tariff used to be applied to the base of the period, which under-withholds by between 85 % and 100 %. Set the payroll up as fortnightly or monthly, or seed the tariff that applies, with its source.',
+  'error.TAX_PARAMETERS_YEAR_MISMATCH':
+    'The parameters of {jurisdiction} were asked for the tax year {taxYear} with a date of another year ({day}): the tax year and the date of the act must be the same, or recalculating an old payslip would take today\'s parameters.',
+  'error.TAX_PARAMETERS_MISSING':
+    'No tax parameters of {jurisdiction} are in force on {day} (tax year {taxYear}): seed the row in tax_parameters before calculating. Without it nothing can be withheld, and an invented figure reaches the payslip, the CFDI and the payment reference line.',
+  'error.TAX_PARAMETER_MISSING':
+    'The tax parameter "{parameter}" of {jurisdiction} for {taxYear} is missing: without it the contribution cannot be computed. It used to be replaced by a hard-coded value, and the invented figure reached the payslip, the payroll CFDI and the payment reference line.',
+  'error.TAX_RATES_MISSING.block':
+    'The rate block "{block}" of MX for {taxYear} is missing: without it the contribution would come out as zero with the right contribution days, which is a payslip that is credible and false.',
+  'error.TAX_RATES_MISSING.rates':
+    'Rates are missing in "{block}" of MX for {taxYear}: {missing}. A missing rate is not a zero rate.',
+
   // ---- MNE-001-726 · I9 by folder, part 3: the refusals of src/services/sat/diot (issue #151) ----
   // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each site
   // printed. The layout's own words are literals: sections (§3.1), field numbers,
