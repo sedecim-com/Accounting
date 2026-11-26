@@ -138,10 +138,10 @@ describe('los periodos sin tarifa publicada', () => {
     // El Anexo 8 publica diaria, 7, 10 y 15 días y mensual. No hay catorcenal,
     // y la equivalencia semimonthly = quincenal no está en ninguna norma que se
     // haya podido verificar. Adivinarla es repetir el defecto con otro número.
-    expect(() => tarifaDelPeriodo('biweekly')).toThrow(/no hay tarifa del art\. 96 publicada/i);
-    expect(() => tarifaDelPeriodo('semimonthly')).toThrow(/no hay tarifa del art\. 96 publicada/i);
+    expect(() => tarifaDelPeriodo('biweekly')).toThrow(/no art\. 96 tariff is published/i);
+    expect(() => tarifaDelPeriodo('semimonthly')).toThrow(/no art\. 96 tariff is published/i);
     // Y el mensaje dice qué hacer, no sólo que no se puede.
-    expect(() => tarifaDelPeriodo('biweekly')).toThrow(/quincenal o\s+mensual|siembra la tarifa/i);
+    expect(() => tarifaDelPeriodo('biweekly')).toThrow(/fortnightly or monthly|seed the tariff/i);
   });
 
   it('las tres que sí tienen tabla la usan', () => {
@@ -166,7 +166,7 @@ describe('los parámetros legales tienen fecha', () => {
     // `imss-calculator` con `uma_daily || 113.14`, `infonavit-calculator` con
     // `|| 0.05`. La cifra inventada sale en el recibo y en la línea de captura.
     await expect(getTaxParameters('MX', 1999, '1999-06-01')).rejects.toThrow(
-      /No hay parámetros fiscales de MX vigentes el 1999-06-01/
+      /No tax parameters of MX are in force on 1999-06-01/
     );
   });
 });
@@ -178,7 +178,7 @@ describe('el ejercicio que se pide es el ejercicio que se devuelve', () => {
     // un recálculo de 2025. No es una búsqueda, es una contradicción, y
     // ninguna de las dos respuestas sería correcta.
     await expect(getTaxParameters('MX', 2025, '2026-03-15')).rejects.toThrow(
-      /ejercicio 2025 con una fecha de otro año \(2026-03-15\)/
+      /tax year 2025 with a date of another year \(2026-03-15\)/
     );
     // Y no devuelve la UMA de 2026 por ninguna vía.
     await expect(getTaxParameters('MX', 2025, '2026-03-15')).rejects.toThrow();
@@ -186,7 +186,7 @@ describe('el ejercicio que se pide es el ejercicio que se devuelve', () => {
 
   it('un ejercicio sin sembrar se nombra, con su fecha dentro del año', async () => {
     await expect(getTaxParameters('MX', 2025, '2025-06-15')).rejects.toThrow(
-      /No hay parámetros fiscales de MX vigentes el 2025-06-15/
+      /No tax parameters of MX are in force on 2025-06-15/
     );
   });
 
@@ -194,7 +194,7 @@ describe('el ejercicio que se pide es el ejercicio que se devuelve', () => {
     // Antes, omitir la fecha usaba `new Date()`: recalcular un recibo de 2025
     // en 2026 tomaba en silencio los parámetros del año corriente. Ahora el
     // valor por omisión se queda DENTRO del ejercicio pedido.
-    await expect(getTaxParameters('MX', 2025)).rejects.toThrow(/vigentes el 2025-12-31/);
+    await expect(getTaxParameters('MX', 2025)).rejects.toThrow(/in force on 2025-12-31/);
   });
 
   it('y el ejercicio sembrado sí se encuentra, con y sin fecha', async () => {

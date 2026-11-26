@@ -162,7 +162,7 @@ describe('the days of each pay period', () => {
 
   it('a period with no ISR tariff has no subsidy either: it is refused, not guessed', () => {
     for (const f of ['biweekly', 'semimonthly', 'annual'] as const) {
-      expect(() => subsidyDaysInPeriod(f)).toThrow(/subsidio al empleo/i);
+      expect(() => subsidyDaysInPeriod(f)).toThrow(/no employment subsidy rule/i);
     }
   });
 });
