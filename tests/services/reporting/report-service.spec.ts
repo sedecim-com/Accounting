@@ -80,6 +80,8 @@ import {
   queryLedgerNetsWithoutReversalPairs,
   queryInvoiceEntryNetOnAccount,
   queryHeldNoteIvaByCashedReceipt,
+  queryIssuedInvoiceVatTaken,
+  queryVatOvercreditBills,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -106,6 +108,7 @@ import {
 } from '../../../src/services/reporting/report-service.js';
 import { query, currentTenant } from '../../../src/database/connection.js';
 import { amountDueAsOfSql, voidedAfterSql } from '../../../src/services/ar/customer-service.js';
+import { sqlKeepsMexicanBooks } from '../../../src/services/jurisdiction/jurisdiction.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
 import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
@@ -2042,5 +2045,110 @@ describe('queryHeldNoteIvaByCashedReceipt — the held IVA a reversed note gives
     mockQuery.mockResolvedValueOnce({ rows: [] });
     expect(await queryHeldNoteIvaByCashedReceipt(ENTITY, { noteEntryId: 'note-je', mirrorEntryId: 'mirror-je' })).toEqual([]);
     expect(params(0)).toEqual([ENTITY, 'note-je', 'mirror-je']);
+  });
+});
+
+// MNE-001-619 · the two ledger sums of the IVA cash basis and of the
+// over-credit census, moved here verbatim with their statements from
+// iva-cash-basis.ts and vat-overcredit.ts. Each test pins the whole statement,
+// the parameter order and the connection it runs on.
+describe('the IVA cash-basis and over-credit reads (MNE-001-619)', () => {
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const OVERCREDIT_KEYS = {
+    noteSource: 'vendor_credit_note',
+    correctionSource: 'vat_overcredit_correction',
+    pendingRole: 'iva_pendiente_acreditar',
+    creditableRole: 'iva_acreditable',
+  };
+
+  it('an issued invoice\'s VAT taken: releases, unstored cash and its notes\' share of 2125, on the caller\'s client', async () => {
+    // By hand: 1 000.00 + 160.00 IVA; a collection released 80.0000 and a
+    // credit note took 20.0000 back from 2125.
+    const row = { released: '80.0000', unknown: '0', notes: '20.0000', tax: '160.0000', total: '1160.0000' };
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [row] });
+    const out = await queryIssuedInvoiceVatTaken(ENTITY, 'inv-1', 'iva_trasladado_no_cobrado', { query: clientQuery } as never);
+    expect(out).toEqual(row);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, 'inv-1', 'iva_trasladado_no_cobrado']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa ' +
+        'JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 ' +
+        'WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released, ' +
+        'COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount) ' +
+        'FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 ' +
+        'WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown, ' +
+        'COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) FROM credit_notes cn ' +
+        "JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note' AND je.source_id = cn.id " +
+        "AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL " +
+        'JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1 AND ar.role = $3 AND ar.qualifier IS NULL ' +
+        'WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes, ' +
+        'i.tax_amount::text AS tax, i.total_amount::text AS total FROM invoices i WHERE i.id = $2 AND i.entity_id = $1'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('an issued invoice\'s VAT taken reads through the pool without a client, and an unknown invoice is undefined', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIssuedInvoiceVatTaken(ENTITY, 'inv-x', 'iva_trasladado_no_cobrado')).toBeUndefined();
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'inv-x', 'iva_trasladado_no_cobrado']);
+  });
+
+  it('the over-credit census\'s bills: per CFDI bill with IEPS, what corrections put back in 1135, on the caller\'s client', async () => {
+    // By hand: two corrections of 20.0000 and 10.0000 put back 30.0000.
+    const rows = [{ bill_id: 'bill-1', corrected: '30.0000', correction_entries: 'JE-1, JE-2', roles: 2 }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryVatOvercreditBills('ten-1', { entityId: ENTITY, billId: 'bill-1' }, OVERCREDIT_KEYS, {
+      query: clientQuery,
+    } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([
+      'ten-1', ENTITY, 'vendor_credit_note', 'vat_overcredit_correction', 'iva_pendiente_acreditar', 'iva_acreditable', 'bill-1',
+    ]);
+    expect(folded(text)).toBe(
+      folded(
+        'SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bill_number, b.cfdi_uuid, ' +
+          'b.tax_amount::text AS header, b.total_amount::text AS total, b.amount_due::text AS amount_due, ' +
+          'b.currency_code, le.functional_currency, c.xml_taxes::text AS xml_taxes, c.tax_breakdown, ' +
+          'EXISTS (SELECT 1 FROM journal_entries n WHERE n.entity_id = b.entity_id AND n.source_type = $3 AND n.source_id = b.id ' +
+          "AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL) AS has_note, " +
+          'COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) FROM journal_entries k ' +
+          'JOIN journal_entry_lines l ON l.journal_entry_id = k.id ' +
+          'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = b.entity_id AND ar.role = $5 AND ar.qualifier IS NULL ' +
+          "WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id AND k.status = 'posted' " +
+          'AND k.reversed_by_entry_id IS NULL), 0)::text AS corrected, ' +
+          "(SELECT string_agg(k.entry_number, ', ' ORDER BY k.entry_date, k.entry_number) FROM journal_entries k " +
+          "WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id AND k.status = 'posted' " +
+          'AND k.reversed_by_entry_id IS NULL) AS correction_entries, ' +
+          '(SELECT count(DISTINCT ar.role)::int FROM account_roles ar WHERE ar.entity_id = b.entity_id AND ar.qualifier IS NULL ' +
+          'AND ar.role IN ($5, $6)) AS roles ' +
+          'FROM (SELECT DISTINCT ON (p.bill_id) p.bill_id, p.entity_id, p.tax_amount AS xml_taxes, p.tax_breakdown ' +
+          "FROM pre_registrations p WHERE p.source_type = 'xml_cfdi' AND p.bill_id IS NOT NULL " +
+          'ORDER BY p.bill_id, p.created_at, p.id) c ' +
+          'JOIN bills b ON b.id = c.bill_id AND b.entity_id = c.entity_id JOIN legal_entities le ON le.id = b.entity_id ' +
+          'WHERE le.tenant_id = $1 AND ($2::uuid IS NULL OR le.id = $2::uuid) AND ($7::uuid IS NULL OR b.id = $7::uuid) ' +
+          `AND ${sqlKeepsMexicanBooks('le')} AND b.status NOT IN ('void', 'cancelled') ` +
+          "AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.tax_breakdown->'traslados') = 'array' " +
+          "THEN c.tax_breakdown->'traslados' ELSE '[]'::jsonb END) x " +
+          "WHERE lpad(COALESCE(x->>'impuesto', ''), 3, '0') <> '002') " +
+          'ORDER BY le.name, b.bill_number, b.id'
+      )
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the over-credit census\'s bills read through the pool without a client, the whole tenant when no entity or bill is named', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryVatOvercreditBills('ten-1', { entityId: null, billId: null }, OVERCREDIT_KEYS)).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([
+      'ten-1', null, 'vendor_credit_note', 'vat_overcredit_correction', 'iva_pendiente_acreditar', 'iva_acreditable', null,
+    ]);
   });
 });

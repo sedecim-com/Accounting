@@ -3,6 +3,14 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/utils/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
+// MNE-001-619: what an issued invoice's collections and notes took from 2125 is
+// read through report-service. The real helper runs (its SQL reaches the fake
+// client below), wrapped in a spy so a test can say which layer was asked,
+// with what, and on which client.
+vi.mock('../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/reporting/report-service.js')>();
+  return { ...real, queryIssuedInvoiceVatTaken: vi.fn(real.queryIssuedInvoiceVatTaken) };
+});
 
 import {
   parseMetodoPago,
@@ -16,9 +24,11 @@ import {
   CONSERVATIVE_METODO,
   ivaStillParked,
   receivedVatStillParked,
+  issuedVatStillParked,
   entityUsesCashBasisIva,
   discountVatShare,
 } from '../../src/services/accounting/iva-cash-basis.js';
+import { queryIssuedInvoiceVatTaken } from '../../src/services/reporting/report-service.js';
 
 // ============================================================
 // READING THE METODO DE PAGO
@@ -349,6 +359,61 @@ describe('receivedVatStillParked: the cap minus what the live applications relea
     await receivedVatStillParked(c as never, ENTITY, BILL);
     const call = c.query.mock.calls.find(([sql]) => /FROM payment_applications/.test(sql));
     expect(String(call?.[0]).replace(/\s+/g, ' ')).toContain('SUM(pa.discount_iva_amount)');
+  });
+});
+
+// ============================================================
+// MNE-001-619 · WHAT AN ISSUED INVOICE STILL HAS IN 2125
+//
+// A PPD invoice of 1,000.00 + 160.00 IVA = 1,160.00 parked 160.0000. A
+// collection of 580.00 released 80.0000 and a credit note took 20.0000 back
+// from 2125: 160 − 80 − 20 = 60.0000 left. One more live allocation of 290.00
+// that stored no release counts at its pro rata, 160 × 290 / 1,160 = 40.0000:
+// 160 − 80 − 40 − 20 = 20.0000 left, estimated.
+// ============================================================
+
+describe('issuedVatStillParked reads what its collections and notes took through report-service (MNE-001-619)', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const INVOICE = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const taken = vi.mocked(queryIssuedInvoiceVatTaken);
+
+  /** A transaction client that answers each statement by its text, and refuses any other. */
+  function client(world: { taken: Array<Record<string, string>> }) {
+    const query = vi.fn(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes('AS collected')) {
+        // The open balance: 1,160.00 − 145.00 of note (125.00 + 20.00 IVA) − 580.00
+        // collected. No allocation ended, so it caps nothing (MNE-001-581).
+        return { rows: [{ collected: '580.0000', notes: '145.0000', note_count: 1, note_numbers: 'NC-1', ended: false, tax: '160.0000', total: '1160.0000' }] };
+      }
+      if (s.includes('AS released')) return { rows: world.taken };
+      if (s.includes('AS parked')) return { rows: [{ parked: '160.0000' }] };
+      throw new Error(`unexpected statement: ${s.slice(0, 80)}`);
+    });
+    return { query } as unknown as import('pg').PoolClient & { query: typeof query };
+  }
+
+  it('asks queryIssuedInvoiceVatTaken once, on the caller\'s client, and nets what it says: 60.0000 left', async () => {
+    taken.mockClear();
+    const c = client({ taken: [{ released: '80.0000', unknown: '0', notes: '20.0000', tax: '160.0000', total: '1160.0000' }] });
+    expect(await issuedVatStillParked(c, ENTITY, INVOICE)).toEqual({ parked: '60.0000', estimated: false });
+    expect(taken.mock.calls).toEqual([[ENTITY, INVOICE, 'iva_trasladado_no_cobrado', c]]);
+    expect(c.query.mock.calls.filter(([sql]) => String(sql).includes('AS released'))).toHaveLength(1);
+  });
+
+  it('a live allocation that stored no release counts at its pro rata: 20.0000 left, estimated', async () => {
+    taken.mockClear();
+    const c = client({ taken: [{ released: '80.0000', unknown: '290.0000', notes: '20.0000', tax: '160.0000', total: '1160.0000' }] });
+    expect(await issuedVatStillParked(c, ENTITY, INVOICE)).toEqual({ parked: '20.0000', estimated: true });
+    expect(taken).toHaveBeenCalledTimes(1);
+  });
+
+  it('an invoice the entity does not have: nothing parked, and the open balance is never read', async () => {
+    taken.mockClear();
+    const c = client({ taken: [] });
+    expect(await issuedVatStillParked(c, ENTITY, INVOICE)).toEqual({ parked: '0.0000', estimated: false });
+    expect(taken.mock.calls).toEqual([[ENTITY, INVOICE, 'iva_trasladado_no_cobrado', c]]);
+    expect(c.query.mock.calls.some(([sql]) => String(sql).includes('AS collected'))).toBe(false);
   });
 });
 
