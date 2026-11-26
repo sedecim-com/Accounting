@@ -4,6 +4,7 @@ import { FEE_VAT_RELEASE_SOURCE, ORIGEN_COMISION } from '../banking/treasury-pos
 import { desgloseCero, sumarDesgloses, type Desglose, type Hallazgo, type RangoDelMes } from '../sat/diot/index.js';
 import type { NoteGapCause } from './issued-credit-notes.js';
 import type { DocumentContribution } from './iva-workpaper.js';
+import { queryBankFeeVatEntriesInRange, type BankFeeVatEntryRow } from '../reporting/report-service.js';
 
 // ============================================================
 // THE BANK FEES OF THE IVA WORKPAPER'S CREDITABLE SIDE (MNE-001-566, #799)
@@ -35,63 +36,20 @@ export interface BankFeesOfRange {
   causes: NoteGapCause[];
 }
 
-interface FeeRow {
-  fee_id: string;
-  kind: 'release' | 'adjustment';
-  entry_id: string;
-  entry_number: string;
-  entry_date: string;
-  mirror_number: string | null;
-  mirror_date: string | null;
-  /** What the entry moved on iva_acreditable, debit positive. */
-  iva: string;
-  /** The movement's standing `bank_fee` entry: its 6310 debit and the IVA it parked in 1135. */
-  fee_base: string | null;
-  fee_parked: string | null;
-}
+type FeeRow = BankFeeVatEntryRow;
 
 const q4 = (d: Decimal.Value): string => new Decimal(d).toFixed(4);
 const CENT = new Decimal('0.01');
 const inRange = (d: string | null, range: RangoDelMes): boolean => d !== null && d >= range.desde && d <= range.hasta;
-const roleAccounts = (role: string): string =>
-  `(SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = '${role}')`;
 
-/** Every fee entry that moves 1130, or whose mirror does, dated in the range. Scoped by entity throughout. */
+/**
+ * Every fee entry that moves 1130, or whose mirror does, dated in the range. Scoped by entity throughout.
+ * MNE-001-623: the statement is the report layer's (T14 · #101), read on the paper's client.
+ */
 async function feesOfRange(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<FeeRow[]> {
-  const { rows } = await client.query<FeeRow>(
-    `WITH fee AS (
-       SELECT je.id, 'release'::text AS kind, je.source_id::text AS fee_id
-         FROM journal_entries je
-        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = $4
-       UNION
-       SELECT je.id, 'adjustment'::text, ra.id::text
-         FROM reconciliation_adjustments ra
-         JOIN journal_entries je ON je.entity_id = $1 AND je.status = 'posted'
-          AND (je.id = ra.journal_entry_id OR (je.source_type = 'bank_reconciliation' AND je.source_id = ra.id))
-        WHERE ra.entity_id = $1 AND ra.tipo = 'iva-comision')
-     SELECT f.fee_id, f.kind, je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
-            m.entry_number AS mirror_number, m.entry_date::text AS mirror_date,
-            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
-               FROM journal_entry_lines l
-              WHERE l.journal_entry_id = je.id AND l.account_id IN ${roleAccounts('iva_acreditable')})::text AS iva,
-            b.base::text AS fee_base, b.parked::text AS fee_parked
-       FROM fee f
-       JOIN journal_entries je ON je.id = f.id
-       LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted'
-       LEFT JOIN LATERAL (
-         SELECT SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${roleAccounts('comision_bancaria')}) AS base,
-                SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${roleAccounts('iva_pendiente_acreditar')}) AS parked
-           FROM journal_entries fe
-           JOIN journal_entry_lines l ON l.journal_entry_id = fe.id
-          WHERE f.kind = 'release' AND fe.entity_id = $1 AND fe.status = 'posted' AND fe.source_type = $5
-            AND fe.source_id = je.source_id AND fe.reversed_by_entry_id IS NULL
-       ) b ON true
-      WHERE (je.entry_date >= $2::date AND je.entry_date <= $3::date)
-         OR (m.entry_date >= $2::date AND m.entry_date <= $3::date)
-      ORDER BY je.entry_date, je.entry_number`,
-    [entityId, range.desde, range.hasta, FEE_VAT_RELEASE_SOURCE, ORIGEN_COMISION]
+  return queryBankFeeVatEntriesInRange(
+    entityId, range.desde, range.hasta, { release: FEE_VAT_RELEASE_SOURCE, fee: ORIGEN_COMISION }, client
   );
-  return rows;
 }
 
 /** A reversed fee entry, named in each month it or its mirror moved 1130 (amount: what the paper's IVA lacks against the ledger's). */

@@ -14,6 +14,7 @@ import {
   type RenglonDeGasto,
 } from '../sat/diot/index.js';
 import type { DocumentContribution, UncausedRestitution } from './iva-workpaper.js';
+import { queryIssuedCreditNoteEntriesInRange, type IssuedCreditNoteEntryRow } from '../reporting/report-service.js';
 
 // ============================================================
 // THE ISSUED CREDIT NOTES OF THE IVA WORKPAPER (MNE-001-565, #799)
@@ -75,31 +76,7 @@ export interface IssuedCreditNotesOfRange {
   causes: NoteGapCause[];
 }
 
-interface NoteRow {
-  id: string;
-  credit_note_number: string;
-  status: string;
-  invoice_id: string | null;
-  subtotal: string;
-  tax_amount: string;
-  total_amount: string;
-  entry_id: string;
-  entry_number: string;
-  entry_date: string;
-  mirror_number: string | null;
-  mirror_date: string | null;
-  /** What the note's entry debited to iva_trasladado, net. */
-  iva: string;
-  /** What the note's entry debited to iva_trasladado_no_cobrado (2125), net. */
-  parked: string;
-  invoice_number: string | null;
-  invoice_total: string | null;
-  invoice_tax: string | null;
-  invoice_rate: string | null;
-  terms: string | null;
-  memo: string | null;
-  cfdi_uuid: string | null;
-}
+type NoteRow = IssuedCreditNoteEntryRow;
 
 const q4 = (d: Decimal.Value): string => new Decimal(d).toFixed(4);
 const CENT = new Decimal('0.01');
@@ -113,37 +90,12 @@ export function negated(d: Desglose): Desglose {
   };
 }
 
-/** Every issued note whose entry, or whose entry's mirror, is dated in the range. Scoped by entity throughout. */
+/**
+ * Every issued note whose entry, or whose entry's mirror, is dated in the range. Scoped by entity throughout.
+ * MNE-001-623: the statement is the report layer's (T14 · #101), read on the paper's client.
+ */
 async function notesOfRange(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<NoteRow[]> {
-  const { rows } = await client.query<NoteRow>(
-    `SELECT cn.id::text, cn.credit_note_number, cn.status, cn.invoice_id::text,
-            cn.subtotal::text, cn.tax_amount::text, cn.total_amount::text,
-            je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
-            m.entry_number AS mirror_number, m.entry_date::text AS mirror_date,
-            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
-               FROM journal_entry_lines l
-              WHERE l.journal_entry_id = je.id
-                AND l.account_id IN (SELECT account_id FROM account_roles
-                                      WHERE entity_id = $1 AND role = 'iva_trasladado'))::text AS iva,
-            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
-               FROM journal_entry_lines l
-              WHERE l.journal_entry_id = je.id
-                AND l.account_id IN (SELECT account_id FROM account_roles
-                                      WHERE entity_id = $1 AND role = 'iva_trasladado_no_cobrado'))::text AS parked,
-            i.invoice_number, i.total_amount::text AS invoice_total, i.tax_amount::text AS invoice_tax,
-            i.exchange_rate::text AS invoice_rate, i.terms, i.memo, i.cfdi_uuid
-       FROM credit_notes cn
-       JOIN journal_entries je ON je.id = cn.journal_entry_id AND je.entity_id = $1
-                              AND je.status = 'posted' AND je.source_type = 'credit_note'
-       LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted'
-       LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = $1
-      WHERE cn.entity_id = $1 AND cn.status <> 'draft'
-        AND ((je.entry_date >= $2::date AND je.entry_date <= $3::date)
-          OR (m.entry_date >= $2::date AND m.entry_date <= $3::date))
-      ORDER BY cn.credit_note_number`,
-    [entityId, range.desde, range.hasta]
-  );
-  return rows;
+  return queryIssuedCreditNoteEntriesInRange(entityId, range.desde, range.hasta, client);
 }
 
 /**
