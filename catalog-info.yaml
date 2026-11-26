@@ -356,6 +356,13 @@ external:
     # A stamp that waits longer than the pool's lock_timeout answers 409
     # ar.invoice.cfdi.stamp_in_progress. A folio the PAC issued and the invoice could not
     # record answers 500 INVOICE_CFDI_NOT_RECORDED and names the folio and the PAC.
+    # CONTRACT: a gap in the payroll data of the deployment answers 500 with its own code
+    # where it answered 500 INTERNAL_SERVER_ERROR «An unexpected error occurred» (MNE-001-822,
+    # #151): TAX_PARAMETERS_MISSING, TAX_PARAMETERS_YEAR_MISMATCH, TAX_PARAMETER_MISSING,
+    # TAX_RATES_MISSING, ISR_TARIFF_PERIOD_UNSUPPORTED, EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED and
+    # PAYROLL_ACCOUNT_MAPPING_MISSING, with the message in the negotiated language and
+    # Content-Language. The 422 of POST /v1/payroll/sua for a file that does not match the
+    # liability keeps its code and details, and its message now follows Accept-Language.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
     # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
     # `reasoning_effort` on chat turns, compaction summaries and the init probe only when
