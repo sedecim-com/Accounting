@@ -34,6 +34,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine cashflow · flujo — EL ESTADO DE FLUJOS DE EFECTIVO EN EL BINARIO
@@ -131,10 +132,7 @@ export async function rangoDeFlujo(
   if (opts.period) {
     const range = await resolvePeriodRange(entityId, opts.period);
     if (!range.matched_fiscal_period) {
-      note(
-        `"${opts.period}" matched no single fiscal period; using the calendar range ` +
-          `${range.start_date} → ${range.end_date}.`
-      );
+      note(t('report.period.calendar_fallback', { period: opts.period, start: range.start_date, end: range.end_date }));
     }
     return {
       startDate: range.start_date,
@@ -145,10 +143,7 @@ export async function rangoDeFlujo(
   if (opts.since && opts.until) {
     return { startDate: opts.since, endDate: opts.until, scope: `${opts.since} → ${opts.until}` };
   }
-  throw usageError(
-    'cashflow generate needs a period: pass --period (2026-07, 2026-Q3, FY2026) or both ' +
-      '--since and --until. A statement of cash flows is a movement between two dates.'
-  );
+  throw usageError({ key: 'report.period.required', params: { command: 'cashflow generate' } });
 }
 
 /**
@@ -171,10 +166,7 @@ export function metodoPedido(valor: string | undefined): MetodoDeFlujo | undefin
   const v = valor.trim().toLowerCase();
   if (v === 'indirect' || v === 'indirecto') return 'indirecto';
   if (v === 'direct' || v === 'directo') return 'directo';
-  throw usageError(
-    `--method must be one of: indirect, direct (indirecto, directo); got "${valor}". ` +
-      'The method is not cosmetic: it decides how the statement is built.'
-  );
+  throw usageError({ key: 'report.cashflow.method_unknown', params: { value: valor } });
 }
 
 /** Cómo se rotula el método en la salida, con su procedencia. */
@@ -182,8 +174,37 @@ export function rotuloDelMetodo(
   estado: Pick<CashFlowStatement, 'method' | 'policies'>,
   pedido: MetodoDeFlujo | undefined
 ): string {
-  const fuente = pedido ? '--method' : 'policy `flujo_efectivo_metodo`';
-  return `method: ${estado.method} (${fuente} · ${estado.policies.metodo})`;
+  return t('report.cashflow.method_label', {
+    method: estado.method, source: pedido ? 'flag' : 'policy', policy: 'flujo_efectivo_metodo', value: estado.policies.metodo,
+  });
+}
+
+/**
+ * THE LABEL OF A ROW IS STORED IN ENGLISH AND RENDERED IN THE READER'S LANGUAGE.
+ *
+ * csv, tsv, ndjson and json carry `name` as stored, so they answer the same
+ * bytes in every language; only the human table (the kernel's `labelled` hook)
+ * reads it back as its key. An account row has a code and passes through.
+ */
+const ROW_KEYS: readonly TranslationKey[] = [
+  'report.net_income',
+  'report.cashflow.row.non_cash_total',
+  'report.cashflow.row.working_capital_total',
+  'report.cashflow.row.operating_total',
+  'report.cashflow.row.investing_total',
+  'report.cashflow.row.financing_total',
+  'report.cashflow.row.net_change',
+  'report.cashflow.row.unclassified_total',
+  'report.cashflow.row.cash_opening',
+  'report.cashflow.row.cash_movement',
+  'report.cashflow.row.cash_closing',
+  'report.cashflow.row.residue',
+];
+const stored = (key: TranslationKey): string => t(key, {}, 'en');
+
+function rowLabel(value: string, row: Row): string {
+  const key = row.code === '' ? ROW_KEYS.find((k) => stored(k) === value) : undefined;
+  return key === undefined ? value : t(key);
 }
 
 /** Una línea del motor, ya como fila del estado. */
@@ -213,28 +234,16 @@ function filasDeSeccion(section: string, s: SeccionDeFlujo, rotulo: string, tipo
 export function filasDelEstado(estado: CashFlowStatement): Row[] {
   const op = estado.operating_activities;
   const rows: Row[] = [
-    { section: 'operating', line: 'account', code: '', name: 'Net income', amount: op.net_income },
-    ...filasDeSeccion('operating', op.non_cash, 'Total non-cash items', 'subtotal'),
-    ...filasDeSeccion(
-      'operating',
-      op.working_capital,
-      'Total change in working capital',
-      'subtotal'
-    ),
-    { section: 'operating', line: 'total', code: '', name: 'Net cash from operating activities', amount: op.total },
-    ...filasDeSeccion('investing', estado.investing_activities, 'Net cash from investing activities', 'total'),
-    ...filasDeSeccion('financing', estado.financing_activities, 'Net cash from financing activities', 'total'),
-    { section: '', line: 'total', code: '', name: 'Net change in cash', amount: estado.net_cash_flow },
+    { section: 'operating', line: 'account', code: '', name: stored('report.net_income'), amount: op.net_income },
+    ...filasDeSeccion('operating', op.non_cash, stored('report.cashflow.row.non_cash_total'), 'subtotal'),
+    ...filasDeSeccion('operating', op.working_capital, stored('report.cashflow.row.working_capital_total'), 'subtotal'),
+    { section: 'operating', line: 'total', code: '', name: stored('report.cashflow.row.operating_total'), amount: op.total },
+    ...filasDeSeccion('investing', estado.investing_activities, stored('report.cashflow.row.investing_total'), 'total'),
+    ...filasDeSeccion('financing', estado.financing_activities, stored('report.cashflow.row.financing_total'), 'total'),
+    { section: '', line: 'total', code: '', name: stored('report.cashflow.row.net_change'), amount: estado.net_cash_flow },
   ];
   if (estado.unclassified.lines.length > 0) {
-    rows.push(
-      ...filasDeSeccion(
-        'unclassified',
-        estado.unclassified,
-        'Total unclassified (outside every section, and outside the net above)',
-        'subtotal'
-      )
-    );
+    rows.push(...filasDeSeccion('unclassified', estado.unclassified, stored('report.cashflow.row.unclassified_total'), 'subtotal'));
   }
   return rows;
 }
@@ -260,10 +269,10 @@ export function filasDelAmarre(
 ): Row[] {
   const residuo = residuoDe(estado, efectivo);
   return [
-    { section: 'cash', line: 'tie', code: '', name: 'Cash and equivalents, opening balance', amount: efectivo.saldo_inicial },
-    { section: 'cash', line: 'tie', code: '', name: 'Cash and equivalents, movement in the ledger', amount: efectivo.variacion },
-    { section: 'cash', line: 'tie', code: '', name: 'Cash and equivalents, closing balance', amount: efectivo.saldo_final },
-    { section: 'cash', line: 'residue', code: '', name: 'Residue (statement net − ledger movement)', amount: residuo },
+    { section: 'cash', line: 'tie', code: '', name: stored('report.cashflow.row.cash_opening'), amount: efectivo.saldo_inicial },
+    { section: 'cash', line: 'tie', code: '', name: stored('report.cashflow.row.cash_movement'), amount: efectivo.variacion },
+    { section: 'cash', line: 'tie', code: '', name: stored('report.cashflow.row.cash_closing'), amount: efectivo.saldo_final },
+    { section: 'cash', line: 'residue', code: '', name: stored('report.cashflow.row.residue'), amount: residuo },
   ];
 }
 
@@ -363,11 +372,13 @@ Examples:
       // EL ENCABEZADO DE UN ESTADO FINANCIERO: quién, en qué moneda, de qué
       // periodo, y POR QUÉ MÉTODO. Va a stderr como toda nota, de modo que un
       // csv canalizado siga siendo importable.
-      note(`Statement of cash flows · ${ctx.entityName} · ${ctx.currency} · ${scope}`);
+      note(t('report.cashflow.heading', { entity: ctx.entityName, currency: ctx.currency, scope }));
       note(rotuloDelMetodo(estado, metodo));
       note(
-        `Cash and equivalents: ${estado.cash_accounts.map((c) => c.code).join(', ') || '—'} ` +
-          `(criterio «${estado.policies.cuentasDeEfectivo}»)`
+        t('report.cashflow.cash_accounts', {
+          accounts: estado.cash_accounts.map((c) => c.code).join(', ') || '—',
+          criterion: estado.policies.cuentasDeEfectivo,
+        })
       );
       // El aviso del cierre del ejercicio viaja con el estado por la misma
       // razón que en la balanza: la utilidad neta del primer renglón tiene
@@ -375,7 +386,7 @@ Examples:
       if (estado.closing) note(estado.closing.note);
 
       const rows = [...filasDelEstado(estado), ...filasDelAmarre(estado, efectivo)];
-      render(rows, { ...opts, idField: 'name', total: rows.length, numeric: ['amount'] });
+      render(rows, { ...opts, idField: 'name', total: rows.length, numeric: ['amount'], labelled: { name: rowLabel } });
 
       // LAS OPERACIONES QUE NO MOVIERON EFECTIVO SE REVELAN, NO SE OMITEN.
       // NIF B-2 y ASC 230-10-50-3 las excluyen del cuerpo del estado y piden
@@ -384,11 +395,10 @@ Examples:
       // son flujos — una fila suya se sumaría con las demás.
       if (estado.non_cash_transactions.length > 0) {
         note(
-          `${estado.non_cash_transactions.length} non-cash investing/financing transaction(s), ` +
-            'excluded from the statement and disclosed here: ' +
-            estado.non_cash_transactions
-              .map((t) => `${t.entry_number} (${t.entry_date}) ${t.amount}`)
-              .join('; ')
+          t('report.cashflow.non_cash', {
+            count: estado.non_cash_transactions.length,
+            transactions: estado.non_cash_transactions.map((x) => `${x.entry_number} (${x.entry_date}) ${x.amount}`).join('; '),
+          })
         );
       }
 
@@ -414,25 +424,20 @@ Examples:
         // sólo mira la última línea de stderr se llevaba «amarra».
         const sinSeccion = estado.self_check && !estado.self_check.all_classified;
         if (sinSeccion) {
-          warn(
-            `The statement net ties to cash (${estado.net_cash_flow}), but it is not classified: ` +
-              `${estado.self_check?.note ?? ''} The subtotals above do not stand; the net does.`
-          );
+          warn(t('report.cashflow.ties_unclassified', { net: estado.net_cash_flow, note: estado.self_check?.note ?? '' }));
           return checkExitCode({ blocking: 0, warning: 1 });
         }
-        note('Ties: the statement net equals the movement of cash and equivalents in the ledger.');
+        note(t('report.cashflow.ties'));
         return ExitCode.OK;
       }
-      const frase =
-        `The statement does not tie to cash: it states a net of ${estado.net_cash_flow} and cash ` +
-        `and equivalents moved ${efectivo.variacion} in the ledger. Residue of ${residuo.toFixed(4)}, ` +
-        'printed above and absorbed into no line. Run `mnemosine cashflow reconcile --show-candidates`.';
+      const frase = t('report.cashflow.untied', { net: estado.net_cash_flow, movement: efectivo.variacion, residue: residuo.toFixed(4) });
+      const policy = { sentence: frase, policy: 'flujo_efectivo_descuadre', value: estado.policies.descuadre };
       switch (estado.policies.descuadre) {
         case 'bloquear':
-          warn(`${frase} Policy \`flujo_efectivo_descuadre\` is «bloquear»: the statement does not stand.`);
+          warn(t('report.cashflow.untied_blocking', policy));
           return checkExitCode({ blocking: 1, warning: 0 });
         case 'silencio':
-          note(`${frase} Policy \`flujo_efectivo_descuadre\` is «silencio»: reported as a note, not as a finding.`);
+          note(t('report.cashflow.untied_silent', policy));
           return ExitCode.OK;
         default:
           warn(frase);
