@@ -8888,6 +8888,14 @@ export const EN = {
     'any attribute because it separates the fields of the cadena original. Fix the value and generate again.',
   'anexo24.seal.source_invalid':
     'It is not sealed: the archived file does not validate against the SAT XSD ({errors}). Nothing was decrypted.',
+  // --- e-accounting catalog|balance generate · the official XSD (#608) ----
+  'anexo24.xsd.rejected':
+    'The SAT XSD ({schema}) does not accept this file, so it is not deliverable: {errors}' +
+    '{more, plural, =0 {} one {; and # more line} other {; and # more lines}}',
+  'anexo24.xsd.not_validated':
+    'This file was not validated against the SAT XSD ({schema}) because xmllint did not run ({cause}), so it is ' +
+    'not deliverable. Install libxml2-utils (apt, apk) or libxml2 (Homebrew), confirm it with `mnemosine doctor` ' +
+    'and generate again.',
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

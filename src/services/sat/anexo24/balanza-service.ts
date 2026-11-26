@@ -36,6 +36,7 @@ import {
   nombreDelArchivo,
   type TipoEnvio,
 } from './balanza-xml.js';
+import { officialXsdRefusal } from './official-xsd.js';
 import { hasSealedCopy } from './seal.js';
 
 // ============================================================
@@ -749,6 +750,12 @@ export async function generarBalanza(
   }
 
   const xml = balanceXml(meta, cuentas);
+
+  // CONTRACT: nothing is archived or returned unless the SAT's official XSD
+  // accepts these bytes (#608). A rejection, or an xmllint that did not run,
+  // refuses like a blocking finding does: 422, by key, with the validator's lines.
+  const refusal = officialXsdRefusal(xml, 'trialBalance');
+  if (refusal !== null) throw refusal;
 
   // ARCHIVED because `balance seal` signs the archived bytes: sealing a
   // balance rebuilt at seal time would sign another file than the one the
