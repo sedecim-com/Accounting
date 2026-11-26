@@ -136,7 +136,7 @@ describe('the SAT batch file (2025 layout)', () => {
   it('refuses 8 % purchases: the layout splits northern and southern border and the vendor file does not say which', () => {
     const d = diot();
     d.renglones[0].desglose.tasa8 = { base: '100.0000', iva: '8.0000' };
-    expect(refusal(d)).toContain('región fronteriza NORTE');
+    expect(refusal(d)).toContain('NORTHERN border region');
   });
 
   it('refuses rates the layout does not name, never folding them into 16 %', () => {
@@ -150,7 +150,7 @@ describe('the SAT batch file (2025 layout)', () => {
     d.renglones[1].tercero.tipoOperacion = '85';
     d.renglones[1].tercero.paisResidencia = 'ZZZ';
     const msg = refusal(d);
-    expect(msg).toContain('tipo de operación 85');
+    expect(msg).toContain('operation type 85');
     expect(msg).toContain('ZZZ');
   });
 
@@ -163,15 +163,15 @@ describe('the SAT batch file (2025 layout)', () => {
   it('refuses an amount wider than 14 digits', () => {
     const d = diot();
     d.renglones[0].desglose.tasa0.base = '123456789012345.0000';
-    expect(refusal(d)).toContain('14 posiciones');
+    expect(refusal(d)).toContain('14 positions');
   });
 
   it('refuses a negative net naming the returns fields, not the field width', () => {
     const d = diot();
     d.renglones[0].desglose.tasa0.base = '-5.0000';
     const msg = refusal(d);
-    expect(msg).toContain('devoluciones, descuentos y bonificaciones');
-    expect(msg).not.toContain('14 posiciones');
+    expect(msg).toContain('returns, discounts and rebates');
+    expect(msg).not.toContain('14 positions');
   });
 
   it('refuses a third party whose month nets negative once, with every field and the bill of the undone payment (MNE-001-682)', () => {
@@ -186,8 +186,16 @@ describe('the SAT batch file (2025 layout)', () => {
     }];
     const { refusals } = serializeSatBatch(d, { proportion: 'taxed_only' });
     expect(refusals).toHaveLength(1);
-    expect(refusals[0].message).toContain('campo 12: -1000.0000; campo 22: -160.0000; campo 48: -106.6700');
-    expect(refusals[0].message).toContain('Gastos de un pago desaplicado o reversado en el mes: BILL-UNDONE.');
+    // A key since MNE-001-726: every field, in order, and the bill of the undone payment.
+    expect(refusals[0].message).toMatchObject({
+      key: 'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net',
+      params: { anyUndone: 'yes', undone: 'BILL-UNDONE' },
+    });
+    expect(refusals[0].message.lists?.fields.items.map((i) => i.params)).toEqual([
+      { field: 12, amount: '-1000.0000' },
+      { field: 22, amount: '-160.0000' },
+      { field: 48, amount: '-106.6700' },
+    ]);
   });
 
   it('answers the seven layout questions, each from the cited SAT source', () => {
@@ -226,7 +234,7 @@ describe('the SAT batch file (2025 layout)', () => {
   it('refuses 0 % acts of a foreign supplier instead of writing them in the domestic 0 % field', () => {
     const d = diot();
     d.renglones[1].desglose.tasa0 = { base: '300.0000', iva: '0.0000' };
-    expect(refusal(d)).toContain('proveedor extranjero');
+    expect(refusal(d)).toContain('from a foreign vendor');
   });
 
   it('leaves the IVA box empty when the value rounds to zero (§3.3: only when the value is above zero)', () => {
@@ -240,7 +248,7 @@ describe('the SAT batch file (2025 layout)', () => {
   it('refuses an IVA with no value of acts instead of dropping it', () => {
     const d = diot();
     d.renglones[0].desglose.tasa16 = { base: '0.0000', iva: '16.0000' };
-    expect(refusal(d)).toContain('sin un valor de los actos');
+    expect(refusal(d)).toContain('with no value of acts');
   });
 
   it('refuses a country that is not a three-letter key of the §5 catalogue', () => {

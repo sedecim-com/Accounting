@@ -1,4 +1,4 @@
-import { AppError } from '../../../utils/errors.js';
+import { AppError, type KeyedText } from '../../../utils/errors.js';
 import { bloquean, contarHallazgos } from './hallazgos.js';
 import type { DiotConstruida, RenglonDiot } from './modelo.js';
 import { layoutForYear, SAT_BATCH_LAYOUTS, SAT_SOURCE, serializeSatBatch } from './sat-batch.js';
@@ -25,14 +25,15 @@ import { layoutForYear, SAT_BATCH_LAYOUTS, SAT_SOURCE, serializeSatBatch } from 
 // ============================================================
 
 export class DiotNoEntregable extends AppError {
-  constructor(mensaje: string, details?: Record<string, unknown>) {
+  /** A key, rendered in the reader's language (MNE-001-726); the findings' frame is still prose. */
+  constructor(mensaje: string | KeyedText, details?: Record<string, unknown>) {
     super(422, 'DIOT_NO_ENTREGABLE', mensaje, undefined, details);
     this.name = 'DiotNoEntregable';
   }
 }
 
 export class DiotFormatoNoFundamentado extends AppError {
-  constructor(mensaje: string, details?: Record<string, unknown>) {
+  constructor(mensaje: string | KeyedText, details?: Record<string, unknown>) {
     super(501, 'DIOT_FORMATO_NO_FUNDAMENTADO', mensaje, undefined, details);
     this.name = 'DiotFormatoNoFundamentado';
   }
@@ -185,19 +186,15 @@ export const SERIALIZADOR_SAT: SerializadorDiot = {
     const periodo = `${String(diot.periodo.mes).padStart(2, '0')}/${diot.periodo.anio}`;
     if (layoutForYear(diot.periodo.anio) === null) {
       throw new DiotFormatoNoFundamentado(
-        `La DIOT de ${periodo} se presenta con el layout del ejercicio 2024 y anteriores, que ` +
-          `este repositorio no implementa: sólo está fundamentado el de 2025 en adelante ` +
-          `(${SAT_SOURCE.url}, consultado el ${SAT_SOURCE.consulted}). No se escribe con la ` +
-          `forma nueva un periodo que la autoridad valida con la vieja.`,
+        {
+          key: 'error.DIOT_FORMATO_NO_FUNDAMENTADO',
+          params: { period: periodo, url: SAT_SOURCE.url, consulted: SAT_SOURCE.consulted },
+        },
         { primer_ejercicio: SAT_BATCH_LAYOUTS[SAT_BATCH_LAYOUTS.length - 1].firstYear }
       );
     }
     if (diot.renglones.length === 0) {
-      throw new DiotNoEntregable(
-        `La DIOT de ${periodo} no tiene terceros que declarar: un archivo de lote vacío no es ` +
-          `una declaración, y no se escribe.`,
-        { terceros: 0 }
-      );
+      throw new DiotNoEntregable({ key: 'error.DIOT_NO_ENTREGABLE.no_third_parties', params: { period: periodo } }, { terceros: 0 });
     }
     const proportion =
       diot.politicas.find((p) => p.clave === 'diot_creditable_iva_proportion')?.valor ??
@@ -205,8 +202,11 @@ export const SERIALIZADOR_SAT: SerializadorDiot = {
     const { file, refusals } = serializeSatBatch(diot, { proportion });
     if (refusals.length > 0) {
       throw new DiotNoEntregable(
-        `La DIOT de ${periodo} no cabe en el layout del SAT tal cual:\n` +
-          refusals.map((r) => `  · ${r.message}`).join('\n'),
+        {
+          key: 'error.DIOT_NO_ENTREGABLE.sat_batch',
+          params: { period: periodo },
+          lists: { refusals: { join: '\n  · ', items: refusals.map((r) => r.message) } },
+        },
         { vendors: refusals.flatMap((r) => r.vendorIds) }
       );
     }
