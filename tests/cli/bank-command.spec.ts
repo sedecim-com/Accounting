@@ -1651,10 +1651,10 @@ describe('bank transaction reclassify', () => {
     );
     expect(race.exitCode).not.toBe(0);
     const said = (r: { errs: unknown[] }) => r.errs.map(String).join('\n');
-    expect(said(sign)).toMatch(/exige un importe/);
-    expect(said(matched)).toMatch(/está cotejado/);
+    expect(said(sign)).toMatch(/requires an amount/);
+    expect(said(matched)).toMatch(/is matched/);
     expect(said(posted)).toMatch(/P-0007/);
-    expect(said(race)).toMatch(/cambió mientras/);
+    expect(said(race)).toMatch(/changed while/);
     for (const r of [sign, matched, posted, race]) {
       expect(r.sql.some((s) => /INSERT INTO audit_log/.test(s.text))).toBe(false);
     }

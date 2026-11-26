@@ -243,7 +243,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.bank_match.write_off_account_with_keep':
     '--write-off-account sólo tiene sentido con --residual write-off: un residual que se conserva no se cancela contra ninguna cuenta.',
   'error.VALIDATION_ERROR.bank_match.repeated_id':
-    'El {side, select, bank {movimiento de banco} other {partida de libros}} {id} aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría afirmando el doble de lo que hay.',
+    '{side, select, bank {El movimiento de banco} other {La partida de libros}} {id} aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría afirmando el doble de lo que hay.',
   'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group':
     'La partida {id} ya está sellada por el grupo de cotejo {group}. Desaplica ese cotejo antes de volver a cotejarla.',
   'error.VALIDATION_ERROR.bank_match.session_other_account':
@@ -284,6 +284,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'El sello de conciliación alcanzó {sealed} de {count} partida(s). Las que faltan ya estaban selladas, pertenecen a un asiento no contabilizado, o no son de la misma entidad que el grupo {group}. No se sella nada a medias: revisa la lista con `bank book-item list` y vuelve a armar el grupo.',
   'error.VALIDATION_ERROR.bank_book_item.partial_release':
     'Se liberaron {released} de {count} partida(s). Las que faltan no estaban selladas, o su sello lo puso algo que no es un grupo de cotejo bancario de esta entidad —la certificación de cuentas usa la misma columna— y no se levanta desde aquí.',
+  // ---- MNE-001-824 · I9 by folder, part 2b, part 1: the checks of a bank account and bank transaction reclassify; see en.ts ----
+  'error.VALIDATION_ERROR.bank_account.needs_entity':
+    '{act, select, create {Dar de alta una cuenta bancaria} edit {Editar una cuenta bancaria} other {Fijar el mapeo contable de una cuenta bancaria}} necesita una entidad concreta: un alcance de inquilino no dice en cuál de sus entidades vive la cuenta.',
+  'error.VALIDATION_ERROR.bank_account.clabe_length':
+    'La CLABE son 18 dígitos (3 de banco, 3 de plaza, 11 de cuenta y 1 verificador); "{value}" tiene {length}.',
+  'error.VALIDATION_ERROR.bank_account.clabe_check_digit':
+    'La CLABE terminada en {last4} no pasa su dígito verificador: los 17 primeros exigen {expected} y trae {got}. Casi siempre son dos dígitos transpuestos al copiarla.',
+  'error.VALIDATION_ERROR.bank_account.clabe_bank_000':
+    'La CLABE empieza con 000, que no es clave de ninguna institución del catálogo de Banxico ni del c_Banco del SAT.',
+  'error.VALIDATION_ERROR.bank_account.aba_length': 'El routing ABA son 9 dígitos; "{value}" tiene {length}.',
+  'error.VALIDATION_ERROR.bank_account.aba_checksum': 'El routing {routing} no pasa su checksum ABA (ponderación 3,7,1 múltiplo de 10).',
+  'error.VALIDATION_ERROR.bank_account.aba_zero': 'El routing 000000000 cumple el checksum por aritmética y no corresponde a ninguna institución.',
+  'error.VALIDATION_ERROR.bank_account.type_unknown': '"{value}" no es un tipo de cuenta. Los cinco son: {known}.',
+  'error.VALIDATION_ERROR.bank_account.currency_invalid': '"{value}" no es un código ISO de moneda de tres letras.',
+  'error.VALIDATION_ERROR.bank_account.sat_bank_code_invalid': 'La clave de banco del SAT (c_Banco) son 3 dígitos; llegó "{value}".',
+  'error.VALIDATION_ERROR.bank_account.field_empty':
+    '{field, select, account_name {El nombre de la cuenta} other {El nombre del banco}} no puede ir vacío.',
+  'error.VALIDATION_ERROR.bank_account.swift_invalid':
+    '"{value}" no tiene forma de código SWIFT/BIC (8 u 11 caracteres: 4 de banco, 2 de país, 2 de plaza y 3 opcionales de sucursal).',
+  'error.VALIDATION_ERROR.bank_account.iban_invalid':
+    '"{value}" no tiene forma de IBAN (2 letras de país, 2 dígitos de control y hasta 30 alfanuméricos).',
+  'error.VALIDATION_ERROR.bank_account.routings_differ':
+    'El routing ACH y el de transferencia son distintos y la tabla sólo tiene una columna para los dos (`routing_number_encrypted`, migración 003): guardar uno perdería el otro sin avisar. Da de alta la cuenta con uno y abre la falta de columna como trabajo de F05b.',
+  'error.VALIDATION_ERROR.bank_account.sat_bank_code_not_clabe':
+    'La clave de banco declarada ({declared}) no es la que trae la CLABE ({clabe}). Son el mismo catálogo: una de las dos está mal.',
+  'error.VALIDATION_ERROR.bank_transaction.type_unknown': '"{value}" no es un tipo de movimiento bancario. Los cinco son: {known}.',
+  'error.VALIDATION_ERROR.bank_transaction.reclassify_sign':
+    'El movimiento {id} es de {amount} y "{type}" exige un importe {sign, select, out {que SALGA de la cuenta (negativo)} other {que ENTRE a la cuenta (positivo)}}. Una devolución de comisión o una retención no cambian de signo por reclasificarlas.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_matched':
+    'El movimiento {id} está cotejado: algo en libros ya lo explica. Deshaz el cotejo con `bank match unapply` antes de cambiar qué es.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_posted':
+    'El movimiento {id} ya lo contabilizó la póliza {entry}. Revierte esa póliza antes de reclasificarlo.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_race': 'El movimiento {id} cambió mientras se reclasificaba; vuelve a intentarlo.',
+  // ---- end of MNE-001-824 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',

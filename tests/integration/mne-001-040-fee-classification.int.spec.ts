@@ -134,10 +134,10 @@ describe('MNE-001-040 · bank transaction reclassify', () => {
   it('refuses a type whose sign contradicts the amount', async () => {
     const line = await lineByDescription('PAGO PROVEEDOR ACME');
     await expect(reclassifyTransaction(a.entityId, line.id, 'interest', { userId: a.userId })).rejects.toThrow(
-      /exige un importe/
+      /requires an amount/
     );
     await expect(reclassifyTransaction(a.entityId, line.id, 'bogus', { userId: a.userId })).rejects.toThrow(
-      /no es un tipo de movimiento/
+      /is not a bank transaction type/
     );
   });
 
@@ -162,13 +162,13 @@ describe('MNE-001-040 · bank transaction reclassify', () => {
 
     // `bank fee post` ties the line to the entry it creates.
     await expect(reclassifyTransaction(a.entityId, fee.id, 'debit', { userId: a.userId })).rejects.toThrow(
-      /está cotejado/
+      /is matched/
     );
 
     // Even with the flag cleared, the entry in 6310 still says it is a fee.
     await query('UPDATE bank_transactions SET is_matched = false WHERE id = $1', [fee.id]);
     await expect(reclassifyTransaction(a.entityId, fee.id, 'debit', { userId: a.userId })).rejects.toThrow(
-      /ya lo contabilizó la póliza/
+      /was already posted by entry/
     );
     expect((await lineByDescription('COMISION MANEJO DE CUENTA')).transaction_type).toBe('fee');
   });

@@ -75,7 +75,7 @@ const CASES: readonly Case[] = [
     'The bank transaction b1 appears twice in the group: its amount would count double and the group would ' +
       'balance by asserting twice what there is.'],
   ['error.VALIDATION_ERROR.bank_match.repeated_id', { side: 'books', id: 'l1' },
-    'El partida de libros l1 aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría ' +
+    'La partida de libros l1 aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría ' +
       'afirmando el doble de lo que hay.',
     'The book item l1 appears twice in the group: its amount would count double and the group would balance ' +
       'by asserting twice what there is.'],
