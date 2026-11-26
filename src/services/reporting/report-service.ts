@@ -49,7 +49,8 @@ import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 //                   the opening check's ledger, the receivable a
 //                   collection credits and the held IVA a reversed note
 //                   gives back, an invoice's IVA taken, the VAT put back,
-//                   a bank account's book balance and posted lines; T14, #101). This is
+//                   a bank account's book balance and posted lines,
+//                   the IVA paper's bank fees and issued credit notes; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -2299,6 +2300,163 @@ export async function queryFeeVatParked(values: FeeVatParkedParams, client?: pg.
     ? await client.query<{ parked: string }>(text, values)
     : await query<{ parked: string }>(text, values);
   return r.rows[0]?.parked ?? '0';
+}
+
+// ------------------------------------------------------------
+// IVA PAPER BANK FEE AND ISSUED CREDIT NOTE READS (MNE-001-623, #101)
+//
+// Two statements the IVA workpaper reads once per paper, on its own client:
+// the month's bank fee entries with what each moved on 1130 (`feesOfRange`,
+// bank-fee-iva.ts, the creditable side), and the month's issued credit notes
+// with what each note's entry moved on 2120 and 2125 (`notesOfRange`,
+// issued-credit-notes.ts, the charged side). Each sum is a correlated column
+// of a statement that reads the document's other figures, and moves with it:
+// a read of its own would cost a query per fee or per note. Neither reads a
+// policy. The fee and release source names are the caller's parameters, not
+// imports: importing treasury-posting.ts here would close a cycle back to it.
+// ------------------------------------------------------------
+
+/** The entity's accounts holding one role, as an `IN (…)` subquery bound to `$1`. */
+const roleAccountsSql = (role: string): string =>
+  `(SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = '${role}')`;
+
+export interface BankFeeVatEntryRow {
+  fee_id: string;
+  kind: 'release' | 'adjustment';
+  entry_id: string;
+  entry_number: string;
+  entry_date: string;
+  mirror_number: string | null;
+  mirror_date: string | null;
+  /** What the entry moved on the creditable-VAT accounts (1130), debit positive. */
+  iva: string;
+  /** The movement's standing `bank_fee` entry: its 6310 debit and the IVA it parked in 1135. */
+  fee_base: string | null;
+  fee_parked: string | null;
+}
+
+/**
+ * Every fee entry that moves 1130, or whose mirror does, dated in the range
+ * (MNE-001-566): the posted `sources.release` entries of `bank fee post` and
+ * the posted entries of the entity's fee VAT reconciliation adjustments,
+ * each with its posted mirror, what it moved on the creditable-VAT role
+ * accounts (1130), and, for a release, its movement's standing
+ * `sources.fee` entry's 6310 base and 1135 parked IVA. Scoped by entity
+ * throughout; ordered by entry date and number.
+ */
+export async function queryBankFeeVatEntriesInRange(
+  entityId: string,
+  from: string,
+  through: string,
+  sources: { release: string; fee: string },
+  client?: pg.PoolClient
+): Promise<BankFeeVatEntryRow[]> {
+  const text = `WITH fee AS (
+       SELECT je.id, 'release'::text AS kind, je.source_id::text AS fee_id
+         FROM journal_entries je
+        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = $4
+       UNION
+       SELECT je.id, 'adjustment'::text, ra.id::text
+         FROM reconciliation_adjustments ra
+         JOIN journal_entries je ON je.entity_id = $1 AND je.status = 'posted'
+          AND (je.id = ra.journal_entry_id OR (je.source_type = 'bank_reconciliation' AND je.source_id = ra.id))
+        WHERE ra.entity_id = $1 AND ra.tipo = 'iva-comision')
+     SELECT f.fee_id, f.kind, je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
+            m.entry_number AS mirror_number, m.entry_date::text AS mirror_date,
+            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
+               FROM journal_entry_lines l
+              WHERE l.journal_entry_id = je.id AND l.account_id IN ${roleAccountsSql('iva_acreditable')})::text AS iva,
+            b.base::text AS fee_base, b.parked::text AS fee_parked
+       FROM fee f
+       JOIN journal_entries je ON je.id = f.id
+       LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted'
+       LEFT JOIN LATERAL (
+         SELECT SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${roleAccountsSql('comision_bancaria')}) AS base,
+                SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${roleAccountsSql('iva_pendiente_acreditar')}) AS parked
+           FROM journal_entries fe
+           JOIN journal_entry_lines l ON l.journal_entry_id = fe.id
+          WHERE f.kind = 'release' AND fe.entity_id = $1 AND fe.status = 'posted' AND fe.source_type = $5
+            AND fe.source_id = je.source_id AND fe.reversed_by_entry_id IS NULL
+       ) b ON true
+      WHERE (je.entry_date >= $2::date AND je.entry_date <= $3::date)
+         OR (m.entry_date >= $2::date AND m.entry_date <= $3::date)
+      ORDER BY je.entry_date, je.entry_number`;
+  const values = [entityId, from, through, sources.release, sources.fee];
+  const r = client
+    ? await client.query<BankFeeVatEntryRow>(text, values)
+    : await query<BankFeeVatEntryRow>(text, values);
+  return r.rows;
+}
+
+export interface IssuedCreditNoteEntryRow {
+  id: string;
+  credit_note_number: string;
+  status: string;
+  invoice_id: string | null;
+  subtotal: string;
+  tax_amount: string;
+  total_amount: string;
+  entry_id: string;
+  entry_number: string;
+  entry_date: string;
+  mirror_number: string | null;
+  mirror_date: string | null;
+  /** What the note's entry debited to the charged-VAT accounts (2120), net. */
+  iva: string;
+  /** What the note's entry debited to the uncollected charged-VAT accounts (2125), net. */
+  parked: string;
+  invoice_number: string | null;
+  invoice_total: string | null;
+  invoice_tax: string | null;
+  invoice_rate: string | null;
+  terms: string | null;
+  memo: string | null;
+  cfdi_uuid: string | null;
+}
+
+/**
+ * Every issued, non-draft credit note whose posted `credit_note` entry, or
+ * that entry's posted mirror, is dated in the range (MNE-001-565): its
+ * figures, what its entry moved on the charged-VAT (2120) and uncollected
+ * charged-VAT (2125) role accounts, and its invoice's. Scoped by
+ * entity throughout; ordered by note number.
+ */
+export async function queryIssuedCreditNoteEntriesInRange(
+  entityId: string,
+  from: string,
+  through: string,
+  client?: pg.PoolClient
+): Promise<IssuedCreditNoteEntryRow[]> {
+  const text = `SELECT cn.id::text, cn.credit_note_number, cn.status, cn.invoice_id::text,
+            cn.subtotal::text, cn.tax_amount::text, cn.total_amount::text,
+            je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
+            m.entry_number AS mirror_number, m.entry_date::text AS mirror_date,
+            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
+               FROM journal_entry_lines l
+              WHERE l.journal_entry_id = je.id
+                AND l.account_id IN (SELECT account_id FROM account_roles
+                                      WHERE entity_id = $1 AND role = 'iva_trasladado'))::text AS iva,
+            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
+               FROM journal_entry_lines l
+              WHERE l.journal_entry_id = je.id
+                AND l.account_id IN (SELECT account_id FROM account_roles
+                                      WHERE entity_id = $1 AND role = 'iva_trasladado_no_cobrado'))::text AS parked,
+            i.invoice_number, i.total_amount::text AS invoice_total, i.tax_amount::text AS invoice_tax,
+            i.exchange_rate::text AS invoice_rate, i.terms, i.memo, i.cfdi_uuid
+       FROM credit_notes cn
+       JOIN journal_entries je ON je.id = cn.journal_entry_id AND je.entity_id = $1
+                              AND je.status = 'posted' AND je.source_type = 'credit_note'
+       LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted'
+       LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = $1
+      WHERE cn.entity_id = $1 AND cn.status <> 'draft'
+        AND ((je.entry_date >= $2::date AND je.entry_date <= $3::date)
+          OR (m.entry_date >= $2::date AND m.entry_date <= $3::date))
+      ORDER BY cn.credit_note_number`;
+  const values = [entityId, from, through];
+  const r = client
+    ? await client.query<IssuedCreditNoteEntryRow>(text, values)
+    : await query<IssuedCreditNoteEntryRow>(text, values);
+  return r.rows;
 }
 
 // ------------------------------------------------------------

@@ -98,6 +98,8 @@ import {
   queryIepsParkedByInvoice, queryIepsMovedForInvoice, queryIepsKeptOnAccount, queryIepsTakenByRows,
   queryBankBookBalanceAsOf,
   queryFeeVatParked,
+  queryBankFeeVatEntriesInRange,
+  queryIssuedCreditNoteEntriesInRange,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1674,6 +1676,114 @@ describe('the bank reconciliation and fee VAT reads (MNE-001-621)', () => {
     expect(mockQuery).toHaveBeenCalledTimes(1);
     expect(folded(sql(0))).toBe(FEE_VAT_PARKED);
     expect(params(0)).toEqual([ENTITY, ['bank_fee'], 'mov-1', 'acc-1135']);
+  });
+});
+
+// MNE-001-623 · the IVA paper's bank fees (feesOfRange, bank-fee-iva.ts) and
+// issued credit notes (notesOfRange, issued-credit-notes.ts), moved here whole:
+// each sum is a column of a statement that reads the document's other figures.
+// Each test pins the whole SQL, the parameter order and the connection it runs on.
+describe('the IVA paper bank fee and issued credit note reads (MNE-001-623)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const role = (name: string) => `(SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = '${name}')`;
+  const onClient = (rows: unknown[]) => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    return { clientQuery, client: { query: clientQuery } as never };
+  };
+  const call = (clientQuery: Mock) => clientQuery.mock.calls[0] as [string, unknown[]];
+  const BANK_FEES =
+    "WITH fee AS ( SELECT je.id, 'release'::text AS kind, je.source_id::text AS fee_id FROM journal_entries je " +
+    "WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = $4 " +
+    "UNION SELECT je.id, 'adjustment'::text, ra.id::text FROM reconciliation_adjustments ra " +
+    "JOIN journal_entries je ON je.entity_id = $1 AND je.status = 'posted' " +
+    "AND (je.id = ra.journal_entry_id OR (je.source_type = 'bank_reconciliation' AND je.source_id = ra.id)) " +
+    "WHERE ra.entity_id = $1 AND ra.tipo = 'iva-comision') " +
+    'SELECT f.fee_id, f.kind, je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date, ' +
+    'm.entry_number AS mirror_number, m.entry_date::text AS mirror_date, ' +
+    '(SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) FROM journal_entry_lines l ' +
+    `WHERE l.journal_entry_id = je.id AND l.account_id IN ${role('iva_acreditable')})::text AS iva, ` +
+    'b.base::text AS fee_base, b.parked::text AS fee_parked ' +
+    'FROM fee f JOIN journal_entries je ON je.id = f.id ' +
+    "LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted' " +
+    `LEFT JOIN LATERAL ( SELECT SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${role('comision_bancaria')}) AS base, ` +
+    `SUM(l.debit_amount) FILTER (WHERE l.account_id IN ${role('iva_pendiente_acreditar')}) AS parked ` +
+    'FROM journal_entries fe JOIN journal_entry_lines l ON l.journal_entry_id = fe.id ' +
+    "WHERE f.kind = 'release' AND fe.entity_id = $1 AND fe.status = 'posted' AND fe.source_type = $5 " +
+    'AND fe.source_id = je.source_id AND fe.reversed_by_entry_id IS NULL ) b ON true ' +
+    'WHERE (je.entry_date >= $2::date AND je.entry_date <= $3::date) ' +
+    'OR (m.entry_date >= $2::date AND m.entry_date <= $3::date) ' +
+    'ORDER BY je.entry_date, je.entry_number';
+  const ISSUED_NOTES =
+    'SELECT cn.id::text, cn.credit_note_number, cn.status, cn.invoice_id::text, ' +
+    'cn.subtotal::text, cn.tax_amount::text, cn.total_amount::text, ' +
+    'je.id::text AS entry_id, je.entry_number, je.entry_date::text AS entry_date, ' +
+    'm.entry_number AS mirror_number, m.entry_date::text AS mirror_date, ' +
+    '(SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) FROM journal_entry_lines l ' +
+    `WHERE l.journal_entry_id = je.id AND l.account_id IN ${role('iva_trasladado')})::text AS iva, ` +
+    '(SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) FROM journal_entry_lines l ' +
+    `WHERE l.journal_entry_id = je.id AND l.account_id IN ${role('iva_trasladado_no_cobrado')})::text AS parked, ` +
+    'i.invoice_number, i.total_amount::text AS invoice_total, i.tax_amount::text AS invoice_tax, ' +
+    'i.exchange_rate::text AS invoice_rate, i.terms, i.memo, i.cfdi_uuid ' +
+    'FROM credit_notes cn ' +
+    "JOIN journal_entries je ON je.id = cn.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted' AND je.source_type = 'credit_note' " +
+    "LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = $1 AND m.status = 'posted' " +
+    'LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = $1 ' +
+    "WHERE cn.entity_id = $1 AND cn.status <> 'draft' " +
+    'AND ((je.entry_date >= $2::date AND je.entry_date <= $3::date) OR (m.entry_date >= $2::date AND m.entry_date <= $3::date)) ' +
+    'ORDER BY cn.credit_note_number';
+
+  it('bank fees: each fee entry of the month with what it moved on 1130, its mirror and its fee\'s base, on the caller\'s client', async () => {
+    // By hand: a release of 40.0000 whose bank_fee entry debited 6310 by 250.00 and 1135 by 40.00.
+    const row = {
+      fee_id: 'mov-1', kind: 'release', entry_id: 'je-1', entry_number: 'JE-0101', entry_date: '2026-06-12',
+      mirror_number: null, mirror_date: null, iva: '40.0000', fee_base: '250.0000', fee_parked: '40.0000',
+    };
+    const { clientQuery, client } = onClient([row]);
+    const sources = { release: 'bank_fee_vat_release', fee: 'bank_fee' };
+    expect(await queryBankFeeVatEntriesInRange(ENTITY, '2026-06-01', '2026-06-30', sources, client)).toEqual([row]);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, '2026-06-01', '2026-06-30', 'bank_fee_vat_release', 'bank_fee']);
+    expect(folded(text)).toBe(BANK_FEES);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('bank fees read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryBankFeeVatEntriesInRange(ENTITY, '2026-07-01', '2026-07-31', { release: 'r', fee: 'f' })).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(BANK_FEES);
+    expect(params(0)).toEqual([ENTITY, '2026-07-01', '2026-07-31', 'r', 'f']);
+  });
+
+  it('issued notes: each note whose entry or mirror is in the month, with what its entry moved on 2120 and 2125, on the caller\'s client', async () => {
+    // By hand: a note of 1 000.00 + 160.00 whose entry debited 2120 by 160.00 and 2125 by nothing.
+    const row = {
+      id: 'cn-1', credit_note_number: 'NC-0001', status: 'issued', invoice_id: null,
+      subtotal: '1000.0000', tax_amount: '160.0000', total_amount: '1160.0000',
+      entry_id: 'je-2', entry_number: 'JE-0102', entry_date: '2026-06-15', mirror_number: null, mirror_date: null,
+      iva: '160.0000', parked: '0', invoice_number: null, invoice_total: null, invoice_tax: null,
+      invoice_rate: null, terms: null, memo: null, cfdi_uuid: null,
+    };
+    const { clientQuery, client } = onClient([row]);
+    expect(await queryIssuedCreditNoteEntriesInRange(ENTITY, '2026-06-01', '2026-06-30', client)).toEqual([row]);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, '2026-06-01', '2026-06-30']);
+    expect(folded(text)).toBe(ISSUED_NOTES);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('issued notes read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIssuedCreditNoteEntriesInRange(ENTITY, '2026-07-01', '2026-07-31')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(ISSUED_NOTES);
+    expect(params(0)).toEqual([ENTITY, '2026-07-01', '2026-07-31']);
   });
 });
 
