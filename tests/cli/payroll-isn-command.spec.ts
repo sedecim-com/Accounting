@@ -993,7 +993,7 @@ describe('lineasDeLaCaptura', () => {
         '  exención mensual   8,000.00',
         '  vigencia           2026-01-01 -> (sin cierre: sigue vigente)',
         '  tabla              mx_isn_tasas_estatales (catálogo, sin tenant_id: la ley es la misma)',
-        '  alcanza            12 worker(s) carrying "JAL"',
+        '  alcanza            12 trabajadores llevan "JAL"',
       ]));
       for (const l of lines.slice(0, 9)) expect(l.slice(0, 21).trim().length, l).toBeGreaterThan(0);
     } finally {

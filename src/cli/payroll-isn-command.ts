@@ -205,18 +205,10 @@ const CLAVE_RE = /^[A-Z]{2,3}$/;
 export function exigirClaveDeEstado(valor: string | undefined): string {
   const clave = (valor ?? '').trim().toUpperCase();
   if (clave === '') {
-    throw usageError(
-      'Name the state: the ISN is a state tax and a rate without one belongs to nobody. ' +
-        'Use the SAT c_Estado key as it is written on your workers (for example JAL, or JA).'
-    );
+    throw usageError({ key: 'payroll.isn.state_missing' });
   }
   if (!CLAVE_RE.test(clave)) {
-    throw usageError(
-      `"${valor ?? ''}" is not a state key. It must be 2 or 3 letters — the SAT c_Estado key — ` +
-        'and it has to match, character for character, what is stored on the worker ' +
-        '(employees.work_state) or on the entity (legal_entities.state_province). ' +
-        'The engine compares them uppercased and trimmed, and nothing else.'
-    );
+    throw usageError({ key: 'payroll.isn.state_invalid', params: { value: valor ?? '' } });
   }
   return clave;
 }
@@ -234,31 +226,20 @@ export function exigirClaveDeEstado(valor: string | undefined): string {
 export function exigirTasaIsn(valor: string | undefined): string {
   const crudo = (valor ?? '').trim();
   if (crudo === '') {
-    throw usageError('The rate is required: give it as a fraction (0.03) or as a percentage (3%).');
+    throw usageError({ key: 'payroll.isn.rate_missing' });
   }
   const esPorcentaje = crudo.endsWith('%');
   const numero = esPorcentaje ? crudo.slice(0, -1).trim() : crudo;
   if (!/^\d+(\.\d+)?$/.test(numero)) {
-    throw usageError(
-      `"${crudo}" is not a rate. Write it as a fraction (0.03) or as a percentage (3%). ` +
-        'A negative rate is not a thing the ISN has.'
-    );
+    throw usageError({ key: 'payroll.isn.rate_invalid', params: { value: crudo } });
   }
   let tasa = new Decimal(numero);
   if (esPorcentaje) tasa = tasa.dividedBy(100);
   if (tasa.decimalPlaces() > DECIMALES_DE_TASA) {
-    throw usageError(
-      `${tasa.toString()} has more than ${DECIMALES_DE_TASA} decimals and the column keeps ` +
-        `${DECIMALES_DE_TASA}. Rounding it here would store a rate nobody typed; round it ` +
-        'yourself to the published figure and capture that.'
-    );
+    throw usageError({ key: 'payroll.isn.rate_too_precise', params: { rate: tasa.toString(), decimals: DECIMALES_DE_TASA } });
   }
   if (tasa.greaterThan(TASA_ISN_MAXIMA)) {
-    throw usageError(
-      `${tasa.toString()} is above the ${TASA_ISN_MAXIMA} ceiling the table enforces ` +
-        '(migration 067). State payroll tax runs about 1% to 4%. If you meant three percent, ' +
-        'write 0.03 or 3% — a bare 3 is three hundred percent.'
-    );
+    throw usageError({ key: 'payroll.isn.rate_above_ceiling', params: { rate: tasa.toString(), ceiling: TASA_ISN_MAXIMA } });
   }
   return tasa.toFixed(DECIMALES_DE_TASA);
 }
@@ -267,12 +248,12 @@ export function exigirTasaIsn(valor: string | undefined): string {
 export function exigirFechaIsn(bandera: string, valor: string | undefined): string {
   const fecha = (valor ?? '').trim();
   if (!FECHA_RE.test(fecha)) {
-    throw usageError(`${bandera} must be a date as YYYY-MM-DD; got "${valor ?? ''}".`);
+    throw usageError({ key: 'cli.flag.error_not_date', params: { name: bandera, value: valor ?? '' } });
   }
   // `new Date('2026-02-30')` NO es inválida: se desborda al 2 de marzo. Se
   // compara el ida y vuelta, que es lo único que caza el día que no existe.
   if (!isRealCalendarDate(fecha)) {
-    throw usageError(`${bandera} "${fecha}" is not a real date.`);
+    throw usageError({ key: 'payroll.isn.date_not_real', params: { name: bandera, value: fecha } });
   }
   return fecha;
 }
@@ -281,10 +262,7 @@ export function exigirFechaIsn(bandera: string, valor: string | undefined): stri
 export function exigirRegimen(valor: string | undefined): RegimenIsn {
   const r = (valor ?? 'tasa_plana').trim();
   if (!(REGIMENES_ISN as readonly string[]).includes(r)) {
-    throw usageError(
-      `Unknown --regime "${r}". The table only knows: ${REGIMENES_ISN.join(', ')} ` +
-        '(migration 067 puts them in a CHECK).'
-    );
+    throw usageError({ key: 'payroll.isn.regime_unknown', params: { value: r, regimes: REGIMENES_ISN.join(', ') } });
   }
   return r as RegimenIsn;
 }
@@ -300,19 +278,10 @@ export function exigirRegimen(valor: string | undefined): RegimenIsn {
 export function exigirFundamento(valor: string | undefined): string {
   const f = (valor ?? '').trim();
   if (f === '') {
-    throw usageError(
-      '--legal-basis is required: a rate without the law behind it cannot be audited. ' +
-        'Cite the state finance law and its article, and the official gazette that published ' +
-        'the current figure — for example: "Ley de Hacienda del Estado de Jalisco art. 41, ' +
-        'reforma publicada en el Periodico Oficial 2025-12-15".'
-    );
+    throw usageError({ key: 'payroll.isn.legal_basis_missing' });
   }
   if (f.length < FUNDAMENTO_MINIMO) {
-    throw usageError(
-      `--legal-basis "${f}" is too short to be a citation. Name the law and the article: ` +
-        'in two years the question will not be how much was paid, it will be where the rate ' +
-        'came from.'
-    );
+    throw usageError({ key: 'payroll.isn.legal_basis_too_short', params: { value: f } });
   }
   return f;
 }
@@ -332,22 +301,15 @@ export function exigirExencion(
   const crudo = (valor ?? '').trim();
   if (regimen === 'con_exencion') {
     if (crudo === '') {
-      throw usageError(
-        '--regime con_exencion requires --exemption <amount>: a regime that exempts has to say ' +
-          'how much it exempts, or the engine cannot tell it from a flat rate.'
-      );
+      throw usageError({ key: 'payroll.isn.exemption_missing' });
     }
     if (!/^\d+(\.\d+)?$/.test(crudo)) {
-      throw usageError(`--exemption "${crudo}" is not an amount. Write it as a decimal, 8000.00.`);
+      throw usageError({ key: 'payroll.isn.exemption_invalid', params: { value: crudo } });
     }
     return new Decimal(crudo).toFixed(4);
   }
   if (crudo !== '') {
-    throw usageError(
-      `--exemption only belongs with --regime con_exencion; this one is "${regimen}". ` +
-        'The CHECK in migration 067 refuses the pair, and it refuses it because an exemption ' +
-        'nobody applies is an exemption the reader believes was applied.'
-    );
+    throw usageError({ key: 'payroll.isn.exemption_not_allowed', params: { regime: regimen } });
   }
   return null;
 }
@@ -356,15 +318,12 @@ export function exigirExencion(
 export function exigirMesDeNomina(expr: string | undefined): { anio: number; mes: number } {
   const m = MES_RE.exec((expr ?? '').trim());
   if (!m) {
-    throw usageError(
-      `--period "${expr ?? ''}" is not a month. Employer liabilities are filed monthly, so ` +
-        'here it is YYYY-MM (2026-07).'
-    );
+    throw usageError({ key: 'payroll.isn.period_not_month', params: { value: expr ?? '' } });
   }
   const anio = Number(m[1]);
   const mes = Number(m[2]);
   if (mes < 1 || mes > 12) {
-    throw usageError(`--period "${expr ?? ''}": the month runs from 01 to 12.`);
+    throw usageError({ key: 'payroll.isn.period_month_range', params: { value: expr ?? '' } });
   }
   return { anio, mes };
 }
@@ -385,9 +344,7 @@ function enteroNoNegativo(bandera: string) {
   return (valor: string): number => {
     const n = Number(valor);
     if (!Number.isSafeInteger(n) || n < 0) {
-      throw new InvalidArgumentError(
-        `${bandera} must be a non-negative whole number; got "${valor}".`
-      );
+      throw new InvalidArgumentError(t('cli.flag.error_not_whole_number', { name: bandera, value: valor }));
     }
     return n;
   };
@@ -569,31 +526,22 @@ export function lineasDeLaCaptura(datos: {
     )
   );
   if (cobertura.alcanzados > 0) {
-    lineas.push(previewLine('payroll.isn_rate_set.reaches', `${cobertura.alcanzados} worker(s) carrying "${estado}"`));
+    lineas.push(previewLine('payroll.isn_rate_set.reaches', t('payroll.isn_rate_set.reaches_count', { count: cobertura.alcanzados, state: estado })));
   } else {
-    lineas.push(
-      previewLine('payroll.isn_rate_set.reaches', `NOBODY: no live worker of this entity carries "${estado}" in ${fuente}`)
-    );
+    lineas.push(previewLine('payroll.isn_rate_set.reaches', t('payroll.isn_rate_set.reaches_nobody', { state: estado, source: fuente })));
+    // The continuation lines start at column 21, under the values.
     if (cobertura.otras.length > 0) {
-      lineas.push(
-        `                     keys actually in use: ${cobertura.otras
-          .map((o) => `${o.clave === '' ? '(blank)' : o.clave}=${o.trabajadores}`)
-          .join(', ')}`
-      );
+      const keys = cobertura.otras.map((o) => `${o.clave === '' ? t('payroll.isn_rate_set.blank_key') : o.clave}=${o.trabajadores}`).join(', ');
+      lineas.push(`${' '.repeat(21)}${t('payroll.isn_rate_set.keys_in_use', { keys })}`);
     }
     if (estado.length === 3 && cobertura.criterio === 'centro_de_trabajo') {
-      lineas.push(
-        '                     employees.work_state is VARCHAR(2) and this key is 3 letters: ' +
-          'it can never match. Capture the 2-letter key your workers carry, or fix the workers.'
-      );
+      lineas.push(`${' '.repeat(21)}${t('payroll.isn_rate_set.key_too_long')}`);
     }
   }
 
   for (const c of choques) {
-    lineas.push(
-      `  OVERLAP            ${c.estado} ${c.vigenciaDesde} -> ${c.vigenciaHasta ?? '(open)'} ` +
-        `at ${c.tasa}: the trigger trg_isn_sin_solape will refuse this write.`
-    );
+    const to = c.vigenciaHasta ?? t('payroll.isn.open_end');
+    lineas.push(previewLine('payroll.isn_rate_set.overlap', t('payroll.isn_rate_set.overlap_detail', { state: c.estado, from: c.vigenciaDesde, to, rate: c.tasa })));
   }
   return lineas;
 }
@@ -624,13 +572,10 @@ export function exigirEstadosDePasivo(valores: readonly string[] | undefined): s
   const pedidos = valores.map((v) => v.trim()).filter((v) => v !== '');
   const desconocidos = pedidos.filter((p) => !ESTADOS_DE_PASIVO.includes(p));
   if (desconocidos.length > 0) {
-    throw usageError(
-      `Unknown --status: ${desconocidos.join(', ')}. The table only has: ` +
-        `${ESTADOS_DE_PASIVO.join(', ')} (migration 008).`
-    );
+    throw usageError({ key: 'payroll.tax_deposit.status_unknown', params: { values: desconocidos.join(', '), statuses: ESTADOS_DE_PASIVO.join(', ') } });
   }
   if (pedidos.length === 0) {
-    throw usageError(`--status named nothing. Available: ${ESTADOS_DE_PASIVO.join(', ')}.`);
+    throw usageError({ key: 'payroll.tax_deposit.status_empty', params: { statuses: ESTADOS_DE_PASIVO.join(', ') } });
   }
   return pedidos;
 }
@@ -652,19 +597,12 @@ export function traducirErrorDeCaptura(err: unknown, estado: string, desde: stri
   const mensaje = err instanceof Error ? err.message : String(err);
   if (codigo === '23505') {
     return conflict(
-      `${estado} already has a rate captured effective ${desde}. A rate is not edited blind: ` +
-        `look at it first with \`mnemosine isn rate list --state ${estado} -a\`, and if it has ` +
-        'to change, close it with a --superseded-on and capture the new one.',
+      { key: 'payroll.isn_rate_set.duplicate', params: { state: estado, from: desde, command: `mnemosine isn rate list --state ${estado} -a` } },
       { estado, desde }
     );
   }
   if (codigo === '23514' || /solapa/i.test(mensaje)) {
-    return validationFailed(
-      `The database refused the write: ${mensaje}. Two overlapping vigencias make the month's ` +
-        'ISN depend on which one the engine reads first, so the trigger stops it. Close the ' +
-        'previous one with --superseded-on and capture this one again.',
-      { estado, desde }
-    );
+    return validationFailed({ key: 'payroll.isn_rate_set.db_refused', params: { message: mensaje } }, { estado, desde });
   }
   return err;
 }
@@ -859,11 +797,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
         const exencion = exigirExencion(regimen, opts.exemption);
         const fundamento = exigirFundamento(opts.legalBasis);
         if (opts.effectiveFrom === undefined) {
-          throw usageError(
-            '--effective-from is required: a rate without a vigencia is not a rate, it is a ' +
-              'memory. State congresses move these by decree, and computing March payroll with ' +
-              "December's rate gives a plausible number and a wrong one."
-          );
+          throw usageError({ key: 'payroll.isn_rate_set.effective_from_missing' });
         }
         const desde = exigirFechaIsn('--effective-from', opts.effectiveFrom);
         const hasta =
@@ -871,11 +805,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
             ? null
             : exigirFechaIsn('--superseded-on', opts.supersededOn);
         if (hasta !== null && hasta <= desde) {
-          throw usageError(
-            `--superseded-on ${hasta} is not after --effective-from ${desde}. A vigencia that ` +
-              'ends before it starts is not a vigencia (the CHECK isn_vigencia_coherente of ' +
-              'migration 067 refuses it too).'
-          );
+          throw usageError({ key: 'payroll.isn_rate_set.superseded_before', params: { to: hasta, from: desde } });
         }
 
         const ctx = await entidadParaEscribir(opts);
@@ -913,18 +843,13 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
           choques,
         });
         const err = process.stderr;
-        err.write(`\n${c.bold('About to capture an ISN rate')}\n`);
+        err.write(`\n${c.bold(t('payroll.isn_rate_set.heading'))}\n`);
+        const marks = [t('payroll.isn_rate_set.overlap'), t('payroll.isn_rate_set.nobody')];
         for (const l of lineas) {
-          err.write(`${l.includes('OVERLAP') || l.includes('NOBODY') ? c.yellow(l) : c.dim(l)}\n`);
+          err.write(`${marks.some((m) => l.includes(m)) ? c.yellow(l) : c.dim(l)}\n`);
         }
         if (regimen !== 'tasa_plana') {
-          err.write(
-            c.yellow(
-              `  NOTE: the engine only computes tasa_plana. Captured as "${regimen}" it will ` +
-                'refuse to compute and say so, which is the point: it will not apply the rate ' +
-                'as if the regime were flat.\n'
-            )
-          );
+          err.write(c.yellow(`  ${t('payroll.isn_rate_set.regime_not_computed', { regime: regimen })}\n`));
         }
         err.write('\n');
 
@@ -947,39 +872,26 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
             ],
             { ...opts, idField: 'estado' }
           );
-          err.write(c.dim('Dry run: nothing was written.\n'));
+          err.write(c.dim(`${t('payroll.isn_rate_set.dry_run')}\n`));
           return ExitCode.OK;
         }
 
         // El solape se rechaza AQUÍ además de en la base, para no gastar una
         // confirmación humana en una escritura que el disparador va a tirar.
         if (choques.length > 0) {
+          const clashes = choques
+            .map((v) => t('payroll.isn_rate_set.clash', { from: v.vigenciaDesde, to: v.vigenciaHasta ?? t('payroll.isn.open_end'), rate: v.tasa }))
+            .join(', ');
           throw validationFailed(
-            `${estado} already has ${choques.length} vigencia(s) overlapping ${desde}` +
-              `${hasta === null ? ' onwards' : `..${hasta}`}: ` +
-              choques
-                .map((v) => `${v.vigenciaDesde}->${v.vigenciaHasta ?? '(open)'} at ${v.tasa}`)
-                .join(', ') +
-              '. Two overlapping vigencias make the month\'s ISN depend on which one gets read ' +
-              'first. Close the previous one with --superseded-on and capture this one again.',
+            { key: 'payroll.isn_rate_set.overlap_refused', params: { state: estado, count: choques.length, from: desde, to: hasta ?? 'none', clashes } },
             { estado, choques: choques.length }
           );
         }
 
         if (opts.yes !== true) {
-          const ok = await ask(
-            `Capture ${estado} at ${valorTasa} from ${desde}? Every MX pay run of that state ` +
-              'from that date on will multiply by it — for EVERY firm on this installation: ' +
-              'the ISN rate table is public law, not tenant data, and it carries no tenant_id. ' +
-              'Your user id is the only trace of who captured it.'
-          );
+          const ok = await ask(t('payroll.isn_rate_set.confirm', { state: estado, rate: valorTasa, from: desde }));
           if (!ok) {
-            throw abortedByUser(
-              stdin.isTTY
-                ? 'Nothing captured.'
-                : 'Nothing captured: no terminal to confirm on. Add -y to capture without ' +
-                  'asking, or --dry-run to see what would be written.'
-            );
+            throw abortedByUser({ key: stdin.isTTY ? 'payroll.isn_rate_set.aborted' : 'payroll.isn_rate_set.aborted_no_terminal' });
           }
         }
 
@@ -1029,13 +941,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
         render([filaDeTasa(fila)], { ...opts, idField: 'estado' });
         if (legible(opts)) {
-          err.write(
-            c.green(
-              `Captured. ${estado} now computes at ${fila.tasa} from ${fila.vigenciaDesde}` +
-                `${fila.vigenciaHasta === null ? ' onwards' : ` until ${fila.vigenciaHasta}`}. ` +
-                'Nothing was accrued: the liability is written when a pay run closes.\n'
-            )
-          );
+          const captured = { state: estado, rate: fila.tasa, from: fila.vigenciaDesde, to: fila.vigenciaHasta ?? 'none' };
+          err.write(c.green(`${t('payroll.isn_rate_set.captured', captured)}\n`));
         }
         return ExitCode.OK;
       })
@@ -1098,23 +1005,13 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
         if (legible(opts) && vistas.length === 0) {
           const err = process.stderr;
-          err.write(
-            c.yellow(
-              filas.length === 0
-                ? '  No ISN rate is captured at all. The table ships empty on purpose ' +
-                  '(migration 067): thirty-two states remembered from memory are thirty-two ' +
-                  'invented numbers, so the engine refuses to compute instead of reporting a ' +
-                  'zero that looks like a result.\n'
-                : `  Nothing is in force on ${alDia}${estado === undefined ? '' : ` for ${estado}`}` +
-                  `, though ${filas.length} vigencia(s) are captured. Use -a to see them.\n`
-            )
-          );
-          err.write(
-            c.dim(
-              '  Capture one with: mnemosine isn rate set <STATE> <rate> --effective-from ' +
-                '<date> --legal-basis "<law, article, gazette>"\n'
-            )
-          );
+          const why =
+            filas.length === 0
+              ? t('payroll.isn_rate_list.none_captured')
+              : t('payroll.isn_rate_list.none_in_force', { date: alDia, state: estado ?? 'none', count: filas.length });
+          err.write(c.yellow(`  ${why}\n`));
+          const command = 'mnemosine isn rate set <STATE> <rate> --effective-from <date> --legal-basis "<law, article, gazette>"';
+          err.write(c.dim(`  ${t('payroll.isn_rate_list.capture_hint', { command })}\n`));
         }
         return ExitCode.OK;
       })
@@ -1133,10 +1030,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
     (opts: CommonOpts & { run?: string; state?: string; strict?: boolean }) =>
       run(async () => {
         if (opts.run === undefined || opts.run.trim() === '') {
-          throw usageError(
-            '--run <payRunId> is required: the ISN is computed from the paychecks of one pay ' +
-              'run, because that is where the remunerations and the states are.'
-          );
+          throw usageError({ key: 'payroll.isn_calculate.run_required' });
         }
         const payRunId = opts.run.trim();
         const filtro = opts.state === undefined ? undefined : exigirClaveDeEstado(opts.state);
@@ -1167,10 +1061,7 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
           [payRunId, ctx.tenantId, ctx.entityId]
         );
         if (corrida.rowCount === 0) {
-          throw notFound(
-            `No pay run ${payRunId} in this entity. A run of another entity is not visible ` +
-              'here on purpose: the ISN of a run belongs to the entity whose calendar produced it.'
-          );
+          throw notFound({ key: 'payroll.isn_calculate.run_not_found', params: { id: payRunId } });
         }
         const r = corrida.rows[0];
 
@@ -1211,10 +1102,8 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
         const err = process.stderr;
         const cabecera =
-          `\n${c.bold(`ISN — pay run ${payRunId}`)}  ` +
-          c.dim(
-            `${r.period_start} -> ${r.period_end} (${r.status}) · accrual date ${fechaCausacion}\n`
-          ) +
+          `\n${c.bold(t('payroll.isn_calculate.heading', { id: payRunId }))}  ` +
+          c.dim(`${t('payroll.isn_calculate.window', { start: r.period_start, end: r.period_end, status: r.status, date: fechaCausacion })}\n`) +
           c.dim(
             `  ${policyPair('isn_estado_que_causa', criterio, criterioDefinido)} · ` +
               `${policyPair('isn_momento_de_causacion', causacionPorPago ? 'pago' : 'devengo', pCausacion.defined)}\n`
@@ -1222,13 +1111,10 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
 
         if (legible(opts)) err.write(cabecera);
         if (!criterioDefinido || !pCausacion.defined) {
-          err.write(
-            c.yellow(
-              '  At least one criterion is a declared DEFAULT and not a decision of the firm. ' +
-                'Answer them with `mnemosine pending define isn_estado_que_causa` / ' +
-                '`mnemosine pending define isn_momento_de_causacion`.\n'
-            )
-          );
+          // The panel keys travel inside the commands, untranslated.
+          const define = (policy: string) => `mnemosine pending define ${policy}`;
+          const commands = { stateCommand: define('isn_estado_que_causa'), momentCommand: define('isn_momento_de_causacion') };
+          err.write(c.yellow(`  ${t('payroll.isn_calculate.defaults_unanswered', commands)}\n`));
         }
 
         render(
@@ -1260,11 +1146,10 @@ export function registerIsnCommand(program: Command, deps: PayrollIsnCommandDeps
         if (legible(opts)) {
           err.write(
             '\n' +
-              c.bold(`  ISN computed: ${formatMoneyMx(total)} MXN across ${porEstado.length} state(s)\n`) +
+              c.bold(`  ${t('payroll.isn_calculate.total', { amount: formatMoneyMx(total), count: porEstado.length })}\n`) +
               c.dim(
-                `  ${conteo.bloqueante} blocking, ${conteo.aviso} warning(s). A blocking finding ` +
-                  'means a base was NOT computed: that is a hole in the number above, not a zero.\n' +
-                  '  Nothing was accrued here. The liability is written when the run closes.\n'
+                `  ${t('payroll.isn_calculate.findings', { blocking: conteo.bloqueante, warnings: conteo.aviso })}\n` +
+                  `  ${t('payroll.isn_calculate.not_accrued')}\n`
               )
           );
         }
@@ -1403,13 +1288,7 @@ export function registerTaxDepositCommand(program: Command, deps: PayrollIsnComm
 
         const err = process.stderr;
         if (total === 0) {
-          err.write(
-            c.yellow(
-              '  Nothing accrued matches. `employer_tax_liabilities` is written when a pay run ' +
-                'CLOSES (approved or paid), not when it is computed — an empty list most often ' +
-                'means no run has been closed for this window yet, not that nothing is owed.\n'
-            )
-          );
+          err.write(c.yellow(`  ${t('payroll.tax_deposit.none')}\n`));
           return ExitCode.OK;
         }
 
@@ -1417,28 +1296,12 @@ export function registerTaxDepositCommand(program: Command, deps: PayrollIsnComm
         const suma = pintadas
           .reduce((s, p) => s.plus(String(p.importe)), new Decimal(0))
           .toFixed(2);
-        err.write(
-          c.dim(
-            `  ${pintadas.length} of ${total} row(s) · ${formatMoneyMx(suma)} MXN shown · ` +
-              `status ${estados.join(',')}${soloEstaEntidad ? '' : ' · all entities'}\n`
-          )
-        );
+        const summary = { shown: pintadas.length, total, amount: formatMoneyMx(suma), statuses: estados.join(','), scope: soloEstaEntidad ? 'entity' : 'all' };
+        err.write(c.dim(`  ${t('payroll.tax_deposit.summary', summary)}\n`));
         if (vencidos.length > 0) {
-          err.write(
-            c.red(
-              `  ${vencidos.length} row(s) are past their due date and still open. Overdue ` +
-                'employer tax accrues surcharges and updating by law; the date is the date.\n'
-            )
-          );
+          err.write(c.red(`  ${t('payroll.tax_deposit.overdue', { count: vencidos.length })}\n`));
         }
-        err.write(
-          c.dim(
-            '  Due dates here follow the general rule (the 17th of the following month) and are ' +
-              'NOT adjusted to a business day: article 12 of the CFF needs a holiday calendar ' +
-              'this system does not have, and several states publish their own ISN calendar. ' +
-              'Check the state calendar before you rely on an ISN date.\n'
-          )
-        );
+        err.write(c.dim(`  ${t('payroll.tax_deposit.due_date_rule')}\n`));
         return ExitCode.OK;
       })
   );
