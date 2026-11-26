@@ -2067,7 +2067,7 @@ describe('bank match create · el grupo explícito', () => {
       lectorCotejo()
     );
     expect(r.exitCode).toBe(4);
-    expect((r.errs[0] as Error).message).toMatch(/dos veces/);
+    expect((r.errs[0] as Error).message).toMatch(/appears twice/);
   });
 });
 
