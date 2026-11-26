@@ -114,10 +114,7 @@ export function registerClosingFx(
     risk: 'irreversible',
     agent: false,
     writes: 'journal_entries + journal_entry_lines (the adjusting entry and its day-1 mirror), fx_revaluation_runs',
-    llave: {
-      innecesaria:
-        'fx_revaluation_runs subtracts what earlier runs of the period posted: running it again posts only what moved since, or nothing',
-    },
+    llave: { innecesaria: t('closing.fx.revalue.key_unneeded') },
   });
   revalue.addHelpText('after', EXAMPLES);
   revalue.action((periodArg: string, opts: Opts) =>
