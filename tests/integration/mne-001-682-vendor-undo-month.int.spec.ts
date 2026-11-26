@@ -337,7 +337,7 @@ describe.each<Answer>(['undo_month', 'payment_month'])('vendor_undo_iva_month = 
     }
     // The first vendor's May only takes out what the cases above undid.
     expect(refusals.map((r) => r.vendorIds)).toEqual([[vendorId]]);
-    expect(refusals[0].message).toContain('desaplicado o reversado');
+    expect(refusals[0].message.key).toBe('error.DIOT_NO_ENTREGABLE.sat_batch.negative_net');
   }, 240_000);
 
   it('the DIOT and the workpaper each read the key once a month, whatever the number of applications', async () => {
