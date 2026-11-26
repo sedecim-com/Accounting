@@ -20,6 +20,7 @@ import {
 } from '../accounting/posting.js';
 import { JournalEntryType, type JournalEntry } from '../../types/index.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { queryBankBookBalanceAsOf } from '../reporting/report-service.js';
 import { sellarPartidas } from './book-items.js';
 import { correrCotejo, liberarPartidas as releaseGroupSeal, type ResultadoCorrida } from './match-service.js';
 import {
@@ -930,9 +931,9 @@ async function movimientosSinExplicar(
  * significa «no hay dónde mirar» presentado como saldo es exactamente el
  * defecto que este tramo existe para impedir.
  *
- * `COALESCE` POR LADO y no sobre la resta: la 001 deja `debit_amount` y
- * `credit_amount` mutuamente excluyentes por CHECK, así que `debit − credit`
- * sobre una línea acreedora es NULL, que SUM ignora.
+ * MNE-001-621 (T14 · #101): the sum is the report layer's
+ * (`queryBankBookBalanceAsOf`, report-service.ts), read on this caller's
+ * transaction client when it has one and on the pool when it has none.
  */
 async function saldoDeLibros(
   client: pg.PoolClient | null,
@@ -941,22 +942,7 @@ async function saldoDeLibros(
   hasta: string
 ): Promise<string | null> {
   if (cuenta.gl_de_la_entidad === null) return null;
-  const sql = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS saldo
-                 FROM journal_entry_lines l
-                 JOIN journal_entries j ON j.id = l.journal_entry_id
-                 -- Los DOS extremos acotados por la entidad, como en
-                 -- book-items: el vínculo entre la cuenta bancaria y el mayor
-                 -- es gl_account_id, y un mapeo mal capturado convertiría
-                 -- esta suma en una ventana a los libros ajenos.
-                 JOIN bank_accounts ba ON ba.gl_account_id = l.account_id
-                WHERE ba.id = $1 AND ba.entity_id = $2 AND j.entity_id = $2
-                  AND j.status = 'posted'
-                  AND j.entry_date <= $3::date`;
-  const params = [cuenta.id, entityId, hasta];
-  const r = client
-    ? await client.query<{ saldo: string }>(sql, params)
-    : await query<{ saldo: string }>(sql, params);
-  return monto(new Decimal(r.rows[0].saldo));
+  return monto(new Decimal(await queryBankBookBalanceAsOf(entityId, cuenta.id, hasta, client ?? undefined)));
 }
 
 // ============================================================
