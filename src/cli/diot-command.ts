@@ -823,7 +823,8 @@ Examples:
               {
                 key: 'fiscal_mx.diot.export.meanwhile',
                 params: {
-                  message: e.message,
+                  // The 501 is a key (MNE-001-726): its `message` is English, so read it in the session's language.
+                  message: e.localized(),
                   command: `mnemosine diot export --period ${String(anio)}-${String(mes).padStart(2, '0')} --layout working-paper`,
                 },
               },
