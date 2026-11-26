@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { changePolicyHint } from '../policy/policy-hint.js';
 import { ValidationError } from '../../utils/errors.js';
 import type { FixedAsset } from '../../types/index.js';
 import { DepreciationMethod, JournalEntryType } from '../../types/index.js';
@@ -183,18 +182,17 @@ export async function criteriosDeLaCorrida(tenantId: string, entityId: string): 
   const convencion = await getPolicy({ tenantId, entityId }, 'convencion_primer_mes');
 
   if (!esBase(base.value)) {
-    throw new ValidationError(
-      `La política \`base_depreciacion\` vale "${base.value}", que no es ninguna de las dos ` +
-        `bases posibles (${BASES_DE_DEPRECIACION.join(', ')}). Corrígela con ` +
-        `${changePolicyHint('base_depreciacion')} antes de correr la depreciación.`
-    );
+    // The key spells out the two commands of changePolicyHint (policy-hint.ts).
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.depreciation.policy_base_unknown',
+      params: { value: base.value, known: BASES_DE_DEPRECIACION.join(', ') },
+    });
   }
   if (!esConvencion(convencion.value)) {
-    throw new ValidationError(
-      `La política \`convencion_primer_mes\` vale "${convencion.value}", que no es ninguna de ` +
-        `las dos convenciones posibles (${CONVENCIONES_PRIMER_MES.join(', ')}). Corrígela con ` +
-        `${changePolicyHint('convencion_primer_mes')} antes de correr la depreciación.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.depreciation.policy_convention_unknown',
+      params: { value: convencion.value, known: CONVENCIONES_PRIMER_MES.join(', ') },
+    });
   }
 
   return {
@@ -400,7 +398,7 @@ export async function inquilinoDeLaEntidad(entityId: string): Promise<string> {
   );
   const tenantId = r.rows[0]?.tenant_id;
   if (!tenantId) {
-    throw new ValidationError(`No se pudo determinar el inquilino de la entidad ${entityId}.`);
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.depreciation.tenant_unknown', params: { entityId } });
   }
   return tenantId;
 }
