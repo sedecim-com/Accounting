@@ -307,7 +307,7 @@ export const EN = {
     '--write-off-account only makes sense with --residual write-off: a residual that is kept is not written off against any account.',
   // match-service.ts: the group, its sides and its session
   'error.VALIDATION_ERROR.bank_match.repeated_id':
-    'The {side, select, bank {bank transaction} other {book item}} {id} appears twice in the group: its amount would count double and the group would balance by asserting twice what there is.',
+    '{side, select, bank {The bank transaction} other {The book item}} {id} appears twice in the group: its amount would count double and the group would balance by asserting twice what there is.',
   'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group':
     'Book item {id} is already sealed by match group {group}. Unapply that match before matching it again.',
   'error.VALIDATION_ERROR.bank_match.session_other_account':
@@ -350,6 +350,50 @@ export const EN = {
     'The reconciliation seal reached {sealed} of {count} book item(s). The missing ones were already sealed, belong to an unposted entry, or are not of the same entity as group {group}. Nothing is sealed halfway: check the list with `bank book-item list` and build the group again.',
   'error.VALIDATION_ERROR.bank_book_item.partial_release':
     'Released {released} of {count} book item(s). The missing ones were not sealed, or their seal was set by something other than a bank match group of this entity (the account certification uses the same column) and it is not lifted from here.',
+
+  // ---- MNE-001-824 · I9 by folder, part 2b, part 1: the identifier and field checks of a bank account and the refusals of bank transaction reclassify in src/services/banking (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes and fields unchanged: VALIDATION_ERROR
+  // for a ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The
+  // Spanish twin is the text each site printed. The act and the empty field are
+  // selects, so each label goes with its sentence. Values, types, codes,
+  // commands and the column name are parameters or literals, never translated.
+  // bank-account-service.ts: the scope of create, edit and set
+  'error.VALIDATION_ERROR.bank_account.needs_entity':
+    '{act, select, create {Creating a bank account} edit {Editing a bank account} other {Setting the GL mapping of a bank account}} needs a specific entity: a tenant scope does not say in which of its entities the account lives.',
+  // the CLABE and the ABA routing
+  'error.VALIDATION_ERROR.bank_account.clabe_length':
+    'A CLABE is 18 digits (3 for the bank, 3 for the city, 11 for the account and 1 check digit); "{value}" has {length}.',
+  'error.VALIDATION_ERROR.bank_account.clabe_check_digit':
+    'The CLABE ending in {last4} fails its check digit: the first 17 require {expected} and it has {got}. It is almost always two digits transposed when copying it.',
+  'error.VALIDATION_ERROR.bank_account.clabe_bank_000':
+    "The CLABE starts with 000, which is the code of no institution in Banxico's catalogue or in the SAT's c_Banco.",
+  'error.VALIDATION_ERROR.bank_account.aba_length': 'An ABA routing number is 9 digits; "{value}" has {length}.',
+  'error.VALIDATION_ERROR.bank_account.aba_checksum': 'Routing number {routing} fails its ABA checksum (weights 3,7,1, a multiple of 10).',
+  'error.VALIDATION_ERROR.bank_account.aba_zero': 'Routing number 000000000 passes the checksum by arithmetic and belongs to no institution.',
+  // the other fields of create and edit
+  'error.VALIDATION_ERROR.bank_account.type_unknown': '"{value}" is not an account type. The five are: {known}.',
+  'error.VALIDATION_ERROR.bank_account.currency_invalid': '"{value}" is not a three-letter ISO currency code.',
+  'error.VALIDATION_ERROR.bank_account.sat_bank_code_invalid': 'The SAT bank code (c_Banco) is 3 digits; got "{value}".',
+  'error.VALIDATION_ERROR.bank_account.field_empty':
+    '{field, select, account_name {The account name} other {The bank name}} cannot be empty.',
+  'error.VALIDATION_ERROR.bank_account.swift_invalid':
+    '"{value}" does not have the shape of a SWIFT/BIC code (8 or 11 characters: 4 for the bank, 2 for the country, 2 for the location and an optional 3 for the branch).',
+  'error.VALIDATION_ERROR.bank_account.iban_invalid':
+    '"{value}" does not have the shape of an IBAN (2 country letters, 2 check digits and up to 30 alphanumerics).',
+  'error.VALIDATION_ERROR.bank_account.routings_differ':
+    'The ACH routing number and the wire one differ, and the table has only one column for both (`routing_number_encrypted`, migration 003): keeping one would lose the other without a word. Create the account with one and open the missing column as F05b work.',
+  'error.VALIDATION_ERROR.bank_account.sat_bank_code_not_clabe':
+    'The declared bank code ({declared}) is not the one the CLABE carries ({clabe}). They are the same catalogue: one of the two is wrong.',
+  // transactions.ts: the type, and bank transaction reclassify
+  'error.VALIDATION_ERROR.bank_transaction.type_unknown': '"{value}" is not a bank transaction type. The five are: {known}.',
+  'error.VALIDATION_ERROR.bank_transaction.reclassify_sign':
+    'Transaction {id} is for {amount} and "{type}" requires an amount {sign, select, out {going OUT of the account (negative)} other {coming INTO the account (positive)}}. A fee refund or a withholding does not change sign by being reclassified.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_matched':
+    'Transaction {id} is matched: something in the books already explains it. Undo the match with `bank match unapply` before changing what it is.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_posted':
+    'Transaction {id} was already posted by entry {entry}. Reverse that entry before reclassifying it.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_race': 'Transaction {id} changed while it was being reclassified; try again.',
+  // ---- end of MNE-001-824 ----
 
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The

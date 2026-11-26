@@ -371,9 +371,10 @@ export async function obtenerMovimiento(
 export function exigirTipoDeMovimiento(valor: string): TipoDeMovimiento {
   const tipo = valor.trim().toLowerCase();
   if (!(TIPOS_DE_MOVIMIENTO as readonly string[]).includes(tipo)) {
-    throw new ValidationError(
-      `"${valor}" no es un tipo de movimiento bancario. Los cinco son: ${TIPOS_DE_MOVIMIENTO.join(', ')}.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_transaction.type_unknown',
+      params: { value: valor, known: TIPOS_DE_MOVIMIENTO.join(', ') },
+    });
   }
   return tipo as TipoDeMovimiento;
 }
@@ -454,17 +455,13 @@ export async function reclassifyTransaction(
 
     const sign = REQUIRED_SIGN[type];
     if ((sign === 'out' && !amount.isNegative()) || (sign === 'in' && (amount.isNegative() || amount.isZero()))) {
-      throw new ValidationError(
-        `El movimiento ${id} es de ${amount.toFixed(4)} y "${type}" exige un importe ` +
-          `${sign === 'out' ? 'que SALGA de la cuenta (negativo)' : 'que ENTRE a la cuenta (positivo)'}. ` +
-          `Una devolución de comisión o una retención no cambian de signo por reclasificarlas.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_transaction.reclassify_sign',
+        params: { id, amount: amount.toFixed(4), type, sign },
+      });
     }
     if (row.is_matched) {
-      throw new ConflictError(
-        `El movimiento ${id} está cotejado: algo en libros ya lo explica. ` +
-          `Deshaz el cotejo con \`bank match unapply\` antes de cambiar qué es.`
-      );
+      throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_matched', params: { id } });
     }
     const posted = await client.query<{ entry_number: string }>(
       `SELECT entry_number
@@ -475,10 +472,10 @@ export async function reclassifyTransaction(
       [entityId, TREASURY_SOURCES, id]
     );
     if (posted.rows[0]) {
-      throw new ConflictError(
-        `El movimiento ${id} ya lo contabilizó la póliza ${posted.rows[0].entry_number}. ` +
-          `Revierte esa póliza antes de reclasificarlo.`
-      );
+      throw new ConflictError({
+        key: 'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_posted',
+        params: { id, entry: posted.rows[0].entry_number },
+      });
     }
 
     if (opts.dryRun) return { ...base, changed: true };
@@ -497,7 +494,7 @@ export async function reclassifyTransaction(
       [id, entityId, type, row.transaction_type]
     );
     if (u.rowCount !== 1) {
-      throw new ConflictError(`El movimiento ${id} cambió mientras se reclasificaba; vuelve a intentarlo.`);
+      throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_race', params: { id } });
     }
 
     await registrarAuditoria(client, {

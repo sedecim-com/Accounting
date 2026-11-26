@@ -183,11 +183,11 @@ describe('exigirClabe', () => {
   });
 
   it('nombra el dígito que esperaba cuando el verificador no cuadra', () => {
-    expect(() => exigirClabe('002180000000000000')).toThrow(/exigen 9 y trae 0/);
+    expect(() => exigirClabe('002180000000000000')).toThrow(/the first 17 require 9 and it has 0/);
   });
 
   it('dice cuántos dígitos llegaron cuando no son 18', () => {
-    expect(() => exigirClabe('0021800000')).toThrow(/tiene 10/);
+    expect(() => exigirClabe('0021800000')).toThrow(/has 10/);
   });
 
   it('rechaza la clave de banco 000 aunque el verificador cuadre', () => {
@@ -195,7 +195,7 @@ describe('exigirClabe', () => {
     // impecable y de ninguna institución.
     expect(clabeValida('000000000000000000')).toBe(true);
     expect(() => exigirClabe('000000000000000000')).toThrow(ValidationError);
-    expect(() => exigirClabe('000000000000000000')).toThrow(/Banxico/);
+    expect(() => exigirClabe('000000000000000000')).toThrow(/Banxico's catalogue/);
   });
 });
 
@@ -207,11 +207,11 @@ describe('exigirRoutingAba', () => {
 
   it('rechaza el que no pasa el checksum', () => {
     expect(() => exigirRoutingAba('123456781')).toThrow(ValidationError);
-    expect(() => exigirRoutingAba('123456781')).toThrow(/checksum ABA/);
+    expect(() => exigirRoutingAba('123456781')).toThrow(/ABA checksum/);
   });
 
   it('rechaza los nueve ceros que el checksum sí acepta', () => {
-    expect(() => exigirRoutingAba('000000000')).toThrow(/ninguna institución/);
+    expect(() => exigirRoutingAba('000000000')).toThrow(/belongs to no institution/);
   });
 
   it('lleva el nombre del campo al error, para que la CLI señale el flag correcto', () => {

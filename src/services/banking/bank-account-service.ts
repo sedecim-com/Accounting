@@ -80,8 +80,9 @@ export type TipoDeCuenta = (typeof TIPOS_DE_CUENTA)[number];
  */
 export function digitoVerificadorClabe(primeros17: string): number {
   if (!/^\d{17}$/.test(primeros17)) {
+    // Developer only: both callers pass 17 digits they already checked.
     throw new ValidationError(
-      `El dígito verificador se calcula sobre los 17 primeros dígitos de la CLABE; llegaron ${primeros17.length} caracteres.`,
+      `The check digit is computed over the first 17 digits of a CLABE; got ${primeros17.length} characters.`,
       'clabe'
     );
   }
@@ -130,25 +131,17 @@ function sinSeparadores(valor: string): string {
 export function exigirClabe(valor: string): { clabe: string; bancoSat: string } {
   const clabe = sinSeparadores(valor);
   if (!/^\d{18}$/.test(clabe)) {
-    throw new ValidationError(
-      `La CLABE son 18 dígitos (3 de banco, 3 de plaza, 11 de cuenta y 1 verificador); "${valor}" tiene ${clabe.length}.`,
-      'clabe'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.clabe_length', params: { value: valor, length: clabe.length } }, 'clabe');
   }
   if (!clabeValida(clabe)) {
-    throw new ValidationError(
-      `La CLABE terminada en ${clabe.slice(-4)} no pasa su dígito verificador: ` +
-        `los 17 primeros exigen ${digitoVerificadorClabe(clabe.slice(0, 17))} y trae ${clabe[17]}. ` +
-        'Casi siempre son dos dígitos transpuestos al copiarla.',
-      'clabe'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_account.clabe_check_digit',
+      params: { last4: clabe.slice(-4), expected: digitoVerificadorClabe(clabe.slice(0, 17)), got: clabe[17] },
+    }, 'clabe');
   }
   const bancoSat = clabe.slice(0, 3);
   if (bancoSat === '000') {
-    throw new ValidationError(
-      'La CLABE empieza con 000, que no es clave de ninguna institución del catálogo de Banxico ni del c_Banco del SAT.',
-      'clabe'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.clabe_bank_000' }, 'clabe');
   }
   return { clabe, bancoSat };
 }
@@ -164,23 +157,14 @@ export function exigirClabe(valor: string): { clabe: string; bancoSat: string } 
 export function exigirRoutingAba(valor: string, campo = 'routing'): string {
   const routing = sinSeparadores(valor);
   if (!/^\d{9}$/.test(routing)) {
-    throw new ValidationError(
-      `El routing ABA son 9 dígitos; "${valor}" tiene ${routing.length}.`,
-      campo
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.aba_length', params: { value: valor, length: routing.length } }, campo);
   }
   if (!routingAbaValido(routing)) {
-    throw new ValidationError(
-      `El routing ${routing} no pasa su checksum ABA (ponderación 3,7,1 múltiplo de 10).`,
-      campo
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.aba_checksum', params: { routing } }, campo);
   }
   if (/^0{9}$/.test(routing)) {
     // Pasa el checksum y no es de nadie: la suma de nueve ceros es cero.
-    throw new ValidationError(
-      'El routing 000000000 cumple el checksum por aritmética y no corresponde a ninguna institución.',
-      campo
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.aba_zero' }, campo);
   }
   return routing;
 }
@@ -214,12 +198,10 @@ function alcanceDe(
   };
 }
 
-/** Un alta o una edición necesitan saber en qué entidad ocurren. */
-function entidadDe(scope: Scope, acto: string): string {
+/** Un alta o una edición necesitan saber en qué entidad ocurren; `act` names which, and the key its label. */
+function entidadDe(scope: Scope, act: 'create' | 'edit' | 'set'): string {
   if (scope.kind !== 'entity') {
-    throw new ValidationError(
-      `${acto} necesita una entidad concreta: un alcance de inquilino no dice en cuál de sus entidades vive la cuenta.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.needs_entity', params: { act } });
   }
   return scope.entityId;
 }
@@ -804,7 +786,7 @@ function exigirTipo(valor: string): TipoDeCuenta {
   const tipo = valor.trim().toLowerCase() as TipoDeCuenta;
   if (!TIPOS_DE_CUENTA.includes(tipo)) {
     throw new ValidationError(
-      `"${valor}" no es un tipo de cuenta. Los cinco son: ${TIPOS_DE_CUENTA.join(', ')}.`,
+      { key: 'error.VALIDATION_ERROR.bank_account.type_unknown', params: { value: valor, known: TIPOS_DE_CUENTA.join(', ') } },
       'account_type'
     );
   }
@@ -814,10 +796,7 @@ function exigirTipo(valor: string): TipoDeCuenta {
 function exigirMoneda(valor: string): string {
   const codigo = valor.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(codigo)) {
-    throw new ValidationError(
-      `"${valor}" no es un código ISO de moneda de tres letras.`,
-      'currency_code'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.currency_invalid', params: { value: valor } }, 'currency_code');
   }
   return codigo;
 }
@@ -825,18 +804,15 @@ function exigirMoneda(valor: string): string {
 function exigirClaveSat(valor: string): string {
   const clave = valor.trim();
   if (!/^\d{3}$/.test(clave)) {
-    throw new ValidationError(
-      `La clave de banco del SAT (c_Banco) son 3 dígitos; llegó "${valor}".`,
-      'sat_bank_code'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.sat_bank_code_invalid', params: { value: valor } }, 'sat_bank_code');
   }
   return clave;
 }
 
-function exigirTexto(valor: string, campo: string, etiqueta: string): string {
+function exigirTexto(valor: string, campo: 'account_name' | 'bank_name'): string {
   const texto = valor?.trim() ?? '';
   if (texto.length === 0) {
-    throw new ValidationError(`${etiqueta} no puede ir vacío.`, campo);
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.field_empty', params: { field: campo } }, campo);
   }
   return texto;
 }
@@ -844,10 +820,7 @@ function exigirTexto(valor: string, campo: string, etiqueta: string): string {
 function exigirSwift(valor: string): string {
   const codigo = valor.trim().toUpperCase();
   if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(codigo)) {
-    throw new ValidationError(
-      `"${valor}" no tiene forma de código SWIFT/BIC (8 u 11 caracteres: 4 de banco, 2 de país, 2 de plaza y 3 opcionales de sucursal).`,
-      'swift_code'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.swift_invalid', params: { value: valor } }, 'swift_code');
   }
   return codigo;
 }
@@ -855,10 +828,7 @@ function exigirSwift(valor: string): string {
 function exigirIban(valor: string): string {
   const codigo = sinSeparadores(valor).toUpperCase();
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(codigo)) {
-    throw new ValidationError(
-      `"${valor}" no tiene forma de IBAN (2 letras de país, 2 dígitos de control y hasta 30 alfanuméricos).`,
-      'iban'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.iban_invalid', params: { value: valor } }, 'iban');
   }
   return codigo;
 }
@@ -884,12 +854,7 @@ function resolverRouting(entrada: {
   const ach = entrada.routingAch ? exigirRoutingAba(entrada.routingAch, 'routing_ach') : null;
   const wire = entrada.routingWire ? exigirRoutingAba(entrada.routingWire, 'routing_wire') : null;
   if (ach && wire && ach !== wire) {
-    throw new ValidationError(
-      'El routing ACH y el de transferencia son distintos y la tabla sólo tiene una columna para los dos ' +
-        '(`routing_number_encrypted`, migración 003): guardar uno perdería el otro sin avisar. ' +
-        'Da de alta la cuenta con uno y abre la falta de columna como trabajo de F05b.',
-      'routing_wire'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.routings_differ' }, 'routing_wire');
   }
   return ach ?? wire;
 }
@@ -899,11 +864,11 @@ export async function createBankAccount(
   entrada: EntradaCuentaBancaria,
   ctx: ContextoEscritura
 ): Promise<ResultadoAlta> {
-  const entityId = entidadDe(scope, 'Dar de alta una cuenta bancaria');
+  const entityId = entidadDe(scope, 'create');
   const dryRun = ctx.dryRun === true;
 
-  const accountName = exigirTexto(entrada.accountName, 'account_name', 'El nombre de la cuenta');
-  const bankName = exigirTexto(entrada.bankName, 'bank_name', 'El nombre del banco');
+  const accountName = exigirTexto(entrada.accountName, 'account_name');
+  const bankName = exigirTexto(entrada.bankName, 'bank_name');
   const tipo = entrada.accountType ? exigirTipo(entrada.accountType) : 'checking';
   const moneda = exigirMoneda(entrada.currencyCode);
   const branch = entrada.bankBranch?.trim() || null;
@@ -936,8 +901,7 @@ export async function createBankAccount(
   }
   if (clabe && claveSat && claveSat !== clabe.bancoSat) {
     throw new ValidationError(
-      `La clave de banco declarada (${claveSat}) no es la que trae la CLABE (${clabe.bancoSat}). ` +
-        'Son el mismo catálogo: una de las dos está mal.',
+      { key: 'error.VALIDATION_ERROR.bank_account.sat_bank_code_not_clabe', params: { declared: claveSat, clabe: clabe.bancoSat } },
       'sat_bank_code'
     );
   }
@@ -1113,7 +1077,7 @@ export async function updateBankAccount(
   patch: ParcheCuenta,
   ctx: ContextoEscritura
 ): Promise<ResultadoEdicion> {
-  const entityId = entidadDe(scope, 'Editar una cuenta bancaria');
+  const entityId = entidadDe(scope, 'edit');
   const dryRun = ctx.dryRun === true;
 
   try {
@@ -1139,14 +1103,14 @@ export async function updateBankAccount(
       const previa = await filaPorRef(scope, ref, { client, forUpdate: true });
 
       if (patch.accountName !== undefined) {
-        const v = exigirTexto(patch.accountName, 'account_name', 'El nombre de la cuenta');
+        const v = exigirTexto(patch.accountName, 'account_name');
         await exigirNombreLibre(client, entityId, v, previa.id);
         sets.push(`account_name = $${i++}`);
         params.push(v);
         anota('account_name', previa.account_name, v);
       }
       if (patch.bankName !== undefined) {
-        const v = exigirTexto(patch.bankName, 'bank_name', 'El nombre del banco');
+        const v = exigirTexto(patch.bankName, 'bank_name');
         sets.push(`bank_name = $${i++}`);
         params.push(v);
         anota('bank_name', previa.bank_name, v);
@@ -1350,7 +1314,7 @@ export async function setBankGlMapping(
   glAccount: string,
   ctx: ContextoMapeo
 ): Promise<ResultadoMapeo> {
-  const entityId = entidadDe(scope, 'Fijar el mapeo contable de una cuenta bancaria');
+  const entityId = entidadDe(scope, 'set');
   const dryRun = ctx.dryRun === true;
 
   try {
