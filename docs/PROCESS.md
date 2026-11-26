@@ -52,6 +52,8 @@ npm run test:integration     # necesita Postgres real; corre en CI aparte (aisla
 
 CI exige en verde: **Tipos**, **Pruebas unitarias**, **Integración contra Postgres**, **Aislamiento por inquilino**, **Estado del plan**. Un rojo se arregla, no se explica en un comentario (`CONTRIBUTING.md`).
 
+**Los archivos del idioma se fusionan solos** (MNE-001-818, #311). Dos PRs que bajan el español de archivos distintos y corren `language:status -- --tighten` y `--write` ya no chocan en `docs/language-baseline.json`, `docs/language.md` ni `docs/language.es.md` con la fusión de tres vías de GitHub, sin driver ni configuración local: un carril contado por archivo no guarda total (su techo es la suma de sus suelos), el bloque publicado no imprime cifras que muevan esas corridas, y el `source_sha` de la gemela se calcula sin el bloque generado. Siguen chocando, y es a propósito, dos PRs que bajan el **mismo** archivo (o dos archivos vecinos en el desglose) y cualquier línea escrita a mano; `--check` sigue en rojo ante un bloque o un sello viejos.
+
 ## 4. Sin review por otro vendor
 
 Ya no hay revisión obligatoria de otro modelo o CLI: Witness (`witness-vic[bot]`) dejó de ser requisito el 2026-11-15, por decisión del dueño. La puerta es la CI: un PR con los cinco checks en verde se fusiona por auto-merge, sin aprobaciones. Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar; donde A2 o A3 piden que el dueño revise el PR, eso sigue igual, salvo lo que el dueño delegó en el coordinador (`docs/ROUTING.md`, «Quién revisa»).

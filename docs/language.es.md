@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: 7fd5db231d57a29b99f46c39e583a06bd6090149
+> Gemela en español de [`language.md`](language.md) · source_sha: b11754930290db5b9f6e2c10fe631ed63cf7873c
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -95,32 +95,34 @@ Los topes del trinquete, escritos por el propio metro a partir de `docs/language
 This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
 in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
 trace is the diff. The live figures are read with `npm run language:status`.
+A lane marked *per file* has one ceiling per file there and no total: its ceiling is the sum of its
+files' floors, printed by `npm run language:status`, so a PR that lowers one file rewrites only its line.
 A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refuses anything above it.
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10437 | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
-| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
-| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
-| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
-| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | per file | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | per file | 0 |
+| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | per file | 0 |
+| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | per file | 0 |
+| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | per file | 0 |
+| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | per file | 0 |
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 0 | 0 |
-| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 | 0 |
-| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 30 | 0 |
-| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
-| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
-| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 332 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28937 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | per file | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | per file | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | per file | 0 |
+| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | per file | 0 |
+| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | per file | 0 |
+| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | per file | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | per file | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | per file | 0 |
 | `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
+| `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | per file | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 229 | 0 |
-| `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
-| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1716 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | per file | 0 |
+| `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | per file | 0 |
+| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | per file | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
@@ -161,7 +163,7 @@ La documentación viva son 90 archivos y 35026 líneas, casi todas en español:
 | skills/*/SKILL.md | 3 | 108 |
 | .github (plantillas) | 2 | 66 |
 
-El mecanismo es el de un catálogo, aplicado a páginas: la **fuente** es `Pagina.md` en inglés; la **gemela** es `Pagina.es.md` al lado, con `source_sha` en su cabecera (el hash del inglés que tradujo); `language:status` cuenta páginas sin gemela (0 siempre para README, wiki y rectores en cuanto entre I21) y gemelas **desfasadas** (`source_sha` distinto del actual: 0 al fusionar, porque el mismo PR que toca la fuente toca la gemela); la wiki publicada enlaza cada página con su gemela y `Home` tiene un interruptor de idioma. Un tercer idioma, cuando lo haya, será `Pagina.<idioma>.md` y un renglón en el metro; por ahora son dos. Traducir es trabajo del agente que **propone** y de una persona que aprueba en el PR, como todo lo demás; los términos de norma (NIF, LISR, c_CodAgrup) se citan en su idioma oficial entre paréntesis en las dos gemelas. El corpus del agente (`src/ai/docs/`) sigue la misma regla: fuente inglesa —ya lo es donde es sistema— y los manuales de norma se reescriben en inglés con el término oficial español al lado, con su prueba de sincronía (`niif-registry.spec.ts`) intacta. Los **informes fechados** conservan su español; I26 da a cada carpeta un índice en inglés. Con D14, la deuda que se cuenta primero es la contraria: las páginas vivas cuya fuente sigue en español, que contará, con trinquete, el carril `docs-pages-without-english-source` (MNE-001-190, propuesto); el `Home` de la wiki abrirá en inglés con un interruptor a su gemela española.
+El mecanismo es el de un catálogo, aplicado a páginas: la **fuente** es `Pagina.md` en inglés; la **gemela** es `Pagina.es.md` al lado, con `source_sha` en su cabecera (el hash del inglés que tradujo, sin su bloque generado); `language:status` cuenta páginas sin gemela (0 siempre para README, wiki y rectores en cuanto entre I21) y gemelas **desfasadas** (`source_sha` distinto del actual: 0 al fusionar, porque el mismo PR que toca la fuente toca la gemela); la wiki publicada enlaza cada página con su gemela y `Home` tiene un interruptor de idioma. Un tercer idioma, cuando lo haya, será `Pagina.<idioma>.md` y un renglón en el metro; por ahora son dos. Traducir es trabajo del agente que **propone** y de una persona que aprueba en el PR, como todo lo demás; los términos de norma (NIF, LISR, c_CodAgrup) se citan en su idioma oficial entre paréntesis en las dos gemelas. El corpus del agente (`src/ai/docs/`) sigue la misma regla: fuente inglesa —ya lo es donde es sistema— y los manuales de norma se reescriben en inglés con el término oficial español al lado, con su prueba de sincronía (`niif-registry.spec.ts`) intacta. Los **informes fechados** conservan su español; I26 da a cada carpeta un índice en inglés. Con D14, la deuda que se cuenta primero es la contraria: las páginas vivas cuya fuente sigue en español, que contará, con trinquete, el carril `docs-pages-without-english-source` (MNE-001-190, propuesto); el `Home` de la wiki abrirá en inglés con un interruptor a su gemela española.
 
 **Mensajes de commit**: en inglés desde el corte que I22 declara en `scripts/language/commit-subjects.ts` — juzgado por **fecha de autor**, así que el historial no se reescribe y un PR abierto antes del corte no se pone rojo por trabajo escrito antes. El asunto conserva el código del tramo cuando exista (`I7: the kernel renders help by key`); las secciones «Mensajes de commit» de `CONTRIBUTING.md` y `docs/PROCESS.md` lo dicen, y el lint de asunto corre en la CI sobre los commits que trae el PR **y sobre su título**, porque el *squash* escribe el título en `main` cuando el PR lleva más de un commit. La lista bilingüe de palabras seguras del triage de Witness (el bloque `SECRET_HITS` de `witness-triage.yml`) **sigue siendo bilingüe**: filtra el diff, no el asunto, y las fixtures en español para las que se escribió siguen en el árbol hasta I18/I19.
 

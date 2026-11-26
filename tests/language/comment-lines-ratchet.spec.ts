@@ -39,11 +39,12 @@ describe('the comment lane, judged file by file on a toy tree', () => {
     return lane;
   };
   // The baseline `--seed` would write for the comment lane on this tree.
+  // A lane counted per file has no stored total (MNE-001-818).
   const seededFrom = (lane: Lane) => ({
     _: '',
     _por_que: '',
     seeded: '2026-11-24',
-    lanes: { [LANE]: lane.value },
+    lanes: {} as Record<string, number>,
     perFile: { [LANE]: { ...(lane.perFile ?? {}) } },
   });
 
@@ -75,9 +76,10 @@ describe('the comment lane, judged file by file on a toy tree', () => {
 
   it('A FILE THAT GAINS A SPANISH COMMENT LINE GOES RED, even when the total does not grow', () => {
     const base = seededFrom(measure());
-    // Base: a.ts = 2. One more Spanish line in a.ts, and the lane total raised
-    // by hand to 3, so only the per-file floor can catch it.
-    base.lanes[LANE] = 3;
+    // Base: a.ts = 2, and a file translated since then that kept its floor of
+    // 1, so the summed ceiling is 3 (MNE-001-818). One more Spanish line in
+    // a.ts leaves the total at 3: only the per-file floor can catch it.
+    base.perFile[LANE]['src/gone.ts'] = 1;
     const grown: Lane = { ...measure(), value: 3, perFile: { 'src/a.ts': 3 } };
     const findings = compare([grown], base);
     expect(findings).toHaveLength(1);
@@ -110,7 +112,8 @@ describe('the comment lane, judged file by file on a toy tree', () => {
       const lane = measure();
       expect(compare([lane], base)).toEqual([]);
       const next = tighten([lane], base);
-      expect(next.lanes[LANE]).toBe(1);
+      // A lane counted per file keeps no total: its ceiling is the sum (MNE-001-818).
+      expect(next.lanes[LANE]).toBeUndefined();
       expect(next.perFile[LANE]).toEqual({ 'src/a.ts': 1 });
     } finally {
       write(
@@ -131,8 +134,8 @@ describe('the comment lane on the real tree', () => {
   };
 
   it('has a ceiling and a per-file floor in the baseline, and the tree is within them', () => {
-    expect(baseline.lanes[LANE]).toBeGreaterThan(0);
     const floors = baseline.perFile[LANE] ?? {};
+    expect(Object.values(floors).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
     expect(Object.keys(floors).length).toBeGreaterThan(100);
     expect(Object.keys(floors).every((file) => file.startsWith('src/') && file.endsWith('.ts'))).toBe(true);
     // What --check asks of this lane. While the lane was informational the

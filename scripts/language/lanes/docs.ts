@@ -578,9 +578,43 @@ const twinOf = (page: string): string => page.replace(/\.md$/, '.es.md');
  * `blob <bytes>\0` seguido del contenido en crudo.
  */
 export function blobSha(absolutePath: string): string {
-  const content = fs.readFileSync(absolutePath);
+  return blobShaOf(fs.readFileSync(absolutePath));
+}
+
+function blobShaOf(content: Buffer): string {
   const header = Buffer.from(`blob ${content.length}\0`, 'utf8');
   return crypto.createHash('sha1').update(Buffer.concat([header, content])).digest('hex');
+}
+
+/** The markers of the block `language:status --write` generates inside a page. */
+export const STATUS_OPEN_MARK = '<!-- LANGUAGE-STATUS:START -->';
+export const STATUS_CLOSE_MARK = '<!-- LANGUAGE-STATUS:END -->';
+
+/**
+ * THE SHA A TWIN DECLARES (MNE-001-818, #311): `git hash-object` of the
+ * original with the lines of its generated block left out, exactly as
+ * `sed '/START/,/END/d'` leaves them out — so the lane's `command` reproduces
+ * it. A page with no block hashes as `blobSha`.
+ *
+ * Why: the block is regenerated, not translated. While it was part of the
+ * hash, every PR that regenerated it moved the twin's `source_sha`, and two
+ * such PRs conflicted on that line under GitHub's plain 3-way merge even when
+ * nothing else collided. Prose still moves the stamp; the block does not.
+ */
+export function sourceSha(absolutePath: string): string {
+  const content = fs.readFileSync(absolutePath);
+  const text = content.toString('utf8');
+  if (!text.includes(STATUS_OPEN_MARK)) return blobShaOf(content);
+  let inside = false;
+  const kept = text.split('\n').filter((line) => {
+    if (inside) {
+      if (line.includes(STATUS_CLOSE_MARK)) inside = false;
+      return false;
+    }
+    inside = line.includes(STATUS_OPEN_MARK);
+    return !inside;
+  });
+  return blobShaOf(Buffer.from(kept.join('\n'), 'utf8'));
 }
 
 /**
@@ -663,7 +697,7 @@ function staleTwins(root: string): Array<{ twin: string; reason: string }> {
     }
     // Se compara por prefijo para admitir el sha corto de siete que se escribe a
     // mano; `git hash-object` da el largo y el prefijo es el mismo.
-    if (!blobSha(original).startsWith(declared)) {
+    if (!sourceSha(original).startsWith(declared)) {
       out.push({ twin, reason: `source_sha ${declared} ya no casa con ${relativePath(root, original)}` });
     }
   }
@@ -707,7 +741,8 @@ function staleTwinsLane(root: string): Lane {
       "d=$(head -c 4096 \"$g\" | grep -oiE 'source_sha[^0-9a-f]{1,12}[0-9a-f]{7,40}' " +
       "| head -1 | grep -oiE '[0-9a-f]{7,40}$' | tr 'A-F' 'a-f'); " +
       'if [ -z "$d" ] || [ ! -f "$o" ]; then echo "$g"; continue; fi; ' +
-      'case "$(git hash-object "$o")" in "$d"*) ;; *) echo "$g";; esac; done | wc -l',
+      // The generated block is left out of the hash (MNE-001-818), as `sourceSha` does.
+      `case "$(sed '/${STATUS_OPEN_MARK}/,/${STATUS_CLOSE_MARK}/d' "$o" | git hash-object --stdin)" in "$d"*) ;; *) echo "$g";; esac; done | wc -l`,
     examples: stale.slice(0, EXAMPLE_COUNT).map((a) => `${a.twin}  ←  ${a.reason}`),
     perFile: Object.fromEntries(stale.map((a) => [a.twin, 1])),
   };
