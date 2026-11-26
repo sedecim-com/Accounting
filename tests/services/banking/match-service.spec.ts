@@ -136,13 +136,13 @@ describe('exigirCuadre', () => {
   it('rechaza una cuenta de cancelación sobre un residual que se conserva', () => {
     const c = cuadrarGrupo([banco('b1', '1000.0000')], [libro('l1', '999.0000')]);
     expect(() => exigirCuadre(c, { modo: 'keep', cuentaWriteOff: 'cta-7' }))
-      .toThrowError(/sólo tiene sentido con --residual write-off/);
+      .toThrowError(/only makes sense with --residual write-off/);
   });
 
   it('rechaza el write-off que no cancela nada', () => {
     const c = cuadrarGrupo([banco('b1', '500.0000')], [libro('l1', '500.0000')]);
     expect(() => exigirCuadre(c, { modo: 'write-off', cuentaWriteOff: 'cta-7' }))
-      .toThrowError(/no hay nada que cancelar/);
+      .toThrowError(/there is nothing to write off/);
   });
 
   it('un descuadre negativo también se declara, y conserva su signo', () => {
@@ -279,7 +279,7 @@ describe('medirSenales', () => {
 
 describe('exigirSinRepetidos', () => {
   it('deja pasar los ids distintos', () => {
-    expect(() => exigirSinRepetidos(['a', 'b', 'c'], 'movimiento de banco')).not.toThrow();
+    expect(() => exigirSinRepetidos(['a', 'b', 'c'], 'bank')).not.toThrow();
   });
 
   it('rechaza el id repetido, que haría cuadrar el grupo por el doble', () => {
@@ -290,8 +290,8 @@ describe('exigirSinRepetidos', () => {
       [libro('l1', '2000.0000')]
     );
     expect(c.cuadra).toBe(true);
-    expect(() => exigirSinRepetidos(['b1', 'b1'], 'movimiento de banco'))
-      .toThrowError(/aparece dos veces/);
+    expect(() => exigirSinRepetidos(['b1', 'b1'], 'bank'))
+      .toThrowError(/appears twice/);
   });
 });
 
