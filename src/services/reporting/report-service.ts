@@ -46,7 +46,8 @@ import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 //                   opening and movement of cash and residue suspects,
 //                   the opening check's ledger, the receivable a
 //                   collection credits and the held IVA a reversed note
-//                   gives back, an invoice's IVA taken, the VAT put back; T14, #101). This is
+//                   gives back, an invoice's IVA taken, the VAT put back,
+//                   a bank account's book balance and posted lines; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -2792,6 +2793,75 @@ SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bil
     ? await client.query<VatOvercreditBillRow>(text, values)
     : await query<VatOvercreditBillRow>(text, values);
   return r.rows;
+}
+
+// ------------------------------------------------------------
+// BANK ACCOUNT BOOK BALANCE READS (MNE-001-620, #101)
+//
+// Two sums bank-account-service.ts reads from the ledger: the book balance
+// of each bank account its projection lists (`bank account show` and `list`,
+// and the re-read of `create`, `edit` and `set` inside their transaction),
+// and the posted lines the remap guard of `bank account set` counts on its
+// transaction client. The book balance is a correlated subquery the
+// projection composes per row, as `bookAmountDueSql` is: a reader of its own
+// would cost a query per listed account, and the projection, whose masked
+// columns are that module's control, stays there. Neither reads a policy.
+// ------------------------------------------------------------
+
+/**
+ * SQL: the lifetime posted balance of one account, debit-positive, closing
+ * entries included, as a subquery of one column, which the bank account
+ * projection reads by the alias it had there. `accountSql` and `entitySql` are
+ * the caller's expressions for the account and the entity the entries belong
+ * to (for that projection, `b.gl_account_id` and `b.entity_id`). An account
+ * without posted lines reads as zero.
+ *
+ * COALESCE per side, not over the difference: migration 001 makes
+ * `debit_amount` and `credit_amount` mutually exclusive by CHECK, so a credit
+ * line has a NULL debit, and `debit − credit` over it is NULL, which SUM
+ * skips. Subtracting that way read zero for any account with movements, the
+ * worst way to be wrong: it looks like a balance.
+ */
+export function postedBalanceOnAccountSql(accountSql: string, entitySql: string): string {
+  return `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) AS saldo
+        FROM journal_entry_lines l
+        JOIN journal_entries j ON j.id = l.journal_entry_id
+       WHERE l.account_id = ${accountSql}
+         AND j.entity_id = ${entitySql}
+         AND j.status = 'posted'`;
+}
+
+export interface PostedLinesOnAccountRow {
+  /** How many posted lines the account carries. */
+  lines: string;
+  /** Their debit-positive net, as `postedBalanceOnAccountSql` reads it. */
+  balance: string;
+}
+
+/**
+ * The posted lines of one account and their debit-positive net, closing
+ * entries included, bound to the entity the entries belong to: what the
+ * remap guard of `bank account set` counts before it moves a bank account to
+ * another GL account (`movimientosPosteados`, bank-account-service.ts). Same
+ * COALESCE per side as `postedBalanceOnAccountSql`, for the same reason. The
+ * two column aliases are English, as new identifiers are; the expressions,
+ * joins, predicates and parameters are the ones the guard always read.
+ */
+export async function queryPostedLinesOnAccount(
+  entityId: string,
+  accountId: string,
+  client?: pg.PoolClient
+): Promise<PostedLinesOnAccountRow> {
+  const text = `SELECT COUNT(*)::text AS lines,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance
+       FROM journal_entry_lines l
+       JOIN journal_entries j ON j.id = l.journal_entry_id
+      WHERE l.account_id = $1 AND j.entity_id = $2 AND j.status = 'posted'`;
+  const values = [accountId, entityId];
+  const r = client
+    ? await client.query<PostedLinesOnAccountRow>(text, values)
+    : await query<PostedLinesOnAccountRow>(text, values);
+  return r.rows[0];
 }
 
 // ------------------------------------------------------------
