@@ -42,7 +42,8 @@ import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 //                   bank fee still parks,
 //                   the FX revaluation line, its foreign balances and
 //                   its marker's net, the IVA paper's withholding
-//                   per sale and receipt movement, the DIOT's exempt
+//                   per sale and receipt movement, the filing paper's
+//                   entries and the ISR withheld per entry, the DIOT's exempt
 //                   revenue, the cash-flow statement's movement by
 //                   account and its non-cash entries, and its tie-out's
 //                   opening and movement of cash and residue suspects,
@@ -2945,6 +2946,124 @@ export async function queryPostedLinesOnAccount(
     ? await client.query<PostedLinesOnAccountRow>(text, values)
     : await query<PostedLinesOnAccountRow>(text, values);
   return r.rows[0];
+}
+
+// ------------------------------------------------------------
+// FILING WORKPAPER AND PROVISIONAL ISR READS (MNE-001-622, #101)
+//
+// Three sums the monthly papers read from the ledger, each on the paper's own
+// client (the filing workpaper's read-only snapshot, the ISR builder's
+// transaction): the entries that move a line's accounts in a range and the
+// entries a builder chose, each with what it nets there (filing-workpaper.ts,
+// `entriesMoving` and `entriesByIds`), and the ISR withheld per entry and
+// account, which `withheldInRange` (provisional-income-tax.ts) classifies.
+// The statements are the ones those modules always sent; the empty-list
+// guards, the trace's scale and the classification stay with them. None reads
+// a policy.
+// ------------------------------------------------------------
+
+/** One entry of a paper's trace, with what it nets on the accounts asked for, debit positive. */
+export interface EntryNetRow {
+  id: string;
+  entry_number: string;
+  entry_date: string;
+  source_type: string | null;
+  description: string | null;
+  net: string;
+}
+
+/**
+ * The posted entries that move `accountIds` between two dates, closing
+ * entries aside, each with its debit-positive net on those accounts, in date
+ * and number order: the filing paper's tie-out and its revenue trace
+ * (`entriesMoving`, filing-workpaper.ts). NOTE: journal_entries carries no
+ * tenant column; the entity is the boundary, and every builder checks the
+ * entity belongs to the tenant before this runs.
+ */
+export async function queryEntriesMovingAccounts(
+  entityId: string,
+  accountIds: readonly string[],
+  from: string,
+  through: string,
+  client?: pg.PoolClient
+): Promise<EntryNetRow[]> {
+  const text = `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
+       FROM journal_entries je
+       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+      WHERE je.entity_id = $1 AND je.status = 'posted'
+        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+        AND l.account_id = ANY($4::uuid[])
+        ${predicadoSinCierre()}
+      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
+      ORDER BY je.entry_date, je.entry_number`;
+  const values = [entityId, from, through, [...accountIds]];
+  const r = client ? await client.query<EntryNetRow>(text, values) : await query<EntryNetRow>(text, values);
+  return r.rows;
+}
+
+/**
+ * Entries of the entity by id, each once, with what it nets on `accountIds`
+ * (zero when it has no line there): the entries a builder decided a line
+ * rests on (`entriesByIds`, filing-workpaper.ts).
+ */
+export async function queryEntriesNetOnAccounts(
+  entityId: string,
+  entryIds: readonly string[],
+  accountIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<EntryNetRow[]> {
+  const text = `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                     FILTER (WHERE l.account_id = ANY($3::uuid[])), 0)::text AS net
+       FROM journal_entries je
+       LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+      WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[])
+      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
+      ORDER BY je.entry_date, je.entry_number`;
+  const values = [entityId, [...new Set(entryIds)], [...accountIds]];
+  const r = client ? await client.query<EntryNetRow>(text, values) : await query<EntryNetRow>(text, values);
+  return r.rows;
+}
+
+/** What one posted entry nets on one withholding account, with what tells a withholding apart. */
+export interface WithholdingNetRow {
+  entry_id: string;
+  source_type: string | null;
+  reverses_entry_id: string | null;
+  code: string;
+  net: string;
+}
+
+/**
+ * The posted entries on the withholding accounts between two dates, closing
+ * entries aside, one row per entry and account code with its debit-positive
+ * net: what `withheldInRange` (provisional-income-tax.ts) classifies into the
+ * ISR withheld to the entity.
+ */
+export async function queryWithholdingNetByEntry(
+  entityId: string,
+  accountIds: readonly string[],
+  from: string,
+  through: string,
+  client?: pg.PoolClient
+): Promise<WithholdingNetRow[]> {
+  const text = `SELECT je.id AS entry_id, je.source_type, je.reverses_entry_id, a.code,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
+       FROM journal_entries je
+       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+       JOIN accounts a ON a.id = l.account_id
+      WHERE je.entity_id = $1 AND je.status = 'posted'
+        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+        AND l.account_id = ANY($4::uuid[])
+        ${predicadoSinCierre()}
+      GROUP BY je.id, je.source_type, je.reverses_entry_id, a.code
+      ORDER BY a.code`;
+  const values = [entityId, from, through, accountIds];
+  const r = client
+    ? await client.query<WithholdingNetRow>(text, values)
+    : await query<WithholdingNetRow>(text, values);
+  return r.rows;
 }
 
 // ------------------------------------------------------------

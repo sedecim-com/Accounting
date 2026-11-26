@@ -84,6 +84,9 @@ import {
   queryVatOvercreditBills,
   postedBalanceOnAccountSql,
   queryPostedLinesOnAccount,
+  queryEntriesMovingAccounts,
+  queryEntriesNetOnAccounts,
+  queryWithholdingNetByEntry,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -115,7 +118,7 @@ import { query, currentTenant } from '../../../src/database/connection.js';
 import { amountDueAsOfSql, voidedAfterSql } from '../../../src/services/ar/customer-service.js';
 import { sqlKeepsMexicanBooks } from '../../../src/services/jurisdiction/jurisdiction.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
-import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
+import { criterioDeCierreEnInformes, predicadoSinCierre } from '../../../src/services/reporting/criterio-cierre.js';
 import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -2388,5 +2391,116 @@ describe('the bank account book balance reads (MNE-001-620)', () => {
     expect(await queryPostedLinesOnAccount(ENTITY, 'acc-1112')).toEqual({ lines: '0', balance: '0' });
     expect(mockQuery).toHaveBeenCalledTimes(1);
     expect(params(0)).toEqual(['acc-1112', ENTITY]);
+  });
+});
+
+// MNE-001-622 · the three ledger sums of the monthly papers, moved here
+// verbatim: the entries that move a line's accounts and the entries a builder
+// chose, each with its net (filing-workpaper.ts), and the ISR withheld per
+// entry and account (provisional-income-tax.ts). Each test pins the whole SQL,
+// the parameter order and the connection it runs on.
+describe('the filing workpaper and provisional ISR reads (MNE-001-622)', () => {
+  const fold = (sql: unknown) => String(sql).replace(/\s+/g, ' ').trim();
+  const closing = fold(predicadoSinCierre());
+
+  it('the entries moving some accounts: posted, in the range, closing aside, on the caller\'s client', async () => {
+    // By hand: invoice JE-0007 credits 2130 by 160.00, payment JE-0009 debits it by 40.00.
+    const rows = [
+      { id: 'je-7', entry_number: 'JE-0007', entry_date: '2026-06-05', source_type: 'invoice', description: null, net: '-160.0000' },
+      { id: 'je-9', entry_number: 'JE-0009', entry_date: '2026-06-20', source_type: 'payment', description: null, net: '40.0000' },
+    ];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const accounts = ['acc-2130'];
+    const out = await queryEntriesMovingAccounts(ENTITY, accounts, '2026-06-01', '2026-06-30', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-06-01', '2026-06-30', ['acc-2130']]);
+    expect(values[3]).not.toBe(accounts);
+    expect(fold(text)).toBe(
+      "SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description, " +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net ' +
+        'FROM journal_entries je JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' " +
+        'AND je.entry_date >= $2::date AND je.entry_date <= $3::date ' +
+        'AND l.account_id = ANY($4::uuid[]) ' +
+        `${closing} ` +
+        'GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description ' +
+        'ORDER BY je.entry_date, je.entry_number'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the entries moving some accounts read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntriesMovingAccounts(ENTITY, ['acc-2130'], '2026-01-01', '2026-06-30')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-06-30', ['acc-2130']]);
+  });
+
+  it('entries by id: each once, with what it nets on the accounts, zero without a line there', async () => {
+    const rows = [
+      { id: 'je-7', entry_number: 'JE-0007', entry_date: '2026-06-05', source_type: 'invoice', description: null, net: '-160.0000' },
+      { id: 'je-8', entry_number: 'JE-0008', entry_date: '2026-06-06', source_type: null, description: 'otra', net: '0' },
+    ];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const accounts = ['acc-2130'];
+    const out = await queryEntriesNetOnAccounts(ENTITY, ['je-7', 'je-8', 'je-7'], accounts, { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, ['je-7', 'je-8'], ['acc-2130']]);
+    expect(values[2]).not.toBe(accounts);
+    expect(fold(text)).toBe(
+      "SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description, " +
+        'COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) ' +
+        'FILTER (WHERE l.account_id = ANY($3::uuid[])), 0)::text AS net ' +
+        'FROM journal_entries je LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[]) ' +
+        'GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description ' +
+        'ORDER BY je.entry_date, je.entry_number'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('entries by id read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntriesNetOnAccounts(ENTITY, ['je-1'], [])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, ['je-1'], []]);
+  });
+
+  it('the ISR withheld per entry and account: posted, in the range, closing aside, on the caller\'s client', async () => {
+    // By hand: an August withholding of 123.45 on 1145.
+    const rows = [{ entry_id: 'je-aug', source_type: null, reverses_entry_id: null, code: '1145', net: '123.4500' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryWithholdingNetByEntry(ENTITY, ['acc-1145'], '2026-01-01', '2026-08-31', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-01-01', '2026-08-31', ['acc-1145']]);
+    expect(fold(text)).toBe(
+      'SELECT je.id AS entry_id, je.source_type, je.reverses_entry_id, a.code, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net ' +
+        'FROM journal_entries je JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'JOIN accounts a ON a.id = l.account_id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' " +
+        'AND je.entry_date >= $2::date AND je.entry_date <= $3::date ' +
+        'AND l.account_id = ANY($4::uuid[]) ' +
+        `${closing} ` +
+        'GROUP BY je.id, je.source_type, je.reverses_entry_id, a.code ' +
+        'ORDER BY a.code'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the ISR withheld per entry reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryWithholdingNetByEntry(ENTITY, ['acc-1145'], '2026-01-01', '2026-03-31')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-03-31', ['acc-1145']]);
   });
 });
