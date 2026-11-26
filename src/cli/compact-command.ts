@@ -14,6 +14,7 @@ import {
   type CompactionPlan,
 } from '../ai/compaction.js';
 import { describeCommand, exitCodeFor, ExitCode, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine compact (OFFLINE — zero API calls)
@@ -86,28 +87,22 @@ const fmt = (n: number): string => n.toLocaleString('en-US');
 export function formatCompactReport(report: CompactReport, c: CompactDeps['palette']): string[] {
   const out: string[] = [
     '',
-    c.bold('Compaction dry-run (offline estimate, ~4 chars/token)'),
-    `  session   ${report.sessionId}${report.title ? c.dim(`  — ${report.title}`) : ''}`,
-    `  transcript ${fmt(report.messages)} messages, ~${fmt(report.totalTokens)} tokens`,
-    `  keep tail  ~${fmt(report.keepRecentTokens)} tokens (intact)`,
+    c.bold(t('platform.compact.title')),
+    `  ${t('platform.compact.session', { id: report.sessionId })}${report.title ? c.dim(`  — ${report.title}`) : ''}`,
+    `  ${t('platform.compact.transcript', { messages: fmt(report.messages), tokens: fmt(report.totalTokens) })}`,
+    `  ${t('platform.compact.keep_tail', { tokens: fmt(report.keepRecentTokens) })}`,
     '',
   ];
   if (!report.plan) {
-    out.push('  Nothing to compact: the transcript fits within the recent-tail budget.');
+    out.push(`  ${t('platform.compact.nothing')}`);
   } else {
-    out.push(c.bold('  A live /compact would:'));
-    out.push(
-      `    summarize ${fmt(report.plan.cutIndex)} older messages (~${fmt(report.plan.dropTokens)} tokens)`
-    );
-    out.push(`    keep ${fmt(report.messages - report.plan.cutIndex)} recent messages (~${fmt(report.plan.keepTokens)} tokens)`);
+    const { cutIndex, dropTokens, keepTokens } = report.plan;
+    out.push(c.bold(`  ${t('platform.compact.would')}`));
+    out.push(`    ${t('platform.compact.summarize', { count: fmt(cutIndex), tokens: fmt(dropTokens) })}`);
+    out.push(`    ${t('platform.compact.keep', { count: fmt(report.messages - cutIndex), tokens: fmt(keepTokens) })}`);
   }
   out.push('');
-  out.push(
-    c.dim(
-      '  Dry-run only: compaction rewrites the MODEL\'S in-flight view, so it runs inside chat ' +
-        '(/compact). The Postgres transcript is never modified.'
-    )
-  );
+  out.push(c.dim(`  ${t('platform.compact.dry_run_only')}`));
   out.push('');
   return out;
 }
@@ -136,7 +131,7 @@ export function registerCompactCommand(program: Command, deps: CompactDeps): voi
             ? await getSession(ctx, opts.session)
             : await latestSession(ctx);
           if (!session) {
-            console.log(opts.session ? 'Session not found for this entity.' : 'No sessions yet for this entity.');
+            console.log(t(opts.session ? 'platform.compact.session_not_found' : 'platform.compact.no_sessions'));
             // Las dos ramas dicen lo mismo con distinto texto: la sesión que
             // se iba a compactar NO ESTÁ. Ese es el 3 del contrato, no el 1
             // genérico — un guion que encadena `compact` necesita distinguir

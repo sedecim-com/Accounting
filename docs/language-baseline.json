@@ -1466,7 +1466,6 @@
       "src/cli/banner.ts": 2,
       "src/cli/bill-command.ts": 1,
       "src/cli/bill-rule-command.ts": 7,
-      "src/cli/compact-command.ts": 5,
       "src/cli/init/s3-ai.ts": 3,
       "src/cli/init/s4-policies.ts": 1,
       "src/cli/kernel/audit.ts": 1,
@@ -1480,10 +1479,8 @@
       "src/cli/skills-command.ts": 7,
       "src/cli/status-command.ts": 5,
       "src/cli/trace-completion-output.ts": 1,
-      "src/cli/usage-command.ts": 8,
       "src/cli/web-command.ts": 2,
-      "src/cli/webhook-sweep-command.ts": 8,
-      "src/cli/webhooks-command.ts": 7
+      "src/cli/webhook-sweep-command.ts": 1
     },
     "help-examples-without-key": {
       "src/cli/account-command.ts": 15,
