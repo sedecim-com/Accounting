@@ -311,7 +311,7 @@ describe('diot export · el papel de trabajo y el lote del SAT', () => {
   it('--layout sat does not write an empty batch file for a month without third parties', async () => {
     const r = await correr(['diot', 'export', '--period', '2026-11', '--layout', 'sat']);
     expect(r.exitCode).toBe(ExitCode.VALIDATION);
-    expect((r.errs[0] as Error).message).toContain('no tiene terceros');
+    expect((r.errs[0] as Error).message).toContain('has no third parties');
     expect(r.out).toBe('');
   });
 });
