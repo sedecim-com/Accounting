@@ -1474,8 +1474,6 @@
       "src/cli/mnemosine.ts": 139,
       "src/cli/payment-command.ts": 1,
       "src/cli/prepaid-command.ts": 1,
-      "src/cli/prompt-size-command.ts": 4,
-      "src/cli/status-command.ts": 5,
       "src/cli/trace-completion-output.ts": 1,
       "src/cli/web-command.ts": 2,
       "src/cli/webhook-sweep-command.ts": 1

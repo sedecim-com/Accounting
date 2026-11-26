@@ -6558,6 +6558,50 @@ export const EN = {
   'platform.approvals.always_warning': "Warning: an 'always' policy stays active until revoked. Amounts it can authorize are capped at {cap} by the floor (FLOOR_MAX_AUTO_POST = {floor}); nothing can raise that limit.",
   'platform.approvals.revoked': 'Approval policy {id} revoked.',
   // ==== end of I8b · platform, part 2 ====
+  // ==== I8b · run-time strings by key, family platform, status and prompt-size (MNE-001-855, issue #150) ====
+  // `status` and `prompt-size`: their English byte for byte. The details `status --json` carries and the section
+  // labels of `prompt-size --json` stay English in the data; only the human table reads them back by key.
+  'platform.status.section.configuration': 'Configuration',
+  'platform.status.section.database': 'Database',
+  'platform.status.section.providers': 'Providers',
+  /** The label column of `status`: padded to the longest label of the language, plus three. */
+  'platform.status.label.config_file': 'config file',
+  'platform.status.label.provider': 'provider',
+  'platform.status.label.model': 'model',
+  'platform.status.label.language': 'language',
+  'platform.status.label.auto_post': 'auto-post',
+  'platform.status.label.connection': 'connection',
+  'platform.status.label.rls': 'RLS tenant scope',
+  'platform.status.no_config': '(none — built-in defaults)',
+  'platform.status.thresholds': '{on, select, true {on} other {off}}  min confidence {confidence}  max amount {max}',
+  'platform.status.floor_cap': '(floor cap {cap})',
+  'platform.status.mark': '{ok, select, true {ok} other {FAIL}}',
+  'platform.status.rls_state': '{active, select, true {active} other {inactive}}',
+  'platform.status.probe.skipped': 'probe skipped ({reason})',
+  'platform.status.probe.ok': 'probe ok {ms}ms',
+  'platform.status.probe.failed': 'probe FAIL [{category}] {detail}',
+  'platform.status.probe.none': 'not probed',
+  'platform.status.redacted': 'Redacted output: no keys, tokens or home paths. Safe to share in support tickets.',
+  /** Written into the report in English (`--json` keeps them); the table reads them back in the reader's language. */
+  'platform.status.detail.reachable': 'reachable',
+  'platform.status.detail.key_cmd_failed': 'api_key_cmd failed to produce a credential',
+  'platform.status.detail.no_tenant': 'no tenant context (set --tenant or MNEMOSINE_TENANT to scope by RLS)',
+  'platform.status.detail.db_unreachable': 'skipped: database unreachable',
+  'platform.prompt_size.title': 'Prompt budget (offline estimate, ~4 chars/token)',
+  'platform.prompt_size.system_blocks': 'System blocks',
+  /** Written into the budget in English (`--json` keeps them); the table reads them back in the reader's language. */
+  'platform.prompt_size.section.role': 'role instructions (stable)',
+  'platform.prompt_size.section.docs': 'docs index (stable)',
+  'platform.prompt_size.section.chart': 'chart of accounts (stable)',
+  'platform.prompt_size.section.volatile': 'volatile block (entity + date)',
+  'platform.prompt_size.cached': '[cached]',
+  'platform.prompt_size.uncached': '[uncached]',
+  'platform.prompt_size.tools_title': 'Tool schemas (top {shown} of {count}, largest first)',
+  'platform.prompt_size.more_tools': '… {count} more tools',
+  'platform.prompt_size.all_tools': 'all tools ({count})',
+  'platform.prompt_size.cached_prefix': 'cached prefix (tools + stable)',
+  'platform.prompt_size.uncached_total': 'uncached (volatile)',
+  // ==== end of I8b · platform, status and prompt-size ====
   // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
   // The one --line grammar that entry, invoice and bill read: its English byte for byte ("key(s)" included), the
   // Spanish with its plural; the keys as typed, the separator, the sample lines and the version are never translated.

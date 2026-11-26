@@ -4,6 +4,7 @@ import { buildSystemBlocks } from '../ai/system-prompt.js';
 import { buildTools } from '../ai/tools/index.js';
 import { docsIndex } from '../ai/tools/docs-tools.js';
 import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine prompt-size (OFFLINE — zero API calls)
@@ -56,6 +57,14 @@ export interface PromptBudget {
 
 const approxTokens = (chars: number): number => Math.ceil(chars / 4);
 
+/** The section labels the budget carries in English (--json keeps them); the table reads them back by key. */
+const SECTIONS = ['role', 'docs', 'chart', 'volatile'] as const;
+const english = (k: (typeof SECTIONS)[number]): string => t(`platform.prompt_size.section.${k}`, {}, 'en');
+const spoken = (v: string): string => {
+  const k = SECTIONS.find((s) => english(s) === v);
+  return k ? t(`platform.prompt_size.section.${k}`) : v;
+};
+
 /**
  * Pure accounting over already-built blocks and tools. Tool schemas count as
  * CACHED: they serialize before the system blocks, so the cache breakpoint on
@@ -63,24 +72,24 @@ const approxTokens = (chars: number): number => Math.ceil(chars / 4);
  */
 export function computePromptBudget(blocks: PromptSections, tools: ToolLike[]): PromptBudget {
   const sections: SizeEntry[] = [
-    { label: 'role instructions (stable)', chars: blocks.role.length, tokens: approxTokens(blocks.role.length), cached: true },
-    { label: 'docs index (stable)', chars: blocks.docsIndex.length, tokens: approxTokens(blocks.docsIndex.length), cached: true },
-    { label: 'chart of accounts (stable)', chars: blocks.chartOfAccounts.length, tokens: approxTokens(blocks.chartOfAccounts.length), cached: true },
-    { label: 'volatile block (entity + date)', chars: blocks.volatile.length, tokens: approxTokens(blocks.volatile.length), cached: false },
+    { label: english('role'), chars: blocks.role.length, tokens: approxTokens(blocks.role.length), cached: true },
+    { label: english('docs'), chars: blocks.docsIndex.length, tokens: approxTokens(blocks.docsIndex.length), cached: true },
+    { label: english('chart'), chars: blocks.chartOfAccounts.length, tokens: approxTokens(blocks.chartOfAccounts.length), cached: true },
+    { label: english('volatile'), chars: blocks.volatile.length, tokens: approxTokens(blocks.volatile.length), cached: false },
   ];
 
   const toolSizes = tools
-    .map((t) => {
+    .map((tool) => {
       const chars = JSON.stringify({
-        name: t.name,
-        description: t.description ?? '',
-        input_schema: t.input_schema ?? {},
+        name: tool.name,
+        description: tool.description ?? '',
+        input_schema: tool.input_schema ?? {},
       }).length;
-      return { name: t.name, chars, tokens: approxTokens(chars) };
+      return { name: tool.name, chars, tokens: approxTokens(chars) };
     })
     .sort((a, b) => b.chars - a.chars || a.name.localeCompare(b.name));
 
-  const toolsChars = toolSizes.reduce((sum, t) => sum + t.chars, 0);
+  const toolsChars = toolSizes.reduce((sum, tool) => sum + tool.chars, 0);
   const cachedChars = sections.filter((s) => s.cached).reduce((sum, s) => sum + s.chars, 0) + toolsChars;
   const uncachedChars = sections.filter((s) => !s.cached).reduce((sum, s) => sum + s.chars, 0);
 
@@ -106,27 +115,30 @@ const row = (label: string, chars: number, tokens: number): string =>
 
 /** Renders the budget as plain lines. Pure formatting — no I/O. */
 export function formatPromptBudget(budget: PromptBudget, c: PromptSizeDeps['palette']): string[] {
-  const out: string[] = ['', c.bold('Prompt budget (offline estimate, ~4 chars/token)'), ''];
+  const out: string[] = ['', c.bold(t('platform.prompt_size.title')), ''];
+  const cached = c.dim(`  ${t('platform.prompt_size.cached')}`);
+  const count = budget.tools.length;
 
-  out.push(c.bold('System blocks'));
+  out.push(c.bold(t('platform.prompt_size.system_blocks')));
   for (const s of budget.sections) {
-    out.push(row(s.label, s.chars, s.tokens) + (s.cached ? c.dim('  [cached]') : '  [uncached]'));
+    out.push(row(spoken(s.label), s.chars, s.tokens) + (s.cached ? cached : `  ${t('platform.prompt_size.uncached')}`));
   }
 
   out.push('');
-  out.push(c.bold(`Tool schemas (top ${Math.min(TOP_TOOLS, budget.tools.length)} of ${budget.tools.length}, largest first)`));
-  for (const t of budget.tools.slice(0, TOP_TOOLS)) {
-    out.push(row(t.name, t.chars, t.tokens));
+  out.push(c.bold(t('platform.prompt_size.tools_title', { shown: Math.min(TOP_TOOLS, count), count })));
+  for (const tool of budget.tools.slice(0, TOP_TOOLS)) {
+    out.push(row(tool.name, tool.chars, tool.tokens));
   }
-  if (budget.tools.length > TOP_TOOLS) {
-    out.push(c.dim(`  … ${budget.tools.length - TOP_TOOLS} more tools`));
+  if (count > TOP_TOOLS) {
+    out.push(c.dim(`  ${t('platform.prompt_size.more_tools', { count: count - TOP_TOOLS })}`));
   }
-  out.push(row(`all tools (${budget.tools.length})`, budget.toolsTotal.chars, budget.toolsTotal.tokens) + c.dim('  [cached]'));
+  out.push(row(t('platform.prompt_size.all_tools', { count }), budget.toolsTotal.chars, budget.toolsTotal.tokens) + cached);
 
   out.push('');
+  // `Total` and `TOTAL` are the same word in both languages, so they stay fixed text.
   out.push(c.bold('Total'));
-  out.push(row('cached prefix (tools + stable)', budget.cached.chars, budget.cached.tokens));
-  out.push(row('uncached (volatile)', budget.uncached.chars, budget.uncached.tokens));
+  out.push(row(t('platform.prompt_size.cached_prefix'), budget.cached.chars, budget.cached.tokens));
+  out.push(row(t('platform.prompt_size.uncached_total'), budget.uncached.chars, budget.uncached.tokens));
   out.push(c.bold(row('TOTAL', budget.total.chars, budget.total.tokens)));
   out.push('');
   return out;
