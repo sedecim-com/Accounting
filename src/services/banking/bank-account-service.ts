@@ -8,6 +8,7 @@ import { encrypt } from '../../utils/encryption.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { BANK_ACCOUNT_TYPES } from '../../database/enums.js';
 import { EXT_MAX_CHARACTERS, extCharacters } from '../sat/anexo24/official-enumerations.js';
+import { postedBalanceOnAccountSql, queryPostedLinesOnAccount } from '../reporting/report-service.js';
 
 // ============================================================
 // LA CUENTA BANCARIA COMO DATO MAESTRO (F05a)
@@ -274,6 +275,10 @@ interface FilaCuenta extends Record<string, unknown> {
  * `saldo_libro` sale del mayor y no de `bank_accounts.current_balance`, que es
  * lo que dijo el banco la última vez que se sincronizó. Los dos números
  * conviven a propósito: la conciliación ES su diferencia.
+ *
+ * MNE-001-620 (T14 · #101): the book balance is the report layer's
+ * (`postedBalanceOnAccountSql`, report-service.ts), composed here as a lateral
+ * per row, so `list` still reads every account in one statement.
  */
 const SELECCION = `
   SELECT b.id, b.entity_id, b.account_name, b.bank_name, b.bank_branch,
@@ -295,17 +300,7 @@ const SELECCION = `
     -- peor) pero su mapeo no se muestra, y \`show\` lo denuncia como anomalía.
     LEFT JOIN accounts a ON a.id = b.gl_account_id AND a.entity_id = b.entity_id
     LEFT JOIN LATERAL (
-      -- COALESCE por LADO, no sobre la resta. La 001 deja debit_amount y
-      -- credit_amount mutuamente excluyentes por CHECK: una línea acreedora
-      -- tiene el débito en NULL, y \`debit − credit\` sobre eso es NULL, que
-      -- SUM ignora. Restar así devolvía cero para cualquier cuenta con
-      -- movimientos, que es la peor forma de equivocarse: parece un saldo.
-      SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) AS saldo
-        FROM journal_entry_lines l
-        JOIN journal_entries j ON j.id = l.journal_entry_id
-       WHERE l.account_id = b.gl_account_id
-         AND j.entity_id = b.entity_id
-         AND j.status = 'posted'
+      ${postedBalanceOnAccountSql('b.gl_account_id', 'b.entity_id')}
     ) libro ON true
     LEFT JOIN LATERAL (
       SELECT MAX(s.end_date) AS ultima
@@ -690,22 +685,14 @@ function esViolacionDeMapeo(err: unknown): boolean {
 // MOVIMIENTOS CONTABILIZADOS — la guarda de `set`
 // ---------------------------------------------------------------
 
+/** The count and the net are the report layer's (MNE-001-620), read on the guard's own transaction client. */
 async function movimientosPosteados(
   client: pg.PoolClient,
   entityId: string,
   accountId: string
 ): Promise<{ lineas: number; saldo: string }> {
-  const r = await client.query<{ lineas: string; saldo: string }>(
-    // Mismo COALESCE por lado que la proyección, y por la misma razón: la
-    // mitad no usada de cada línea es NULL, no cero.
-    `SELECT COUNT(*)::text AS lineas,
-            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS saldo
-       FROM journal_entry_lines l
-       JOIN journal_entries j ON j.id = l.journal_entry_id
-      WHERE l.account_id = $1 AND j.entity_id = $2 AND j.status = 'posted'`,
-    [accountId, entityId]
-  );
-  return { lineas: parseInt(r.rows[0].lineas, 10), saldo: r.rows[0].saldo };
+  const r = await queryPostedLinesOnAccount(entityId, accountId, client);
+  return { lineas: parseInt(r.lines, 10), saldo: r.balance };
 }
 
 // ---------------------------------------------------------------
