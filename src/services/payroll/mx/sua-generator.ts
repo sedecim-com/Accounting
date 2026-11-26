@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
-import { ValidationError } from '../../../utils/errors.js';
+import { SuaMismatchError, ValidationError, type ErrorMessageKey } from '../../../utils/errors.js';
 import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
 
 // ============================================================
@@ -52,12 +52,17 @@ export interface HallazgoSua {
 
 const SUA_MISMATCH_FINDINGS = 'findings';
 
+/** A finding of the cross-check and the key its text is rendered from. */
+interface CheckedFinding {
+  finding: HallazgoSua;
+  text: ErrorMessageKey;
+}
+
 /**
- * The blocking findings a refused SUA file carries in its ValidationError
- * (422, exit 4) `details.findings`, by code and figure, so a caller renders
- * them in its own language instead of the Spanish prose of the message. The
- * refusal stays a plain `throw new ValidationError` at the call site on
- * purpose: the E4.1 floor criterion reads that the mismatch is thrown, not
+ * The blocking findings a refused SUA file carries in its `SuaMismatchError`
+ * (a ValidationError: 422, exit 4) `details.findings`, by code and figure, so
+ * a caller can render them its own way. The refusal is thrown at the call site
+ * on purpose: the E4.1 floor criterion reads that the mismatch is thrown, not
  * warned.
  */
 export function suaMismatchFindings(err: unknown): HallazgoSua[] | null {
@@ -272,19 +277,18 @@ export async function generateSuaFile(
     imss_employer: employees.reduce((s, e) => s.plus(e.imss_employer_amount), new Decimal(0)),
     infonavit_employer: employees.reduce((s, e) => s.plus(e.infonavit_employer_amount), new Decimal(0)),
   };
-  const hallazgos = await cotejarContraElPasivo(
+  const checked = await cotejarContraElPasivo(
     tenantId, entityId, periodStart, periodEnd, totales
   );
-  const bloqueantes = hallazgos.filter((h) => h.bloquea);
+  const hallazgos = checked.map((c) => c.finding);
+  const bloqueantes = checked.filter((c) => c.finding.bloquea);
   if (bloqueantes.length > 0) {
     // No se entrega, y NO se persiste la declaración: un `tax_form_filings` en
     // 'draft' con una cifra que no cuadra es exactamente el archivo que alguien
     // acaba subiendo al SUA sin volver a mirarlo.
-    throw new ValidationError(
-      `El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: ` +
-        bloqueantes.map((h) => h.detalle).join(' · '),
-      undefined,
-      { [SUA_MISMATCH_FINDINGS]: bloqueantes }
+    throw new SuaMismatchError(
+      bloqueantes.map((c) => c.text),
+      { [SUA_MISMATCH_FINDINGS]: bloqueantes.map((c) => c.finding) }
     );
   }
 
@@ -318,7 +322,7 @@ async function cotejarContraElPasivo(
   mesInicio: string,
   mesFin: string,
   totales: { imss_employer: Decimal; infonavit_employer: Decimal }
-): Promise<HallazgoSua[]> {
+): Promise<CheckedFinding[]> {
   const apuntado = await query<{ tax_type: string; total: string }>(
     `SELECT tax_type, COALESCE(SUM(amount), 0)::text AS total
        FROM employer_tax_liabilities
@@ -330,42 +334,36 @@ async function cotejarContraElPasivo(
   );
   const porConcepto = new Map(apuntado.rows.map((r) => [r.tax_type, new Decimal(r.total)]));
 
-  const hallazgos: HallazgoSua[] = [];
+  // The detail is stored with the filing (`recordSuaFiling`) and travels in
+  // the refusal's details: stored text keeps its language, Spanish. The key
+  // goes with it, so the refusal renders the same finding in its reader's.
+  const checked: CheckedFinding[] = [];
+  const push = (finding: Omit<HallazgoSua, 'detalle'>, text: ErrorMessageKey): void => {
+    const { codigo: code, concepto: concept, ...figures } = finding;
+    const stored = SuaMismatchError.storedDetail(text);
+    checked.push({ text, finding: { codigo: code, concepto: concept, detalle: stored, ...figures } });
+  };
   for (const concepto of ['imss_employer', 'infonavit_employer'] as const) {
     const enElArchivo = totales[concepto];
     const enLosLibros = porConcepto.get(concepto);
+    const file = enElArchivo.toFixed(2);
     if (enLosLibros === undefined) {
       // Si el archivo tampoco declara nada, no hay nada que cotejar ni nada
       // que avisar: un mes sin nómina es un mes sin nómina.
       if (enElArchivo.isZero()) continue;
-      hallazgos.push({
-        codigo: 'sin_pasivo_que_cotejar',
-        concepto,
-        detalle:
-          `el archivo declara ${enElArchivo.toFixed(2)} de ${concepto} y no hay ningún renglón ` +
-          `de pasivo apuntado para ${mesInicio}..${mesFin} contra el que cotejarlo: la cifra ` +
-          `sale de un solo camino y nadie la confirma`,
-        bloquea: false,
-        file_amount: enElArchivo.toFixed(2),
-        ledger_amount: null,
+      push({ codigo: 'sin_pasivo_que_cotejar', concepto, bloquea: false, file_amount: file, ledger_amount: null }, {
+        key: 'payroll.sua.finding.no_liability',
+        params: { file, concept: concepto, monthStart: mesInicio, monthEnd: mesFin },
       });
       continue;
     }
     if (!enElArchivo.equals(enLosLibros)) {
-      hallazgos.push({
-        codigo: 'el_archivo_no_cuadra_con_el_pasivo',
-        concepto,
-        detalle:
-          `${concepto}: el archivo declara ${enElArchivo.toFixed(2)} y el pasivo apuntado dice ` +
-          `${enLosLibros.toFixed(2)} (diferencia ${enLosLibros.minus(enElArchivo).toFixed(2)}). ` +
-          `Si un periodo cruza el cambio de mes y su pasivo se apuntó antes del reparto por ` +
-          `días cotizados, ese renglón lo lleva entero en un solo mes: ` +
-          '`npm run backfill:straddling-liabilities -- --tenant <id>` lo reparte',
-        bloquea: true,
-        file_amount: enElArchivo.toFixed(2),
-        ledger_amount: enLosLibros.toFixed(2),
+      const ledger = enLosLibros.toFixed(2);
+      push({ codigo: 'el_archivo_no_cuadra_con_el_pasivo', concepto, bloquea: true, file_amount: file, ledger_amount: ledger }, {
+        key: 'payroll.sua.finding.mismatch',
+        params: { concept: concepto, file, ledger, difference: enLosLibros.minus(enElArchivo).toFixed(2) },
       });
     }
   }
-  return hallazgos;
+  return checked;
 }
