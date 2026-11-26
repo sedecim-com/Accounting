@@ -95,32 +95,34 @@ The ratchet's ceilings, written by the meter itself from `docs/language-baseline
 This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
 in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
 trace is the diff. The live figures are read with `npm run language:status`.
+A lane marked *per file* has one ceiling per file there and no total: its ceiling is the sum of its
+files' floors, printed by `npm run language:status`, so a PR that lowers one file rewrites only its line.
 A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refuses anything above it.
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10437 | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
-| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
-| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
-| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
-| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | per file | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | per file | 0 |
+| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | per file | 0 |
+| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | per file | 0 |
+| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | per file | 0 |
+| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | per file | 0 |
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 0 | 0 |
-| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 | 0 |
-| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 30 | 0 |
-| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
-| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
-| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 332 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28937 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | per file | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | per file | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | per file | 0 |
+| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | per file | 0 |
+| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | per file | 0 |
+| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | per file | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | per file | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | per file | 0 |
 | `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
+| `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | per file | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 268 | 0 |
-| `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
-| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1716 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | per file | 0 |
+| `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | per file | 0 |
+| `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | per file | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
@@ -161,7 +163,7 @@ The living documentation is 90 files and 35,026 lines, almost all in Spanish:
 | skills/*/SKILL.md | 3 | 108 |
 | .github (templates) | 2 | 66 |
 
-The mechanism is that of a catalog, applied to pages: the **source** is `Page.md` in English; the **twin** is `Page.es.md` next to it, with `source_sha` in its header (the hash of the English it translated); `language:status` counts pages without a twin (0 always for README, wiki and governing documents once I21 lands) and **out-of-date** twins (`source_sha` different from the current one: 0 on merge, because the PR that touches the source touches the twin); the published wiki links each page to its twin and `Home` has a language switch. A third language, when there is one, will be `Page.<language>.md` and one line in the meter; for now there are two. Translating is work of the agent that **proposes** and of a person who approves in the PR, like everything else; standards terms (NIF, LISR, c_CodAgrup) are cited in their official language in parentheses in both twins. The agent corpus (`src/ai/docs/`) follows the same rule: English source — it already is where it is system — and the standards manuals are rewritten in English with the official Spanish term alongside, with their sync test (`niif-registry.spec.ts`) intact. **Dated reports** keep their Spanish; I26 gives each folder an English index. Under D14 the debt counted first is the opposite one: living pages whose source is still Spanish, which the lane `docs-pages-without-english-source` (MNE-001-190, proposed) will count and ratchet; the wiki's `Home` will open in English with a switch to its Spanish twin.
+The mechanism is that of a catalog, applied to pages: the **source** is `Page.md` in English; the **twin** is `Page.es.md` next to it, with `source_sha` in its header (the hash of the English it translated, its generated block left out); `language:status` counts pages without a twin (0 always for README, wiki and governing documents once I21 lands) and **out-of-date** twins (`source_sha` different from the current one: 0 on merge, because the PR that touches the source touches the twin); the published wiki links each page to its twin and `Home` has a language switch. A third language, when there is one, will be `Page.<language>.md` and one line in the meter; for now there are two. Translating is work of the agent that **proposes** and of a person who approves in the PR, like everything else; standards terms (NIF, LISR, c_CodAgrup) are cited in their official language in parentheses in both twins. The agent corpus (`src/ai/docs/`) follows the same rule: English source — it already is where it is system — and the standards manuals are rewritten in English with the official Spanish term alongside, with their sync test (`niif-registry.spec.ts`) intact. **Dated reports** keep their Spanish; I26 gives each folder an English index. Under D14 the debt counted first is the opposite one: living pages whose source is still Spanish, which the lane `docs-pages-without-english-source` (MNE-001-190, proposed) will count and ratchet; the wiki's `Home` will open in English with a switch to its Spanish twin.
 
 **Commit messages**: in English from the cut-off that I22 declares in `scripts/language/commit-subjects.ts` — judged by **author date**, so history is not rewritten and a pull request opened before the cut-off is not reddened for work written earlier. The subject keeps the tranche code when there is one (`I7: the kernel renders help by key`); the "Mensajes de commit" sections of `CONTRIBUTING.md` and `docs/PROCESS.md` say so, and the subject lint runs in CI over the commits a PR brings **and over its title**, because the squash writes the title into `main` when the PR carries more than one commit. The bilingual safe-word list of the Witness triage (the `SECRET_HITS` block of `witness-triage.yml`) **stays bilingual**: it filters the diff, not the subject, and the Spanish fixtures it was written for stay in the tree until I18/I19.
 
