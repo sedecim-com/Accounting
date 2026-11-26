@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10444,
+    "spanish-identifiers-src": 10443,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 376,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1815
+    "spanish-user-strings-services": 1785
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -199,7 +199,7 @@
       "src/services/banking/bank-account-service.ts": 158,
       "src/services/banking/bank-statement-service.ts": 209,
       "src/services/banking/book-items.ts": 18,
-      "src/services/banking/match-service.ts": 333,
+      "src/services/banking/match-service.ts": 332,
       "src/services/banking/matching.ts": 16,
       "src/services/banking/parsers/avisos.ts": 19,
       "src/services/banking/parsers/camt053.ts": 91,
@@ -1654,8 +1654,6 @@
       "src/services/backup/ledger-en-base.ts": 2,
       "src/services/banking/bank-account-service.ts": 47,
       "src/services/banking/bank-statement-service.ts": 36,
-      "src/services/banking/book-items.ts": 3,
-      "src/services/banking/match-service.ts": 27,
       "src/services/banking/parsers/avisos.ts": 1,
       "src/services/banking/parsers/camt053.ts": 23,
       "src/services/banking/parsers/csv.ts": 18,

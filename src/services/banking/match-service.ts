@@ -249,52 +249,40 @@ export function exigirCuadre(
     // cuenta de cancelación que nunca se usó: se rechaza en vez de guardarse
     // como aseveración vacía.
     if (declarado.modo === 'write-off') {
-      throw new ValidationError(
-        'El grupo cuadra exacto (residual 0.0000): no hay nada que cancelar, ' +
-        'así que --residual write-off sobra. Usa keep o quita la bandera.'
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.write_off_on_zero' });
     }
     return { residual: '0.0000', modo: 'keep', cuentaWriteOff: null };
   }
 
   if (declarado.modo === undefined) {
-    throw new ValidationError(
-      `El grupo no cuadra y nadie declaró qué hacer con lo que sobra. ` +
-      `Banco ${cuadre.totalBanco} = Libros ${cuadre.totalLibros} + ` +
-      `Ajustes ${cuadre.totalAjustes} deja una diferencia de ${cuadre.diferencia}. ` +
-      `Declárala con --residual keep (queda viva como partida conciliatoria) o ` +
-      `--residual write-off --write-off-account <cuenta> (se cancela contra esa cuenta), ` +
-      `o corrige las partidas del grupo.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_match.residual_undeclared',
+      params: {
+        bank: cuadre.totalBanco,
+        books: cuadre.totalLibros,
+        adjustments: cuadre.totalAjustes,
+        difference: cuadre.diferencia,
+      },
+    });
   }
 
   if (modo === 'write-off' && !cuenta) {
-    throw new ValidationError(
-      `Un residual de ${cuadre.diferencia} que se cancela necesita cuenta: ` +
-      `--residual write-off exige --write-off-account. Sin ella el dinero se ` +
-      `quedaría sin destino y el descuadre reaparecería en la sesión.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.write_off_needs_account', params: { difference: cuadre.diferencia } });
   }
 
   if (modo === 'keep' && cuenta) {
-    throw new ValidationError(
-      '--write-off-account sólo tiene sentido con --residual write-off: un ' +
-      'residual que se conserva no se cancela contra ninguna cuenta.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.write_off_account_with_keep' });
   }
 
   return { residual: diferencia.toFixed(4), modo, cuentaWriteOff: modo === 'write-off' ? cuenta : null };
 }
 
 /** Ningún id puede entrar dos veces al mismo lado de un grupo. */
-export function exigirSinRepetidos(ids: readonly string[], que: string): void {
+export function exigirSinRepetidos(ids: readonly string[], side: 'bank' | 'books'): void {
   const vistos = new Set<string>();
   for (const id of ids) {
     if (vistos.has(id)) {
-      throw new ValidationError(
-        `El ${que} ${id} aparece dos veces en el grupo: su importe contaría doble y el ` +
-        `grupo cuadraría afirmando el doble de lo que hay.`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.repeated_id', params: { side, id } });
     }
     vistos.add(id);
   }
@@ -695,10 +683,10 @@ export async function sellarPartidas(
     (f) => f.reconciliation_id !== null && f.reconciliation_id !== groupId
   );
   if (ajena) {
-    throw new ConflictError(
-      `La partida ${ajena.id} ya está sellada por el grupo de cotejo ` +
-      `${ajena.reconciliation_id ?? ''}. Desaplica ese cotejo antes de volver a cotejarla.`
-    );
+    throw new ConflictError({
+      key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group',
+      params: { id: ajena.id, group: ajena.reconciliation_id ?? '' },
+    });
   }
 
   const r = await client.query<{ id: string }>(
@@ -774,16 +762,10 @@ async function sesionEscribible(
   if (!sesion) throw new NotFoundError('Reconciliation Session', sesionId);
 
   if (sesion.bank_account_id !== cuentaId) {
-    throw new ValidationError(
-      `La sesión ${sesionId} concilia otra cuenta bancaria: un cotejo no puede ` +
-      `pertenecer a la conciliación de una cuenta distinta de la del movimiento.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.session_other_account', params: { session: sesionId } });
   }
   if (sesion.status === 'approved' || sesion.status === 'posted') {
-    throw new ConflictError(
-      `La sesión ${sesionId} está en '${sesion.status}': añadirle cotejos ahora ` +
-      `reescribiría una aseveración ya firmada.`
-    );
+    throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_add', params: { session: sesionId, status: sesion.status } });
   }
   return sesion;
 }
@@ -986,9 +968,7 @@ async function movimientosParaProponer(
   }
 
   if (!opts.cuentaId) {
-    throw new ValidationError(
-      'Previsualizar necesita una cuenta bancaria (--account) o un movimiento concreto.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.preview_needs_target' });
   }
   const entityId = await entidadDeLaCuenta(scope, opts.cuentaId);
   const r = await query<FilaMovimiento & BankTransaction>(
@@ -1244,7 +1224,7 @@ export async function aplicarCotejos(
   opts: OpcionesAplicacionExplicita = {}
 ): Promise<ResultadoAplicacion> {
   if (txIds.length === 0) {
-    throw new ValidationError('Aplicar necesita al menos un movimiento: no hay nada que cotejar.');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.apply_needs_transaction' });
   }
 
   const previstos: MovimientoPrevisto[] = [];
@@ -1259,10 +1239,7 @@ export async function aplicarCotejos(
       entityId = mov.entityId;
       cuentaId = mov.cuentaId;
     } else if (mov.cuentaId !== cuentaId) {
-      throw new ValidationError(
-        'Todos los movimientos de un mismo `apply` tienen que ser de la misma cuenta ' +
-        'bancaria: una sola transacción no puede ligarse a dos conciliaciones.'
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.apply_one_account' });
     }
     previstos.push(
       await preverMovimiento(scope, mov.entityId, mov.tx, {
@@ -1355,10 +1332,10 @@ async function escribirCotejos(
       // se defendía de esto (su lado de banco lo comprueba movimiento a
       // movimiento); este camino no.
       if (movimiento.bank_account_id !== cuentaId) {
-        throw new ValidationError(
-          `El movimiento ${movimiento.id} es de otra cuenta bancaria que la del grupo ` +
-          `(${cuentaId}): un cotejo no puede quedar colgado de una cuenta que no es la suya.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.bank_match.transaction_other_account_than_group',
+          params: { id: movimiento.id, account: cuentaId },
+        });
       }
 
       // IDEMPOTENCIA. Bajo el candado del movimiento, y viendo también las
@@ -1522,17 +1499,17 @@ export async function crearGrupoDeCotejo(
   const entityId = await entidadDeLaCuenta(scope, entrada.cuentaId);
 
   if (entrada.banco.length === 0) {
-    throw new ValidationError('Un grupo de cotejo necesita al menos un movimiento de banco.');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.group_needs_bank' });
   }
   if (entrada.libros.length === 0) {
-    throw new ValidationError('Un grupo de cotejo necesita al menos una partida de libros.');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.group_needs_books' });
   }
 
   // Un id repetido en un lado suma su importe DOS VECES, y el grupo cuadraría
   // afirmando el doble de lo que existe. La igualdad no puede defenderse de
   // esto sola: para ella dos veces el mismo movimiento son dos movimientos.
-  exigirSinRepetidos(entrada.banco, 'movimiento de banco');
-  exigirSinRepetidos(entrada.libros.map((l) => l.id), 'partida de libros');
+  exigirSinRepetidos(entrada.banco, 'bank');
+  exigirSinRepetidos(entrada.libros.map((l) => l.id), 'books');
 
   return ejecutarActo(async (client) => {
     if (entrada.sesionId) {
@@ -1545,26 +1522,23 @@ export async function crearGrupoDeCotejo(
       const mov = await movimientoBajoCandado(client, entityId, txId, { exigir: true });
       if (!mov) throw new NotFoundError('Bank Transaction', txId);
       if (mov.bank_account_id !== entrada.cuentaId) {
-        throw new ValidationError(
-          `El movimiento ${txId} pertenece a otra cuenta bancaria: un grupo de cotejo ` +
-          `no puede cruzar dos cuentas.`
-        );
+        throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.transaction_other_account', params: { id: txId } });
       }
       const periodo = await periodoDe(client, entityId, new Date(mov.transaction_date));
       if (!periodoAdmite(periodo, false)) {
-        throw new ConflictError(
-          `El movimiento ${txId} cae en un periodo '${periodo?.status ?? 'inexistente'}': ` +
-          `no se cotejan movimientos de un periodo cerrado con llave.`
-        );
+        throw new ConflictError({
+          key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.period_closed',
+          params: { id: txId, status: periodo?.status ?? 'missing' },
+        });
       }
       // Un movimiento con cotejo vivo entrando a un grupo nuevo afirmaría dos
       // veces el mismo dinero, cada vez contra un documento distinto.
       const cotejado = await movimientoOcupado(client, entityId, mov.id);
       if (cotejado) {
-        throw new ConflictError(
-          `El movimiento ${txId} ya tiene el cotejo vivo ${cotejado}: desaplícalo antes de ` +
-          `meterlo en un grupo nuevo, o el mismo dinero quedaría cotejado dos veces.`
-        );
+        throw new ConflictError({
+          key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.transaction_already_matched',
+          params: { id: txId, match: cotejado },
+        });
       }
       banco.push({ id: mov.id, importe: new Decimal(mov.amount).toFixed(4) });
     }
@@ -1579,16 +1553,13 @@ export async function crearGrupoDeCotejo(
       // Conciliar contra un BORRADOR es aseverar sobre algo que todavía puede
       // cambiar de cuenta o de importe. El sello se pone sobre hechos.
       if (candidato.estadoAsiento !== undefined && candidato.estadoAsiento !== 'posted') {
-        throw new ValidationError(
-          `La partida ${ref.id} pertenece a un asiento en '${candidato.estadoAsiento}': ` +
-          `sólo se coteja contra asientos contabilizados.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.bank_match.item_entry_not_posted',
+          params: { id: ref.id, status: candidato.estadoAsiento },
+        });
       }
       if (await candidatoOcupado(client, entityId, tipo, ref.id)) {
-        throw new ConflictError(
-          `La partida ${ref.id} ya está cotejada: desaplica ese cotejo antes de incluirla ` +
-          `en un grupo nuevo.`
-        );
+        throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.item_already_matched', params: { id: ref.id } });
       }
       libros.push({ id: ref.id, importe: candidato.importe });
       tipos.set(ref.id, tipo);
@@ -1609,11 +1580,10 @@ export async function crearGrupoDeCotejo(
     const direccionBanco = new Decimal(cuadre.totalBanco).isNegative();
     const direccionLibros = new Decimal(cuadre.totalLibros).isNegative();
     if (!new Decimal(cuadre.totalLibros).isZero() && direccionBanco !== direccionLibros) {
-      throw new ValidationError(
-        `El grupo suma ${cuadre.totalBanco} de banco contra ${cuadre.totalLibros} de libros: ` +
-        `los dos lados apuntan en direcciones opuestas, así que el grupo cotejaría una ` +
-        `entrada de dinero contra una salida.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_match.opposite_directions',
+        params: { bank: cuadre.totalBanco, books: cuadre.totalLibros },
+      });
     }
 
     const asignaciones = asignarGrupo(banco, libros);
@@ -1624,11 +1594,7 @@ export async function crearGrupoDeCotejo(
     const conAsignacion = new Set(asignaciones.map((a) => a.bancoId));
     const huerfano = banco.find((b) => !conAsignacion.has(b.id));
     if (huerfano) {
-      throw new ValidationError(
-        `El movimiento ${huerfano.id} no recibe ninguna partida de libros: los ajustes y ` +
-        `el residual lo absorben entero, así que quedaría marcado como cotejado sin nada ` +
-        `que lo explique. Sácalo del grupo o dale una partida.`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.orphan_transaction', params: { id: huerfano.id } });
     }
 
     // Y EL INVARIANTE 2 TIENE DOS LADOS. El de arriba sólo miraba el banco, y
@@ -1643,11 +1609,7 @@ export async function crearGrupoDeCotejo(
     const librosAsignados = new Set(asignaciones.map((a) => a.librosId));
     const partidaHuerfana = libros.find((l) => !librosAsignados.has(l.id));
     if (partidaHuerfana) {
-      throw new ValidationError(
-        `La partida ${partidaHuerfana.id} no recibe ningún movimiento de banco: los ajustes ` +
-        `y el residual la absorben entera, así que quedaría sellada sin cotejo que la ` +
-        `explique. Sácala del grupo, o mete el movimiento de banco que la cubre.`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_match.orphan_item', params: { id: partidaHuerfana.id } });
     }
 
     const groupId = await insertarGrupo(client, {
@@ -1768,11 +1730,10 @@ export async function desaplicarCotejo(
   ctx: ContextoCotejo & { motivo: MotivoDesaplicacion }
 ): Promise<ResultadoDesaplicacion> {
   if (!MOTIVOS_DESAPLICACION.includes(ctx.motivo)) {
-    throw new ValidationError(
-      `Motivo de desaplicación desconocido: '${ctx.motivo}'. Los admitidos son ` +
-      `${MOTIVOS_DESAPLICACION.join(', ')}. El motivo es un código y no prosa libre ` +
-      `porque las causas tienen que poder contarse, no sólo leerse.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_match.unapply_reason_unknown',
+      params: { reason: ctx.motivo, known: MOTIVOS_DESAPLICACION.join(', ') },
+    });
   }
   if (!UUID_RE.test(matchId)) throw new NotFoundError('Reconciliation Match', matchId);
 
@@ -1808,10 +1769,7 @@ export async function desaplicarCotejo(
     const cotejo = r.rows[0];
     if (!cotejo) throw new NotFoundError('Reconciliation Match', matchId);
     if (cotejo.unapplied_at !== null) {
-      throw new ConflictError(
-        `El cotejo ${matchId} ya se desaplicó: deshacer lo ya deshecho no es un acto, ` +
-        `y su fila sigue en el expediente con su motivo.`
-      );
+      throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.already_unapplied', params: { match: matchId } });
     }
 
     const entityId = cotejo.entity_id;
@@ -1903,10 +1861,7 @@ async function exigirSesionNoFirmada(
   );
   const estado = r.rows[0]?.status;
   if (estado === 'approved' || estado === 'posted') {
-    throw new ConflictError(
-      `La sesión ${sesionId} está en '${estado}': deshacer un cotejo suyo reescribiría ` +
-      `una aseveración ya firmada. Corrígela con una sesión nueva, no borrando ésta.`
-    );
+    throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_unapply', params: { session: sesionId, status: estado } });
   }
 }
 
