@@ -2,7 +2,13 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { AccountingError } from '../../utils/errors.js';
 import { ivaToReclassify } from './iva-cash-basis.js';
-import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
+import {
+  queryIepsKeptOnAccount,
+  queryIepsMovedForInvoice,
+  queryIepsParkedByInvoice,
+  queryIepsTakenByRows,
+} from '../reporting/report-service.js';
+import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from './ieps-roles.js';
 
 // ============================================================
 // IEPS ON CASH BASIS (LIEPS arts. 10, 5o. and 5o.-C)
@@ -26,18 +32,15 @@ import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 // what that receipt moved, net of its earlier unapplies) and lets a reversal
 // unwind both pairs with no bookkeeping of its own. VAT stores the same
 // figure on `payment_allocations.iva_reclass_amount`; IEPS needs no column.
+//
+// MNE-001-618 (T14 · #101): the four sums read back from the ledger are the
+// report layer's (report-service.ts, «IEPS CASH-BASIS READS»), the same
+// statements on the caller's transaction client.
 // ============================================================
 
-/**
- * The role a PPD sale's IEPS waits in (2181): the taxonomy credits it on a PPD
- * sale, the seed maps it on Mexican books, and the backfill gives it to an
- * entity seeded before (MNE-001-505).
- */
-export const IEPS_UNCOLLECTED_ROLE: AccountRole = 'ieps_trasladado_no_cobrado';
-/** Where caused IEPS is owed (2180). */
-export const IEPS_DUE_ROLE: AccountRole = 'ieps_por_pagar';
-/** The key under `journal_entry_lines.tags` that ties an IEPS move to its invoice and receipt. */
-export const IEPS_MOVE_TAG = 'ieps_release';
+// The two roles (2181, 2180) and the move tag live in a leaf (ieps-roles.ts,
+// MNE-001-618) that the report layer reads too; every importer keeps them here.
+export { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from './ieps-roles.js';
 
 const SCALE = 4;
 
@@ -86,18 +89,7 @@ export async function iepsParkedByInvoice(
   entityId: string,
   invoiceId: string
 ): Promise<Decimal> {
-  const { rows } = await client.query<{ ieps_parked: string }>(
-    `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS ieps_parked
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-       JOIN account_roles ar ON ar.account_id = l.account_id
-                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
-      WHERE je.entity_id = $1 AND je.source_type = 'invoice' AND je.source_id = $2
-        AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
-        AND ar.role = $3`,
-    [entityId, invoiceId, IEPS_UNCOLLECTED_ROLE]
-  );
-  return Decimal.max(new Decimal(rows[0]?.ieps_parked ?? '0'), 0);
+  return Decimal.max(new Decimal(await queryIepsParkedByInvoice(entityId, invoiceId, client)), 0);
 }
 
 /**
@@ -112,20 +104,7 @@ export async function iepsMovedForInvoice(
   invoiceId: string,
   paymentId?: string
 ): Promise<Decimal> {
-  const { rows } = await client.query<{ moved: string }>(
-    `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-       JOIN account_roles ar ON ar.account_id = l.account_id
-                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
-        AND je.is_reversal = false
-        AND ar.role = $2
-        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'invoice_id' = $3
-        AND ($4::text IS NULL OR l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $4::text)`,
-    [entityId, IEPS_UNCOLLECTED_ROLE, invoiceId, paymentId ?? null]
-  );
-  return new Decimal(rows[0]?.moved ?? '0');
+  return new Decimal(await queryIepsMovedForInvoice(entityId, invoiceId, paymentId ?? null, client));
 }
 
 /**
@@ -145,19 +124,7 @@ export async function iepsKeptOnAccount(
   entityId: string,
   paymentId: string
 ): Promise<string> {
-  const { rows } = await client.query<{ kept: string }>(
-    `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-       JOIN account_roles ar ON ar.account_id = l.account_id
-                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
-        AND je.is_reversal = false
-        AND ar.role = ANY($2::text[])
-        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $3`,
-    [entityId, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], paymentId]
-  );
-  return Decimal.max(new Decimal(rows[0]?.kept ?? '0'), 0).toFixed(SCALE);
+  return Decimal.max(new Decimal(await queryIepsKeptOnAccount(entityId, paymentId, client)), 0).toFixed(SCALE);
 }
 
 /**
@@ -174,21 +141,7 @@ export async function iepsTakenByRows(
   allocationIds: readonly string[]
 ): Promise<Map<string, { released: string; taken: string }>> {
   if (allocationIds.length === 0) return new Map();
-  const { rows } = await client.query<{ allocation_id: string; released: string; taken: string }>(
-    `SELECT l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' AS allocation_id,
-            SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-       JOIN account_roles ar ON ar.account_id = l.account_id
-                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
-        AND je.is_reversal = false
-        AND ar.role = ANY($3::text[])
-        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' = ANY($4::text[])
-      GROUP BY 1`,
-    [entityId, IEPS_UNCOLLECTED_ROLE, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], [...allocationIds]]
-  );
+  const rows = await queryIepsTakenByRows(entityId, allocationIds, client);
   return new Map(rows.map((r) => [r.allocation_id, {
     released: new Decimal(r.released).toFixed(SCALE), taken: new Decimal(r.taken).toFixed(SCALE),
   }]));
