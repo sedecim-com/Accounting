@@ -6480,6 +6480,36 @@ export const EN = {
   'platform.compact.session_not_found': 'Session not found for this entity.',
   'platform.compact.no_sessions': 'No sessions yet for this entity.',
   // ==== end of I8b · platform, usage, webhooks, sweep and compact ====
+  // ==== I8b · run-time strings by key, family platform, part 2 (MNE-001-843, issue #150) ====
+  // `skills` and `approvals`: their English byte for byte (every "(s)" plural included). Modes, scopes, flags,
+  // FLOOR_MAX_AUTO_POST and amounts are parameters or fixed text.
+  'platform.skills.scan.missing': 'scan report missing or malformed — treat as flagged',
+  'platform.skills.scan.clean': 'trust scan: clean',
+  'platform.skills.scan.threats': 'trust scan: {count} threat(s) — approval requires --accept-risk',
+  'platform.skills.scan.threat_line': '[{kind}] line {line}:',
+  'platform.skills.title': 'Skills',
+  'platform.skills.none_visible': 'No skills are visible for this entity.',
+  'platform.skills.mark.invalid': '[invalid]',
+  'platform.skills.mark.gated': '[gated]',
+  'platform.skills.drafts_pending': '{count} staged change(s) await review: mnemosine skills drafts',
+  'platform.skills.drafts.none': 'No skill drafts await review.',
+  'platform.skills.drafts.not_a_terminal': '{count} skill draft(s) await review, but stdin is not a terminal.',
+  'platform.skills.drafts.run_in_terminal': 'Run in a terminal to approve/reject interactively, or use --json for machine output.',
+  'platform.skills.drafts.approved': 'Approved and written: skills/{name}',
+  'platform.skills.drafts.rejected': 'Rejected.',
+  'platform.skills.drafts.skipped': 'Skipped; still pending.',
+  /** `flag` is `scope` or `mode`; `choices` lists its values, which are never translated. */
+  'platform.approvals.option_invalid': 'Invalid --{flag} "{value}"; expected one of: {choices}',
+  'platform.approvals.pattern_empty': 'The pattern is empty; specify at least one of --kind, --max-amount, --provider, --operation',
+  'platform.approvals.none': 'No approval policies.',
+  'platform.approvals.list.by': 'by {user}',
+  'platform.approvals.list.last_used': 'last used {date}',
+  'platform.approvals.granted': 'Approval policy granted: {id} ({scope}, {mode})',
+  'platform.approvals.pattern': 'pattern: {pattern}',
+  /** `cap` and `floor` come formatted; `always` is the mode's value and FLOOR_MAX_AUTO_POST the floor's name. */
+  'platform.approvals.always_warning': "Warning: an 'always' policy stays active until revoked. Amounts it can authorize are capped at {cap} by the floor (FLOOR_MAX_AUTO_POST = {floor}); nothing can raise that limit.",
+  'platform.approvals.revoked': 'Approval policy {id} revoked.',
+  // ==== end of I8b · platform, part 2 ====
   // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
   // The one --line grammar that entry, invoice and bill read: its English byte for byte ("key(s)" included), the
   // Spanish with its plural; the keys as typed, the separator, the sample lines and the version are never translated.

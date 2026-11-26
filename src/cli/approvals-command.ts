@@ -12,6 +12,7 @@ import {
   type ApprovalScope,
 } from '../ai/approval-policy.js';
 import { describeCommand, exitCodeFor, optionByKey, usageError } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine approvals — graduated approval policies
@@ -32,12 +33,12 @@ export interface ApprovalsDeps {
 
 function parseScope(value: string): ApprovalScope {
   if ((SCOPES as string[]).includes(value)) return value as ApprovalScope;
-  throw usageError(`Invalid --scope "${value}"; expected one of: ${SCOPES.join(', ')}`);
+  throw usageError({ key: 'platform.approvals.option_invalid', params: { flag: 'scope', value, choices: SCOPES.join(', ') } });
 }
 
 function parseMode(value: string): ApprovalMode {
   if ((MODES as string[]).includes(value)) return value as ApprovalMode;
-  throw usageError(`Invalid --mode "${value}"; expected one of: ${MODES.join(', ')}`);
+  throw usageError({ key: 'platform.approvals.option_invalid', params: { flag: 'mode', value, choices: MODES.join(', ') } });
 }
 
 interface GrantOpts {
@@ -60,9 +61,7 @@ function buildPattern(opts: GrantOpts): ApprovalPattern {
   if (opts.provider !== undefined) pattern.provider = opts.provider;
   if (opts.operation !== undefined) pattern.operation = opts.operation;
   if (Object.keys(pattern).length === 0) {
-    throw usageError(
-      'The pattern is empty; specify at least one of --kind, --max-amount, --provider, --operation'
-    );
+    throw usageError({ key: 'platform.approvals.pattern_empty' });
   }
   return pattern;
 }
@@ -90,14 +89,14 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
         if (opts.json) {
           console.log(JSON.stringify(rows, null, 2));
         } else if (rows.length === 0) {
-          console.log(c.dim('No approval policies.'));
+          console.log(c.dim(t('platform.approvals.none')));
         } else {
           for (const row of rows) {
             const state = row.revoked_at ? 'revoked' : 'active';
             console.log(
               `${c.cyan(row.id)}  ${c.bold(row.scope)}  ${row.mode.padEnd(7)}  ${state.padEnd(7)}  ` +
-                `${JSON.stringify(row.pattern)}  ${c.dim(`by ${row.created_by}`)}` +
-                (row.last_used_at ? c.dim(`  last used ${new Date(row.last_used_at).toISOString()}`) : '')
+                `${JSON.stringify(row.pattern)}  ${c.dim(t('platform.approvals.list.by', { user: row.created_by }))}` +
+                (row.last_used_at ? c.dim(`  ${t('platform.approvals.list.last_used', { date: new Date(row.last_used_at).toISOString() })}`) : '')
             );
           }
         }
@@ -137,20 +136,15 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
           sessionId: opts.session,
         });
 
-        console.log(`Approval policy granted: ${c.cyan(id)} (${scope}, ${mode})`);
-        console.log(c.dim(`  pattern: ${JSON.stringify(pattern)}`));
+        console.log(t('platform.approvals.granted', { id: c.cyan(id), scope, mode }));
+        console.log(c.dim(`  ${t('platform.approvals.pattern', { pattern: JSON.stringify(pattern) })}`));
         if (mode === 'always') {
           const cap = effectiveApprovalCap(
             pattern.max_amount !== undefined ? Number(pattern.max_amount) : undefined
           );
-          console.log(
-            c.bold(
-              `Warning: an 'always' policy stays active until revoked. Amounts it can authorize ` +
-                `are capped at ${cap.toLocaleString('en-US')} by the floor ` +
-                `(FLOOR_MAX_AUTO_POST = ${FLOOR_MAX_AUTO_POST.toLocaleString('en-US')}); ` +
-                `nothing can raise that limit.`
-            )
-          );
+          console.log(c.bold(t('platform.approvals.always_warning', {
+            cap: cap.toLocaleString('en-US'), floor: FLOOR_MAX_AUTO_POST.toLocaleString('en-US'),
+          })));
         }
         await deps.shutdown(0);
       } catch (err) {
@@ -168,7 +162,7 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
         await revokeApproval(ctx, id);
-        console.log(`Approval policy ${c.cyan(id)} revoked.`);
+        console.log(t('platform.approvals.revoked', { id: c.cyan(id) }));
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);

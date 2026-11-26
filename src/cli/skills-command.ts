@@ -14,6 +14,7 @@ import {
 import type { SkillScanReport } from '../ai/skills/trust-scanner.js';
 import { listSkills, viewSkill, visibleSkills } from '../ai/skills/store.js';
 import { argumentByKey, describeCommand, exitCodeFor, notFound, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine skills (alias: habilidades)
@@ -40,16 +41,16 @@ export function formatScanReportCard(report: SkillScanReport | null, c: Palette)
   const out: string[] = [];
   const threats = report && Array.isArray(report.threats) ? report.threats : null;
   if (threats === null) {
-    out.push(c.red('  ⚠ scan report missing or malformed — treat as flagged'));
+    out.push(c.red(`  ⚠ ${t('platform.skills.scan.missing')}`));
     return out;
   }
   if (threats.length === 0) {
-    out.push(c.green('  ✔ trust scan: clean'));
+    out.push(c.green(`  ✔ ${t('platform.skills.scan.clean')}`));
     return out;
   }
-  out.push(c.red(`  ⚠ trust scan: ${threats.length} threat(s) — approval requires --accept-risk`));
-  for (const t of threats) {
-    out.push(c.red(`    [${t.kind}] line ${t.line}: `) + c.dim(t.excerpt));
+  out.push(c.red(`  ⚠ ${t('platform.skills.scan.threats', { count: threats.length })}`));
+  for (const threat of threats) {
+    out.push(c.red(`    ${t('platform.skills.scan.threat_line', { kind: threat.kind, line: threat.line })} `) + c.dim(threat.excerpt));
   }
   return out;
 }
@@ -109,24 +110,22 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
           console.log(JSON.stringify({ skills: skillsFound, pendingDrafts: pending.length }, null, 2));
         } else {
           console.log('');
-          console.log(c.bold('Skills'));
+          console.log(c.bold(t('platform.skills.title')));
           if (skillsFound.length === 0) {
-            console.log(c.dim('  No skills are visible for this entity.'));
+            console.log(c.dim(`  ${t('platform.skills.none_visible')}`));
           }
           for (const s of skillsFound) {
             const description = s.description ? c.dim(` — ${s.description}`) : '';
             const flag = !s.valid
-              ? c.red(' [invalid]')
+              ? c.red(` ${t('platform.skills.mark.invalid')}`)
               : s.gated
-                ? c.dim(' [gated]')
+                ? c.dim(` ${t('platform.skills.mark.gated')}`)
                 : '';
             console.log(`  ${c.cyan(s.name)}${flag}${description}`);
           }
           console.log('');
           if (pending.length > 0) {
-            console.log(
-              c.yellow(`${pending.length} staged change(s) await review: mnemosine skills drafts`)
-            );
+            console.log(c.yellow(t('platform.skills.drafts_pending', { count: pending.length })));
             console.log('');
           }
         }
@@ -165,7 +164,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
             await shutdown(0);
           }
           if (pending.length === 0) {
-            console.log(c.dim('\nNo skill drafts await review.'));
+            console.log(c.dim(`\n${t('platform.skills.drafts.none')}`));
             await shutdown(0);
           }
 
@@ -175,20 +174,12 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
           // pending and the DB pool held open. Mirror the review-queue
           // pattern: print the queue non-interactively and exit instead.
           if (!stdin.isTTY) {
-            console.log(
-              c.yellow(
-                `\n${pending.length} skill draft(s) await review, but stdin is not a terminal.`
-              )
-            );
+            console.log(c.yellow(`\n${t('platform.skills.drafts.not_a_terminal', { count: pending.length })}`));
             for (const draft of pending) {
               console.log(`\n${draftHeader(draft, c)}`);
               for (const l of formatScanReportCard(draft.scan_report, c)) console.log(l);
             }
-            console.log(
-              c.dim(
-                '\nRun in a terminal to approve/reject interactively, or use --json for machine output.'
-              )
-            );
+            console.log(c.dim(`\n${t('platform.skills.drafts.run_in_terminal')}`));
             await shutdown(0);
           }
 
@@ -214,7 +205,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
                   acceptRisk: opts.acceptRisk,
                   overrideDrift: opts.overrideDrift,
                 });
-                console.log(c.green(`✔ Approved and written: skills/${draft.skill_name}`));
+                console.log(c.green(`✔ ${t('platform.skills.drafts.approved', { name: draft.skill_name })}`));
               } catch (err) {
                 // Typically: flagged threats without --accept-risk. Keep
                 // reviewing the rest of the queue.
@@ -222,9 +213,9 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
               }
             } else if (answer === 'r') {
               await rejectSkillDraft(ctx, draft.id, reviewer.email);
-              console.log(c.dim('✘ Rejected.'));
+              console.log(c.dim(`✘ ${t('platform.skills.drafts.rejected')}`));
             } else {
-              console.log(c.dim('Skipped; still pending.'));
+              console.log(c.dim(t('platform.skills.drafts.skipped')));
             }
           }
 

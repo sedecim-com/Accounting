@@ -1460,7 +1460,6 @@
     },
     "cli-user-strings-without-key": {
       "src/cli/anexo24-migration-command.ts": 1,
-      "src/cli/approvals-command.ts": 6,
       "src/cli/asset-command.ts": 3,
       "src/cli/bank-command.ts": 11,
       "src/cli/banner.ts": 2,
@@ -1476,7 +1475,6 @@
       "src/cli/payment-command.ts": 1,
       "src/cli/prepaid-command.ts": 1,
       "src/cli/prompt-size-command.ts": 4,
-      "src/cli/skills-command.ts": 7,
       "src/cli/status-command.ts": 5,
       "src/cli/trace-completion-output.ts": 1,
       "src/cli/web-command.ts": 2,
