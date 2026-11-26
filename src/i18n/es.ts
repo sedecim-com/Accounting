@@ -284,6 +284,31 @@ export const ES: Record<keyof typeof EN, string> = {
     'El sello de conciliación alcanzó {sealed} de {count} partida(s). Las que faltan ya estaban selladas, pertenecen a un asiento no contabilizado, o no son de la misma entidad que el grupo {group}. No se sella nada a medias: revisa la lista con `bank book-item list` y vuelve a armar el grupo.',
   'error.VALIDATION_ERROR.bank_book_item.partial_release':
     'Se liberaron {released} de {count} partida(s). Las que faltan no estaban selladas, o su sello lo puso algo que no es un grupo de cotejo bancario de esta entidad —la certificación de cuentas usa la misma columna— y no se levanta desde aquí.',
+  // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
+  'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
+    'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
+  'error.VALIDATION_ERROR.iva_workpaper.prior_balance_amount':
+    'El saldo a favor de periodos anteriores vale "{value}": debe ser un importe de cero o más.',
+  'error.VALIDATION_ERROR.iva_workpaper.month': 'El mes {month} no existe: el IVA definitivo es mensual.',
+  'error.VALIDATION_ERROR.iva_workpaper.entity_without_mexican_iva':
+    'La entidad no causa IVA mexicano: no hay IVA definitivo que calcular.',
+  'error.VALIDATION_ERROR.isr_workpaper.amount': '{field} vale "{value}": debe ser un importe de cero o más.',
+  'error.VALIDATION_ERROR.isr_workpaper.month': 'El mes {month} no existe: el pago provisional es mensual.',
+  'error.VALIDATION_ERROR.isr_workpaper.entity_without_mexican_books':
+    'La entidad no lleva libros mexicanos: no hay ISR provisional que calcular.',
+  'error.VALIDATION_ERROR.income_tax_input.payment_month': '{year}-{month} no es un mes de pago provisional.',
+  'error.VALIDATION_ERROR.income_tax_input.kind': '"{kind}" no es un dato del ISR provisional: {known}.',
+  'error.VALIDATION_ERROR.income_tax_input.year_not_integer': 'El ejercicio de la declaración fuente es un año entero.',
+  'error.VALIDATION_ERROR.income_tax_input.value_format':
+    '"{value}" no es una cifra no negativa con hasta cuatro decimales.',
+  'error.VALIDATION_ERROR.income_tax_input.source_missing':
+    'Falta la fuente: la declaración anual de la que se tomó la cifra.',
+  'error.VALIDATION_ERROR.income_tax_input.filed_inside_year':
+    'La declaración de {year} se presenta después de que termina el ejercicio: "{filedOn}" no puede ser su fecha.',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_required':
+    'Las pérdidas pendientes dicen hasta qué mes del INPC están actualizadas (AAAA-MM, LISR art. 57).',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_only_for_losses':
+    'Sólo las pérdidas pendientes llevan mes de actualización.',
   // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion; see en.ts ----
   'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR':
     'El CFDI lo emite "{name}" (RFC {rfc}), que no existe en el catálogo de proveedores de esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, con `mnemosine vendor create --tax-id {rfc}`, y vuelve a ejecutar (el pre-registro lo encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como viene en el comprobante.',

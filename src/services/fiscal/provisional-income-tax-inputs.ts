@@ -175,7 +175,8 @@ export async function incomeTaxInputForPayment(
 /** The 17th of the month after the one the payment covers (LISR art. 14). */
 export function provisionalPaymentDueOn(p: ProvisionalPayment): string {
   if (!Number.isInteger(p.fiscalYear) || !Number.isInteger(p.month) || p.month < 1 || p.month > 12) {
-    throw new ValidationError(`${p.fiscalYear}-${p.month} no es un mes de pago provisional.`, 'month');
+    throw new ValidationError(
+      { key: 'error.VALIDATION_ERROR.income_tax_input.payment_month', params: { year: String(p.fiscalYear), month: String(p.month) } }, 'month');
   }
   const year = p.month === 12 ? p.fiscalYear + 1 : p.fiscalYear;
   const month = p.month === 12 ? 1 : p.month + 1;
@@ -212,10 +213,11 @@ function run(client?: pg.PoolClient) {
  */
 function assertCapture(c: IncomeTaxInputCapture): void {
   if (!KINDS.includes(c.kind)) {
-    throw new ValidationError(`"${c.kind}" no es un dato del ISR provisional: ${KINDS.join(', ')}.`, 'kind');
+    throw new ValidationError(
+      { key: 'error.VALIDATION_ERROR.income_tax_input.kind', params: { kind: String(c.kind), known: KINDS.join(', ') } }, 'kind');
   }
   if (!Number.isInteger(c.sourceFiscalYear)) {
-    throw new ValidationError('El ejercicio de la declaración fuente es un año entero.', 'sourceFiscalYear');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.income_tax_input.year_not_integer' }, 'sourceFiscalYear');
   }
   if (c.sourceFiscalYear < YEAR_RANGE.min || c.sourceFiscalYear > YEAR_RANGE.max) {
     throw new ValidationError(
@@ -223,15 +225,13 @@ function assertCapture(c: IncomeTaxInputCapture): void {
       'sourceFiscalYear');
   }
   if (!DECIMAL_4.test(c.value)) {
-    throw new ValidationError(
-      `"${c.value}" no es una cifra no negativa con hasta cuatro decimales.`, 'value');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.income_tax_input.value_format', params: { value: String(c.value) } }, 'value');
   }
   if (c.value.split('.')[0].length > MAX_INTEGER_DIGITS) {
     throw new ValidationError({ key: 'income_tax_input.value_too_large', params: { value: c.value } }, 'value');
   }
   if (c.sourceDocument.trim() === '') {
-    throw new ValidationError(
-      'Falta la fuente: la declaración anual de la que se tomó la cifra.', 'sourceDocument');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.income_tax_input.source_missing' }, 'sourceDocument');
   }
   if (!isRealCalendarDate(c.sourceFiledOn)) {
     throw new ValidationError(
@@ -239,17 +239,14 @@ function assertCapture(c: IncomeTaxInputCapture): void {
   }
   if (c.sourceFiledOn <= `${c.sourceFiscalYear}-12-31`) {
     throw new ValidationError(
-      `La declaración de ${c.sourceFiscalYear} se presenta después de que termina el ejercicio: ` +
-        `"${c.sourceFiledOn}" no puede ser su fecha.`,
+      { key: 'error.VALIDATION_ERROR.income_tax_input.filed_inside_year', params: { year: String(c.sourceFiscalYear), filedOn: c.sourceFiledOn } },
       'sourceFiledOn');
   }
   const losses = c.kind === 'pending_tax_losses';
   if (losses !== (c.updatedThrough !== undefined) ||
       (c.updatedThrough !== undefined && !ISO_MONTH.test(c.updatedThrough))) {
     throw new ValidationError(
-      losses
-        ? 'Las pérdidas pendientes dicen hasta qué mes del INPC están actualizadas (AAAA-MM, LISR art. 57).'
-        : 'Sólo las pérdidas pendientes llevan mes de actualización.',
+      { key: losses ? 'error.VALIDATION_ERROR.income_tax_input.update_month_required' : 'error.VALIDATION_ERROR.income_tax_input.update_month_only_for_losses' },
       'updatedThrough');
   }
 }
