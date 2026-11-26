@@ -174,8 +174,8 @@ describe('direccionDeAjuste · el signo dice el sentido del asiento', () => {
   it('RECHAZA el signo que contradice al tipo en vez de voltearlo en silencio', () => {
     // Voltearlo es cómo un dato equivocado se convierte en un asiento correcto
     // de una cosa que no pasó.
-    expect(() => direccionDeAjuste('comision', '350')).toThrow(/negativo/);
-    expect(() => direccionDeAjuste('interes', '-120')).toThrow(/positivo/);
+    expect(() => direccionDeAjuste('comision', '350')).toThrow(/must be negative/);
+    expect(() => direccionDeAjuste('interes', '-120')).toThrow(/must be positive/);
     expect(() => direccionDeAjuste('isr-retenido', '24')).toThrow(ValidationError);
   });
 
@@ -336,13 +336,13 @@ describe('crearAjuste · lo que rechaza antes de escribir', () => {
     conBase({ sesion: { ...sesion, cuenta_de_banco: null } });
     await expect(
       crearAjuste('ent-1', 'ses-1', { tipo: 'iva-comision', importe: '-8' }, 'usr-1')
-    ).rejects.toThrow(/no pertenece a esta entidad/);
+    ).rejects.toThrow(/does not belong to this entity/);
   });
 
   it('no deja que la contrapartida sea la propia cuenta de banco', async () => {
     await expect(
       crearAjuste('ent-1', 'ses-1', { tipo: 'error', cuenta: '1110', importe: '-8' }, 'usr-1')
-    ).rejects.toThrow(/a sí mismo/);
+    ).rejects.toThrow(/credit itself/);
   });
 
   it('rechaza un contexto de otra entidad: el borrador acabaría en libros ajenos', async () => {
@@ -354,7 +354,7 @@ describe('crearAjuste · lo que rechaza antes de escribir', () => {
         'usr-1',
         { ctx: { entityId: 'ent-2', tenantId: 'tnt-1' } as never }
       )
-    ).rejects.toThrow(/No se cruza/);
+    ).rejects.toThrow(/They are not crossed/);
   });
 });
 
@@ -370,7 +370,7 @@ describe('crearAjuste · lo que escribe', () => {
     // no pueda postear.
     await expect(
       crearAjuste('ent-1', 'ses-1', { tipo: 'iva-comision', importe: '-19.7520' }, 'usr-1')
-    ).rejects.toThrow(/dos decimales/);
+    ).rejects.toThrow(/two-decimal entry/);
     expect(insertDelAjuste()).toBeUndefined();
   });
 

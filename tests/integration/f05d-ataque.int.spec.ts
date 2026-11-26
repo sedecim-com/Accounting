@@ -1352,7 +1352,7 @@ describe('ataque: cambiar lo que ya se firmó', () => {
         A.userId,
         {}
       )
-    ).rejects.toThrow(/no admite ajustes nuevos/);
+    ).rejects.toThrow(/takes no new adjustments/);
   });
 
   it('si la partida se mueve POR DEBAJO del servicio, el hash lo delata', async () => {

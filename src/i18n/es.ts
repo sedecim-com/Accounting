@@ -318,6 +318,41 @@ export const ES: Record<keyof typeof EN, string> = {
     'El movimiento {id} ya lo contabilizó la póliza {entry}. Revierte esa póliza antes de reclasificarlo.',
   'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_race': 'El movimiento {id} cambió mientras se reclasificaba; vuelve a intentarlo.',
   // ---- end of MNE-001-824 ----
+  // ---- MNE-001-825 · I9 by folder, part 2c, part 1: the reconciliation adjustments and the arithmetic; see en.ts ----
+  'error.VALIDATION_ERROR.bank_adjustment.type_unknown': 'Tipo de ajuste desconocido "{value}". Los admitidos son: {known}.',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_unreadable': 'Importe ilegible para el ajuste: "{value}".',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_not_finite': 'Importe no finito para el ajuste: "{value}".',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_zero':
+    'El importe de un ajuste de conciliación no puede ser cero: un asiento de cero no corrige ninguna diferencia y el motor no lo admitiría.',
+  'error.VALIDATION_ERROR.bank_adjustment.sign_contradicts_type':
+    'El ajuste "{type}" {direction, select, in {mete} other {saca}} dinero de la cuenta, así que su importe tiene que ser {direction, select, in {positivo} other {negativo}}; llegó {amount}. El signo NO se voltea aquí: si de verdad el movimiento va al revés, no es un "{type}" —probablemente sea "error"—.',
+  'error.VALIDATION_ERROR.bank_adjustment.not_postable':
+    'El ajuste "{type}" trae {amount}, que no cabe en un asiento de dos decimales: postearía {rounded} y la fila de la conciliación seguiría diciendo {amount}. No se redondea por su cuenta —las dos cifras acabarían contradiciéndose—: captura el importe con el que se va a contabilizar.',
+  'error.VALIDATION_ERROR.bank_adjustment.role_missing.comision':
+    'El ajuste "{type}" no tiene rol contable que resolver: falta sembrar "{role}". el rol `comision_bancaria` (6310) ya existe y `treasury-posting` lo consume, pero esta ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta se indica a mano. El vecino que hay que NO usar es `gasto` (6100), donde la comisión se mezcla con todo lo demás y deja de poder contarse. Indica la cuenta con la que quieres proponerlo.',
+  'error.VALIDATION_ERROR.bank_adjustment.role_missing.interes':
+    'El ajuste "{type}" no tiene rol contable que resolver: falta sembrar "{role}". el rol `producto_financiero` (4310) ya existe y `treasury-posting` lo consume, pero esta ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta se indica a mano. El vecino que hay que NO usar es `otros_ingresos` (4200), reservado a propósito al remanente de un pago corto. Indica la cuenta con la que quieres proponerlo.',
+  'error.VALIDATION_ERROR.bank_adjustment.account_not_deducible':
+    'El ajuste "{type}" no tiene una cuenta que se pueda deducir —depende de qué se registró mal—. Indica la cuenta.',
+  'error.VALIDATION_ERROR.bank_adjustment.role_unmapped':
+    'El ajuste "{type}" se apoya en el rol contable "{role}", que esta entidad no tiene mapeado. Apúntalo con `mnemosine account role set {role} <cuenta>` o indica la cuenta aquí.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.session_not_open':
+    'La sesión {session} está en estado "{status}": no admite ajustes nuevos. Sus cifras son el resumen congelado al cerrar, y un ajuste posterior las contradiría.',
+  'error.VALIDATION_ERROR.bank_adjustment.bank_gl_foreign':
+    'La cuenta bancaria "{account}" apunta a una cuenta de mayor que no pertenece a esta entidad. No se propone ningún asiento contra ella.',
+  'error.VALIDATION_ERROR.bank_adjustment.counterparty_is_bank':
+    'La contrapartida del ajuste no puede ser la propia cuenta de banco ({account}): el asiento se cargaría y se abonaría a sí mismo y no movería ningún saldo.',
+  'error.VALIDATION_ERROR.bank_adjustment.context_other_entity':
+    'El contexto recibido es de la entidad {context} y el ajuste es de {entity}. No se cruza: el borrador acabaría en los libros de otro.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.row_not_recorded':
+    'El borrador {draft} se creó pero el ajuste no pudo registrarse en la sesión {session}: {reason}. Recházalo en `mnemosine review` (opción [r]eject) para que no quede pendiente sin dueño.',
+  'error.VALIDATION_ERROR.bank_reconciliation_math.amount_unreadable':
+    'Importe ilegible en {item, select, none {} other {partida {item}.}}{field}: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciliation_math.amount_not_finite':
+    'Importe no finito en {item, select, none {} other {partida {item}.}}{field}: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown':
+    'Tipo de partida conciliatoria desconocido en partida {item}: "{value}". Los admitidos son: {known}.',
+  // ---- end of MNE-001-825 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
