@@ -13,7 +13,7 @@ import type { Queryable } from '../../utils/sequence.js';
 
 /** Roles whose account is moved by a subledger, a bank or a tax engine, never by an expense line. */
 export const CONTROL_ROLES: readonly AccountRole[] = [
-  'cxp', 'cxc', 'anticipo_clientes', 'anticipo_proveedores', 'banco', 'efectivo',
+  'cxp', 'cxc', 'anticipo_clientes', 'ingreso_cobrado_por_anticipado', 'anticipo_proveedores', 'banco', 'efectivo',
   'iva_trasladado', 'iva_trasladado_no_cobrado', 'iva_acreditable', 'iva_pendiente_acreditar',
   'iva_retenido_por_pagar', 'iva_retenido_a_favor',
   'isr_retenido_por_pagar', 'isr_retenido_a_favor', 'isr_nomina_por_pagar',

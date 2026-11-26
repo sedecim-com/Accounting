@@ -157,6 +157,7 @@ import { registerBatchCommand } from './batch-command.js';
 import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
+import { registerDeferredRevenueCommand } from './deferred-revenue-command.js';
 import { registerPayrollCommand } from './payroll-command.js';
 import { registerPayRunCommand } from './pay-run-command.js';
 import { registerPayCalendarCommand } from './pay-schedule-command.js';
@@ -3704,6 +3705,8 @@ registerBatchCommand(program, { palette: c, shutdown, reportError });
 registerClosingCommand(program, { palette: c, shutdown, reportError });
 registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-299: the revenue side of the same register (NIF D-1).
+registerDeferredRevenueCommand(program, { palette: c, shutdown, reportError });
 // D1. La puerta del devengo de prestaciones. El motor de la NIF D-3 estaba
 // construido, probado y sin una sola forma de invocarlo —capacidad huérfana—,
 // así que en producción el pasivo de aguinaldo no se reconocía ningún mes. La

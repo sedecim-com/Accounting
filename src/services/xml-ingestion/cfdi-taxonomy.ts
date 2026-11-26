@@ -11,6 +11,8 @@ import { TIPO_RELACION, type CfdiFacts } from './cfdi-facts.js';
 export type AccountRole =
   // Revenue and collections
   | 'ingreso' | 'devolucion_ventas' | 'anticipo_clientes' | 'cxc' | 'banco'
+  // The contract liability a deferred-revenue calendar recognizes (MNE-001-299).
+  | 'ingreso_cobrado_por_anticipado'
   // Cash as a whole: the account whose tree the cash-flow statement reads as
   // cash (BAN-1, #324). It is NOT a posting role: no case posts to it, and
   // `banco` is where money lands. They are separate so that `banco` can live on

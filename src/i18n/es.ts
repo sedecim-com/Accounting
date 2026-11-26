@@ -971,6 +971,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.prepaid_amortization_missing_at_close.option.bloquear':
     'Rechazar: el periodo no cierra hasta que se corra cada calendario',
 
+  'policy.deferred_revenue_recognition_convention.question':
+    'Ingreso cobrado por adelantado por un servicio que empieza a mitad de mes: ¿el primer mes se reconoce completo o sólo por los días que cubre?',
+  'policy.deferred_revenue_recognition_convention.impact':
+    'Fija cada mes de un calendario de ingreso diferido. Un contrato anual desde el 20 de marzo se reconoce en 13 meses por días y en 12 por meses completos, y el ingreso del ejercicio cambia.',
+  'policy.deferred_revenue_recognition_convention.rationale':
+    'El ingreso pertenece al periodo en que se presta el servicio (NIF D-1; NIIF 15 párr. 39). Por días, el primer y el último mes llevan sólo los días que cubre el contrato; por meses completos el primer mes se reconocería entero antes de prestarse, que es el lado menos prudente para un ingreso.',
+  'policy.deferred_revenue_recognition_convention.why':
+    'Tu contrato empieza el día 20, no el 1. Por días el ingreso se reparte en trece meses de calendario y por meses completos en doce, así que la elección cambia cuánto ingreso muestra el año.',
+  'policy.deferred_revenue_recognition_convention.what':
+    'Reconozco los días que cada mes cubre de verdad.',
+  'policy.deferred_revenue_recognition_convention.if_skipped':
+    'Reconozco por días.',
+  'policy.deferred_revenue_recognition_convention.option.proporcional_dias':
+    'Por días: el primer y el último mes reconocen sólo los días cubiertos',
+  'policy.deferred_revenue_recognition_convention.option.meses_completos':
+    'Meses completos: el mes de inicio se reconoce entero y el último no',
+
   'policy.prepaid_threshold_mxn.question':
     '¿Por encima de qué importe un gasto de varios periodos se difiere a pagos anticipados en vez de ir a gasto de una vez?',
   'policy.prepaid_threshold_mxn.impact':
@@ -7124,6 +7141,33 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.reverse.option.date':
     'fecha de la reversión, para sus espejos y los renglones cerrados (AAAA-MM-DD); por omisión, hoy',
   'help.payment.reverse.option.json': 'salida en JSON',
+  // MNE-001-299 · the deferred-revenue family (NIF D-1).
+  'help.deferred_revenue.description':
+    'Ingreso cobrado por adelantado: el calendario que convierte el pasivo de contrato (2158) en ingreso, mes a mes',
+  'help.deferred_revenue.create.description':
+    'Adopta un abono que ya está en el pasivo de contrato y registra su calendario de reconocimiento; no postea nada',
+  'help.deferred_revenue.create.argument.description': 'qué cubre el contrato, como se leerá en los asientos',
+  'help.deferred_revenue.create.option.amount': 'importe a reconocer, sin IVA, en decimal',
+  'help.deferred_revenue.create.option.start': 'primer día en que se presta el servicio (AAAA-MM-DD)',
+  'help.deferred_revenue.create.option.end': 'último día en que se presta el servicio, inclusive (AAAA-MM-DD)',
+  'help.deferred_revenue.create.option.origin': 'de dónde salió el abono que ya está en el pasivo — sin valor por omisión',
+  'help.deferred_revenue.create.option.source_entry': 'el asiento que abonó el pasivo; obligatorio con --origin cfdi',
+  'help.deferred_revenue.create.option.reference': 'el documento al que apunta: contrato, pedido, número de factura',
+  'help.deferred_revenue.create.option.dry_run': 'muestra el calendario que se registraría; no escribe nada',
+  'help.deferred_revenue.run.description': 'Reconoce el mes — un asiento de ajuste por calendario, irreversible',
+  'help.deferred_revenue.run.option.period': 'periodo a reconocer: 2026-08, o cualquier parte inequívoca de su nombre',
+  'help.deferred_revenue.create.footer':
+    'Ejemplos:\n' +
+    '  Un contrato anual de soporte ya abonado a la 2158; aquí no se postea nada. Primero lo que registraría:\n' +
+    '    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual --dry-run\n' +
+    '  Después el calendario:\n' +
+    '    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual',
+  'help.deferred_revenue.run.footer':
+    'Ejemplos:\n' +
+    '  Primero el ensayo: los calendarios que deben el mes, sin postear nada:\n' +
+    '    mnemosine deferred-revenue run --period 2026-04 --dry-run\n' +
+    '  Después el mes:\n' +
+    '    mnemosine deferred-revenue run --period 2026-04 --yes',
   'help.prepaid.description': 'Pagos anticipados: el calendario que los saca de la 1160, mes a mes',
   'help.prepaid.create.description':
     'Registra el calendario de amortización de un cargo que ya está en pagos anticipados; no contabiliza nada',
@@ -7946,6 +7990,22 @@ export const ES: Record<keyof typeof EN, string> = {
     '{count, plural, =0 {No se creó ningún periodo: ya existían.} one {Se creó # periodo.} other {Se crearon # periodos.}}',
   'paycalendar.period.empty': 'No hay periodos de nómina en esta entidad.',
 
+  // MNE-001-299 · deferred-revenue create and run.
+  'deferred_revenue.create.flags_missing':
+    'Falta {flags}. Un calendario sin importe, sin ventana de servicio o sin decir de dónde salió el abono no se puede reconocer ni cuadrar contra el pasivo.',
+  'deferred_revenue.create.cfdi_needs_source_entry':
+    '--origin cfdi necesita --source-entry: el asiento del CFDI emitido que abonó el pasivo se conoce, y no anotarlo es perderlo.',
+  'deferred_revenue.create.dry_run_done':
+    'Ensayo: {count} mes(es) de {amount}, cortados {convention}. El alta real comprueba antes que el pasivo de contrato tenga un abono sin calendario que lo respalde.',
+  'deferred_revenue.create.done':
+    'Calendario registrado: {count} mes(es), que reconoce deferred-revenue run.',
+  'deferred_revenue.run.key_unneeded':
+    'No hace falta: el motor postea un renglón por calendario y periodo, así que repetir el mismo mes no postea nada.',
+  'deferred_revenue.run.nothing': 'Ningún calendario de ingreso diferido debe {period}.',
+  'deferred_revenue.run.dry_run_done': 'Ensayo: se reconocerían {count} calendario(s) en {period}; no se posteó nada.',
+  'deferred_revenue.run.confirm': '¿Postear {count} asiento(s) de reconocimiento de {period}?',
+  'deferred_revenue.run.aborted': 'No se posteó nada.',
+  'deferred_revenue.run.done': '{count} calendario(s) reconocidos en {period}: {total} al ingreso.',
   'prepaid.run.key_replayed':
     'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
   'prepaid.run.key_reversed':

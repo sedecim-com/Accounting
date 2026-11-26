@@ -1588,6 +1588,13 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "ingreso_cobrado_por_anticipado",
+      "en": "deferred_revenue",
+      "why": "2158, the contract liability a deferred-revenue schedule recognizes month by month (NIF D-1; MNE-001-299). Born with the Spanish of its siblings in ROLE_MAP, since role names are persisted Spanish until the internal renaming (D-05). `deferred_revenue` is the English the anticipo_clientes entry set aside for exactly this criterion of recognition. Read by prepaid-service.ts (ROLES_OF_KIND) and provisional-income-tax.ts."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "anticipo_proveedores",
       "en": "vendor_advances",
       "why": "1150 (ROLE_MAP, account-roles-seed.ts:257), derecho a recibir el bien, no gasto. `vendor` y no `supplier` porque es el término que el árbol ya usa en el camino de pagos (`pagoProveedorParaEscribir`, payment-service.ts:1529; la tabla `vendor_payments`, 002:114); dos palabras para el mismo tercero es lo que el registro viene a evitar. Lo exige ar-ap-posting.ts:867."
@@ -6425,6 +6432,28 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the returns of the year are subtracted from the nominal income."
+    },
+    {
+      "class": "policy-key",
+      "where": "deferred_revenue_recognition_convention",
+      "es": "deferred_revenue_recognition_convention",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-299): how a deferred-revenue schedule cuts a term that starts mid-month (NIF D-1). The revenue twin of `amortizacion_anticipados_convencion`; read by `prepaid-service.ts` at creation and by `amortization-run.ts` to compare."
+    },
+    {
+      "class": "policy-value",
+      "where": "deferred_revenue_recognition_convention/meses_completos",
+      "es": "meses_completos",
+      "en": "full_months",
+      "why": "The literal the CHECK of `prepaid_expenses.amortization_convention` holds (059:136-137), where the schedule freezes it; the same English as the prepaid sibling's value."
+    },
+    {
+      "class": "policy-value",
+      "where": "deferred_revenue_recognition_convention/proporcional_dias",
+      "es": "proporcional_dias",
+      "en": "prorated_days",
+      "why": "The literal the CHECK of `prepaid_expenses.amortization_convention` holds (059:136-137), where the schedule freezes it; the same English as the prepaid sibling's value."
     },
     {
       "class": "policy-key",
