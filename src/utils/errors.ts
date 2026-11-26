@@ -33,6 +33,17 @@ function paramsIn(text: KeyedText, language: Language | undefined): MessageParam
   return params;
 }
 
+/**
+ * MNE-001-830 · A text written as prose or by key (the message of a DIOT
+ * finding), in `language`: prose is returned as written, a key renders with
+ * its lists. A surface passes its reader's language; a service passes the
+ * language of the artifact it writes, fixed, so no service reads the reader's
+ * language (E4.2).
+ */
+export function textIn(text: string | KeyedText, language: Language): string {
+  return typeof text === 'string' ? text : t(text.key, paramsIn(text, language), language);
+}
+
 export class AppError extends Error {
   /** The key the message was written with, when it was. Absent for prose errors. */
   public readonly messageKey?: KeyedText;

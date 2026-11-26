@@ -578,6 +578,55 @@ export const EN = {
   'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
     'The policy diot_creditable_iva_proportion is set to "{proportion}": the entity applies the proportion of LIVA art. 5 frac. V, which this system does not compute yet. The creditable IVA is allocated by hand in the portal.',
 
+  // ---- MNE-001-830 · I9 by folder, part 3b: the findings of the DIOT, src/services/sat/diot (issue #151) ----
+  // A finding's message is rendered by the surface in its reader's language (`textIn`, src/utils/errors.ts);
+  // the Spanish twin is the text each site wrote. Codes, party and operation types, policy keys and
+  // values, the generic RFCs, §3.1 and LIVA articles are literals or parameters.
+  // the RFC motive, a fragment of `no_rfc` and `no_rfc_declared_global` (list `reason`)
+  'diot.rfc_reason.empty': 'has no RFC on file',
+  'diot.rfc_reason.generic_national': 'has the generic RFC {rfc}, which is the one of the general public and identifies no one',
+  'diot.rfc_reason.generic_foreign':
+    'has the generic RFC {rfc}, which is the one of residents abroad: the DIOT identifies them by their tax identification number, not by it',
+  'diot.rfc_reason.malformed':
+    'has "{rfc}" as its RFC, which does not have the shape of a Mexican RFC (12 characters for a legal person or 13 for an individual: 3 or 4 letters, YYMMDD and a homoclave of 3)',
+  'diot.rfc_reason.impossible_date': 'has "{rfc}" as its RFC, whose date ({date}) does not exist',
+  'diot.rfc_reason.valid': 'RFC with a valid shape',
+  // the third party
+  'diot.finding.operation_type_not_allowed':
+    'The vendor {name} is third-party type {partyType} and has operation type {operation} on file, which the 2025 DIOT catalogue does not accept for that type of third party (§3.1: {allowed}). Correct the vendor\'s operation type.',
+  'diot.finding.operation_type_undeclared':
+    'The vendor {name} has no declared operation type and the policy asks not to assume one. It is a datum of the VENDOR, not of the invoice: it is captured once and holds for every month.',
+  'diot.finding.policy_out_of_catalogue':
+    'The policy {policy} is set to "{value}", which is not {allowed}. Stopping is preferred to inventing an equivalence: the catalogue is set by the authority.',
+  'diot.finding.operation_type_by_default':
+    'The vendor {name} is declared with operation type {operation} by default: it has none on file. Refine it if its operation is another of those the catalogue accepts (§3.1: {allowed}).',
+  /** `missing`: the items `.tax_id`, `.country`, `.nationality`, joined with ', '. */
+  'diot.finding.foreign_incomplete':
+    'The vendor {name} is declared as a foreign third party (05) and is missing: {missing}. The layout asks for all three, and the authority rejects an incomplete type 05 row when it receives the file, once the deadline has run.',
+  'diot.finding.foreign_incomplete.tax_id': 'tax identification number',
+  'diot.finding.foreign_incomplete.country': 'country of residence',
+  'diot.finding.foreign_incomplete.nationality': 'nationality',
+  'diot.finding.global_with_rfc':
+    'The vendor {name} is marked as a global third party (15) and has the RFC {rfc} on file. Type 15 declares operations with no identifiable counterparty: it is declared with the generic {generic} and its real RFC does not travel. Check whether the third-party type is the right one.',
+  'diot.finding.no_rfc_declared_global':
+    'The vendor {name} {reason}, and by policy it is declared as a global third party (15) with the generic {generic}. The return will say those purchases had no identifiable counterparty, and the authority cross-checks it against what that vendor declared on its side.',
+  'diot.finding.no_rfc':
+    'The vendor {name} {reason}. Without an RFC that identifies it, it cannot be declared as a domestic third party, and type 15 is for the general public, not a drawer for vendors whose RFC nobody captured.',
+  // the return itself
+  'diot.finding.exempt_revenue_without_proportion':
+    'The ledger records {exemptRevenue} of exempt revenue in the fiscal year (accounts with grouping code {groupingCodes}), and the policy diot_creditable_iva_proportion declares all the IVA as tied to exclusively taxed activities. With exempt activities the creditable IVA follows the proportion of art. 5 frac. V LIVA: answer the policy with "block" and allocate the IVA in the portal.',
+  'diot.finding.proportion_by_default':
+    'All the creditable IVA is declared as tied to exclusively taxed activities because the policy diot_creditable_iva_proportion is not answered. Confirm it if the entity has no exempt activities.',
+  'diot.finding.exempt_base_policy_out_of_catalogue':
+    'The policy diot_iva_exento_y_base is set to "{value}", which is not {first}, {second} or {third}.',
+  'diot.finding.bill_without_lines':
+    'The bill {billNumber} has no stored lines, so its IVA cannot be split by rate. The DIOT declares by rate, not a total.',
+  'diot.finding.vendor_of_another_entity': 'The bills {bills} point to the vendor {vendorId}, which does not belong to this entity.',
+  // the frame that lists the blocking findings: `findings`, one `.item` per finding, one per line
+  'error.DIOT_NO_ENTREGABLE.blocking_findings':
+    'The DIOT of {period} has {count, plural, one {# problem that prevents} other {# problems that prevent}} filing it:\n  · {findings}',
+  /** `text`: the finding, a key rendered in the frame's language (list `text`) or prose (param `text`). */
+  'error.DIOT_NO_ENTREGABLE.blocking_findings.item': '[{code}] {text}',
   // ---- MNE-001-731 · I9 by folder, part 8: the refusals of src/services/assets (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes unchanged. The Spanish twin is the text each site
   // printed. Fields, books, policy keys, their values and commands are literals or parameters.

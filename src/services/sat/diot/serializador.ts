@@ -1,5 +1,5 @@
-import { AppError, type KeyedText } from '../../../utils/errors.js';
-import { bloquean, contarHallazgos } from './hallazgos.js';
+import { AppError, textIn, type KeyedText } from '../../../utils/errors.js';
+import { bloquean, contarHallazgos, type Hallazgo } from './hallazgos.js';
 import type { DiotConstruida, RenglonDiot } from './modelo.js';
 import { layoutForYear, SAT_BATCH_LAYOUTS, SAT_SOURCE, serializeSatBatch } from './sat-batch.js';
 
@@ -52,14 +52,26 @@ export interface SerializadorDiot {
   serializar(diot: DiotConstruida): string;
 }
 
+/** One line of the frame below: the code and the finding, keyed or prose, in the frame's language. */
+const findingLine = (h: Hallazgo): KeyedText =>
+  typeof h.mensaje === 'string'
+    ? { key: 'error.DIOT_NO_ENTREGABLE.blocking_findings.item', params: { code: h.codigo, text: h.mensaje } }
+    : {
+        key: 'error.DIOT_NO_ENTREGABLE.blocking_findings.item',
+        params: { code: h.codigo },
+        lists: { text: { join: '', items: [h.mensaje] } },
+      };
+
 /** Ningún archivo declarable sale con un hallazgo bloqueante encima. */
 export function exigirEntregable(diot: DiotConstruida): void {
   const b = bloquean(diot.hallazgos);
   if (b.length === 0) return;
   throw new DiotNoEntregable(
-    `La DIOT de ${String(diot.periodo.mes).padStart(2, '0')}/${diot.periodo.anio} tiene ` +
-      `${b.length} problema(s) que impiden entregarla:\n` +
-      b.map((h) => `  · [${h.codigo}] ${h.mensaje}`).join('\n'),
+    {
+      key: 'error.DIOT_NO_ENTREGABLE.blocking_findings',
+      params: { period: `${String(diot.periodo.mes).padStart(2, '0')}/${diot.periodo.anio}`, count: b.length },
+      lists: { findings: { join: '\n  · ', items: b.map(findingLine) } },
+    },
     { codigos: b.map((h) => h.codigo) }
   );
 }
@@ -160,7 +172,8 @@ export const PAPEL_DE_TRABAJO: SerializadorDiot = {
     if (conteo.bloqueante > 0) {
       lineas.push(
         '# LA DECLARACIÓN NO SE PUEDE ENTREGAR TAL CUAL: hay hallazgos bloqueantes.',
-        ...bloquean(diot.hallazgos).map((h) => `#   [${h.codigo}] ${saneado(h.mensaje)}`)
+        // A downloaded file keeps the language it is written in (MNE-001-830).
+        ...bloquean(diot.hallazgos).map((h) => `#   [${h.codigo}] ${saneado(textIn(h.mensaje, 'es'))}`)
       );
     }
     lineas.push(`# ${COLUMNAS.join(SEP)}`);

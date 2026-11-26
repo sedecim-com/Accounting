@@ -119,6 +119,8 @@ const IDENTICAL_BY_DESIGN = new Set<TranslationKey>([
   'pending.define.done',
   // A readiness answer that is only the name of a config key (MNE-001-444).
   'provider.credential.helper',
+  // One line of the DIOT's blocking findings: a code and the finding, no words (MNE-001-830).
+  'error.DIOT_NO_ENTREGABLE.blocking_findings.item',
 ]);
 
 // ---- §1 · Las claves -------------------------------------------------

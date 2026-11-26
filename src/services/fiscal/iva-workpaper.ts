@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { entityScope } from '../../database/scope.js';
-import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { AccountingError, NotFoundError, textIn, ValidationError } from '../../utils/errors.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { queryEntryMovementsOnAccount, queryTrialBalanceRows } from '../reporting/report-service.js';
 import { CUSTOMER_CHECK_CASHING_SOURCE, ORIGEN_COBRO_DE_CHEQUE } from '../banking/treasury-posting.js';
@@ -296,7 +296,8 @@ export function referenceFindings(findings: readonly Hallazgo[], referenceYear: 
   return findings.map((h) => ({
     ...h,
     codigo: `${h.codigo}${REFERENCE_SUFFIX}`,
-    mensaje: `Proporción del año ${referenceYear}: ${h.mensaje}`,
+    // The frame is Spanish prose until MNE-001-837 keys it, so a keyed finding joins it in Spanish (MNE-001-830).
+    mensaje: `Proporción del año ${referenceYear}: ${textIn(h.mensaje, 'es')}`,
   }));
 }
 

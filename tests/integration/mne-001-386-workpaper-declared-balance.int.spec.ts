@@ -9,7 +9,7 @@ import { balancesInFavorBefore, recordFiledReturn, type FiledReturnFiling } from
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { generateFilingWorkpaper } from '../../src/services/fiscal/filing-workpaper.js';
 import { workpaperRows } from '../../src/cli/filing-workpaper-command.js';
-import { NotFoundError, ValidationError, type AppError } from '../../src/utils/errors.js';
+import { NotFoundError, ValidationError, type AppError, textIn } from '../../src/utils/errors.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 
 // ============================================================
@@ -145,7 +145,7 @@ describe('September credits up to its tax payable, oldest first (LIVA art. 6)', 
 
   it('warns once, for July, the balance credited for the first time (23/IVA/N)', () => {
     const first = september.findings.filter((h) => h.codigo === 'IVA-WP-PRIOR-BALANCE-FIRST-CREDIT');
-    expect(first.map((h) => h.mensaje.match(/OP-SYN-\d+/)?.[0])).toEqual(['OP-SYN-0701']);
+    expect(first.map((h) => textIn(h.mensaje, 'es').match(/OP-SYN-\d+/)?.[0])).toEqual(['OP-SYN-0701']);
   });
 
   it('the paper traces the line to the returns it credits', async () => {

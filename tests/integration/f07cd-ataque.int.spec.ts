@@ -18,7 +18,7 @@ import {
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { encrypt } from '../../src/utils/encryption.js';
-import { AccountingError } from '../../src/utils/errors.js';
+import { AccountingError, textIn } from '../../src/utils/errors.js';
 import {
   construirDiot,
   esEntregable,
@@ -295,12 +295,12 @@ describe('el RFC del tercero: los tres casos que llegan hasta el archivo', () =>
 
     // Cada motivo dice QUÉ le pasa a ESE proveedor. Un solo mensaje genérico
     // obligaría a adivinar cuál de los cuatro es cuál.
-    const porProveedor = new Map(sinRfc.map((h) => [h.vendorId, h.mensaje]));
-    expect(porProveedor.get(generico)).toContain('público en general');
+    const porProveedor = new Map(sinRfc.map((h) => [h.vendorId, textIn(h.mensaje, 'en')]));
+    expect(porProveedor.get(generico)).toContain('general public');
     expect(porProveedor.get(generico)).toContain(RFC_GENERICO_NACIONAL);
-    expect(porProveedor.get(malformado)).toContain('no tiene forma de RFC mexicano');
-    expect(porProveedor.get(vacio)).toContain('no tiene RFC en el expediente');
-    expect(porProveedor.get(fechaImposible)).toContain('no existe');
+    expect(porProveedor.get(malformado)).toContain('does not have the shape of a Mexican RFC');
+    expect(porProveedor.get(vacio)).toContain('has no RFC on file');
+    expect(porProveedor.get(fechaImposible)).toContain('does not exist');
 
     // El aviso plural es la promesa de la política: se nombran TODOS en una
     // sola corrida. Lanzar al primero costaría cuatro vueltas.
@@ -321,7 +321,7 @@ describe('el RFC del tercero: los tres casos que llegan hasta el archivo', () =>
     });
     expect(diot.rfc).toBe(RFC_GENERICO_NACIONAL);
     const sobreElDeclarante = diot.hallazgos.filter(
-      (h) => h.vendorId === undefined && h.documentId === undefined && /RFC/.test(h.mensaje)
+      (h) => h.vendorId === undefined && h.documentId === undefined && /RFC/.test(textIn(h.mensaje, 'en'))
     );
     expect(
       sobreElDeclarante,
@@ -382,8 +382,8 @@ describe('el tercero extranjero (05) y sus tres datos', () => {
     });
     const h = diot.hallazgos.find((x) => x.codigo === 'DIOT-EXTRANJERO-INCOMPLETO');
     expect(h?.severidad).toBe('bloqueante');
-    expect(h?.mensaje).toContain('Servicios Transfronterizos LLC');
-    expect(h?.mensaje).toContain('nacionalidad');
+    expect(textIn(h!.mensaje, 'en')).toContain('Servicios Transfronterizos LLC');
+    expect(textIn(h!.mensaje, 'en')).toContain('nationality');
     expect(esEntregable(diot)).toBe(false);
   }, 60_000);
 
@@ -771,9 +771,9 @@ describe('el RFC del proveedor, que las pólizas validan en un nodo y no en el o
       tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: MES,
     });
     const h = diot.hallazgos.find(
-      (x) => x.codigo === 'DIOT-SIN-RFC' && x.mensaje.includes('RFC Corto SA')
+      (x) => x.codigo === 'DIOT-SIN-RFC' && textIn(x.mensaje, 'en').includes('RFC Corto SA')
     );
-    expect(h?.mensaje).toContain('no tiene forma de RFC mexicano');
+    expect(textIn(h!.mensaje, 'en')).toContain('does not have the shape of a Mexican RFC');
   }, 90_000);
 });
 

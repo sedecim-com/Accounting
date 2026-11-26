@@ -5,6 +5,7 @@ import {
   type DiagnosticoRfc,
 } from './rfc.js';
 import type { Hallazgo } from './hallazgos.js';
+import type { KeyedText } from '../../../utils/errors.js';
 
 // ============================================================
 // F07c · EL TERCERO QUE SE DECLARA
@@ -116,10 +117,10 @@ function tipoOperacionDe(
         codigo: 'DIOT-OPERATION-TYPE-NOT-ALLOWED',
         severidad: 'bloqueante',
         vendorId: crudo.vendorId,
-        mensaje:
-          `El proveedor ${crudo.nombre} es tercero ${partyType} y tiene capturado el tipo de ` +
-          `operación ${declarado}, que el catálogo 2025 de la DIOT no admite para ese tipo de ` +
-          `tercero (§3.1: ${allowed.join(', ')}). Corrige el tipo de operación del proveedor.`,
+        mensaje: {
+          key: 'diot.finding.operation_type_not_allowed',
+          params: { name: crudo.nombre, partyType, operation: declarado, allowed: allowed.join(', ') },
+        },
       });
       return null;
     }
@@ -135,10 +136,7 @@ function tipoOperacionDe(
       severidad: 'bloqueante',
       politica: key,
       vendorId: crudo.vendorId,
-      mensaje:
-        `El proveedor ${crudo.nombre} no tiene tipo de operación declarado y la política ` +
-        `pide no suponer ninguno. Es un dato del PROVEEDOR, no de la factura: se captura una ` +
-        `vez y vale para todos los meses.`,
+      mensaje: { key: 'diot.finding.operation_type_undeclared', params: { name: crudo.nombre } },
     });
     return null;
   }
@@ -148,9 +146,10 @@ function tipoOperacionDe(
       severidad: 'bloqueante',
       politica: key,
       vendorId: crudo.vendorId,
-      mensaje:
-        `La política ${key} vale "${politica}", que no es ${defaults.join(', ')}. ` +
-        `Se prefiere detenerse a inventar una equivalencia: el catálogo lo fija la autoridad.`,
+      mensaje: {
+        key: 'diot.finding.policy_out_of_catalogue',
+        params: { policy: key, value: politica, allowed: defaults.join(', ') },
+      },
     });
     return null;
   }
@@ -160,29 +159,30 @@ function tipoOperacionDe(
     severidad: 'aviso',
     politica: key,
     vendorId: crudo.vendorId,
-    mensaje:
-      `El proveedor ${crudo.nombre} se declara con tipo de operación ${politica} por omisión: ` +
-      `no lo tiene capturado. Afínalo si su operación es otra de las que admite el catálogo ` +
-      `(§3.1: ${allowed.join(', ')}).`,
+    mensaje: {
+      key: 'diot.finding.operation_type_by_default',
+      params: { name: crudo.nombre, operation: politica, allowed: allowed.join(', ') },
+    },
   });
   return { valor: politica as TipoOperacion, procedencia: 'politica' };
 }
 
 function resolverExtranjero(crudo: TerceroCrudo, hallazgos: Hallazgo[]): boolean {
-  const faltan: string[] = [];
-  if (!(crudo.idFiscalExtranjero ?? '').trim()) faltan.push('número de identificación fiscal');
-  if (!(crudo.paisResidencia ?? '').trim()) faltan.push('país de residencia');
-  if (!(crudo.nacionalidad ?? '').trim()) faltan.push('nacionalidad');
+  const faltan: KeyedText[] = [];
+  if (!(crudo.idFiscalExtranjero ?? '').trim()) faltan.push({ key: 'diot.finding.foreign_incomplete.tax_id' });
+  if (!(crudo.paisResidencia ?? '').trim()) faltan.push({ key: 'diot.finding.foreign_incomplete.country' });
+  if (!(crudo.nacionalidad ?? '').trim()) faltan.push({ key: 'diot.finding.foreign_incomplete.nationality' });
   if (faltan.length === 0) return true;
 
   hallazgos.push({
     codigo: 'DIOT-EXTRANJERO-INCOMPLETO',
     severidad: 'bloqueante',
     vendorId: crudo.vendorId,
-    mensaje:
-      `El proveedor ${crudo.nombre} se declara como tercero extranjero (05) y le falta: ` +
-      `${faltan.join(', ')}. El formato pide los tres, y una fila de tipo 05 incompleta la ` +
-      `rechaza la autoridad al recibir el archivo, cuando el plazo ya corrió.`,
+    mensaje: {
+      key: 'diot.finding.foreign_incomplete',
+      params: { name: crudo.nombre },
+      lists: { missing: { join: ', ', items: faltan } },
+    },
   });
   return false;
 }
@@ -224,11 +224,10 @@ export function resolverTercero(
         codigo: 'DIOT-GLOBAL-CON-RFC',
         severidad: 'aviso',
         vendorId: crudo.vendorId,
-        mensaje:
-          `El proveedor ${crudo.nombre} está marcado como tercero global (15) y tiene el RFC ` +
-          `${diag.rfc} en el expediente. El 15 declara operaciones sin contraparte ` +
-          `identificable: se declara con el genérico ${RFC_GENERICO_NACIONAL} y su RFC real no ` +
-          `viaja. Revisa si el tipo de tercero es el correcto.`,
+        mensaje: {
+          key: 'diot.finding.global_with_rfc',
+          params: { name: crudo.nombre, rfc: diag.rfc, generic: RFC_GENERICO_NACIONAL },
+        },
       });
     }
     rfc = RFC_GENERICO_NACIONAL;
@@ -247,11 +246,11 @@ export function resolverTercero(
         severidad: 'aviso',
         politica: 'diot_tercero_sin_rfc',
         vendorId: crudo.vendorId,
-        mensaje:
-          `El proveedor ${crudo.nombre} ${diag.motivo}, y por política se declara como tercero ` +
-          `global (15) con el genérico ${RFC_GENERICO_NACIONAL}. La declaración dirá que esas ` +
-          `compras no tuvieron contraparte identificable, y la autoridad lo cruza contra lo que ` +
-          `ese proveedor declaró por su lado.`,
+        mensaje: {
+          key: 'diot.finding.no_rfc_declared_global',
+          params: { name: crudo.nombre, generic: RFC_GENERICO_NACIONAL },
+          lists: { reason: { join: '', items: [diag.motivo] } },
+        },
       });
     } else {
       hallazgos.push({
@@ -259,10 +258,11 @@ export function resolverTercero(
         severidad: 'bloqueante',
         politica: 'diot_tercero_sin_rfc',
         vendorId: crudo.vendorId,
-        mensaje:
-          `El proveedor ${crudo.nombre} ${diag.motivo}. Sin RFC que lo identifique no se puede ` +
-          `declarar como tercero nacional, y el tipo 15 es para el público en general, no un ` +
-          `cajón para proveedores cuyo RFC nadie capturó.`,
+        mensaje: {
+          key: 'diot.finding.no_rfc',
+          params: { name: crudo.nombre },
+          lists: { reason: { join: '', items: [diag.motivo] } },
+        },
       });
       return { tercero: null, hallazgos };
     }

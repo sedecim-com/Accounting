@@ -14,14 +14,20 @@
 // serializador es el que mira `bloquean()` y se planta.
 // ============================================================
 
+import type { KeyedText } from '../../../utils/errors.js';
+
 export type Severidad = 'bloqueante' | 'aviso';
 
 export interface Hallazgo {
   /** Código estable, para poder contarlos en una prueba sin casar prosa. */
   codigo: string;
   severidad: Severidad;
-  /** It ALWAYS names the vendor or the document at fault. Spanish in the findings born before MNE-001-153; new prose is born in English. */
-  mensaje: string;
+  /**
+   * It ALWAYS names the vendor or the document at fault. A key the surface
+   * renders in its reader's language with `textIn` (MNE-001-830), or prose
+   * not yet moved; its lists carry the fragments that follow that language.
+   */
+  mensaje: string | KeyedText;
   /** La política que decidió esta severidad, cuando fue una política. */
   politica?: string;
   vendorId?: string;

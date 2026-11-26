@@ -458,6 +458,45 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field': 'campo {field}: {amount}',
   'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
     'La política diot_creditable_iva_proportion vale "{proportion}": la entidad aplica la proporción del art. 5 frac. V LIVA, que este sistema todavía no calcula. El IVA acreditable se reparte a mano en el portal.',
+  // ---- MNE-001-830 · I9 by folder, part 3b: the findings of the DIOT; see en.ts ----
+  'diot.rfc_reason.empty': 'no tiene RFC en el expediente',
+  'diot.rfc_reason.generic_national': 'tiene el RFC genérico {rfc}, que es el del público en general y no identifica a nadie',
+  'diot.rfc_reason.generic_foreign':
+    'tiene el RFC genérico {rfc}, que es el de los residentes en el extranjero: la DIOT los identifica por su número de identificación fiscal, no por él',
+  'diot.rfc_reason.malformed':
+    'tiene "{rfc}" como RFC, que no tiene forma de RFC mexicano (12 caracteres persona moral o 13 persona física: 3 o 4 letras, AAMMDD y homoclave de 3)',
+  'diot.rfc_reason.impossible_date': 'tiene "{rfc}" como RFC, cuya fecha ({date}) no existe',
+  'diot.rfc_reason.valid': 'RFC con forma válida',
+  'diot.finding.operation_type_not_allowed':
+    'El proveedor {name} es tercero {partyType} y tiene capturado el tipo de operación {operation}, que el catálogo 2025 de la DIOT no admite para ese tipo de tercero (§3.1: {allowed}). Corrige el tipo de operación del proveedor.',
+  'diot.finding.operation_type_undeclared':
+    'El proveedor {name} no tiene tipo de operación declarado y la política pide no suponer ninguno. Es un dato del PROVEEDOR, no de la factura: se captura una vez y vale para todos los meses.',
+  'diot.finding.policy_out_of_catalogue':
+    'La política {policy} vale "{value}", que no es {allowed}. Se prefiere detenerse a inventar una equivalencia: el catálogo lo fija la autoridad.',
+  'diot.finding.operation_type_by_default':
+    'El proveedor {name} se declara con tipo de operación {operation} por omisión: no lo tiene capturado. Afínalo si su operación es otra de las que admite el catálogo (§3.1: {allowed}).',
+  'diot.finding.foreign_incomplete':
+    'El proveedor {name} se declara como tercero extranjero (05) y le falta: {missing}. El formato pide los tres, y una fila de tipo 05 incompleta la rechaza la autoridad al recibir el archivo, cuando el plazo ya corrió.',
+  'diot.finding.foreign_incomplete.tax_id': 'número de identificación fiscal',
+  'diot.finding.foreign_incomplete.country': 'país de residencia',
+  'diot.finding.foreign_incomplete.nationality': 'nacionalidad',
+  'diot.finding.global_with_rfc':
+    'El proveedor {name} está marcado como tercero global (15) y tiene el RFC {rfc} en el expediente. El 15 declara operaciones sin contraparte identificable: se declara con el genérico {generic} y su RFC real no viaja. Revisa si el tipo de tercero es el correcto.',
+  'diot.finding.no_rfc_declared_global':
+    'El proveedor {name} {reason}, y por política se declara como tercero global (15) con el genérico {generic}. La declaración dirá que esas compras no tuvieron contraparte identificable, y la autoridad lo cruza contra lo que ese proveedor declaró por su lado.',
+  'diot.finding.no_rfc':
+    'El proveedor {name} {reason}. Sin RFC que lo identifique no se puede declarar como tercero nacional, y el tipo 15 es para el público en general, no un cajón para proveedores cuyo RFC nadie capturó.',
+  'diot.finding.exempt_revenue_without_proportion':
+    'El mayor registra {exemptRevenue} de ingresos exentos en el ejercicio (cuentas con agrupador {groupingCodes}), y la política diot_creditable_iva_proportion declara todo el IVA como de actividades exclusivamente gravadas. Con actividades exentas el IVA acreditable sigue la proporción del art. 5 frac. V LIVA: contesta la política con "block" y reparte el IVA en el portal.',
+  'diot.finding.proportion_by_default':
+    'Todo el IVA acreditable se declara como de actividades exclusivamente gravadas porque la política diot_creditable_iva_proportion no está contestada. Confírmala si la entidad no tiene actividades exentas.',
+  'diot.finding.exempt_base_policy_out_of_catalogue':
+    'La política diot_iva_exento_y_base vale "{value}", que no es {first}, {second} ni {third}.',
+  'diot.finding.bill_without_lines':
+    'El gasto {billNumber} no tiene renglones guardados, así que su IVA no se puede desglosar por tasa. La DIOT declara por tasa, no un total.',
+  'diot.finding.vendor_of_another_entity': 'Los gastos {bills} apuntan al proveedor {vendorId}, que no pertenece a esta entidad.',
+  'error.DIOT_NO_ENTREGABLE.blocking_findings': 'La DIOT de {period} tiene {count} problema(s) que impiden entregarla:\n  · {findings}',
+  'error.DIOT_NO_ENTREGABLE.blocking_findings.item': '[{code}] {text}',
   // ---- MNE-001-731 · I9 by folder, part 8: the refusals of src/services/assets; see en.ts ----
   'error.VALIDATION_ERROR.asset.category_empty': '--category llegó vacía: el activo necesita su clase.',
   'error.VALIDATION_ERROR.asset.category_ambiguous':

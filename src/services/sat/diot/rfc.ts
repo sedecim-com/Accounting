@@ -28,6 +28,8 @@
 // caso por caso, así que el día que una cambie sin la otra, falla.
 // ============================================================
 
+import type { ErrorMessageKey } from '../../../utils/errors.js';
+
 /** Público en general. El que convierte a un proveedor real en anónimo. */
 export const RFC_GENERICO_NACIONAL = 'XAXX010101000';
 /** Residentes en el extranjero sin RFC. Legítimo en el CFDI, no identifica. */
@@ -50,8 +52,8 @@ export interface DiagnosticoRfc {
   estado: EstadoRfc;
   /** Normalizado: sin espacios y en mayúsculas. Cadena vacía si no había. */
   rfc: string;
-  /** Una línea, en español, para el mensaje que nombra al proveedor. */
-  motivo: string;
+  /** Why, as a key: a fragment of the finding that names the vendor (MNE-001-830). */
+  motivo: ErrorMessageKey;
 }
 
 /**
@@ -71,24 +73,20 @@ export function clasificarRfc(crudo: string | null | undefined): DiagnosticoRfc 
   const rfc = normalizarRfc(crudo);
 
   if (rfc === '') {
-    return { estado: 'vacio', rfc, motivo: 'no tiene RFC en el expediente' };
+    return { estado: 'vacio', rfc, motivo: { key: 'diot.rfc_reason.empty' } };
   }
   if (rfc === RFC_GENERICO_NACIONAL) {
     return {
       estado: 'generico_nacional',
       rfc,
-      motivo:
-        `tiene el RFC genérico ${RFC_GENERICO_NACIONAL}, que es el del público en general ` +
-        `y no identifica a nadie`,
+      motivo: { key: 'diot.rfc_reason.generic_national', params: { rfc: RFC_GENERICO_NACIONAL } },
     };
   }
   if (rfc === RFC_GENERICO_EXTRANJERO) {
     return {
       estado: 'generico_extranjero',
       rfc,
-      motivo:
-        `tiene el RFC genérico ${RFC_GENERICO_EXTRANJERO}, que es el de los residentes en el ` +
-        `extranjero: la DIOT los identifica por su número de identificación fiscal, no por él`,
+      motivo: { key: 'diot.rfc_reason.generic_foreign', params: { rfc: RFC_GENERICO_EXTRANJERO } },
     };
   }
 
@@ -97,9 +95,7 @@ export function clasificarRfc(crudo: string | null | undefined): DiagnosticoRfc 
     return {
       estado: 'malformado',
       rfc,
-      motivo:
-        `tiene "${rfc}" como RFC, que no tiene forma de RFC mexicano (12 caracteres persona ` +
-        `moral o 13 persona física: 3 o 4 letras, AAMMDD y homoclave de 3)`,
+      motivo: { key: 'diot.rfc_reason.malformed', params: { rfc } },
     };
   }
 
@@ -112,11 +108,11 @@ export function clasificarRfc(crudo: string | null | undefined): DiagnosticoRfc 
     return {
       estado: 'malformado',
       rfc,
-      motivo: `tiene "${rfc}" como RFC, cuya fecha (${m[2]}-${m[3]}-${m[4]}) no existe`,
+      motivo: { key: 'diot.rfc_reason.impossible_date', params: { rfc, date: `${m[2]}-${m[3]}-${m[4]}` } },
     };
   }
 
-  return { estado: 'valido', rfc, motivo: 'RFC con forma válida' };
+  return { estado: 'valido', rfc, motivo: { key: 'diot.rfc_reason.valid' } };
 }
 
 /**

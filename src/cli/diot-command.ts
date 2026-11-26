@@ -15,7 +15,8 @@ import {
   type SerializadorDiot,
 } from '../services/sat/diot/index.js';
 import { renderHallazgos } from './e-accounting-command.js';
-import { t, type TranslationKey } from '../i18n/index.js';
+import { getLanguage, t, type TranslationKey } from '../i18n/index.js';
+import { textIn } from '../utils/errors.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -404,7 +405,7 @@ export function filaDeHallazgo(h: Hallazgo): Row {
     severity: h.severidad === 'bloqueante' ? 'blocking' : 'warning',
     politica: h.politica ?? '',
     referencia: h.documentNumber ?? h.documentId ?? h.vendorId ?? '',
-    detalle: h.mensaje,
+    detalle: textIn(h.mensaje, getLanguage()),
   };
 }
 
@@ -485,7 +486,7 @@ export function lineasDeHallazgos(
       severity: h.severidad === 'bloqueante' ? 'blocking' : 'warning',
       nombre: h.codigo,
       referencia: h.documentNumber ?? h.vendorId ?? '',
-      detalle: h.mensaje,
+      detalle: textIn(h.mensaje, getLanguage()),
     })),
     c
   );

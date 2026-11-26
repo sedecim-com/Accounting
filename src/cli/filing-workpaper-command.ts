@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
-import { t } from '../i18n/index.js';
+import { getLanguage, t } from '../i18n/index.js';
+import { textIn } from '../utils/errors.js';
 import {
   generateFilingWorkpaper,
   type FilingForm,
@@ -148,15 +149,20 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
         ptuPaidInYear: opts.ptuPaid, priorProvisionalPayments: opts.priorProvisional,
         priorBalanceInFavor: opts.priorBalance, priorBalanceReason: opts.priorBalanceReason,
       });
+      const language = getLanguage();
       if (opts.json || opts.format === 'json') {
-        emit(JSON.stringify(wp, null, 2) + '\n', opts);
+        // Each finding's message leaves as text in the reader's language, as it always left as text (MNE-001-830).
+        const shown = { ...wp, sections: wp.sections.map((s) => ({
+          ...s, findings: s.findings.map((h) => ({ ...h, mensaje: textIn(h.mensaje, language) })),
+        })) };
+        emit(JSON.stringify(shown, null, 2) + '\n', opts);
       } else {
         const tableCell = (opts.format ?? 'table') === 'table' && !opts.quiet;
         render(workpaperRows(wp, tableCell ? ENTRIES_IN_A_CELL : undefined), { ...opts, idField: 'line' });
       }
       for (const s of wp.sections) {
         for (const h of s.findings) {
-          process.stderr.write(`${h.severidad === 'bloqueante' ? deps.palette.red(t('filing.workpaper.label_blocks')) : t('filing.workpaper.label_warning')} [${s.form}] ${h.codigo}: ${h.mensaje}\n`);
+          process.stderr.write(`${h.severidad === 'bloqueante' ? deps.palette.red(t('filing.workpaper.label_blocks')) : t('filing.workpaper.label_warning')} [${s.form}] ${h.codigo}: ${textIn(h.mensaje, language)}\n`);
         }
       }
       process.stderr.write(deps.palette.dim(`${t('filing.workpaper.not_a_filing')}\n`));

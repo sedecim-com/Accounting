@@ -5,6 +5,7 @@ import {
   type TerceroCrudo,
 } from '../../../src/services/sat/diot/tercero.js';
 import { RFC_GENERICO_NACIONAL } from '../../../src/services/sat/diot/rfc.js';
+import { textIn } from '../../../src/utils/errors.js';
 
 // ============================================================
 // F07c · EL TERCERO, Y LAS DOS POLÍTICAS QUE LO DECIDEN
@@ -84,7 +85,7 @@ describe('el tercero extranjero (05)', () => {
     expect(r.tercero).toBeNull();
     const h = r.hallazgos.find((x) => x.codigo === 'DIOT-EXTRANJERO-INCOMPLETO');
     expect(h?.severidad).toBe('bloqueante');
-    expect(h?.mensaje).toContain('nacionalidad');
+    expect(textIn(h!.mensaje, 'en')).toContain('missing: nationality.');
   });
 });
 
@@ -101,7 +102,7 @@ describe('diot_tercero_sin_rfc · contestarla cambia el resultado', () => {
     const h = r.hallazgos.find((x) => x.codigo === 'DIOT-SIN-RFC');
     expect(h?.severidad).toBe('bloqueante');
     expect(h?.politica).toBe('diot_tercero_sin_rfc');
-    expect(h?.mensaje).toContain('Papelería del Centro');
+    expect(textIn(h!.mensaje, 'en')).toContain('Papelería del Centro');
   });
 
   it.each(rotos)('declarar_global: con el RFC %s lo declara como 15 y avisa', (_caso, campos) => {
@@ -113,7 +114,7 @@ describe('diot_tercero_sin_rfc · contestarla cambia el resultado', () => {
     expect(r.tercero?.procedencia.tipoTercero).toBe('politica');
     const h = r.hallazgos.find((x) => x.codigo === 'DIOT-SIN-RFC-DECLARADO-GLOBAL');
     expect(h?.severidad).toBe('aviso');
-    expect(h?.mensaje).toContain('contraparte identificable');
+    expect(textIn(h!.mensaje, 'en')).toContain('identifiable counterparty');
   });
 
   it('el genérico es el caso que el sistema NO veía: tiene forma de RFC', () => {
@@ -200,7 +201,7 @@ describe('the 2025 operation-type catalogue (§3.1)', () => {
       expect(r.tercero, type).toBeNull();
       const h = r.hallazgos.find((x) => x.codigo === 'DIOT-OPERATION-TYPE-NOT-ALLOWED');
       expect(h?.severidad).toBe('bloqueante');
-      expect(h?.mensaje).toContain(type);
+      expect(textIn(h!.mensaje, 'en')).toContain(type);
     }
   });
 

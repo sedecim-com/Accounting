@@ -14,6 +14,7 @@ import { crearGrupoDeCotejo } from '../../src/services/banking/match-service.js'
 import { entityScope } from '../../src/database/scope.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
+import { textIn } from '../../src/utils/errors.js';
 
 // ============================================================
 // MNE-001-507 (#700, task 2) · THE IVA PAPER COUNTS A CUSTOMER CHEQUE IN THE
@@ -151,7 +152,7 @@ function warns(wp: IvaWorkpaper, paymentId: string): string {
   const h = checkFinding(wp, paymentId);
   expect(h).toMatchObject({ codigo: NOT_CASHED, severidad: 'aviso' });
   expect(wp.settlement).not.toBeNull();
-  return h!.mensaje;
+  return textIn(h!.mensaje, 'es');
 }
 
 /** A month that blocks on the cheque, and settles nothing. */
@@ -160,7 +161,7 @@ function blocks(wp: IvaWorkpaper, paymentId: string): string {
   expect(h).toMatchObject({ codigo: MAY_BE_CASHED, severidad: 'bloqueante' });
   expect(wp.settlement).toBeNull();
   expect(wp.blockedBy).toContain(MAY_BE_CASHED);
-  return h!.mensaje;
+  return textIn(h!.mensaje, 'es');
 }
 
 afterAll(async () => {

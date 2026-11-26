@@ -7,6 +7,7 @@ import {
   RFC_GENERICO_EXTRANJERO,
 } from '../../../src/services/sat/diot/rfc.js';
 import { normalizeTaxId } from '../../../src/services/ap/vendor-service.js';
+import { textIn } from '../../../src/utils/errors.js';
 
 // ============================================================
 // F07c · LOS TRES CASOS DEL RFC, Y EL COTEJO CONTRA EL ALTA
@@ -50,7 +51,7 @@ describe('clasificarRfc', () => {
   it('detecta la fecha imposible, que el patrón deja pasar', () => {
     const d = clasificarRfc('ABC011301AA1');
     expect(d.estado).toBe('malformado');
-    expect(d.motivo).toContain('no existe');
+    expect(textIn(d.motivo, 'en')).toContain('does not exist');
   });
 
   it('detecta los DOS genéricos y los distingue entre sí', () => {
@@ -67,8 +68,8 @@ describe('clasificarRfc', () => {
   });
 
   it('nombra al culpable en el motivo, que es lo que la política promete', () => {
-    expect(clasificarRfc('XXXX').motivo).toContain('XXXX');
-    expect(clasificarRfc(RFC_GENERICO_NACIONAL).motivo).toContain('público en general');
+    expect(textIn(clasificarRfc('XXXX').motivo, 'en')).toContain('XXXX');
+    expect(textIn(clasificarRfc(RFC_GENERICO_NACIONAL).motivo, 'en')).toContain('general public');
   });
 });
 
