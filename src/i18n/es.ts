@@ -353,6 +353,30 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown':
     'Tipo de partida conciliatoria desconocido en partida {item}: "{value}". Los admitidos son: {known}.',
   // ---- end of MNE-001-825 ----
+  // ---- MNE-001-857 · I9 by folder, part 2c, part 2: the reconciling items; see en.ts ----
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable': 'Importe ilegible al clasificar la partida: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite': 'Importe no finito al clasificar la partida: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown': 'Tipo de partida conciliatoria desconocido "{value}". Los admitidos son: {known}.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open':
+    'La sesión {session} está en estado "{status}"{closedAt, select, none {} other { y cerrada el {closedAt}}}: no admite partidas nuevas. Sus cifras son el resumen congelado al cerrar; para volver a clasificar hay que reabrirla.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open':
+    'La sesión {session} está en estado "{status}"{closedAt, select, none {} other { y cerrada el {closedAt}}}: sus partidas ya no se tocan. Sus cifras son el resumen congelado al cerrar, y mover una partida después las contradiría sin que nadie haya reabierto nada.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved':
+    'La partida {item} ya está resuelta: dejó de explicar una diferencia y reclasificarla cambiaría una historia cerrada.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount':
+    'Pasar la partida {item} de "{type}" (lado {side}) a "{newType}" (lado {newSide}) cambia a cuál de los dos saldos corrige, y su aportación de {amount} dejaría de significar lo mismo. Indica el importe nuevo, FIRMADO por su aportación al lado de {newSide}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable': 'Importe ilegible al reclasificar: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero':
+    'El importe de una partida no puede ser cero ni ilegible; llegó "{value}". Una partida que aporta cero no explica ninguna diferencia: resuélvela en vez de dejarla en cero.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race':
+    'No se reclasificó la partida {item}: o su sesión ya no está en curso, o la partida se resolvió mientras tanto. Nada se cambió.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format': '`fechaEsperada` tiene que venir como YYYY-MM-DD; llegó "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand':
+    '"vencido" no se marca a mano: lo decide la fecha esperada contra el día de hoy. Si la partida ya venció, ajusta su `fechaEsperada`; si sólo se persiguió, márcala "avisado".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown': 'Escalamiento desconocido "{value}". Admitidos aquí: {known}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign':
+    'No se indicó nada que asignar: responsable, fechaEsperada, escalamiento o notas.',
+  // ---- end of MNE-001-857 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',

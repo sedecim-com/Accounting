@@ -1625,7 +1625,7 @@
       "src/services/banking/reconciliation-adjustments.ts": 2,
       "src/services/banking/reconciliation-math.ts": 8,
       "src/services/banking/reconciliation-service.ts": 88,
-      "src/services/banking/reconciling-items.ts": 19,
+      "src/services/banking/reconciling-items.ts": 1,
       "src/services/banking/statement-checks.ts": 28,
       "src/services/banking/treasury-posting.ts": 56,
       "src/services/blockchain/bitcoin-anchor.ts": 1,
