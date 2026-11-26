@@ -82,6 +82,8 @@ import {
   queryHeldNoteIvaByCashedReceipt,
   queryIssuedInvoiceVatTaken,
   queryVatOvercreditBills,
+  postedBalanceOnAccountSql,
+  queryPostedLinesOnAccount,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -2340,5 +2342,51 @@ describe('the IVA cash-basis and over-credit reads (MNE-001-619)', () => {
     expect(params(0)).toEqual([
       'ten-1', null, 'vendor_credit_note', 'vat_overcredit_correction', 'iva_pendiente_acreditar', 'iva_acreditable', null,
     ]);
+  });
+});
+
+// MNE-001-620 · the two ledger sums of a bank account, moved here verbatim
+// from bank-account-service.ts: the book balance its projection reads per row
+// (a correlated subquery the projection composes, as bookAmountDueSql) and the
+// posted lines the remap guard counts. Each test pins the whole SQL, the
+// parameter order and the connection it runs on.
+describe('the bank account book balance reads (MNE-001-620)', () => {
+  it('the book balance of an account: the lateral\'s subquery, byte for byte, with the account and entity placed', () => {
+    const text = postedBalanceOnAccountSql('b.gl_account_id', 'b.entity_id');
+    expect(text).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) AS saldo\n' +
+        '        FROM journal_entry_lines l\n' +
+        '        JOIN journal_entries j ON j.id = l.journal_entry_id\n' +
+        '       WHERE l.account_id = b.gl_account_id\n' +
+        '         AND j.entity_id = b.entity_id\n' +
+        "         AND j.status = 'posted'"
+    );
+    expect(text).not.toContain(E1_2_COUNTED_SUM);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('the posted lines on an account: count and debit-positive net of posted entries, on the caller\'s client', async () => {
+    // By hand: Dr 1 000.00 and Cr 250.00 posted on the account, 2 lines, 750.0000.
+    const row = { lines: '2', balance: '750.0000' };
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [row] });
+    expect(await queryPostedLinesOnAccount(ENTITY, 'acc-1111', { query: clientQuery } as never)).toEqual(row);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual(['acc-1111', ENTITY]);
+    expect(String(text).replace(/\s+/g, ' ').trim()).toBe(
+      'SELECT COUNT(*)::text AS lines, ' +
+        'COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance ' +
+        'FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journal_entry_id ' +
+        "WHERE l.account_id = $1 AND j.entity_id = $2 AND j.status = 'posted'"
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the posted lines read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ lines: '0', balance: '0' }] });
+    expect(await queryPostedLinesOnAccount(ENTITY, 'acc-1112')).toEqual({ lines: '0', balance: '0' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual(['acc-1112', ENTITY]);
   });
 });

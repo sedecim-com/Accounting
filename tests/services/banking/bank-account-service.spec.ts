@@ -6,6 +6,24 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
+  currentTenant: vi.fn(() => 'ten-1'),
+}));
+// MNE-001-620: the book balance and the remap guard's posted lines are read
+// through report-service. The real helpers run (their SQL reaches the fake
+// pool or client below), wrapped in spies so a test can say which layer was
+// asked, with what, and on which connection. The audit writer is faked: what
+// is tested is what the guard reads, not the audit row.
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return {
+    ...real,
+    postedBalanceOnAccountSql: vi.fn(real.postedBalanceOnAccountSql),
+    queryPostedLinesOnAccount: vi.fn(real.queryPostedLinesOnAccount),
+  };
+});
+vi.mock('../../../src/services/audit/audit-log.js', () => ({
+  registrarAuditoria: vi.fn(async () => undefined),
+  tenantDe: vi.fn(async () => 'ten-1'),
 }));
 
 import {
@@ -16,8 +34,15 @@ import {
   exigirRoutingAba,
   refuseNationalIdentifierOnForeignBank,
   foreignBankNameTooLong,
+  getBankAccount,
+  listBankAccounts,
+  setBankGlMapping,
 } from '../../../src/services/banking/bank-account-service.js';
-import { ValidationError } from '../../../src/utils/errors.js';
+import { ConflictError, ValidationError } from '../../../src/utils/errors.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
+import { entityScope } from '../../../src/database/scope.js';
+import { postedBalanceOnAccountSql, queryPostedLinesOnAccount } from '../../../src/services/reporting/report-service.js';
+import type pg from 'pg';
 
 // ============================================================
 // LOS DOS CHECKSUM
@@ -262,5 +287,111 @@ describe('the mark at creation, and a foreign name over 150', () => {
       key: 'bank.account.foreign_bank.name_too_long', params: { length: 151, max: 150 },
     });
     expect(foreignBankNameTooLong(false, 'B'.repeat(300))).toBeUndefined();
+  });
+});
+
+// ============================================================
+// MNE-001-620 (#101) · THE BOOK BALANCE AND THE REMAP GUARD READ REPORT-SERVICE
+//
+// A bank account on 1111 with two posted entries, Dr 1 000.00 and Cr 250.00:
+// the books say 1 000.00 − 250.00 = 750.00, and the bank said 700.00, so the
+// difference is 50.00. Remapping it to 1112 meets those 2 posted lines. The
+// fake pool and client answer what Postgres would; the figures the surfaces
+// print are checked by hand.
+// ============================================================
+
+describe('the book balance and the remap guard read through report-service (MNE-001-620)', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const BANK = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  const scope = entityScope('ten-1', ENTITY);
+  const pool = vi.mocked(query);
+  const postedLines = vi.mocked(queryPostedLinesOnAccount);
+  // The projection is a module constant: the helper is asked once, when the
+  // module loads, and costs nothing per statement. Its call is read here, at
+  // collection, because the runner clears spies before each test.
+  const lateralCalls = [...vi.mocked(postedBalanceOnAccountSql).mock.calls];
+  const lateralText = vi.mocked(postedBalanceOnAccountSql).mock.results[0]?.value as string | undefined;
+
+  /** The projection's row, as Postgres hands it back: money as strings. */
+  const row = (gl: { id: string; code: string }, bookBalance: string) => ({
+    id: BANK, entity_id: ENTITY, account_name: 'Cuenta de cheques', bank_name: 'Banco de Prueba', bank_branch: null,
+    account_type: 'checking', currency_code: 'MXN', sat_bank_code: null, swift_code: null, iban: null,
+    clabe_last4: null, account_number_last4: null, routing_en_archivo: false, clabe_en_archivo: false,
+    bank_is_foreign: false, is_active: true, saldo_banco: '700.0000', last_synced_at: null,
+    created_at: new Date('2026-03-01'), updated_at: new Date('2026-03-01'),
+    gl_id: gl.id, gl_code: gl.code, gl_name: `Bancos ${gl.code}`, gl_tipo: 'asset', gl_moneda: 'MXN',
+    saldo_libro: bookBalance, ultima_conciliacion: null,
+  });
+  const GL_1111 = { id: 'acc-1111', code: '1111' };
+  const GL_1112 = { id: 'acc-1112', code: '1112' };
+
+  /** The statement a surface sent contains the helper's text once, as the lateral of the projection. */
+  function readsTheLateral(text: unknown): void {
+    expect(lateralCalls).toEqual([['b.gl_account_id', 'b.entity_id']]);
+    const fragment = String(lateralText);
+    expect(String(text).split(fragment)).toHaveLength(2);
+    expect(String(text)).toContain(`LEFT JOIN LATERAL (\n      ${fragment}\n    ) libro ON true`);
+  }
+
+  /** A transaction client for `set`: answers each statement by its text, and refuses any other. */
+  function client() {
+    let mapped = GL_1111;
+    const q = vi.fn(async (text: string) => {
+      const s = String(text);
+      if (s.includes('FOR UPDATE')) return { rows: [{ id: BANK }], rowCount: 1 };
+      if (s.includes('libro ON true')) return { rows: [row(mapped, mapped === GL_1111 ? '750.0000' : '0')], rowCount: 1 };
+      if (s.includes('FROM accounts a')) {
+        return { rows: [{ ...GL_1112, name: 'Bancos 1112', account_type: 'asset', is_active: true, is_header: false, allow_manual_entries: true, moneda: 'MXN' }], rowCount: 1 };
+      }
+      if (s.includes('AS lines')) return { rows: [{ lines: '2', balance: '750.0000' }], rowCount: 1 };
+      if (s.startsWith('UPDATE bank_accounts')) {
+        mapped = GL_1112;
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(`unexpected statement: ${s.slice(0, 80)}`);
+    });
+    return { c: { query: q } as unknown as pg.PoolClient, q };
+  }
+
+  it('show reads 750.00 from the books and 750.00 − 700.00 = 50.00 against the bank, through the report layer\'s lateral', async () => {
+    pool.mockReset();
+    pool.mockResolvedValueOnce({ rows: [row(GL_1111, '750.0000')] } as never);
+    const shown = await getBankAccount(scope, BANK);
+    expect([shown.saldoLibro, shown.saldoBanco, shown.diferencia]).toEqual(['750.00', '700.00', '50.00']);
+    expect(pool).toHaveBeenCalledTimes(1);
+    readsTheLateral(pool.mock.calls[0][0]);
+  });
+
+  it('list reads the same 750.00, in one statement through the same lateral', async () => {
+    pool.mockReset();
+    pool.mockResolvedValueOnce({ rows: [row(GL_1111, '750.0000')] } as never);
+    const listed = await listBankAccounts(scope);
+    expect(listed.map((r) => r.saldoLibro)).toEqual(['750.00']);
+    expect(pool).toHaveBeenCalledTimes(1);
+    readsTheLateral(pool.mock.calls[0][0]);
+  });
+
+  it('set asks queryPostedLinesOnAccount once, on its transaction client, and refuses naming 2 lines and 750.00', async () => {
+    postedLines.mockClear();
+    pool.mockReset();
+    const { c, q } = client();
+    vi.mocked(withTransaction).mockImplementation(async (fn) => fn(c) as never);
+    const e = await setBankGlMapping(scope, BANK, '1112', { userId: 'user-1' }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ConflictError);
+    expect((e as Error).message).toContain('1111 ya tiene 2 líneas contabilizadas (saldo 750.00)');
+    expect(postedLines.mock.calls).toEqual([[ENTITY, 'acc-1111', c]]);
+    expect(q.mock.calls.filter(([s]) => String(s).includes('AS lines'))).toHaveLength(1);
+    expect(pool).not.toHaveBeenCalled();
+  });
+
+  it('forced as a dry run, set reports the same 2 lines and 750.00 it read', async () => {
+    postedLines.mockClear();
+    const { c } = client();
+    vi.mocked(withTransaction).mockImplementation(async (fn) => fn(c) as never);
+    const r = await setBankGlMapping(scope, BANK, '1112', { userId: 'user-1', force: true, reason: 'Prueba', dryRun: true });
+    expect([r.dryRun, r.movimientosPosteados, r.forzado]).toEqual([true, 2, true]);
+    expect(r.advertencias.join(' ')).toContain('2 líneas contabilizadas de 1111 (saldo 750.00)');
+    expect(r.cuenta.saldoLibro).toBe('0.00');
+    expect(postedLines).toHaveBeenCalledTimes(1);
   });
 });
