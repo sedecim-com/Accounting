@@ -332,7 +332,7 @@ describe('dos entidades del mismo inquilino', () => {
         } as never,
         A.userId
       )
-    ).rejects.toThrow(/no están en el catálogo de esta entidad/);
+    ).rejects.toThrow(/are not in this entity's chart/);
   });
 
   it('A no puede correr la depreciación contra un periodo de B', async () => {

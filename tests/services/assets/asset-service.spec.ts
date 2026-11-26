@@ -144,7 +144,7 @@ describe('vidaUtilCoherente', () => {
 
   it('rechaza el par que no casa: 40 meses no son 3 años', () => {
     expect(() => vidaUtilCoherente(3, 40, null)).toThrow(ValidationError);
-    expect(() => vidaUtilCoherente(3, 40, null)).toThrow(/40 meses caben en 4 año/);
+    expect(() => vidaUtilCoherente(3, 40, null)).toThrow(/40 months fit in 4 year/);
   });
 
   it('rechaza el par que miente en el otro sentido: 12 meses no son 5 años', () => {
@@ -157,7 +157,7 @@ describe('vidaUtilCoherente', () => {
 
   it('sin años, sin meses y sin defecto de categoría, exige que alguien lo diga', () => {
     expect(() => vidaUtilCoherente(undefined, undefined, null)).toThrow(
-      /Ni el alta ni la categoría dicen cuánto dura/
+      /Neither the registration nor the class says how long/
     );
   });
 
@@ -180,7 +180,7 @@ describe('montosDelAlta', () => {
   });
 
   it('rechaza el costo cero', () => {
-    expect(() => montosDelAlta('0', undefined)).toThrow(/mayor que cero/);
+    expect(() => montosDelAlta('0', undefined)).toThrow(/greater than zero/);
   });
 
   it('rechaza el costo negativo', () => {
@@ -188,15 +188,15 @@ describe('montosDelAlta', () => {
   });
 
   it('rechaza el costo que no es número, en vez de dejarlo llegar al INSERT', () => {
-    expect(() => montosDelAlta('mil quinientos', undefined)).toThrow(/no es un número/);
+    expect(() => montosDelAlta('mil quinientos', undefined)).toThrow(/is not a number/);
   });
 
   it('rechaza el salvamento negativo', () => {
-    expect(() => montosDelAlta('1000', '-1')).toThrow(/no puede ser negativo/);
+    expect(() => montosDelAlta('1000', '-1')).toThrow(/cannot be negative/);
   });
 
   it('rechaza el salvamento que supera el costo', () => {
-    expect(() => montosDelAlta('1000', '1200')).toThrow(/no puede alcanzar ni superar el costo/);
+    expect(() => montosDelAlta('1000', '1200')).toThrow(/cannot reach or exceed the acquisition cost/);
   });
 
   it('rechaza el salvamento IGUAL al costo: el CHECK del esquema es estricto', () => {
@@ -262,13 +262,13 @@ describe('crearActivo · la frontera de entidad', () => {
 describe('crearActivo · lo que valida que el esquema no puede', () => {
   it('rechaza la categoría dada de baja', async () => {
     arnesDeAlta({ categoria: categoriaBase({ is_active: false }) });
-    await expect(crearActivo(ENTIDAD, altaMinima(), USUARIO)).rejects.toThrow(/está dada de baja/);
+    await expect(crearActivo(ENTIDAD, altaMinima(), USUARIO)).rejects.toThrow(/is deactivated/);
   });
 
   it('rechaza el nombre vacío', async () => {
     arnesDeAlta();
     await expect(crearActivo(ENTIDAD, altaMinima({ asset_name: '   ' }), USUARIO)).rejects.toThrow(
-      /necesita nombre/
+      /needs a name/
     );
   });
 
@@ -283,7 +283,7 @@ describe('crearActivo · lo que valida que el esquema no puede', () => {
     arnesDeAlta();
     await expect(
       crearActivo(ENTIDAD, altaMinima({ depreciation_start_date: '2026-02-01' }), USUARIO)
-    ).rejects.toThrow(/antes de la adquisición/);
+    ).rejects.toThrow(/before the acquisition/);
   });
 
   it('acepta el arranque explícito posterior a la adquisición', async () => {
@@ -300,7 +300,7 @@ describe('crearActivo · lo que valida que el esquema no puede', () => {
   it('exige la cuenta que ni el alta ni la categoría traen', async () => {
     arnesDeAlta({ categoria: categoriaBase({ default_asset_account_id: null }) });
     await expect(crearActivo(ENTIDAD, altaMinima(), USUARIO)).rejects.toThrow(
-      /Faltan cuentas para el activo \(asset_account_id\)/
+      /The asset is missing accounts \(asset_account_id\)/
     );
   });
 

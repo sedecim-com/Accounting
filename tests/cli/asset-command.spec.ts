@@ -272,7 +272,7 @@ describe('exigirLibroDelPanel', () => {
   });
 
   it('rechaza la bandera que contradice al panel, en vez de obedecerla', () => {
-    expect(() => exigirLibroDelPanel('tax', vigente)).toThrow(/contradice al panel/);
+    expect(() => exigirLibroDelPanel('tax', vigente)).toThrow(/contradicts the panel/);
   });
 
   it('nombra la política que sí decide, para que la contradicción tenga salida', () => {
@@ -282,11 +282,11 @@ describe('exigirLibroDelPanel', () => {
   it('avisa cuando el libro vigente viene del defecto y no del despacho', () => {
     expect(() =>
       exigirLibroDelPanel('book', { libro: 'tax', base: 'tasa_lisr', definida: false })
-    ).toThrow(/defecto declarado/);
+    ).toThrow(/declared default/);
   });
 
   it('rechaza un valor que no es ninguno de los dos libros', () => {
-    expect(() => exigirLibroDelPanel('nif', vigente)).toThrow(/no existe/);
+    expect(() => exigirLibroDelPanel('nif', vigente)).toThrow(/does not exist/);
   });
 });
 
