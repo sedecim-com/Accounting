@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { calcularAmortizacion } from '../../../src/services/accruals/amortization-math.js';
 import { entryOfKind, SOURCE_TYPE_OF_KIND } from '../../../src/services/accruals/amortization-run.js';
+import { CLOSE_CHECK_ITEMS, deferredRevenueCheck } from '../../../src/services/accounting/period-close.js';
+import { REMEDIO_DE } from '../../../src/services/accounting/close-explain.js';
+import { CLOSING_STEPS } from '../../../src/services/accounting/closing-conductor.js';
 
 // MNE-001-299 (#111). An annual support contract of 120 000.00 (base, no IVA),
 // rendered 20 Mar 2026 → 19 Mar 2027, 365 days. Figures by hand in
@@ -61,5 +64,43 @@ describe('entryOfKind: the direction of each kind', () => {
       ['E6100', '100.0000', null],
       ['A1160', null, '100.0000'],
     ]);
+  });
+});
+
+describe('deferredRevenueCheck: the balance against the calendar', () => {
+  const review = (reaction: string, pending: number) => ({
+    periodo: 'Diciembre 2026',
+    reaccion: reaction,
+    reaccionDefinida: true,
+    pendientes: Array.from({ length: pending }, (_, i) => ({ id: `d${i}`, description: 'x', remaining_amount: '1' })),
+    bloquea: false,
+    mensaje: null,
+  });
+  const backed = [{ accountId: '2158', ledger: '25643.8357', scheduled: '25643.8357' }];
+
+  it('green when every schedule ran and the liability equals what is left to recognize', () => {
+    const c = deferredRevenueCheck(review('bloquear', 0), backed);
+    expect(c).toMatchObject({ codigo: 'deferred-revenue-recognized', is_complete: true, severity: 'blocking' });
+    expect(c.item).toBe(CLOSE_CHECK_ITEMS['deferred-revenue-recognized']);
+    expect(c.details).toBeUndefined();
+  });
+
+  it('a schedule not run weighs what amortizacion_faltante_al_cierre says', () => {
+    expect(deferredRevenueCheck(review('avisar', 1), backed)).toMatchObject({ is_complete: false, severity: 'warning' });
+    expect(deferredRevenueCheck(review('bloquear', 1), backed)).toMatchObject({ is_complete: false, severity: 'blocking' });
+  });
+
+  it('a balance apart from its schedules warns with both figures, either way', () => {
+    const above = deferredRevenueCheck(review('bloquear', 0), [{ accountId: '2158', ledger: '35643.8357', scheduled: '25643.8357' }]);
+    expect(above).toMatchObject({ is_complete: false, severity: 'warning' });
+    expect(above.details).toBe('2158: 35643.8357 in the ledger, 25643.8357 scheduled (10000.0000 apart)');
+    const below = deferredRevenueCheck(review('avisar', 0), [{ accountId: '2158', ledger: '0.0000', scheduled: '500.0000' }]);
+    expect(below.details).toContain('(-500.0000 apart)');
+  });
+
+  it('nothing deferred is green, and the box has its remedy and its step', () => {
+    expect(deferredRevenueCheck(review('avisar', 0), []).is_complete).toBe(true);
+    expect(REMEDIO_DE['deferred-revenue-recognized']).toMatch(/^mnemosine deferred-revenue run --period/);
+    expect(CLOSING_STEPS.indexOf('recognize-deferred-revenue')).toBe(CLOSING_STEPS.indexOf('amortize-prepaids') + 1);
   });
 });

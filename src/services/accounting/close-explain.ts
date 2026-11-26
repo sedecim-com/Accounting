@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { runLedgerChecks } from './ledger-checks.js';
@@ -14,7 +15,7 @@ import {
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
-import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
+import { deferredRevenueBacking, revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
 import { LIVE_ROW } from '../assets/depreciation.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { reconcileCensus } from '../sat-census/reconcile.js';
@@ -67,6 +68,8 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'fees-without-withholding': 'mnemosine cfdi explain <uuid>  (and ask the vendor for a substitute CFDI with the withholding)',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
   'prepaid-amortized': 'mnemosine prepaid run --period <YYYY-MM>',
+  'deferred-revenue-recognized':
+    'mnemosine deferred-revenue run --period <YYYY-MM>  (a balance apart from its schedules: deferred-revenue create, or reverse the entry)',
   'trial-balance':
     'mnemosine close --period <period> --hard  (re-seals the earlier month whose correction the carry did not reach; ' +
     'a cache that does not foot is named by mnemosine ledger check --check balance)',
@@ -289,6 +292,26 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       total: review.pendientes.length,
       renglones: review.pendientes.slice(0, limit).map((p) => ({ ...p })),
     };
+  },
+
+  // MNE-001-299 · the same two reads the box makes: the schedules that owe
+  // the period, then each liability whose balance is apart from its schedules.
+  'deferred-revenue-recognized': async (entityId, periodId, limit) => {
+    const review = await revisionDeAmortizacionAlCierre(entityId, periodId, 'deferred_revenue');
+    const end = await query<{ end: string }>(
+      `SELECT to_char(end_date, 'YYYY-MM-DD') AS end FROM fiscal_periods WHERE id = $1 AND entity_id = $2`,
+      [periodId, entityId]
+    );
+    const apart = end.rows[0]
+      ? (await deferredRevenueBacking(entityId, { id: periodId, end: end.rows[0].end })).filter(
+          (b) => !new Decimal(b.ledger).equals(b.scheduled)
+        )
+      : [];
+    const rows: RenglonOfensor[] = [
+      ...review.pendientes.map((p) => ({ ...p })),
+      ...apart.map((b) => ({ account_id: b.accountId, ledger: b.ledger, scheduled: b.scheduled })),
+    ];
+    return { total: rows.length, renglones: rows.slice(0, limit) };
   },
 
   // The footing is an AGGREGATE: its offending row is the difference itself.

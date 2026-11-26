@@ -887,6 +887,8 @@ export const E4_1: Criterio[] = [
       const expected = [
         'accrue-benefits',
         'amortize-prepaids',
+        // MNE-001-299: the revenue twin of the prepaid run.
+        'recognize-deferred-revenue',
         'depreciate-assets',
         // MNE-001-112: the revaluation is an engine too, and the checklist
         // judges the balance sheet at the closing rate.
@@ -922,6 +924,7 @@ export const E4_1: Criterio[] = [
       const engines = [
         'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
+        'await runMonthlyDeferredRevenue(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
         'await revalueForeignBalances(ctx, period.id, opts.userId)',
         'await getCloseReadiness(ctx, period)',
@@ -975,7 +978,7 @@ export const E4_1: Criterio[] = [
       }
 
       return ok(
-        `los siete pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+        `los ocho pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
           'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
       );
     },
@@ -983,9 +986,9 @@ export const E4_1: Criterio[] = [
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
         de:
-          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',\n  'verify-checklist',",
+          "  'revalue-fx',\n  'verify-checklist',",
         a:
-          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',",
+          "  'verify-checklist',\n  'revalue-fx',",
         porque:
           'el checklist pasa a correr ANTES de los motores: su veredicto describe un mes al que ' +
           'todavía le faltan los asientos de ajuste que se van a postear',

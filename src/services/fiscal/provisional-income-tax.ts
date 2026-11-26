@@ -206,6 +206,8 @@ export interface ProvisionalIncomeTaxWorkpaper {
   salesReturns: { treatment: SalesReturnsTreatment; accounts: Array<{ code: string; name: string; amount: string }> };
   /** Customer advances collected in the year (anticipo_clientes credits), which the paper does not add. */
   advancesCollected: Array<{ code: string; amount: string }>;
+  /** MNE-001-299 · the contract liability's net credit of the year, IN the nominal income (LISR art. 17 fr. I). */
+  deferredRevenue: Array<{ code: string; amount: string }>;
   withholdingAccounts: Array<{ code: string; amount: string }>;
   /** The entries `withheldInRange` COUNTED in the withheld figure: the line's trace, not every movement. */
   withholdingEntryIds: string[];
@@ -335,7 +337,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     const { rows: roleRows } = await client.query<{ account_id: string; role: string }>(
       `SELECT DISTINCT account_id, role FROM account_roles
         WHERE tenant_id = $1 AND entity_id = $2
-          AND role IN ('isr_retenido_a_favor', 'devolucion_ventas', 'anticipo_clientes')`,
+          AND role IN ('isr_retenido_a_favor', 'devolucion_ventas', 'anticipo_clientes',
+                       'ingreso_cobrado_por_anticipado')`,
       [tenantId, entityId]
     );
     const withRole = (role: string) => new Set(roleRows.filter((r) => r.role === role).map((r) => r.account_id));
@@ -356,7 +359,25 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       .map((b) => ({ id: b.id, code: b.code }));
     const returns = revenue.filter((b) => returnIds.has(b.id));
     const incomeAccounts = revenue.filter((b) => treatment === 'net_of_income' || !returnIds.has(b.id));
-    const nominalIncome = incomeAccounts.reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
+    // MNE-001-299 · LISR art. 17 fr. I accumulates a service at the first of
+    // its CFDI, its rendering or its collection, advance included. The books
+    // defer it on the contract liability and recognize it month by month, so
+    // the liability's net credit of the year is added: what arrived this year
+    // enters now (the credit), and what the books recognized this year, out of
+    // it or out of last year's, comes back out (the debit). Each unit once.
+    const deferredIds = withRole('ingreso_cobrado_por_anticipado');
+    const deferredRevenue = balance
+      .filter((b) => deferredIds.has(b.account_id))
+      .map((b) => ({ id: b.account_id, code: b.account_code, amount: new Decimal(b.credit_total).minus(b.debit_total) }))
+      .filter((b) => !b.amount.isZero());
+    const nominalIncome = [...incomeAccounts, ...deferredRevenue].reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
+    incomeTraceAccounts.push(...deferredRevenue.map((b) => ({ id: b.id, code: b.code })));
+    if (deferredRevenue.length > 0) {
+      findings.push({ codigo: 'ISR-WP-DEFERRED-REVENUE', severidad: 'aviso',
+        mensaje: `Deferred revenue billed or collected in the year, net of what the books recognized (` +
+          `${deferredRevenue.map((b) => `${b.code}: ${b.amount.toFixed(4)}`).join(', ')}), is in the nominal income: ` +
+          'LISR art. 17 fr. I accumulates it at the first of its CFDI, its rendering or its collection.' });
+    }
 
     // MNE-001-498 · a transfer of customer credit (DR 2150 / CR 2150) collects nothing: its credit is not counted.
     const { rows: transferred } = await client.query<{ account_id: string; credit: string }>(
@@ -413,6 +434,7 @@ export async function buildProvisionalIncomeTaxWorkpaper(
         accounts: returns.map((b) => ({ code: b.code, name: b.name, amount: b.amount.toFixed(4) })),
       },
       advancesCollected,
+      deferredRevenue: deferredRevenue.map((b) => ({ code: b.code, amount: b.amount.toFixed(4) })),
       withholdingAccounts: withholdingAccounts.map((b) => ({ ...b, amount: b.amount.toFixed(4) })),
       withholdingEntryIds,
       incomeTraceAccounts,

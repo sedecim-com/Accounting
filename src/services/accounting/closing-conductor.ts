@@ -3,7 +3,7 @@ import { getClient, query } from '../../database/connection.js';
 import type { AgentContext } from '../../ai/context.js';
 import { getCloseReadiness, type ClosablePeriod } from '../../ai/close-service.js';
 import { runMonthlyProvisions } from '../accruals/provisions-run.js';
-import { runMonthlyAmortization } from '../accruals/amortization-run.js';
+import { runMonthlyAmortization, runMonthlyDeferredRevenue } from '../accruals/amortization-run.js';
 import { runMonthlyDepreciation } from '../assets/depreciation.js';
 import { hardClosePeriod, softClosePeriod } from './period-close.js';
 import { FX_REVALUATION_SOURCE, revalueForeignBalances, revaluationEntriesOf } from './fx-revaluation.js';
@@ -86,6 +86,8 @@ import { logger } from '../../utils/logger.js';
 export const CLOSING_STEPS = [
   'accrue-benefits',
   'amortize-prepaids',
+  // MNE-001-299: the contract liability recognized to revenue (NIF D-1).
+  'recognize-deferred-revenue',
   'depreciate-assets',
   'revalue-fx',
   'verify-checklist',
@@ -109,6 +111,7 @@ export type StepStatus = (typeof PERSISTED_STEP_STATUSES)[number] | 'pending';
 const SOURCE_OF_STEP: Partial<Record<ClosingStep, string>> = {
   'accrue-benefits': 'benefit_provision',
   'amortize-prepaids': 'prepaid_amortization',
+  'recognize-deferred-revenue': 'deferred_revenue_recognition',
   'depreciate-assets': 'depreciation',
   'revalue-fx': FX_REVALUATION_SOURCE,
 };
@@ -898,6 +901,19 @@ async function takeStep(
           r.errors.length > 0
             ? `${r.errors.length} prepaid(s) could not be amortized: ${r.errors.join('; ')}`
             : `${r.processed} amortized, ${r.skipped} skipped, ${r.total} expensed`,
+      };
+    }
+    case 'recognize-deferred-revenue': {
+      const r = await runMonthlyDeferredRevenue(ctx.entityId, period.id, opts.userId);
+      return {
+        ...base,
+        status: r.errors.length > 0 ? 'failed' : r.processed > 0 ? 'done' : 'skipped',
+        processed: r.processed,
+        amount: r.total,
+        detail:
+          r.errors.length > 0
+            ? `${r.errors.length} deferred-revenue schedule(s) could not be recognized: ${r.errors.join('; ')}`
+            : `${r.processed} recognized, ${r.skipped} skipped, ${r.total} to revenue`,
       };
     }
     case 'depreciate-assets': {

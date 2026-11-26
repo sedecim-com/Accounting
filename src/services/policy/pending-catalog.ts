@@ -791,7 +791,8 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'Closing a month with prepayment schedules whose amortisation was never run: warn, or refuse?',
     impact:
       'An unrun schedule means the expense of that month is missing and the asset is overstated by the ' +
-      'same amount. It is the exact shape of the defect this system already fixed for depreciation.',
+      'same amount. It is the exact shape of the defect this system already fixed for depreciation. ' +
+      'The same answer governs deferred-revenue schedules, whose unrun month leaves revenue in the liability.',
     options: [
       { value: 'avisar', label: 'Warn: the checklist item goes red and the close continues' },
       { value: 'bloquear', label: 'Refuse: the period does not close until every schedule is run' },

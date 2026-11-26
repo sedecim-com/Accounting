@@ -7575,7 +7575,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout, sat-census-missing, year-months-sealed
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, deferred-revenue-recognized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout, sat-census-missing, year-months-sealed
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -7620,7 +7620,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, revalue-fx, verify-checklist, soft-close, hard-close
+  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, recognize-deferred-revenue, depreciate-assets, revalue-fx, verify-checklist, soft-close, hard-close
   --resume                                 continue the open run of this period; every step runs again, posting only what is missing
   -y, --yes                                skip the confirmation prompt
   --dry-run                                compute and show the full effect; write nothing and call nothing external

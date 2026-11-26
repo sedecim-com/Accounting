@@ -759,7 +759,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     params: { steps: CLOSING_STEPS.join(', ') },
   });
   optionByKey(runLeaf, '--resume', 'help.closing.run.option.resume');
-  // IRREVERSIBLE, and it does not pretend otherwise: four of its seven steps
+  // IRREVERSIBLE, and it does not pretend otherwise: five of its eight steps
   // post to the ledger of migration 041, where nothing is edited or deleted,
   // and the last one seals the period.
   // The agent is refused: it proposes, a human conducts.
@@ -776,7 +776,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     risk: 'irreversible',
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (through the accrual, amortization, depreciation and FX revaluation ' +
+      'journal_entries + journal_entry_lines (through the accrual, amortization, deferred-revenue, depreciation and FX revaluation ' +
       'engines), fx_revaluation_runs, closing_runs, closing_run_steps, fiscal_periods.status on the soft ' +
       'and the hard close, and with the hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
     llave: { innecesaria: t('closing.run.key_unneeded') },
