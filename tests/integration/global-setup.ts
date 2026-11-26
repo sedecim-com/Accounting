@@ -2,6 +2,7 @@ import pg from 'pg';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
+import { collationNotice, createDatabaseSortingAsCi } from './helpers/ci-collation.js';
 
 // El global setup corre antes que src/config, que es quien normalmente carga
 // .env: aquí hay que leerlo explícitamente para saber a qué Postgres conectar.
@@ -41,7 +42,11 @@ export async function setup(): Promise<void> {
   const nombre = `mnemosine_it_${crypto.randomBytes(4).toString('hex')}`;
   const admin = new pg.Client({ connectionString: urlConBase(BASE_URL, 'postgres') });
   await admin.connect();
-  await admin.query(`CREATE DATABASE ${nombre}`);
+  // MNE-001-753: born sorting text as CI's database does, not as this cluster
+  // happens to. When it cannot be CI's own collation, one line says so.
+  const born = await createDatabaseSortingAsCi(admin, nombre, `CREATE DATABASE ${nombre}`);
+  const notice = collationNotice(born);
+  if (notice) console.warn(`integration: ${notice}`);
   // R2: mnemosine_verifier es objeto de CLÚSTER (lo crea provision-roles.sql
   // en producción); el clúster de CI nace sin aprovisionar, y sin el rol el
   // bloque del verifier de rls-policies.sql se salta y el camino sancionado

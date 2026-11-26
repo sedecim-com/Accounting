@@ -148,7 +148,8 @@ describe('cliStringsLanes', () => {
       _por_que: '',
       seeded: '',
       lanes: { [lane.id]: lane.value },
-      perFile: { [lane.id]: floors },
+      // A file translated since keeps its floor, so the summed ceiling (MNE-001-818) holds the total.
+      perFile: { [lane.id]: { ...floors, 'translated-since.ts': 1 } },
     });
     expect(findings.map((finding) => finding.detail)).toEqual([
       `${grown}: creció ${perFile[grown] - 1} → ${perFile[grown]}; ${CLI_STRINGS_PER_ENTRY_RULE}`,
@@ -160,7 +161,7 @@ describe('cliStringsLanes', () => {
       _por_que: '',
       seeded: '',
       lanes: { [lane.id]: lane.value },
-      perFile: { [lane.id]: withoutEntry },
+      perFile: { [lane.id]: { ...withoutEntry, 'translated-since.ts': perFile[grown] } },
     });
     expect(born.map((finding) => finding.detail)).toEqual([
       `${grown}: 0 → ${perFile[grown]} — sin entrada en la línea base; ${CLI_STRINGS_PER_ENTRY_RULE}`,

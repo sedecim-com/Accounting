@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { block, compare, seed, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
+import { declaredSha, sourceSha } from '../../scripts/language/lanes/docs.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -121,7 +122,8 @@ describe('comparar — qué cuenta como retroceso', () => {
   it('a lane whose unit is not a file names its own rule on a new or grown entry (#314)', () => {
     const rule = 'register it by key';
     const withRule: Lane = { ...lane('a', 12, { bank: 5, employee: 7 }), perEntryRule: rule };
-    const h = compare([withRule], baselineOf({ a: 12 }, { a: { bank: 4 } }));
+    // `gone` reached zero: the summed ceiling stays 12, so only the entries speak.
+    const h = compare([withRule], baselineOf({}, { a: { bank: 4, gone: 8 } }));
     expect(h.map((f) => f.detail)).toEqual([
       'bank: creció 4 → 5; register it by key',
       'employee: 0 → 7 — sin entrada en la línea base; register it by key',
@@ -518,6 +520,185 @@ describe('the published block — ceilings from the baseline, not counts from th
       expect(git('log', '--oneline', 'develop~1..two', '--', 'language.md', 'language.es.md')).toBe('');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================
+// A LANE COUNTED PER FILE STORES NO TOTAL (MNE-001-818, #311)
+//
+// Measured on the develop merges of 25 and 26 Nov: most merges of develop
+// into an open PR conflicted in docs/language*, on three lines every PR
+// rewrites: the lane's total in the baseline, its ceiling row in the block,
+// and the twin's `source_sha`. GitHub's squash and «Update branch» are a plain
+// 3-way merge with no custom driver, so the cure is in what is committed: the
+// ceiling of a per-file lane is the sum of its files' floors, the block prints
+// no figure that a tighten moves, and the stamp ignores the generated block.
+// ============================================================
+describe('a lane counted per file: its ceiling is the sum of its floors', () => {
+  it('the sum is the ceiling, and a stored total can only lower it', () => {
+    const tree = [lane('svc', 6, { 'x.ts': 3, 'y.ts': 3 })];
+    expect(compare(tree, baselineOf({}, { svc: { 'x.ts': 3, 'y.ts': 3 } }))).toEqual([]);
+    // y.ts grew 2 → 3: the file is named, and so is the total over the summed ceiling, 5.
+    expect(compare(tree, baselineOf({}, { svc: { 'x.ts': 3, 'y.ts': 2 } })).map((f) => f.detail)).toEqual([
+      'creció: 5 → 6',
+      'y.ts: creció 2 → 3',
+    ]);
+    // A total raised by hand excuses nothing; one lowered by hand still binds.
+    expect(compare(tree, baselineOf({ svc: 99 }, { svc: { 'x.ts': 3, 'y.ts': 2 } }))).toHaveLength(2);
+    expect(compare(tree, baselineOf({ svc: 5 }, { svc: { 'x.ts': 3, 'y.ts': 3 } })).map((f) => f.detail)).toEqual([
+      'creció: 5 → 6',
+    ]);
+  });
+
+  it('--tighten and --seed keep no total for a lane with a breakdown, and keep it for one without', () => {
+    const next = tighten(
+      [lane('svc', 4, { 'x.ts': 1, 'y.ts': 3 }), lane('cli', 0)],
+      baselineOf({ svc: 6, cli: 0 }, { svc: { 'x.ts': 3, 'y.ts': 3 } })
+    );
+    expect(next.lanes).toEqual({ cli: 0 });
+    expect(next.perFile).toEqual({ svc: { 'x.ts': 1, 'y.ts': 3 } });
+    // The last file reaches zero: the breakdown leaves and the lane keeps a 0, which never moves.
+    expect(tighten([lane('svc', 0, {})], next).lanes).toEqual({ svc: 0 });
+    const s = seed([lane('svc', 4, { 'x.ts': 4 }), lane('cli', 0)], '2026-01-01');
+    expect(s.lanes).toEqual({ cli: 0 });
+    expect(s.perFile).toEqual({ svc: { 'x.ts': 4 } });
+  });
+
+  it('--tighten never raises the summed ceiling: a new file takes only the slack another one freed', () => {
+    const base = baselineOf({}, { svc: { 'old.ts': 3, 'y.ts': 2 } });
+    // A rename moves the floor with the file.
+    expect(tighten([lane('svc', 5, { 'new.ts': 3, 'y.ts': 2 })], base).perFile.svc).toEqual({ 'new.ts': 3, 'y.ts': 2 });
+    // New debt with nothing freed gets no floor, so --check stays red after --tighten.
+    const grown = [lane('svc', 6, { 'old.ts': 3, 'y.ts': 2, 'z.ts': 1 })];
+    const next = tighten(grown, base);
+    expect(next.perFile.svc).toEqual({ 'old.ts': 3, 'y.ts': 2 });
+    expect(compare(grown, next).map((f) => f.detail)).toContain(
+      'z.ts: 0 → 1 — sin entrada en la línea base; un archivo nuevo no nace con deuda'
+    );
+  });
+
+  it('the block prints «per file» for such a lane, so lowering a file leaves it byte for byte the same', () => {
+    const base = baselineOf({ cli: 0 }, { svc: { 'x.ts': 3, 'y.ts': 3 } });
+    const published = [lane('svc', 6), lane('cli', 0)];
+    const text = block(published, base);
+    expect(text).toContain('| `svc` | svc | per file | 0 |');
+    expect(text).toContain('| `cli` | cli | 0 | 0 |');
+    expect(text).toContain("files' floors");
+    const lowered = tighten([lane('svc', 4, { 'x.ts': 1, 'y.ts': 3 }), lane('cli', 0)], base);
+    expect(block(published, lowered)).toBe(text);
+  });
+});
+
+describe('two PRs that lower different files merge with a plain 3-way merge, in either order', () => {
+  const FILES = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'];
+  // The tree: each PR translates one Spanish string in its own file.
+  const treeOf = (counts: Record<string, number>): Lane[] => [
+    { ...lane('svc', Object.values(counts).reduce((s, n) => s + n, 0), counts), title: 'services, per file' },
+    lane('cli', 0),
+  ];
+  const start: Record<string, number> = Object.fromEntries(FILES.map((f) => [f, 4]));
+  const stamped = (sha: string): string => `# Idioma\n\n> Gemela · source_sha: ${sha}\n\nPrólogo.\n\n`;
+
+  const repo = (): { dir: string; git: (...a: string[]) => string; merge: (ref: string) => number } => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lang-818-'));
+    // No user config and no attributes file: what GitHub runs, with no custom merge driver.
+    const flags = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.attributesFile=/dev/null'];
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const git = (...a: string[]): string => execFileSync('git', [...flags, ...a], { cwd: dir, encoding: 'utf8', env });
+    const merge = (ref: string): number =>
+      spawnSync('git', [...flags, 'merge', '--no-ff', '-m', `merge ${ref}`, ref], { cwd: dir, encoding: 'utf8', env }).status ?? -1;
+    return { dir, git, merge };
+  };
+
+  // What a builder does before pushing: --tighten, then --write.
+  const routine = (dir: string, counts: Record<string, number>): void => {
+    const file = path.join(dir, 'language-baseline.json');
+    const next = tighten(treeOf(counts), JSON.parse(fs.readFileSync(file, 'utf8')) as ReturnType<typeof baselineOf>);
+    fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+    expect(writeBlock(block(treeOf(counts), next), [path.join(dir, 'language.md'), path.join(dir, 'language.es.md')])).toEqual([]);
+  };
+
+  const setUp = (): ReturnType<typeof repo> => {
+    const r = repo();
+    r.git('init', '-q', '-b', 'develop');
+    const base = seed(treeOf(start), '2026-11-26');
+    fs.writeFileSync(path.join(r.dir, 'language-baseline.json'), `${JSON.stringify(base, null, 2)}\n`);
+    const md = path.join(r.dir, 'language.md');
+    fs.writeFileSync(md, `# Language\n\nProse.\n\n${block(treeOf(start), base)}\n\nAfter.\n`);
+    fs.writeFileSync(path.join(r.dir, 'language.es.md'), `${stamped(sourceSha(md))}${block(treeOf(start), base)}\n\nDespués.\n`);
+    r.git('add', '-A');
+    r.git('commit', '-q', '-m', 'base');
+    // PR one translates a string in src/a.ts, PR two two strings in src/e.ts: the
+    // totals differ, as they did in every measured merge, so a stored total conflicts.
+    for (const [branch, file, left] of [['one', 'src/a.ts', 3], ['two', 'src/e.ts', 2]] as const) {
+      r.git('checkout', '-q', '-b', branch, 'develop');
+      routine(r.dir, { ...start, [file]: left });
+      r.git('commit', '-q', '-am', branch);
+    }
+    r.git('checkout', '-q', 'develop');
+    return r;
+  };
+
+  const merged = { ...start, 'src/a.ts': 3, 'src/e.ts': 2 };
+  const checkPasses = (dir: string): void => {
+    const base = JSON.parse(fs.readFileSync(path.join(dir, 'language-baseline.json'), 'utf8')) as ReturnType<typeof baselineOf>;
+    const pages = [path.join(dir, 'language.md'), path.join(dir, 'language.es.md')];
+    expect(compare(treeOf(merged), base)).toEqual([]);
+    expect(staleBlocks(block(treeOf(merged), base), pages)).toEqual([]);
+    expect(declaredSha(fs.readFileSync(pages[1], 'utf8'))).toBe(sourceSha(pages[0]));
+  };
+
+  for (const [first, second] of [['one', 'two'], ['two', 'one']]) {
+    it(`${first} lands, ${second} takes develop, then lands: no conflict, and --check holds on the result`, () => {
+      const r = setUp();
+      try {
+        expect(r.merge(first)).toBe(0);
+        r.git('checkout', '-q', second);
+        expect(r.merge('develop'), r.git('diff', '--name-only', '--diff-filter=U')).toBe(0);
+        checkPasses(r.dir);
+        r.git('checkout', '-q', 'develop');
+        expect(r.merge(second)).toBe(0);
+        checkPasses(r.dir);
+      } finally {
+        fs.rmSync(r.dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('on the merged result a stale block, a stale stamp or a raised file still turn --check red', () => {
+    const r = setUp();
+    try {
+      expect(r.merge('one')).toBe(0);
+      expect(r.merge('two')).toBe(0);
+      const md = path.join(r.dir, 'language.md');
+      const es = path.join(r.dir, 'language.es.md');
+      const base = JSON.parse(fs.readFileSync(path.join(r.dir, 'language-baseline.json'), 'utf8')) as ReturnType<typeof baselineOf>;
+      fs.writeFileSync(md, fs.readFileSync(md, 'utf8').replace('| per file |', '| 21 |'));
+      expect(staleBlocks(block(treeOf(merged), base), [md, es])).toHaveLength(1);
+      // A hand edit of the block does not move the stamp; a prose edit does.
+      expect(declaredSha(fs.readFileSync(es, 'utf8'))).toBe(sourceSha(md));
+      fs.writeFileSync(md, fs.readFileSync(md, 'utf8').replace('Prose.', 'New prose.'));
+      expect(declaredSha(fs.readFileSync(es, 'utf8'))).not.toBe(sourceSha(md));
+      expect(compare(treeOf({ ...merged, 'src/c.ts': 5 }), base).map((f) => f.detail)).toContain('src/c.ts: creció 4 → 5');
+    } finally {
+      fs.rmSync(r.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('two PRs that lower the SAME file still conflict on that one line: a real conflict stays one', () => {
+    const r = setUp();
+    try {
+      r.git('checkout', '-q', '-b', 'three', 'develop');
+      routine(r.dir, { ...start, 'src/a.ts': 2 });
+      r.git('commit', '-q', '-am', 'three');
+      r.git('checkout', '-q', 'develop');
+      expect(r.merge('one')).toBe(0);
+      r.git('checkout', '-q', 'three');
+      expect(r.merge('develop')).not.toBe(0);
+      expect(r.git('diff', '--name-only', '--diff-filter=U').trim()).toBe('language-baseline.json');
+    } finally {
+      fs.rmSync(r.dir, { recursive: true, force: true });
     }
   });
 });

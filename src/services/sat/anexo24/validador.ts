@@ -1,3 +1,4 @@
+import type { ErrorMessageKey } from '../../../utils/errors.js';
 import { officialEnumeration, OFFICIAL_ENUMERATIONS_XSD } from './official-enumerations.js';
 
 // ============================================================
@@ -59,6 +60,8 @@ export interface Hallazgo {
   severidad: Severidad;
   procedencia: ProcedenciaDeRegla;
   mensaje: string;
+  /** When set, the surface renders the message from the catalogue; the text above is its English (#608). */
+  messageKey?: ErrorMessageKey;
   /** La cuenta a la que apunta, cuando el hallazgo es de una fila. */
   numCta?: string;
 }
