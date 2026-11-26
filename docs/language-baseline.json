@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "cli-user-strings-without-key": 235,
+    "cli-user-strings-without-key": 229,
     "help-examples-without-key": 252,
     "spanish-user-strings-services": 1716
   },
@@ -1488,7 +1488,6 @@
       "src/cli/init/s3-ai.ts": 3,
       "src/cli/init/s4-policies.ts": 1,
       "src/cli/kernel/audit.ts": 1,
-      "src/cli/kernel/line-spec.ts": 6,
       "src/cli/kernel/output.ts": 2,
       "src/cli/kernel/render-keyed.ts": 1,
       "src/cli/kernel/risk.ts": 2,

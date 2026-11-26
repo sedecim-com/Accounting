@@ -6281,6 +6281,24 @@ export const EN = {
   'platform.user.create.email_required': '--email is required.',
   'platform.user.create.role_required': '--role is required: a login never gets a role by default.',
   // ==== end of I8b · platform, part 1 ====
+  // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
+  // The one --line grammar that entry, invoice and bill read: its English byte for byte ("key(s)" included), the
+  // Spanish with its plural; the keys as typed, the separator, the sample lines and the version are never translated.
+  /** `spec` is the line as typed; the sample after the colon is fixed text. */
+  'cli.line.pair_unreadable':
+    'Cannot read the line "{spec}". Each part is key=value, separated by ";": --line "account=5100;qty=2;price=350.00;description=Text".',
+  /** `key` is the folded key; `first` and `second` are the two spellings the person typed. */
+  'cli.line.key_twice': 'The line "{label}" gives "{key}" twice (as "{first}" and "{second}").',
+  /** `count` is how many keys are unknown; the English keeps its "(s)". */
+  'cli.line.unknown_keys': '{count, plural, other {Unknown key(s)}} in --line: {unknown}. Known keys: {known}.',
+  /** `first` and `second` are the two keys of one `sameField` pair, as typed. */
+  'cli.line.same_field': 'The line "{label}" gives one field twice: "{first}" and "{second}" are the same key. Give only one.',
+  /** One stderr line per invocation of `bill create`; `version` is LEGACY_LINE_FORMS_RETIRE_IN. */
+  'cli.line.legacy_comma':
+    '--line pairs separated by "," are deprecated; separate them with ";" (account=5100;qty=1;price=1000;tax-amount=160). Commas stop working in {version}.',
+  /** The heading of the key block that `lineKeysHelp` adds to `--help`. */
+  'cli.line.keys_heading': 'Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):',
+  // ==== end of I8b · line-spec ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is

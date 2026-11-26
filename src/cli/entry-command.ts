@@ -214,7 +214,8 @@ const ENTRY_LINE_GRAMMAR: LineGrammar = {
   aliases: SIDE_ALIASES,
 };
 
-const ENTRY_LINE_KEYS_HELP = lineKeysHelp([
+/** The key block of `entry create --help`, built when the help is shown (its heading is keyed). */
+const entryLineKeysHelp = (): string => lineKeysHelp([
   ['account', 'chart account CODE the line is posted to (required)'],
   ['debit', 'amount charged to the account; cargo= is the same key'],
   ['credit', 'amount credited to the account; abono= is the same key'],
@@ -617,7 +618,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     draftOnly: true,
     writes: 'journal_entries (draft) + journal_entry_lines',
   });
-  create.addHelpText('after', ENTRY_LINE_KEYS_HELP);
+  create.addHelpText('after', entryLineKeysHelp);
   create.addHelpText('after', EJEMPLOS.create);
   create.action((
     opts: CommonOpts & {
