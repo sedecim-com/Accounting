@@ -37,6 +37,6 @@ describe('the converter refuses what the two Zod majors read differently', () =>
   });
 
   it('an enum-keyed record, which only zod 4 makes exhaustive', () => {
-    expect(refusal(z.record(z.enum(['a', 'b']), z.number()))).toMatch(/^body: .*llaves del diccionario/);
+    expect(refusal(z.record(z.enum(['a', 'b']), z.number()))).toMatch(/^body: .*record keys are "enum"/);
   });
 });

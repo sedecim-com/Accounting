@@ -18,8 +18,9 @@ RUN npm run build
 FROM node:22-alpine AS production
 WORKDIR /app
 
-# xmllint: `catalog seal` and `balance seal` validate the Anexo 24 XML against
-# the SAT's XSD (src/services/sat/anexo24/official-xsd.ts) and refuse without it.
+# xmllint: `catalog|balance generate` and `catalog|balance seal` validate the
+# Anexo 24 XML against the SAT's XSD (src/services/sat/anexo24/official-xsd.ts).
+# Without it nothing is reported as deliverable and the seal refuses (#608).
 RUN apk add --no-cache libxml2-utils
 
 COPY package.json package-lock.json* ./

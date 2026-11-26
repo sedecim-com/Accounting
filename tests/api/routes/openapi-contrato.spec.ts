@@ -339,7 +339,7 @@ describe('el documento se sostiene solo', () => {
     a.get('/x', (_req, res) => res.json({}));
     app.use('/v1/dup', a);
     app.use('/v1/dup', a);
-    expect(() => construirOpenAPI(app)).toThrow(/mismo operationId/);
+    expect(() => construirOpenAPI(app)).toThrow(/same operationId/);
   });
 
   it('los caminos de Express se publican con la plantilla de OpenAPI', () => {
@@ -523,7 +523,7 @@ describe('el conversor se niega a adivinar', () => {
     ['z.nativeEnum', z.nativeEnum({ A: 'a', B: 'b' })],
   ])('%s no está traducido y lanza en vez de emitir un hueco', (_nombre, esquema) => {
     expect(rechaza(esquema as z.ZodTypeAny)).toThrow(ZodNoTraducible);
-    expect(rechaza(esquema as z.ZodTypeAny)).toThrow(/no está traducid/);
+    expect(rechaza(esquema as z.ZodTypeAny)).toThrow(/is not translated/);
   });
 
   it('el error dice DÓNDE, con el camino dentro del esquema', () => {
@@ -536,13 +536,13 @@ describe('el conversor se niega a adivinar', () => {
   it('una comprobación de cadena sin traducir también lanza', () => {
     // `.startsWith()` es una comprobación de Zod que JSON Schema sólo puede
     // expresar como `pattern`, y traducirla mal es peor que no traducirla.
-    expect(rechaza(z.string().startsWith('MX'))).toThrow(/comprobación de cadena "startsWith"/);
+    expect(rechaza(z.string().startsWith('MX'))).toThrow(/string check "startsWith"/);
   });
 
   it('una expresión regular con banderas lanza: `pattern` no las tiene', () => {
     // Publicar /^abc$/i como `"^abc$"` convierte una regla que acepta «ABC»
     // en una que la rechaza. El contrato diría otra cosa que la API.
-    expect(rechaza(z.string().regex(/^abc$/i))).toThrow(/banderas/);
+    expect(rechaza(z.string().regex(/^abc$/i))).toThrow(/has flags/);
   });
 
   it('`z.preprocess` lanza: lo de dentro no es lo que el cliente manda', () => {

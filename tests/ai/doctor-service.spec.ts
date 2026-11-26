@@ -22,6 +22,7 @@ import { runDoctor,
   checkExtractosCompletos,
   checkLookupTables,
   checkOrphanedCapability,
+  checkXsdValidator,
   claseDe,
   CHECK_IDENTITIES,
   LOOKUP_TABLES,
@@ -429,6 +430,39 @@ describe('runDoctor — retired CONTALINK_API_KEY (#357)', () => {
     mockDb();
     delete process.env.CONTALINK_API_KEY;
     expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Retired Contalink key').level).toBe('ok');
+  });
+});
+
+describe('runDoctor — xmllint, the Anexo 24 XSD validator (#608)', () => {
+  it('ok with the libxml version it found', () => {
+    expect(checkXsdValidator('20914')).toEqual({
+      id: 'anexo24-xsd-validator-on-path',
+      name: 'xmllint',
+      level: 'ok',
+      detail: 'libxml version 20914',
+    });
+  });
+
+  it('warns without it, names what stops being deliverable and how to install it', () => {
+    const c = checkXsdValidator(null);
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/xmllint is not on the PATH/);
+    expect(c.detail).toMatch(/`e-accounting catalog generate` and `balance generate` report nothing as deliverable/);
+    expect(c.fix).toMatch(/libxml2-utils \(apt, apk\) or libxml2 \(Homebrew\)/);
+  });
+
+  it('the report carries it even without a database, read from the real PATH', async () => {
+    mockQuery.mockRejectedValue(new Error('ECONNREFUSED'));
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'xmllint').detail).toMatch(
+      /^libxml version \d+$/
+    );
+    const keep = process.env.PATH;
+    process.env.PATH = '/mne-001-666-no-such-directory';
+    try {
+      expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'xmllint').level).toBe('warn');
+    } finally {
+      process.env.PATH = keep;
+    }
   });
 });
 

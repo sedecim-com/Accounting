@@ -49,6 +49,18 @@
  * of those does — which is rare and deliberate.
  *
  * ============================================================
+ * A LANE COUNTED PER FILE STORES NO TOTAL (MNE-001-818, #311)
+ *
+ * The ceilings still moved: a PR that tightened a file rewrote its lane's
+ * total in the baseline and its row in the block, and the twin's stamp with
+ * them, so the next PR to merge conflicted on those three lines. GitHub's
+ * squash and «Update branch» are a plain 3-way merge with no custom driver,
+ * so the cure is in what is committed. A lane with a breakdown has its ceiling
+ * computed, the sum of its files' floors (`ceiling`); the block prints «per
+ * file» for it; and the stamp ignores the block (`sourceSha`, lanes/docs.ts).
+ * A PR that lowers one file now rewrites that file's line and nothing else.
+ *
+ * ============================================================
  * LO QUE ESTE METRO NO HACE
  *
  * No mide la ayuda renderizada del CLI: eso lo mide `ux-status.ts` y aquí se
@@ -82,7 +94,7 @@ import { execFileSync } from 'node:child_process';
 import type { Lane } from './language/lane.js';
 import { codeLanes } from './language/lanes/code.js';
 import { planLanes } from './language/lanes/plan.js';
-import { docsLanes } from './language/lanes/docs.js';
+import { docsLanes, sourceSha, STATUS_CLOSE_MARK, STATUS_OPEN_MARK } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
 import { cliStringsLanes } from './language/lanes/cli-strings.js';
@@ -99,8 +111,8 @@ const GOVERNING_DOCS = [
   path.join(ROOT, 'docs', 'language.md'),
   path.join(ROOT, 'docs', 'language.es.md'),
 ];
-const OPEN_MARK = '<!-- LANGUAGE-STATUS:START -->';
-const CLOSE_MARK = '<!-- LANGUAGE-STATUS:END -->';
+const OPEN_MARK = STATUS_OPEN_MARK;
+const CLOSE_MARK = STATUS_CLOSE_MARK;
 
 interface Baseline {
   _: string;
@@ -122,6 +134,29 @@ export function measure(): Lane[] {
     ...helpExamplesLanes(),
     ...serviceStringsLanes(),
   ];
+}
+
+/**
+ * The ratchet's ceiling for a lane. With a breakdown in the baseline it is the
+ * sum of the files' floors, and a stored total can only lower it, never raise
+ * it; without one it is the stored total. `undefined`: nobody seeded the lane.
+ */
+export function ceiling(id: string, base: Pick<Baseline, 'lanes' | 'perFile'>): number | undefined {
+  const stored = base.lanes[id];
+  const floors = Object.values(base.perFile?.[id] ?? {});
+  if (floors.length === 0) return stored;
+  const sum = floors.reduce((a, b) => a + b, 0);
+  return stored === undefined ? sum : Math.min(stored, sum);
+}
+
+/** Every lane's ceiling, by id: what `--json` publishes as `base`. */
+function ceilings(lanes: Lane[], base: Baseline): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of lanes) {
+    const n = c.closed ? undefined : ceiling(c.id, base);
+    if (n !== undefined) out[c.id] = n;
+  }
+  return out;
 }
 
 function readBaseline(): Baseline | null {
@@ -203,7 +238,7 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
       findings.push(...closedLaneFindings(c, base));
       continue;
     }
-    const floor = base.lanes[c.id];
+    const floor = ceiling(c.id, base);
     if (floor === undefined) {
       // Un lane nuevo sin entrada no es un error: es un lane que nadie ha
       // sembrado. Se dice, y `--seed` o `--tighten` lo incorporan.
@@ -247,8 +282,9 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
     }
   }
 
-  // ENTRADAS MUERTAS: la línea base nombra lanes que ya no existen.
-  for (const id of Object.keys(base.lanes)) {
+  // ENTRADAS MUERTAS: la línea base nombra lanes que ya no existen — by a
+  // total or, for a lane counted per file, by its breakdown alone.
+  for (const id of new Set([...Object.keys(base.lanes), ...Object.keys(base.perFile)])) {
     if (!alive.has(id)) {
       findings.push({
         lane: id,
@@ -259,22 +295,41 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
   return findings;
 }
 
-/** `--tighten`: baja lo que tiene holgura. NUNCA sube. */
+/**
+ * `--tighten`: baja lo que tiene holgura. NUNCA sube — and since the ceiling of
+ * a lane counted per file is the sum of its floors (MNE-001-818), a file with
+ * no floor may only take the slack the others freed: a rename carries its
+ * floor to the new path, new debt gets none and `--check` stays red.
+ */
 export function tighten(lanes: Lane[], base: Baseline): Baseline {
   const next: Baseline = { ...base, lanes: { ...base.lanes }, perFile: {} };
   for (const c of lanes) {
     if (c.closed) continue;
-    const floor = base.lanes[c.id];
-    next.lanes[c.id] = floor === undefined ? c.value : Math.min(floor, c.value);
+    const old = ceiling(c.id, base);
     const fileFloors = base.perFile[c.id] ?? {};
+    const files = Object.entries(c.perFile ?? {});
+    const kept = files.reduce((s, [f, n]) => s + (fileFloors[f] === undefined ? 0 : Math.min(fileFloors[f], n)), 0);
+    let slack = old === undefined ? Infinity : old - kept;
     const map: Record<string, number> = {};
-    for (const [file, n] of Object.entries(c.perFile ?? {})) {
+    for (const [file, n] of files) {
       const previous = fileFloors[file];
-      map[file] = previous === undefined ? n : Math.min(previous, n);
+      if (previous !== undefined) {
+        map[file] = Math.min(previous, n);
+        continue;
+      }
+      const granted = Math.min(n, Math.max(0, slack));
+      if (granted > 0) map[file] = granted;
+      slack -= granted;
     }
     // Los archivos que ya no aportan salen del desglose: si vuelven, el lane
-    // los ve como nuevos y el total los acusa.
-    if (Object.keys(map).length > 0) next.perFile[c.id] = map;
+    // los ve como nuevos y el total los acusa. With a breakdown the lane keeps
+    // no total, so two PRs that lower different files touch different lines.
+    if (Object.keys(map).length > 0) {
+      next.perFile[c.id] = map;
+      delete next.lanes[c.id];
+    } else {
+      next.lanes[c.id] = old === undefined ? c.value : Math.min(old, c.value);
+    }
   }
   // Un lane que desapareció no se conserva: su entrada dejaría de measure algo.
   // Nor does a closed one: its ceiling is its target (MNE-001-405).
@@ -298,8 +353,8 @@ export function seed(lanes: Lane[], date: string): Baseline {
   };
   for (const c of lanes) {
     if (c.closed) continue;
-    b.lanes[c.id] = c.value;
     if (c.perFile && Object.keys(c.perFile).length > 0) b.perFile[c.id] = { ...c.perFile };
+    else b.lanes[c.id] = c.value;
   }
   return b;
 }
@@ -320,10 +375,14 @@ export type PublishedLane = Pick<Lane, 'id' | 'title' | 'target' | 'informationa
  * number printed for it would be either a live count or a stale one. A ratcheted
  * lane nobody has seeded shows none either, and `compare` names it.
  */
-export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes'> | null): string {
+export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes' | 'perFile'> | null): string {
   const NO_FIGURE = '—';
+  // A lane counted per file prints no figure: its ceiling is a sum that every
+  // tighten moves, and a moving figure here is a conflict in every open PR (MNE-001-818).
+  const perFile = (c: PublishedLane): boolean =>
+    !c.informational && !c.closed && Object.keys(base?.perFile?.[c.id] ?? {}).length > 0;
   const row = (c: PublishedLane): string => {
-    const ceiling = c.informational ? undefined : c.closed ? c.target : base?.lanes[c.id];
+    const ceiling = c.informational ? undefined : c.closed ? c.target : perFile(c) ? 'per file' : base?.lanes[c.id];
     const mark = c.informational ? ' *(informational)*' : c.closed ? ' *(closed)*' : '';
     return `| \`${c.id}\` | ${c.title}${mark} | ${ceiling ?? NO_FIGURE} | ${c.target} |`;
   };
@@ -343,6 +402,12 @@ export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes'> | nu
     "This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline",
     'in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its',
     'trace is the diff. The live figures are read with `npm run language:status`.',
+    ...(required.some(perFile)
+      ? [
+          'A lane marked *per file* has one ceiling per file there and no total: its ceiling is the sum of its',
+          "files' floors, printed by `npm run language:status`, so a PR that lowers one file rewrites only its line.",
+        ]
+      : []),
     ...(required.some((c) => c.closed)
       ? ['A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refuses anything above it.']
       : []),
@@ -391,11 +456,11 @@ export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): st
 
   // RESELLAR LA GEMELA, o el metro rompe su propio carril en cada corrida.
   //
-  // The block lives INSIDE the governing page, so a block that changes — now
-  // only when the baseline or the lane list does (#734) — changes the hash of
-  // `language.md`, and `docs-spanish-twins-stale` (lanes/docs.ts) counts the
-  // twins whose `source_sha` no longer matches. Without this step `--write`
-  // left that lane at 1 and `--check` red.
+  // The block lives INSIDE the governing page. Since MNE-001-818 the twin's
+  // stamp is `sourceSha` (lanes/docs.ts), the hash of the page WITHOUT its
+  // block, so regenerating the block no longer moves it and this step no
+  // longer rewrites the twin on every tightened PR — which is what put that
+  // line in conflict. It still seals the twin after a change to the prose.
   //
   // Se resella con el hash del fuente YA ESCRITO, no del que se leyó al
   // empezar: si se sellara antes, el sello certificaría una versión que ya no
@@ -419,7 +484,7 @@ function restampTwin(targets: string[]): void {
   const source = targets.find((t) => /language\.md$/.test(t));
   const twin = targets.find((t) => /language\.es\.md$/.test(t));
   if (source === undefined || twin === undefined || !fs.existsSync(twin)) return;
-  const sha = execFileSync('git', ['hash-object', source], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const sha = sourceSha(source);
   const text = fs.readFileSync(twin, 'utf8');
   const stamped = text.replace(/(source_sha[*_`\s]*[:=][\s*_`"']*)([0-9a-f]{7,40})\b/i, `$1${sha}`);
   if (stamped !== text) fs.writeFileSync(twin, stamped);
@@ -502,7 +567,7 @@ function main(argv: string[]): number {
 
   if (has('--json')) {
     process.stdout.write(
-      `${JSON.stringify({ lanes, base: base?.lanes ?? null, findings: base ? compare(lanes, base) : [] }, null, 2)}\n`
+      `${JSON.stringify({ lanes, base: base ? ceilings(lanes, base) : null, findings: base ? compare(lanes, base) : [] }, null, 2)}\n`
     );
     return 0;
   }
@@ -528,12 +593,13 @@ function main(argv: string[]): number {
   }
 
   if (has('--tighten')) {
-    const before = JSON.stringify(base.lanes);
+    const before = ceilings(lanes, base);
     const next = tighten(lanes, base);
     fs.writeFileSync(BASELINE, `${JSON.stringify(next, null, 2)}\n`);
-    const lowered = Object.keys(next.lanes).filter((k) => next.lanes[k] < (base.lanes[k] ?? Infinity));
+    const after = ceilings(lanes, next);
+    const lowered = Object.keys(after).filter((k) => after[k] < (before[k] ?? Infinity));
     process.stdout.write(
-      before === JSON.stringify(next.lanes)
+      lowered.length === 0
         ? 'Ninguna línea base tenía holgura: nada que tighten.\n'
         : `Apretados ${lowered.length} lane(es): ${lowered.join(', ')}.\n`
     );
@@ -593,7 +659,7 @@ function main(argv: string[]): number {
   // Sin banderas: el tablero, para leerlo.
   const width = Math.max(...lanes.map((c) => c.id.length));
   for (const c of lanes) {
-    const floor = base.lanes[c.id];
+    const floor = ceiling(c.id, base);
     const mark = c.informational ? ' (informativo)' : c.closed ? ' (closed)' : floor !== undefined && c.value < floor ? ` (base ${floor})` : '';
     process.stdout.write(`  ${c.id.padEnd(width)}  ${String(c.value).padStart(6)} → ${c.target}${mark}\n`);
   }

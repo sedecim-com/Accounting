@@ -285,6 +285,9 @@ provides:
     # BCE sealed with the entity e.firma: cadena original by the SAT's vendored XSLT,
     # SHA-256 with RSA in Sello, noCertificado and Certificado, valid against the vendored
     # XSD (#442). Nothing is transmitted: a person uploads it in the SAT portal.
+    # CONTRACT: `e-accounting catalog generate` and `balance generate` report a file as
+    # deliverable, and archive it, only when the vendored SAT XSD accepts its bytes; a
+    # rejection or a missing xmllint is said and nothing is archived (#608, MNE-001-666).
     # CONTRACT: `diot export --layout sat` writes the DIOT batch .txt the SAT portal
     # uploads: 54 pipe-separated fields per third party, whole pesos, UTF-8, CRLF between
     # records, per the SAT instructivo of January 2025 cited in

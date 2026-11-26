@@ -259,7 +259,7 @@ describe('2 · una declaración fuera de sitio declara y no protege', () => {
     const app = express();
     app.use('/v1/ataque', routerDeMuestra());
     expect(() => auditarRiesgoDeRutas(app)).toThrow(/POST \/v1\/ataque\/mal/);
-    expect(() => auditarRiesgoDeRutas(app)).toThrow(/primer manejador/i);
+    expect(() => auditarRiesgoDeRutas(app)).toThrow(/first handler/i);
   });
 
   it('dos declaraciones en una misma ruta tampoco pasan', () => {
