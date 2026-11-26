@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 268,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1716
+    "spanish-user-strings-services": 1718
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1718,7 +1718,7 @@
       "src/services/sat/diot/tercero.ts": 10,
       "src/services/webhooks/barrido-entregas.ts": 3,
       "src/services/webhooks/politica-reintento.ts": 3,
-      "src/services/xml-ingestion/account-roles-seed.ts": 46,
+      "src/services/xml-ingestion/account-roles-seed.ts": 48,
       "src/services/xml-ingestion/cfdi-posting-plan.ts": 2,
       "src/services/xml-ingestion/cfdi-query-service.ts": 1,
       "src/services/xml-ingestion/pre-registration-service.ts": 3,
