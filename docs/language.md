@@ -99,7 +99,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10441 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10440 | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
@@ -118,7 +118,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
-| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 313 | 0 |
+| `cli-user-strings-without-key` | English run-time strings printed from src/cli/ without a catalog key, per file | 274 | 0 |
 | `help-examples-without-key` | CLI help Examples blocks written in src/cli/ instead of drawn from a catalog key, per file | 252 | 0 |
 | `spanish-user-strings-services` | Spanish user-facing strings still written in src/services/, src/api/, src/ai/, src/auth/, src/database/, per file | 1751 | 0 |
 
