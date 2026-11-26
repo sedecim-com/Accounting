@@ -351,6 +351,40 @@ export const EN = {
   'error.VALIDATION_ERROR.bank_book_item.partial_release':
     'Released {released} of {count} book item(s). The missing ones were not sealed, or their seal was set by something other than a bank match group of this entity (the account certification uses the same column) and it is not lifted from here.',
 
+  // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The
+  // Spanish twin is the text each site printed. Policy keys and their values,
+  // kinds, option names, years and dates are parameters; commands and legal
+  // references are literals, never translated.
+  // the three closed readers of the panel: one sentence, three codes (the sentence of payroll_reader)
+  'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
+    'The policy {policy} is set to "{value}" and this reader only understands {known}. Correct it in mnemosine pending.',
+  // iva-workpaper.ts: the IVA workpaper's own guards
+  'error.VALIDATION_ERROR.iva_workpaper.prior_balance_amount':
+    'The balance in favor from prior periods is "{value}": it must be an amount of zero or more.',
+  'error.VALIDATION_ERROR.iva_workpaper.month': 'Month {month} does not exist: the definitive IVA is monthly.',
+  'error.VALIDATION_ERROR.iva_workpaper.entity_without_mexican_iva':
+    'The entity does not owe Mexican IVA: there is no definitive IVA to compute.',
+  // provisional-income-tax.ts: the ISR workpaper's own guards
+  'error.VALIDATION_ERROR.isr_workpaper.amount': '{field} is "{value}": it must be an amount of zero or more.',
+  'error.VALIDATION_ERROR.isr_workpaper.month': 'Month {month} does not exist: the provisional payment is monthly.',
+  'error.VALIDATION_ERROR.isr_workpaper.entity_without_mexican_books':
+    'The entity does not keep Mexican books: there is no provisional ISR to compute.',
+  // provisional-income-tax-inputs.ts: the annual figures the provisional ISR reads
+  'error.VALIDATION_ERROR.income_tax_input.payment_month': '{year}-{month} is not a provisional payment month.',
+  'error.VALIDATION_ERROR.income_tax_input.kind': '"{kind}" is not an input of the provisional ISR: {known}.',
+  'error.VALIDATION_ERROR.income_tax_input.year_not_integer': 'The fiscal year of the source return must be a whole number.',
+  'error.VALIDATION_ERROR.income_tax_input.value_format':
+    '"{value}" is not a non-negative figure with up to four decimals.',
+  'error.VALIDATION_ERROR.income_tax_input.source_missing':
+    'The source is missing: the annual return the figure was taken from.',
+  'error.VALIDATION_ERROR.income_tax_input.filed_inside_year':
+    'The return for {year} is filed after the fiscal year ends: "{filedOn}" cannot be its date.',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_required':
+    'Pending losses state the INPC month they are updated through (YYYY-MM, LISR art. 57).',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_only_for_losses':
+    'Only pending losses carry an update month.',
+
   // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion that were Spanish prose (issue #151) ----
   // `error.<CODE>[.<case>]`, codes unchanged. The Spanish twin is the text each
   // site printed. Role ids, commands, flags and the `--direction` values are
