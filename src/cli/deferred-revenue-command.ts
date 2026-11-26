@@ -44,7 +44,7 @@ import {
 // the contract liability (its role's account, 2158), as `prepaid
 // create` adopts a debit on 1160; it never posts it. `run` recognizes a
 // period: DR liability / CR revenue, no IVA (caused at collection, LIVA art.
-// 1o.-B).
+// 1o.-B). `closing run` runs the same engine in its own step.
 // ============================================================
 
 // Copyable invocations, by key: each one parses against this command tree.

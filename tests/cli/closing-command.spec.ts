@@ -682,6 +682,7 @@ describe('A6 · el orden de los pasos es contrato', () => {
     expect([...CLOSING_STEPS]).toEqual([
       'accrue-benefits',
       'amortize-prepaids',
+      'recognize-deferred-revenue',
       'depreciate-assets',
       'revalue-fx',
       'verify-checklist',

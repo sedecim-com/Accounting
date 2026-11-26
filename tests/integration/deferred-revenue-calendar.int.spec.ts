@@ -7,6 +7,8 @@ import { createJournalEntry, reverseJournalEntry } from '../../src/services/acco
 import { JournalEntryType } from '../../src/types/index.js';
 import { anticiposActivos, registrarPagoAnticipado } from '../../src/services/accruals/prepaid-service.js';
 import { runMonthlyAmortization, runMonthlyDeferredRevenue } from '../../src/services/accruals/amortization-run.js';
+import { getPeriodCloseStatus } from '../../src/services/accounting/period-close.js';
+import { buildProvisionalIncomeTaxWorkpaper } from '../../src/services/fiscal/provisional-income-tax.js';
 
 // ============================================================
 // MNE-001-299 (#111) · REVENUE COLLECTED IN ADVANCE, RECOGNIZED BY CALENDAR
@@ -21,6 +23,10 @@ import { runMonthlyAmortization, runMonthlyDeferredRevenue } from '../../src/ser
 //   31-day months      3 720 000 / 365 = 10 191.7808 (May, Jul, Aug, Oct, Dec)
 //   2026: 3 945.2055 + 4 × 9 863.0137 + 5 × 10 191.7808 = 94 356.1643
 //   liability at 31 Dec 2026: 120 000 − 94 356.1643 = 25 643.8357
+// Provisional ISR (LISR art. 17 fr. I), year to date:
+//   March     3 945.2055 + (120 000 − 3 945.2055) = 120 000.0000
+//   December  94 356.1643 + (130 000 − 94 356.1643) = 130 000.0000, with a
+//             second credit of 10 000 on the liability in December
 // ============================================================
 
 let f: Fixture;
@@ -62,6 +68,11 @@ async function recognitionOf(periodId: string) {
     [scheduleId, periodId]
   );
 }
+
+const box = async (month: number) =>
+  (await getPeriodCloseStatus(f.periodos[month], f.entityId)).checklist.find(
+    (i) => i.codigo === 'deferred-revenue-recognized'
+  )!;
 
 beforeAll(async () => {
   f = await crearInquilino('MNE-001-299 ingreso diferido');
@@ -124,6 +135,12 @@ describe('deferred-revenue create adopts a credit on the contract liability', ()
 });
 
 describe('the run recognizes the month, once', () => {
+  it('the close box of March is red before the run', async () => {
+    const b = await box(3);
+    expect(b).toMatchObject({ is_complete: false, severity: 'warning' });
+    expect(b.details).toMatch(/1 deferred-revenue schedule\(s\) not recognized/);
+  });
+
   it('March posts DR 2158 / CR revenue for 3 945.2055, with no IVA line', async () => {
     enterTenant(f.tenantId);
     const r = await runMonthlyDeferredRevenue(f.entityId, f.periodos[3], f.userId);
@@ -143,7 +160,16 @@ describe('the run recognizes the month, once', () => {
     expect((await recognitionOf(f.periodos[4])).rows).toHaveLength(0);
   });
 
-  it('April to December leave 25 643.8357 on the liability', async () => {
+  it('the provisional ISR of March accumulates the whole contract (LISR art. 17 fr. I)', async () => {
+    const wp = await buildProvisionalIncomeTaxWorkpaper({
+      tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 3, ptuPaidInYear: '0', priorProvisionalPayments: '0',
+    });
+    expect(wp.figures.nominalIncome).toBe('120000.0000');
+    expect(wp.deferredRevenue).toEqual([{ code: '2158', amount: '116054.7945' }]);
+    expect(wp.findings.map((h) => h.codigo)).toContain('ISR-WP-DEFERRED-REVENUE');
+  });
+
+  it('April to December leave 25 643.8357 on the liability and the box green', async () => {
     enterTenant(f.tenantId);
     for (let m = 4; m <= 12; m++) {
       const r = await runMonthlyDeferredRevenue(f.entityId, f.periodos[m], f.userId);
@@ -154,6 +180,7 @@ describe('the run recognizes the month, once', () => {
     expect(await creditBalance(f.entityId, f.roles.ingreso_cobrado_por_anticipado)).toBe('25643.8357');
     expect((await recognitionOf(f.periodos[4])).rows[0].amount).toBe('9863.0137');
     expect((await recognitionOf(f.periodos[5])).rows[0].amount).toBe('10191.7808');
+    expect(await box(12)).toMatchObject({ is_complete: true });
   });
 
   it('a reversed month is recognized again', async () => {
@@ -163,5 +190,21 @@ describe('the run recognizes the month, once', () => {
     const r = await runMonthlyDeferredRevenue(f.entityId, f.periodos[4], f.userId);
     expect(r).toMatchObject({ processed: 1, total: '9863.0137' });
     expect(await creditBalance(f.entityId, f.roles.ingreso_cobrado_por_anticipado)).toBe('25643.8357');
+  });
+});
+
+describe('the close sees the balance against the calendar', () => {
+  it('an unscheduled credit on the liability turns the box red with both figures', async () => {
+    await post(f, '2026-12-15', [[f.roles.banco, '10000.00', null], [f.roles.ingreso_cobrado_por_anticipado, null, '10000.00']]);
+    const b = await box(12);
+    expect(b).toMatchObject({ is_complete: false, severity: 'warning' });
+    expect(b.details).toContain('35643.8357 in the ledger, 25643.8357 scheduled (10000.0000 apart)');
+  });
+
+  it('the provisional ISR of December still accumulates every peso once', async () => {
+    const wp = await buildProvisionalIncomeTaxWorkpaper({
+      tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 12, ptuPaidInYear: '0', priorProvisionalPayments: '0',
+    });
+    expect(wp.figures.nominalIncome).toBe('130000.0000');
   });
 });

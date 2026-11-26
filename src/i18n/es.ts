@@ -971,7 +971,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.prepaid_amortization_missing_at_close.question':
     'Cerrar un mes con calendarios de pagos anticipados cuya amortización nunca se corrió: ¿avisar o rechazar?',
   'policy.prepaid_amortization_missing_at_close.impact':
-    'Un calendario sin correr quiere decir que falta el gasto de ese mes y que el activo está sobreestimado por el mismo importe. Es exactamente la forma del defecto que este sistema ya corrigió para la depreciación.',
+    'Un calendario sin correr quiere decir que falta el gasto de ese mes y que el activo está sobreestimado por el mismo importe. Es exactamente la forma del defecto que este sistema ya corrigió para la depreciación. La misma respuesta rige los calendarios de ingreso diferido, cuyo mes sin correr deja el ingreso en el pasivo.',
   'policy.prepaid_amortization_missing_at_close.rationale':
     'Es la misma respuesta que el despacho ya tiene para la depreciación, y aquí la coherencia entre dos situaciones idénticas importa más que la elección misma: una lista de verificación en la que un devengo bloquea y el otro avisa no le enseña nada a nadie.',
   'policy.prepaid_amortization_missing_at_close.why':
@@ -8012,7 +8012,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'deferred_revenue.create.dry_run_done':
     'Ensayo: {count} mes(es) de {amount}, cortados {convention}. El alta real comprueba antes que el pasivo de contrato tenga un abono sin calendario que lo respalde.',
   'deferred_revenue.create.done':
-    'Calendario registrado: {count} mes(es), que reconoce deferred-revenue run.',
+    'Calendario registrado: {count} mes(es), que reconoce deferred-revenue run o closing run.',
   'deferred_revenue.run.key_unneeded':
     'No hace falta: el motor postea un renglón por calendario y periodo, así que repetir el mismo mes no postea nada.',
   'deferred_revenue.run.nothing': 'Ningún calendario de ingreso diferido debe {period}.',

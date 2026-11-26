@@ -1179,7 +1179,7 @@ export const EN = {
   'policy.prepaid_amortization_missing_at_close.question':
     'Closing a month with prepayment schedules whose amortisation was never run: warn, or refuse?',
   'policy.prepaid_amortization_missing_at_close.impact':
-    'An unrun schedule means the expense of that month is missing and the asset is overstated by the same amount. It is the exact shape of the defect this system already fixed for depreciation.',
+    'An unrun schedule means the expense of that month is missing and the asset is overstated by the same amount. It is the exact shape of the defect this system already fixed for depreciation. The same answer governs deferred-revenue schedules, whose unrun month leaves revenue in the liability.',
   'policy.prepaid_amortization_missing_at_close.rationale':
     'It is the same answer the firm already gets for depreciation, and consistency between two identical situations matters more here than the choice itself: a checklist where one accrual blocks and the other warns teaches nobody anything.',
   'policy.prepaid_amortization_missing_at_close.why':
@@ -8854,7 +8854,7 @@ export const EN = {
   'deferred_revenue.create.dry_run_done':
     'Dry run: {count} month(s) of {amount}, cut {convention}. The real run first checks that the contract liability holds an unscheduled credit for it.',
   'deferred_revenue.create.done':
-    'Schedule registered: {count} month(s), recognized by deferred-revenue run.',
+    'Schedule registered: {count} month(s), recognized by deferred-revenue run or by closing run.',
   'deferred_revenue.run.key_unneeded':
     'Not needed: the engine posts one row per schedule and period, so a retry of the same month posts nothing.',
   'deferred_revenue.run.nothing': 'No deferred-revenue schedule owes {period}.',

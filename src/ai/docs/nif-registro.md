@@ -21,6 +21,17 @@ cumplir). Consecuencias de registro:
 - **Devolución/descuento sobre venta (CFDI E):** Cargo Devoluciones y rebajas
   sobre ventas (cuenta de resultados deudora) · Cargo IVA trasladado · Abono
   Clientes. No se borra la venta original (NIF B-1: nada se edita).
+- **Servicio cobrado o facturado por adelantado que se presta durante meses
+  (suscripción, soporte, mantenimiento):** Abono **2158 Ingresos Cobrados por
+  Anticipado** (rol `ingreso_cobrado_por_anticipado`, pasivo de contrato) por
+  el subtotal; el IVA va a 2120 al cobro, como siempre. `deferred-revenue
+  create` adopta ese abono y `deferred-revenue run` (o el paso
+  `recognize-deferred-revenue` de `closing run`) reconoce cada mes: Cargo 2158 ·
+  Abono Ingresos, sin IVA. El corte del primer mes lo fija la política
+  `deferred_revenue_recognition_convention` (por días, por omisión). Para el
+  ISR el ingreso se acumula completo al primero de CFDI, prestación o cobro
+  (LISR art. 17 fr. I): el papel del pago provisional suma el abono neto del año
+  a la 2158, así que no lo restes a mano.
 - **Ingreso por avance de obra (D-2):** requiere medir el grado de avance —
   registro solo con confirmación del usuario.
 - **ONIF 7** (30-ago-2024, en el libro NIF 2026): orientación NO obligatoria

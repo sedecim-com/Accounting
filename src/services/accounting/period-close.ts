@@ -11,7 +11,12 @@ import { apReconcile } from '../ap/ap-controls.js';
 import { censusGapPolicy, gapsOf, reconcileCensus, severityOfCensusGap, type CensusReconciliation, type Direction } from '../sat-census/reconcile.js';
 import { entityScope } from '../../database/scope.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
-import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
+import {
+  deferredRevenueBacking,
+  revisionDeAmortizacionAlCierre,
+  type DeferredRevenueBacking,
+  type RevisionDeCierre,
+} from '../accruals/prepaid-service.js';
 import { LIVE_ROW } from '../assets/depreciation.js';
 import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
@@ -59,6 +64,7 @@ export const CLOSE_CHECK_CODES = [
   'fees-without-withholding',
   'depreciation-posted',
   'prepaid-amortized',
+  'deferred-revenue-recognized',
   'trial-balance',
   'ledger-integrity',
   'rep-parked',
@@ -87,6 +93,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'fees-without-withholding': 'Professional fees received carry their ISR withholding',
   'depreciation-posted': 'Depreciation calculated and posted',
   'prepaid-amortized': 'Prepaid expenses amortized for the period',
+  'deferred-revenue-recognized': 'Deferred revenue recognized and backed for the period',
   'trial-balance': 'Trial balance balanced',
   'ledger-integrity': 'Ledger passes its blocking checks',
   'rep-parked': 'Parked payment receipts (REP) resolved',
@@ -528,6 +535,41 @@ export function prepaidAmortizedCheck(review: RevisionDeCierre): PeriodCloseChec
     is_complete: pending === 0,
     severity: severityOfMissingAccrual(review.reaccion),
     details: pending > 0 ? `${pending} prepaid schedule(s) not amortized in ${review.periodo} (prepaid run)` : undefined,
+  };
+}
+
+/**
+ * MNE-001-299 (#111). The deferred-revenue box: the checklist sees the
+ * balance against the calendar. Red when a schedule owes the period (its
+ * weight is the missing-at-close policy, as in the prepaid box), or when a
+ * contract-liability account's credit at the period's end differs from what
+ * its schedules still have to recognize: above, revenue nobody will
+ * recognize; below, a schedule the ledger no longer backs. The second is a
+ * warning: the figures say which, and the accountant decides.
+ */
+export function deferredRevenueCheck(
+  review: RevisionDeCierre,
+  backing: readonly DeferredRevenueBacking[],
+  codeOf: (accountId: string) => string = (id) => id
+): PeriodCloseChecklistItem {
+  const pending = review.pendientes.length;
+  const apart = backing.filter((b) => !new Decimal(b.ledger).equals(b.scheduled));
+  const details = [
+    pending > 0 ? `${pending} deferred-revenue schedule(s) not recognized in ${review.periodo} (deferred-revenue run)` : null,
+    ...apart.map(
+      (b) =>
+        `${codeOf(b.accountId)}: ${new Decimal(b.ledger).toFixed(4)} in the ledger, ${new Decimal(b.scheduled).toFixed(4)} ` +
+        `scheduled (${new Decimal(b.ledger).minus(b.scheduled).toFixed(4)} apart)`
+    ),
+  ].filter((d): d is string => d !== null);
+  return {
+    codigo: 'deferred-revenue-recognized',
+    item: CLOSE_CHECK_ITEMS['deferred-revenue-recognized'],
+    is_complete: details.length === 0,
+    // Like the prepaid box, green still says with what weight it watches; a
+    // balance apart from its schedules, alone, only warns.
+    severity: pending === 0 && apart.length > 0 ? 'warning' : severityOfMissingAccrual(review.reaccion),
+    details: details.length > 0 ? details.join('; ') : undefined,
   };
 }
 
@@ -996,6 +1038,18 @@ export async function getPeriodCloseStatus(
   // period row already under FOR UPDATE inside a close.
   const prepaidCheck = prepaidAmortizedCheck(await revisionDeAmortizacionAlCierre(entityId, periodId));
   checklist.push(prepaidCheck);
+  // 4c. MNE-001-299 · DEFERRED REVENUE, RUN AND BACKED. Same review, kind
+  // deferred_revenue, plus the liability's balance against its schedules.
+  const deferredCheck = deferredRevenueCheck(
+    await revisionDeAmortizacionAlCierre(entityId, periodId, 'deferred_revenue'),
+    await deferredRevenueBacking(entityId, { id: periodId, end: finDelPeriodo })
+  );
+  checklist.push(deferredCheck);
+  if (!deferredCheck.is_complete) {
+    (deferredCheck.severity === 'blocking' ? blocking_issues : warnings).push(
+      `${deferredCheck.item}: ${deferredCheck.details}`
+    );
+  }
   if (!prepaidCheck.is_complete) {
     (prepaidCheck.severity === 'blocking' ? blocking_issues : warnings).push(
       `${prepaidCheck.item}: ${prepaidCheck.details}`

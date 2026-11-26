@@ -12,7 +12,11 @@ import {
   type ConvencionAmortizacion,
 } from './amortization-math.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
-import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
+import {
+  queryAccountBalance,
+  queryAccumulatedBalances,
+  queryEntryMovementsOnAccount,
+} from '../reporting/report-service.js';
 
 // ============================================================
 // EL ALTA DEL PAGO ANTICIPADO, Y EL HUECO QUE YA EXISTE (D1a)
@@ -867,6 +871,58 @@ export async function anticiposPorDevengar(
     [entityId, kind, fiscalPeriodId]
   );
   return r.rows;
+}
+
+export interface DeferredRevenueBacking {
+  accountId: string;
+  /** The liability's credit balance at the period's end, from report-service. */
+  ledger: string;
+  /** Σ of what its live schedules still have to recognize after that day. */
+  scheduled: string;
+}
+
+/**
+ * MNE-001-299 · the close sees the balance against the calendar. Per
+ * liability account (the role's and every schedule's), the ledger at the
+ * period's end against what the schedules recognized up to that day leaves.
+ * Two queries: the schedules' remainder, and one balance read over the set.
+ */
+export async function deferredRevenueBacking(
+  entityId: string,
+  period: { id: string; end: string }
+): Promise<DeferredRevenueBacking[]> {
+  const [balanceRole] = ROLES_OF_KIND.deferred_revenue;
+  const r = await query<{ account_id: string; scheduled: string }>(
+    `SELECT a.account_id, COALESCE(SUM(x.left_after), 0)::text AS scheduled
+       FROM (SELECT ar.account_id FROM account_roles ar
+              WHERE ar.entity_id = $1 AND ar.role = $3 AND ar.qualifier IS NULL
+             UNION
+             SELECT pe.prepaid_account_id FROM prepaid_expenses pe
+              WHERE pe.entity_id = $1 AND pe.kind = 'deferred_revenue' AND pe.status <> 'cancelled') a
+       LEFT JOIN LATERAL (
+         SELECT pe.total_amount - COALESCE((
+                  SELECT SUM(s.amortization_amount) FROM prepaid_amortization_schedules s
+                   WHERE s.prepaid_expense_id = pe.id AND s.entity_id = pe.entity_id
+                     AND s.amortization_date <= $2::date AND ${RENGLON_VIGENTE}), 0) AS left_after
+           FROM prepaid_expenses pe
+          WHERE pe.entity_id = $1 AND pe.kind = 'deferred_revenue' AND pe.status <> 'cancelled'
+            AND pe.prepaid_account_id = a.account_id
+       ) x ON true
+      GROUP BY a.account_id`,
+    [entityId, period.end, balanceRole]
+  );
+  if (r.rows.length === 0) return [];
+  const balances = await queryAccumulatedBalances(
+    entityId,
+    { date: period.end, inclusive: true, periodId: period.id },
+    { ignoreClosingPolicy: true, accountIds: r.rows.map((x) => x.account_id) }
+  );
+  const byAccount = new Map(balances.map((b) => [b.account_id, new Decimal(b.balance)]));
+  return r.rows.map((x) => ({
+    accountId: x.account_id,
+    ledger: new Decimal(0).minus(byAccount.get(x.account_id) ?? 0).toFixed(4),
+    scheduled: new Decimal(x.scheduled).toFixed(4),
+  }));
 }
 
 /**
