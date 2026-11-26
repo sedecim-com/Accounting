@@ -212,7 +212,7 @@ Examples:
           candidatos: opts.showCandidates ? SOSPECHOSOS_POR_OMISION : undefined,
         });
 
-        note(`Cash flow reconciliation · ${ctx.entityName} · ${ctx.currency} · ${scope}`);
+        note(t('report.cashflow_reconcile.heading', { entity: ctx.entityName, currency: ctx.currency, scope }));
         note(
           t('report.cashflow_reconcile.cash_accounts', {
             accounts: c.efectivo.cuentas.map((x) => x.code).join(', '),
@@ -281,10 +281,7 @@ async function rangoDe(
   if (opts.period) {
     const range = await resolvePeriodRange(ctx.entityId, opts.period);
     if (!range.matched_fiscal_period) {
-      note(
-        `"${opts.period}" matched no single fiscal period; using the calendar range ` +
-          `${range.start_date} → ${range.end_date}.`
-      );
+      note(t('report.period.calendar_fallback', { period: opts.period, start: range.start_date, end: range.end_date }));
     }
     return {
       startDate: range.start_date,
@@ -299,8 +296,5 @@ async function rangoDe(
       scope: `${opts.since} → ${opts.until}`,
     };
   }
-  throw usageError(
-    'cashflow reconcile needs a period: pass --period (2026-07, 2026-Q3, FY2026) or both ' +
-      '--since and --until. A statement of cash flows is a movement between two dates.'
-  );
+  throw usageError({ key: 'report.period.required', params: { command: 'cashflow reconcile' } });
 }
