@@ -569,17 +569,17 @@ describe('tax_parameters lleva su vigencia, y se lee por la fecha del hecho', ()
     await expect(
       getTaxParameters(ESTRECHO, ANIO, new Date(Date.UTC(ANIO, 6, 1))),
       'un día DESPUÉS del fin de vigencia recibió los parámetros'
-    ).rejects.toThrow(/No hay parámetros fiscales/);
+    ).rejects.toThrow(/No tax parameters of/);
 
     // Y pedir un ejercicio con la fecha de OTRO no es una búsqueda fuera de
     // rango: es una contradicción, y ninguna de las dos respuestas sería
     // correcta. Se rechaza por lo que es.
     await expect(
       getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO - 1, 11, 31)))
-    ).rejects.toThrow(/ejercicio 2031 con una fecha de otro año/);
+    ).rejects.toThrow(/tax year 2031 with a date of another year/);
     await expect(
       getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO + 1, 0, 1)))
-    ).rejects.toThrow(/ejercicio 2031 con una fecha de otro año/);
+    ).rejects.toThrow(/tax year 2031 with a date of another year/);
   });
 
   it('DOS VIGENCIAS EN EL MISMO AÑO YA CABEN: el hueco que J0.2 dejó abierto', async () => {

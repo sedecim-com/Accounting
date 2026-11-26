@@ -5,6 +5,7 @@ import { getPolicy } from '../../policy/policy-service.js';
 import { AccountingError } from '../../../utils/errors.js';
 import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
+import { payrollDataGap } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX · THE 2026 EMPLOYMENT SUBSIDY: A SHARE OF THE UMA, ROUNDED BY POLICY
@@ -64,11 +65,8 @@ export function subsidyDaysInPeriod(freq: PayFrequency): number | null {
     case 'quincenal': return 15;
     case 'monthly': return null;
     default:
-      throw new Error(
-        `No hay regla del subsidio al empleo para el periodo «${freq}»: el decreto prorratea por ` +
-          'días entre 30.4, y sólo la semana (7), la quincena (15) y el mes tienen tarifa del art. 96 ' +
-          'con la que acreditarlo. Configura la nómina como semanal, quincenal o mensual.'
-      );
+      const text = { key: 'error.EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED', params: { frequency: freq } } as const;
+      throw payrollDataGap('EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED', text);
   }
 }
 

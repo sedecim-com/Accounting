@@ -28,7 +28,7 @@ describe('un parámetro fiscal ausente se nombra, no se sustituye', () => {
     // Un error que no explica la consecuencia se silencia con un valor por
     // omisión la próxima vez que estorbe.
     expect(() => requiredParameter({}, 'infonavit_employer_rate', 'MX', 2027)).toThrow(
-      /recibo.*CFDI.*línea de captura/s
+      /payslip.*CFDI.*payment reference line/s
     );
   });
 
@@ -55,7 +55,7 @@ describe('un bloque de tasas incompleto dice QUÉ tasa falta', () => {
     // `params.imss_employee || {}` seguido de `|| 0` en cada ramo daba una
     // cuota de CERO con los días cotizados correctos.
     expect(() => requiredRates({}, 'imss_employee', RAMOS, 2027)).toThrow(/imss_employee/);
-    expect(() => requiredRates({}, 'imss_employee', RAMOS, 2027)).toThrow(/creíble y falso/);
+    expect(() => requiredRates({}, 'imss_employee', RAMOS, 2027)).toThrow(/credible and false/);
   });
 
   it('con el bloque completo devuelve los números', () => {
