@@ -17,6 +17,7 @@ import {
 } from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
+import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-roles.js';
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
 import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
 import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
@@ -35,7 +36,7 @@ import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 //   query*Rows()  — the SQL. One implementation, shared by REST, the
 //                   agent tools and the CLI — and by the services that
 //                   read a balance to guard money (the AR and AP
-//                   reconciliations, the prepaid backing, the
+//                   reconciliations, the prepaid backing, the IEPS on cash basis, the
 //                   external-ledger diff, the close's fixed-asset box,
 //                   the FX revaluation line, its foreign balances and
 //                   its marker's net, the IVA paper's withholding
@@ -2081,6 +2082,139 @@ export async function queryRevaluationNetByAccount(
   const r = client
     ? await client.query<RevaluationNetRow>(text, values)
     : await query<RevaluationNetRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// IEPS CASH-BASIS READS (MNE-001-618, #101)
+//
+// The four sums the IEPS on cash basis (ieps-cash-basis.ts, LIEPS art. 10)
+// reads back from the ledger, on the caller's transaction client: a collection,
+// an unapply or a cashing reads what the lines it is about to post depend on,
+// and a reading taken outside that transaction would not see the lines it has
+// just written, nor be held by its locks. None reads a policy, so nothing here
+// leaves the transaction. Each keeps inside the statement what decides WHICH
+// lines are summed (the role join, the tag under `IEPS_MOVE_TAG`, the posted
+// and unreversed entries): taking it out would cost a second query. The tag
+// and the roles come from the leaf ieps-roles.ts, which ieps-cash-basis.ts
+// re-exports, so the strings are the same and no import cycle is made.
+// ------------------------------------------------------------
+
+/**
+ * The IEPS the invoice's own posted, unreversed entry parked in the
+ * uncollected role (2181), credit − debit, in the functional currency
+ * (`iepsParkedByInvoice`, MNE-001-504). '0' when no line was parked; the
+ * caller never lets it below zero.
+ */
+export async function queryIepsParkedByInvoice(
+  entityId: string,
+  invoiceId: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS ieps_parked
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.source_type = 'invoice' AND je.source_id = $2
+        AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND ar.role = $3`;
+  const values = [entityId, invoiceId, IEPS_UNCOLLECTED_ROLE];
+  const r = client
+    ? await client.query<{ ieps_parked: string }>(text, values)
+    : await query<{ ieps_parked: string }>(text, values);
+  return r.rows[0]?.ieps_parked ?? '0';
+}
+
+/**
+ * The net IEPS moved out of the uncollected role for an invoice, debit −
+ * credit, by every receipt (`paymentId` null) or by one (`iepsMovedForInvoice`):
+ * the lines tagged with the invoice on posted entries that are neither
+ * reversed nor reversals, so a reversed event moved nothing. Signed as read.
+ */
+export async function queryIepsMovedForInvoice(
+  entityId: string,
+  invoiceId: string,
+  paymentId: string | null,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = $2
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'invoice_id' = $3
+        AND ($4::text IS NULL OR l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $4::text)`;
+  const values = [entityId, IEPS_UNCOLLECTED_ROLE, invoiceId, paymentId];
+  const r = client
+    ? await client.query<{ moved: string }>(text, values)
+    : await query<{ moved: string }>(text, values);
+  return r.rows[0]?.moved ?? '0';
+}
+
+/**
+ * The IEPS a receipt's cash on account carries, caused when it was collected
+ * (`iepsKeptOnAccount`, MNE-001-590): credit − debit over both IEPS roles on
+ * the receipt's tagged lines of posted entries that are neither reversed nor
+ * reversals. '0' when none; the caller never lets it below zero.
+ */
+export async function queryIepsKeptOnAccount(
+  entityId: string,
+  paymentId: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($2::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $3`;
+  const values = [entityId, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], paymentId];
+  const r = client
+    ? await client.query<{ kept: string }>(text, values)
+    : await query<{ kept: string }>(text, values);
+  return r.rows[0]?.kept ?? '0';
+}
+
+export interface IepsTakenRow {
+  allocation_id: string;
+  /** The invoice's share the row's application moved out of 2181, debit − credit. */
+  released: string;
+  /** Debit − credit over both IEPS roles: the IEPS it took from the cash on account. */
+  taken: string;
+}
+
+/**
+ * Per allocation row, what its application moved, read back from the lines
+ * tagged with its `allocation_id` (`iepsTakenByRows`, MNE-001-604): one
+ * statement for every row asked, on posted entries that are neither reversed
+ * nor reversals. A row written before the tag existed is absent.
+ */
+export async function queryIepsTakenByRows(
+  entityId: string,
+  allocationIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<IepsTakenRow[]> {
+  const text = `SELECT l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' AS allocation_id,
+            SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($3::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' = ANY($4::text[])
+      GROUP BY 1`;
+  const values = [entityId, IEPS_UNCOLLECTED_ROLE, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], [...allocationIds]];
+  const r = client ? await client.query<IepsTakenRow>(text, values) : await query<IepsTakenRow>(text, values);
   return r.rows;
 }
 
