@@ -7423,7 +7423,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.e_accounting.balance.generate.option.yes':
     'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
   'help.e_accounting.balance.check.description':
-    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, y cada cuenta en el catálogo',
+    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, cada cuenta en el catálogo, ' +
+    'y el XSD del SAT sobre el archivo que balance generate construiría',
   'help.e_accounting.balance.check.option.period': 'periodo a verificar: 2026-02, su nombre o el id del periodo fiscal',
   'help.e_accounting.balance.check.option.closing': 'verifica la balanza de cierre (mes 13) en lugar de la de un mes',
   'help.e_accounting.balance.check.option.check':
@@ -8327,6 +8328,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'Este archivo no se validó contra el XSD del SAT ({schema}) porque xmllint no corrió ({cause}), así que no ' +
     'es entregable. Instala libxml2-utils (apt, apk) o libxml2 (Homebrew), compruébalo con `mnemosine doctor` ' +
     'y vuelve a generar.',
+  // --- balance check · the xsd check (MNE-001-774, #608) -----------------
+  'anexo24.xsd.not_built':
+    'No se construyó ningún archivo que comprobar contra el XSD del SAT ({schema}), así que `balance generate` ' +
+    'también lo rechaza: {cause}',
+  // --- end of MNE-001-774 ---
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',

@@ -8660,8 +8660,9 @@ Commands:
   generate|generar [options]  Build and archive the period's trial balance XML
                               (SaldoIni, Debe, Haber, SaldoFin) with its hash
   check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
-                              Debe − Haber = SaldoFin honouring Natur, and every
-                              account in the catalog
+                              Debe − Haber = SaldoFin honouring Natur, every
+                              account in the catalog, and the SAT XSD over the
+                              file balance generate would build
   seal|sellar [options]       Seal the archived trial balance of a period with
                               the entity e.firma (only under
                               sellar_con_custodia); files nothing
@@ -8716,7 +8717,8 @@ Examples:
 Usage: mnemosine e-accounting balance check|verificar [options]
 
 Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring
-Natur, and every account in the catalog
+Natur, every account in the catalog, and the SAT XSD over the file balance
+generate would build
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

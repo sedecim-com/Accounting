@@ -1004,7 +1004,7 @@ describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
       '--type "X" does not exist: N is the normal balance and C the amended one. ' +
         'The year-end balance is not a type, it is --closing (filed as Mes 13).'
     );
-    const available = 'saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello';
+    const available = 'saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello, xsd';
     expect(usageOf(() => exigirChecksDeBalanza('no-existe')).message).toBe(
       `Unknown check: no-existe. The available ones are: ${available}.`
     );
@@ -1228,13 +1228,13 @@ describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
   it('balance check, clean: the matching catalog, the checks and the verdict, in both languages', async () => {
     const en = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
     expect(en.out).toContain('  matching catalog: artefacto_archivado (abc123def456)\n');
-    expect(en.out).toContain('  checks: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello\n');
-    expect(en.out).toContain('  ✔ no findings: the trial balance passes the 5 checks asked for.\n');
+    expect(en.out).toContain('  checks: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello, xsd\n');
+    expect(en.out).toContain('  ✔ no findings: the trial balance passes the 6 checks asked for.\n');
     setLanguage('es');
     const es = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
     expect(es.out).toContain('  catálogo de cotejo: artefacto_archivado (abc123def456)\n');
-    expect(es.out).toContain('  verificaciones: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello\n');
-    expect(es.out).toContain('  ✔ sin hallazgos: la balanza pasa las 5 verificaciones pedidas.\n');
+    expect(es.out).toContain('  verificaciones: saldos, redondeo, cuentas-en-catalogo, natur-coherente, sin-sello, xsd\n');
+    expect(es.out).toContain('  ✔ sin hallazgos: la balanza pasa las 6 verificaciones pedidas.\n');
   });
 
   it('balance check of one check and no catalog: the singular, and «none»', async () => {
@@ -1264,11 +1264,50 @@ describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
     expect(two.out).toContain('  2 blocking, 0 warnings. ');
   });
 
+  it('the xsd finding (MNE-001-774): Spanish on screen by key, English in the --json rows', async () => {
+    const english =
+      'The SAT XSD (BalanzaComprobacion_1_3.xsd) does not accept this file, so it is not deliverable: line 2: x';
+    mundo.verificacion = verificacion({
+      hallazgos: [
+        {
+          check: 'xsd',
+          severity: 'blocking',
+          referencia: '',
+          detalle: english,
+          messageKey: {
+            key: 'anexo24.xsd.rejected',
+            params: { schema: 'BalanzaComprobacion_1_3.xsd', errors: 'line 2: x', more: 0 },
+          },
+        },
+      ],
+      conteo: { blocking: 1, warning: 0 },
+    });
+    setLanguage('es');
+    const screen = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(screen.exitCode).toBe(ExitCode.VALIDATION);
+    expect(screen.out).toMatch(/✘ xsd\s+\[blocking\]\s+El XSD del SAT \(BalanzaComprobacion_1_3\.xsd\) no acepta este archivo/);
+    const json = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--json', ...E]);
+    const rows = (JSON.parse(json.out) as { rows: Array<Record<string, unknown>> }).rows;
+    expect(rows).toEqual([{ check: 'xsd', severity: 'blocking', referencia: '', detalle: english }]);
+  });
+
+  it('a balance with no file to build (MNE-001-774): the new key, in both catalogues', () => {
+    const params = { schema: 'BalanzaComprobacion_1_3.xsd', cause: 'sin FechaModBal' };
+    expect(t('anexo24.xsd.not_built', params, 'en')).toBe(
+      'No file was built to check against the SAT XSD (BalanzaComprobacion_1_3.xsd), so `balance generate` ' +
+        'refuses it as well: sin FechaModBal'
+    );
+    expect(t('anexo24.xsd.not_built', params, 'es')).toBe(
+      'No se construyó ningún archivo que comprobar contra el XSD del SAT (BalanzaComprobacion_1_3.xsd), así que ' +
+        '`balance generate` también lo rechaza: sin FechaModBal'
+    );
+  });
+
   it('balance check --json: the envelope line on stderr', async () => {
     const r = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--json', ...E]);
     expect(r.err).toContain(
       'AAA010101AAA · trial balance 02/2026 · Febrero 2026 · 3 accounts · ' +
-        'checks: saldos,redondeo,cuentas-en-catalogo,natur-coherente,sin-sello\n'
+        'checks: saldos,redondeo,cuentas-en-catalogo,natur-coherente,sin-sello,xsd\n'
     );
   });
 
