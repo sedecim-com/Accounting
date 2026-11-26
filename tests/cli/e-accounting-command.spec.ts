@@ -17,6 +17,7 @@ import {
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import { BALANZA_CHECK_NAMES } from '../../src/services/sat/anexo24/balanza-invariantes.js';
+import { OfficialXsdRefusal } from '../../src/services/sat/anexo24/official-xsd.js';
 import { ValidationError } from '../../src/utils/errors.js';
 import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import { changePolicyHint } from '../../src/services/policy/policy-hint.js';
@@ -775,6 +776,22 @@ describe('balance generate · la balanza y sus banderas', () => {
     expect(fs.existsSync(destino)).toBe(false);
   });
 
+  it('a balance that could not be validated against the XSD (#608) exits 4, writes nothing and says why', async () => {
+    mundo.balanzaLanza = new OfficialXsdRefusal('not_validated', {
+      schema: 'BalanzaComprobacion_1_3.xsd',
+      cause: 'spawnSync xmllint ENOENT',
+    });
+    const target = path.join(tmpRaiz, 'balance-not-validated.xml');
+    const r = await correr(['e-accounting', 'balance', 'generate', '--period', '2026-02', '-o', target, ...E]);
+    expect(r.exitCode).toBe(ExitCode.VALIDATION);
+    expect(fs.existsSync(target)).toBe(false);
+    expect((r.errs[0] as OfficialXsdRefusal).localized('es')).toBe(
+      'Este archivo no se validó contra el XSD del SAT (BalanzaComprobacion_1_3.xsd) porque xmllint no corrió ' +
+        '(spawnSync xmllint ENOENT), así que no es entregable. Instala libxml2-utils (apt, apk) o libxml2 ' +
+        '(Homebrew), compruébalo con `mnemosine doctor` y vuelve a generar.'
+    );
+  });
+
   it('un SaldoIni que todavía puede cambiar se grita, y viaja en el recibo', async () => {
     mundo.balanza = balanza({
       inicial: {
@@ -1105,6 +1122,39 @@ describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
     expect(r.err).toContain(
       '  No deliverable file was produced. Resolve the blocking findings above and generate again.\n'
     );
+  });
+
+  it('not deliverable by the official XSD (#608): Spanish on screen by key, English in the receipt', async () => {
+    const english =
+      'The SAT XSD (CatalogoCuentas_1_3.xsd) does not accept this file, so it is not deliverable: ' +
+      'line 3: x; and 2 more lines';
+    mundo.catalogo = catalogo({
+      puedeEntregarse: false,
+      artefacto: null,
+      hallazgos: [
+        {
+          regla: 'CAT-XSD-REJECTED',
+          severidad: 'bloquea',
+          procedencia: 'official_xsd',
+          mensaje: english,
+          messageKey: {
+            key: 'anexo24.xsd.rejected',
+            params: { schema: 'CatalogoCuentas_1_3.xsd', errors: 'line 3: x', more: 2 },
+          },
+        },
+      ],
+    });
+    setLanguage('es');
+    const screen = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', ...E]);
+    expect(screen.exitCode).toBe(ExitCode.VALIDATION);
+    expect(screen.err).toContain(
+      'El XSD del SAT (CatalogoCuentas_1_3.xsd) no acepta este archivo, así que no es entregable: ' +
+        'line 3: x; y 2 líneas más'
+    );
+    const json = await correr(['e-accounting', 'catalog', 'generate', '--period', '2026-02', '--json', ...E]);
+    const receipt = (JSON.parse(json.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(receipt['entregable']).toBe(false);
+    expect((receipt['hallazgos'] as Array<Record<string, unknown>>)[0]['detalle']).toBe(english);
   });
 
   it('bytes already archived: the generator is deterministic', async () => {

@@ -17,7 +17,8 @@
 #   env       a development .env when there is none; an existing one is never rewritten
 #   postgres  the server behind TEST_ADMIN_DATABASE_URL answers and lets us in
 #   database  the database of MIGRATION_DATABASE_URL exists, and so do the cluster
-#             roles of scripts/provision-roles.sql
+#             roles of scripts/provision-roles.sql; a database created here
+#             sorts text as CI's does
 #   migrate   npm run migrate, which skips what is already applied
 #
 # The Postgres major CI runs is READ from .github/workflows/ci.yml, never copied.
@@ -202,8 +203,38 @@ step_postgres() {
   if [ -n "$started" ]; then changed postgres "$started"; else ok postgres "Postgres $major answers at $(masked "$admin")"; fi
 }
 
+# CI's databases sort text as en_US.utf8, the locale of the postgres image
+# (MNE-001-753). A cluster born with another sorts otherwise, and an ORDER BY on
+# text then passes here and fails there. The rule, the measurements behind the
+# stand-in and the same two names are in tests/integration/helpers/ci-collation.ts;
+# tests/scripts/setup-script.spec.ts keeps the names equal.
+CI_COLLATION='en_US.utf8'
+CI_COLLATION_STAND_IN='en-US-u-ka-shifted-kv-symbol'
+
+# $1 = admin URL, $2 = database. Prints its libc collation, or icu:<locale>.
+collation_of() {
+  # NOTE: through to_jsonb because the columns differ by major (see the helper).
+  printf '%s\n' "SELECT CASE WHEN to_jsonb(d)->>'datlocprovider' = 'i'
+    THEN 'icu:' || coalesce(to_jsonb(d)->>'daticulocale', to_jsonb(d)->>'datlocale')
+    ELSE d.datcollate END FROM pg_database d WHERE d.datname = :'db';" | psql "$1" -qtA -v db="$2"
+}
+sorts_as_ci() { case "$1" in en_US.utf8|en_US.UTF-8) return 0 ;; esac; return 1; }
+
+# $1 = admin URL, $2 = database. CI's collation by name where the cluster's
+# default is another, then its ICU stand-in, then whatever the cluster has.
+create_database() {
+  local clause
+  if ! sorts_as_ci "$(collation_of "$1" template1)"; then
+    for clause in "LOCALE_PROVIDER libc LOCALE '$CI_COLLATION'" "LOCALE_PROVIDER icu ICU_LOCALE '$CI_COLLATION_STAND_IN'"; do
+      printf 'CREATE DATABASE :"db" TEMPLATE template0 %s;\n' "$clause" \
+        | psql "$1" -q -v ON_ERROR_STOP=1 -v db="$2" 2>/dev/null && return 0
+    done
+  fi
+  printf 'CREATE DATABASE :"db";\n' | psql "$1" -q -v ON_ERROR_STOP=1 -v db="$2"
+}
+
 step_database() {
-  local admin target db roles did=()
+  local admin target db roles collation did=()
   admin=$(dotenv_value TEST_ADMIN_DATABASE_URL)
   target=$(dotenv_value MIGRATION_DATABASE_URL)
   [ -n "$target" ] || target=$(dotenv_value DATABASE_URL)
@@ -211,9 +242,14 @@ step_database() {
   [ -n "$db" ] || fail database "MIGRATION_DATABASE_URL (or DATABASE_URL) names no database"
 
   if [ "$(printf "SELECT 1 FROM pg_database WHERE datname = :'db';\n" | psql "$admin" -qtA -v db="$db")" != 1 ]; then
-    printf 'CREATE DATABASE :"db";\n' | psql "$admin" -q -v ON_ERROR_STOP=1 -v db="$db" \
-      || fail database "could not create database $db"
+    create_database "$admin" "$db" || fail database "could not create database $db"
     did+=("created $db")
+  fi
+  collation=$(collation_of "$admin" "$db")
+  if [ "$collation" = "icu:$CI_COLLATION_STAND_IN" ]; then
+    warn database "this Postgres has no $CI_COLLATION locale, so $db sorts with its ICU stand-in: CI's order, except between strings with the same letters and digits. The devcontainer has CI's own"
+  elif ! sorts_as_ci "$collation"; then
+    warn database "$db sorts text as $collation and CI as $CI_COLLATION, so a list ordered by text can come out in another order here. The integration suite creates its own database and is not affected. To match: the devcontainer, or drop $db and run this script again where Postgres has ICU or the en_US.UTF-8 locale"
   fi
 
   # NOTE: provisioned only while the cluster roles are missing. The script also

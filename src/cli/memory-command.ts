@@ -9,6 +9,7 @@ import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { argumentByKey, describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine memory
@@ -38,11 +39,11 @@ export function renderMemory(
   c: MemoryCliDeps['palette'],
   zone: string
 ): string[] {
-  const out: string[] = ['', c.bold('Firm memory'), ''];
+  const out: string[] = ['', c.bold(t('platform.memory.title')), ''];
 
   if (entries.length === 0) {
-    out.push('  No precedents yet.');
-    out.push(c.dim('  They are created by answering questions (mnemosine questions) or directly:'));
+    out.push(`  ${t('platform.memory.empty')}`);
+    out.push(c.dim(`  ${t('platform.memory.empty_hint')}`));
     out.push(c.dim('    mnemosine memory teach "rule" "criterion"'));
     out.push('');
     return out;
@@ -50,7 +51,7 @@ export function renderMemory(
 
   for (const e of entries) {
     const date = calendarDateIn(zone, new Date(e.answered_at));
-    const mark = e.is_precedent ? '' : c.dim(' [retired]');
+    const mark = e.is_precedent ? '' : c.dim(` ${t('platform.memory.retired_mark')}`);
     out.push(`  ${c.bold(e.answer)}${mark}`);
     out.push(c.dim(`    ← ${e.question}`));
     out.push(c.dim(`    ${date} · ${e.answered_by}${e.topic ? ` · ${e.topic}` : ''}`));
@@ -58,11 +59,7 @@ export function renderMemory(
     out.push('');
   }
 
-  out.push(
-    c.dim(
-      `  ${stats.active} active · ${stats.retired} retired · ${stats.taught} taught directly`
-    )
-  );
+  out.push(c.dim(`  ${t('platform.memory.stats', stats)}`));
   out.push('');
   return out;
 }
@@ -88,46 +85,32 @@ export function renderConflicts(
   c: MemoryCliDeps['palette'],
   zone: string
 ): string[] {
-  const out: string[] = ['', c.bold('Precedents in conflict'), ''];
+  const out: string[] = ['', c.bold(t('platform.memory.conflicts.title')), ''];
 
   if (conflicts.length === 0) {
-    out.push(
-      scanned === 0
-        ? '  No active precedents yet: nothing can contradict anything.'
-        : `  None: the ${scanned} active precedent(s) do not contradict each other.`
-    );
+    out.push(`  ${scanned === 0 ? t('platform.memory.conflicts.none_active') : t('platform.memory.conflicts.none', { scanned })}`);
     out.push('');
     return out;
   }
 
   for (const k of conflicts) {
-    const via = k.scope === 'topic' ? 'topic' : 'same question';
+    const via = t('platform.memory.conflicts.via', { scope: k.scope });
     out.push(`  ${c.bold(k.key)}  ${c.dim(`(${via} · ${k.entityName})`)}`);
     for (const e of k.entries) {
       const date = calendarDateIn(zone, new Date(e.answered_at));
       out.push(`    ${c.cyan(e.answer)}`);
       out.push(c.dim(`      ${date} · ${e.answered_by} · id: ${e.id}`));
-      out.push(
-        c.dim(`      → mnemosine memory retire ${e.id} --reason "lost to a conflicting precedent"`)
-      );
+      out.push(c.dim(`      ${t('platform.memory.conflicts.retire_hint', { id: e.id })}`));
     }
     out.push('');
   }
 
-  out.push(
-    c.dim(
-      `  ${conflicts.length} decision(s) with contradicting criteria, out of ${scanned} active precedent(s).`
-    )
-  );
-  out.push(
-    c.dim(
-      '  The AI reads all of them from the same memory: it will apply one and will not say which.'
-    )
-  );
+  out.push(c.dim(`  ${t('platform.memory.conflicts.summary', { decisions: conflicts.length, scanned })}`));
+  out.push(c.dim(`  ${t('platform.memory.conflicts.ai_applies_one')}`));
   // El sistema NO desempata. Se dice aquí, en la salida que lee el humano,
   // y no sólo en un comentario del código.
-  out.push(c.dim('  Nobody but you decides which one stands: retire the others, or correct this one'));
-  out.push(c.dim('  (mnemosine memory correct <id> "<the answer that holds>").'));
+  out.push(c.dim(`  ${t('platform.memory.conflicts.you_decide')}`));
+  out.push(c.dim(`  ${t('platform.memory.conflicts.correct_hint')}`));
   out.push('');
   return out;
 }
@@ -144,11 +127,8 @@ export function renderDigestCoverage(
 ): string[] {
   if (cov.hidden === 0) return [];
   return [
-    c.dim(
-      `  ⚠ ${cov.hidden} of ${cov.active} active precedent(s) fall outside the session digest ` +
-        `(it carries ${cov.visible}, max ${cov.maxEntries}): the AI only sees them if it searches.`
-    ),
-    c.dim('    Retire what no longer applies so what does fits: mnemosine memory retire <id> --reason "<why>"'),
+    c.dim(`  ⚠ ${t('platform.memory.digest.hidden', { hidden: cov.hidden, active: cov.active, visible: cov.visible, max: cov.maxEntries })}`),
+    c.dim(`    ${t('platform.memory.digest.retire_hint')}`),
     '',
   ];
 }
@@ -204,19 +184,14 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
           // `doctor`: un aviso al que hay que ir a buscar no avisa.
           for (const l of renderDigestCoverage(coverage, deps.palette)) console.log(l);
           if (conflicts.conflicts.length > 0) {
-            console.log(
-              deps.palette.dim(
-                `  ⚠ ${conflicts.conflicts.length} decision(s) have contradicting precedents; ` +
-                  'the AI applies one without saying which.'
-              )
-            );
+            console.log(deps.palette.dim(`  ⚠ ${t('platform.memory.conflicts.warning', { decisions: conflicts.conflicts.length })}`));
             console.log(deps.palette.dim('    mnemosine memory --conflicts'));
             console.log('');
           }
           if (stats.topics.length > 0 && !opts.search) {
-            console.log(deps.palette.dim('  Most frequent topics:'));
-            for (const t of stats.topics.slice(0, 5)) {
-              console.log(deps.palette.dim(`    ${t.count}× ${t.topic}`));
+            console.log(deps.palette.dim(`  ${t('platform.memory.topics')}`));
+            for (const topic of stats.topics.slice(0, 5)) {
+              console.log(deps.palette.dim(`    ${topic.count}× ${topic.topic}`));
             }
             console.log('');
           }
@@ -248,7 +223,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         const id = await teachMemory(ctx, {
           rule, criterion, topic: opts.topic, taughtBy: reviewer.email,
         });
-        console.log(`✔ Criterion saved. The AI will use it from now on.`);
+        console.log(`✔ ${t('platform.memory.taught')}`);
         console.log(deps.palette.dim(`  id: ${id}`));
         await deps.shutdown(0);
       } catch (err) {
@@ -266,7 +241,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
       try {
         const { ctx, reviewer } = await withEntity(this.optsWithGlobals());
         const updated = await correctMemory(ctx, id, answer, reviewer.email);
-        console.log(`✔ Precedent corrected: ${updated.answer}`);
+        console.log(`✔ ${t('platform.memory.corrected', { answer: updated.answer })}`);
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
@@ -286,7 +261,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         const opts: SubOpts & { reason?: string } = this.optsWithGlobals();
         const { ctx, reviewer } = await withEntity(opts);
         await retireMemory(ctx, id, reviewer.email, opts.reason);
-        console.log('✔ Precedent retired. The AI will no longer see it.');
+        console.log(`✔ ${t('platform.memory.retired')}`);
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
@@ -303,7 +278,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
         await restoreMemory(ctx, id);
-        console.log('✔ Precedent reactivated.');
+        console.log(`✔ ${t('platform.memory.restored')}`);
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
