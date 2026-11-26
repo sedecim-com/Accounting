@@ -395,6 +395,54 @@ export const EN = {
   'error.RESOURCE_ALREADY_EXISTS.bank_transaction.reclassify_race': 'Transaction {id} changed while it was being reclassified; try again.',
   // ---- end of MNE-001-824 ----
 
+  // ---- MNE-001-825 · I9 by folder, part 2c, part 1: the refusals of the reconciliation adjustments and of the arithmetic in src/services/banking (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes unchanged: VALIDATION_ERROR for a
+  // ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The Spanish
+  // twin is the text each site printed. The direction of an adjustment and the
+  // item of the arithmetic are selects, so each fragment goes with its
+  // sentence. Types, roles, field names and commands are parameters or
+  // literals, never translated. The draft's description and reasoning are book
+  // data and stay in the service (rule 3 of docs/language.md).
+  // reconciliation-adjustments.ts: the type, the amount and its sign
+  'error.VALIDATION_ERROR.bank_adjustment.type_unknown': 'Unknown adjustment type "{value}". The accepted ones are: {known}.',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_unreadable': 'Unreadable amount for the adjustment: "{value}".',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_not_finite': 'Non-finite amount for the adjustment: "{value}".',
+  'error.VALIDATION_ERROR.bank_adjustment.amount_zero':
+    'The amount of a reconciliation adjustment cannot be zero: a zero entry corrects no difference and the engine would not accept it.',
+  'error.VALIDATION_ERROR.bank_adjustment.sign_contradicts_type':
+    'Adjustment "{type}" {direction, select, in {puts money into} other {takes money out of}} the account, so its amount must be {direction, select, in {positive} other {negative}}; got {amount}. The sign is NOT flipped here: if the transaction really goes the other way, it is not a "{type}" (it is probably "error").',
+  'error.VALIDATION_ERROR.bank_adjustment.not_postable':
+    'Adjustment "{type}" carries {amount}, which does not fit in a two-decimal entry: it would post {rounded} and the reconciliation row would still say {amount}. It is not rounded on its own (the two figures would end up contradicting each other): enter the amount it is going to be posted with.',
+  // the counterparty account: a role still to be seeded, none to deduce, one not mapped
+  'error.VALIDATION_ERROR.bank_adjustment.role_missing.comision':
+    'Adjustment "{type}" has no account role to resolve: "{role}" still has to be seeded. The role `comision_bancaria` (6310) already exists and `treasury-posting` consumes it, but this adjustment path does not resolve it by itself yet: until ROL_DE_AJUSTE maps it, the account is given by hand. The neighbour NOT to use is `gasto` (6100), where the fee mixes with everything else and can no longer be counted. Give the account you want to propose it with.',
+  'error.VALIDATION_ERROR.bank_adjustment.role_missing.interes':
+    'Adjustment "{type}" has no account role to resolve: "{role}" still has to be seeded. The role `producto_financiero` (4310) already exists and `treasury-posting` consumes it, but this adjustment path does not resolve it by itself yet: until ROL_DE_AJUSTE maps it, the account is given by hand. The neighbour NOT to use is `otros_ingresos` (4200), deliberately reserved for the remainder of a short payment. Give the account you want to propose it with.',
+  'error.VALIDATION_ERROR.bank_adjustment.account_not_deducible':
+    'Adjustment "{type}" has no account that can be deduced (it depends on what was recorded wrongly). Give the account.',
+  'error.VALIDATION_ERROR.bank_adjustment.role_unmapped':
+    'Adjustment "{type}" relies on account role "{role}", which this entity has not mapped. Map it with `mnemosine account role set {role} <account>` or give the account here.',
+  // the session, the bank's GL account, the counterparty, the context and the row
+  'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.session_not_open':
+    'Session {session} is in status "{status}": it takes no new adjustments. Its figures are the summary frozen at close, and a later adjustment would contradict them.',
+  'error.VALIDATION_ERROR.bank_adjustment.bank_gl_foreign':
+    'Bank account "{account}" points to a GL account that does not belong to this entity. No entry is proposed against it.',
+  'error.VALIDATION_ERROR.bank_adjustment.counterparty_is_bank':
+    'The counterparty of the adjustment cannot be the bank account itself ({account}): the entry would debit and credit itself and move no balance.',
+  'error.VALIDATION_ERROR.bank_adjustment.context_other_entity':
+    'The context received is of entity {context} and the adjustment is of {entity}. They are not crossed: the draft would end up in the books of another.',
+  /** `{reason}` is the failed INSERT's own message, as PostgreSQL wrote it (in English): it is not translated. */
+  'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.row_not_recorded':
+    'Draft {draft} was created but the adjustment could not be recorded in session {session}: {reason}. Reject it in `mnemosine review` (option [r]eject) so it does not stay pending with no owner.',
+  // reconciliation-math.ts: what the arithmetic cannot add (`item` is `none` for a balance or the tolerance)
+  'error.VALIDATION_ERROR.bank_reconciliation_math.amount_unreadable':
+    'Unreadable amount in {item, select, none {} other {item {item}.}}{field}: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciliation_math.amount_not_finite':
+    'Non-finite amount in {item, select, none {} other {item {item}.}}{field}: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown':
+    'Unknown reconciling item type in item {item}: "{value}". The accepted ones are: {known}.',
+  // ---- end of MNE-001-825 ----
+
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The
   // Spanish twin is the text each site printed. Policy keys and their values,

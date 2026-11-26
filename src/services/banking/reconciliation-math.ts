@@ -207,15 +207,22 @@ export function monto(valor: Decimal): string {
  * Un `new Decimal('')` lanza y un `Number('')` da 0: la segunda forma es
  * exactamente cómo un campo vacío se convierte en un cuadre falso.
  */
-function dec(valor: string, campo: string): Decimal {
+function dec(valor: string, campo: string, item = 'none'): Decimal {
+  // `item` names the reconciling item whose amount it is, by id or position; `none` for a balance.
   let d: Decimal;
   try {
     d = new Decimal(valor);
   } catch {
-    throw new ValidationError(`Importe ilegible en ${campo}: "${valor}".`);
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_reconciliation_math.amount_unreadable',
+      params: { item, field: campo, value: valor },
+    });
   }
   if (!d.isFinite()) {
-    throw new ValidationError(`Importe no finito en ${campo}: "${valor}".`);
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_reconciliation_math.amount_not_finite',
+      params: { item, field: campo, value: valor },
+    });
   }
   return d;
 }
@@ -261,7 +268,7 @@ export function calcularAritmetica(entrada: EntradaAritmetica): Aritmetica {
   let resueltas = 0;
 
   for (const [i, p] of entrada.partidas.entries()) {
-    const donde = p.id ? `partida ${p.id}` : `partida #${i + 1}`;
+    const item = p.id ? p.id : `#${i + 1}`;
 
     // LA PARTIDA RESUELTA NO SUMA. Dejó de explicar una diferencia —el cheque
     // se cobró, el depósito llegó—, y seguir sumándola inventaría la
@@ -283,15 +290,15 @@ export function calcularAritmetica(entrada: EntradaAritmetica): Aritmetica {
       // Un tipo que el CHECK de la 053 no admite no puede venir de la base:
       // viene de un llamador que se lo inventó, y tratarlo como «sin
       // clasificar» lo escondería dentro de un conteo.
-      throw new ValidationError(
-        `Tipo de partida conciliatoria desconocido en ${donde}: "${String(p.tipo)}". ` +
-          `Los admitidos son: ${TIPOS_DE_PARTIDA.join(', ')}.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown',
+        params: { item, value: String(p.tipo), known: TIPOS_DE_PARTIDA.join(', ') },
+      });
     }
 
     if (!p.fechaEsperada) sinFechar++;
 
-    const importe = dec(p.importe, `${donde}.importe`);
+    const importe = dec(p.importe, 'importe', item);
     sumas.set(p.tipo, (sumas.get(p.tipo) ?? new Decimal(0)).plus(importe));
   }
 

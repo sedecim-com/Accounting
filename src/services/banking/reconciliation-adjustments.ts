@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
+import type { TranslationKey } from '../../i18n/index.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { createDraft, type DraftLine, type DraftPayload } from '../../ai/draft-service.js';
 import { resolveEntity, type AgentContext } from '../../ai/context.js';
@@ -97,24 +98,17 @@ export const ROL_DE_AJUSTE: Readonly<Record<TipoDeAjuste, AccountRole | null>> =
  * exigir cuenta explícita. Se nombran aquí, en una constante que se puede
  * imprimir, en vez de en un comentario que sólo lee quien abre el archivo.
  */
-export const ROLES_QUE_FALTAN: ReadonlyArray<{ tipo: TipoDeAjuste; rol: string; porque: string }> = Object.freeze([
+export const ROLES_QUE_FALTAN: ReadonlyArray<{ tipo: TipoDeAjuste; rol: string; refusal: TranslationKey }> = Object.freeze([
+  // The refusal says why the neighbouring role is not used, whole, in the catalogue (MNE-001-825).
   Object.freeze({
     tipo: 'comision' as const,
     rol: 'comision_bancaria',
-    porque:
-      'el rol `comision_bancaria` (6310) ya existe y `treasury-posting` lo consume, pero esta ' +
-      'ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta ' +
-      'se indica a mano. El vecino que hay que NO usar es `gasto` (6100), donde la comisión se ' +
-      'mezcla con todo lo demás y deja de poder contarse.',
+    refusal: 'error.VALIDATION_ERROR.bank_adjustment.role_missing.comision' as const,
   }),
   Object.freeze({
     tipo: 'interes' as const,
     rol: 'producto_financiero',
-    porque:
-      'el rol `producto_financiero` (4310) ya existe y `treasury-posting` lo consume, pero esta ' +
-      'ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta ' +
-      'se indica a mano. El vecino que hay que NO usar es `otros_ingresos` (4200), reservado a ' +
-      'propósito al remanente de un pago corto.',
+    refusal: 'error.VALIDATION_ERROR.bank_adjustment.role_missing.interes' as const,
   }),
 ]);
 
@@ -206,39 +200,35 @@ export interface DireccionDelAjuste {
  */
 export function direccionDeAjuste(tipo: TipoDeAjuste, importeFirmado: string): DireccionDelAjuste {
   if (!(TIPOS_DE_AJUSTE as readonly string[]).includes(tipo)) {
-    throw new ValidationError(
-      `Tipo de ajuste desconocido "${String(tipo)}". Los admitidos son: ${TIPOS_DE_AJUSTE.join(', ')}.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_adjustment.type_unknown',
+      params: { value: String(tipo), known: TIPOS_DE_AJUSTE.join(', ') },
+    });
   }
 
   let d: Decimal;
   try {
     d = new Decimal(importeFirmado);
   } catch {
-    throw new ValidationError(`Importe ilegible para el ajuste: "${importeFirmado}".`);
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_adjustment.amount_unreadable', params: { value: importeFirmado } });
   }
   if (!d.isFinite()) {
-    throw new ValidationError(`Importe no finito para el ajuste: "${importeFirmado}".`);
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_adjustment.amount_not_finite', params: { value: importeFirmado } });
   }
   // Un ajuste de cero no ajusta nada, y un borrador de cero no puede ni
   // postearse (`validateDraftPayload` exige importes positivos por línea).
   // Rechazarlo aquí da el mensaje que explica por qué, en vez del genérico.
   if (d.isZero()) {
-    throw new ValidationError(
-      `El importe de un ajuste de conciliación no puede ser cero: un asiento de cero no corrige ` +
-        `ninguna diferencia y el motor no lo admitiría.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_adjustment.amount_zero' });
   }
 
   const esperado = SIGNO_ESPERADO[tipo];
   const entra = d.isPositive();
   if (esperado !== null && (esperado === 'entra') !== entra) {
-    throw new ValidationError(
-      `El ajuste "${tipo}" ${esperado === 'entra' ? 'mete' : 'saca'} dinero de la cuenta, así que su ` +
-        `importe tiene que ser ${esperado === 'entra' ? 'positivo' : 'negativo'}; llegó ${monto(d)}. ` +
-        `El signo NO se voltea aquí: si de verdad el movimiento va al revés, no es un "${tipo}" ` +
-        `—probablemente sea "error"—.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_adjustment.sign_contradicts_type',
+      params: { type: tipo, direction: esperado === 'entra' ? 'in' : 'out', amount: monto(d) },
+    });
   }
 
   return { bancoDebita: entra, magnitud: monto(d.abs()) };
@@ -263,12 +253,10 @@ function exigirImportePosteable(magnitud: string, tipo: TipoDeAjuste): number {
   const d = new Decimal(magnitud);
   const redondeado = d.toDecimalPlaces(2);
   if (!redondeado.equals(d)) {
-    throw new ValidationError(
-      `El ajuste "${tipo}" trae ${d.toFixed(4)}, que no cabe en un asiento de dos decimales: ` +
-        `postearía ${redondeado.toFixed(2)} y la fila de la conciliación seguiría diciendo ` +
-        `${d.toFixed(4)}. No se redondea por su cuenta —las dos cifras acabarían contradiciéndose—: ` +
-        `captura el importe con el que se va a contabilizar.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_adjustment.not_postable',
+      params: { type: tipo, amount: d.toFixed(4), rounded: redondeado.toFixed(2) },
+    });
   }
   return redondeado.toNumber();
 }
@@ -330,10 +318,8 @@ async function cuentaDeLaContrapartida(
     const hueco = ROLES_QUE_FALTAN.find((r) => r.tipo === tipo);
     throw new ValidationError(
       hueco
-        ? `El ajuste "${tipo}" no tiene rol contable que resolver: falta sembrar "${hueco.rol}". ` +
-            `${hueco.porque} Indica la cuenta con la que quieres proponerlo.`
-        : `El ajuste "${tipo}" no tiene una cuenta que se pueda deducir —depende de qué se ` +
-            `registró mal—. Indica la cuenta.`
+        ? { key: hueco.refusal, params: { type: tipo, role: hueco.rol } }
+        : { key: 'error.VALIDATION_ERROR.bank_adjustment.account_not_deducible', params: { type: tipo } }
     );
   }
 
@@ -346,10 +332,7 @@ async function cuentaDeLaContrapartida(
     [entityId, rol]
   );
   if (r.rows.length === 0) {
-    throw new ValidationError(
-      `El ajuste "${tipo}" se apoya en el rol contable "${rol}", que esta entidad no tiene mapeado. ` +
-        `Apúntalo con \`mnemosine account role set ${rol} <cuenta>\` o indica la cuenta aquí.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_adjustment.role_unmapped', params: { type: tipo, role: rol } });
   }
   return r.rows[0].code;
 }
@@ -403,18 +386,18 @@ export async function crearAjuste(
   const sesion = ses.rows[0];
 
   if (sesion.status !== 'in_progress' || sesion.closed_at !== null) {
-    throw new ConflictError(
-      `La sesión ${sessionId} está en estado "${sesion.status}": no admite ajustes nuevos. ` +
-        `Sus cifras son el resumen congelado al cerrar, y un ajuste posterior las contradiría.`
-    );
+    throw new ConflictError({
+      key: 'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.session_not_open',
+      params: { session: sessionId, status: sesion.status },
+    });
   }
   if (sesion.cuenta_de_banco === null) {
     // `gl_account_id` es NOT NULL, así que llegar aquí significa que apunta a
     // una cuenta de OTRA entidad: no es un dato que falte, es uno que miente.
-    throw new ValidationError(
-      `La cuenta bancaria "${sesion.nombre_de_cuenta}" apunta a una cuenta de mayor que no ` +
-        `pertenece a esta entidad. No se propone ningún asiento contra ella.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_adjustment.bank_gl_foreign',
+      params: { account: sesion.nombre_de_cuenta },
+    });
   }
 
   // LA PARTIDA QUE EL AJUSTE EXPLICA, ACOTADA POR ENTIDAD Y POR SESIÓN DENTRO
@@ -452,12 +435,13 @@ export async function crearAjuste(
 
   const cuenta = await cuentaDeLaContrapartida(entityId, entrada.tipo, entrada.cuenta);
   if (cuenta === sesion.cuenta_de_banco) {
-    throw new ValidationError(
-      `La contrapartida del ajuste no puede ser la propia cuenta de banco (${cuenta}): el asiento ` +
-        `se cargaría y se abonaría a sí mismo y no movería ningún saldo.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_adjustment.counterparty_is_bank', params: { account: cuenta } });
   }
 
+  // Book data, Spanish on purpose: this text becomes the description of the
+  // posted entry, which the SAT journal XML carries as its concept (MNE-001-173),
+  // and the reasoning below is stored in `ai_drafts.ai_reasoning`. Rule 3 of
+  // docs/language.md: what is stored keeps its language until it has a key column.
   const descripcion =
     opts.descripcion ??
     `Conciliación bancaria ${sesion.end_date} · ${sesion.nombre_de_cuenta} · ${entrada.tipo}`;
@@ -465,10 +449,10 @@ export async function crearAjuste(
 
   const ctx = opts.ctx ?? (await resolveEntity(entityId));
   if (ctx.entityId !== entityId) {
-    throw new ValidationError(
-      `El contexto recibido es de la entidad ${ctx.entityId} y el ajuste es de ${entityId}. ` +
-        `No se cruza: el borrador acabaría en los libros de otro.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_adjustment.context_other_entity',
+      params: { context: ctx.entityId, entity: entityId },
+    });
   }
 
   const payload: DraftPayload = {
@@ -515,11 +499,11 @@ export async function crearAjuste(
       ]
     );
   } catch (err) {
-    throw new ConflictError(
-      `El borrador ${draft.id} se creó pero el ajuste no pudo registrarse en la sesión ` +
-        `${sessionId}: ${(err as Error).message}. Recházalo en \`mnemosine review\` (opción ` +
-        '[r]eject) para que no quede pendiente sin dueño.'
-    );
+    // `reason` is the failed INSERT's message as PostgreSQL wrote it, in English.
+    throw new ConflictError({
+      key: 'error.RESOURCE_ALREADY_EXISTS.bank_adjustment.row_not_recorded',
+      params: { draft: draft.id, session: sessionId, reason: (err as Error).message },
+    });
   }
 
   return {

@@ -2570,7 +2570,7 @@ describe('bank adjustment create · nace borrador y espera a una persona', () =>
       mundo()
     );
     expect(r.exitCode).toBe(4);
-    expect((r.errs[0] as Error).message).toMatch(/tiene que ser negativo/);
+    expect((r.errs[0] as Error).message).toMatch(/must be negative/);
     expect(r.sql.filter((s) => /INSERT INTO reconciliation_adjustments/.test(s.text))).toEqual([]);
   });
 
