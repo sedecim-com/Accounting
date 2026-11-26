@@ -185,6 +185,9 @@ export const ESTRATO_FISCAL_MX: ChartAccountSpec[] = [
     // devengado. Tres renglones de gasto que siempre se mueven juntos no
     // informan de nada y sí obligan a mantener tres mapeos.
     { code: '6116', name: 'Provisión de Prestaciones al Personal', type: 'expense', sub: 'operating_expense', fs: 'operating_expenses', balance: 'debit', parent: '6100' },
+    // MNE-001-298: the charge of the PTU (LFT art. 120), apart from 6116 because
+    // it is a share of the entity's taxable income, not a cost of each salary.
+    { code: '6117', name: 'Participación de los Trabajadores en las Utilidades', type: 'expense', sub: 'operating_expense', fs: 'operating_expenses', balance: 'debit', parent: '6100' },
     // LGSM 20: 5 % de las utilidades a la reserva legal hasta que alcance el
     // 20 % del capital social. Es capital, no pasivo, y es obligación de la
     // sociedad mexicana, no de toda entidad: por eso vive en el estrato.

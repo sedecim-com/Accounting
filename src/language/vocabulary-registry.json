@@ -1854,6 +1854,20 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "provision_ptu",
+      "en": "ptu_provision",
+      "why": "2205 in ROLE_MAP (account-roles-seed.ts), «Provisión de PTU» of the Mexican stratum of the chart (chart-seed.ts), in ROLES_FISCALES_MX. Born with MNE-001-298 (#111) under the name its approved plan gives it, the sibling of the four D-3 provision roles, so the five rename together. PTU is the proper name of the LFT's share (art. 117), as UMA is, and is not translated; the target keeps the `_provision` suffix the other four take."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
+      "es": "ptu_gasto",
+      "en": "ptu_expense",
+      "why": "6117 in ROLE_MAP (account-roles-seed.ts), «Participación de los Trabajadores en las Utilidades» of the Mexican stratum (chart-seed.ts), in ROLES_FISCALES_MX: the charge against which ptu.ts credits `provision_ptu` (MNE-001-298, #111). `gasto` → `expense` as in `sueldos_gasto` → `wages_expense`; PTU is a proper name and stays."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "sueldos_gasto",
       "en": "payroll_wages_expense",
       "why": "CAMBIA desde `wages_expense` por la regla 2, con el árbol verificado en los tres puntos: `payroll_account_mapping.bucket='wages_expense'` apunta a 6110 bajo MX_BUCKET_MAP (payroll-account-mapping-seed.ts:133) pero a 6150 bajo US_BUCKET_MAP (:220); `rolesPara(false)` conserva `sueldos_gasto`→6110 porque el rol no está ni en ROLES_FISCALES_MX ni en ROLES_NEUTROS (account-roles-seed.ts:319-362); y 6110 vive en CATALOGO_UNIVERSAL (chart-seed.ts:76), así que una entidad de Delaware SÍ recibe las dos filas, sembradas en la misma transacción por `ensureEntityAccounting` (entity-accounting.ts:124 y :130). Con el nombre compartido serían dos filas llamadas `wages_expense` señalando cuentas distintas, y nadie que lea el nombre lo sospecharía —el daño irreversible que la regla 2 nombra—. El discriminante `payroll` es el que ESTE registro ya usó para el caso idéntico: `isr_nomina_por_pagar`→`isr_payroll_payable`, descartando `isr_payable` precisamente porque un bucket de nómina había tomado el nombre llano y apuntaba a otra cuenta. La convergencia mexicana no se pierde: queda escrita aquí y en la cabecera del seed (:70-80). Si antes de I23 el árbol arregla `rolesPara(false)` para que una entidad no mexicana no reciba 6110, esta entrada puede volver a `wages_expense` con un solo cambio."

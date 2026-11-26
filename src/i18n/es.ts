@@ -6212,6 +6212,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'annual.figure.updated_through_after_target': '--updated-through {value} es posterior a {target}: las pérdidas de la declaración de {year} las aplican los pagos del ejercicio siguiente, que las actualizan a lo más a ese junio (LISR art. 57). No se escribió nada.',
   'annual.figure.dry_run': 'Simulación: la captura es válida; no se escribió nada.',
   'annual.figure.next': 'Sigue: `mnemosine filing workpaper generate --period <AAAA-MM> --form isr`.',
+  // ==== MNE-001-298 · ptu close (issue #111) ====
+  'help.ptu.description': 'La participación de los trabajadores en las utilidades (PTU, LFT art. 117-131)',
+  'help.ptu.close.description': 'Propone la PTU del ejercicio como póliza borrador en el periodo 13, desde las tres cifras del art. 9 LISR con su fuente',
+  'help.ptu.close.option.year': 'ejercicio cuya PTU se propone (AAAA)',
+  'help.ptu.close.option.accumulable_income': 'ingresos acumulables del ejercicio, con el ajuste anual por inflación (LISR art. 9)',
+  'help.ptu.close.option.authorized_deductions': 'deducciones autorizadas del ejercicio, ya sin la parte no deducible de los pagos exentos',
+  'help.ptu.close.option.non_deductible_exempt_pay': 'la parte no deducible de los pagos exentos (LISR art. 28 fr. XXX), que la base de la PTU resta',
+  'help.ptu.close.option.source': 'de dónde salen las tres cifras: el cálculo o la declaración anual que las contiene',
+  'help.ptu.close.footer':
+    'La base son los ingresos acumulables menos las deducciones autorizadas menos lo no deducible de los pagos exentos; no se restan la PTU pagada ni las pérdidas pendientes (LISR art. 9).\n' +
+    'El borrador registra la PTU menos lo que el ejercicio ya abonó a la provisión de PTU, y no postea nada: revísalo y corre `mnemosine entry post`.\n' +
+    '\nEjemplos:\n' +
+    '  Ver la PTU de 2026 sin escribir nada:\n' +
+    '    mnemosine ptu close --year 2026 --accumulable-income 5000000 --authorized-deductions 3800000 --non-deductible-exempt-pay 94000 --source "cálculo anual 2026" --dry-run',
+  'ptu.close.year_invalid': '--year "{value}" no es válido: usa los cuatro dígitos del ejercicio, de {min} a {max}. No se escribió nada.',
+  'ptu.close.figure_invalid': '{flag} "{value}" no es válido: usa cero o más, con hasta quince dígitos antes del punto y cuatro decimales. No se escribió nada.',
+  'ptu.close.source_required': 'Falta --source: di de dónde salen las tres cifras. No se escribió nada.',
+  'ptu.close.dry_run': 'Ensayo: ésta es la póliza que dejaría la PTU; no se escribió nada.',
+  'ptu.close.proposed': 'Póliza borrador {entry} en el periodo 13. No se posteó nada: revísala y después `mnemosine entry post {entry}`.',
+  'ptu.close.exists': 'La PTU de {year} con estas cifras ya es la póliza {entry} ({status}). No se escribió nada.',
+  'ptu.close.nothing_to_propose': 'El ejercicio ya provisionó exactamente esta PTU: no hay nada que proponer. No se escribió nada.',
+  'ptu.finding.regime_undeclared': 'La entidad no declara su régimen fiscal: la base de la PTU asume el régimen general (601, LISR art. 9).',
+  'ptu.finding.first_year': 'La entidad no tiene periodos antes de {year}: si es su primer año de funcionamiento, no reparte PTU por él (LFT art. 126 fr. I).',
+  'error.VALIDATION_ERROR.ptu.regime': 'La entidad tributa en el régimen {regime}: la base de la PTU del art. 9 LISR es la del régimen general (601). No se escribió nada.',
+  'error.VALIDATION_ERROR.ptu.no_adjustment_period': 'El ejercicio {year} no tiene abierto el periodo de ajustes de cierre (13) donde va el borrador. No se escribió nada.',
+  'error.VALIDATION_ERROR.ptu.roles_missing': 'No hay cuenta mapeada a {roles} en esta entidad, así que la PTU no tiene dónde registrarse. Agrégala con: npm run backfill:account-roles -- --aplicar, o mapéala con `mnemosine account role set`. No se escribió nada.',
+  'error.VALIDATION_ERROR.ptu.rate_unavailable': 'El porcentaje de la PTU ({key}) no está vigente al {date} ({gap}): se siembra con la fecha verificada de la resolución de la Comisión Nacional, nunca se supone. No se escribió nada.',
+  'error.VALIDATION_ERROR.ptu.other_figures_draft': 'La PTU de {year} ya es el borrador {entry}, con otras cifras. Anúlalo (`mnemosine entry void {entry}`) y vuelve a correr esto. No se escribió nada.',
+  'error.VALIDATION_ERROR.ptu.other_figures_posted': 'La PTU de {year} ya está posteada como {entry}, con otras cifras. Revérsala (`mnemosine entry reverse {entry}`) y vuelve a correr esto. No se escribió nada.',
   'income_tax_input.year_out_of_range': 'El ejercicio de la declaración fuente va de {min} a {max}: {year} queda fuera.',
   'income_tax_input.filed_on_not_a_day': '"{value}" no es un día real (AAAA-MM-DD): no puede ser la fecha de presentación de la declaración.',
   'income_tax_input.value_too_large': '"{value}" no cabe: una cifra tiene a lo más quince dígitos antes del punto.',

@@ -47,13 +47,13 @@ export type AccountRole =
   // separado. El cargo es UNO: en el estado de resultados los tres son la
   // misma línea de costo laboral devengado.
   //
-  // No hay rol para la PTU (2205) ni para la prima de antigüedad: la primera
-  // no se devenga por trabajador sino sobre la renta gravable de la entidad
-  // (LFT 120) y la segunda exige valuación actuarial (NIF D-3), así que
-  // ninguna de las dos tiene motor. Un rol sin motor es una cuenta que alguien
-  // acabará cableando a mano.
+  // The seniority premium has no role: it needs an actuarial valuation (NIF
+  // D-3) and has no engine, and a role with no engine is an account someone
+  // ends up wiring by hand. The PTU is not accrued per worker but on the
+  // entity's taxable income (LFT 120); its engine is ptu.ts (MNE-001-298).
   | 'provision_aguinaldo' | 'provision_vacaciones' | 'provision_prima_vacacional'
   | 'provision_prestaciones_gasto'
+  | 'provision_ptu' | 'ptu_gasto'
   // Exchange differences
   | 'utilidad_cambiaria' | 'perdida_cambiaria'
   // Tesorería (F05d): lo que cuesta mover el dinero y lo que el dinero produce.

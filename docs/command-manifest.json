@@ -5552,6 +5552,33 @@
       "output": {"formats":[],"file":false}
     },
     {
+      "path": "ptu close",
+      "aliases": ["cerrar"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [],
+      "options": [
+        {"name":"accumulableIncome","flags":"--accumulable-income <amount>","type":"string","required":false},
+        {"name":"authorizedDeductions","flags":"--authorized-deductions <amount>","type":"string","required":false},
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"fields","flags":"--fields [names]","type":"boolean|string","required":false},
+        {"name":"format","flags":"--format <table|json|ndjson|csv|tsv|md>","type":"string","required":false,"choices":["table","json","ndjson","csv","tsv","md"],"default":"table"},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"nonDeductibleExemptPay","flags":"--non-deductible-exempt-pay <amount>","type":"string","required":false},
+        {"name":"output","flags":"-o, --output <path>","type":"string","required":false},
+        {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
+        {"name":"source","flags":"--source <text>","type":"string","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"year","flags":"--year <yyyy>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
+    },
+    {
       "path": "question answer",
       "aliases": ["responder"],
       "risk": "escritura",

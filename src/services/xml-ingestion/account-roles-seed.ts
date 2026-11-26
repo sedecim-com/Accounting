@@ -344,6 +344,9 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   provision_vacaciones: '2203',
   provision_prima_vacacional: '2204',
   provision_prestaciones_gasto: '6116',
+  // The PTU of the year (MNE-001-298, ptu.ts): its liability and its charge.
+  provision_ptu: '2205',
+  ptu_gasto: '6117',
   // FX differences — cuentas PROPIAS (R4): en 4300/6300 la fluctuación se
   // fundía con otros ingresos y con los gastos financieros, y NIF B-15 exige
   // poder identificarla. El neteo que pide B-3 lo hace la presentación.
@@ -424,6 +427,9 @@ const ROLES_FISCALES_MX: readonly AccountRole[] = [
   'provision_vacaciones',
   'provision_prima_vacacional',
   'provision_prestaciones_gasto',
+  // The PTU of LFT art. 117-131 and its charge (MNE-001-298).
+  'provision_ptu',
+  'ptu_gasto',
 ];
 
 /** Where the two generic tax roles and the bank role land in a non-Mexican entity. */

@@ -167,6 +167,7 @@ import { registerDiotCommand } from './diot-command.js';
 import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
 import { registerFilingRecordCommand } from './filing-record-command.js';
 import { registerAnnualFigureCommand } from './annual-figure-command.js';
+import { registerPtuCommand } from './ptu-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
@@ -3728,6 +3729,9 @@ registerFilingRecordCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-457 (#622): the profit coefficient of a filed annual return, which
 // the ISR of the workpaper above cannot settle without.
 registerAnnualFigureCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-298 (#111): the PTU of the year, proposed at close as a draft from
+// the three figures of LISR art. 9 the accountant captures with their source.
+registerPtuCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).

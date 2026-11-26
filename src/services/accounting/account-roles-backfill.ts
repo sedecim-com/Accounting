@@ -170,6 +170,8 @@ export async function actoresPorInquilino(
 const LATE_ROLE_ORIGIN: Partial<Record<AccountRole, string>> = {
   efectivo: 'BAN-1 (#324)',
   ieps_trasladado_no_cobrado: 'MNE-001-505 (#699)',
+  provision_ptu: 'MNE-001-298 (#111)',
+  ptu_gasto: 'MNE-001-298 (#111)',
 };
 
 export interface MissingRole {
