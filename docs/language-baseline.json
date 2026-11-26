@@ -1439,7 +1439,7 @@
       "src/services/xml-ingestion/cfdi-parser.ts": 14,
       "src/services/xml-ingestion/cfdi-posting-plan.ts": 42,
       "src/services/xml-ingestion/cfdi-query-service.ts": 8,
-      "src/services/xml-ingestion/cfdi-taxonomy.ts": 27,
+      "src/services/xml-ingestion/cfdi-taxonomy.ts": 22,
       "src/services/xml-ingestion/issued-invoice-approval.ts": 5,
       "src/services/xml-ingestion/pre-registration-service.ts": 201,
       "src/services/xml-ingestion/processing-rules.ts": 1,

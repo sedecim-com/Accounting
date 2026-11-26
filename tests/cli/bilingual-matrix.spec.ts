@@ -192,6 +192,8 @@ const TOP_LEVEL: Record<string, string> = {
   filing: 'declaracion',
   // MNE-001-457: the annual return's family (catalog §5.21, registry :262).
   annual: 'anual',
+  // MNE-001-298: PTU is the abbreviation in both languages (registry R2), as isn.
+  ptu: '',
   // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
   isn: '',
   'tax-deposit': 'entero',
@@ -299,6 +301,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // MNE-001-457: `annual figure record`, nested the same way.
   annual: { figure: 'cifra' },
   'annual figure': { record: 'registrar' },
+  // MNE-001-298: `ptu close`, the PTU of the year proposed at close.
+  ptu: { close: 'cerrar' },
   // MNE-001-577: `filing record`, beside the workpaper group of MNE-001-060; MNE-001-629: `filing correct`.
   filing: { workpaper: 'papel-trabajo', record: 'registrar', correct: 'corregir' },
   // G1b: las dos hojas de fase 1 del catálogo.
@@ -409,7 +413,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'filing', 'web', 'tenant', 'user'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'ptu', 'filing', 'web', 'tenant', 'user'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(...family.split(' '));

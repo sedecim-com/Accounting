@@ -6956,6 +6956,35 @@ export const EN = {
   'annual.figure.updated_through_after_target': '--updated-through {value} is after {target}: the losses of the {year} return are applied by the next year\'s payments, which update them to that June at most (LISR art. 57). Nothing was written.',
   'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
   'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
+  // ==== MNE-001-298 · ptu close (issue #111) ====
+  'help.ptu.description': 'The workers\' share in profits (PTU, LFT art. 117-131)',
+  'help.ptu.close.description': 'Propose the PTU of the year as a draft entry in period 13, from the three figures of LISR art. 9 with their source',
+  'help.ptu.close.option.year': 'fiscal year whose PTU is proposed (YYYY)',
+  'help.ptu.close.option.accumulable_income': 'ingresos acumulables of the year, inflation adjustment included (LISR art. 9)',
+  'help.ptu.close.option.authorized_deductions': 'deducciones autorizadas of the year, already net of the non-deductible exempt pay',
+  'help.ptu.close.option.non_deductible_exempt_pay': 'the non-deductible part of exempt pay (LISR art. 28 fr. XXX), which the PTU base takes off',
+  'help.ptu.close.option.source': 'where the three figures were read: the annual computation or return they come from',
+  'help.ptu.close.footer':
+    'The base is accumulable income less authorized deductions less the non-deductible exempt pay; neither the PTU paid nor the pending losses are subtracted (LISR art. 9).\n' +
+    'The draft books the PTU less what the year already credited to the PTU provision, and posts nothing: review it and run `mnemosine entry post`.\n' +
+    '\nExamples:\n' +
+    '  See the PTU of 2026 without writing anything:\n' +
+    '    mnemosine ptu close --year 2026 --accumulable-income 5000000 --authorized-deductions 3800000 --non-deductible-exempt-pay 94000 --source "annual computation 2026" --dry-run',
+  'ptu.close.year_invalid': '--year "{value}" is not valid: use the four digits of the fiscal year, from {min} to {max}. Nothing was written.',
+  'ptu.close.figure_invalid': '{flag} "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals. Nothing was written.',
+  'ptu.close.source_required': 'Missing --source: say where the three figures were read. Nothing was written.',
+  'ptu.close.dry_run': 'Dry run: this is the draft the PTU would leave; nothing was written.',
+  'ptu.close.proposed': 'Draft {entry} left in period 13. Nothing was posted: review it, then `mnemosine entry post {entry}`.',
+  'ptu.close.exists': 'The PTU of {year} with these figures is already entry {entry} ({status}). Nothing was written.',
+  'ptu.close.nothing_to_propose': 'The year already provisioned exactly this PTU: there is nothing to propose. Nothing was written.',
+  'ptu.finding.regime_undeclared': 'The entity declares no tax regime: the PTU base assumes the general regime (601, LISR art. 9).',
+  'ptu.finding.first_year': 'The entity has no fiscal period before {year}: if this is its first year of operations, it owes no PTU for it (LFT art. 126 fr. I).',
+  'error.VALIDATION_ERROR.ptu.regime': 'The entity is in tax regime {regime}: the PTU base of LISR art. 9 is the general regime\'s (601). Nothing was written.',
+  'error.VALIDATION_ERROR.ptu.no_adjustment_period': 'The year {year} has no open year-end adjustment period (13) to hold the draft. Nothing was written.',
+  'error.VALIDATION_ERROR.ptu.roles_missing': 'No account is mapped to {roles} in this entity, so the PTU has nowhere to be booked. Add it with: npm run backfill:account-roles -- --aplicar, or map it with `mnemosine account role set`. Nothing was written.',
+  'error.VALIDATION_ERROR.ptu.rate_unavailable': 'The PTU percentage ({key}) is not in force on {date} ({gap}): it is seeded with the Comisión Nacional resolution\'s verified date, never assumed. Nothing was written.',
+  'error.VALIDATION_ERROR.ptu.other_figures_draft': 'The PTU of {year} is already draft {entry}, with other figures. Void it (`mnemosine entry void {entry}`) and run this again. Nothing was written.',
+  'error.VALIDATION_ERROR.ptu.other_figures_posted': 'The PTU of {year} is already posted as {entry}, with other figures. Reverse it (`mnemosine entry reverse {entry}`) and run this again. Nothing was written.',
   'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
   'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
   'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',

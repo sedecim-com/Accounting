@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 257 of 410 subcommands
+  spelling is `-T` at the root and `-t` on the 258 of 412 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -105,6 +105,7 @@ Commands:
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   filing|declaracion                     Tax returns of the entity: the working papers behind them, and the record of those filed
   annual|anual                           The annual return of the entity: the figures read off it once it is filed
+  ptu                                    The workers' share in profits (PTU, LFT art. 117-131)
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
@@ -9167,6 +9168,57 @@ Examples:
     mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json
   The pending tax losses of that return, updated through December 2025; zero is captured too:
     mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"
+```
+
+## `mnemosine ptu`
+
+```
+Usage: mnemosine ptu [options] [command]
+
+The workers' share in profits (PTU, LFT art. 117-131)
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  close|cerrar [options]  Propose the PTU of the year as a draft entry in period
+                          13, from the three figures of LISR art. 9 with their
+                          source
+  help [command]          display help for command
+```
+
+### `mnemosine ptu close` (alias: cerrar)
+
+```
+Usage: mnemosine ptu close|cerrar [options]
+
+Propose the PTU of the year as a draft entry in period 13, from the three
+figures of LISR art. 9 with their source
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --year <yyyy>                            fiscal year whose PTU is proposed (YYYY)
+  --accumulable-income <amount>            ingresos acumulables of the year, inflation adjustment included (LISR art. 9)
+  --authorized-deductions <amount>         deducciones autorizadas of the year, already net of the non-deductible exempt pay
+  --non-deductible-exempt-pay <amount>     the non-deductible part of exempt pay (LISR art. 28 fr. XXX), which the PTU base takes off
+  --source <text>                          where the three figures were read: the annual computation or return they come from
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+The base is accumulable income less authorized deductions less the non-deductible exempt pay; neither the PTU paid nor the pending losses are subtracted (LISR art. 9).
+The draft books the PTU less what the year already credited to the PTU provision, and posts nothing: review it and run `mnemosine entry post`.
+
+Examples:
+  See the PTU of 2026 without writing anything:
+    mnemosine ptu close --year 2026 --accumulable-income 5000000 --authorized-deductions 3800000 --non-deductible-exempt-pay 94000 --source "annual computation 2026" --dry-run
 ```
 
 ## `mnemosine isn`
