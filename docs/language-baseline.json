@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 274,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1718
+    "spanish-user-strings-services": 1694
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1636,11 +1636,10 @@
       "src/services/ar/credit-note-service.ts": 19,
       "src/services/ar/customer-service.ts": 4,
       "src/services/ar/opening-invoices.ts": 7,
-      "src/services/assets/asset-lookup.ts": 6,
-      "src/services/assets/asset-service.ts": 22,
+      "src/services/assets/asset-service.ts": 7,
       "src/services/assets/depreciation-math.ts": 3,
       "src/services/assets/depreciation-plan.ts": 20,
-      "src/services/assets/depreciation.ts": 6,
+      "src/services/assets/depreciation.ts": 3,
       "src/services/audit/audit-log.ts": 1,
       "src/services/backup/backup-service.ts": 22,
       "src/services/backup/exportacion-inquilino.ts": 21,
