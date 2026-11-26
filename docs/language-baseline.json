@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 337,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1768
+    "spanish-user-strings-services": 1751
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1676,10 +1676,9 @@
       "src/services/fiscal/inpc/parseo.ts": 14,
       "src/services/fiscal/inpc/periodo.ts": 7,
       "src/services/fiscal/issued-credit-notes.ts": 9,
-      "src/services/fiscal/iva-workpaper.ts": 67,
+      "src/services/fiscal/iva-workpaper.ts": 62,
       "src/services/fiscal/prior-balance.ts": 5,
-      "src/services/fiscal/provisional-income-tax-inputs.ts": 8,
-      "src/services/fiscal/provisional-income-tax.ts": 11,
+      "src/services/fiscal/provisional-income-tax.ts": 7,
       "src/services/fx/conversion.ts": 13,
       "src/services/fx/rate-service.ts": 11,
       "src/services/idempotency/idempotency-store.ts": 1,
