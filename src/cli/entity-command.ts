@@ -36,6 +36,7 @@ import {
   argumentByKey,
   describeCommand,
 } from './kernel/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 const ZONE_PARAMS = { params: { zones: MINIMUM_WAGE_ZONES.join(' | ') } };
 
@@ -172,14 +173,12 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         { entity: idOrName ?? opts.entity },
         { home: deps.home, warn: (m) => process.stderr.write(deps.palette.yellow(`${m}\n`)) }
       );
-      const SOURCE_LABEL: Record<typeof source, string> = {
-        flag: 'named on the command line',
-        env: 'from MNEMOSINE_ENTITY',
-        stored: 'pinned with `mnemosine entity use`',
-        only: 'the only active entity',
-      };
+      // Stored in English, so json and csv answer the same bytes in every language;
+      // the human table reads them back in the reader's (the kernel's `labelled` hook).
+      const sourceKey: TranslationKey = `platform.entity.source.${source}`;
       const fiscal = await getEntityTaxProfile(ctx.entityId, ctx.tenantId);
       const zone = await minimumWageZoneOf({ tenantId: ctx.tenantId, entityId: ctx.entityId });
+      const undeclared = t('platform.entity.zone_undeclared', { zone: zone.zone }, 'en');
       render(
         [
           {
@@ -192,11 +191,14 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
             tax_regime: fiscal.tax_regime,
             tax_regime_name: fiscal.tax_regime_name,
             tax_postal_code: fiscal.tax_postal_code,
-            minimum_wage_zone: zone.declaredBy ? zone.zone : `${zone.zone} (not declared)`,
-            selected_because: SOURCE_LABEL[source],
+            minimum_wage_zone: zone.declaredBy ? zone.zone : undeclared,
+            selected_because: t(sourceKey, {}, 'en'),
           },
         ],
-        { ...opts, idField: 'id' }
+        { ...opts, idField: 'id', labelled: {
+          minimum_wage_zone: (v) => (v === undeclared ? t('platform.entity.zone_undeclared', { zone: zone.zone }) : v),
+          selected_because: () => t(sourceKey),
+        } }
       );
     })
   );
@@ -215,10 +217,10 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
       bootstrapTenant(opts.tenant);
       const { ctx, file } = await useEntity(idOrName, deps.home);
       process.stdout.write(
-        `${deps.palette.green('✔')} Active entity: ${deps.palette.bold(ctx.entityName)} ` +
+        `${deps.palette.green('✔')} ${t('platform.entity.use.active', { name: deps.palette.bold(ctx.entityName) })} ` +
           `${deps.palette.dim(`(${ctx.taxId}, ${ctx.country}, ${ctx.currency})`)}\n`
       );
-      process.stderr.write(deps.palette.dim(`  stored in ${file}\n`));
+      process.stderr.write(deps.palette.dim(`  ${t('platform.entity.use.stored_in', { file })}\n`));
     })
   );
 
@@ -259,13 +261,11 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         bootstrapTenant(opts.tenant);
         const country = (opts.country ?? 'MX').toUpperCase();
         if (!(country in COUNTRY_PROFILES)) {
-          throw usageError(
-            `Unknown --country "${opts.country}". Supported: ${Object.keys(COUNTRY_PROFILES).join(', ')}.`
-          );
+          throw usageError({ key: 'platform.entity.create.country_unknown', params: { country: String(opts.country), supported: Object.keys(COUNTRY_PROFILES).join(', ') } });
         }
         const chart = opts.chart ?? 'auto';
         if (!['auto', 'siempre', 'nunca'].includes(chart)) {
-          throw usageError(`Unknown --chart "${chart}". Use auto, siempre or nunca.`);
+          throw usageError({ key: 'platform.entity.create.chart_unknown', params: { chart } });
         }
 
         // Attribution: a real user when one is reachable, and the tenant's
@@ -303,32 +303,28 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
           return;
         }
         const p = deps.palette;
+        const labels: TranslationKey[] = ['platform.label.entity', 'platform.label.tenant', 'platform.label.chart', 'platform.label.assets'];
+        const width = Math.max(...labels.map((k) => t(k).length)) + 2;
+        const label = (k: TranslationKey) => t(k).padEnd(width);
+        const { accounting } = result;
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.name)} ${p.dim(`(${result.taxId}, ${result.country}, ${result.currency})`)}\n`
         );
-        process.stderr.write(p.dim(`  entity  ${result.entityId}\n`));
-        process.stderr.write(p.dim(`  tenant  ${result.tenantId}\n`));
-        process.stderr.write(
-          p.dim(`  chart   ${result.accounting.cuentasBaseCreadas.length} account(s) seeded, ` +
-            `${result.accounting.accountsCreated.length} role account(s), ` +
-            `${result.accounting.nomina.bucketsMapped.length} payroll bucket(s)\n`)
-        );
-        if (result.accounting.assetClasses) {
-          process.stderr.write(
-            p.dim(`  assets  ${result.accounting.assetClasses.creadas.length} asset class(es) with their LISR art. 34/35 rate\n`)
-          );
+        process.stderr.write(p.dim(`  ${label('platform.label.entity')}${result.entityId}\n`));
+        process.stderr.write(p.dim(`  ${label('platform.label.tenant')}${result.tenantId}\n`));
+        process.stderr.write(p.dim(`  ${label('platform.label.chart')}${t('platform.entity.create.chart', {
+          seeded: accounting.cuentasBaseCreadas.length, roles: accounting.accountsCreated.length, buckets: accounting.nomina.bucketsMapped.length,
+        })}\n`));
+        if (accounting.assetClasses) {
+          process.stderr.write(p.dim(`  ${label('platform.label.assets')}${t('platform.entity.create.assets', { count: accounting.assetClasses.creadas.length })}\n`));
         }
-        for (const u of result.accounting.nomina.bucketsUnmappable) {
-          process.stderr.write(
-            p.yellow(`  ! payroll bucket ${u.bucket} needs account ${u.code}, which this chart lacks — map it before the first pay run\n`)
-          );
+        for (const u of accounting.nomina.bucketsUnmappable) {
+          process.stderr.write(p.yellow(`  ! ${t('platform.entity.create.bucket_unmappable', { bucket: u.bucket, code: u.code })}\n`));
         }
         if (result.attributedToSystem) {
-          process.stderr.write(
-            p.dim(`  attributed to the tenant's system account (no user was in session)\n`)
-          );
+          process.stderr.write(p.dim(`  ${t('platform.entity.create.system_attributed')}\n`));
         }
-        process.stderr.write(p.dim(`  pin it with: mnemosine entity use ${result.taxId}\n`));
+        process.stderr.write(p.dim(`  ${t('platform.entity.create.pin_hint', { taxId: result.taxId })}\n`));
       })
   );
 
@@ -379,12 +375,12 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
       const p = deps.palette;
       if (profile) {
         process.stdout.write(
-          `${p.green('✔')} ${p.bold(ctx.entityName)} fiscal profile updated ` +
-            p.dim(`(regime ${profile.tax_regime ?? '—'}, postal code ${profile.tax_postal_code ?? '—'})\n`)
+          `${p.green('✔')} ${t('platform.entity.edit.profile_updated', { name: p.bold(ctx.entityName) })} ` +
+            p.dim(`${t('platform.entity.edit.profile_detail', { regime: profile.tax_regime ?? '—', postalCode: profile.tax_postal_code ?? '—' })}\n`)
         );
       }
       if (zone) {
-        process.stdout.write(`${p.green('✔')} ${p.bold(ctx.entityName)} minimum wage zone: ${zone.minimum_wage_zone}\n`);
+        process.stdout.write(`${p.green('✔')} ${t('platform.entity.edit.zone_updated', { name: p.bold(ctx.entityName), zone: zone.minimum_wage_zone })}\n`);
       }
     })
   );
@@ -406,9 +402,9 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
       const { name } = await archiveEntity(ctx.entityId);
       if (readState(deps.home).entityId === ctx.entityId) {
         clearActiveEntity(deps.home);
-        process.stderr.write(deps.palette.dim('  it was the pinned entity; the pin was cleared\n'));
+        process.stderr.write(deps.palette.dim(`  ${t('platform.entity.archive.pin_cleared')}\n`));
       }
-      process.stdout.write(`${deps.palette.green('✔')} ${name} archived.\n`);
+      process.stdout.write(`${deps.palette.green('✔')} ${t('platform.archived', { name })}\n`);
     })
   );
 
@@ -422,8 +418,8 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
       clearActiveEntity(deps.home);
       process.stdout.write(
         had
-          ? `${deps.palette.green('✔')} Unpinned ${had}. ${deps.palette.dim(statePath(deps.home))}\n`
-          : `${deps.palette.dim('No entity was pinned.')}\n`
+          ? `${deps.palette.green('✔')} ${t('platform.entity.unset.done', { name: had })} ${deps.palette.dim(statePath(deps.home))}\n`
+          : `${deps.palette.dim(t('platform.entity.unset.none'))}\n`
       );
     })
   );
@@ -431,7 +427,4 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
 
 /** Thrown when a command needs an entity and none can be determined. */
 export const noEntitySelected = () =>
-  notFound(
-    'No entity selected. Pin one with `mnemosine entity use <id|name>`, pass --entity, ' +
-      'or set MNEMOSINE_ENTITY.'
-  );
+  notFound({ key: 'platform.entity.none_selected' });
