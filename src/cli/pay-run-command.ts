@@ -230,7 +230,7 @@ Examples:
 
 function runType(value: string): string {
   if (!(PAY_RUN_TYPES as readonly string[]).includes(value)) {
-    throw new InvalidArgumentError(`expected one of ${PAY_RUN_TYPES.join(', ')}`);
+    throw new InvalidArgumentError(t('payrun.type_unknown', { types: PAY_RUN_TYPES.join(', ') }));
   }
   return value;
 }
