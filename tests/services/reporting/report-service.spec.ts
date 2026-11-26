@@ -89,6 +89,8 @@ import {
   queryEntryMovementsTouching,
   queryOpeningAndMovement,
   queryEntryEffectByCounterpart,
+  queryForeignBalancesByAccount,
+  queryRevaluationNetByAccount,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1405,6 +1407,78 @@ describe('the residue suspects read (MNE-001-434)', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryEntryEffectByCounterpart(ENTITY, OPTS);
     expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
+  });
+});
+
+// MNE-001-617 · the two ledger sums of the closing revaluation, moved here
+// verbatim from fx-revaluation.ts. Each test pins the whole statement, the
+// parameter order and the connection it runs on.
+describe('the FX revaluation reads (MNE-001-617)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+
+  it('foreign balances: per account and currency, the scope\'s FX columns and book value, on the caller\'s client', async () => {
+    // By hand: USD 1 000.0000 in 1150 born at 17.50 is 17 500.0000 of book value.
+    const rows = [{ account_id: 'acc-1150', code: '1150', currency: 'USD', foreign: '1000.0000', book: '17500.0000' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryForeignBalancesByAccount(ENTITY, '2026-08-31', 'MXN', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-08-31', 'MXN']);
+    expect(folded(text)).toBe(
+      "WITH scope AS ( SELECT account_id FROM account_roles WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco') " +
+        'UNION SELECT gl_account_id FROM bank_accounts WHERE entity_id = $1 ) ' +
+        'SELECT l.account_id, a.code, l.currency_code AS currency, ' +
+        'SUM(COALESCE(l.foreign_debit, 0) - COALESCE(l.foreign_credit, 0))::text AS foreign, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS book ' +
+        'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+        'JOIN accounts a ON a.id = l.account_id AND a.entity_id = je.entity_id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' AND je.entry_date <= $2::date " +
+        'AND l.account_id IN (SELECT account_id FROM scope) ' +
+        'AND l.currency_code IS NOT NULL AND l.currency_code <> $3 ' +
+        'GROUP BY l.account_id, a.code, l.currency_code ORDER BY a.code, l.currency_code'
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('foreign balances read through the pool without a client, and nothing foreign is an empty list', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryForeignBalancesByAccount(ENTITY, '2026-08-31', 'MXN')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-08-31', 'MXN']);
+  });
+
+  it('the revaluation net: per account over the given entries, the gain and loss accounts left out, on the caller\'s client', async () => {
+    // By hand: +700.0000 then −700.0000 on 1150 nets to 0.0000.
+    const rows = [{ account_id: 'acc-1150', net: '0.0000' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const ids = ['je-r1', 'je-r2'];
+    const out = await queryRevaluationNetByAccount(ENTITY, ids, { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([['je-r1', 'je-r2'], ENTITY]);
+    // A copy, not the caller's array.
+    expect((values as unknown[])[0]).not.toBe(ids);
+    expect(folded(text)).toBe(
+      'SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net ' +
+        'FROM journal_entry_lines WHERE journal_entry_id = ANY($1::uuid[]) ' +
+        'AND account_id NOT IN (SELECT account_id FROM account_roles ' +
+        "WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria')) " +
+        'GROUP BY account_id'
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('the revaluation net reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryRevaluationNetByAccount(ENTITY, ['je-r1'])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([['je-r1'], ENTITY]);
   });
 });
 

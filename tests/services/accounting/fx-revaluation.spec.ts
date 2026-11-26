@@ -2,13 +2,20 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../src/database/connection.js')>();
-  return { ...real, query: vi.fn() };
+  return { ...real, query: vi.fn(), withTransaction: vi.fn() };
 });
 // Spied, not replaced: the real report-layer query runs against the mocked
 // connection, and the spy proves the revaluation net reads it (MNE-001-436).
+// MNE-001-617: the foreign balances and the marker's net too, whose SQL
+// reaches the fake transaction client below.
 vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
-  return { ...real, queryEntryMovementsOnAccount: vi.fn(real.queryEntryMovementsOnAccount) };
+  return {
+    ...real,
+    queryEntryMovementsOnAccount: vi.fn(real.queryEntryMovementsOnAccount),
+    queryForeignBalancesByAccount: vi.fn(real.queryForeignBalancesByAccount),
+    queryRevaluationNetByAccount: vi.fn(real.queryRevaluationNetByAccount),
+  };
 });
 
 import {
@@ -16,10 +23,15 @@ import {
   postedSoFar,
   revalue,
   revaluationOnAccount,
+  revalueForeignBalances,
   sourcesFixedBy,
 } from '../../../src/services/accounting/fx-revaluation.js';
-import { query } from '../../../src/database/connection.js';
-import { queryEntryMovementsOnAccount } from '../../../src/services/reporting/report-service.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
+import {
+  queryEntryMovementsOnAccount,
+  queryForeignBalancesByAccount,
+  queryRevaluationNetByAccount,
+} from '../../../src/services/reporting/report-service.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
 import { revaluationRows } from '../../../src/cli/closing-fx-command.js';
 
@@ -138,5 +150,94 @@ describe('MNE-001-436 · the revaluation net on an account reads report-service'
   it('an account with no revaluation reads zero', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     expect((await revaluationOnAccount(ENTITY, 'acc-1')).isZero()).toBe(true);
+  });
+});
+
+describe('MNE-001-617 · the foreign balances and the marker check read report-service, on the run\'s client', () => {
+  const mockQuery = query as unknown as Mock;
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const CTX = { tenantId: 'ten-1', entityId: ENTITY };
+  const PERIOD = { id: 'per-aug', period_name: 'Agosto 2026', period_type: 'regular', status: 'open', end_date: '2026-08-31' };
+  const runOf = (sequence: number, entry: string, difference: string) => ({
+    sequence,
+    journal_entry_id: entry,
+    reversal_entry_id: `rev-${entry}`,
+    lines: [{ accountId: 'acc-1150', accountCode: '1150', currency: 'USD', difference }],
+    rates: { USD: { rate: '18.2000', source: 'dof' } },
+  });
+
+  /** A transaction client that answers each statement of the run by its text, and refuses any other. */
+  function fakeClient(world: { prior: unknown[]; entries: string[]; nets: unknown[]; foreign: unknown[] }) {
+    const seen: string[] = [];
+    const q = vi.fn(async (text: string) => {
+      const s = String(text);
+      seen.push(s);
+      if (s.includes('FROM fiscal_periods WHERE id = $1')) return { rows: [PERIOD] };
+      if (s.includes('FROM fx_revaluation_runs')) return { rows: world.prior };
+      if (s.includes('SELECT id FROM journal_entries')) return { rows: world.entries.map((id) => ({ id })) };
+      if (s.includes('AS net')) return { rows: world.nets };
+      if (s.includes('functional_currency FROM legal_entities')) return { rows: [{ functional_currency: 'MXN' }] };
+      if (s.includes('AS foreign')) return { rows: world.foreign };
+      throw new Error(`unexpected statement: ${s.slice(0, 80)}`);
+    });
+    return { client: { query: q } as unknown as import('pg').PoolClient, seen };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    vi.mocked(queryForeignBalancesByAccount).mockClear();
+    vi.mocked(queryRevaluationNetByAccount).mockClear();
+  });
+
+  function inTransaction(client: import('pg').PoolClient): void {
+    vi.mocked(withTransaction).mockImplementation(async (fn) => fn(client));
+  }
+
+  it('the foreign balances are asked once, on the run\'s client; with none and no prior run, no net is asked', async () => {
+    const { client, seen } = fakeClient({ prior: [], entries: [], nets: [], foreign: [] });
+    inTransaction(client);
+    const run = await revalueForeignBalances(CTX, 'per-aug', 'usr-1', { dryRun: true });
+    expect(vi.mocked(queryForeignBalancesByAccount).mock.calls).toEqual([[ENTITY, '2026-08-31', 'MXN', client]]);
+    expect(seen.filter((s) => s.includes('AS foreign'))).toHaveLength(1);
+    // No entry in the ledger and none in the marker: nothing to sum.
+    expect(queryRevaluationNetByAccount).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(run.lines).toEqual([]);
+    expect(run.sequence).toBeNull();
+  });
+
+  it('the marker\'s net is read once on the run\'s client, and +700.0000 − 700.0000 agrees with a ledger at 0.0000', async () => {
+    // By hand: run 1 revalued USD in 1150 by +700.0000, run 2 took it back
+    // (−700.0000) once the balance was paid out. The marker nets 0.0000 and
+    // so does the ledger over the two entries; the balance has left the
+    // ledger, so there is nothing to revalue.
+    const { client } = fakeClient({
+      prior: [runOf(1, 'je-r1', '700.0000'), runOf(2, 'je-r2', '-700.0000')],
+      entries: ['je-r1', 'je-r2'],
+      nets: [{ account_id: 'acc-1150', net: '0.0000' }],
+      foreign: [],
+    });
+    inTransaction(client);
+    const run = await revalueForeignBalances(CTX, 'per-aug', 'usr-1', { dryRun: true });
+    expect(vi.mocked(queryRevaluationNetByAccount).mock.calls).toEqual([[ENTITY, ['je-r1', 'je-r2'], client]]);
+    expect(vi.mocked(queryForeignBalancesByAccount).mock.calls).toEqual([[ENTITY, '2026-08-31', 'MXN', client]]);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(run.lines).toEqual([]);
+  });
+
+  it('a ledger one ten-thousandth off the marker (699.9999 against 700.0000) refuses the run', async () => {
+    const { client } = fakeClient({
+      prior: [runOf(1, 'je-r1', '700.0000')],
+      entries: ['je-r1'],
+      nets: [{ account_id: 'acc-1150', net: '699.9999' }],
+      foreign: [],
+    });
+    inTransaction(client);
+    await expect(revalueForeignBalances(CTX, 'per-aug', 'usr-1', { dryRun: true })).rejects.toMatchObject({
+      code: 'FX_REVALUATION_MARKER_MISMATCH',
+    });
+    expect(vi.mocked(queryRevaluationNetByAccount).mock.calls).toEqual([[ENTITY, ['je-r1'], client]]);
+    // Refused before the balances are read.
+    expect(queryForeignBalancesByAccount).not.toHaveBeenCalled();
   });
 });
