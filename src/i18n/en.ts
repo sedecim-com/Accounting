@@ -1120,6 +1120,23 @@ export const EN = {
   'policy.prepaid_amortization_missing_at_close.option.bloquear':
     'Refuse: the period does not close until every schedule is run',
 
+  'policy.deferred_revenue_recognition_convention.question':
+    'Revenue collected in advance for a service that starts mid-month: is the first month recognized in full, or only for the days it covers?',
+  'policy.deferred_revenue_recognition_convention.impact':
+    'Sets every month of a deferred-revenue schedule. An annual contract from 20 March recognizes over 13 months by days and over 12 by whole months, and the revenue of the fiscal year differs.',
+  'policy.deferred_revenue_recognition_convention.rationale':
+    'Revenue belongs to the period in which the service is rendered (NIF D-1; IFRS 15 para 39). By days, the first and the last month carry only the days the contract covers; whole months would recognize the first month in full before it is rendered, which is the less prudent side for revenue.',
+  'policy.deferred_revenue_recognition_convention.why':
+    'Your contract starts on the 20th, not on the 1st. By days the revenue spreads over thirteen calendar months and by whole months over twelve, so the choice changes how much revenue the year shows.',
+  'policy.deferred_revenue_recognition_convention.what':
+    'I recognize the days each month actually covers.',
+  'policy.deferred_revenue_recognition_convention.if_skipped':
+    'I recognize by days.',
+  'policy.deferred_revenue_recognition_convention.option.proporcional_dias':
+    'By days: the first and last months recognize only the days covered',
+  'policy.deferred_revenue_recognition_convention.option.meses_completos':
+    'Whole months: the starting month is recognized in full and the last one is not',
+
   'policy.prepaid_threshold_mxn.question':
     'Above what amount is a multi-period expense deferred to prepayments instead of expensed at once?',
   'policy.prepaid_threshold_mxn.impact':
@@ -7818,6 +7835,33 @@ export const EN = {
   'help.payment.reverse.option.date':
     'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today',
   'help.payment.reverse.option.json': 'JSON output',
+  // MNE-001-299 · the deferred-revenue family (NIF D-1).
+  'help.deferred_revenue.description':
+    'Revenue collected in advance: the schedule that turns the contract liability (2158) into revenue, month by month',
+  'help.deferred_revenue.create.description':
+    'Adopt a credit already on the contract liability and register its recognition schedule; posts nothing',
+  'help.deferred_revenue.create.argument.description': 'what the contract covers, as it will read in the entries',
+  'help.deferred_revenue.create.option.amount': 'amount to recognize, without IVA, as a decimal',
+  'help.deferred_revenue.create.option.start': 'first day the service is rendered (YYYY-MM-DD)',
+  'help.deferred_revenue.create.option.end': 'last day the service is rendered, inclusive (YYYY-MM-DD)',
+  'help.deferred_revenue.create.option.origin': 'where the credit already on the liability came from — no default',
+  'help.deferred_revenue.create.option.source_entry': 'the entry that credited the liability; required with --origin cfdi',
+  'help.deferred_revenue.create.option.reference': 'the document this points at: contract, order, invoice number',
+  'help.deferred_revenue.create.option.dry_run': 'show the schedule that would be registered; write nothing',
+  'help.deferred_revenue.run.description': 'Recognize the month — one adjusting entry per schedule, irreversible',
+  'help.deferred_revenue.run.option.period': 'period to recognize: 2026-08, or any unambiguous part of its name',
+  'help.deferred_revenue.create.footer':
+    'Examples:\n' +
+    '  An annual support contract already credited to 2158; nothing posts here. First what it would register:\n' +
+    '    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual --dry-run\n' +
+    '  Then the schedule itself:\n' +
+    '    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual',
+  'help.deferred_revenue.run.footer':
+    'Examples:\n' +
+    '  First the dry run: the schedules that owe the month, posting nothing:\n' +
+    '    mnemosine deferred-revenue run --period 2026-04 --dry-run\n' +
+    '  Then the month itself:\n' +
+    '    mnemosine deferred-revenue run --period 2026-04 --yes',
   'help.prepaid.description': 'Prepaid expenses: the schedule that takes them out of 1160, month by month',
   'help.prepaid.create.description':
     'Register the amortisation schedule of a charge already sitting in prepaid expenses — posts nothing',
@@ -8663,6 +8707,22 @@ export const EN = {
   'paycalendar.period.empty': 'No pay period in this entity.',
 
   // --- `prepaid run` and its idempotency key (MNE-001-053, #317) ---------
+  // MNE-001-299 · deferred-revenue create and run.
+  'deferred_revenue.create.flags_missing':
+    'Missing {flags}. A schedule with no amount, no service window or no word on where the credit came from cannot be recognized nor tied out against the liability.',
+  'deferred_revenue.create.cfdi_needs_source_entry':
+    '--origin cfdi needs --source-entry: the entry of the issued CFDI that credited the liability is known, and not keeping it loses it.',
+  'deferred_revenue.create.dry_run_done':
+    'Dry run: {count} month(s) of {amount}, cut {convention}. The real run first checks that the contract liability holds an unscheduled credit for it.',
+  'deferred_revenue.create.done':
+    'Schedule registered: {count} month(s), recognized by deferred-revenue run.',
+  'deferred_revenue.run.key_unneeded':
+    'Not needed: the engine posts one row per schedule and period, so a retry of the same month posts nothing.',
+  'deferred_revenue.run.nothing': 'No deferred-revenue schedule owes {period}.',
+  'deferred_revenue.run.dry_run_done': 'Dry run: {count} schedule(s) would be recognized in {period}; nothing was posted.',
+  'deferred_revenue.run.confirm': 'Post {count} recognition entry(ies) for {period}?',
+  'deferred_revenue.run.aborted': 'Nothing was posted.',
+  'deferred_revenue.run.done': '{count} schedule(s) recognized in {period}: {total} to revenue.',
   'prepaid.run.key_replayed':
     'Idempotency key already consumed: the recorded result is shown and nothing was accrued again.',
   /** `{entries}` are the ids the keyed run posted and someone reversed since. */

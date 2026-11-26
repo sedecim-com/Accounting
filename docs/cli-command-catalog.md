@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **295 comandos** repartidos en **79 familias** de primer nivel. De las **1648** filas del catálogo, **279** (16.9 %) ya se pueden invocar.
+El binario ejecuta hoy **297 comandos** repartidos en **80 familias** de primer nivel. De las **1650** filas del catálogo, **281** (17.0 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **314** filas lo declaran completo, **380** a medias y **954** inexistente.
+Del motor que cada comando necesita, **316** filas lo declaran completo, **380** a medias y **954** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **398** filas, de las que **227** ya se teclean.
 
-**El objetivo comprometible son 1405 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1407 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1648 filas son **1626 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1650 filas son **1628 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -1006,6 +1006,8 @@ Cuentas por pagar es el subdiario que *debe dinero*: cada objeto crea una obliga
 | `mnemosine prepaid rollforward show` · `pago-anticipado movimiento ver` | El rollforward que pide el auditor: inicial + altas − amortización − castigos = final, cuadrado contra la cuenta | `--period`, `--tie-to-gl`, `--format xlsx` | ❌ | lectura | ✓ | 2 |
 | `mnemosine prepaid edit <id>` · `pago-anticipado editar` | Re-distribuye el saldo remanente ante una modificación de contrato | `--end`, `--amount`, `--reason`, `--dry-run` | ❌ | escritura | ✗ | 3 |
 | `mnemosine prepaid write-off run <id>` · `pago-anticipado castigo ejecutar` | Terminación anticipada: castiga el remanente en un solo asiento (`close` es operación de periodo o de libro, §1.3, no de un calendario de amortización) | `--reason`, `--dry-run`, `--idempotency-key` | ❌ | escritura | ✗ | 2 |
+| `mnemosine deferred-revenue create` · `ingreso-diferido crear` | Adopta un abono que ya está en el pasivo de contrato (2158, rol `ingreso_cobrado_por_anticipado`) y registra su calendario de reconocimiento al ingreso (NIF D-1) | `--amount`, `--start`, `--end`, `--origin`, `--source-entry`, `--reference`, `--dry-run` | ✅ **hecha en MNE-001-299**: el mismo registro que `prepaid create` con `kind = 'deferred_revenue'` (migración 347); el corte del primer mes lo fija `deferred_revenue_recognition_convention`. No postea | escritura | ✗ | 2 |
+| `mnemosine deferred-revenue run` · `ingreso-diferido ejecutar` | Reconoce el mes: un asiento de ajuste por calendario, Cargo pasivo de contrato · Abono ingreso, sin IVA; idempotente por (calendario, periodo) | `--period`, `--dry-run`, `-y/--yes` | ✅ **hecha en MNE-001-299**: el motor de `prepaid run` con la dirección del asiento invertida | irreversible | ✗ | 2 |
 | `mnemosine vendor-advance create` · `anticipo-proveedor crear` | Registra un anticipo a proveedor como **activo** (NIF C-5), no como cuenta por cobrar | `--vendor`, `--amount`, `--payment`, `--cfdi-uuid`, `--dry-run` | ❌ (`advance`·`anticipo` a secas es el anticipo **de cliente** en la familia de CxC) | escritura | ✗ | 2 |
 | `mnemosine vendor-advance apply <id>` · `anticipo-proveedor aplicar` | Aplica el anticipo contra la factura definitiva por cualquiera de las dos formas del Anexo 20 | `--bill`, `--amount`, `--method relacion-07\|nota-credito`, `--dry-run`, `--idempotency-key` | ❌ (el catálogo `TIPO_RELACION` ya existe en src/services/xml-ingestion/cfdi-facts.ts:12) | escritura | ✗ | 2 |
 | `mnemosine vendor-advance list` · `anticipo-proveedor listar` | Anticipos vivos por proveedor y su antigüedad sin aplicar | `--unapplied`, `--older-than`, `--json` | ❌ | lectura | ✓ | 2 |

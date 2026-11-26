@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 257 of 410 subcommands
+  spelling is `-T` at the root and `-t` on the 259 of 413 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -97,6 +97,7 @@ Commands:
   closing|cierre-proceso                 The close as a process: conduct it, read it, and hand over the dossier that proves it
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
+  deferred-revenue|ingreso-diferido      Revenue collected in advance: the schedule that turns the contract liability (2158) into revenue, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
   pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
   pay-schedule|calendario-nomina         Pay schedules of the entity: the frequency and dates its pay periods follow
@@ -8105,6 +8106,92 @@ Examples:
   # The real run, with a key: a retry after a dropped connection returns the
   # recorded result instead of accruing the month twice.
   mnemosine prepaid run --period 2026-08 --yes --idempotency-key devengo-2026-08
+```
+
+## `mnemosine deferred-revenue` (alias: ingreso-diferido)
+
+```
+Usage: mnemosine deferred-revenue|ingreso-diferido [options] [command]
+
+Revenue collected in advance: the schedule that turns the contract liability
+(2158) into revenue, month by month
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  create|crear [options] <description>  Adopt a credit already on the contract
+                                        liability and register its recognition
+                                        schedule; posts nothing
+  run|ejecutar [options]                Recognize the month — one adjusting
+                                        entry per schedule, irreversible
+  help [command]                        display help for command
+```
+
+### `mnemosine deferred-revenue create` (alias: crear)
+
+```
+Usage: mnemosine deferred-revenue create|crear [options] <description>
+
+Adopt a credit already on the contract liability and register its recognition
+schedule; posts nothing
+
+Arguments:
+  description                                what the contract covers, as it will read in the entries
+
+Options:
+  -e, --entity <idOrName>                    legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                          tenant (firm) whose data to scope to
+  -u, --user <email>                         acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>    output format (default: "table")
+  --json                                     shorthand for --format json
+  -o, --output <path>                        write to a file instead of stdout
+  --fields [names]                           comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                identifiers only, one per line, for piping
+  --amount <amount>                          amount to recognize, without IVA, as a decimal
+  --start <date>                             first day the service is rendered (YYYY-MM-DD)
+  --end <date>                               last day the service is rendered, inclusive (YYYY-MM-DD)
+  --origin <cfdi|manual|saldo_preexistente>  where the credit already on the liability came from — no default
+  --source-entry <id>                        the entry that credited the liability; required with --origin cfdi
+  --reference <text>                         the document this points at: contract, order, invoice number
+  --dry-run                                  show the schedule that would be registered; write nothing
+  -y, --yes                                  skip the confirmation prompt
+  -h, --help                                 display help for command
+
+Examples:
+  An annual support contract already credited to 2158; nothing posts here. First what it would register:
+    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual --dry-run
+  Then the schedule itself:
+    mnemosine deferred-revenue create "Soporte anual 2026-2027" --amount 120000.00 --start 2026-03-20 --end 2027-03-19 --origin manual
+```
+
+### `mnemosine deferred-revenue run` (alias: ejecutar)
+
+```
+Usage: mnemosine deferred-revenue run|ejecutar [options]
+
+Recognize the month — one adjusting entry per schedule, irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to recognize: 2026-08, or any unambiguous part of its name
+  -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  First the dry run: the schedules that owe the month, posting nothing:
+    mnemosine deferred-revenue run --period 2026-04 --dry-run
+  Then the month itself:
+    mnemosine deferred-revenue run --period 2026-04 --yes
 ```
 
 ## `mnemosine payroll` (alias: nomina)

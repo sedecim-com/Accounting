@@ -151,6 +151,9 @@ const TOP_LEVEL: Record<string, string> = {
   // sale antes de recibir— y confundirlos en la terminal sería confundirlos
   // en los libros.
   prepaid: 'pago-anticipado',
+  // MNE-001-299: the revenue side of the same register. «ingreso-diferido» names the
+  // contract liability by what it becomes, not «anticipo», which is 2150's.
+  'deferred-revenue': 'ingreso-diferido',
   // D1: el devengo de prestaciones. `payroll`·`nomina` es la familia y
   // `accrue`·`devengar` su acto — no `provision`, que el registro de comandos
   // adjudicó a fiscal-us (la provisión del impuesto corporativo) en su
@@ -277,6 +280,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
+  'deferred-revenue': { create: 'crear', run: 'ejecutar' },
   payroll: { accrue: 'devengar' },
   'pay-run': { create: 'crear', calculate: 'calcular', approve: 'aprobar' },
   'pay-schedule': { create: 'crear', list: 'listar' },
@@ -409,7 +413,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'filing', 'web', 'tenant', 'user'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'deferred-revenue', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'filing', 'web', 'tenant', 'user'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(...family.split(' '));

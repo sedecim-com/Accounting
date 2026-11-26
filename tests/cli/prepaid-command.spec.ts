@@ -371,6 +371,7 @@ describe('exigirOrigen', () => {
 
 const POLIZA: PrepaidExpenseRow = {
   id: 'p1',
+  kind: 'prepaid_expense',
   entity_id: 'e1',
   description: 'Póliza de seguro 2026',
   vendor_name: 'Aseguradora SA',

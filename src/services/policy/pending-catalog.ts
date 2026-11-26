@@ -833,6 +833,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'I use 5,000 MXN.',
     priority: 40,
   },
+  {
+    // MNE-001-299 (#111). The revenue twin of the prepaid convention key:
+    // same cut, a fact of its own, since a firm may cut its prepaid insurance
+    // by whole months and still has to recognize revenue as it is rendered.
+    // The values are the literals the frozen column's CHECK holds (059:136-137).
+    key: 'deferred_revenue_recognition_convention',
+    textKey: 'deferred_revenue_recognition_convention',
+    category: 'contable',
+    question:
+      'Revenue collected in advance for a service that starts mid-month: is the first month recognized in full, or only for the days it covers?',
+    impact:
+      'Sets every month of a deferred-revenue schedule. An annual contract from 20 March recognizes over 13 months by days ' +
+      'and over 12 by whole months, and the revenue of the fiscal year differs.',
+    options: [
+      { value: 'proporcional_dias', label: 'By days: the first and last months recognize only the days covered' },
+      { value: 'meses_completos', label: 'Whole months: the starting month is recognized in full and the last one is not' },
+    ],
+    defaultValue: 'proporcional_dias',
+    defaultRationale:
+      'Revenue belongs to the period in which the service is rendered (NIF D-1; IFRS 15 para 39). By days, the first ' +
+      'and the last month carry only the days the contract covers; whole months would recognize the first month in ' +
+      'full before it is rendered, which is the less prudent side for revenue.',
+    whyAsking:
+      'Your contract starts on the 20th, not on the 1st. By days the revenue spreads over thirteen calendar months and ' +
+      'by whole months over twelve, so the choice changes how much revenue the year shows.',
+    whatIDo: 'I recognize the days each month actually covers.',
+    ifSkipped: 'I recognize by days.',
+    priority: 35,
+  },
   // ── LAS TRES BIFURCACIONES QUE EL DEVENGO ABRE (D1) ─────────────────
   //
   // Ninguna se elige en el código ni se le pregunta al usuario a mitad de una
