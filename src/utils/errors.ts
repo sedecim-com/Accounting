@@ -71,9 +71,33 @@ export class AppError extends Error {
 }
 
 export class ValidationError extends AppError {
-  constructor(message: string | ErrorMessageKey, field?: string, details?: Record<string, unknown>) {
+  constructor(message: string | KeyedText, field?: string, details?: Record<string, unknown>) {
     super(422, 'VALIDATION_ERROR', message, field, details);
     this.name = 'ValidationError';
+  }
+}
+
+/**
+ * MNE-001-822 · The refusal of a SUA file that contradicts the employer
+ * liability already recorded (`generateSuaFile`, #92). The frame is
+ * `imss.sua.mismatch` and each blocking finding is a key whose figures travel
+ * as the cross-check computed them, the difference included: rendered in the
+ * reader's language, frame and findings alike. `details` keeps the findings by
+ * code and figure for a caller that renders its own (`imss sua export`).
+ */
+export class SuaMismatchError extends ValidationError {
+  constructor(blocking: readonly ErrorMessageKey[], details: Record<string, unknown>) {
+    super({ key: 'imss.sua.mismatch', lists: { findings: { join: ' · ', items: blocking } } }, undefined, details);
+  }
+
+  /**
+   * The text a finding is STORED with, in the filing's
+   * `tax_form_filings.data`: stored text keeps the language it was written
+   * in, Spanish, whoever reads it later (MNE-001-728's rule). The language is
+   * fixed, so no service reads the reader's language through it (E4.2).
+   */
+  static storedDetail(finding: ErrorMessageKey): string {
+    return t(finding.key, finding.params ?? {}, 'es');
   }
 }
 

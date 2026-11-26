@@ -1987,7 +1987,8 @@ export const E4_1: Criterio[] = [
         return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
       }
       // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
-      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+      // MNE-001-822: the refusal speaks by key; its code is what stays in the source.
+      if (!/default:\s*throw payrollDataGap\('ISR_TARIFF_PERIOD_UNSUPPORTED'/.test(src)) {
         return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
       }
       if (!/case 'weekly': return 'weekly';/.test(src)) {
@@ -2482,7 +2483,9 @@ export const E4_1: Criterio[] = [
           'el SUA dejó de cotejarse contra el pasivo que `acumularPasivoPatronal` apuntó al aprobar: la cifra vuelve a salir de un solo camino y nadie la confirma'
         );
       }
-      if (!/bloqueantes\.length > 0/.test(src) || !/throw new ValidationError/.test(src)) {
+      // MNE-001-822: the refusal is `SuaMismatchError`, and it has to stay a ValidationError (422, exit 4).
+      const refusal = /export class SuaMismatchError extends ValidationError\b/.test(codigoDe('src/utils/errors.ts'));
+      if (!/bloqueantes\.length > 0/.test(src) || !/throw new SuaMismatchError\(/.test(src) || !refusal) {
         return falla(
           'el archivo del SUA volvió a entregarse pese a contradecir el pasivo apuntado: un descuadre que sólo se avisa es un descuadre que se sube al SUA'
         );
