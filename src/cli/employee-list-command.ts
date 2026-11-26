@@ -12,6 +12,7 @@ import {
   withOutput,
   withSelection,
 } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 import type { EmployeeCommonOpts, EmployeeLeafKit } from './employee-command.js';
 
 // ============================================================
@@ -52,10 +53,10 @@ export function statusFilter(opts: { status?: string[]; all?: boolean }): string
   const states = (opts.status ?? []).map((s) => s.trim().toLowerCase());
   const unknown = states.filter((s) => !(EMPLOYEE_STATES as readonly string[]).includes(s));
   if (unknown.length > 0) {
-    throw usageError(`--status ${unknown.join(', ')}: use one of ${EMPLOYEE_STATES.join(', ')}.`);
+    throw usageError({ key: 'payroll.employee.list.status_unknown', params: { values: unknown.join(', '), states: EMPLOYEE_STATES.join(', ') } });
   }
   if (states.length > 1) {
-    throw usageError('--status takes one state at a time; use -a/--all for every state.');
+    throw usageError({ key: 'payroll.employee.list.status_one' });
   }
   if (opts.all) return undefined;
   return states[0] ?? 'active';
@@ -94,7 +95,7 @@ export function registerEmployeeList(family: Command, kit: EmployeeLeafKit): voi
         { ...opts, idField: 'number' }
       );
       if (rows.length === 0) {
-        process.stderr.write(kit.deps.palette.dim('No employees matched in this entity.\n'));
+        process.stderr.write(kit.deps.palette.dim(`${t('payroll.employee.list.none')}\n`));
       }
       return ExitCode.OK;
     })
