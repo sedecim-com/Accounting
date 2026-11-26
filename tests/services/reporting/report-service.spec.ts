@@ -96,6 +96,8 @@ import {
   queryForeignBalancesByAccount,
   queryRevaluationNetByAccount,
   queryIepsParkedByInvoice, queryIepsMovedForInvoice, queryIepsKeptOnAccount, queryIepsTakenByRows,
+  queryBankBookBalanceAsOf,
+  queryFeeVatParked,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -1604,6 +1606,74 @@ describe('the IEPS cash-basis reads (MNE-001-618)', () => {
     expect(await queryIepsTakenByRows(ENTITY, ['row-1'])).toEqual([]);
     expect(mockQuery).toHaveBeenCalledTimes(1);
     expect(params(0)).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1']]);
+  });
+});
+
+// MNE-001-621 · the bank reconciliation's book balance (saldoDeLibros) and
+// the VAT a bank fee still has parked (releaseFeeVat), moved here from
+// reconciliation-service.ts and treasury-posting.ts. Each test pins the whole
+// SQL, the parameter order and the connection it runs on.
+describe('the bank reconciliation and fee VAT reads (MNE-001-621)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const onClient = (rows: unknown[]) => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    return { clientQuery, client: { query: clientQuery } as never };
+  };
+  const call = (clientQuery: Mock) => clientQuery.mock.calls[0] as [string, unknown[]];
+  const BOOK_BALANCE =
+    'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance ' +
+    'FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journal_entry_id ' +
+    'JOIN bank_accounts ba ON ba.gl_account_id = l.account_id ' +
+    "WHERE ba.id = $1 AND ba.entity_id = $2 AND j.entity_id = $2 AND j.status = 'posted' " +
+    'AND j.entry_date <= $3::date';
+  const FEE_VAT_PARKED =
+    'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked ' +
+    'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+    'WHERE je.entity_id = $1 AND je.source_type = ANY($2::text[]) AND je.source_id = $3 ' +
+    "AND je.status = 'posted' AND l.account_id = $4";
+
+  it('book balance: the posted lines on the bank account\'s GL account up to a date, bound to the entity on both ends, on the caller\'s client', async () => {
+    // By hand: 265 000.00 in the books at 31 Jul 2026.
+    const { clientQuery, client } = onClient([{ balance: '265000.0000' }]);
+    expect(await queryBankBookBalanceAsOf(ENTITY, 'bank-1', '2026-07-31', client)).toBe('265000.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual(['bank-1', ENTITY, '2026-07-31']);
+    expect(folded(text)).toBe(BOOK_BALANCE);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('book balance reads through the pool without a client', async () => {
+    // By hand: 10 000.00 − 100.00 = 9 900.00 at 31 Aug 2026.
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '9900.0000' }] });
+    expect(await queryBankBookBalanceAsOf(ENTITY, 'bank-1', '2026-08-31')).toBe('9900.0000');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(BOOK_BALANCE);
+    expect(params(0)).toEqual(['bank-1', ENTITY, '2026-08-31']);
+  });
+
+  it('fee VAT parked: the account\'s posted net over the movement\'s fee and release entries, on the caller\'s client', async () => {
+    // By hand: a fee of 116.00 at 16% parked Dr 16.0000 in 1135, nothing released yet.
+    const { clientQuery, client } = onClient([{ parked: '16.0000' }]);
+    const values: Parameters<typeof queryFeeVatParked>[0] = [ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135'];
+    expect(await queryFeeVatParked(values, client)).toBe('16.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, sent] = call(clientQuery);
+    expect(sent).toEqual([ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135']);
+    expect(folded(text)).toBe(FEE_VAT_PARKED);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('fee VAT parked reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryFeeVatParked([ENTITY, ['bank_fee'], 'mov-1', 'acc-1135'])).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(FEE_VAT_PARKED);
+    expect(params(0)).toEqual([ENTITY, ['bank_fee'], 'mov-1', 'acc-1135']);
   });
 });
 

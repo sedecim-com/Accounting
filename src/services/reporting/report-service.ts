@@ -38,6 +38,8 @@ import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 //                   read a balance to guard money (the AR and AP
 //                   reconciliations, the prepaid backing, the IEPS on cash basis, the
 //                   external-ledger diff, the close's fixed-asset box,
+//                   the bank reconciliation's book balance, the VAT a
+//                   bank fee still parks,
 //                   the FX revaluation line, its foreign balances and
 //                   its marker's net, the IVA paper's withholding
 //                   per sale and receipt movement, the DIOT's exempt
@@ -2216,6 +2218,87 @@ export async function queryIepsTakenByRows(
   const values = [entityId, IEPS_UNCOLLECTED_ROLE, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], [...allocationIds]];
   const r = client ? await client.query<IepsTakenRow>(text, values) : await query<IepsTakenRow>(text, values);
   return r.rows;
+}
+
+// ------------------------------------------------------------
+// BANK RECONCILIATION AND FEE VAT READS (MNE-001-621, #101)
+//
+// Two sums the banking services read back from the ledger: the book balance a
+// bank reconciliation compares with the statement (`saldoDeLibros`,
+// reconciliation-service.ts: `open --baseline` on its transaction client,
+// `status` and `run` on the pool, `close` and `approve` on their transaction
+// client), and the VAT a bank fee still has parked in 1135 before
+// `bank fee post` releases it to 1130 (`releaseFeeVat`, treasury-posting.ts,
+// on its transaction client). Each runs on the caller's client when given, so
+// a reading inside a transaction still sees what that transaction wrote.
+// Neither reads a policy. The fee and release source names are the caller's
+// parameters, not imports: importing treasury-posting.ts here would close a
+// cycle back to its consumer.
+// ------------------------------------------------------------
+
+/**
+ * The book balance of a bank account up to a date: the posted lines on its
+ * GL account, debit-positive and cumulative (not the period's movement, since
+ * the bank's balance is cumulative too), closing entries included.
+ *
+ * Both ends are bound to the entity, as in book-items: the link between the
+ * bank account and the ledger is `gl_account_id`, and a mis-captured mapping
+ * would otherwise turn this sum into a window on another entity's books.
+ *
+ * COALESCE per side, not over the difference: migration 001 makes
+ * `debit_amount` and `credit_amount` mutually exclusive by CHECK, so a credit
+ * line has a NULL debit, and `debit − credit` over it is NULL, which SUM
+ * skips. An account without posted lines reads as zero; telling that apart
+ * from a GL account that is not the entity's is the caller's.
+ */
+export async function queryBankBookBalanceAsOf(
+  entityId: string,
+  bankAccountId: string,
+  asOf: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance
+                 FROM journal_entry_lines l
+                 JOIN journal_entries j ON j.id = l.journal_entry_id
+                 JOIN bank_accounts ba ON ba.gl_account_id = l.account_id
+                WHERE ba.id = $1 AND ba.entity_id = $2 AND j.entity_id = $2
+                  AND j.status = 'posted'
+                  AND j.entry_date <= $3::date`;
+  const values = [bankAccountId, entityId, asOf];
+  const r = client
+    ? await client.query<{ balance: string }>(text, values)
+    : await query<{ balance: string }>(text, values);
+  return r.rows[0].balance;
+}
+
+/**
+ * The parameters of `queryFeeVatParked`, in the statement's `$1..$4` order:
+ * the entity, the source types whose entries count (the fee and its earlier
+ * releases), the movement they are about, and the pending-VAT account (1135).
+ * A tuple and not an object, so the consumer keeps the whole list it always
+ * bound, which the E1.2 criterion `bank-fee-vat-leaves-1135` reads.
+ */
+export type FeeVatParkedParams = [entityId: string, sourceTypes: string[], sourceId: string, pendingAccountId: string];
+
+/**
+ * What a bank fee movement still has parked on the pending-VAT account: the
+ * debit − credit of that account's lines on the posted entries of the given
+ * source types for the movement, so the fee's own entry minus what its earlier
+ * releases already took out, at the column's four decimals. '0' when no row.
+ */
+export async function queryFeeVatParked(values: FeeVatParkedParams, client?: pg.PoolClient): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+      WHERE je.entity_id = $1
+        AND je.source_type = ANY($2::text[])
+        AND je.source_id = $3
+        AND je.status = 'posted'
+        AND l.account_id = $4`;
+  const r = client
+    ? await client.query<{ parked: string }>(text, values)
+    : await query<{ parked: string }>(text, values);
+  return r.rows[0]?.parked ?? '0';
 }
 
 // ------------------------------------------------------------
