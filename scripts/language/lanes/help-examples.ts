@@ -35,7 +35,7 @@
  * What it does not reach, so nobody assumes it: it counts source, not screens.
  * A block built once and shown under several commands counts once, where it
  * is written; that is where it is paid. A footer that is not an Examples block
- * (`LINE_KEYS_HELP`, the notes after a block in the same literal) rides with
+ * (`lineKeysHelp`, the notes after a block in the same literal) rides with
  * the block or is outside this lane.
  *
  * The two CLI lanes are disjoint: `cli-strings.ts` leaves out every literal
