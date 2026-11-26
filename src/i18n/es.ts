@@ -403,6 +403,27 @@ export const ES: Record<keyof typeof EN, string> = {
     'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. Se deben {days} días de prima de antigüedad y NO están en este total',
   'payroll.finiquito.seniority_premium.calculated':
     '{days} días × {base} (LFT art. 162 fr. I, base topada por el 486 con un mínimo de {minimumWage})',
+  // ---- MNE-001-822 · I9 by folder, part 7c: the SUA cross-check and the data gaps of src/services/payroll; see en.ts ----
+  'payroll.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay ningún renglón de pasivo apuntado para {monthStart}..{monthEnd} contra el que cotejarlo: la cifra sale de un solo camino y nadie la confirma',
+  'payroll.sua.finding.mismatch':
+    '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger} (diferencia {difference}). Si un periodo cruza el cambio de mes y su pasivo se apuntó antes del reparto por días cotizados, ese renglón lo lleva entero en un solo mes: `npm run backfill:straddling-liabilities -- --tenant <id>` lo reparte',
+  'error.PAYROLL_ACCOUNT_MAPPING_MISSING.subsidy_in_cash':
+    'Missing payroll_account_mapping for bucket: {bucket}. La corrida entregó {amount} de subsidio al empleo en efectivo y la política subsidio_al_empleo_entregado_registro dice registrarlo como {value}.',
+  'error.EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED':
+    'No hay regla del subsidio al empleo para el periodo «{frequency}»: el decreto prorratea por días entre 30.4, y sólo la semana (7), la quincena (15) y el mes tienen tarifa del art. 96 con la que acreditarlo. Configura la nómina como semanal, quincenal o mensual.',
+  'error.ISR_TARIFF_PERIOD_UNSUPPORTED':
+    'No hay tarifa del art. 96 publicada para el periodo «{frequency}»: el Anexo 8 publica diaria, 7, 10 y 15 días y mensual, y no catorcenal. Antes se le aplicaba la MENSUAL a la base del periodo, que subretiene entre el 85 % y el 100 %. Configura la nómina como quincenal o mensual, o siembra la tarifa que corresponda con su fuente.',
+  'error.TAX_PARAMETERS_YEAR_MISMATCH':
+    'Se pidieron los parámetros de {jurisdiction} para el ejercicio {taxYear} con una fecha de otro año ({day}): el ejercicio y la fecha del acto tienen que ser el mismo, o el recálculo de un recibo viejo tomaría los parámetros de hoy.',
+  'error.TAX_PARAMETERS_MISSING':
+    'No hay parámetros fiscales de {jurisdiction} vigentes el {day} (ejercicio {taxYear}): siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.',
+  'error.TAX_PARAMETER_MISSING':
+    'Falta el parámetro fiscal «{parameter}» de {jurisdiction} para {taxYear}: sin él no se puede calcular la cuota. Antes se sustituía por un valor quemado y la cifra inventada salía en el recibo, en el CFDI de nómina y en la línea de captura.',
+  'error.TAX_RATES_MISSING.block':
+    'Falta el bloque de tasas «{block}» de MX para {taxYear}: sin él la cuota saldría en cero con los días cotizados correctos, que es un recibo creíble y falso.',
+  'error.TAX_RATES_MISSING.rates':
+    'Faltan tasas en «{block}» de MX para {taxYear}: {missing}. Una tasa ausente no es una tasa de cero.',
   // ---- MNE-001-726 · I9 by folder, part 3: the refusals of src/services/sat/diot; see en.ts ----
   'error.VALIDATION_ERROR.diot.entity_not_mexican':
     'La entidad {name} no es mexicana (país {country}). La DIOT es una obligación de la LIVA: no hay declaración informativa de operaciones con terceros que armar para una entidad que no causa IVA.',

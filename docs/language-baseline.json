@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10440,
+    "spanish-identifiers-src": 10439,
     "spanish-identifiers-tests": 5753,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
@@ -23,7 +23,7 @@
     "untagged-comment-markers": 1,
     "cli-user-strings-without-key": 235,
     "help-examples-without-key": 252,
-    "spanish-user-strings-services": 1751
+    "spanish-user-strings-services": 1740
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -255,7 +255,7 @@
       "src/services/payroll/mx/imss-calculator.ts": 9,
       "src/services/payroll/mx/isn-calculator.ts": 84,
       "src/services/payroll/mx/isr-calculator.ts": 3,
-      "src/services/payroll/mx/sua-generator.ts": 18,
+      "src/services/payroll/mx/sua-generator.ts": 17,
       "src/services/payroll/mx/subsidio-entregado.ts": 21,
       "src/services/payroll/tax-engine/ytd-service.ts": 1,
       "src/services/payroll/usa/federal/fit-calculator.ts": 1,
@@ -1678,16 +1678,13 @@
       "src/services/integrations/mexico/pac/simulacion.ts": 4,
       "src/services/integrations/mexico/pac/sovos-reachcore-adapter.ts": 20,
       "src/services/payroll/common/employee-service.ts": 1,
-      "src/services/payroll/common/gl-posting-service.ts": 3,
+      "src/services/payroll/common/gl-posting-service.ts": 2,
       "src/services/payroll/common/paycheck-service.ts": 8,
       "src/services/payroll/common/payroll-account-mapping-seed.ts": 11,
       "src/services/payroll/mx/cfdi-nomina-generator.ts": 5,
-      "src/services/payroll/mx/employment-subsidy.ts": 1,
       "src/services/payroll/mx/imss-calculator.ts": 1,
-      "src/services/payroll/mx/isr-calculator.ts": 3,
-      "src/services/payroll/mx/sua-generator.ts": 3,
+      "src/services/payroll/mx/isr-calculator.ts": 2,
       "src/services/payroll/mx/subsidio-entregado.ts": 5,
-      "src/services/payroll/tax-engine/tax-tables.ts": 5,
       "src/services/policy/pending-catalog.ts": 1,
       "src/services/policy/policy-hint.ts": 1,
       "src/services/policy/policy-service.ts": 8,
