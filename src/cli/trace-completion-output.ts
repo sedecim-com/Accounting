@@ -52,7 +52,7 @@ export function writeTraceCompletion(
   if (result.filled.length > 0 && result.archivedVoucherFiles > 0) {
     process.stderr.write(p.yellow(`${t('payment.trace.archived_files', { count: result.archivedVoucherFiles, period: result.period })}\n`));
   }
-  if (opts.dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+  if (opts.dryRun) process.stderr.write(p.dim(`${t('payment.trace.dry_run')}\n`));
 }
 
 /**

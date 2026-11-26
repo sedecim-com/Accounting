@@ -13,6 +13,7 @@ import {
   render,
   usageError,
   withOutput,
+  type KeyedMessage,
   type RenderOptions,
 } from './kernel/index.js';
 
@@ -174,7 +175,7 @@ function isLoopbackHost(hostname: string): boolean {
  * is sent to an address where nothing listens. A public origin that is NOT
  * loopback is a proxy's address, and then the two are meant to differ.
  */
-export function listeningMismatch(config: GatewayConfig, opts: WebStartOptions): string | undefined {
+export function listeningMismatch(config: GatewayConfig, opts: WebStartOptions): KeyedMessage | undefined {
   if (opts.port === undefined && opts.host === undefined) return undefined;
   let origin: URL;
   try {
@@ -186,16 +187,13 @@ export function listeningMismatch(config: GatewayConfig, opts: WebStartOptions):
   const originPort = origin.port === '' ? (origin.protocol === 'https:' ? 443 : 80) : Number(origin.port);
   const problems: string[] = [];
   if (opts.port !== undefined && opts.port !== originPort) {
-    problems.push(`--port ${opts.port} against ${config.publicOrigin}`);
+    problems.push(t('web.start.flag_against', { flag: '--port', value: opts.port, origin: config.publicOrigin }));
   }
   if (opts.host !== undefined && !isLoopbackHost(opts.host.trim())) {
-    problems.push(`--host ${opts.host.trim()} against ${config.publicOrigin}`);
+    problems.push(t('web.start.flag_against', { flag: '--host', value: opts.host.trim(), origin: config.publicOrigin }));
   }
   if (problems.length === 0) return undefined;
-  return (
-    `the browser reaches the gateway at ${config.publicOrigin}, which this run does not listen on (${problems.join(', ')}). ` +
-    'Pass --public-origin with the address the browser opens, set GATEWAY_PUBLIC_ORIGIN, or drop the flag.'
-  );
+  return { key: 'web.start.origin_mismatch', params: { origin: config.publicOrigin, problems: problems.join(', ') } };
 }
 
 /** The flags win over the environment; an absent flag leaves the environment's value alone. */
@@ -256,7 +254,7 @@ export function registerWebCommand(program: Command, deps: WebCommandDeps): void
 
       const problems = gateway.configProblems(config);
       if (problems.length > 0) {
-        throw usageError(`the web gateway refuses to start:\n  - ${problems.join('\n  - ')}`);
+        throw usageError({ key: 'web.start.refuses', params: { problems: problems.join('\n  - ') } });
       }
       const missing = gateway.missingAssets();
       if (missing !== undefined) throw usageError(missing);
