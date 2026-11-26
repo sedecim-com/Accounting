@@ -14,6 +14,7 @@ import {
   optionByKey,
   argumentByKey,
 } from './kernel/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine tenant  (#326 · MNE-001-085)
@@ -93,9 +94,7 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
       // list, indistinguishable from "this installation has no such firm".
       const unknown = wanted?.filter((s) => !(TENANT_STATES as readonly string[]).includes(s)) ?? [];
       if (unknown.length > 0) {
-        throw usageError(
-          `--status ${unknown.join(', ')}: a tenant is either ${TENANT_STATES.join(' or ')}.`
-        );
+        throw usageError({ key: 'platform.lifecycle.status_unknown', params: { unknown: unknown.join(', '), kind: 'tenant', first: TENANT_STATES[0], second: TENANT_STATES[1] } });
       }
       const all = (await listTenants())
         .map((t) => ({
@@ -135,10 +134,11 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
       }
       const p = deps.palette;
       process.stdout.write(`${p.green('✔')} ${p.bold(result.name)} ${p.dim(`(${result.subdomain})`)}\n`);
-      process.stderr.write(p.dim(`  tenant  ${result.tenantId}\n`));
-      process.stderr.write(
-        p.dim(`  next    mnemosine entity create <name> --tax-id <rfc> -t ${result.tenantId}\n`)
-      );
+      // The label column pads to the longest label of the language, plus two.
+      const width = Math.max(...(['platform.label.tenant', 'platform.label.next'] as const).map((k) => t(k).length)) + 2;
+      const label = (k: TranslationKey) => t(k).padEnd(width);
+      process.stderr.write(p.dim(`  ${label('platform.label.tenant')}${result.tenantId}\n`));
+      process.stderr.write(p.dim(`  ${label('platform.label.next')}mnemosine entity create <name> --tax-id <rfc> -t ${result.tenantId}\n`));
     })
   );
 }

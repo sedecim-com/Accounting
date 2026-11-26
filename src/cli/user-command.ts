@@ -15,6 +15,7 @@ import {
   optionByKey,
   argumentByKey,
 } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine user  (#326 · MNE-001-086)
@@ -85,14 +86,14 @@ export async function readPassword(opts: { passwordStdin?: boolean }, deps: User
   const stdin = deps.stdin ?? process.stdin;
   const fromEnv = env[PASSWORD_ENV];
   if (opts.passwordStdin && fromEnv !== undefined) {
-    throw usageError(`--password-stdin and ${PASSWORD_ENV} are both set; use one.`);
+    throw usageError({ key: 'platform.user.password.two_sources', params: { variable: PASSWORD_ENV } });
   }
   if (opts.passwordStdin) {
     // On a terminal, reading stdin in cooked mode echoes every character
     // typed (#326). --password-stdin is the script's door; a person at a
     // terminal gets the hidden prompt by leaving the flag out.
     if (stdin.isTTY) {
-      throw usageError('--password-stdin expects a pipe; run without it on a terminal for a hidden prompt.');
+      throw usageError({ key: 'platform.user.password.stdin_is_terminal' });
     }
     return readAll(stdin);
   }
@@ -102,14 +103,11 @@ export async function readPassword(opts: { passwordStdin?: boolean }, deps: User
     return fromEnv;
   }
   if (stdin.isTTY) {
-    const typed = await deps.readSecret('  Password: ');
-    if (typed === null) throw usageError('Cancelled; nothing was created.');
+    const typed = await deps.readSecret(`  ${t('platform.user.password.prompt')} `);
+    if (typed === null) throw usageError({ key: 'platform.user.password.cancelled' });
     return typed;
   }
-  throw usageError(
-    `No password: pipe it with --password-stdin or set ${PASSWORD_ENV}. ` +
-      'It is never accepted as an argument, where ps would show it.'
-  );
+  throw usageError({ key: 'platform.user.password.missing', params: { variable: PASSWORD_ENV } });
 }
 
 interface ListOpts {
@@ -153,7 +151,7 @@ export function registerUserCommand(program: Command, deps: UserCommandDeps): vo
       const wanted = opts.status?.map((s) => s.toLowerCase());
       const unknown = wanted?.filter((s) => !(USER_STATES as readonly string[]).includes(s)) ?? [];
       if (unknown.length > 0) {
-        throw usageError(`--status ${unknown.join(', ')}: a user is either ${USER_STATES.join(' or ')}.`);
+        throw usageError({ key: 'platform.lifecycle.status_unknown', params: { unknown: unknown.join(', '), kind: 'user', first: USER_STATES[0], second: USER_STATES[1] } });
       }
       const all = (await listUsers(await tenant()))
         .map((u) => ({
@@ -182,8 +180,8 @@ export function registerUserCommand(program: Command, deps: UserCommandDeps): vo
   create.action((_opts: unknown, command: Command) =>
     run(async () => {
       const opts = globalsOf<{ email?: string; role?: string; passwordStdin?: boolean; json?: boolean }>(command);
-      if (!opts.email) throw usageError('--email is required.');
-      if (!opts.role) throw usageError('--role is required: a login never gets a role by default.');
+      if (!opts.email) throw usageError({ key: 'platform.user.create.email_required' });
+      if (!opts.role) throw usageError({ key: 'platform.user.create.role_required' });
       const tenantId = await tenant();
       const password = await readPassword(opts, deps);
       const result = await createUser({ tenantId, email: opts.email, role: opts.role, password });
@@ -212,7 +210,7 @@ export function registerUserCommand(program: Command, deps: UserCommandDeps): vo
       const opts = globalsOf<{ reason?: string }>(command);
       const { reason } = gateMutation(archive, opts);
       const result = await archiveUser({ tenantId: await tenant(), email, reason: reason ?? '' });
-      process.stdout.write(`${deps.palette.green('✔')} ${result.email} archived.\n`);
+      process.stdout.write(`${deps.palette.green('✔')} ${t('platform.archived', { name: result.email })}\n`);
     })
   );
 }
