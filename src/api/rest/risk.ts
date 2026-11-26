@@ -114,20 +114,21 @@ export function declararRiesgoRuta(decl: DeclaracionRuta): RequestHandler {
   // aquí es «del cuerpo de la petición», que es peor, porque el cuerpo lo
   // escribe quien llama. Una ruta cuya mitad es segura se PARTE en dos
   // rutas con dos declaraciones.
+  // The CLI words them in Spanish (src/cli/kernel/risk.ts); here they speak English, to a developer.
   if (agente && (riesgo === 'irreversible' || riesgo === 'externo')) {
     throw new Error(
-      `Una ruta declara riesgo "${riesgo}" y acceso del agente a la vez. ` +
-        'El agente no postea al mayor, no mueve dinero, no timbra, no cancela, no presenta ' +
-        'ante una autoridad, no borra y no alcanza a un tercero con una credencial del ' +
-        'cliente. Si una parte de esta ruta es genuinamente segura, pártela en dos rutas con ' +
-        'dos declaraciones — el permiso no puede depender del contenido de la petición.'
+      `A route declares risk "${riesgo}" and agent access at once. ` +
+        'The agent does not post to the ledger, does not move money, does not stamp, does not ' +
+        'cancel, does not file with an authority, does not delete and does not reach a third party ' +
+        'with a client credential. If one part of this route is genuinely safe, split it into two ' +
+        'routes with two declarations: the permission cannot depend on the content of the request.'
     );
   }
   if (agente && riesgo === 'escritura' && !soloBorrador) {
     throw new Error(
-      'Una ruta le concede al agente una escritura sin afirmar soloBorrador. ' +
-        'Una escritura invocable por el agente cae en una cola de revisión, no en el mayor. ' +
-        'Pon soloBorrador: true si eso es cierto en TODOS los caminos de la ruta; si no, agente: false.'
+      'A route grants the agent a write without asserting soloBorrador. ' +
+        'A write the agent can call lands in a review queue, not in the ledger. ' +
+        'Set soloBorrador: true if that holds on EVERY path of the route; if not, agente: false.'
     );
   }
   // `soloBorrador` sin `agente` no es un error, pero tampoco significa nada:
@@ -136,9 +137,9 @@ export function declararRiesgoRuta(decl: DeclaracionRuta): RequestHandler {
   // no comprueba en ninguna parte.
   if (soloBorrador && !agente) {
     throw new Error(
-      'Una ruta afirma soloBorrador sin declarar agente. soloBorrador existe para habilitar al ' +
-        'agente sobre una escritura; sin agente no hay nada que habilitar y la afirmación queda ' +
-        'como una garantía que nadie comprueba. Quítala, o declara agente: true.'
+      'A route asserts soloBorrador without declaring agente. soloBorrador exists to enable the ' +
+        'agent on a write; without agente there is nothing to enable, and the assertion is left ' +
+        'as a guarantee nobody checks. Remove it, or declare agente: true.'
     );
   }
 
@@ -411,11 +412,11 @@ export function auditarRiesgoDeRutas(destino: Express | Router): ResumenDelCenso
   );
   if (noCaben.length > 0) {
     throw new Error(
-      `${noCaben.length} ruta(s) que exigen llave de idempotencia tienen un alcance más largo que ` +
-        `los ${LARGO_MAX_ALCANCE} caracteres de idempotency_keys.scope:\n` +
+      `${noCaben.length} route(s) that require an idempotency key have a scope longer than ` +
+        `the ${LARGO_MAX_ALCANCE} characters of idempotency_keys.scope:\n` +
         noCaben.map((r) => `  ${alcanceDeIdempotencia(r)} (${alcanceDeIdempotencia(r).length})`).join('\n') +
-        '\n\nAcorta la ruta, o amplía la columna con una migración. Dejarlo pasar significa que la ' +
-        'llave se rechaza al GRABARSE, que es después de que el acto irreversible ya ocurrió.'
+        '\n\nShorten the route, or widen the column with a migration. Letting it through means the ' +
+        'key is refused when it is STORED, which is after the irreversible act already happened.'
     );
   }
 
@@ -437,14 +438,14 @@ export function auditarRiesgoDeRutas(destino: Express | Router): ResumenDelCenso
   // decía de sí mismo desde el principio.
   if (resumen.malColocadas.length > 0) {
     const lista = resumen.malColocadas
-      .map((r) => `  ${r.metodo.toUpperCase()} ${r.ruta} (posición ${r.posicionDeclaracion})`)
+      .map((r) => `  ${r.metodo.toUpperCase()} ${r.ruta} (position ${r.posicionDeclaracion})`)
       .join('\n');
     throw new Error(
-      `${resumen.malColocadas.length} ruta(s) declaran su riesgo fuera del PRIMER manejador:\n${lista}\n\n` +
-        '`declararRiesgoRuta` no es un marcador inerte: deja la clase en res.locals y, cuando la ' +
-        'clase lo exige, aplica la llave de idempotencia. Detrás del manejador que responde no ' +
-        'llega a correr, así que la ruta queda declarada y desprotegida a la vez. Muévela al ' +
-        'primer lugar de la cadena.'
+      `${resumen.malColocadas.length} route(s) declare their risk outside the FIRST handler:\n${lista}\n\n` +
+        '`declararRiesgoRuta` is not an inert marker: it leaves the class in res.locals and, when the ' +
+        'class requires it, applies the idempotency key. Behind the handler that answers it never ' +
+        'gets to run, so the route is declared and unprotected at once. Move it to the first place ' +
+        'in the chain.'
     );
   }
 
@@ -454,13 +455,13 @@ export function auditarRiesgoDeRutas(destino: Express | Router): ResumenDelCenso
   // dos líneas. Se rompe en vez de elegir.
   if (resumen.declaradasDosVeces.length > 0) {
     const lista = resumen.declaradasDosVeces
-      .map((r) => `  ${r.metodo.toUpperCase()} ${r.ruta} (${r.declaraciones} declaraciones)`)
+      .map((r) => `  ${r.metodo.toUpperCase()} ${r.ruta} (${r.declaraciones} declarations)`)
       .join('\n');
     throw new Error(
-      `${resumen.declaradasDosVeces.length} ruta(s) declaran su riesgo más de una vez:\n${lista}\n\n` +
-        'Una ruta tiene UNA clase. Con dos declaraciones, cuál manda lo decide el orden de dos ' +
-        'líneas y no el acto que la ruta ejecuta. Deja una sola; si de verdad hay dos actos de ' +
-        'clases distintas, son dos rutas.'
+      `${resumen.declaradasDosVeces.length} route(s) declare their risk more than once:\n${lista}\n\n` +
+        'A route has ONE class. With two declarations, which one rules is decided by the order of two ' +
+        'lines and not by the act the route performs. Keep only one; if there really are two acts of ' +
+        'different classes, they are two routes.'
     );
   }
 
@@ -469,12 +470,12 @@ export function auditarRiesgoDeRutas(destino: Express | Router): ResumenDelCenso
       .map((r) => `  ${r.metodo.toUpperCase()} ${r.ruta}`)
       .join('\n');
     throw new Error(
-      `${resumen.sinDeclarar.length} ruta(s) que mutan no declararon su riesgo:\n${lista}\n\n` +
-        'Toda ruta POST, PUT, PATCH o DELETE declara su clase con `declararRiesgoRuta` como ' +
-        'PRIMER manejador, igual que toda hoja del CLI la declara junto a su registro ' +
-        '(src/cli/kernel/risk.ts). Sin declaración no se sabe si esa ruta escribe un borrador o ' +
-        'postea al mayor, y el agente no tiene con qué distinguirlas — que es exactamente cómo ' +
-        'la API llegó a postear saltándose el control que el CLI declaraba no exponer.'
+      `${resumen.sinDeclarar.length} mutating route(s) did not declare their risk:\n${lista}\n\n` +
+        'Every POST, PUT, PATCH or DELETE route declares its class with `declararRiesgoRuta` as its ' +
+        'FIRST handler, as every CLI leaf declares it next to its registration ' +
+        '(src/cli/kernel/risk.ts). Without a declaration there is no telling whether the route writes ' +
+        'a draft or posts to the ledger, and the agent has nothing to tell them apart by, which is ' +
+        'exactly how the API came to post while skipping the control the CLI declared it did not expose.'
     );
   }
   return resumen;

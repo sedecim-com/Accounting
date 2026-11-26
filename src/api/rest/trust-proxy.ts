@@ -64,11 +64,11 @@ export function resolverTrustProxy(
       valor: false,
       aviso:
         env === 'production'
-          ? 'TRUST_PROXY no está definida. Si hay un balanceador o un ingress delante, ' +
-            'req.ip es su dirección para todas las peticiones y el limitador previo a ' +
-            'autenticar reparte un solo cubo entre todos los que llaman. Declara los saltos ' +
-            'de confianza (p. ej. TRUST_PROXY=1) o las redes del proxy (TRUST_PROXY=10.0.0.0/8). ' +
-            'Si la app está expuesta directamente, este valor es el correcto.'
+          ? 'TRUST_PROXY is not set. If there is a load balancer or an ingress in front, ' +
+            'req.ip is its address for every request and the pre-authentication limiter ' +
+            'shares one single bucket among every caller. Declare the trusted hops ' +
+            '(e.g. TRUST_PROXY=1) or the proxy networks (TRUST_PROXY=10.0.0.0/8). ' +
+            'If the app is exposed directly, this value is the right one.'
           : undefined,
     };
   }
@@ -79,10 +79,10 @@ export function resolverTrustProxy(
     return {
       valor: true,
       aviso:
-        'TRUST_PROXY=true confía en la cabecera X-Forwarded-For COMPLETA, y esa cabecera la ' +
-        'escribe quien llama: puede declarar una IP distinta en cada petición y estrenar cubo ' +
-        'de límite cada vez. Prefiere el número de proxies delante (TRUST_PROXY=1) o sus redes ' +
-        '(TRUST_PROXY=10.0.0.0/8), que no son falsificables.',
+        'TRUST_PROXY=true trusts the WHOLE X-Forwarded-For header, and the caller writes that ' +
+        'header: it can claim a different IP on every request and get a fresh rate-limit bucket ' +
+        'each time. Prefer the number of proxies in front (TRUST_PROXY=1) or their networks ' +
+        '(TRUST_PROXY=10.0.0.0/8), which cannot be forged.',
     };
   }
 

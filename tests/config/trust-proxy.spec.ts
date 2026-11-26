@@ -28,7 +28,7 @@ describe('resolverTrustProxy — el defecto no se puede eludir', () => {
   it('en producción, la ausencia SÍ avisa — es donde hay balanceador', () => {
     const { valor, aviso } = resolverTrustProxy(undefined, 'production');
     expect(valor).toBe(false);
-    expect(aviso).toMatch(/un solo cubo/);
+    expect(aviso).toMatch(/one single bucket/);
   });
 });
 

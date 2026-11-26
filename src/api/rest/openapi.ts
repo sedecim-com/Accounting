@@ -204,9 +204,9 @@ export function construirOpenAPI(
       // clientes, y calladamente: uno de los dos métodos desaparece. Se rompe
       // aquí, con las dos rutas a la vista.
       throw new Error(
-        `Dos rutas producen el mismo operationId "${id}": ${anterior} y ` +
-          `${r.metodo.toUpperCase()} ${r.ruta}. Un operationId repetido hace que un generador ` +
-          'de clientes se quede con una sola de las dos, sin avisar. Renombra una de las rutas.'
+        `Two routes produce the same operationId "${id}": ${anterior} and ` +
+          `${r.metodo.toUpperCase()} ${r.ruta}. A repeated operationId makes a client generator ` +
+          'keep only one of the two, without warning. Rename one of the routes.'
       );
     }
     idsVistos.set(id, `${r.metodo.toUpperCase()} ${r.ruta}`);

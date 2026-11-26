@@ -228,13 +228,13 @@ describe('censo de riesgo de rutas', () => {
 describe('las combinaciones que el CLI prohíbe, prohibidas también aquí', () => {
   it('irreversible y agente juntos no se pueden declarar', () => {
     expect(() => declararRiesgoRuta({ riesgo: 'irreversible', agente: true })).toThrow(
-      /no postea al mayor/
+      /does not post to the ledger/
     );
   });
 
   it('externo y agente juntos tampoco', () => {
     expect(() => declararRiesgoRuta({ riesgo: 'externo', agente: true })).toThrow(
-      /no alcanza a un tercero/
+      /does not reach a third party/
     );
   });
 
@@ -249,7 +249,7 @@ describe('las combinaciones que el CLI prohíbe, prohibidas también aquí', () 
 
   it('soloBorrador sin agente no significa nada y se rechaza', () => {
     expect(() => declararRiesgoRuta({ riesgo: 'escritura', soloBorrador: true })).toThrow(
-      /sin declarar agente/
+      /without declaring agente/
     );
   });
 

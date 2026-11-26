@@ -78,11 +78,11 @@ export class ZodNoTraducible extends Error {
     detalle: string
   ) {
     super(
-      `No se puede publicar el contrato de ${donde}: ${detalle}\n\n` +
-        'El conversor de src/api/rest/zod-a-json-schema.ts lanza en vez de emitir un esquema ' +
-        'vacío, porque un contrato que calla un campo se lee como «aquí vale cualquier cosa» y ' +
-        'es peor que no publicar nada. Añade el caso al conversor —con su prueba— o expresa el ' +
-        'esquema con los constructores que ya sabe traducir.'
+      `Cannot publish the contract of ${donde}: ${detalle}\n\n` +
+        'The converter in src/api/rest/zod-a-json-schema.ts throws instead of emitting an empty ' +
+        'schema, because a contract that leaves a field out reads as "anything goes here" and ' +
+        'is worse than publishing nothing. Add the case to the converter, with its test, or write ' +
+        'the schema with the constructors it already translates.'
     );
     this.name = 'ZodNoTraducible';
   }
@@ -155,7 +155,7 @@ function translateNode(schema: z.core.$ZodType, where: string): EsquemaJson {
     schema instanceof z.core.$ZodXor ||
     (schema instanceof z.core.$ZodUnion && schema._zod.def.inclusive === false)
   ) {
-    throw new ZodNoTraducible(where, `el constructor de Zod "${unionName(schema)}" no está traducido.`);
+    throw new ZodNoTraducible(where, `the Zod constructor "${unionName(schema)}" is not translated.`);
   }
 
   if (schema instanceof z.core.$ZodEnum) return fromEnum(schema, where);
@@ -169,7 +169,7 @@ function translateNode(schema: z.core.$ZodType, where: string): EsquemaJson {
   // el vacío no es una traducción fallida: es lo que el esquema dice.
   if (schema instanceof z.core.$ZodUnknown || schema instanceof z.core.$ZodAny) return {};
 
-  throw new ZodNoTraducible(where, `el constructor de Zod "${nombreDe(schema)}" no está traducido.`);
+  throw new ZodNoTraducible(where, `the Zod constructor "${nombreDe(schema)}" is not translated.`);
 }
 
 /** El `type` que Zod guarda, para poder nombrarlo en un error. */
@@ -199,15 +199,15 @@ function fromPipe(schema: z.core.$ZodPipe, where: string): EsquemaJson {
     // manda. Publicar el de dentro sería publicar un contrato falso.
     throw new ZodNoTraducible(
       where,
-      'es un `z.preprocess`, y lo que valida por dentro no es lo que el cliente manda: ' +
-        'el contrato saldría describiendo el valor YA transformado.'
+      'is a `z.preprocess`, and what it validates inside is not what the client sends: ' +
+        'the contract would describe the value AFTER the transform.'
     );
   }
   if (out instanceof z.core.$ZodTransform) return jsonSchemaDeZod(input, where);
   throw new ZodNoTraducible(
     where,
-    'es un `.pipe()` a otro esquema (o un codec): la entrada y lo que se valida después ' +
-      'no son el mismo contrato, y el conversor no elige uno.'
+    'is a `.pipe()` to another schema (or a codec): the input and what is validated afterwards ' +
+      'are not the same contract, and the converter does not pick one.'
   );
 }
 
@@ -229,7 +229,7 @@ function withRefinementFlag(schema: z.core.$ZodType, node: EsquemaJson, where: s
   const custom = (schema._zod.def.checks ?? []).filter((c) => c._zod.def.check === 'custom').length;
   const cap = cotaDeArreglo(schema);
   if (cap !== undefined && node.type !== 'array') {
-    throw new ZodNoTraducible(where, 'lleva una cota de arreglo (topes.ts) sobre algo que no es un arreglo.');
+    throw new ZodNoTraducible(where, 'carries an array cap (topes.ts) on something that is not an array.');
   }
   const refinements = custom - (cap === undefined ? 0 : 1);
   return refinements > 0 ? { ...node, 'x-validacion-adicional': true } : node;
@@ -299,7 +299,7 @@ function deCadena(esquema: z.core.$ZodString, donde: string): EsquemaJson {
     } else if (check instanceof z.core.$ZodCheckStringFormat) {
       applyStringFormat(nodo, check, donde);
     } else if (check._zod.def.check !== 'custom') {
-      throw new ZodNoTraducible(donde, `la comprobación de cadena "${checkName(check)}" no está traducida.`);
+      throw new ZodNoTraducible(donde, `the string check "${checkName(check)}" is not translated.`);
     }
   }
   return nodo;
@@ -323,7 +323,7 @@ function applyStringFormat(node: EsquemaJson, check: z.core.$ZodCheckStringForma
       if (check instanceof z.core.$ZodURL) {
         const { hostname, protocol, normalize } = check._zod.def;
         if (hostname !== undefined || protocol !== undefined || normalize !== undefined) {
-          throw new ZodNoTraducible(where, 'la comprobación de cadena "url" con opciones no está traducida.');
+          throw new ZodNoTraducible(where, 'the string check "url" with options is not translated.');
         }
       }
       // JSON Schema no tiene «url»: tiene «uri», que es lo que
@@ -333,7 +333,7 @@ function applyStringFormat(node: EsquemaJson, check: z.core.$ZodCheckStringForma
     case 'regex': {
       const pattern = def.pattern;
       if (pattern === undefined) {
-        throw new ZodNoTraducible(where, 'la comprobación de cadena "regex" no trae su expresión.');
+        throw new ZodNoTraducible(where, 'the string check "regex" carries no expression.');
       }
       // `pattern` de JSON Schema NO lleva banderas, así que una expresión
       // con `i` o `m` se publicaría más estricta —o más laxa— de lo que la
@@ -342,16 +342,16 @@ function applyStringFormat(node: EsquemaJson, check: z.core.$ZodCheckStringForma
       if (pattern.flags !== '') {
         throw new ZodNoTraducible(
           where,
-          `la expresión regular /${pattern.source}/${pattern.flags} lleva banderas y ` +
-            '`pattern` de JSON Schema no las admite: el contrato publicaría otra regla ' +
-            'que la que la API aplica.'
+          `the regular expression /${pattern.source}/${pattern.flags} has flags, and JSON ` +
+            "Schema's `pattern` does not take them: the contract would publish a different rule " +
+            'from the one the API applies.'
         );
       }
       node.pattern = pattern.source;
       return;
     }
     default:
-      throw new ZodNoTraducible(where, `la comprobación de cadena "${checkName(check)}" no está traducida.`);
+      throw new ZodNoTraducible(where, `the string check "${checkName(check)}" is not translated.`);
   }
 }
 
@@ -364,7 +364,7 @@ function deNumero(esquema: z.core.$ZodNumber, donde: string): EsquemaJson {
   for (const check of checks) {
     if (check instanceof z.core.$ZodCheckNumberFormat) {
       if (check._zod.def.format !== 'safeint') {
-        throw new ZodNoTraducible(donde, `la comprobación numérica "${check._zod.def.format ?? 'number_format'}" no está traducida.`);
+        throw new ZodNoTraducible(donde, `the numeric check "${check._zod.def.format ?? 'number_format'}" is not translated.`);
       }
     } else if (check instanceof z.core.$ZodCheckGreaterThan) {
       // `.positive()` es min 0 NO inclusivo y `.nonnegative()` es min 0
@@ -377,7 +377,7 @@ function deNumero(esquema: z.core.$ZodNumber, donde: string): EsquemaJson {
     } else if (check instanceof z.core.$ZodCheckMultipleOf) {
       nodo.multipleOf = check._zod.def.value;
     } else if (check._zod.def.check !== 'custom') {
-      throw new ZodNoTraducible(donde, `la comprobación numérica "${checkName(check)}" no está traducida.`);
+      throw new ZodNoTraducible(donde, `the numeric check "${checkName(check)}" is not translated.`);
     }
   }
   return nodo;
@@ -404,7 +404,7 @@ function deArreglo(esquema: z.core.$ZodArray, donde: string): EsquemaJson {
     if (check instanceof z.core.$ZodCheckMinLength) minItems = check._zod.def.minimum;
     else if (check instanceof z.core.$ZodCheckMaxLength) maxItems = check._zod.def.maximum;
     else if (!(check instanceof z.core.$ZodCheckLengthEquals) && check._zod.def.check !== 'custom') {
-      throw new ZodNoTraducible(donde, `la comprobación de arreglo "${checkName(check)}" no está traducida.`);
+      throw new ZodNoTraducible(donde, `the array check "${checkName(check)}" is not translated.`);
     }
   }
   if (minItems !== undefined) nodo.minItems = minItems;
@@ -465,7 +465,7 @@ function deObjeto(esquema: z.core.$ZodObject, donde: string): EsquemaJson {
     nodo.additionalProperties = true;
     nodo['x-claves-desconocidas'] = 'conservadas';
   } else {
-    throw new ZodNoTraducible(`${donde}.*`, `el catchall "${nombreDe(catchall)}" no está traducido.`);
+    throw new ZodNoTraducible(`${donde}.*`, `the catchall "${nombreDe(catchall)}" is not translated.`);
   }
   return nodo;
 }
@@ -479,7 +479,7 @@ function fromEnum(schema: z.core.$ZodEnum, where: string): EsquemaJson {
     if (typeof value !== 'string' || key !== value) {
       throw new ZodNoTraducible(
         where,
-        'el constructor de Zod "enum" con llaves distintas de sus valores (un `z.nativeEnum`) no está traducido.'
+        'the Zod constructor "enum" with keys different from its values (a `z.nativeEnum`) is not translated.'
       );
     }
     values.push(value);
@@ -501,7 +501,7 @@ function deUnion(esquema: z.core.$ZodUnion, donde: string): EsquemaJson {
 function deDiccionario(esquema: z.core.$ZodRecord, donde: string): EsquemaJson {
   const def = esquema._zod.def;
   if (def.mode === 'loose' || def.partial === true) {
-    throw new ZodNoTraducible(donde, 'un diccionario parcial o `loose` no está traducido.');
+    throw new ZodNoTraducible(donde, 'a partial or `loose` record is not translated.');
   }
   const clave = def.keyType;
   // NOTE(#367): an enum-keyed record is partial on zod 3 and exhaustive on
@@ -510,7 +510,7 @@ function deDiccionario(esquema: z.core.$ZodRecord, donde: string): EsquemaJson {
   if (!(clave instanceof z.core.$ZodString)) {
     throw new ZodNoTraducible(
       donde,
-      `las llaves del diccionario son "${nombreDe(clave)}" y sólo se traducen llaves de cadena.`
+      `the record keys are "${nombreDe(clave)}" and only string keys are translated.`
     );
   }
   const nodo: EsquemaJson = {
