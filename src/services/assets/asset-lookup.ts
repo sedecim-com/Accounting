@@ -2,7 +2,6 @@ import { query } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import type { DepreciationMethod } from '../../types/index.js';
-import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // RESOLVER LA CATEGORÍA QUE UNA PERSONA TECLEA (F06a)
@@ -70,7 +69,7 @@ export async function resolverCategoriaDeActivo(
 ): Promise<CategoriaDeActivo> {
   const texto = referencia.trim();
   if (texto.length === 0) {
-    throw new ValidationError('--category llegó vacía: el activo necesita su clase.', 'category_id');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.category_empty' }, 'category_id');
   }
 
   if (UUID_RE.test(texto)) {
@@ -100,16 +99,19 @@ export async function resolverCategoriaDeActivo(
   if (parciales.length === 1) return parciales[0];
   if (parciales.length > 1) {
     throw new ValidationError(
-      `"${texto}" casa con ${parciales.length} categorías (${parciales.map((c) => c.name).join(', ')}). ` +
-        'Escribe el nombre completo o pasa su id: elegir la primera depreciaría contra las ' +
-        'cuentas de otra clase durante toda la vida del activo.',
+      {
+        key: 'error.VALIDATION_ERROR.asset.category_ambiguous',
+        params: { text: texto, count: parciales.length, matches: parciales.map((c) => c.name).join(', ') },
+      },
       'category_id'
     );
   }
 
   throw new ValidationError(
-    `No hay ninguna categoría llamada "${texto}" en esta entidad. Las que hay: ` +
-      `${todas.map((c) => c.name).join(', ')}.`,
+    {
+      key: 'error.VALIDATION_ERROR.asset.category_unknown',
+      params: { text: texto, known: todas.map((c) => c.name).join(', ') },
+    },
     'category_id'
   );
 }
@@ -166,19 +168,24 @@ export function exigirLibroDelPanel(
   if (declarado === undefined) return vigente.libro;
   const pedido = declarado.trim().toLowerCase();
   if (!(LIBROS_DE_DEPRECIACION as readonly string[]).includes(pedido)) {
+    const [first, second] = LIBROS_DE_DEPRECIACION;
     throw new ValidationError(
-      `--book "${declarado}" no existe: los dos libros son ${LIBROS_DE_DEPRECIACION.join(' y ')} ` +
-        '(el contable de la NIF C-6 y el fiscal de la LISR).',
+      { key: 'error.VALIDATION_ERROR.asset.book_unknown', params: { declared: declarado, first, second } },
       'book'
     );
   }
   if (pedido !== vigente.libro) {
+    // The key spells out the two commands of changePolicyHint (policy-hint.ts).
     throw new ValidationError(
-      `--book ${pedido} contradice al panel: \`base_depreciacion\` vale "${vigente.base}", así que ` +
-        `el libro que llega al mayor es ${vigente.libro}${vigente.definida ? '' : ' (defecto declarado, nadie ha contestado)'}. ` +
-        'Esta bandera declara sobre qué libro crees estar operando, no lo elige: cuál de las dos ' +
-        'depreciaciones se postea es criterio del despacho y se contesta con ' +
-        `${changePolicyHint('base_depreciacion')}.`,
+      {
+        key: 'error.VALIDATION_ERROR.asset.book_contradicts_policy',
+        params: {
+          requested: pedido,
+          base: vigente.base,
+          book: vigente.libro,
+          defined: vigente.definida ? 'yes' : 'no',
+        },
+      },
       'book'
     );
   }
