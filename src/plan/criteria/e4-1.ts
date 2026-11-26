@@ -2856,7 +2856,9 @@ export const E4_1: Criterio[] = [
       // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
       // por ahí aunque los códigos hubieran estado al día.
       const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
-      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
+      // The PTU's provision (MNE-001-298) has its own engine, ptu.ts, not this one, so its role is
+      // left out: counting it would keep the check green when the four benefit codes vanish.
+      const codigosDeProvision = [...seed.matchAll(/provision_(?!ptu\b)\w+:\s*'(\d+)'/g)].map((m) => m[1]);
       if (codigosDeProvision.length === 0) {
         // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
         // nada que buscar y saldría verde sobre un motor cableado: es
