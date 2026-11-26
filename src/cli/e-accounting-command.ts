@@ -291,6 +291,18 @@ export function filaDeHallazgoDeCatalogo(h: Hallazgo): Row {
   };
 }
 
+/**
+ * What a chart finding reads as on screen: by key, in the reader's language,
+ * when it has one (#608); its prose otherwise. The receipt row above keeps the
+ * text the finding was built with, English for a keyed one like the rest of
+ * the receipt.
+ */
+function chartFindingText(h: Hallazgo): string {
+  if (h.messageKey === undefined) return h.mensaje;
+  const { key, params } = h.messageKey;
+  return t(key, params ?? {});
+}
+
 /** Un hallazgo de la balanza, como fila. `referencia` es el NumCta. */
 export function filaDeHallazgoDeBalanza(h: HallazgoBalanza): Row {
   return {
@@ -657,7 +669,7 @@ Examples:
             severity: h.severidad === 'bloquea' ? 'blocking' : 'warning',
             nombre: h.regla,
             referencia: h.numCta ?? '',
-            detalle: h.mensaje,
+            detalle: chartFindingText(h),
           })),
           c
         );

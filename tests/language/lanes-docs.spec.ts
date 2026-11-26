@@ -15,6 +15,7 @@ import {
   linesFor,
   blobSha,
   declaredSha,
+  sourceSha,
   withoutFencedBlocks,
 } from '../../scripts/language/lanes/docs.js';
 
@@ -635,5 +636,64 @@ describe('README.md is the English source and README.es.md its twin (MNE-001-192
       expect(links.length, page).toBeGreaterThan(20);
       for (const target of links) expect(fs.existsSync(path.join(ROOT, target)), `${page} → ${target}`).toBe(true);
     }
+  });
+});
+
+// ============================================================
+// THE STAMP IGNORES THE GENERATED BLOCK (MNE-001-818, #311)
+//
+// `docs/language.md` carries the block `language:status --write` generates.
+// While the stamp was the plain `git hash-object` of the page, every block
+// change moved the twin's `source_sha`, and two PRs that each regenerated the
+// block conflicted on that line even when nothing else collided. The stamp is
+// now the hash of the page with the block's lines left out: prose still moves
+// it, the block no longer does, and a page without a block hashes as before.
+// ============================================================
+
+describe('the twin stamp leaves the generated block out', () => {
+  let root = '';
+  const write = (relative: string, content: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  };
+  const page = (figure: string, prose = LONG_ENGLISH): string =>
+    `# Language\n\n${prose}\n\n<!-- LANGUAGE-STATUS:START -->\n\n| lane | ${figure} |\n\n<!-- LANGUAGE-STATUS:END -->\n\nAfter.\n`;
+  const staleCount = (): number => lanesFor(root).find((c) => c.id === 'docs-spanish-twins-stale')!.value;
+
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'stamp-818-'));
+    write('src/a.ts', 'export const one = 1;\n');
+    write('docs/language.md', page('268'));
+    write('docs/language.es.md', `# Idioma\n\n> source_sha: ${sourceSha(path.join(root, 'docs/language.md'))}\n`);
+  });
+
+  afterAll(() => {
+    if (root !== '') fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('is git hash-object of the page without the block, and equals it on a page with no block', () => {
+    const md = path.join(root, 'docs/language.md');
+    write('docs/plain.md', page('268').replace(/<!-- LANGUAGE-STATUS:START -->[\s\S]*<!-- LANGUAGE-STATUS:END -->\n/, ''));
+    expect(sourceSha(md)).toBe(blobSha(path.join(root, 'docs/plain.md')));
+    write('docs/other.md', '# Other\n');
+    expect(sourceSha(path.join(root, 'docs/other.md'))).toBe(blobSha(path.join(root, 'docs/other.md')));
+    fs.rmSync(path.join(root, 'docs/plain.md'));
+    fs.rmSync(path.join(root, 'docs/other.md'));
+  });
+
+  it('a block change leaves the twin fresh; a prose change makes it stale, by the lane and by its command', () => {
+    const lane = (): number => {
+      const c = lanesFor(root).find((l) => l.id === 'docs-spanish-twins-stale')!;
+      expect(Number(execSync(c.command, { cwd: root, encoding: 'utf8', shell: '/bin/bash' }).trim())).toBe(c.value);
+      return c.value;
+    };
+    expect(lane()).toBe(0);
+    write('docs/language.md', page('235'));
+    expect(lane()).toBe(0);
+    write('docs/language.md', page('235', `${LONG_ENGLISH} One more sentence.`));
+    expect(lane()).toBe(1);
+    expect(staleCount()).toBe(1);
+    write('docs/language.md', page('268'));
   });
 });

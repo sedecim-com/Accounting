@@ -6264,6 +6264,72 @@ export const EN = {
   'close.carry.locked': '{period} is locked: its beginning balances were NOT rewritten.',
   'close.carry.locked_detail': 'It and the periods after it still open at the old figures; book the correction in an open period.',
   // ==== end of I8b · close ====
+  // ==== I8b · run-time strings by key, family platform, part 1 (MNE-001-808, issue #150) ====
+  // `memory`, `entity`, `user` and `tenant`: their English byte for byte (every "(s)" plural included). Commands,
+  // flags, variables, option values, ids, emails and amounts are parameters or fixed text.
+  'platform.memory.title': 'Firm memory',
+  'platform.memory.empty': 'No precedents yet.',
+  'platform.memory.empty_hint': 'They are created by answering questions (mnemosine questions) or directly:',
+  'platform.memory.retired_mark': '[retired]',
+  'platform.memory.stats': '{active} active · {retired} retired · {taught} taught directly',
+  'platform.memory.conflicts.title': 'Precedents in conflict',
+  'platform.memory.conflicts.none_active': 'No active precedents yet: nothing can contradict anything.',
+  'platform.memory.conflicts.none': 'None: the {scanned} active precedent(s) do not contradict each other.',
+  /** `scope` is the conflict's: `topic`, or anything else for one question answered twice. */
+  'platform.memory.conflicts.via': '{scope, select, topic {topic} other {same question}}',
+  'platform.memory.conflicts.retire_hint': '→ mnemosine memory retire {id} --reason "lost to a conflicting precedent"',
+  'platform.memory.conflicts.summary': '{decisions} decision(s) with contradicting criteria, out of {scanned} active precedent(s).',
+  'platform.memory.conflicts.ai_applies_one': 'The AI reads all of them from the same memory: it will apply one and will not say which.',
+  'platform.memory.conflicts.you_decide': 'Nobody but you decides which one stands: retire the others, or correct this one',
+  'platform.memory.conflicts.correct_hint': '(mnemosine memory correct <id> "<the answer that holds>").',
+  'platform.memory.conflicts.warning': '{decisions} decision(s) have contradicting precedents; the AI applies one without saying which.',
+  'platform.memory.digest.hidden': '{hidden} of {active} active precedent(s) fall outside the session digest (it carries {visible}, max {max}): the AI only sees them if it searches.',
+  'platform.memory.digest.retire_hint': 'Retire what no longer applies so what does fits: mnemosine memory retire <id> --reason "<why>"',
+  'platform.memory.topics': 'Most frequent topics:',
+  'platform.memory.taught': 'Criterion saved. The AI will use it from now on.',
+  'platform.memory.corrected': 'Precedent corrected: {answer}',
+  'platform.memory.retired': 'Precedent retired. The AI will no longer see it.',
+  'platform.memory.restored': 'Precedent reactivated.',
+  /** Stored in English in the row of `entity show`; only the human table reads it back in the reader's language. */
+  'platform.entity.source.flag': 'named on the command line',
+  'platform.entity.source.env': 'from MNEMOSINE_ENTITY',
+  'platform.entity.source.stored': 'pinned with `mnemosine entity use`',
+  'platform.entity.source.only': 'the only active entity',
+  'platform.entity.zone_undeclared': '{zone} (not declared)',
+  'platform.entity.use.active': 'Active entity: {name}',
+  'platform.entity.use.stored_in': 'stored in {file}',
+  'platform.entity.none_selected': 'No entity selected. Pin one with `mnemosine entity use <id|name>`, pass --entity, or set MNEMOSINE_ENTITY.',
+  'platform.entity.create.country_unknown': 'Unknown --country "{country}". Supported: {supported}.',
+  'platform.entity.create.chart_unknown': 'Unknown --chart "{chart}". Use auto, siempre or nunca.',
+  /** The label column of `entity create` and `tenant create`: padded to the longest label of the language, plus two. */
+  'platform.label.entity': 'entity',
+  'platform.label.tenant': 'tenant',
+  'platform.label.chart': 'chart',
+  'platform.label.assets': 'assets',
+  'platform.label.next': 'next',
+  'platform.entity.create.chart': '{seeded} account(s) seeded, {roles} role account(s), {buckets} payroll bucket(s)',
+  'platform.entity.create.assets': '{count} asset class(es) with their LISR art. 34/35 rate',
+  'platform.entity.create.bucket_unmappable': 'payroll bucket {bucket} needs account {code}, which this chart lacks — map it before the first pay run',
+  'platform.entity.create.system_attributed': "attributed to the tenant's system account (no user was in session)",
+  'platform.entity.create.pin_hint': 'pin it with: mnemosine entity use {taxId}',
+  'platform.entity.edit.profile_updated': '{name} fiscal profile updated',
+  'platform.entity.edit.profile_detail': '(regime {regime}, postal code {postalCode})',
+  'platform.entity.edit.zone_updated': '{name} minimum wage zone: {zone}',
+  'platform.entity.archive.pin_cleared': 'it was the pinned entity; the pin was cleared',
+  'platform.entity.unset.done': 'Unpinned {name}.',
+  'platform.entity.unset.none': 'No entity was pinned.',
+  /** `entity archive` and `user archive`. */
+  'platform.archived': '{name} archived.',
+  /** `kind` is `user` or `tenant`; `first` and `second` are its two lifecycle states, never translated. */
+  'platform.lifecycle.status_unknown': '--status {unknown}: a {kind, select, user {user} other {tenant}} is either {first} or {second}.',
+  'platform.user.password.two_sources': '--password-stdin and {variable} are both set; use one.',
+  'platform.user.password.stdin_is_terminal': '--password-stdin expects a pipe; run without it on a terminal for a hidden prompt.',
+  'platform.user.password.prompt': 'Password:',
+  'platform.user.password.cancelled': 'Cancelled; nothing was created.',
+  'platform.user.password.missing': 'No password: pipe it with --password-stdin or set {variable}. It is never accepted as an argument, where ps would show it.',
+  'platform.user.create.email_required': '--email is required.',
+  'platform.user.create.role_required': '--role is required: a login never gets a role by default.',
+  // ==== end of I8b · platform, part 1 ====
   // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
   // The one --line grammar that entry, invoice and bill read: its English byte for byte ("key(s)" included), the
   // Spanish with its plural; the keys as typed, the separator, the sample lines and the version are never translated.
@@ -8871,6 +8937,14 @@ export const EN = {
     'any attribute because it separates the fields of the cadena original. Fix the value and generate again.',
   'anexo24.seal.source_invalid':
     'It is not sealed: the archived file does not validate against the SAT XSD ({errors}). Nothing was decrypted.',
+  // --- e-accounting catalog|balance generate · the official XSD (#608) ----
+  'anexo24.xsd.rejected':
+    'The SAT XSD ({schema}) does not accept this file, so it is not deliverable: {errors}' +
+    '{more, plural, =0 {} one {; and # more line} other {; and # more lines}}',
+  'anexo24.xsd.not_validated':
+    'This file was not validated against the SAT XSD ({schema}) because xmllint did not run ({cause}), so it is ' +
+    'not deliverable. Install libxml2-utils (apt, apk) or libxml2 (Homebrew), confirm it with `mnemosine doctor` ' +
+    'and generate again.',
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

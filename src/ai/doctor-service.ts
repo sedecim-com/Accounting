@@ -4,6 +4,7 @@ import { checkSoDViolations } from '../api/rest/middleware/auth.js';
 import { query, withTenant } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
 import { sqlKeepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
+import { xmllintVersion } from '../services/sat/anexo24/official-xsd.js';
 import {
   censusWithholdingLayout,
   describeWithholdingPlan,
@@ -112,6 +113,7 @@ export const CHECK_IDENTITIES = {
   memoryConflicts: { id: 'contradicting-precedents', name: 'Memory conflicts' },
   memoryVisibility: { id: 'precedents-outside-digest', name: 'Memory in the prompt' },
   memoryVsPolicies: { id: 'precedent-contradicts-policy', name: 'Memory vs policy panel' },
+  xsdValidator: { id: 'anexo24-xsd-validator-on-path', name: 'xmllint' },
 } as const satisfies Record<string, CheckIdentity>;
 
 export interface DoctorReport {
@@ -169,6 +171,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
   checks.push(checkModelProvider(deps.cwd));
   checks.push(checkEncryptionKey());
   checks.push(checkRetiredContalinkKey());
+  checks.push(checkXsdValidator());
 
   const worst: CheckLevel = checks.some((c) => c.level === 'fail')
     ? 'fail'
@@ -869,6 +872,26 @@ export function checkRetiredContalinkKey(): CheckResult {
     level: 'warn',
     detail: 'CONTALINK_API_KEY is set but retired by #357 and not read: each entity needs its own key',
     fix: 'mnemosine init --section import  (option 1, per entity), then remove CONTALINK_API_KEY from .env',
+  };
+}
+
+/**
+ * xmllint, the process that checks an Anexo 24 file against the SAT's XSD
+ * (#608). Without it nothing is generated as deliverable and nothing is
+ * sealed, so its absence is said here and not found out at month end.
+ */
+export function checkXsdValidator(version: string | null = xmllintVersion()): CheckResult {
+  if (version !== null) {
+    return { ...CHECK_IDENTITIES.xsdValidator, level: 'ok', detail: `libxml version ${version}` };
+  }
+  return {
+    ...CHECK_IDENTITIES.xsdValidator,
+    level: 'warn',
+    detail:
+      'xmllint is not on the PATH: the Anexo 24 chart and trial balance cannot be checked against the ' +
+      'SAT XSD, so `e-accounting catalog generate` and `balance generate` report nothing as deliverable ' +
+      'and the seal commands refuse',
+    fix: 'install libxml2-utils (apt, apk) or libxml2 (Homebrew), then run mnemosine doctor again',
   };
 }
 

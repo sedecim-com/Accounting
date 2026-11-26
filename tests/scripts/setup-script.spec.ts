@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { CI_COLLATION, CI_COLLATION_STAND_IN } from '../integration/helpers/ci-collation.js';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -142,6 +143,23 @@ describe('scripts/lib/env.sh reads .env the way dotenv does', () => {
 
   it('answers empty for a key that is nowhere', () => {
     expect(valueOf('MISSING', 'OTHER=1\n')).toBe('');
+  });
+});
+
+describe('scripts/setup.sh creates its database sorting text as CI does (MNE-001-753)', () => {
+  const setup = read('scripts/setup.sh');
+
+  // The rule lives twice, in bash here and in TypeScript for the integration
+  // suite. That both databases come out alike is proven against Postgres by
+  // tests/integration/mne-001-753-test-database-collation.int.spec.ts; this
+  // keeps the two names from drifting where no database runs.
+  it('names CI\'s collation and its stand-in as the integration helper does', () => {
+    expect(setup).toContain(`CI_COLLATION='${CI_COLLATION}'`);
+    expect(setup).toContain(`CI_COLLATION_STAND_IN='${CI_COLLATION_STAND_IN}'`);
+  });
+
+  it('CI declares no locale of its own, so its collation is the image\'s', () => {
+    expect(CI).not.toMatch(/POSTGRES_INITDB_ARGS|LC_COLLATE|\bLANG:/);
   });
 });
 

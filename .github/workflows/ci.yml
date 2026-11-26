@@ -224,6 +224,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      # xmllint (libxml2), as in the unit and integration jobs: criteria that
+      # call the real Anexo 24 generators (E0.1 opening-balance-matches-source)
+      # validate their XML against the SAT's official XSDs once MNE-001-666
+      # (#982) lands, and the runner does not ship it.
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci
       - run: npm run migrate
       # TRINQUETE, NO INFORME.
