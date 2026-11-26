@@ -17,7 +17,7 @@ import {
 } from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
-import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
+import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-roles.js';
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
 import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
 
@@ -2094,8 +2094,8 @@ export async function queryRevaluationNetByAccount(
 // leaves the transaction. Each keeps inside the statement what decides WHICH
 // lines are summed (the role join, the tag under `IEPS_MOVE_TAG`, the posted
 // and unreversed entries): taking it out would cost a second query. The tag
-// and the roles are ieps-cash-basis.ts's own constants, read only when a
-// statement is built, so the import back from that module is safe.
+// and the roles come from the leaf ieps-roles.ts, which ieps-cash-basis.ts
+// re-exports, so the strings are the same and no import cycle is made.
 // ------------------------------------------------------------
 
 /**

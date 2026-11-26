@@ -8,7 +8,7 @@ import {
   queryIepsParkedByInvoice,
   queryIepsTakenByRows,
 } from '../reporting/report-service.js';
-import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
+import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from './ieps-roles.js';
 
 // ============================================================
 // IEPS ON CASH BASIS (LIEPS arts. 10, 5o. and 5o.-C)
@@ -38,16 +38,9 @@ import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 // statements on the caller's transaction client.
 // ============================================================
 
-/**
- * The role a PPD sale's IEPS waits in (2181): the taxonomy credits it on a PPD
- * sale, the seed maps it on Mexican books, and the backfill gives it to an
- * entity seeded before (MNE-001-505).
- */
-export const IEPS_UNCOLLECTED_ROLE: AccountRole = 'ieps_trasladado_no_cobrado';
-/** Where caused IEPS is owed (2180). */
-export const IEPS_DUE_ROLE: AccountRole = 'ieps_por_pagar';
-/** The key under `journal_entry_lines.tags` that ties an IEPS move to its invoice and receipt. */
-export const IEPS_MOVE_TAG = 'ieps_release';
+// The two roles (2181, 2180) and the move tag live in a leaf (ieps-roles.ts,
+// MNE-001-618) that the report layer reads too; every importer keeps them here.
+export { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from './ieps-roles.js';
 
 const SCALE = 4;
 
