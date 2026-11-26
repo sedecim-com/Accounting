@@ -4,8 +4,7 @@ import { withTransaction } from '../../database/connection.js';
 import { entityScope } from '../../database/scope.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
-import { queryTrialBalanceRows } from '../reporting/report-service.js';
-import { predicadoSinCierre } from '../reporting/criterio-cierre.js';
+import { queryTrialBalanceRows, queryWithholdingNetByEntry } from '../reporting/report-service.js';
 import { entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
 import { factorEntrePeriodos } from './inpc/inpc-service.js';
 import type { Periodo } from './inpc/periodo.js';
@@ -431,7 +430,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
  * entry (see the header): what an entry nets to on the role accounts counts
  * when it is a withholding, is taken back by its reversal mirror or by an
  * unapplied collection, and is ignored when it is the opening balance or
- * applies the withholding against a tax.
+ * applies the withholding against a tax. The sum per entry is the report
+ * layer's (MNE-001-622), read on the builder's client.
  */
 async function withheldInRange(
   client: pg.PoolClient,
@@ -441,22 +441,7 @@ async function withheldInRange(
   through: string
 ): Promise<{ accounts: Array<{ code: string; amount: Decimal }>; entryIds: string[] }> {
   if (accountIds.length === 0) return { accounts: [], entryIds: [] };
-  const { rows } = await client.query<{
-    entry_id: string; source_type: string | null; reverses_entry_id: string | null; code: string; net: string;
-  }>(
-    `SELECT je.id AS entry_id, je.source_type, je.reverses_entry_id, a.code,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
-       FROM journal_entries je
-       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
-       JOIN accounts a ON a.id = l.account_id
-      WHERE je.entity_id = $1 AND je.status = 'posted'
-        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
-        AND l.account_id = ANY($4::uuid[])
-        ${predicadoSinCierre()}
-      GROUP BY je.id, je.source_type, je.reverses_entry_id, a.code
-      ORDER BY a.code`,
-    [entityId, from, through, accountIds]
-  );
+  const rows = await queryWithholdingNetByEntry(entityId, accountIds, from, through, client);
   const entryNet = new Map<string, Decimal>();
   const entry = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
