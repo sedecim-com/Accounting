@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Command, Option } from 'commander';
 import { argumentByKey, describeCommand, optionByKey } from '../../src/cli/kernel/help.js';
@@ -58,5 +60,18 @@ describe('helpLanes', () => {
     expect(lane.perEntryRule).toBe(HELP_PER_ENTRY_RULE);
     expect(HELP_PER_ENTRY_RULE).toContain('describeCommand/optionByKey/argumentByKey');
     expect(HELP_PER_ENTRY_RULE).not.toContain('archivo');
+  });
+
+  it('is closed at 0 with no baseline entry, so --check demands 0 (MNE-001-405)', () => {
+    const [lane] = helpLanes();
+    expect(lane.closed).toBe(true);
+    expect(lane.target).toBe(0);
+    expect(lane.value).toBe(0);
+    const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, '../../docs/language-baseline.json'), 'utf8')) as {
+      lanes: Record<string, number>;
+      perFile: Record<string, Record<string, number>>;
+    };
+    expect(baseline.lanes[lane.id]).toBeUndefined();
+    expect(baseline.perFile[lane.id]).toBeUndefined();
   });
 });

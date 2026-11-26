@@ -4,8 +4,9 @@
  *
  *   npm run language:status                 el tablero, para leerlo
  *   npm run language:status -- --json       el mismo dato, para una máquina
- *   npm run language:status -- --check      exits 1 if a lane GREW over its baseline, or if the
- *                                           published block is not the one the baseline generates
+ *   npm run language:status -- --check      exits 1 if a lane GREW over its baseline, if a closed
+ *                                           lane is above its target, or if the published block
+ *                                           is not the one the baseline generates
  *   npm run language:status -- --tighten    baja las líneas base con holgura
  *   npm run language:status -- --escribir   rewrites the governing document's block (the ceilings)
  *   npm run language:status -- --seed    crea la línea base desde cero
@@ -152,6 +153,34 @@ export interface Finding {
   detail: string;
 }
 
+/**
+ * A CLOSED LANE IS JUDGED AGAINST ITS TARGET, NOT AGAINST THE BASELINE
+ * (MNE-001-405, #314). Above the target it is a finding, named per entry with
+ * the lane's own rule; and an entry in the baseline is a finding too, because
+ * it would be a ceiling that a hand edit can raise.
+ */
+export function closedLaneFindings(c: Lane, base: Baseline): Finding[] {
+  const findings: Finding[] = [];
+  if (base.lanes[c.id] !== undefined || base.perFile[c.id] !== undefined) {
+    findings.push({
+      lane: c.id,
+      detail: 'a closed lane has no baseline: remove its entry from docs/language-baseline.json',
+    });
+  }
+  if (c.value > c.target) {
+    const examples = (c.examples ?? []).slice(0, 3).join(' · ');
+    findings.push({
+      lane: c.id,
+      detail: `closed at ${c.target}, measures ${c.value}${examples ? ` — ${examples}` : ''}`,
+    });
+    const rule = c.perEntryRule ? `; ${c.perEntryRule}` : '';
+    for (const [entry, n] of Object.entries(c.perFile ?? {})) {
+      if (n > 0) findings.push({ lane: c.id, detail: `${entry}: 0 → ${n} — closed lane${rule}` });
+    }
+  }
+  return findings;
+}
+
 export function compare(lanes: Lane[], base: Baseline): Finding[] {
   const findings: Finding[] = [];
   const alive = new Map(lanes.map((c) => [c.id, c]));
@@ -170,6 +199,10 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
     // que necesite fusionar lo quita, y con él se van los quince que sí
     // exigen algo. Se mide, se publica, y no juzga.
     if (c.informational) continue;
+    if (c.closed) {
+      findings.push(...closedLaneFindings(c, base));
+      continue;
+    }
     const floor = base.lanes[c.id];
     if (floor === undefined) {
       // Un lane nuevo sin entrada no es un error: es un lane que nadie ha
@@ -230,6 +263,7 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
 export function tighten(lanes: Lane[], base: Baseline): Baseline {
   const next: Baseline = { ...base, lanes: { ...base.lanes }, perFile: {} };
   for (const c of lanes) {
+    if (c.closed) continue;
     const floor = base.lanes[c.id];
     next.lanes[c.id] = floor === undefined ? c.value : Math.min(floor, c.value);
     const fileFloors = base.perFile[c.id] ?? {};
@@ -243,13 +277,14 @@ export function tighten(lanes: Lane[], base: Baseline): Baseline {
     if (Object.keys(map).length > 0) next.perFile[c.id] = map;
   }
   // Un lane que desapareció no se conserva: su entrada dejaría de measure algo.
+  // Nor does a closed one: its ceiling is its target (MNE-001-405).
   for (const id of Object.keys(next.lanes)) {
-    if (!lanes.some((c) => c.id === id)) delete next.lanes[id];
+    if (!lanes.some((c) => c.id === id && !c.closed)) delete next.lanes[id];
   }
   return next;
 }
 
-function seed(lanes: Lane[], date: string): Baseline {
+export function seed(lanes: Lane[], date: string): Baseline {
   const b: Baseline = {
     _: 'LÍNEA BASELINE DEL IDIOMA. La comprueba `npm run language:status -- --check`, que corre en CI.',
     _por_que:
@@ -262,6 +297,7 @@ function seed(lanes: Lane[], date: string): Baseline {
     perFile: {},
   };
   for (const c of lanes) {
+    if (c.closed) continue;
     b.lanes[c.id] = c.value;
     if (c.perFile && Object.keys(c.perFile).length > 0) b.perFile[c.id] = { ...c.perFile };
   }
@@ -273,7 +309,7 @@ function seed(lanes: Lane[], date: string): Baseline {
  * `value`, `examples` and `perFile` are left out of the type on purpose, so a
  * live count cannot find its way back into the page without a compile error.
  */
-export type PublishedLane = Pick<Lane, 'id' | 'title' | 'target' | 'informational'>;
+export type PublishedLane = Pick<Lane, 'id' | 'title' | 'target' | 'informational' | 'closed'>;
 
 /**
  * The published block: a function of the baseline and the lane list ONLY.
@@ -287,8 +323,8 @@ export type PublishedLane = Pick<Lane, 'id' | 'title' | 'target' | 'informationa
 export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes'> | null): string {
   const NO_FIGURE = '—';
   const row = (c: PublishedLane): string => {
-    const ceiling = c.informational ? undefined : base?.lanes[c.id];
-    const mark = c.informational ? ' *(informational)*' : '';
+    const ceiling = c.informational ? undefined : c.closed ? c.target : base?.lanes[c.id];
+    const mark = c.informational ? ' *(informational)*' : c.closed ? ' *(closed)*' : '';
     return `| \`${c.id}\` | ${c.title}${mark} | ${ceiling ?? NO_FIGURE} | ${c.target} |`;
   };
   const required = lanes.filter((c) => !c.informational);
@@ -307,6 +343,9 @@ export function block(lanes: PublishedLane[], base: Pick<Baseline, 'lanes'> | nu
     "This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline",
     'in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its',
     'trace is the diff. The live figures are read with `npm run language:status`.',
+    ...(required.some((c) => c.closed)
+      ? ['A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refuses anything above it.']
+      : []),
     '',
     '| Lane | What it counts | Ceiling | Towards |',
     '|---|---|---:|---:|',
@@ -555,7 +594,7 @@ function main(argv: string[]): number {
   const width = Math.max(...lanes.map((c) => c.id.length));
   for (const c of lanes) {
     const floor = base.lanes[c.id];
-    const mark = c.informational ? ' (informativo)' : floor !== undefined && c.value < floor ? ` (base ${floor})` : '';
+    const mark = c.informational ? ' (informativo)' : c.closed ? ' (closed)' : floor !== undefined && c.value < floor ? ` (base ${floor})` : '';
     process.stdout.write(`  ${c.id.padEnd(width)}  ${String(c.value).padStart(6)} → ${c.target}${mark}\n`);
   }
   process.stdout.write(

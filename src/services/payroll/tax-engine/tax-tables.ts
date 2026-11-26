@@ -1,8 +1,11 @@
 import Decimal from 'decimal.js';
+import type { PoolClient } from 'pg';
 import { query } from '../../../database/connection.js';
 import type { PayFrequency, FilingStatus, TaxInput } from './tax-engine.interface.js';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 import { todayFor } from '../../policy/today.js';
+import { AppError, type ErrorMessageKey } from '../../../utils/errors.js';
+import { logger } from '../../../utils/logger.js';
 
 // ============================================================
 // TAX TABLE LOOKUP SERVICE
@@ -16,6 +19,20 @@ export interface TaxBracket {
   rate: number;
   base_tax: number;
   data: Record<string, unknown>;
+}
+
+/**
+ * MNE-001-822 · A gap in the deployment's payroll data, refused by catalogue
+ * key with its own code: a `tax_parameters` row or key, a block of rates, an
+ * account mapping, a pay frequency with no published tariff. A 500, not a 422:
+ * nothing the request sent can fill it, and the CLI keeps exiting 1
+ * (`exitCodeFor` maps no 500). The REST handler logs only what is not an
+ * `AppError`, so the gap is logged here, where it is found, as
+ * `stampNotRecorded` does.
+ */
+export function payrollDataGap(code: string, text: ErrorMessageKey): AppError {
+  logger.error('payroll_data_gap', { code, key: text.key, ...text.params });
+  return new AppError(500, code, text);
 }
 
 const bracketCache = new Map<string, TaxBracket[]>();
@@ -163,11 +180,7 @@ export async function getTaxParameters(
   // answer with the 2026 row. That is not a lookup, it is a contradiction, and
   // neither answer is right — so it is refused instead of resolved.
   if (!day.startsWith(`${taxYear}-`)) {
-    throw new Error(
-      `Se pidieron los parámetros de ${jurisdiction} para el ejercicio ${taxYear} con una fecha de ` +
-      `otro año (${day}): el ejercicio y la fecha del acto tienen que ser el mismo, o el recálculo ` +
-      'de un recibo viejo tomaría los parámetros de hoy.'
-    );
+    throw payrollDataGap('TAX_PARAMETERS_YEAR_MISMATCH', { key: 'error.TAX_PARAMETERS_YEAR_MISMATCH', params: { jurisdiction, taxYear, day } });
   }
 
   const key = `${jurisdiction}|${taxYear}|${day}`;
@@ -186,14 +199,61 @@ export async function getTaxParameters(
 
   const row = result.rows[0];
   if (!row) {
-    throw new Error(
-      `No hay parámetros fiscales de ${jurisdiction} vigentes el ${day} (ejercicio ${taxYear}): ` +
-      'siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, ' +
-      'y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.'
-    );
+    throw payrollDataGap('TAX_PARAMETERS_MISSING', { key: 'error.TAX_PARAMETERS_MISSING', params: { jurisdiction, day, taxYear } });
   }
   paramCache.set(key, row.params);
   return row.params;
+}
+
+/** One key of the `tax_parameters` row in force on a date, and since when its value rules. */
+export interface TaxParameterSince {
+  key: string;
+  value: string;
+  /** 'YYYY-MM-DD': the first window, going back, that already held this value. */
+  since: string;
+}
+
+/**
+ * The value of each key in the `tax_parameters` row in force on `onDate`, and
+ * the date that VALUE has been in force since (MNE-001-636, #953).
+ *
+ * The row is chosen with `getTaxParameters`' own predicate. The start is not
+ * the row's: one row holds every parameter, and the window that opens on
+ * 1 February for the UMA carries the minimum wage that rules since 1 January.
+ * So it goes back over the earlier windows while the key keeps its value. One
+ * statement for all the keys; a key the row does not hold is left out, and no
+ * row in force gives an empty list (`getTaxParameters` is the one that throws).
+ */
+export async function taxParameterValuesSince(
+  jurisdiction: string,
+  keys: readonly string[],
+  onDate: string,
+  client?: PoolClient
+): Promise<TaxParameterSince[]> {
+  const sql = `WITH annual_windows AS (
+       SELECT effective_from, effective_to, params FROM tax_parameters
+        WHERE jurisdiction = $1 AND effective_from <= $2::date
+     ), in_force AS (
+       SELECT effective_from, params FROM annual_windows
+        WHERE effective_to IS NULL OR effective_to >= $2::date
+        ORDER BY effective_from DESC
+        LIMIT 1
+     )
+     SELECT k.key, f.params ->> k.key AS value,
+            to_char((SELECT MIN(w.effective_from) FROM annual_windows w
+                      WHERE w.effective_from <= f.effective_from
+                        AND w.effective_from > COALESCE(
+                              (SELECT MAX(o.effective_from) FROM annual_windows o
+                                WHERE o.effective_from < f.effective_from
+                                  AND (o.params ->> k.key) IS DISTINCT FROM (f.params ->> k.key)),
+                              '-infinity'::date)),
+                    'YYYY-MM-DD') AS since
+       FROM in_force f CROSS JOIN unnest($3::text[]) WITH ORDINALITY AS k(key, n)
+      WHERE f.params ? k.key
+      ORDER BY k.n`;
+  const params = [jurisdiction, onDate, [...keys]];
+  const r = client ? await client.query<TaxParameterSince>(sql, params) : await query<TaxParameterSince>(sql, params);
+  return r.rows;
 }
 
 /**
@@ -324,11 +384,7 @@ export function requiredParameter(
   const raw = params[key];
   const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseFloat(raw) : NaN;
   if (!Number.isFinite(value)) {
-    throw new Error(
-      `Falta el parámetro fiscal «${key}» de ${jurisdiction} para ${taxYear}: sin él no se puede ` +
-      'calcular la cuota. Antes se sustituía por un valor quemado y la cifra inventada salía en ' +
-      'el recibo, en el CFDI de nómina y en la línea de captura.'
-    );
+    throw payrollDataGap('TAX_PARAMETER_MISSING', { key: 'error.TAX_PARAMETER_MISSING', params: { parameter: key, jurisdiction, taxYear } });
   }
   return value;
 }
@@ -350,10 +406,7 @@ export function requiredRates(
 ): Record<string, number> {
   const raw = params[block];
   if (!raw || typeof raw !== 'object') {
-    throw new Error(
-      `Falta el bloque de tasas «${block}» de MX para ${taxYear}: sin él la cuota saldría en cero ` +
-      'con los días cotizados correctos, que es un recibo creíble y falso.'
-    );
+    throw payrollDataGap('TAX_RATES_MISSING', { key: 'error.TAX_RATES_MISSING.block', params: { block, taxYear } });
   }
   const source = raw as Record<string, unknown>;
   const out: Record<string, number> = {};
@@ -365,10 +418,8 @@ export function requiredRates(
     else out[k] = n;
   }
   if (missing.length > 0) {
-    throw new Error(
-      `Faltan tasas en «${block}» de MX para ${taxYear}: ${missing.join(', ')}. ` +
-      'Una tasa ausente no es una tasa de cero.'
-    );
+    const params = { block, taxYear, missing: missing.join(', ') };
+    throw payrollDataGap('TAX_RATES_MISSING', { key: 'error.TAX_RATES_MISSING.rates', params });
   }
   return out;
 }

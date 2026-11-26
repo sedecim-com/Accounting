@@ -26,6 +26,7 @@ import { calculateFiniquito } from '../../../src/services/payroll/mx/finiquito-c
 import { query } from '../../../src/database/connection.js';
 import { getPolicy, getPolicyNumber } from '../../../src/services/policy/policy-service.js';
 import { calculateSeparationIsr } from '../../../src/services/payroll/mx/separation-isr.js';
+import { ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
 const mockGetPolicy = getPolicy as unknown as Mock;
@@ -289,7 +290,7 @@ describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
         { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' } as never,
         CTX
       )
-    ).rejects.toThrow(/termination_reason inválido o ausente/);
+    ).rejects.toThrow(/termination_reason is invalid or missing/);
   });
 
   it('inventado: tampoco', async () => {
@@ -300,7 +301,7 @@ describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
           termination_reason: 'porque si' } as never,
         CTX
       )
-    ).rejects.toThrow(/se esperaba renuncia, despido/);
+    ).rejects.toThrow(/expected renuncia, despido/);
   });
 
   it('y el error dice POR QUÉ no tiene valor por omisión', async () => {
@@ -310,7 +311,18 @@ describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
         { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' } as never,
         CTX
       )
-    ).rejects.toThrow(/prestación más\s+grande del finiquito/);
+    ).rejects.toThrow(/largest item of the severance\s+settlement/);
+  });
+
+  it('es una clave del catálogo (MNE-001-730): en español dice lo de antes', async () => {
+    conParametros({ rows: [TRABAJADOR] });
+    const err = await calculateFiniquito(
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' } as never,
+      CTX
+    ).catch((e: unknown) => e as ValidationError);
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(err).toMatchObject({ code: 'VALIDATION_ERROR', messageKey: { key: 'error.VALIDATION_ERROR.payroll.termination_reason' } });
+    expect((err as ValidationError).localized('es')).toMatch(/^termination_reason inválido o ausente: se esperaba renuncia, despido/);
   });
 });
 
@@ -467,7 +479,7 @@ describe('Finiquito MX — the separation ISR (MNE-001-375, LISR art. 93 fr. XII
       { ...DISMISSAL, termination_date: '2026-05-29', last_paid_through: '2026-05-15' },
       CTX
     );
-    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(r.seniority_premium_note.key).toBe('payroll.finiquito.seniority_premium.not_calculated');
     expect(handed().payments).toBeNull();
   });
 });
@@ -549,7 +561,7 @@ describe('Finiquito MX — the minimum-wage zone', () => {
     // Another date, so the parameters are read again and not taken from the cache.
     const r = await calculateFiniquito({ ...TERMINATION, termination_date: '2026-07-31', last_paid_through: '2026-07-15' }, CTX);
     expect(r.seniority_premium_amount).toBe('0.0000');
-    expect(r.seniority_premium_note).toMatch(/SIN CALCULAR/);
+    expect(r.seniority_premium_note.key).toBe('payroll.finiquito.seniority_premium.not_calculated');
     expect(r.seniority_premium_minimum_wage.daily_amount).toBeNull();
   });
 });

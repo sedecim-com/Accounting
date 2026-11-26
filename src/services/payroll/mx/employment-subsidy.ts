@@ -5,6 +5,7 @@ import { getPolicy } from '../../policy/policy-service.js';
 import { AccountingError } from '../../../utils/errors.js';
 import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
+import { payrollDataGap } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX · THE 2026 EMPLOYMENT SUBSIDY: A SHARE OF THE UMA, ROUNDED BY POLICY
@@ -64,11 +65,8 @@ export function subsidyDaysInPeriod(freq: PayFrequency): number | null {
     case 'quincenal': return 15;
     case 'monthly': return null;
     default:
-      throw new Error(
-        `No hay regla del subsidio al empleo para el periodo «${freq}»: el decreto prorratea por ` +
-          'días entre 30.4, y sólo la semana (7), la quincena (15) y el mes tienen tarifa del art. 96 ' +
-          'con la que acreditarlo. Configura la nómina como semanal, quincenal o mensual.'
-      );
+      const text = { key: 'error.EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED', params: { frequency: freq } } as const;
+      throw payrollDataGap('EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED', text);
   }
 }
 
@@ -115,8 +113,10 @@ export async function readEmploymentSubsidyRounding(
   if (!value) {
     throw new AccountingError(
       'EMPLOYMENT_SUBSIDY_ROUNDING_UNKNOWN',
-      `La política ${EMPLOYMENT_SUBSIDY_ROUNDING_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_ROUNDINGS.join(', ')}. Corrígela en mnemosine pending.`
+      {
+        key: 'error.POLICY_VALUE_UNKNOWN.payroll_reader',
+        params: { policy: EMPLOYMENT_SUBSIDY_ROUNDING_POLICY, value: policy.value, known: KNOWN_ROUNDINGS.join(', ') },
+      }
     );
   }
   return value;
@@ -168,8 +168,10 @@ export async function readEmploymentSubsidySeparateRun(
   if (!value) {
     throw new AccountingError(
       'EMPLOYMENT_SUBSIDY_SEPARATE_RUN_UNKNOWN',
-      `La política ${EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_SEPARATE_RUN_TREATMENTS.join(', ')}. Corrígela en mnemosine pending.`
+      {
+        key: 'error.POLICY_VALUE_UNKNOWN.payroll_reader',
+        params: { policy: EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, value: policy.value, known: KNOWN_SEPARATE_RUN_TREATMENTS.join(', ') },
+      }
     );
   }
   return value;
@@ -177,13 +179,16 @@ export async function readEmploymentSubsidySeparateRun(
 
 /**
  * What the employee's OTHER paychecks of the same pay period already carry:
- * the subsidy they caused and, since MNE-001-658, the IMSS and INFONAVIT they
- * charged. One read answers both questions, so a paycheck asks once.
+ * the subsidy they caused, since MNE-001-658 the IMSS and INFONAVIT they
+ * charged, and since MNE-001-739 the ISR they caused. One read answers all
+ * of them, so a paycheck asks once.
  */
 export interface OtherPaychecksInPeriod {
   paychecks: number;
   /** Their ISR base (`paychecks.taxable_wages_isr`). */
   taxableIsr: Decimal;
+  /** The tariff ISR they caused, before the subsidy (`paychecks.isr_withheld`). */
+  isr: Decimal;
   /** The subsidy they caused: credited against their ISR plus delivered in cash. */
   subsidy: Decimal;
   /** The worker's and the employer's IMSS quota they charged. */
@@ -219,6 +224,7 @@ export async function otherPaychecksInPeriod(ctx: {
   const r = await query<{
     paychecks: number;
     taxable: string;
+    isr: string;
     subsidy: string;
     imss_employee: string;
     imss_employer: string;
@@ -228,6 +234,7 @@ export async function otherPaychecksInPeriod(ctx: {
   }>(
     `SELECT COUNT(*)::int AS paychecks,
             COALESCE(SUM(p.taxable_wages_isr), 0) AS taxable,
+            COALESCE(SUM(p.isr_withheld), 0) AS isr,
             COALESCE(SUM(p.subsidio_empleo), 0) AS subsidy,
             COALESCE(SUM(p.imss_employee), 0) AS imss_employee,
             COALESCE(SUM(p.imss_employer), 0) AS imss_employer,
@@ -247,6 +254,7 @@ export async function otherPaychecksInPeriod(ctx: {
   return {
     paychecks: row?.paychecks ?? 0,
     taxableIsr: new Decimal(row?.taxable ?? 0),
+    isr: new Decimal(row?.isr ?? 0),
     subsidy: new Decimal(row?.subsidy ?? 0),
     imssEmployee: new Decimal(row?.imss_employee ?? 0),
     imssEmployer: new Decimal(row?.imss_employer ?? 0),

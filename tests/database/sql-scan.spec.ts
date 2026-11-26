@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { columnasCalificadas } from '../integration/helpers/sql-scan.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { columnasCalificadas, escanearArchivo } from '../integration/helpers/sql-scan.js';
 
 // ============================================================
 // El escáner es la guarda que impide que una consulta nombre una columna que
@@ -96,5 +99,40 @@ describe('las formas que aparecen en el repositorio', () => {
     expect(m.accounts).toContain('normal_balance');
     // Y no mezcla: `status` pertenece al asiento, no a la cuenta.
     expect(m.accounts).not.toContain('status');
+  });
+});
+
+// MNE-001-659: `FOR NO KEY UPDATE OF pay_periods` was read as an UPDATE of a
+// table named «of». The scanner already knew `FOR UPDATE OF`; the other lock
+// strength that carries the word is the same clause, not a statement.
+describe('a row lock clause is not an UPDATE statement', () => {
+  const locked = (clause: string) =>
+    `SELECT pp.tax_year FROM pay_periods pp WHERE pp.id = $1 AND pp.tenant_id = $2\n          ${clause} OF pp`;
+
+  /** The tables the scanner reports for a source file holding one SQL literal. */
+  function tablesOf(sql: string): string[] {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sql-scan-'));
+    const file = path.join(dir, 'source.ts');
+    fs.writeFileSync(file, `export const sql = \`${sql}\`;\n`);
+    try {
+      return escanearArchivo(file).tablas.map((t) => t.tabla);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it.each(['FOR UPDATE', 'FOR NO KEY UPDATE', 'FOR NO  KEY\n UPDATE'])('%s OF <alias> names no table', (clause) => {
+    expect(tablesOf(locked(clause))).toEqual(['pay_periods']);
+    expect(mapa(locked(clause))).toEqual({ pay_periods: ['id', 'tax_year', 'tenant_id'] });
+  });
+
+  it('FOR NO KEY UPDATE OF <table>, with no alias, leaves the table to be checked', () => {
+    const sql = 'SELECT tax_year FROM pay_periods WHERE id = $1\n FOR NO KEY UPDATE OF pay_periods';
+    expect(tablesOf(sql)).toEqual(['pay_periods']);
+  });
+
+  it('an UPDATE statement is still read, also after a lock clause in the same literal', () => {
+    expect(tablesOf('UPDATE no_such_table SET a = 1')).toEqual(['no_such_table']);
+    expect(mapa('UPDATE invoices i SET i.status = $1')).toEqual({ invoices: ['status'] });
   });
 });

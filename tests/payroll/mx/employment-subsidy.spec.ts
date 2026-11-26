@@ -162,7 +162,7 @@ describe('the days of each pay period', () => {
 
   it('a period with no ISR tariff has no subsidy either: it is refused, not guessed', () => {
     for (const f of ['biweekly', 'semimonthly', 'annual'] as const) {
-      expect(() => subsidyDaysInPeriod(f)).toThrow(/subsidio al empleo/i);
+      expect(() => subsidyDaysInPeriod(f)).toThrow(/no employment subsidy rule/i);
     }
   });
 });
@@ -203,7 +203,7 @@ describe('the calculator reads the law of the payment date, not the 009 table', 
 
   it('without a payment date or a rounding it refuses instead of assuming one', async () => {
     await expect(calc.calculate({ taxable_wages: 3000, pay_frequency: 'quincenal', tax_year: 2026,
-      employment_subsidy_rounding: 'producto_al_centavo' })).rejects.toThrow(/fecha de pago/);
+      employment_subsidy_rounding: 'producto_al_centavo' })).rejects.toThrow(/payment date/);
     await expect(calc.calculate({ taxable_wages: 3000, pay_frequency: 'quincenal', tax_year: 2026,
       pay_date: '2026-03-13' })).rejects.toThrow(/subsidio_al_empleo_redondeo/);
   });

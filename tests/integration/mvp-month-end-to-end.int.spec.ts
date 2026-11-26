@@ -735,6 +735,19 @@ function rowsOf<T>(r: Run): T[] {
   return (JSON.parse(r.out.slice(start, end + 2)) as { rows: T[] }).rows;
 }
 
+/**
+ * The error envelope a failing leaf writes under `--json` (MNE-001-698): one
+ * line of JSON, the last line of stderr. Warnings and notices come before it.
+ */
+interface ErrorEnvelope { schema: string; exit_code: number; key: string | null; params: Record<string, unknown>; message: string; remedy: string | null }
+function errorOf(r: Run): ErrorEnvelope {
+  const last = r.err.trimEnd().split('\n').pop() ?? '';
+  const envelope = JSON.parse(last) as ErrorEnvelope;
+  expect(envelope.schema).toBe('mnemosine.error/1');
+  expect(envelope.exit_code).toBe(r.status);
+  return envelope;
+}
+
 /** The ISR section of a working paper. Its `--json` is the whole paper, not `{ rows }`; cut out as `rowsOf` does. */
 interface IsrPaper {
   blockedBy: string[];
@@ -1677,7 +1690,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ['bank', 'reconciliation', 'open', BANK_ACCOUNT, '--period', '2025-12', '--baseline', baseline, '--json'];
       const refused = mnemosine(open(BOOKS_BEFORE_FEE));
       expect(refused.status, refused.out + refused.err).toBe(4);
-      expect(refused.err).toContain('50466.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 49533.33');
+      expect(errorOf(refused).message).toContain('50466.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 49533.33');
       expect(rowsOf(ok(['bank', 'reconciliation', 'list', '--json']))).toEqual([]);
 
       const [session] = rowsOf<Record<string, unknown>>(ok(open(BANK_BASELINE)));
@@ -1705,8 +1718,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ['bank', 'statement', 'import', csv, '--account', BANK_ACCOUNT, '--closing-balance', STATEMENT_CLOSING, '--json']
       );
       expect(refused.status, refused.out + refused.err).toBe(6);
-      expect(refused.err).toContain('6 línea(s) de este archivo ya están en otro estado de cuenta de la cuenta (bbva-2025-12.csv)');
-      expect(refused.err).toContain('`bank_statement_overlap` está en "block"');
+      const overlap = errorOf(refused);
+      expect(overlap.message).toContain('6 línea(s) de este archivo ya están en otro estado de cuenta de la cuenta (bbva-2025-12.csv)');
+      expect(overlap.message).toContain('`bank_statement_overlap` está en "block"');
 
       expect(bankMovements()).toEqual(movements);
       expect(rowsOf<{ id: string }>(ok(['bank', 'statement', 'list', '--account', BANK_ACCOUNT, '--fields', 'id', '--json'])).map((s) => s.id))

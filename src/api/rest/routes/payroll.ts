@@ -4,6 +4,8 @@ import { boundedString, emailString, integerNumber, uuidString } from '../../../
 import { schemaMessage } from '../../../utils/zod-client-errors.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { responseLanguage } from '../middleware/locale.js';
+import { t } from '../../../i18n/index.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { entityScope } from '../../../database/scope.js';
@@ -269,13 +271,14 @@ router.post(
   requirePermission('payroll:create'),
   requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    await calculatePayRun(
+    const { warnings } = await calculatePayRun(
       req.params.id,
       { ...req.body, tenant_id: req.tenantId!, created_by: req.user!.user_id },
       entityScope(req.tenantId!, req.entityId!)
     );
     const r = await query(`SELECT * FROM pay_runs WHERE id = $1`, [req.params.id]);
-    res.json({ data: r.rows[0], meta: meta(req) });
+    // CONTRACT: `warnings` names each yearly parameter the pay date found without its new row (MNE-001-636).
+    res.json({ data: { ...r.rows[0], warnings }, meta: meta(req) });
   })
 );
 
@@ -374,7 +377,12 @@ router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePerm
     tenantId: req.tenantId!,
     entityId: req.entityId,
   });
-  res.json({ data: result, meta: meta(req) });
+  // The note is a key (MNE-001-815): it reads in the language the request negotiated.
+  const note = result.seniority_premium_note;
+  res.json({
+    data: { ...result, seniority_premium_note: t(note.key, note.params ?? {}, responseLanguage(res)) },
+    meta: meta(req),
+  });
 }));
 
 // ---------- USA W-2 ----------

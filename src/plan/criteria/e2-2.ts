@@ -354,7 +354,8 @@ export const E2_2: Criterio[] = [
       const api = codeOf(routes);
 
       // ── 1. The labeller comes from the edge, not from a copy living in the route ──
-      if (!/import \{ localizedSection \} from '[^']*i18n\/report-labels\.js'/.test(api)) {
+      // Alongside other names of the same edge (`reportGroupLabel`, MNE-001-652).
+      if (!/import \{[^}]*\blocalizedSection\b[^}]*\} from '[^']*i18n\/report-labels\.js'/.test(api)) {
         return falla(
           'reports.ts dejó de importar localizedSection del rotulador del borde: el rótulo volvería a componerse dentro de la ruta, ' +
             'donde ni el catálogo ni la invariante de servicios lo alcanzan'

@@ -325,7 +325,7 @@ Es un segundo acto deliberado, y exige que el periodo ya esté en `soft_close`. 
 mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
 ```
 
-Tres advertencias sobre el cierre anual:
+Cuatro advertencias sobre el cierre anual:
 
 **El sello anual espera a los meses.** Sellar el último periodo barre el resultado con lo que esté contabilizado en ese momento, y un mes que no está en cierre duro todavía recibe pólizas: un ingreso o un gasto que llegue después quedaría fuera del resultado ya barrido. Por eso, por omisión, el cierre duro del periodo 13 **se niega** mientras otro periodo del ejercicio esté en cierre suave, abierto o futuro, y nombra cada uno con su estado. El cierre suave del periodo 13 no se detiene: ahí la casilla `year-months-sealed` sólo avisa que el sello se va a negar. Para verlos:
 
@@ -337,6 +337,20 @@ Ciérralos en duro, el más antiguo primero, y vuelve a sellar. El despacho que 
 
 ```bash
 mnemosine pending define year_seal_with_unsealed_months accept_unsealed
+```
+
+**Lo que se contabiliza en un ejercicio ya sellado se nombra, y el periodo siguiente espera.** Un mes en cierre suave (cuando el despacho sella así) o uno reabierto después del sello todavía recibe pólizas, y nada las barre. La verificación `year-sweep` del mayor nombra cada póliza de ingresos o de gastos contabilizada en el ejercicio después de su barrido, con su periodo, su fecha, el periodo que selló y las cuentas que ya no cuadran con el barrido. Mientras exista, el cierre de los periodos posteriores al ejercicio se niega (la casilla `ledger-integrity`); los meses del mismo ejercicio sí se pueden cerrar. Una póliza y su reversa no cuentan, porque juntas no cambian el resultado.
+
+```bash
+mnemosine ledger check --check year-sweep
+```
+
+Hay dos salidas: cerrar el periodo 13 otra vez, para que barra lo que llegó tarde (cómo se trata el primer barrido lo dice `cierre_recierre_de_periodo_reabierto`), o reversar la póliza dentro del mismo ejercicio.
+
+```bash
+mnemosine period reopen "Year-end adjustments 2026" --force --reason "Barrer la póliza tardía"
+mnemosine close --period "Year-end adjustments 2026"
+mnemosine close --period "Year-end adjustments 2026" --hard
 ```
 
 **A dónde va el resultado lo decide el panel.** Por omisión, a la 3300 «Resultado del Ejercicio», y una reclasificación posterior, cuando la asamblea lo aprueba, lo lleva a la 3200 «Resultado de Ejercicios Anteriores»; la otra opción de `destino_del_resultado_del_ejercicio` lo manda directo a la 3200. Si la política pide 3300 y el catálogo no la tiene, se usa la 3200 y el cierre lo dice. La cuenta se resuelve por **código** y tiene que estar marcada como cuenta de sistema. Nunca a la 3100: es Capital Social, y NIF C-11 sólo lo mueve por actos corporativos formales.

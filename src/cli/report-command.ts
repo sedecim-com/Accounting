@@ -19,7 +19,7 @@ import {
 } from '../services/reporting/materialized-view-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { getLanguage, t } from '../i18n/index.js';
-import { reportSectionLabel, reportSubsectionLabel } from '../i18n/report-labels.js';
+import { reportGroupLabel, reportSectionLabel, reportSubsectionLabel } from '../i18n/report-labels.js';
 
 // ============================================================
 // A REPORT LABEL IS COMPOSED WHEN PRINTED, NOT WHEN THE ROW IS BUILT
@@ -38,11 +38,21 @@ const keyOf = (value: unknown): string => (typeof value === 'string' ? value : '
 
 const sectionOf = (value: string): string => (value === '' ? '' : reportSectionLabel(value));
 const categoryOf = (value: string): string => (value === '' ? '' : reportSubsectionLabel(value, getLanguage()));
+/**
+ * The balance sheet's `category`: a `group` row stores the key of its group,
+ * which is spelled like a category (`earned_capital`), so it is labelled from
+ * the group namespace (MNE-001-652).
+ */
+const categoryOrGroupOf = (value: string, row: Row): string =>
+  row.line === 'group' ? reportGroupLabel(value) : categoryOf(value);
 
 /** The balance sheet's `name`: account names pass through, subtotals get composed. */
 function balanceSheetName(value: string, row: Row): string {
   if (row.line === 'subtotal') {
     return t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) });
+  }
+  if (row.line === 'group') {
+    return t('report.total_of', { name: reportGroupLabel(keyOf(row.category)) });
   }
   if (row.line === 'total') {
     return row.section === ''
@@ -160,9 +170,7 @@ function money(value: string | null | undefined): string {
  */
 function rejectStatus(opts: CommonOpts, name: string): void {
   if (opts.status?.length) {
-    throw usageError(
-      `--status does not apply to "${name}": it reports posted balances, not a lifecycle state.`
-    );
+    throw usageError({ key: 'report.status_not_applicable', params: { command: name } });
   }
 }
 
@@ -289,10 +297,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     if (!opts.period) return null;
     const range = await resolvePeriodRange(ctx.entityId, opts.period);
     if (!range.matched_fiscal_period) {
-      note(
-        `"${opts.period}" matched no single fiscal period; using the calendar range ` +
-          `${range.start_date} → ${range.end_date}.`
-      );
+      note(t('report.period.calendar_fallback', { period: opts.period, start: range.start_date, end: range.end_date }));
     }
     return range;
   };
@@ -319,11 +324,11 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       if (opts.asOf) {
         // Cumulative: everything posted up to the cutoff.
         filters.asOfDate = opts.asOf;
-        scope = `cumulative to ${opts.asOf}`;
+        scope = t('report.scope.cumulative', { date: opts.asOf });
       } else if (range?.fiscal_period_id) {
         // The activity of ONE fiscal period, by its id — the strict reading.
         filters.fiscalPeriodId = range.fiscal_period_id;
-        scope = `period ${range.period_name}`;
+        scope = t('report.scope.period', { name: range.period_name });
       } else if (range) {
         filters.sinceDate = range.start_date;
         filters.untilDate = range.end_date;
@@ -331,15 +336,15 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       } else if (opts.since || opts.until) {
         filters.sinceDate = opts.since;
         filters.untilDate = opts.until;
-        scope = `${opts.since ?? 'start'} → ${opts.until ?? 'today'}`;
+        scope = t('report.scope.open_range', { start: opts.since ?? 'none', end: opts.until ?? 'none' });
       } else {
-        scope = 'full posted history';
+        scope = t('report.scope.full_history');
       }
 
       if (opts.level !== undefined) {
         const level = Number(opts.level);
         if (!Number.isInteger(level) || level < 1) {
-          throw usageError(`--level must be a whole number of at least 1; got "${opts.level}".`);
+          throw usageError({ key: 'report.trial_balance.level_invalid', params: { value: opts.level } });
         }
         filters.maxLevel = level;
       }
@@ -382,7 +387,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
           : { ending_balance: money(r.ending_balance) }),
       }));
 
-      header(ctx, 'Trial balance', scope);
+      header(ctx, t('report.title.trial_balance'), scope);
       render(rows, { ...opts, total: tb.total, idField: 'account_code' });
 
       // The footing goes to stderr so a piped csv stays importable, and it is
@@ -409,20 +414,21 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
             .join(', ');
           const resto = tb.inicial.descuadres.length - 5;
           warn(
-            `SaldoIni + Debe - Haber does not give SaldoFin in ` +
-              `${tb.inicial.descuadres.length} account(s): ${nombradas}` +
+            t('report.trial_balance.sat_mismatch', { count: tb.inicial.descuadres.length, accounts: nombradas }) +
               (resto > 0 ? ` (+${resto})` : '')
           );
         }
       }
 
       const { total_debits, total_credits, is_balanced } = tb.totals;
-      const line = `Debits ${total_debits}   Credits ${total_credits}   (${tb.total} accounts)`;
-      if (is_balanced) note(`${line}   balanced`);
+      const footing = t('report.trial_balance.footing', { debits: total_debits, credits: total_credits, count: tb.total });
+      if (is_balanced) note(t('report.trial_balance.balanced', { footing }));
       else {
         warn(
-          `${line}   OUT OF BALANCE by ` +
-            `${new Decimal(total_debits).minus(total_credits).toFixed(4)}`
+          t('report.trial_balance.out_of_balance', {
+            footing,
+            difference: new Decimal(total_debits).minus(total_credits).toFixed(4),
+          })
         );
       }
     })
@@ -465,6 +471,15 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
             section: section.key, category: sub.key, code: '',
             name: '', amount: sub.total, line: 'subtotal',
           });
+          // Earned capital spans three subsections (NIF C-11): its total
+          // follows the last of them. Its own `line`, so a script that sums
+          // the subtotals does not count it twice (MNE-001-652).
+          if (section === bs.equity && sub.key === bs.earned_capital.subsections.at(-1)) {
+            rows.push({
+              section: section.key, category: bs.earned_capital.key, code: '',
+              name: '', amount: bs.earned_capital.total, line: 'group',
+            });
+          }
         }
         rows.push({
           section: section.key, category: '', code: '',
@@ -478,12 +493,12 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         line: 'total',
       });
 
-      header(ctx, 'Balance sheet', `as of ${asOf}`);
+      header(ctx, t('report.title.balance_sheet'), t('report.scope.as_of', { date: asOf }));
       render(pageOf(rows, opts), {
         ...opts,
         total: rows.length,
         idField: 'code',
-        labelled: { section: sectionOf, category: categoryOf, name: balanceSheetName },
+        labelled: { section: sectionOf, category: categoryOrGroupOf, name: balanceSheetName },
       });
 
       // The accounting identity, enforced rather than explained away.
@@ -504,10 +519,10 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         );
       } else {
         throw validationFailed(
-          `The balance sheet does not balance: assets ${bs.assets.total} vs liabilities plus ` +
-            `equity ${bs.total_liabilities_and_equity} — out by ${bs.out_of_balance}. ` +
-            'The ledger itself is inconsistent at this date; run `mnemosine entry check` and ' +
-            'reconcile the subledgers before relying on any statement.',
+          {
+            key: 'report.balance_sheet.unbalanced',
+            params: { assets: bs.assets.total, total: bs.total_liabilities_and_equity, difference: bs.out_of_balance },
+          },
           { out_of_balance: bs.out_of_balance, as_of: asOf }
         );
       }
@@ -534,9 +549,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       if (!startDate || !endDate) {
         // An income statement without a period is not a statement, so this
         // refuses rather than inventing a range that would look authoritative.
-        throw usageError(
-          'An income statement covers a period. Pass --period <expr>, or both --since and --until.'
-        );
+        throw usageError({ key: 'report.income_statement.period_required' });
       }
 
       const is = await getIncomeStatement(ctx.entityId, { startDate, endDate });
@@ -556,7 +569,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       }
       rows.push({ section: '', code: '', name: '', amount: is.net_income, line: 'total' });
 
-      header(ctx, 'Income statement', `${startDate} → ${endDate}`);
+      header(ctx, t('report.title.income_statement'), `${startDate} → ${endDate}`);
       render(pageOf(rows, opts), {
         ...opts,
         total: rows.length,
@@ -627,12 +640,12 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
 
       const scope =
         (opts.asOf
-          ? `cumulative to ${opts.asOf}`
+          ? t('report.scope.cumulative', { date: opts.asOf })
           : startDate || endDate
-            ? `${startDate ?? 'start'} → ${endDate ?? 'today'}`
-            : 'full posted history') +
-        (opts.account ? ` · account ${opts.account}` : '');
-      header(ctx, 'General ledger', scope);
+            ? t('report.scope.open_range', { start: startDate ?? 'none', end: endDate ?? 'none' })
+            : t('report.scope.full_history')) +
+        (opts.account ? ` · ${t('report.scope.account', { code: opts.account })}` : '');
+      header(ctx, t('report.title.general_ledger'), scope);
       render(rows, {
         ...opts,
         total: gl.total,
@@ -640,8 +653,9 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         fields: opts.fields ?? 'entry_date,entry_number,account_code,account_name,line_number,debit_amount,credit_amount,description',
       });
       note(
-        `Page debits ${gl.period_debits}   page credits ${gl.period_credits}   ` +
-          `(${gl.rows.length} of ${gl.total} movements)`
+        t('report.general_ledger.page_totals', {
+          debits: gl.period_debits, credits: gl.period_credits, shown: gl.rows.length, total: gl.total,
+        })
       );
     })
   );
@@ -708,7 +722,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
               };
         });
 
-        header(ctx, isAr ? 'Aged receivables' : 'Aged payables', `as of ${asOf}`);
+        header(ctx, t(isAr ? 'report.title.aged_receivables' : 'report.title.aged_payables'), t('report.scope.as_of', { date: asOf }));
         render(rows, {
           ...opts,
           total: aging.total,
@@ -741,10 +755,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         // MNE-001-649), said out loud rather than left for an auditor to
         // discover: the cutoff aged the DUE DATE only.
         if (aging.balance_basis === 'current' && asOf !== today()) {
-          warn(
-            `--as-of ${asOf} ages the due dates only. The amounts are today's open balances, ` +
-              'not the balances as they stood on that date.'
-          );
+          warn(t('report.aging.as_of_due_dates_only', { date: asOf }));
         }
       })
     );
@@ -762,20 +773,16 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       const ctx = await entityOf(opts);
       rejectStatus(opts, 'report view show');
       const statuses = await getReportingViewStatus(ctx.entityId);
-      header(ctx, 'Reporting views', 'view totals vs the live ledger');
+      header(ctx, t('report.title.views'), t('report.view.scope'));
       render(pageOf(statuses, opts) as unknown as Row[], {
         ...opts,
         total: statuses.length,
         idField: 'view',
       });
       if (statuses.some((s) => s.is_stale)) {
-        warn(
-          'At least one view no longer agrees with the ledger. The refresh trigger fires only when ' +
-            'an entry becomes posted, so migrations and bulk loads leave the views behind. ' +
-            'Rebuild them with `mnemosine report view sync`.'
-        );
+        warn(t('report.view.stale'));
       } else {
-        note('Every reporting view agrees with the ledger.');
+        note(t('report.view.fresh'));
       }
     })
   );
@@ -810,7 +817,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         duration_ms: r.duration_ms,
       }));
       render(rows, { ...opts, total: rows.length, idField: 'view' });
-      note('Reporting views rebuilt for every entity in this installation.');
+      note(t('report.view.synced'));
     })
   );
 }

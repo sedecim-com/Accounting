@@ -1765,7 +1765,8 @@ export const E4_1: Criterio[] = [
       if (!existe(p)) return falla('no hay calculador de ISN: el impuesto sobre nóminas sigue sin existir');
       const isn = codigoDe(p);
       const negativas = ['isn_sin_tasa_capturada', 'isn_regimen_no_soportado', 'isn_sin_estado_en_el_trabajador'];
-      const faltan = negativas.filter((h) => !isn.includes(h));
+      // MNE-001-815: the finding's code, not its catalogue key, which also carries the name.
+      const faltan = negativas.filter((h) => !isn.includes(`codigo: '${h}'`));
       if (faltan.length > 0) {
         return falla(
           `el motor del ISN no se niega ante ${faltan.join(', ')}: un estado sin tasa capturada, un ` +
@@ -1878,9 +1879,10 @@ export const E4_1: Criterio[] = [
           'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
       },
       {
+        // MNE-001-815: the note is a key, and its Spanish twin names the figure that is missing.
         archivo: 'src/services/payroll/mx/finiquito-math.ts',
-        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
-        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        de: "      key: 'payroll.finiquito.seniority_premium.not_calculated',",
+        a: "      key: 'payroll.finiquito.seniority_premium.not_owed',",
         porque:
           'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
       },
@@ -1911,7 +1913,7 @@ export const E4_1: Criterio[] = [
       // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
       //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
       //    general le paga 45 298.80 de menos a un trabajador fronterizo.
-      if (!/SIN CALCULAR/.test(src)) {
+      if (!/key: 'payroll\.finiquito\.seniority_premium\.not_calculated'/.test(src)) {
         return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
       }
 
@@ -1985,7 +1987,8 @@ export const E4_1: Criterio[] = [
         return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
       }
       // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
-      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+      // MNE-001-822: the refusal speaks by key; its code is what stays in the source.
+      if (!/default:\s*throw payrollDataGap\('ISR_TARIFF_PERIOD_UNSUPPORTED'/.test(src)) {
         return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
       }
       if (!/case 'weekly': return 'weekly';/.test(src)) {
@@ -2480,7 +2483,9 @@ export const E4_1: Criterio[] = [
           'el SUA dejó de cotejarse contra el pasivo que `acumularPasivoPatronal` apuntó al aprobar: la cifra vuelve a salir de un solo camino y nadie la confirma'
         );
       }
-      if (!/bloqueantes\.length > 0/.test(src) || !/throw new ValidationError/.test(src)) {
+      // MNE-001-822: the refusal is `SuaMismatchError`, and it has to stay a ValidationError (422, exit 4).
+      const refusal = /export class SuaMismatchError extends ValidationError\b/.test(codigoDe('src/utils/errors.ts'));
+      if (!/bloqueantes\.length > 0/.test(src) || !/throw new SuaMismatchError\(/.test(src) || !refusal) {
         return falla(
           'el archivo del SUA volvió a entregarse pese a contradecir el pasivo apuntado: un descuadre que sólo se avisa es un descuadre que se sube al SUA'
         );
@@ -3063,7 +3068,7 @@ export const E4_1: Criterio[] = [
     paquete: 'E4.1',
     id: 'overtime-exempt-by-fraction-one-as-the-panel-says',
     enunciado:
-      'Overtime is exempt by half, up to 5 UMA of the payment date per week of the period and within the dated LFT limit (LISR art. 93 fr. I), unless the panel key overtime_isr_exemption says to tax it whole',
+      'Overtime is exempt by half, up to 5 UMA of the payment date per week of the period and within the dated LFT limit (LISR art. 93 fr. I), and in full for a worker who earns the minimum wage of their zone, unless the panel key overtime_isr_exemption says to tax it whole',
     mutantes: [
       {
         archivo: 'src/services/payroll/mx/isr-exemption.ts',
@@ -3114,6 +3119,13 @@ export const E4_1: Criterio[] = [
         a: 'if (false) {',
         porque: 'an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open',
       },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: '    law.share = new Decimal(1);',
+        a: '    law.share = new Decimal(0);',
+        porque:
+          'THE DEFECT OF MNE-001-633, made worse: the overtime of a worker who earns the minimum wage of their zone is taxed whole, while fr. I exempts all of it',
+      },
     ],
     evaluar: () => {
       // #297 (MNE-001-110). Fraction I: half the double-paid overtime, capped
@@ -3139,6 +3151,10 @@ export const E4_1: Criterio[] = [
       }
       if (!/toDecimalPlaces\(2\)\.minus\(used\.exempt\),/.test(src) || !/hoursLeft: maxHours\.minus\(used\.hours\),/.test(src)) {
         return falla('other runs of the same pay period no longer use up the overtime cap and hours');
+      }
+      if (!/law\.share = new Decimal\(1\);\s*law\.room = new Decimal\(Infinity\);/.test(src) ||
+          !/annualSalary: emp\.annual_salary,/.test(codigoDe('src/services/payroll/common/paycheck-service.ts'))) {
+        return falla('the overtime of a worker who earns the minimum wage of their zone is no longer exempt in full (fr. I, first sentence, MNE-001-633)');
       }
       if (!/getPolicy\(\{ tenantId: mx\.tenantId, entityId: mx\.entityId \}, OVERTIME_POLICY_KEY\)/.test(src)) {
         return falla('the overtime_isr_exemption key has no reader: the panel decides nothing');

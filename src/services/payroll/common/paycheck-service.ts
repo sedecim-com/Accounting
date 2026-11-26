@@ -30,6 +30,11 @@ import {
   type EmploymentSubsidyExcessRule,
 } from '../mx/employment-subsidy.js';
 import { readOldAgeBandEdge, readOldAgeMinimumWageArea } from '../mx/old-age-band.js';
+import {
+  readSeparatePaymentIsr,
+  isrOfPaycheckInPeriod,
+  SEPARATE_PAYMENT_ISR_DETAIL,
+} from '../mx/separate-payment-isr.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -110,6 +115,9 @@ export interface CalculatedPaycheck {
    */
   subsidio_entregado_efectivo: string;
   breakdown: Record<string, number>;
+  /** The period's payment date, 'YYYY-MM-DD', as the paycheck read it: the run checks its dated parameters on it. */
+  pay_date: string;
+  country_code: string;
 }
 
 /**
@@ -209,6 +217,7 @@ async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_i
     id: string;
     country_code: 'MX' | 'US';
     sbc: string | null;
+    annual_salary: string | null;
     tipo_regimen_sat: string | null;
     riesgo_puesto: string | null;
     infonavit_credit_type: string | null;
@@ -218,7 +227,7 @@ async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_i
     residence_state: string | null;
     work_city: string | null;
   }>(
-    `SELECT id, country_code, sbc, tipo_regimen_sat, riesgo_puesto,
+    `SELECT id, country_code, sbc, annual_salary, tipo_regimen_sat, riesgo_puesto,
             infonavit_credit_type, infonavit_credit_value,
             w4_data, work_state, residence_state, work_city
      FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3`,
@@ -267,6 +276,7 @@ function isrContextOf(
         payDate: toCalendarDate(period.pay_date),
         entityId: period.entity_id,
         periodDays: daysInPeriod,
+        annualSalary: emp.annual_salary,
       }
     : null;
 }
@@ -443,6 +453,9 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
   // What the period's other paychecks already charged of IMSS and INFONAVIT
   // (MNE-001-658): the audit trail says why a quota here is smaller or zero.
   let contributionsElsewhere: Record<string, string | number> | null = null;
+  // Which treatment of the panel the ISR followed, when the paycheck shares
+  // its period or is itself separate (MNE-001-739).
+  let separatePaymentIsr: Record<string, string | number | boolean> | null = null;
 
   if (emp.country_code === 'US') {
     // FIT
@@ -540,8 +553,59 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     }
   } else {
     // --- MEXICO ---
+    // The worker's other paychecks of the same pay period, read once: the ISR,
+    // the subsidy, IMSS and INFONAVIT below all count them.
+    const otherRuns = await otherPaychecksInPeriod({
+      tenantId: input.tenant_id,
+      employeeId: input.employee_id,
+      payRunId: scope.run.id,
+      payPeriodId: scope.run.pay_period_id,
+    });
+    const separate = isSeparatePaycheck(scope.run.run_type, input.earnings);
+
     const isrCalc = taxRegistry.getRequired('MX', 'isr');
-    const isr = await isrCalc.calculate({ ...baseTaxInput, taxable_wages: taxableIsr });
+    const isrOnOwnBase = await isrCalc.calculate({ ...baseTaxInput, taxable_wages: taxableIsr });
+    let isr = isrOnOwnBase;
+    // THE ISR OF A PAYMENT MADE APART (#601, MNE-001-739) is the panel's
+    // answer: on the period's accumulated base (default), by the regulation's
+    // optional procedure, or on this paycheck alone. A paycheck alone in its
+    // period that is not separate asks nothing and keeps its figure.
+    if (otherRuns.paychecks > 0 || separate) {
+      // On the run's transaction when there is one: one round trip, not four.
+      const isrPolicy = await readSeparatePaymentIsr({ tenantId: input.tenant_id, entityId: period.entity_id }, tx);
+      // The tariff is cached after its first read, so this sends no statement.
+      const ofPeriod =
+        isrPolicy.treatment === 'period_accumulated_base' && otherRuns.paychecks > 0
+          ? await isrCalc.calculate({ ...baseTaxInput, taxable_wages: otherRuns.taxableIsr.plus(taxableIsr).toNumber() })
+          : null;
+      const amount = isrOfPaycheckInPeriod({
+        treatment: isrPolicy.treatment,
+        separate,
+        otherPaychecks: otherRuns.paychecks,
+        ownBase: isrOnOwnBase.tax_amount,
+        onCombinedBase: ofPeriod?.tax_amount ?? null,
+        alreadyCaused: otherRuns.isr,
+      });
+      separatePaymentIsr = {
+        treatment: isrPolicy.treatment,
+        answered_by_firm: isrPolicy.answeredByFirm,
+        separate,
+        other_paychecks: otherRuns.paychecks,
+        other_taxable_isr: otherRuns.taxableIsr.toFixed(2),
+        other_isr: otherRuns.isr.toFixed(2),
+        // What the period carries with this paycheck.
+        isr_of_period: otherRuns.isr.plus(amount).toFixed(2),
+        isr_on_own_base: new Decimal(isrOnOwnBase.tax_amount).toFixed(2),
+      };
+      isr = {
+        ...isrOnOwnBase,
+        tax_amount: amount.toNumber(),
+        notes:
+          `${isrOnOwnBase.notes ?? 'ISR of the period'} · on its own base ${isrOnOwnBase.tax_amount.toFixed(2)}; ` +
+          `other paychecks of the period ${otherRuns.paychecks}, base ${otherRuns.taxableIsr.toFixed(2)}, ` +
+          `ISR caused ${otherRuns.isr.toFixed(2)}${separate ? ' · separate paycheck' : ''} [${isrPolicy.treatment}]`,
+      };
+    }
     breakdown.isr = isr.tax_amount;
 
     // The decree leaves the rounding open, so the entity's policy decides it
@@ -561,13 +625,6 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // Another paycheck of the period, or a paycheck that is itself the
     // separate one (whatever was calculated first), hands the amount to the
     // policy.
-    const otherRuns = await otherPaychecksInPeriod({
-      tenantId: input.tenant_id,
-      employeeId: input.employee_id,
-      payRunId: scope.run.id,
-      payPeriodId: scope.run.pay_period_id,
-    });
-    const separate = isSeparatePaycheck(scope.run.run_type, input.earnings);
     let sub = ownSubsidy;
     if (otherRuns.paychecks > 0 || separate) {
       const treatment = await readEmploymentSubsidySeparateRun({
@@ -821,6 +878,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // Present only when another paycheck of the period charged them: the
     // employer liability reads it to tell this zero from a missing SBC.
     ...(contributionsElsewhere ? { [CONTRIBUTIONS_ELSEWHERE_DETAIL]: contributionsElsewhere } : {}),
+    ...(separatePaymentIsr ? { [SEPARATE_PAYMENT_ISR_DETAIL]: separatePaymentIsr } : {}),
   };
 
   // --- Persist ---
@@ -938,5 +996,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     net_pay: netPay,
     subsidio_entregado_efectivo: subsidioEntregado.toFixed(4),
     breakdown,
+    pay_date: toCalendarDate(period.pay_date),
+    country_code: emp.country_code,
   };
 }

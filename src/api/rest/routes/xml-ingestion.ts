@@ -6,7 +6,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
+import { AppError, NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
+import { responseLanguage } from '../middleware/locale.js';
+import { t } from '../../../i18n/index.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { declararRiesgoRuta } from '../risk.js';
@@ -177,9 +179,7 @@ router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xm
   // que no tenerla: se lee como el contrato y no lo es.
   const recibidos: unknown = xml_contents ?? (xml_content ? [xml_content] : []);
   if (!Array.isArray(recibidos) || recibidos.length > MAX_XML_POR_LOTE) {
-    throw new ValidationError(
-      `xml_contents debe ser un arreglo de a lo más ${MAX_XML_POR_LOTE} documentos.`
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.xml.batch_cap', params: { max: MAX_XML_POR_LOTE } });
   }
   const xmls: string[] = recibidos as string[];
 
@@ -421,9 +421,11 @@ router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irre
     );
     const emitido = d.rows[0] && d.rows[0].emisor_rfc === d.rows[0].tax_id;
     if (emitido && !req.user!.permissions.includes('invoices:create')) {
+      // The detail follows the negotiated language; the message stays the prose of every 403.
+      res.vary('Accept-Language');
       throw new ForbiddenError('Insufficient permissions', {
         required: ['invoices:create'],
-        detail: 'Un comprobante de pago emitido registra cobros de clientes.',
+        detail: t('error.FORBIDDEN.detail.issued_payment_receipt', {}, responseLanguage(res)),
       });
     }
   }
@@ -587,7 +589,8 @@ router.post('/pre-registrations/bulk', declararRiesgoRuta({ riesgo: 'irreversibl
           results.push({ id, status: 'error', error: `Unknown action: ${action}` });
       }
     } catch (err) {
-      results.push({ id, status: 'error', error: (err as Error).message });
+      // A keyed refusal in the negotiated language, as the single route's error handler gives it.
+      results.push({ id, status: 'error', error: err instanceof AppError ? err.localized(responseLanguage(res)) : (err as Error).message });
     }
   }
 

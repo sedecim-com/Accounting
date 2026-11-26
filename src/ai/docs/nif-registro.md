@@ -168,6 +168,7 @@ cosa y conviene no confundir.
 | Arrendamientos | D-5 | **Sin motor.** No hay activo por derecho de uso ni pasivo por arrendamiento; la renta se registra como gasto, que sólo es correcto bajo las excepciones de corto plazo y bajo valor |
 | Partes relacionadas | C-13 | **Sin motor ni revelación** (ver arriba) |
 | Otros Resultados Integrales | B-3 | **Categoría y cuenta existen** (3600, `fs_category = 'ori'`); qué se lleva al ORI lo decide cada caso |
+| Capital ganado | B-6, C-11 | **Categoría existe** (`fs_category = 'earned_capital'`): la reserva legal 3150, los resultados 3200 y 3300 y el resumen 3900 se presentan aparte del capital contribuido (`equity`), con el rótulo «Reservas y resultados acumulados». El balance general presenta primero el capital contribuido y después el capital ganado, cuyo total («Total de Capital ganado», `earned_capital` en el informe, renglón `line = 'group'` en csv/json) suma esa categoría, el resultado del ejercicio aún no cerrado y el ORI, como lo define la C-11. En una entidad anterior a la migración 346, una de esas cuentas que alguien editó (otro código u otro subtipo) se quedó en `equity` hasta que una persona la reclasifique |
 
 ## B-1 — Cambios contables y correcciones de errores
 

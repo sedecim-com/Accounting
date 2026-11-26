@@ -6,6 +6,7 @@ import { matchCase, type AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
+import { queryIssuedInvoiceVatTaken } from '../reporting/report-service.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
@@ -279,8 +280,7 @@ export function reclassRoles(side: DocumentSide): { from: AccountRole; to: Accou
   if (from === to) {
     throw new AccountingError(
       'IVA_ROLE_UNRESOLVED',
-      `The CFDI taxonomy sends the VAT of a received PPD to ${to}: a payment would have nowhere to release it from. ` +
-        `Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.`
+      { key: 'error.IVA_ROLE_UNRESOLVED.same_role', params: { role: to } }
     );
   }
   return { from, to };
@@ -778,31 +778,8 @@ export async function issuedVatStillParked(
 ): Promise<{ parked: string; estimated: boolean }> {
   const parked = new Decimal(await ivaStillParked(client, 'issued', entityId, invoiceId));
   const { from } = reclassRoles('issued');
-  const { rows: [taken] } = await client.query<{
-    released: string; unknown: string; notes: string; tax: string; total: string;
-  }>(
-    `SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa
-                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
-                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released,
-            COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
-                        FROM payment_allocations pa
-                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
-                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
-                         AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown,
-            COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
-                        FROM credit_notes cn
-                        JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note'
-                                               AND je.source_id = cn.id AND je.status = 'posted'
-                                               AND je.reversed_by_entry_id IS NULL
-                        JOIN journal_entry_lines l ON l.journal_entry_id = je.id
-                        JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
-                                             AND ar.role = $3 AND ar.qualifier IS NULL
-                       WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes,
-            i.tax_amount::text AS tax, i.total_amount::text AS total
-       FROM invoices i
-      WHERE i.id = $2 AND i.entity_id = $1`,
-    [entityId, invoiceId, from]
-  );
+  // MNE-001-619: the sum is the report layer's (T14 · #101), the same statement on this client.
+  const taken = await queryIssuedInvoiceVatTaken(entityId, invoiceId, from, client);
   if (!taken) return { parked: new Decimal(0).toFixed(SCALE), estimated: false };
   const estimate = new Decimal(ivaToReclassify({
     ivaTotal: taken.tax, documentTotal: taken.total, priorApplied: '0', appliedNow: taken.unknown,

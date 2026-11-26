@@ -32,7 +32,7 @@ export enum AccountSubtype {
 }
 
 /**
- * Los doce rubros que el CHECK de `accounts.fs_category` admite (001 + 078).
+ * Los trece rubros que el CHECK de `accounts.fs_category` admite (001 + 078 + 346).
  *
  * Era un `enum` escrito a mano con ONCE, y se quedó atrás cuando la 078 añadió
  * `'ori'` —el rubro de Otros Resultados Integrales que la NIF B-3 exige—, de

@@ -33,6 +33,11 @@ mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/doctor-s
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/i18n/locale.ts	limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	src/cli/mnemosine.ts	sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	docs/language-baseline.json	terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language/lanes/help.ts	lane-reopened: the help lane is a ratchet again, so a hand-raised baseline lets prose help back in
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language-status.ts	closed-not-judged: compare skips a closed lane, so --check passes whatever the help lane measures
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	scripts/language-status.ts	target-loosened: a closed lane may carry one unkeyed description more than its target
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	docs/language-baseline.json	ceiling-back: the baseline holds a number for the help lane again, which a hand edit raises
+mirror	memory	E0.0 cli-help-descriptions-lane-closed	docs/language-baseline.json	family-back: the breakdown lets the status family carry one unkeyed description again
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see
 mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/kernel/confirmacion.ts	kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]
@@ -81,6 +86,8 @@ mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	g
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/fx-command.ts	string-back-in-the-code: fx rate show says a carried rate in Spanish in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/period-command.ts	string-back-in-the-code: period reopen refuses an open period in Spanish in the code again, which only check 2 sees
 mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	lane-not-at-zero: the lane total says the CLI carries one Spanish string again, with no file in the breakdown
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	src/cli/entry-command.ts	string-back-in-the-code: entry post asks its question in English from the code again, and its key is left unread
+mirror	memory	E0.0 cli-family-ledger-speaks-by-key	docs/language-baseline.json	ground-given-back: the breakdown records English without a key in entry again, which only check 4 sees
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -341,7 +348,7 @@ mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/memory-service.t
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/tools/policy-tools.ts	agent-panel-pinned-to-english: leerPanel would hand the agent English wording while `pending` paints the accountant in Spanish
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	preview-pinned-to-english: the "in your data" lines of the listing would come out English under es-MX
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	wording-pinned-to-english: the listing or the `define` prompt would paint the question and options in English under es-MX
-mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/init/s4-policies.ts	half-translated-wizard: the catalog text would come out Spanish beside the wizard's hand-written English labels
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/init/s4-policies.ts	half-translated-wizard: under es-MX the question and options would come out English beside the wizard's Spanish labels
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/pending-service.ts	board-summary-in-english: the work board would keep its hand-written English plural under es-MX
 mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/i18n/panel-text.ts	words-and-separators-disagree: a preview in Spanish would carry en-US separators
 mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/services/policy/pending-catalog.ts	text-key-born-spanish: the panel texts of the time zone would be keyed by the persisted Spanish name, and I23 would have to rename them too
@@ -690,6 +697,7 @@ mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/service
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	the hours stop adding up across the lines of a paycheck: two lines of 9 h in one week are both half-exempted
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an off-cycle run of the same period gets a fresh cap for the same weeks of service, and ISR is under-withheld
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	THE DEFECT OF MNE-001-633, made worse: the overtime of a worker who earns the minimum wage of their zone is taxed whole, while fr. I exempts all of it
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -822,11 +830,16 @@ anchor	src/plan/criteria/e0-0.ts	de: 'return { file: writeConfigPatch({ locale }
 anchor	src/plan/criteria/e0-0.ts	de: 'const file = userConfigPath(home);',
 anchor	src/plan/criteria/e0-0.ts	de: 'const locale = normalizeLocale(language);',
 anchor	src/plan/criteria/e0-0.ts	de: ' if (existingConfigIsUnusable(file)) {',
-anchor	src/plan/criteria/e0-0.ts	de: " ...RLS_CONTEXT,\n level: 'ok',\n detail: 'no tenant pinned yet",
+anchor	src/plan/criteria/e0-0.ts	de: " ...RLS_CONTEXT,\n level: 'ok',\n detail: t('init.infra.rls.no_tenant')",
 anchor	src/plan/criteria/e0-0.ts	de: ' /** Stable machine identity. See `CheckIdentity`. */\n id: string;',
 anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', name: 'Database' },",
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
 anchor	src/plan/criteria/e0-0.ts	de: 'installHelpChrome(program);',
+anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
+anchor	src/plan/criteria/e0-0.ts	de: ' closed: true,\n } satisfies Lane,',
+anchor	src/plan/criteria/e0-0.ts	de: ' findings.push(...closedLaneFindings(c, base));\n',
+anchor	src/plan/criteria/e0-0.ts	de: ' if (c.value > c.target) {',
+anchor	src/plan/criteria/e0-0.ts	de: '"lanes": {',
 anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
 anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
@@ -876,6 +889,8 @@ anchor	src/plan/criteria/e0-0.ts	de: '"perFile": {',
 anchor	src/plan/criteria/e0-0.ts	de: "'ledger.fx.show.carried'",
 anchor	src/plan/criteria/e0-0.ts	de: "'ledger.period.reopen.not_closed'",
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": 0,',
+anchor	src/plan/criteria/e0-0.ts	de: "key: 'ledger.entry.post.question'",
+anchor	src/plan/criteria/e0-0.ts	de: '"cli-user-strings-without-key": {',
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',
@@ -1136,7 +1151,7 @@ anchor	src/plan/criteria/e1-3.ts	de: ' const valores = policyOptions(row.policy_
 anchor	src/plan/criteria/e1-3.ts	de: 'const wording = policyWording(fila, panelTranslator());',
 anchor	src/plan/criteria/e1-3.ts	de: 'text: previewText(),',
 anchor	src/plan/criteria/e1-3.ts	de: 'policyWording(p, panelTranslator())',
-anchor	src/plan/criteria/e1-3.ts	de: "const WIZARD_LANGUAGE = 'en' as const;",
+anchor	src/plan/criteria/e1-3.ts	de: 'const wording = policyWording(row, panelTranslator());',
 anchor	src/plan/criteria/e1-3.ts	de: "summary: t('pending.board.draft', { count: r.rows.length }),",
 anchor	src/plan/criteria/e1-3.ts	de: 'const locale = FORMAT_LOCALE[language];',
 anchor	src/plan/criteria/e1-3.ts	de: " textKey: 'time_zone',",
@@ -1422,7 +1437,7 @@ anchor	src/plan/criteria/e4-1.ts	de: "RAISE EXCEPTION 'La cuota obrera de enferm
 anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: " return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
 anchor	src/plan/criteria/e4-1.ts	de: ' return Decimal.min(piso, salarioMinimo.times(2));',
-anchor	src/plan/criteria/e4-1.ts	de: " 'SIN CALCULAR: faltó el salario mínimo de la zona",
+anchor	src/plan/criteria/e4-1.ts	de: " key: 'payroll.finiquito.seniority_premium.not_calculated',",
 anchor	src/plan/criteria/e4-1.ts	de: " northern_border: 'salario_minimo_frontera_diario',",
 anchor	src/plan/criteria/e4-1.ts	de: " case 'weekly': return 'weekly';",
 anchor	src/plan/criteria/e4-1.ts	de: "('MX','isr',2026,NULL,'monthly', 1, 0.01, 844.59,",
@@ -1479,6 +1494,7 @@ anchor	src/plan/criteria/e4-1.ts	de: 'if (law.hoursLeft.isNegative()) {',
 anchor	src/plan/criteria/e4-1.ts	de: 'law.hoursLeft = law.hoursLeft.minus(hours);',
 anchor	src/plan/criteria/e4-1.ts	de: 'toDecimalPlaces(2).minus(used.exempt),',
 anchor	src/plan/criteria/e4-1.ts	de: "if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) {",
+anchor	src/plan/criteria/e4-1.ts	de: ' law.share = new Decimal(1);',
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',

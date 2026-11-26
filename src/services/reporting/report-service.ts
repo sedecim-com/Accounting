@@ -17,7 +17,10 @@ import {
 } from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
+import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-roles.js';
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
+import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
+import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -33,12 +36,21 @@ import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../
 //   query*Rows()  — the SQL. One implementation, shared by REST, the
 //                   agent tools and the CLI — and by the services that
 //                   read a balance to guard money (the AR and AP
-//                   reconciliations, the prepaid backing, the
+//                   reconciliations, the prepaid backing, the IEPS on cash basis, the
 //                   external-ledger diff, the close's fixed-asset box,
-//                   the FX revaluation line, the IVA paper's withholding
-//                   per sale and receipt movement, the DIOT's exempt
-//                   revenue, and the cash-flow statement's movement by
-//                   account and its non-cash entries; T14, #101). This is
+//                   the bank reconciliation's book balance, the VAT a
+//                   bank fee still parks,
+//                   the FX revaluation line, its foreign balances and
+//                   its marker's net, the IVA paper's withholding
+//                   per sale and receipt movement, the filing paper's
+//                   entries and the ISR withheld per entry, the DIOT's exempt
+//                   revenue, the cash-flow statement's movement by
+//                   account and its non-cash entries, and its tie-out's
+//                   opening and movement of cash and residue suspects,
+//                   the opening check's ledger, the receivable a
+//                   collection credits and the held IVA a reversed note
+//                   gives back, an invoice's IVA taken, the VAT put back,
+//                   a bank account's book balance and posted lines; T14, #101). This is
 //                   the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
@@ -1145,6 +1157,49 @@ export async function queryAccountAncestry(entityId: string): Promise<Map<string
   );
 }
 
+export interface LedgerNetRow {
+  id: string;
+  code: string;
+  parent_code: string | null;
+  normal_balance: string;
+  codigo_agrupador_sat: string | null;
+  /** Debit-positive net (debit − credit) of the posted entries at the cut. */
+  net: string;
+}
+
+/**
+ * Every account of the entity with its parent's code and its net at a cut,
+ * reversal pairs left out on both sides: the reversed entry
+ * (`reversed_by_entry_id`) and its mirror (`reverses_entry_id`). It is the
+ * ledger side of `opening-balance check` (`checkOpeningBalance`,
+ * MNE-001-616): a reversed opening stays posted on the opening day while its
+ * mirror is dated the day it was voided, so counting the original "as of" the
+ * opening day would double every balance right after a reload (087).
+ *
+ * LEFT JOINs, with the entry's predicates inside its ON, so an account with
+ * no line (or only lines of a draft, a later or a reversed entry) comes back
+ * at zero instead of dropping out. No closing policy is read: the check
+ * compares facts of the ledger with the source's SaldoFin.
+ */
+export async function queryLedgerNetsWithoutReversalPairs(entityId: string, asOf: string): Promise<LedgerNetRow[]> {
+  const r = await query<LedgerNetRow>(
+    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance, a.codigo_agrupador_sat,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                       FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
+       FROM accounts a
+       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
+       LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+       LEFT JOIN journal_entries e
+              ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id
+             AND e.status = 'posted' AND e.entry_date <= $2::date
+             AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
+      WHERE a.entity_id = $1
+      GROUP BY a.id, a.code, p.code, a.normal_balance, a.codigo_agrupador_sat`,
+    [entityId, asOf]
+  );
+  return r.rows;
+}
+
 const ROLLED_COLUMNS = ['debit_total', 'credit_total', 'ending_balance', 'beginning_balance', 'final_balance'] as const;
 
 /**
@@ -1359,12 +1414,41 @@ export async function queryUnclosedEarnings(
   return result.rows[0]?.balance ?? '0';
 }
 
+// CONTRIBUTED CAPITAL, THEN EARNED CAPITAL (MNE-001-652 · #597)
+//
+// NIF B-6 presents equity as contributed capital plus earned
+// capital, and NIF C-11 (migration 346's header) puts the reserves, the
+// accumulated results and the ORI in earned capital. The result of the period
+// is an accumulated result not yet swept, so it is earned capital as well. One
+// rule, not a choice: no panel key (#597, comment of 24 Nov).
+//
+// `equity` is contributed capital (346's COMMENT). Earned capital spans three
+// subsections, so it gets its own total, `BalanceSheetReport.earned_capital`.
+// Inside it the order follows the chart's numbering: reserves and results
+// (3150-3300), the unswept result, ORI (3600). Ordered by key, never by an
+// account code: a chart that numbers ORI first must still print it last.
+
+/** Equity's subsections, in the order the statement presents them. */
+const EQUITY_ORDER = ['equity', 'earned_capital', 'result_of_the_period', 'ori'] as const;
+
+/** The subsections that NIF C-11 counts as earned capital. */
+export const EARNED_CAPITAL_SUBSECTIONS: readonly string[] = EQUITY_ORDER.slice(1);
+
+/** Earned capital: its total, and the keys of the subsections it groups, in order. */
+export interface EarnedCapital {
+  key: 'earned_capital';
+  total: string;
+  subsections: string[];
+}
+
 export interface BalanceSheetReport {
   entity_id: string;
   as_of_date: string;
   assets: BalanceSheetSection;
   liabilities: BalanceSheetSection;
   equity: BalanceSheetSection;
+  /** Reserves, accumulated results, the result of the period and ORI (NIF C-11). */
+  earned_capital: EarnedCapital;
   total_liabilities_and_equity: string;
   /** assets.total − (liabilities.total + equity.total). Zero when the books are sound. */
   out_of_balance: string;
@@ -1397,6 +1481,15 @@ export async function getBalanceSheet(
     equity.total = new Decimal(equity.total).plus(earnings).toFixed(scale);
   }
 
+  // A stable sort: a category outside both components keeps its code order,
+  // after them.
+  const rank = (key: string): number => {
+    const at = (EQUITY_ORDER as readonly string[]).indexOf(key);
+    return at === -1 ? EQUITY_ORDER.length : at;
+  };
+  equity.subsections.sort((a, b) => rank(a.key) - rank(b.key));
+  const earned = equity.subsections.filter((s) => EARNED_CAPITAL_SUBSECTIONS.includes(s.key));
+
   const totalLiabilitiesAndEquity = new Decimal(liabilities.total)
     .plus(new Decimal(equity.total))
     .toFixed(scale);
@@ -1408,6 +1501,11 @@ export async function getBalanceSheet(
     assets,
     liabilities,
     equity,
+    earned_capital: {
+      key: 'earned_capital',
+      total: earned.reduce((sum, s) => sum.plus(s.total), new Decimal(0)).toFixed(scale),
+      subsections: earned.map((s) => s.key),
+    },
     total_liabilities_and_equity: totalLiabilitiesAndEquity,
     out_of_balance: outOfBalance.toFixed(scale),
     is_balanced: outOfBalance.isZero(),
@@ -1756,6 +1854,454 @@ export async function queryEntryMovementsTouching(
   return r.rows;
 }
 
+export interface OpeningAndMovementRow {
+  /** Accumulated posted balance (debit − credit) before `startDate`. */
+  opening: string;
+  /** Posted movement (debit − credit) from `startDate` to `endDate`. */
+  movement: string;
+}
+
+/**
+ * The opening balance and the movement of a set of accounts, summed over the
+ * set: the real cash movement the cash-flow statement is tied out against
+ * (`movimientoRealDeEfectivo`, MNE-001-433). ONE statement, so one snapshot:
+ * two reads through the pool would take two, and an entry dated before the
+ * range that committed between them would show up as a residue that is not
+ * there. The opening is accumulated from the ledger, not read from
+ * `account_balances.beginning_balance`, which only a hard close seeds.
+ *
+ * Closing entries count, and no closing policy is read: a closing entry
+ * sweeps results against equity and never touches cash, and the tie-out
+ * compares facts of the ledger, not a presentation. A range that ends before
+ * it starts goes to Postgres as given: the opening is the balance at
+ * `endDate` and the movement is zero. The inner (jel JOIN je) pair, with the
+ * date cut inside the JOIN, keeps draft and void lines out; the entity is
+ * bound on the entry's side and the account's.
+ */
+export async function queryOpeningAndMovement(
+  entityId: string,
+  opts: { accountIds: readonly string[]; startDate: string; endDate: string }
+): Promise<OpeningAndMovementRow> {
+  const r = await query<OpeningAndMovementRow>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN je.entry_date < $2
+                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
+                    ELSE 0 END), 0)::text AS opening,
+       COALESCE(SUM(CASE WHEN je.entry_date BETWEEN $2 AND $3
+                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
+                    ELSE 0 END), 0)::text AS movement
+       FROM (journal_entry_lines jel
+        JOIN journal_entries je
+          ON je.id = jel.journal_entry_id
+         AND je.status = 'posted'
+         AND je.entity_id = $1
+         AND je.entry_date <= $3)
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
+      WHERE jel.account_id = ANY($4::uuid[])`,
+    [entityId, opts.startDate, opts.endDate, [...opts.accountIds]]
+  );
+  return r.rows[0] ?? { opening: '0', movement: '0' };
+}
+
+export interface EntryEffectByCounterpartRow {
+  entry_number: string;
+  /**
+   * Text from Postgres (`::text`), never a Date: `pg` hands a DATE over as
+   * local midnight, and turning it back to ISO west of UTC moves it back a
+   * day (an entry of the 25th printed as of the 24th).
+   */
+  entry_date: string;
+  description: string | null;
+  /** The entry's share of its net on cash for this counterpart, unrounded numeric as text. Positive = cash came in. */
+  effect: string;
+  counterpart_code: string;
+  counterpart_name: string;
+  counterpart_type: string;
+  counterpart_subtype: string | null;
+  counterpart_fs: string | null;
+  counterpart_role: string | null;
+}
+
+/**
+ * The effect on cash of each posted entry in the range, by counterpart: the
+ * rows the tie-out's residue suspects are picked from (`sospechososDelResiduo`,
+ * MNE-001-434). ONE statement for the whole set, with the cash ids as one
+ * array, never one read per entry or account.
+ *
+ * `cash` is each entry's net (debit − credit) on `accountIds`, only for the
+ * entries that moved cash. `counterparts` spreads that net over the entry's
+ * other lines in proportion to their amount (debit + credit): an entry with
+ * one bank payment and three different charges cannot lay the whole payment
+ * on each of them. The split stays in SQL numeric, so the caller rounds once
+ * and the rounding is the one it always had.
+ *
+ * Closing entries count and no closing policy is read, as in
+ * queryOpeningAndMovement: a closing entry never touches cash. The inner
+ * (jel JOIN je) pair, with the range inside the JOIN, keeps draft and void
+ * lines out; the entity is bound on the entry's side, the account's and the
+ * role's. The tie-break orders by `entry_date::text`, the same expression the
+ * GROUP BY holds: Postgres rejects a bare `entry_date` there. `limit` is the
+ * row limit as given; the caller filters the rows and asks for more than it
+ * keeps.
+ */
+export async function queryEntryEffectByCounterpart(
+  entityId: string,
+  opts: { accountIds: readonly string[]; startDate: string; endDate: string; limit: number }
+): Promise<EntryEffectByCounterpartRow[]> {
+  const r = await query<EntryEffectByCounterpartRow>(
+    `WITH cash AS (
+       SELECT jel.journal_entry_id AS je_id,
+              SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) AS effect
+         FROM (journal_entry_lines jel
+          JOIN journal_entries je
+            ON je.id = jel.journal_entry_id
+           AND je.status = 'posted'
+           AND je.entity_id = $1
+           AND je.entry_date BETWEEN $2 AND $3)
+        WHERE jel.account_id = ANY($4::uuid[])
+        GROUP BY jel.journal_entry_id
+       HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) <> 0
+     ),
+     counterparts AS (
+       SELECT e.je_id,
+              jel.account_id,
+              e.effect * (COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
+                / NULLIF(SUM(COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
+                         OVER (PARTITION BY e.je_id), 0) AS effect
+         FROM cash e
+         JOIN journal_entry_lines jel ON jel.journal_entry_id = e.je_id
+        WHERE NOT (jel.account_id = ANY($4::uuid[]))
+     )
+     SELECT je.entry_number,
+            je.entry_date::text AS entry_date,
+            je.description,
+            SUM(c.effect)::text AS effect,
+            a.code AS counterpart_code,
+            a.name AS counterpart_name,
+            a.account_type AS counterpart_type,
+            a.account_subtype AS counterpart_subtype,
+            a.fs_category AS counterpart_fs,
+            MIN(ar.role) AS counterpart_role
+       FROM counterparts c
+       JOIN journal_entries je ON je.id = c.je_id AND je.entity_id = $1
+       JOIN accounts a ON a.id = c.account_id AND a.entity_id = $1
+       LEFT JOIN account_roles ar ON ar.account_id = a.id AND ar.entity_id = $1
+      GROUP BY je.entry_number, je.entry_date::text, je.description,
+               a.code, a.name, a.account_type, a.account_subtype, a.fs_category
+      ORDER BY ABS(SUM(c.effect)) DESC, je.entry_date::text, je.entry_number
+      LIMIT $5`,
+    [entityId, opts.startDate, opts.endDate, [...opts.accountIds], opts.limit]
+  );
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// FX REVALUATION READS (MNE-001-617, #101)
+//
+// The two sums the closing revaluation (`revalueForeignBalances`,
+// fx-revaluation.ts) reads from the ledger before it posts, on the caller's
+// transaction client: the run holds its period FOR UPDATE, and a reading taken
+// outside that transaction would not be serialised with a second run of the
+// same period. Neither reads a policy, so nothing here leaves the transaction.
+// Each keeps inside the statement what decides WHICH lines are summed (the
+// receivable, payable and bank scope; the gain and loss accounts left out):
+// taking it out would cost a second query.
+// ------------------------------------------------------------
+
+export interface ForeignBalanceRow {
+  account_id: string;
+  code: string;
+  currency: string;
+  /** Foreign balance, debit positive. */
+  foreign: string;
+  /** Its functional value in the books, debit positive. */
+  book: string;
+}
+
+/**
+ * The foreign balances of receivables, payables and banks at the period's last
+ * day, per account and currency (MNE-001-083): the lines of the entity's
+ * receivable, payable and bank role accounts and of every bank account's GL
+ * account, tagged with a currency other than the functional one, on posted
+ * entries dated up to the cut. The FX columns give the foreign balance and the
+ * functional ones its book value.
+ */
+export async function queryForeignBalancesByAccount(
+  entityId: string,
+  closingDate: string,
+  functional: string,
+  client?: pg.PoolClient
+): Promise<ForeignBalanceRow[]> {
+  const text = `WITH scope AS (
+       SELECT account_id FROM account_roles
+        WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco')
+       UNION
+       SELECT gl_account_id FROM bank_accounts WHERE entity_id = $1
+     )
+     SELECT l.account_id, a.code, l.currency_code AS currency,
+            SUM(COALESCE(l.foreign_debit, 0) - COALESCE(l.foreign_credit, 0))::text AS foreign,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS book
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN accounts a ON a.id = l.account_id AND a.entity_id = je.entity_id
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.entry_date <= $2::date
+        AND l.account_id IN (SELECT account_id FROM scope)
+        AND l.currency_code IS NOT NULL AND l.currency_code <> $3
+      GROUP BY l.account_id, a.code, l.currency_code
+      ORDER BY a.code, l.currency_code`;
+  const values = [entityId, closingDate, functional];
+  const r = client
+    ? await client.query<ForeignBalanceRow>(text, values)
+    : await query<ForeignBalanceRow>(text, values);
+  return r.rows;
+}
+
+export interface RevaluationNetRow {
+  account_id: string;
+  /** Debit-positive net (debit − credit) of the given entries on the account. */
+  net: string;
+}
+
+/**
+ * Per account, the net the given entries left, leaving out the entity's
+ * exchange gain and loss role accounts: those lines are the counterpart, not
+ * a revalued balance. It is the ledger side of
+ * the revaluation's marker check (`assertMarkerMatchesLedger`, MNE-001-083):
+ * the period's `fx_revaluation` entries, read by id from an entity-bound read,
+ * must net per account what the marker rows say.
+ */
+export async function queryRevaluationNetByAccount(
+  entityId: string,
+  entryIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<RevaluationNetRow[]> {
+  const text = `SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net
+         FROM journal_entry_lines
+        WHERE journal_entry_id = ANY($1::uuid[])
+          AND account_id NOT IN (SELECT account_id FROM account_roles
+                                  WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria'))
+        GROUP BY account_id`;
+  const values = [[...entryIds], entityId];
+  const r = client
+    ? await client.query<RevaluationNetRow>(text, values)
+    : await query<RevaluationNetRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// IEPS CASH-BASIS READS (MNE-001-618, #101)
+//
+// The four sums the IEPS on cash basis (ieps-cash-basis.ts, LIEPS art. 10)
+// reads back from the ledger, on the caller's transaction client: a collection,
+// an unapply or a cashing reads what the lines it is about to post depend on,
+// and a reading taken outside that transaction would not see the lines it has
+// just written, nor be held by its locks. None reads a policy, so nothing here
+// leaves the transaction. Each keeps inside the statement what decides WHICH
+// lines are summed (the role join, the tag under `IEPS_MOVE_TAG`, the posted
+// and unreversed entries): taking it out would cost a second query. The tag
+// and the roles come from the leaf ieps-roles.ts, which ieps-cash-basis.ts
+// re-exports, so the strings are the same and no import cycle is made.
+// ------------------------------------------------------------
+
+/**
+ * The IEPS the invoice's own posted, unreversed entry parked in the
+ * uncollected role (2181), credit − debit, in the functional currency
+ * (`iepsParkedByInvoice`, MNE-001-504). '0' when no line was parked; the
+ * caller never lets it below zero.
+ */
+export async function queryIepsParkedByInvoice(
+  entityId: string,
+  invoiceId: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS ieps_parked
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.source_type = 'invoice' AND je.source_id = $2
+        AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND ar.role = $3`;
+  const values = [entityId, invoiceId, IEPS_UNCOLLECTED_ROLE];
+  const r = client
+    ? await client.query<{ ieps_parked: string }>(text, values)
+    : await query<{ ieps_parked: string }>(text, values);
+  return r.rows[0]?.ieps_parked ?? '0';
+}
+
+/**
+ * The net IEPS moved out of the uncollected role for an invoice, debit −
+ * credit, by every receipt (`paymentId` null) or by one (`iepsMovedForInvoice`):
+ * the lines tagged with the invoice on posted entries that are neither
+ * reversed nor reversals, so a reversed event moved nothing. Signed as read.
+ */
+export async function queryIepsMovedForInvoice(
+  entityId: string,
+  invoiceId: string,
+  paymentId: string | null,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = $2
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'invoice_id' = $3
+        AND ($4::text IS NULL OR l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $4::text)`;
+  const values = [entityId, IEPS_UNCOLLECTED_ROLE, invoiceId, paymentId];
+  const r = client
+    ? await client.query<{ moved: string }>(text, values)
+    : await query<{ moved: string }>(text, values);
+  return r.rows[0]?.moved ?? '0';
+}
+
+/**
+ * The IEPS a receipt's cash on account carries, caused when it was collected
+ * (`iepsKeptOnAccount`, MNE-001-590): credit − debit over both IEPS roles on
+ * the receipt's tagged lines of posted entries that are neither reversed nor
+ * reversals. '0' when none; the caller never lets it below zero.
+ */
+export async function queryIepsKeptOnAccount(
+  entityId: string,
+  paymentId: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($2::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $3`;
+  const values = [entityId, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], paymentId];
+  const r = client
+    ? await client.query<{ kept: string }>(text, values)
+    : await query<{ kept: string }>(text, values);
+  return r.rows[0]?.kept ?? '0';
+}
+
+export interface IepsTakenRow {
+  allocation_id: string;
+  /** The invoice's share the row's application moved out of 2181, debit − credit. */
+  released: string;
+  /** Debit − credit over both IEPS roles: the IEPS it took from the cash on account. */
+  taken: string;
+}
+
+/**
+ * Per allocation row, what its application moved, read back from the lines
+ * tagged with its `allocation_id` (`iepsTakenByRows`, MNE-001-604): one
+ * statement for every row asked, on posted entries that are neither reversed
+ * nor reversals. A row written before the tag existed is absent.
+ */
+export async function queryIepsTakenByRows(
+  entityId: string,
+  allocationIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<IepsTakenRow[]> {
+  const text = `SELECT l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' AS allocation_id,
+            SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($3::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'allocation_id' = ANY($4::text[])
+      GROUP BY 1`;
+  const values = [entityId, IEPS_UNCOLLECTED_ROLE, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], [...allocationIds]];
+  const r = client ? await client.query<IepsTakenRow>(text, values) : await query<IepsTakenRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// BANK RECONCILIATION AND FEE VAT READS (MNE-001-621, #101)
+//
+// Two sums the banking services read back from the ledger: the book balance a
+// bank reconciliation compares with the statement (`saldoDeLibros`,
+// reconciliation-service.ts: `open --baseline` on its transaction client,
+// `status` and `run` on the pool, `close` and `approve` on their transaction
+// client), and the VAT a bank fee still has parked in 1135 before
+// `bank fee post` releases it to 1130 (`releaseFeeVat`, treasury-posting.ts,
+// on its transaction client). Each runs on the caller's client when given, so
+// a reading inside a transaction still sees what that transaction wrote.
+// Neither reads a policy. The fee and release source names are the caller's
+// parameters, not imports: importing treasury-posting.ts here would close a
+// cycle back to its consumer.
+// ------------------------------------------------------------
+
+/**
+ * The book balance of a bank account up to a date: the posted lines on its
+ * GL account, debit-positive and cumulative (not the period's movement, since
+ * the bank's balance is cumulative too), closing entries included.
+ *
+ * Both ends are bound to the entity, as in book-items: the link between the
+ * bank account and the ledger is `gl_account_id`, and a mis-captured mapping
+ * would otherwise turn this sum into a window on another entity's books.
+ *
+ * COALESCE per side, not over the difference: migration 001 makes
+ * `debit_amount` and `credit_amount` mutually exclusive by CHECK, so a credit
+ * line has a NULL debit, and `debit − credit` over it is NULL, which SUM
+ * skips. An account without posted lines reads as zero; telling that apart
+ * from a GL account that is not the entity's is the caller's.
+ */
+export async function queryBankBookBalanceAsOf(
+  entityId: string,
+  bankAccountId: string,
+  asOf: string,
+  client?: pg.PoolClient
+): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance
+                 FROM journal_entry_lines l
+                 JOIN journal_entries j ON j.id = l.journal_entry_id
+                 JOIN bank_accounts ba ON ba.gl_account_id = l.account_id
+                WHERE ba.id = $1 AND ba.entity_id = $2 AND j.entity_id = $2
+                  AND j.status = 'posted'
+                  AND j.entry_date <= $3::date`;
+  const values = [bankAccountId, entityId, asOf];
+  const r = client
+    ? await client.query<{ balance: string }>(text, values)
+    : await query<{ balance: string }>(text, values);
+  return r.rows[0].balance;
+}
+
+/**
+ * The parameters of `queryFeeVatParked`, in the statement's `$1..$4` order:
+ * the entity, the source types whose entries count (the fee and its earlier
+ * releases), the movement they are about, and the pending-VAT account (1135).
+ * A tuple and not an object, so the consumer keeps the whole list it always
+ * bound, which the E1.2 criterion `bank-fee-vat-leaves-1135` reads.
+ */
+export type FeeVatParkedParams = [entityId: string, sourceTypes: string[], sourceId: string, pendingAccountId: string];
+
+/**
+ * What a bank fee movement still has parked on the pending-VAT account: the
+ * debit − credit of that account's lines on the posted entries of the given
+ * source types for the movement, so the fee's own entry minus what its earlier
+ * releases already took out, at the column's four decimals. '0' when no row.
+ */
+export async function queryFeeVatParked(values: FeeVatParkedParams, client?: pg.PoolClient): Promise<string> {
+  const text = `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+      WHERE je.entity_id = $1
+        AND je.source_type = ANY($2::text[])
+        AND je.source_id = $3
+        AND je.status = 'posted'
+        AND l.account_id = $4`;
+  const r = client
+    ? await client.query<{ parked: string }>(text, values)
+    : await query<{ parked: string }>(text, values);
+  return r.rows[0]?.parked ?? '0';
+}
+
 // ------------------------------------------------------------
 // GENERAL LEDGER
 // ------------------------------------------------------------
@@ -2100,6 +2646,424 @@ export async function getAgedPayables(
     total: all.length,
     ...totalAging(all, opts.scale),
   };
+}
+
+// ------------------------------------------------------------
+// RECEIVABLE POSTING READS (MNE-001-616, #101)
+//
+// Two sums the AR posting reads from the ledger before it writes, on the
+// caller's transaction client: a reading taken outside the transaction would
+// not see the lines it has just written, nor be held by its locks. Neither
+// reads a policy, so nothing here leaves the transaction. Each one keeps the
+// join to its document table inside the statement: the join decides which
+// lines are summed, and taking it out would cost a second query.
+// ------------------------------------------------------------
+
+/**
+ * The net the invoice's own entry left on one account: the debit its
+ * receivable was born with (the sum of its rounded lines, MNE-001-081), read
+ * by the tranche that collects a foreign invoice in full (`receivableCredit`,
+ * ar-ap-posting.ts) so the receivable ends at exactly zero. The invoice is
+ * bound to the entity; its entry is read whatever its status, as it always
+ * was. Null when the entry has no line on the account.
+ */
+export async function queryInvoiceEntryNetOnAccount(
+  entityId: string,
+  invoiceId: string,
+  accountId: string,
+  client?: pg.PoolClient
+): Promise<string | null> {
+  const text = `SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born
+         FROM invoices i
+         JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id
+        WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3`;
+  const values = [invoiceId, entityId, accountId];
+  const r = client
+    ? await client.query<{ born: string | null }>(text, values)
+    : await query<{ born: string | null }>(text, values);
+  return r.rows[0]?.born ?? null;
+}
+
+export interface HeldNoteIvaRow {
+  payment_id: string;
+  payment_number: string;
+  invoice_id: string;
+  /** What the note's `held_restitution` lines for this receipt took from 2125. */
+  iva: string;
+  /** The mirror's day, or the cashing's when the mirror is dated before it. */
+  day: string;
+}
+
+/**
+ * Per receipt the bank has cashed, the IVA a reversed credit note took from
+ * 2125 on its `held_restitution` lines (`followNoteReversal`, MNE-001-612):
+ * the note's entry and its mirror bound to the entity, the receipt completed
+ * and cashed, and a live posted cashing entry standing. One statement for
+ * the whole note, ordered by receipt number.
+ */
+export async function queryHeldNoteIvaByCashedReceipt(
+  entityId: string,
+  entries: { noteEntryId: string; mirrorEntryId: string },
+  client?: pg.PoolClient
+): Promise<HeldNoteIvaRow[]> {
+  const text = `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
+            GREATEST(m.entry_date, cp.check_cashed_date)::text AS day
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
+       JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
+       JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
+                                AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
+      WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
+        -- MNE-001-794: a cashing may post one entry per day, so it is asked for, not joined (a join would sum
+        -- the note's lines once per entry), and the day is the bank's, the one every entry of it once carried.
+        AND EXISTS (SELECT 1 FROM journal_entries c
+                     WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
+                       AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)
+      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date, cp.check_cashed_date
+      ORDER BY cp.payment_number`;
+  const values = [entityId, entries.noteEntryId, entries.mirrorEntryId];
+  const r = client ? await client.query<HeldNoteIvaRow>(text, values) : await query<HeldNoteIvaRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// IVA CASH-BASIS AND OVER-CREDIT READS (MNE-001-619, #101)
+//
+// Two sums the IVA cash basis reads from the ledger, on the caller's
+// transaction client: what an issued invoice's credit notes took from 2125
+// (`issuedVatStillParked`, iva-cash-basis.ts), read by the note or the unapply
+// that is about to post, and what correction entries already put back in 1135
+// for a bill (the over-credit census, vat-overcredit.ts), read again under the
+// bill's lock before a correction posts. Neither reads a policy, so nothing
+// here leaves the transaction. Each sum is a column of a statement that reads
+// the document's other figures, and moves with it: a read of its own would
+// cost a query per document, or a second one per run. The sources and roles
+// are the callers' parameters, as they always were: importing them here would
+// close a cycle back to those modules.
+// ------------------------------------------------------------
+
+export interface IssuedInvoiceVatTakenRow {
+  /** What the invoice's live collections stored as released from 2125. */
+  released: string;
+  /** The cash and withholdings of the live collections that stored no release. */
+  unknown: string;
+  /** Debit-positive net its posted, unreversed credit notes left on the parked-IVA account. */
+  notes: string;
+  tax: string;
+  total: string;
+}
+
+/**
+ * What an issued invoice's collections and credit notes took from 2125
+ * (MNE-001-575): the releases its live allocations stored, the cash of those
+ * that stored none (written before MNE-001-459, counted at their pro rata by
+ * the caller), and the net its posted, unreversed credit notes left on the
+ * entity's parked-IVA role account (`parkedRole`), with the invoice's tax and
+ * total. The invoice, the collections and the role are bound to the entity.
+ * Undefined when the entity has no such invoice.
+ */
+export async function queryIssuedInvoiceVatTaken(
+  entityId: string,
+  invoiceId: string,
+  parkedRole: string,
+  client?: pg.PoolClient
+): Promise<IssuedInvoiceVatTakenRow | undefined> {
+  const text = `SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released,
+            COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+                        FROM payment_allocations pa
+                        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+                       WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL
+                         AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown,
+            COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                        FROM credit_notes cn
+                        JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note'
+                                               AND je.source_id = cn.id AND je.status = 'posted'
+                                               AND je.reversed_by_entry_id IS NULL
+                        JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+                        JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1
+                                             AND ar.role = $3 AND ar.qualifier IS NULL
+                       WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes,
+            i.tax_amount::text AS tax, i.total_amount::text AS total
+       FROM invoices i
+      WHERE i.id = $2 AND i.entity_id = $1`;
+  const values = [entityId, invoiceId, parkedRole];
+  const r = client
+    ? await client.query<IssuedInvoiceVatTakenRow>(text, values)
+    : await query<IssuedInvoiceVatTakenRow>(text, values);
+  return r.rows[0];
+}
+
+export interface VatOvercreditBillRow {
+  tenant_id: string;
+  bill_id: string;
+  entity_id: string;
+  entity_name: string;
+  bill_number: string;
+  cfdi_uuid: string | null;
+  header: string;
+  total: string;
+  amount_due: string;
+  currency_code: string;
+  functional_currency: string | null;
+  xml_taxes: string;
+  tax_breakdown: unknown;
+  has_note: boolean;
+  /** Debit-positive net the bill's posted, unreversed corrections left on the pending-VAT account. */
+  corrected: string;
+  correction_entries: string | null;
+  roles: number;
+}
+
+/**
+ * The bills of the VAT over-credit census (MNE-001-562): per bill made from a
+ * received CFDI that transfers a tax other than VAT, of the tenant (one entity
+ * and one bill when named), on Mexican books and not void or cancelled, its
+ * header and totals, whether a received credit note stands (`noteSource`),
+ * what its posted, unreversed corrections (`correctionSource`) put back on the
+ * pending-VAT role account (`pendingRole`) and their numbers, and how many of
+ * the two roles the correction moves between the entity has.
+ *
+ * The bill's oldest xml_cfdi pre-registration of its own entity, as migration
+ * 328 and the REP linkage read it, and only when its summary lists a transfer
+ * that is not VAT: a CFDI with VAT alone and a bill with no CFDI never enter.
+ */
+export async function queryVatOvercreditBills(
+  tenantId: string,
+  scope: { entityId: string | null; billId: string | null },
+  keys: { noteSource: string; correctionSource: string; pendingRole: string; creditableRole: string },
+  client?: pg.PoolClient
+): Promise<VatOvercreditBillRow[]> {
+  const text = `
+SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bill_number, b.cfdi_uuid,
+       b.tax_amount::text AS header, b.total_amount::text AS total, b.amount_due::text AS amount_due,
+       b.currency_code, le.functional_currency, c.xml_taxes::text AS xml_taxes, c.tax_breakdown,
+       EXISTS (SELECT 1 FROM journal_entries n
+                WHERE n.entity_id = b.entity_id AND n.source_type = $3 AND n.source_id = b.id
+                  AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL) AS has_note,
+       COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                   FROM journal_entries k
+                   JOIN journal_entry_lines l ON l.journal_entry_id = k.id
+                   JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = b.entity_id
+                                        AND ar.role = $5 AND ar.qualifier IS NULL
+                  WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
+                    AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL), 0)::text AS corrected,
+       (SELECT string_agg(k.entry_number, ', ' ORDER BY k.entry_date, k.entry_number) FROM journal_entries k
+         WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
+           AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL) AS correction_entries,
+       (SELECT count(DISTINCT ar.role)::int FROM account_roles ar
+         WHERE ar.entity_id = b.entity_id AND ar.qualifier IS NULL AND ar.role IN ($5, $6)) AS roles
+  FROM (SELECT DISTINCT ON (p.bill_id) p.bill_id, p.entity_id, p.tax_amount AS xml_taxes, p.tax_breakdown
+          FROM pre_registrations p
+         WHERE p.source_type = 'xml_cfdi' AND p.bill_id IS NOT NULL
+         ORDER BY p.bill_id, p.created_at, p.id) c
+  JOIN bills b ON b.id = c.bill_id AND b.entity_id = c.entity_id
+  JOIN legal_entities le ON le.id = b.entity_id
+ WHERE le.tenant_id = $1
+   AND ($2::uuid IS NULL OR le.id = $2::uuid)
+   AND ($7::uuid IS NULL OR b.id = $7::uuid)
+   AND ${sqlKeepsMexicanBooks('le')}
+   AND b.status NOT IN ('void', 'cancelled')
+   AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.tax_breakdown->'traslados') = 'array'
+                                                       THEN c.tax_breakdown->'traslados' ELSE '[]'::jsonb END) x
+                WHERE lpad(COALESCE(x->>'impuesto', ''), 3, '0') <> '002')
+ ORDER BY le.name, b.bill_number, b.id`;
+  const values = [
+    tenantId, scope.entityId, keys.noteSource, keys.correctionSource, keys.pendingRole, keys.creditableRole, scope.billId,
+  ];
+  const r = client
+    ? await client.query<VatOvercreditBillRow>(text, values)
+    : await query<VatOvercreditBillRow>(text, values);
+  return r.rows;
+}
+
+// ------------------------------------------------------------
+// BANK ACCOUNT BOOK BALANCE READS (MNE-001-620, #101)
+//
+// Two sums bank-account-service.ts reads from the ledger: the book balance
+// of each bank account its projection lists (`bank account show` and `list`,
+// and the re-read of `create`, `edit` and `set` inside their transaction),
+// and the posted lines the remap guard of `bank account set` counts on its
+// transaction client. The book balance is a correlated subquery the
+// projection composes per row, as `bookAmountDueSql` is: a reader of its own
+// would cost a query per listed account, and the projection, whose masked
+// columns are that module's control, stays there. Neither reads a policy.
+// ------------------------------------------------------------
+
+/**
+ * SQL: the lifetime posted balance of one account, debit-positive, closing
+ * entries included, as a subquery of one column, which the bank account
+ * projection reads by the alias it had there. `accountSql` and `entitySql` are
+ * the caller's expressions for the account and the entity the entries belong
+ * to (for that projection, `b.gl_account_id` and `b.entity_id`). An account
+ * without posted lines reads as zero.
+ *
+ * COALESCE per side, not over the difference: migration 001 makes
+ * `debit_amount` and `credit_amount` mutually exclusive by CHECK, so a credit
+ * line has a NULL debit, and `debit − credit` over it is NULL, which SUM
+ * skips. Subtracting that way read zero for any account with movements, the
+ * worst way to be wrong: it looks like a balance.
+ */
+export function postedBalanceOnAccountSql(accountSql: string, entitySql: string): string {
+  return `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) AS saldo
+        FROM journal_entry_lines l
+        JOIN journal_entries j ON j.id = l.journal_entry_id
+       WHERE l.account_id = ${accountSql}
+         AND j.entity_id = ${entitySql}
+         AND j.status = 'posted'`;
+}
+
+export interface PostedLinesOnAccountRow {
+  /** How many posted lines the account carries. */
+  lines: string;
+  /** Their debit-positive net, as `postedBalanceOnAccountSql` reads it. */
+  balance: string;
+}
+
+/**
+ * The posted lines of one account and their debit-positive net, closing
+ * entries included, bound to the entity the entries belong to: what the
+ * remap guard of `bank account set` counts before it moves a bank account to
+ * another GL account (`movimientosPosteados`, bank-account-service.ts). Same
+ * COALESCE per side as `postedBalanceOnAccountSql`, for the same reason. The
+ * two column aliases are English, as new identifiers are; the expressions,
+ * joins, predicates and parameters are the ones the guard always read.
+ */
+export async function queryPostedLinesOnAccount(
+  entityId: string,
+  accountId: string,
+  client?: pg.PoolClient
+): Promise<PostedLinesOnAccountRow> {
+  const text = `SELECT COUNT(*)::text AS lines,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance
+       FROM journal_entry_lines l
+       JOIN journal_entries j ON j.id = l.journal_entry_id
+      WHERE l.account_id = $1 AND j.entity_id = $2 AND j.status = 'posted'`;
+  const values = [accountId, entityId];
+  const r = client
+    ? await client.query<PostedLinesOnAccountRow>(text, values)
+    : await query<PostedLinesOnAccountRow>(text, values);
+  return r.rows[0];
+}
+
+// ------------------------------------------------------------
+// FILING WORKPAPER AND PROVISIONAL ISR READS (MNE-001-622, #101)
+//
+// Three sums the monthly papers read from the ledger, each on the paper's own
+// client (the filing workpaper's read-only snapshot, the ISR builder's
+// transaction): the entries that move a line's accounts in a range and the
+// entries a builder chose, each with what it nets there (filing-workpaper.ts,
+// `entriesMoving` and `entriesByIds`), and the ISR withheld per entry and
+// account, which `withheldInRange` (provisional-income-tax.ts) classifies.
+// The statements are the ones those modules always sent; the empty-list
+// guards, the trace's scale and the classification stay with them. None reads
+// a policy.
+// ------------------------------------------------------------
+
+/** One entry of a paper's trace, with what it nets on the accounts asked for, debit positive. */
+export interface EntryNetRow {
+  id: string;
+  entry_number: string;
+  entry_date: string;
+  source_type: string | null;
+  description: string | null;
+  net: string;
+}
+
+/**
+ * The posted entries that move `accountIds` between two dates, closing
+ * entries aside, each with its debit-positive net on those accounts, in date
+ * and number order: the filing paper's tie-out and its revenue trace
+ * (`entriesMoving`, filing-workpaper.ts). NOTE: journal_entries carries no
+ * tenant column; the entity is the boundary, and every builder checks the
+ * entity belongs to the tenant before this runs.
+ */
+export async function queryEntriesMovingAccounts(
+  entityId: string,
+  accountIds: readonly string[],
+  from: string,
+  through: string,
+  client?: pg.PoolClient
+): Promise<EntryNetRow[]> {
+  const text = `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
+       FROM journal_entries je
+       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+      WHERE je.entity_id = $1 AND je.status = 'posted'
+        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+        AND l.account_id = ANY($4::uuid[])
+        ${predicadoSinCierre()}
+      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
+      ORDER BY je.entry_date, je.entry_number`;
+  const values = [entityId, from, through, [...accountIds]];
+  const r = client ? await client.query<EntryNetRow>(text, values) : await query<EntryNetRow>(text, values);
+  return r.rows;
+}
+
+/**
+ * Entries of the entity by id, each once, with what it nets on `accountIds`
+ * (zero when it has no line there): the entries a builder decided a line
+ * rests on (`entriesByIds`, filing-workpaper.ts).
+ */
+export async function queryEntriesNetOnAccounts(
+  entityId: string,
+  entryIds: readonly string[],
+  accountIds: readonly string[],
+  client?: pg.PoolClient
+): Promise<EntryNetRow[]> {
+  const text = `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                     FILTER (WHERE l.account_id = ANY($3::uuid[])), 0)::text AS net
+       FROM journal_entries je
+       LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+      WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[])
+      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
+      ORDER BY je.entry_date, je.entry_number`;
+  const values = [entityId, [...new Set(entryIds)], [...accountIds]];
+  const r = client ? await client.query<EntryNetRow>(text, values) : await query<EntryNetRow>(text, values);
+  return r.rows;
+}
+
+/** What one posted entry nets on one withholding account, with what tells a withholding apart. */
+export interface WithholdingNetRow {
+  entry_id: string;
+  source_type: string | null;
+  reverses_entry_id: string | null;
+  code: string;
+  net: string;
+}
+
+/**
+ * The posted entries on the withholding accounts between two dates, closing
+ * entries aside, one row per entry and account code with its debit-positive
+ * net: what `withheldInRange` (provisional-income-tax.ts) classifies into the
+ * ISR withheld to the entity.
+ */
+export async function queryWithholdingNetByEntry(
+  entityId: string,
+  accountIds: readonly string[],
+  from: string,
+  through: string,
+  client?: pg.PoolClient
+): Promise<WithholdingNetRow[]> {
+  const text = `SELECT je.id AS entry_id, je.source_type, je.reverses_entry_id, a.code,
+            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
+       FROM journal_entries je
+       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+       JOIN accounts a ON a.id = l.account_id
+      WHERE je.entity_id = $1 AND je.status = 'posted'
+        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+        AND l.account_id = ANY($4::uuid[])
+        ${predicadoSinCierre()}
+      GROUP BY je.id, je.source_type, je.reverses_entry_id, a.code
+      ORDER BY a.code`;
+  const values = [entityId, from, through, accountIds];
+  const r = client
+    ? await client.query<WithholdingNetRow>(text, values)
+    : await query<WithholdingNetRow>(text, values);
+  return r.rows;
 }
 
 // ------------------------------------------------------------

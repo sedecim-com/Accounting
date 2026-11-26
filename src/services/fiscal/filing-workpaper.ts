@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { getClient } from '../../database/connection.js';
-import { predicadoSinCierre } from '../reporting/criterio-cierre.js';
+import { queryEntriesMovingAccounts, queryEntriesNetOnAccounts, type EntryNetRow } from '../reporting/report-service.js';
 import { rangoDelMes, type Hallazgo } from '../sat/diot/index.js';
 import {
   buildIvaWorkpaper,
@@ -194,11 +194,7 @@ async function accountIdsOf(client: pg.PoolClient, tenantId: string, entityId: s
   return rows.map((r) => r.account_id);
 }
 
-interface EntryRow {
-  id: string; entry_number: string; entry_date: string; source_type: string | null; description: string | null; net: string;
-}
-
-const toTrace = (r: EntryRow): TraceEntry => ({
+const toTrace = (r: EntryNetRow): TraceEntry => ({
   entryId: r.id,
   entryNumber: r.entry_number,
   entryDate: r.entry_date,
@@ -212,6 +208,7 @@ const toTrace = (r: EntryRow): TraceEntry => ({
  * aside. The ledger side of the paper: the tie-out and the revenue trace.
  * NOTE: journal_entries carries no tenant column; the entity is the boundary,
  * and every builder checks the entity belongs to the tenant before this runs.
+ * The sum is the report layer's (MNE-001-622), read on the paper's client.
  */
 export async function entriesMoving(
   client: pg.PoolClient,
@@ -221,23 +218,13 @@ export async function entriesMoving(
   through: string
 ): Promise<TraceEntry[]> {
   if (accountIds.length === 0) return [];
-  const { rows } = await client.query<EntryRow>(
-    `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net
-       FROM journal_entries je
-       JOIN journal_entry_lines l ON l.journal_entry_id = je.id
-      WHERE je.entity_id = $1 AND je.status = 'posted'
-        AND je.entry_date >= $2::date AND je.entry_date <= $3::date
-        AND l.account_id = ANY($4::uuid[])
-        ${predicadoSinCierre()}
-      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
-      ORDER BY je.entry_date, je.entry_number`,
-    [entityId, from, through, [...accountIds]]
-  );
-  return rows.map(toTrace);
+  return (await queryEntriesMovingAccounts(entityId, accountIds, from, through, client)).map(toTrace);
 }
 
-/** Entries by id, each with what it nets to on `accountIds`. The ids come from a builder's own decision. */
+/**
+ * Entries by id, each with what it nets to on `accountIds`. The ids come from a builder's own decision.
+ * The sum is the report layer's (MNE-001-622), read on the paper's client.
+ */
 export async function entriesByIds(
   client: pg.PoolClient,
   entityId: string,
@@ -245,18 +232,7 @@ export async function entriesByIds(
   accountIds: readonly string[]
 ): Promise<TraceEntry[]> {
   if (entryIds.length === 0) return [];
-  const { rows } = await client.query<EntryRow>(
-    `SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description,
-            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
-                     FILTER (WHERE l.account_id = ANY($3::uuid[])), 0)::text AS net
-       FROM journal_entries je
-       LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
-      WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[])
-      GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description
-      ORDER BY je.entry_date, je.entry_number`,
-    [entityId, [...new Set(entryIds)], [...accountIds]]
-  );
-  return rows.map(toTrace);
+  return (await queryEntriesNetOnAccounts(entityId, entryIds, accountIds, client)).map(toTrace);
 }
 
 const distinctEntries = (lists: TraceEntry[][]): TraceEntry[] => {

@@ -37,6 +37,23 @@ provides:
     # GET /v1/fiscal-periods/:id/close-status of that period gains the box
     # `year-months-sealed` and `unsealed_periods`; no box is renamed and no other period's
     # answer changes. Rollback: revert the commit; the panel row stays and nothing reads it.
+    # CONTRACT: POST /v1/fiscal-periods/:id/soft-close and /hard-close of a period that follows
+    # a sealed fiscal year answer 422 CANNOT_CLOSE_PERIOD while that year holds income or
+    # expense posted after its sweep (MNE-001-662, #602); they used to close. close-status of
+    # that period shows the box `ledger-integrity` incomplete, naming `year-sweep: <folio>`;
+    # no box is added or renamed. Rollback: revert the commit; nothing is migrated.
+    # CONTRACT: POST /v1/payroll/pay-runs answers 409 RESOURCE_ALREADY_EXISTS when the period
+    # already has a run of type `regular` that is not voided and the new one is regular too
+    # (`run_type` omitted is regular); the message names the period, the run it has and its
+    # status (MNE-001-659, #601). It used to create a second one. Every other `run_type` is
+    # created as before, and so is the first regular run of a period. Rollback: revert the
+    # commit; no row was written differently.
+    # CONTRACT: POST /v1/payroll/pay-runs/:id/calculate answers `data.warnings`, a list (empty
+    # when none) of {table, key, value, since, dueFrom, payDate}: each yearly Mexican parameter
+    # (the two minimum wages from 1 January, the daily and monthly UMA from 1 February) whose
+    # value in force on the pay date began before its last due day (MNE-001-636, #953).
+    # Additive: no field is removed or renamed, and no amount changes. Rollback: revert the
+    # commit; nothing is migrated.
     # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
     # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
     # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
@@ -271,7 +288,10 @@ provides:
     # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
     # refused). It generates only; a person uploads it (#307). A vendor payment unapplied
     # or reversed leaves the month of the undo, netted inside its third party's record; a
-    # third party whose month nets negative is refused by name (MNE-001-682).
+    # third party whose month nets negative is refused by name (MNE-001-682). Under the
+    # panel key vendor_undo_iva_month = payment_month the undone application counts in no
+    # month instead, so the payment's month declares less and no month nets negative
+    # (MNE-001-754).
     # CONTRACT: the agent is told to write the entry and line descriptions of an
     # entity that keeps Mexican books in Spanish, whatever language it answers
     # in, because they become the Concepto of the Anexo 24 Polizas XML (#654,
@@ -319,6 +339,30 @@ external:
     # (tdCFDI:t_Fecha): the calendar days pay_periods and employees store, whatever the
     # zone of the process (src/services/payroll/mx/cfdi-nomina-generator.ts, MNE-001-735,
     # #601). The hour of Fecha is still the literal 10:00:00, not the local time of issue.
+    # CONTRACT: POST /v1/payroll/paychecks/:id/cfdi-nomina stamps a paycheck once (MNE-001-736,
+    # #601). It holds the paycheck's row from its read to its write, in one transaction that
+    # stays open while the PAC answers. A paycheck whose cfdi_status is `stamped` (or a value
+    # the code does not know) answers 409 payrun.cfdi.already_stamped with the folio, before
+    # the PAC is called; NULL, pending, failed and cancelled are stamped. A stamp that waits
+    # longer than the pool's lock_timeout answers 409 payrun.cfdi.stamp_in_progress. A folio
+    # the PAC issued and the paycheck could not record answers 500 PAYROLL_CFDI_NOT_RECORDED
+    # and names the folio.
+    # CONTRACT: POST /v1/invoices/:id/cfdi/stamp stamps an invoice once (MNE-001-763, #696),
+    # by the rule of MNE-001-736 (src/services/integrations/mexico/pac/stamp-once.ts). It
+    # holds the invoice's row (FOR NO KEY UPDATE) from its read to its write, in one
+    # transaction that stays open while the PAC answers. An invoice whose cfdi_status is
+    # `stamped` answers 409 ar.invoice.cfdi.already_stamped with the folio, its status and
+    # stamped_at, before the PAC is called; NULL, pending, failed and cancelled are stamped.
+    # A stamp that waits longer than the pool's lock_timeout answers 409
+    # ar.invoice.cfdi.stamp_in_progress. A folio the PAC issued and the invoice could not
+    # record answers 500 INVOICE_CFDI_NOT_RECORDED and names the folio and the PAC.
+    # CONTRACT: a gap in the payroll data of the deployment answers 500 with its own code
+    # where it answered 500 INTERNAL_SERVER_ERROR «An unexpected error occurred» (MNE-001-822,
+    # #151): TAX_PARAMETERS_MISSING, TAX_PARAMETERS_YEAR_MISMATCH, TAX_PARAMETER_MISSING,
+    # TAX_RATES_MISSING, ISR_TARIFF_PERIOD_UNSUPPORTED, EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED and
+    # PAYROLL_ACCOUNT_MAPPING_MISSING, with the message in the negotiated language and
+    # Content-Language. The 422 of POST /v1/payroll/sua for a file that does not match the
+    # liability keeps its code and details, and its message now follows Accept-Language.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
     # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
     # `reasoning_effort` on chat turns, compaction summaries and the init probe only when

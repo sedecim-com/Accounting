@@ -6,6 +6,13 @@ vi.mock('../../src/utils/logger.js', () => ({
 vi.mock('../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(async () => ({ id: 'je-1' })),
 }));
+// MNE-001-616: the receivable an invoice was born with is read through
+// report-service. The real helper runs (its SQL reaches the fake client),
+// wrapped in a spy so a test can say which layer was asked, on which client.
+vi.mock('../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/reporting/report-service.js')>();
+  return { ...real, queryInvoiceEntryNetOnAccount: vi.fn(real.queryInvoiceEntryNetOnAccount) };
+});
 
 import Decimal from 'decimal.js';
 import type pg from 'pg';
@@ -18,8 +25,10 @@ import {
 import type { Bill, BillLine, Invoice, InvoiceLine } from '../../src/types/index.js';
 import type { ContextoCambiario } from '../../src/services/accounting/moneda-origen.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
+import { queryInvoiceEntryNetOnAccount } from '../../src/services/reporting/report-service.js';
 
 const mockCreate = createJournalEntry as unknown as Mock;
+const bornReader = queryInvoiceEntryNetOnAccount as unknown as Mock;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
 const USER = 'u0000000-0000-0000-0000-000000000001';
@@ -157,6 +166,7 @@ function cuadre(): void {
 
 beforeEach(() => {
   mockCreate.mockClear();
+  bornReader.mockClear();
   sqlLog.length = 0;
 });
 
@@ -430,6 +440,41 @@ describe('postCustomerPaymentEntry · MNE-001-082: the realised difference of a 
     await postCustomerPaymentEntry(fakeClient(), pago(), USER, tranche({}));
     expect(receivableNet().toFixed(4)).toBe('17123.5000');
     expect(lines().filter((l) => l.account_id === 'acct:cxc')).toHaveLength(1);
+  });
+
+  it('the closing tranche reads what the receivable was born with through report-service, on the same client (MNE-001-616)', async () => {
+    // By hand: USD 1 000.00 born at 17.50 is 17 500.0000, a ten-thousandth over
+    // (17 500.0001); 400.00 collected before at 17.50 took 7 000.0000. The last
+    // 600.00 credits 17 500.0001 − 7 000.0000 = 10 500.0001: 10 500.0000 at the
+    // rate plus 0.0001 of rounding. Cash at 18.00 is 10 800.0000, so the gain is
+    // 10 800.0000 − 10 500.0001 = 299.9999.
+    const client = fakeClient({ bornDebit: '17500.0001' });
+    await postCustomerPaymentEntry(
+      client,
+      pago({ payment_amount: '600.0000' }),
+      USER,
+      tranche({ aplicado: '600.00', priorApplied: '400.0000', tasaHistorica: '17.5000000000' })
+    );
+    expect(bornReader.mock.calls).toEqual([[ENTITY, 'inv-1', 'acct:cxc', client]]);
+    // Its SQL ran on the caller's transaction client, once.
+    expect(sqlLog.filter((q) => q.sql.includes('AS born')).map((q) => q.params)).toEqual([['inv-1', ENTITY, 'acct:cxc']]);
+    expect(receivableNet().toFixed(4)).toBe('10500.0001');
+    const [truthful, remainder] = lines().filter((l) => l.account_id === 'acct:cxc');
+    expect(truthful.credit_amount).toBe('10500.0000');
+    expect(remainder.credit_amount).toBe('0.0001');
+    expect(de('acct:utilidad_cambiaria')?.credit_amount).toBe('299.9999');
+    cuadre();
+  });
+
+  it('a tranche that does not close the invoice never asks what it was born with', async () => {
+    await postCustomerPaymentEntry(
+      fakeClient({ bornDebit: '17500.0001' }),
+      pago({ payment_amount: '400.0000' }),
+      USER,
+      tranche({ aplicado: '400.00', priorApplied: '0', tasaHistorica: '17.5000000000' })
+    );
+    expect(bornReader).not.toHaveBeenCalled();
+    expect(receivableNet().toFixed(4)).toBe('7000.0000');
   });
 
   it('refuses dollars deposited into a bank account kept in pesos, naming both currencies', async () => {

@@ -72,7 +72,9 @@ export interface IaDeps {
 
 export class IaSection implements SetupSection {
   readonly id = 'ia' as const;
-  readonly title = 'AI provider';
+  get title(): string {
+    return t('init.ai.title');
+  }
   readonly required = true;
 
   constructor(private readonly deps: IaDeps = {}) {}
@@ -105,15 +107,15 @@ export class IaSection implements SetupSection {
       // A helper counts as ready: the probe below runs it, as the session does.
       const ready = !!p && credentialState(p, { cwd: this.cwd, home: this.deps.home, source: origins[persisted] }).ready;
       if (ready) {
-        ctx.print(`  Provider "${persisted}" is already configured; verifying it live…`);
+        ctx.print(`  ${t('init.ai.verifying', { profile: persisted })}`);
         const probe = await probeFn(persisted);
         if (probe.chat) {
-          ctx.print('  ✔ Verified: responds to a minimal chat (config left untouched)');
+          ctx.print(`  ✔ ${t('init.ai.verified')}`);
           this.reportTools(ctx, probe);
           return;
         }
         this.reportFailure(ctx, persisted, probe);
-        ctx.print('  Repair: pick a provider that does respond (the current config is kept until one verifies).');
+        ctx.print(`  ${t('init.ai.repair')}`);
       }
     }
 
@@ -132,7 +134,7 @@ export class IaSection implements SetupSection {
       });
 
       if (firstPass) {
-        ctx.print('  Available providers:');
+        ctx.print(`  ${t('init.ai.available')}`);
         for (const r of rows) {
           const badge = r.ready ? '✔' : '○';
           ctx.print(`    ${badge} ${r.name.padEnd(14)} ${r.profile.model} · ${r.state.label}`);
@@ -149,13 +151,13 @@ export class IaSection implements SetupSection {
 
       const chosen =
         flagProvider ??
-        (await ctx.askText(`  Which one do I use by default? (${suggested}): `, suggested)) ??
+        (await ctx.askText(`  ${t('init.ai.which_default', { suggested })} `, suggested)) ??
         suggested;
       firstPass = false;
 
       const row = rows.find((r) => r.name === chosen);
       if (!row) {
-        ctx.print(`  "${chosen}" does not exist. Leaving the config as is.`);
+        ctx.print(`  ${t('init.ai.unknown', { profile: chosen })}`);
         return;
       }
 
@@ -173,14 +175,14 @@ export class IaSection implements SetupSection {
       if (row.state.source.kind === 'missing') {
         const variable = row.state.source.variable;
         const where = row.state.source.where;
-        if (where) ctx.print(`  Get the credential at: ${where}`);
-        const key = await ctx.askSecret(`  ${variable} (Enter to skip): `);
+        if (where) ctx.print(`  ${t('init.ai.get_credential', { url: where })}`);
+        const key = await ctx.askSecret(`  ${t('init.ai.key_prompt', { variable })} `);
         if (key) {
           const envPath = this.saveTypedKey(ctx, variable, key);
           process.env[variable] = key;
-          ctx.print(`  ✔ Saved ${variable} to ${envPath}`);
+          ctx.print(`  ✔ ${t('init.ai.key_saved', { variable, path: envPath })}`);
         } else {
-          ctx.print(`  ○ Without a credential, ${chosen} cannot be used yet.`);
+          ctx.print(`  ○ ${t('init.ai.no_credential', { profile: chosen })}`);
         }
       }
 
@@ -189,9 +191,9 @@ export class IaSection implements SetupSection {
       if (!model && row.local && (row.profile.base_url ?? '').includes('11434')) {
         const models = await (this.deps.listOllamaModels ?? defaultListOllama)();
         if (models.length > 0) {
-          ctx.print('  Models installed in Ollama:');
+          ctx.print(`  ${t('init.ai.ollama_models')}`);
           models.forEach((m, i) => ctx.print(`    ${i + 1}) ${m}`));
-          const pick = await ctx.askText(`  Model (1): `, '1');
+          const pick = await ctx.askText(`  ${t('init.ai.model_prompt')} `, '1');
           const idx = Math.min(Math.max(parseInt(pick ?? '1', 10) || 1, 1), models.length) - 1;
           model = models[idx];
         }
@@ -202,25 +204,25 @@ export class IaSection implements SetupSection {
       const probe = await probeFn(chosen, model);
       if (!probe.chat) {
         this.reportFailure(ctx, chosen, probe);
-        if (!(await ctx.confirm('  Try another provider?', false))) {
-          ctx.print('  Nothing was persisted: the previous config (if any) is kept.');
+        if (!(await ctx.confirm(`  ${t('init.ai.try_another')}`, false))) {
+          ctx.print(`  ${t('init.ai.nothing_persisted')}`);
           return;
         }
         continue;
       }
 
-      ctx.print('  ✔ Responds to a minimal chat');
+      ctx.print(`  ✔ ${t('init.ai.responds')}`);
       this.reportTools(ctx, probe);
       if (!(await this.writeConfig(ctx, chosen, model))) return;
-      ctx.print(`  ✔ Default provider: ${chosen}${model ? ` · ${model}` : ''}`);
+      ctx.print(`  ✔ ${t('init.ai.default_saved', { profile: chosen })}${model ? ` · ${model}` : ''}`);
       const fromEnv = process.env.MNEMOSINE_PROVIDER;
       if (fromEnv && fromEnv !== chosen) {
-        ctx.print(`  ! MNEMOSINE_PROVIDER=${fromEnv} wins over the default_provider just saved.`);
-        ctx.print(`    Empty it (in your .env or shell) to use ${chosen} by default.`);
+        ctx.print(`  ! ${t('init.ai.env_wins', { value: fromEnv })}`);
+        ctx.print(`    ${t('init.ai.env_wins_empty', { profile: chosen })}`);
       }
       return;
     }
-    ctx.print('  Too many failed attempts; nothing was persisted.');
+    ctx.print(`  ${t('init.ai.too_many')}`);
   }
 
   /**
@@ -251,7 +253,7 @@ export class IaSection implements SetupSection {
     const dir = path.dirname(target);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.chmodSync(dir, 0o700);
-    ctx.print(`  .env location: ${target} (yours; never the folder's ./.env)`);
+    ctx.print(`  ${t('init.ai.env_location', { path: target })}`);
     upsertEnvVar(target, variable, key, ctx.print);
 
     const local = path.join(this.cwd, '.env');
@@ -260,37 +262,37 @@ export class IaSection implements SetupSection {
       const lines = fs.readFileSync(local, 'utf-8').split('\n');
       const kept = lines.filter((l) => !(l.startsWith(`${variable}=`) && l.slice(variable.length + 1).trim() === ''));
       fs.writeFileSync(local, kept.join('\n'));
-      ctx.print(`  ✔ Removed the empty ${variable}= from ${local}, which would hide your key`);
+      ctx.print(`  ✔ ${t('init.ai.removed_empty', { variable, path: local })}`);
     } else if (value !== null) {
-      ctx.print(`  ! ${variable} in ${local} wins in ${this.cwd}: that key serves everyone who runs mnemosine here.`);
+      ctx.print(`  ! ${t('init.ai.local_wins', { variable, path: local, cwd: this.cwd })}`);
     }
     return target;
   }
 
   private reportTools(ctx: SectionContext, probe: ProbeResult): void {
     if (probe.tools) {
-      ctx.print('  ✔ Supports tool-calling (the accounting tools work)');
+      ctx.print(`  ✔ ${t('init.ai.tools_ok')}`);
     } else {
-      ctx.print('  ⚠ Does NOT support tool-calling: fine for conversation, not for operating');
-      ctx.print('     Mark tools:false in its profile, or choose another provider.');
+      ctx.print(`  ⚠ ${t('init.ai.tools_missing')}`);
+      ctx.print(`     ${t('init.ai.tools_missing_fix')}`);
     }
   }
 
   /** Categorized failure: what broke AND what to do about it. */
   private reportFailure(ctx: SectionContext, name: string, probe: ProbeResult): void {
-    ctx.print(`  ✘ No response: ${probe.detail}`);
+    ctx.print(`  ✘ ${t('init.ai.no_response', { detail: probe.detail })}`);
     const category = probe.category ?? categorizeProbeError(probe.detail);
     if (category === 'auth') {
-      ctx.print('     Cause: the credential was rejected (invalid, expired or missing permissions).');
+      ctx.print(`     ${t('init.ai.cause.auth')}`);
       const { profiles } = listProfiles(this.cwd);
       const env = profiles[name]?.api_key_env;
       const where = env ? KEY_URLS[env] : undefined;
-      if (where) ctx.print(`     Get a fresh one at: ${where}`);
+      if (where) ctx.print(`     ${t('init.ai.fresh_key', { url: where })}`);
     } else if (category === 'connection') {
-      ctx.print('     Cause: could not reach the endpoint. Check base_url, your network,');
-      ctx.print('     and that the service is running (for local ones: ollama serve, hermes gateway…).');
+      ctx.print(`     ${t('init.ai.cause.connection')}`);
+      ctx.print(`     ${t('init.ai.cause.connection_more')}`);
     } else {
-      ctx.print('     Cause: the provider answered with an unexpected error (see the detail above).');
+      ctx.print(`     ${t('init.ai.cause.other')}`);
     }
   }
 
@@ -312,11 +314,11 @@ export class IaSection implements SetupSection {
     const { source } = loadConfigFile(this.cwd);
     let target = userFile;
     if (source !== null && source !== userFile) {
-      ctx.print(`  ! everyone who runs mnemosine in ${this.cwd} reads ${source}.`);
-      if (await ctx.confirm(`  Save your choice there (No: in ${userFile})?`, false)) {
+      ctx.print(`  ! ${t('init.ai.project_readers', { cwd: this.cwd, path: source })}`);
+      if (await ctx.confirm(`  ${t('init.ai.save_there', { path: userFile })}`, false)) {
         target = source;
       } else {
-        ctx.print(`  ${source} still decides in ${this.cwd}; your file applies elsewhere.`);
+        ctx.print(`  ${t('init.ai.still_decides', { path: source, cwd: this.cwd })}`);
       }
     }
 
@@ -324,7 +326,7 @@ export class IaSection implements SetupSection {
       target === source ? loadConfigFile(this.cwd).config : this.readUserConfig(userFile);
     const inTarget = Object.prototype.hasOwnProperty.call(existing.providers ?? {}, provider);
     if (!inTarget && !Object.prototype.hasOwnProperty.call(BUILTIN_PROFILES, provider)) {
-      ctx.print(`  ✘ "${provider}" is defined only in ${source}; it is not copied into ${target}, so nothing was saved.`);
+      ctx.print(`  ✘ ${t('init.ai.not_copied', { profile: provider, source: String(source), target })}`);
       return false;
     }
 
@@ -332,14 +334,15 @@ export class IaSection implements SetupSection {
     if (model) patch[inTarget ? 'providers' : 'models'] = { [provider]: inTarget ? { model } : model };
     if (target === userFile) fs.mkdirSync(path.dirname(userFile), { recursive: true, mode: 0o700 });
     writeConfigPatch(patch, this.cwd, target);
-    ctx.print(`  ✔ Saved to ${target}`);
+    ctx.print(`  ✔ ${t('init.ai.saved_to', { path: target })}`);
 
     // Only built-ins declare a window, and they declare it for their own model.
     const declaredFor = BUILTIN_PROFILES[provider]?.model;
     const declared = ventanaDe(provider, this.cwd);
     if (model && declaredFor && model !== declaredFor && declared?.tokens !== undefined) {
-      ctx.print(`  ! ${provider} declares a ${declared.tokens}-token context window for ${declaredFor}, not for ${model}.`);
-      ctx.print('    If yours differs, set compaction.threshold_tokens in the config file.');
+      const declaredWindow = { profile: provider, tokens: declared.tokens, declared: declaredFor, model };
+      ctx.print(`  ! ${t('init.ai.window', declaredWindow)}`);
+      ctx.print(`    ${t('init.ai.window_fix')}`);
     }
     return true;
   }

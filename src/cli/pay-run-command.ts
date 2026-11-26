@@ -17,10 +17,11 @@ import {
   type PayRunSummary,
 } from '../services/payroll/common/pay-run-service.js';
 import { hallazgosQueBloquean } from '../services/payroll/common/employer-liability-service.js';
+import type { StaleAnnualParameter } from '../services/payroll/mx/annual-parameters.js';
 import type { ResultadoAcumulacion } from '../services/payroll/common/employer-liability-service.js';
 import { ConflictError } from '../utils/errors.js';
 import { parseForClient } from '../utils/zod-client-errors.js';
-import { t } from '../i18n/index.js';
+import { getLanguage, t, type TranslationKey } from '../i18n/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import { registerPayRunPostCommand } from './pay-run-post-command.js';
@@ -33,6 +34,7 @@ import {
   gateMutation,
   legible,
   render,
+  resolveFormat,
   requireExplicitEntity,
   usageError,
   withContext,
@@ -43,6 +45,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { findingText } from '../i18n/payroll-finding-text.js';
 
 // ============================================================
 // mnemosine pay-run · corrida — MNE-001-068 (#306, part 2/4)
@@ -152,6 +155,26 @@ export function parseEmployeeInputs(text: string, path: string): EmployeePayInpu
 }
 
 /** The run as one printable row. */
+/** The name of each parameter of `MX_ANNUAL_PARAMETERS`, by its key in its table. */
+const ANNUAL_PARAMETER_LABEL: Readonly<Record<string, TranslationKey>> = {
+  salario_minimo_general_diario: 'payroll.parameter.minimum_wage_general',
+  salario_minimo_frontera_diario: 'payroll.parameter.minimum_wage_border',
+  uma_daily: 'payroll.parameter.uma_daily',
+  'uma.monthly': 'payroll.parameter.uma_monthly',
+};
+
+/** A warning of `calculatePayRun` (MNE-001-636), in the language of the terminal. */
+export function staleParameterText(s: StaleAnnualParameter): string {
+  const label = ANNUAL_PARAMETER_LABEL[s.key];
+  return t('payrun.calculate.stale_parameter', {
+    parameter: label ? t(label) : s.key,
+    value: s.value,
+    since: s.since,
+    due: s.dueFrom,
+    pay_date: s.payDate,
+  });
+}
+
 export function payRunRow(r: PayRunSummary): Row {
   return {
     id: r.id,
@@ -207,7 +230,7 @@ Examples:
 
 function runType(value: string): string {
   if (!(PAY_RUN_TYPES as readonly string[]).includes(value)) {
-    throw new InvalidArgumentError(`expected one of ${PAY_RUN_TYPES.join(', ')}`);
+    throw new InvalidArgumentError(t('payrun.type_unknown', { types: PAY_RUN_TYPES.join(', ') }));
   }
   return value;
 }
@@ -275,18 +298,22 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   create.addHelpText('after', EXAMPLES.create);
   create.action((opts: CommonOpts & { period?: string; type: string }) =>
     run(async () => {
-      if (!opts.period) throw usageError({ key: 'payrun.create.period_required' });
+      const period = opts.period;
+      if (!period) throw usageError({ key: 'payrun.create.period_required' });
       const scope = await scopeForWrite(opts);
       const reviewer = await resolveReviewer(scope.tenantId, opts.user);
-      const id = await createPayRun(
-        {
-          tenant_id: scope.tenantId,
-          pay_period_id: opts.period,
-          run_type: opts.type as (typeof PAY_RUN_TYPES)[number],
-          employee_inputs: [],
-          created_by: reviewer.userId,
-        },
-        scope
+      // A period that already has its regular run is a state, not a key clash: exit 5.
+      const id = await blockedOnConflict(() =>
+        createPayRun(
+          {
+            tenant_id: scope.tenantId,
+            pay_period_id: period,
+            run_type: opts.type as (typeof PAY_RUN_TYPES)[number],
+            employee_inputs: [],
+            created_by: reviewer.userId,
+          },
+          scope
+        )
       );
       render([payRunRow(await getPayRun(id, scope))], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
       if (legible(opts)) process.stderr.write(p.dim(`  ${t('payrun.create.next', { id })}\n`));
@@ -325,7 +352,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
       const scope = await scopeForWrite(opts);
       const reviewer = await resolveReviewer(scope.tenantId, opts.user);
       const before = await getPayRun(id, scope);
-      await blockedOnConflict(() =>
+      const calculation = await blockedOnConflict(() =>
         calculatePayRun(
           id,
           {
@@ -337,7 +364,13 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
           scope
         )
       );
-      render([payRunRow(await getPayRun(id, scope))], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      // A yearly parameter the pay date found without its new row (MNE-001-636):
+      // a field of the row in JSON, otherwise a line on stderr.
+      const warnings = calculation.warnings.map(staleParameterText);
+      const row = payRunRow(await getPayRun(id, scope));
+      const asJson = ['json', 'ndjson'].includes(resolveFormat(opts));
+      render([asJson ? { ...row, warnings } : row], { ...opts, idField: 'id', numeric: RUN_NUMERIC });
+      if (!asJson) for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
       if (legible(opts)) process.stderr.write(p.dim(`  ${t('payrun.calculate.next', { id })}\n`));
     })
   );
@@ -415,14 +448,16 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
                 dry_run: dryRun,
                 repeated,
                 liabilities: liabilityRows(result),
-                findings: result.hallazgos.map((h) => ({ code: h.codigo, severity: h.severidad, message: h.mensaje })),
+                findings: result.hallazgos.map((h) => ({
+                  code: h.codigo, severity: h.severidad, message: findingText(h, getLanguage()),
+                })),
               },
             ],
             { ...opts, idField: 'id' }
           );
         } else {
           render(liabilityRows(result), { ...opts, idField: 'tax_type', numeric: ['amount'] });
-          for (const h of result.hallazgos) process.stderr.write(p.yellow(`  ⚠ ${h.codigo}: ${h.mensaje}\n`));
+          for (const h of result.hallazgos) process.stderr.write(p.yellow(`  ⚠ ${h.codigo}: ${findingText(h, getLanguage())}\n`));
           const done = dryRun ? 'payrun.approve.dry_run' : repeated ? 'payrun.approve.repeated' : 'payrun.approve.done';
           process.stderr.write(`${dryRun ? p.yellow('◑') : p.green('✔')} ${t(done, { id, status: runAfter.status })}\n`);
         }

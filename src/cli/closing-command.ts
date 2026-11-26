@@ -46,6 +46,7 @@ import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirma
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import { registerClosingFx } from './closing-fx-command.js';
+import { t } from '../i18n/index.js';
 import {
   abortedByUser,
   blockedByState,
@@ -169,7 +170,7 @@ export function renderCasillas(
   casillas: readonly PeriodCloseChecklistItem[],
   c: Pick<Palette, 'dim' | 'red'>
 ): string[] {
-  if (casillas.length === 0) return [c.dim('  (no checks selected)')];
+  if (casillas.length === 0) return [c.dim(`  ${t('closing.check.none_selected')}`)];
   const ancho = Math.max(...casillas.map((x) => x.codigo.length));
   return casillas.map((item) => {
     const marca = item.is_complete ? MARK.done : MARK.missing;
@@ -211,7 +212,7 @@ export function renderSteps(
   return outcome.steps.map((p) => {
     const mark = STEP_MARK[p.status] ?? '?';
     const body = `  ${mark} ${p.step.padEnd(width)}  ${p.detail}`;
-    const suffix = p.priorAttempt ? c.dim('  (also recorded by an earlier attempt of this run)') : '';
+    const suffix = p.priorAttempt ? c.dim(`  ${t('closing.run.prior_attempt')}`) : '';
     return p.status === 'blocked' || p.status === 'failed'
       ? c.red(body) + suffix
       : body + suffix;
@@ -261,15 +262,24 @@ export interface VerdictRow {
   actual: string;
 }
 
+const ANNEX_CELLS = ['issued', 'not_issued', 'as_registered', 'differs'] as const;
+/** A cell of the annex stays English in the row: csv and tsv are read by scripts (the `backup list` rule). */
+const annexCell = (cell: (typeof ANNEX_CELLS)[number]): string => t(`closing.pack.verify.row.${cell}`, {}, 'en');
+/** The md table says those cells in the person's language, through the kernel's `labelled` hook. */
+const annexLabel = (value: string): string => {
+  const cell = ANNEX_CELLS.find((c) => annexCell(c) === value);
+  return cell ? t(`closing.pack.verify.row.${cell}`) : value;
+};
+
 export function verdictRows(verdict: PackVerdict): VerdictRow[] {
   const rows: VerdictRow[] = [];
   if (!verdict.sealIntact) {
     rows.push({ kind: 'seal', path: 'seal', expected: verdict.expectedSeal, actual: verdict.recomputedSeal });
   }
   if (!verdict.issued) {
-    rows.push({ kind: 'registry', path: 'closing_packs', expected: 'issued by these books', actual: 'not issued' });
+    rows.push({ kind: 'registry', path: 'closing_packs', expected: annexCell('issued'), actual: annexCell('not_issued') });
   } else if (!verdict.envelopeMatches) {
-    rows.push({ kind: 'envelope', path: 'envelope', expected: 'as registered', actual: 'differs' });
+    rows.push({ kind: 'envelope', path: 'envelope', expected: annexCell('as_registered'), actual: annexCell('differs') });
   }
   return [...rows, ...verdict.differences];
 }
@@ -292,31 +302,26 @@ export function runClosingLine(
   // tiene una corrida abierta: sin decirlo, el consejo del ensayo manda a un
   // comando que el conductor va a negar. And a run another conductor is still
   // acting on is not one to resume yet: the conductor would refuse that too.
-  const resumable = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
-  const how = hasLiveRun ? 'wait until the conductor acting on its run stops, then run it with --resume' : resumable;
-  const seal = `\`mnemosine close --period "${outcome.periodName}" --hard\``;
+  const how = t(hasLiveRun ? 'closing.run.how_wait' : hasOpenRun ? 'closing.run.how_resume' : 'closing.run.how_fresh');
+  const p = {
+    step: String(step), how,
+    seal: `\`mnemosine close --period "${outcome.periodName}" --hard\``,
+    command: `\`mnemosine closing pack generate "${outcome.periodName}"\``,
+  };
   switch (outcome.status) {
     case 'completed':
-      return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
+      return t('closing.run.line.completed', p);
     case 'stopped':
-      return step === 'hard-close'
-        ? `Stopped before the seal, as asked: the period is soft-closed. Seal it with ${seal}.`
-        : `Stopped before ${step}, as asked. The period stays open; continue with --resume.`;
+      return t(step === 'hard-close' ? 'closing.run.line.stopped_seal' : 'closing.run.line.stopped', p);
     case 'blocked':
-      return `Blocked at ${step}. Clear the blocking items, then continue with --resume.`;
+      return t('closing.run.line.blocked', p);
     case 'failed':
       // Past the soft close there is no open period to resume: the seal is by hand.
-      return step === 'hard-close'
-        ? `Failed at the seal: the period is soft-closed. Fix the cause, then seal it with ${seal}.`
-        : `Failed at ${step}. Fix the cause, then continue with --resume.`;
+      return t(step === 'hard-close' ? 'closing.run.line.failed_seal' : 'closing.run.line.failed', p);
     case 'previewed':
-      if (step && step === stopAt) {
-        return `Nothing was written. A real run would stop before ${step}; to conduct, ${how}.`;
-      }
-      if (step) {
-        return `Nothing was written. The checklist would block at ${step}: clear it, then ${how}.`;
-      }
-      return `Nothing was written. To conduct, ${how}.`;
+      if (step && step === stopAt) return t('closing.run.line.previewed_stop', p);
+      if (step) return t('closing.run.line.previewed_block', p);
+      return t('closing.run.line.previewed', p);
   }
 }
 
@@ -346,11 +351,11 @@ function writeDossierDraft(destination: string, pack: ClosingPack): string {
 async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<ClosablePeriod> {
   const periodos = await listClosablePeriods(ctx);
   if (periodos.length === 0) {
-    throw notFound('No open periods: nothing to preview or check.');
+    throw notFound({ key: 'closing.period.none_to_preview' });
   }
   if (!nombre) {
     const siguiente = await nextPeriodToClose(ctx);
-    if (!siguiente) throw notFound('No open periods: nothing to preview or check.');
+    if (!siguiente) throw notFound({ key: 'closing.period.none_to_preview' });
     return siguiente;
   }
   // The same resolver as `close --period`, so both answer about the same
@@ -371,7 +376,7 @@ async function periodToConduct(ctx: AgentContext, name?: string): Promise<Closab
   if (!name) {
     const openPeriods = candidates.filter((p) => p.status === 'open');
     const chosen = openPeriods.find((p) => p.overdue) ?? openPeriods[0];
-    if (!chosen) throw notFound('No open periods: nothing to conduct.');
+    if (!chosen) throw notFound({ key: 'closing.period.none_to_conduct' });
     return chosen;
   }
   // The same resolver as `close` and `closing preview`: id, YYYY-MM or name,
@@ -398,9 +403,7 @@ async function periodToSeal(
   }
   const latest = await latestClosedPeriodOf(ctx.entityId);
   if (!latest) {
-    throw notFound(
-      'No closed period to seal yet. Name the period to seal an open one on purpose, e.g. `closing pack generate 2026-07`.'
-    );
+    throw notFound({ key: 'closing.period.none_to_seal', params: { example: '`closing pack generate 2026-07`' } });
   }
   return latest;
 }
@@ -409,7 +412,7 @@ function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
   const p = r.period;
   return (
     c.bold(p.period_name) +
-    c.dim(`  ${p.start_date} → ${p.end_date} · ${p.status}${p.overdue ? ' · overdue' : ''}`)
+    c.dim(`  ${p.start_date} → ${p.end_date} · ${p.status}${p.overdue ? t('ledger.period.show.overdue') : ''}`)
   );
 }
 
@@ -520,7 +523,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (verdict.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(verdict.incomprendida)}; taking that as no.\n`);
+        process.stderr.write(`${t('closing.confirm.taken_as_no', { reason: noEntendi(verdict.incomprendida) })}\n`);
       }
       return verdict.si;
     } finally {
@@ -566,18 +569,18 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         out.write(`\n${cabeceraDePeriodo(readiness, c)}\n\n`);
         for (const linea of renderCasillas(readiness.checklist, c)) out.write(`${linea}\n`);
         if (readiness.blockingIssues.length > 0) {
-          out.write(`\n${c.red('  Blocking:')}\n`);
+          out.write(`\n${c.red(`  ${t('closing.readiness.blocking')}`)}\n`);
           for (const b of readiness.blockingIssues) out.write(c.red(`    · ${b}`) + '\n');
         }
         if (readiness.warnings.length > 0) {
-          out.write('\n  Warnings:\n');
+          out.write(`\n  ${t('closing.readiness.warnings')}\n`);
           for (const w of readiness.warnings) out.write(c.dim(`    · ${w}`) + '\n');
         }
         out.write(
           '\n' +
             (readiness.canClose
-              ? '  The period can enter close.'
-              : c.red('  The period cannot enter close yet: resolve the blocking items above.')) +
+              ? `  ${t('closing.preview.can_enter')}`
+              : c.red(`  ${t('closing.preview.cannot_enter')}`)) +
             '\n\n'
         );
       }
@@ -625,9 +628,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         if (desconocidos.length > 0) {
           // Un código desconocido es error de USO, nunca un filtro vacío que
           // sale 0: la lección de los filtros de ledger-checks, aplicada aquí.
-          throw usageError(
-            `Unknown check code(s): ${desconocidos.join(', ')}. Available: ${CLOSE_CHECK_CODES.join(', ')}.`
-          );
+          throw usageError({ key: 'closing.check.unknown_codes', params: {
+            count: desconocidos.length, codes: desconocidos.join(', '), available: CLOSE_CHECK_CODES.join(', ') } });
         }
       }
 
@@ -658,23 +660,11 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       if (!pedidos) {
         const err = process.stderr;
         const { pendingDrafts, pendingQuestions, pendingExternalOps } = readiness.ai;
-        if (pendingDrafts > 0) {
-          err.write(
-            deps.palette.red(
-              `  · ${pendingDrafts} AI draft(s) dated inside the period block this close (mnemosine review)\n`
-            )
-          );
-        }
-        if (pendingQuestions > 0) {
-          err.write(
-            deps.palette.dim(`  · ${pendingQuestions} unanswered AI question(s) (mnemosine questions)\n`)
-          );
-        }
-        if (pendingExternalOps > 0) {
-          err.write(
-            deps.palette.dim(`  · ${pendingExternalOps} queued external write(s) (mnemosine outbox)\n`)
-          );
-        }
+        const note = (key: 'ai_drafts' | 'ai_questions' | 'ai_outbox', count: number, command: string) =>
+          `  · ${t(`closing.check.${key}`, { count, command })}\n`;
+        if (pendingDrafts > 0) err.write(deps.palette.red(note('ai_drafts', pendingDrafts, 'mnemosine review')));
+        if (pendingQuestions > 0) err.write(deps.palette.dim(note('ai_questions', pendingQuestions, 'mnemosine questions')));
+        if (pendingExternalOps > 0) err.write(deps.palette.dim(note('ai_outbox', pendingExternalOps, 'mnemosine outbox')));
       }
 
       // Filtrado, el veredicto es SÓLO de lo pedido (para eso se pide);
@@ -729,7 +719,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
             { ...opts, total: explicacion.total }
           );
           if (explicacion.total > 0) {
-            process.stderr.write(deps.palette.dim(`fix with: ${explicacion.remedio}\n`));
+            process.stderr.write(deps.palette.dim(`${t('closing.explain.fix_with')} ${explicacion.remedio}\n`));
           }
           return ExitCode.OK;
         }
@@ -740,7 +730,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           `\n${c.bold(explicacion.item)}  ${c.dim(`(${explicacion.codigo} · ${periodo.period_name})`)}\n`
         );
         if (explicacion.total === 0) {
-          out.write(c.dim('  nothing to explain: the check is clean for this period') + '\n\n');
+          out.write(c.dim(`  ${t('closing.explain.clean')}`) + '\n\n');
           return ExitCode.OK;
         }
         out.write('\n');
@@ -748,7 +738,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           format: 'table',
           total: explicacion.total,
         });
-        out.write(`\n  ${c.dim('fix with:')} ${explicacion.remedio}\n\n`);
+        out.write(`\n  ${c.dim(t('closing.explain.fix_with'))} ${explicacion.remedio}\n\n`);
         // Explicar es una LENTE, no un veredicto: el código de salida del
         // hallazgo lo da `closing check`; esta hoja sale 0 si pudo mirar.
         return ExitCode.OK;
@@ -789,11 +779,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       'journal_entries + journal_entry_lines (through the accrual, amortization, depreciation and FX revaluation ' +
       'engines), fx_revaluation_runs, closing_runs, closing_run_steps, fiscal_periods.status on the soft ' +
       'and the hard close, and with the hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
-    llave: {
-      innecesaria:
-        'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
-        'same period: running again, with --resume when a run is open, duplicates nothing',
-    },
+    llave: { innecesaria: t('closing.run.key_unneeded') },
   });
   runLeaf.addHelpText('after', EJEMPLOS.run);
   runLeaf.action(
@@ -812,9 +798,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         if (opts.stopAt !== undefined && !isClosingStep(opts.stopAt)) {
           // Un paso desconocido es error de USO y no un filtro vacío que sale
           // 0: la misma lección que `closing check --check`.
-          throw usageError(
-            `Unknown step "${opts.stopAt}". The steps are: ${CLOSING_STEPS.join(', ')}.`
-          );
+          throw usageError({ key: 'closing.run.step_unknown', params: { step: opts.stopAt, steps: CLOSING_STEPS.join(', ') } });
         }
         const stopAt = opts.stopAt;
 
@@ -840,31 +824,16 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         if (!dryRun) {
           if (liveRun) throw blockedByState(describeLiveRun(liveRun));
           if (existingRun && opts.resume !== true) {
-            throw blockedByState(
-              `This period already has an open close run (${describeOpenRun(existingRun)}). ` +
-                'Continue it with --resume, or look at it first with --dry-run.'
-            );
+            throw blockedByState({ key: 'closing.run.open_run', params: { run: describeOpenRun(existingRun) } });
           }
           if (!existingRun && opts.resume === true) {
-            throw blockedByState(
-              'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
-            );
+            throw blockedByState({ key: 'closing.run.nothing_to_resume' });
           }
         }
 
         if (!dryRun && opts.yes !== true) {
-          const si = await ask(
-            `Conduct the close of ${period.period_name}? Four of its steps post to the ledger, ` +
-              'which does not admit undo, and the last one hard-closes the period.'
-          );
-          if (!si) {
-            throw abortedByUser(
-              stdin.isTTY
-                ? 'Nothing was done: the ledger was not touched.'
-                : 'Nothing was done: there is no terminal to confirm on. Add -y to conduct without asking, ' +
-                  'or --dry-run to see what is pending without writing.'
-            );
-          }
+          const si = await ask(t('closing.run.confirm', { period: period.period_name }));
+          if (!si) throw abortedByUser({ key: stdin.isTTY ? 'closing.run.aborted' : 'closing.run.aborted_no_tty' });
         }
 
         const outcome = await conductClose(ctx, period, {
@@ -981,7 +950,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       if (receiptIsReadable) {
         render([receipt], { format: 'table', idField: 'pack' });
         process.stderr.write(
-          deps.palette.dim(`verify it with: mnemosine closing pack verify ${receipt.file ?? '<file>'}\n`)
+          deps.palette.dim(`${t('closing.pack.verify_with', { command: `mnemosine closing pack verify ${receipt.file ?? '<file>'}` })}\n`)
         );
       } else {
         // El destino ya lo ocupa el expediente: el recibo sale por stdout sin
@@ -1016,7 +985,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       try {
         text = readFileSync(file, 'utf8');
       } catch {
-        throw notFound(`Cannot read ${file}.`);
+        throw notFound({ key: 'closing.pack.verify.cannot_read', params: { file } });
       }
       // UN ARCHIVO QUE NO ES UN EXPEDIENTE ES ERROR DE USO, no un fallo
       // genérico: quien lo teclea se equivocó de ruta, y el 1 —«último
@@ -1039,10 +1008,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       // Sin distinguir mayúsculas: Postgres compara UUID así, y la guarda del
       // archivo los admite en cualquier grafía.
       if (ctx.entityId.toLowerCase() !== pack.sealed.entity.id.toLowerCase()) {
-        throw usageError(
-          `This dossier belongs to "${pack.sealed.entity.name}" and the active entity is ` +
-            `"${ctx.entityName}". Name the right one with --entity.`
-        );
+        throw usageError({ key: 'closing.pack.verify.wrong_entity', params: { dossier: pack.sealed.entity.name, active: ctx.entityName } });
       }
 
       const verdict = await verifyClosingPack(pack);
@@ -1057,7 +1023,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
         // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
         // FILAS son las diferencias. El veredicto entero es de --json.
-        render(verdictRows(verdict) as unknown as Row[], { ...opts, idField: 'path' });
+        render(verdictRows(verdict) as unknown as Row[], { ...opts, idField: 'path', labelled: { expected: annexLabel, actual: annexLabel } });
       } else if (!legible(opts)) {
         render([verdict as unknown as Row], { ...opts, idField: 'expectedSeal' });
       } else {
@@ -1065,24 +1031,18 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         const out = process.stdout;
         const mark = (ok: boolean) => (ok ? MARK.done : MARK.missing);
         out.write(
-          `\n${c.bold(pack.sealed.period.name)}  ${c.dim(`${pack.sealed.entity.name} · as of ${pack.sealed.as_of}`)}\n\n`
+          `\n${c.bold(pack.sealed.period.name)}  ${c.dim(t('closing.pack.verify.as_of', { entity: pack.sealed.entity.name, date: pack.sealed.as_of }))}\n\n`
         );
-        out.write(`  ${mark(verdict.sealIntact)} the file agrees with its seal\n`);
+        out.write(`  ${mark(verdict.sealIntact)} ${t('closing.pack.verify.seal')}\n`);
         out.write(
-          `  ${mark(verdict.issued)} these books issued a dossier with this seal` +
+          `  ${mark(verdict.issued)} ${t('closing.pack.verify.issued')}` +
             `${verdict.issuedAt ? c.dim(` (${verdict.issuedAt})`) : ''}\n`
         );
-        out.write(`  ${mark(verdict.figuresReproduce)} the figures reproduce against the books\n`);
+        out.write(`  ${mark(verdict.figuresReproduce)} ${t('closing.pack.verify.figures')}\n`);
         const warnings: string[] = [];
-        if (!verdict.identityUnchanged) {
-          warnings.push(
-            'a name changed since sealing — the entity, the period or an account label (rows marked identity); no figure moved because of it'
-          );
-        }
-        if (verdict.issued && !verdict.envelopeMatches) {
-          warnings.push('the envelope (who, when, which run) is not the one registered when it was issued');
-        }
-        for (const a of warnings) out.write(`\n  ${c.dim('warning:')} ${a}`);
+        if (!verdict.identityUnchanged) warnings.push(t('closing.pack.verify.identity_changed'));
+        if (verdict.issued && !verdict.envelopeMatches) warnings.push(t('closing.pack.verify.envelope_differs'));
+        for (const a of warnings) out.write(`\n  ${c.dim(t('closing.pack.verify.warning'))} ${a}`);
         if (warnings.length > 0) out.write('\n');
         if (verdict.differences.length > 0) {
           out.write('\n');

@@ -102,8 +102,12 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     // Equity
     { code: '3000', name: 'Capital Contable', type: 'equity', sub: null, fs: 'equity', balance: 'credit', header: true },
     { code: '3100', name: 'Capital Social', type: 'equity', sub: 'common_stock', fs: 'equity', balance: 'credit', parent: '3000', system: true },
-    { code: '3200', name: 'Resultado de Ejercicios Anteriores', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000', system: true },
-    { code: '3300', name: 'Resultado del Ejercicio', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000' },
+    // 3200, 3300 and 3900 (and 3150 in the MX stratum) are EARNED capital, not
+    // contributed (NIF B-6, C-11): `earned_capital` and not `equity`, which the
+    // balance sheet labels «Capital contribuido». Migration 346 moved the
+    // accounts that existed before (MNE-001-651).
+    { code: '3200', name: 'Resultado de Ejercicios Anteriores', type: 'equity', sub: 'retained_earnings', fs: 'earned_capital', balance: 'credit', parent: '3000', system: true },
+    { code: '3300', name: 'Resultado del Ejercicio', type: 'equity', sub: 'retained_earnings', fs: 'earned_capital', balance: 'credit', parent: '3000' },
     // 3600 Y NO 3400: la 3400 la usa un escenario de acciones propias en
     // tests/integration/g1b-ataque, y el catálogo sembrado comparte espacio de
     // nombres con lo que las pruebas crean a mano. Buscar códigos libres sólo
@@ -114,7 +118,7 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     // beneficios a empleados. Su `fs` propio —que la 078 añade al CHECK— es
     // lo que impide que una revaluación se lea como aportación de socios.
     { code: '3600', name: 'Otros Resultados Integrales', type: 'equity', sub: null, fs: 'ori', balance: 'credit', parent: '3000' },
-    { code: '3900', name: 'Resumen de Ingresos y Gastos', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000', system: true },
+    { code: '3900', name: 'Resumen de Ingresos y Gastos', type: 'equity', sub: null, fs: 'earned_capital', balance: 'credit', parent: '3000', system: true },
     // Revenue
     { code: '4000', name: 'Ingresos', type: 'revenue', sub: null, fs: 'revenue', balance: 'credit', header: true },
     { code: '4100', name: 'Ventas', type: 'revenue', sub: 'operating_revenue', fs: 'revenue', balance: 'credit', parent: '4000' },
@@ -184,7 +188,7 @@ export const ESTRATO_FISCAL_MX: ChartAccountSpec[] = [
     // LGSM 20: 5 % de las utilidades a la reserva legal hasta que alcance el
     // 20 % del capital social. Es capital, no pasivo, y es obligación de la
     // sociedad mexicana, no de toda entidad: por eso vive en el estrato.
-    { code: '3150', name: 'Reserva Legal', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000' },
+    { code: '3150', name: 'Reserva Legal', type: 'equity', sub: null, fs: 'earned_capital', balance: 'credit', parent: '3000' },
     { code: '1111', name: 'Banco Nacional - MXN', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
     { code: '1112', name: 'Banco Nacional - USD', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
     { code: '1130', name: 'IVA Acreditable', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },

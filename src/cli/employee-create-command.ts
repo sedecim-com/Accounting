@@ -14,6 +14,7 @@ import {
   withContext,
   withOutput,
 } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 import type { EmployeeCommonOpts, EmployeeLeafKit } from './employee-command.js';
 import { maskIdentifier } from './employee-show-command.js';
 
@@ -67,19 +68,19 @@ export function readEmployeeDraft(raw: string, opts: CreateOpts): EmployeeDraft 
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw usageError('--file is not valid JSON.');
+    throw usageError({ key: 'payroll.employee.create.file_not_json' });
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw usageError('--file must hold ONE employee as a JSON object; bulk loading is `employee import`.');
+    throw usageError({ key: 'payroll.employee.create.file_not_object', params: { command: 'employee import' } });
   }
   const fields = parsed as Record<string, unknown>;
   const scoped = ['tenant_id', 'entity_id', 'created_by'].filter((k) => k in fields);
   if (scoped.length > 0) {
-    throw usageError(`--file may not set ${scoped.join(', ')}: the entity is the one named with -e/--entity.`);
+    throw usageError({ key: 'payroll.employee.create.file_scoped', params: { fields: scoped.join(', ') } });
   }
   const unknown = Object.keys(fields).filter((k) => !FILE_FIELDS.has(k));
   if (unknown.length > 0) {
-    throw usageError(`--file has unknown fields: ${unknown.join(', ')}.`);
+    throw usageError({ key: 'payroll.employee.create.file_unknown_fields', params: { fields: unknown.join(', ') } });
   }
   const draft = { ...fields } as Record<string, unknown>;
   if (opts.country) draft.country_code = opts.country.toUpperCase();
@@ -87,12 +88,12 @@ export function readEmployeeDraft(raw: string, opts: CreateOpts): EmployeeDraft 
   if (opts.paySchedule) draft.pay_schedule_id = opts.paySchedule;
 
   const missing = REQUIRED.filter((k) => draft[k] === undefined || draft[k] === null || draft[k] === '');
-  if (missing.length > 0) throw usageError(`Missing ${missing.join(', ')}.`);
+  if (missing.length > 0) throw usageError({ key: 'payroll.employee.create.missing', params: { fields: missing.join(', ') } });
   if (draft.country_code !== 'MX' && draft.country_code !== 'US') {
-    throw usageError(`country_code "${String(draft.country_code)}": use MX or US.`);
+    throw usageError({ key: 'payroll.employee.create.country_invalid', params: { value: String(draft.country_code) } });
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(draft.hire_date))) {
-    throw usageError(`hire_date "${String(draft.hire_date)}": use YYYY-MM-DD.`);
+    throw usageError({ key: 'payroll.employee.create.hire_date_invalid', params: { value: String(draft.hire_date) } });
   }
   return draft as unknown as EmployeeDraft;
 }
@@ -136,7 +137,7 @@ export function registerEmployeeCreate(family: Command, kit: EmployeeLeafKit): v
   create.action((opts: CreateOpts, cmd: Command) =>
     kit.run(async () => {
       const { dryRun } = gateMutation(cmd, opts as unknown as Record<string, unknown>);
-      if (!opts.file) throw usageError('Missing --file: identifiers are read from a file, never from flags.');
+      if (!opts.file) throw usageError({ key: 'payroll.employee.create.file_missing' });
       const draft = readEmployeeDraft(fs.readFileSync(opts.file, 'utf8'), opts);
 
       const scope = await kit.scopeForWrite(opts);
@@ -177,7 +178,7 @@ export function registerEmployeeCreate(family: Command, kit: EmployeeLeafKit): v
         { ...opts, idField: 'id' }
       );
       if (dryRun) {
-        process.stderr.write(kit.deps.palette.dim('Rehearsal: the transaction was undone. No employee was saved.\n'));
+        process.stderr.write(kit.deps.palette.dim(`${t('payroll.employee.create.rehearsal')}\n`));
       }
       return ExitCode.OK;
     })

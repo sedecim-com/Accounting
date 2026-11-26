@@ -47,7 +47,7 @@ function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): st
   return 'credit_note';
 }
 import { RulesEngine, autoRuleRequiring, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
-import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { AccountingError, AppError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { nextEntityNumber, nextVendorNumber, type Queryable } from '../../utils/sequence.js';
 
 /**
@@ -108,19 +108,46 @@ export const PROVEEDOR_NUEVO_SIN_AUTORIZAR = 'PROVEEDOR_NUEVO_SIN_AUTORIZAR';
 export class ProveedorNuevoSinAutorizar extends ValidationError {
   constructor(nombre: string, rfc: string) {
     super(
-      `El CFDI lo emite "${nombre}" (RFC ${rfc}), que no existe en el catálogo de proveedores de ` +
-        'esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que ' +
-        'trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y ' +
-        'acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, ' +
-        `con \`mnemosine vendor create --tax-id ${rfc}\`, y vuelve a ejecutar (el pre-registro lo ` +
-        'encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como ' +
-        'viene en el comprobante.',
+      { key: 'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR', params: { name: nombre, rfc } },
       'vendor_id',
       { suggested_vendor: { company_name: nombre, tax_id: rfc } }
     );
     this.name = 'ProveedorNuevoSinAutorizar';
     this.code = PROVEEDOR_NUEVO_SIN_AUTORIZAR;
   }
+}
+
+/**
+ * The refusals MNE-001-728 moved to a key whose text was stored, or passed on as
+ * a string, in Spanish: `pre_registrations.error_message`, the batch's
+ * `error_log`, the REP retry and the agent's ingest detail.
+ */
+const KEYS_STORED_IN_SPANISH: ReadonlySet<string> = new Set([
+  'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR',
+  'error.AP_ACCOUNT_MISSING',
+  'error.MISSING_ROLE_ACCOUNT.seed_identity',
+  'error.REP_SIN_XML',
+  'error.ENTITY_NOT_FOUND.pre_registration',
+  'error.REP_SIN_PAGOS',
+  'error.CFDI_REQUIERE_DECISION.not_a_party',
+  'error.CFDI_REQUIERE_DECISION.missing_accounts',
+  'error.CFDI_REQUIERE_DECISION.unbalanced',
+]);
+
+/**
+ * The text of a refusal that a service stores or passes on as a string: what
+ * that string said before the refusal took a key. A service cannot know who
+ * will read the row (E4.2 `report-labels-come-from-the-catalog`), so it keeps
+ * the language of the record. The keys above render in Spanish, as they were
+ * stored. Prose, and the keys of other folders, which were already stored in
+ * English, keep their `message`. Storing key and parameters and rendering them
+ * on read is I16's (docs/language.md §3.6).
+ */
+export function reasonText(err: unknown): string {
+  if (err instanceof AppError && err.messageKey && KEYS_STORED_IN_SPANISH.has(err.messageKey.key)) {
+    return err.localized('es');
+  }
+  return (err as Error).message;
 }
 
 /**
@@ -809,9 +836,9 @@ export class PreRegistrationService {
          WHERE id = $1`,
         [
           preReg.id,
-          (error as Error).message,
+          reasonText(error),
           JSON.stringify(
-            requiereDecision ? { motivo: (error as Error).message } : { stack: (error as Error).stack }
+            requiereDecision ? { motivo: reasonText(error) } : { stack: (error as Error).stack }
           ),
           requiereDecision ? 'draft' : 'error',
           requiereDecision ? 'needs_review' : 'invalid',
@@ -1073,11 +1100,7 @@ export class PreRegistrationService {
       const cuentas = await cuentasPorRol(cliente, entityId, ['cxp', rolIva]);
       const cxp = cuentas.get('cxp');
       if (!cxp) {
-        throw new AccountingError(
-          'AP_ACCOUNT_MISSING',
-          `La entidad no tiene cuenta para el rol "cxp" (proveedores). ` +
-            `Siembra la contabilidad con: mnemosine init --section identity`
-        );
+        throw new AccountingError('AP_ACCOUNT_MISSING', { key: 'error.AP_ACCOUNT_MISSING' });
       }
 
       const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
@@ -1105,11 +1128,10 @@ export class PreRegistrationService {
         if (!cuentaIva) {
           // Antes se descartaba la línea en silencio con un `&& iva`, y el
           // asiento salía descuadrado lejos del origen.
-          throw new AccountingError(
-            'MISSING_ROLE_ACCOUNT',
-            `La entidad no tiene cuenta para el rol "${rolIva}". ` +
-              `Siembra la contabilidad con: mnemosine init --section identity`
-          );
+          throw new AccountingError('MISSING_ROLE_ACCOUNT', {
+            key: 'error.MISSING_ROLE_ACCOUNT.seed_identity',
+            params: { role: rolIva },
+          });
         }
         jeLines.push({
           account_id: cuentaIva,
@@ -1163,7 +1185,7 @@ export class PreRegistrationService {
       [preReg.xml_document_id]
     );
     if (doc.rows.length === 0 || !doc.rows[0].xml_content) {
-      throw new AccountingError('REP_SIN_XML', 'No se conserva el XML del comprobante de pago.');
+      throw new AccountingError('REP_SIN_XML', { key: 'error.REP_SIN_XML' });
     }
 
     const entidad = await query<{ tax_id: string; functional_currency: string; tenant_id: string }>(
@@ -1171,16 +1193,13 @@ export class PreRegistrationService {
       [preReg.entity_id]
     );
     if (entidad.rows.length === 0) {
-      throw new AccountingError('ENTITY_NOT_FOUND', 'La entidad del pre-registro no existe.');
+      throw new AccountingError('ENTITY_NOT_FOUND', { key: 'error.ENTITY_NOT_FOUND.pre_registration' });
     }
     const { tax_id: rfc, functional_currency: moneda, tenant_id: tenantId } = entidad.rows[0];
 
     const pagos = extractPagosCompletos(new CFDIParser().parse(doc.rows[0].xml_content));
     if (pagos.length === 0) {
-      throw new AccountingError(
-        'REP_SIN_PAGOS',
-        'El comprobante es de tipo P pero no trae complemento de pagos: no hay nada que ligar.'
-      );
+      throw new AccountingError('REP_SIN_PAGOS', { key: 'error.REP_SIN_PAGOS' });
     }
 
     // Emisor o receptor. Del lado emitido el REP lo expedimos nosotros y
@@ -1191,11 +1210,10 @@ export class PreRegistrationService {
     // a otro RFC, algo común en un buzón compartido o una descarga masiva
     // equivocada) se habría procesado como pago nuestro a un proveedor.
     if (doc.rows[0].emisor_rfc !== rfc && doc.rows[0].receptor_rfc !== rfc) {
-      throw new AccountingError(
-        'CFDI_REQUIERE_DECISION',
-        `El comprobante es de ${doc.rows[0].emisor_rfc} para ${doc.rows[0].receptor_rfc} y la ` +
-          `entidad es ${rfc}: no es parte de la operación. Revisa si se subió a la entidad equivocada.`
-      );
+      throw new AccountingError('CFDI_REQUIERE_DECISION', {
+        key: 'error.CFDI_REQUIERE_DECISION.not_a_party',
+        params: { issuer: doc.rows[0].emisor_rfc, receiver: doc.rows[0].receptor_rfc, entity: rfc },
+      });
     }
     const direction = doc.rows[0].emisor_rfc === rfc ? 'emitido' : 'recibido';
 
@@ -1550,7 +1568,14 @@ export class PreRegistrationService {
         .map((d) => `mnemosine pending define ${d.topic}${d.id === 'periodo_cerrado' ? ' periodo_actual' : ''}`);
       throw new AccountingError('CFDI_REQUIERE_DECISION', {
         key: 'error.ISSUED_CFDI_HELD',
-        params: { uuid, reason: postable.motivo, commands: commands.join(' · ') || 'none' },
+        params: {
+          uuid,
+          // A param is text: the plan's two keyed refusals travel as the Spanish they carried here before.
+          reason: typeof postable.motivo === 'string'
+            ? postable.motivo
+            : reasonText(new AccountingError('CFDI_REQUIERE_DECISION', postable.motivo)),
+          commands: commands.join(' · ') || 'none',
+        },
       });
     }
     const caseId = plan.clasificacion.case?.id;
@@ -1722,7 +1747,7 @@ export class PreRegistrationService {
         results.successful++;
       } catch (error) {
         results.failed++;
-        results.errors.push({ id: preReg.id as string, error: (error as Error).message });
+        results.errors.push({ id: preReg.id as string, error: reasonText(error) });
       }
     }
 
@@ -2104,17 +2129,17 @@ export async function registrarFacturaDeBorradorAprobado(
   const policyCtx = { tenantId: opts.tenantId, entityId };
   const linesFrom = (await getPolicy(policyCtx, 'lineas_factura_desde', client)).value;
   if (linesFrom !== 'poliza' && linesFrom !== 'conceptos_cfdi') {
-    throw new AccountingError(
-      'POLICY_VALUE_UNKNOWN',
-      `lineas_factura_desde = "${linesFrom}" is not a value this system knows (poliza | conceptos_cfdi); nothing was posted.`
-    );
+    throw new AccountingError('POLICY_VALUE_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN',
+      params: { policy: 'lineas_factura_desde', value: String(linesFrom), known: ['poliza', 'conceptos_cfdi'].join(' | ') },
+    });
   }
   const unknownVendor = (await getPolicy(policyCtx, 'proveedor_desconocido_al_aprobar', client)).value;
   if (unknownVendor !== 'rechazar' && unknownVendor !== 'preguntar') {
-    throw new AccountingError(
-      'POLICY_VALUE_UNKNOWN',
-      `proveedor_desconocido_al_aprobar = "${unknownVendor}" is not a value this system knows (rechazar | preguntar); nothing was posted.`
-    );
+    throw new AccountingError('POLICY_VALUE_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN',
+      params: { policy: 'proveedor_desconocido_al_aprobar', value: String(unknownVendor), known: ['rechazar', 'preguntar'].join(' | ') },
+    });
   }
   const answered = new Decimal((await getPolicy(policyCtx, 'cfdi_tolerancia_cuadre', client)).value || '0.01');
   const tolerance = answered.isNegative() ? new Decimal('0.01') : answered;

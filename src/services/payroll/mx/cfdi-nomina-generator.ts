@@ -1,10 +1,13 @@
 import Decimal from 'decimal.js';
-import { query } from '../../../database/connection.js';
+import type { PoolClient } from 'pg';
+import { withTransaction } from '../../../database/connection.js';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
-import { ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { AppError, ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { logger } from '../../../utils/logger.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
+import { cfdiIsFreeToStamp, FREE_TO_STAMP } from '../../integrations/mexico/pac/stamp-once.js';
 import { PAY_RUN_TYPES } from '../../../database/enums.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 import { storedIsrParts } from './isr-exemption.js';
@@ -21,6 +24,21 @@ interface CfdiStampResult {
   xml: string;
   fecha_timbrado: string | Date;
   no_certificado_sat: string;
+}
+
+/**
+ * CONTRACT: a paycheck that holds a payroll CFDI is not stamped again
+ * (MNE-001-736, #601). The rule is the one the income CFDI follows too, in
+ * stamp-once.ts: `stamped` holds the paycheck; no status, `pending`, `failed`
+ * and `cancelled` let it be stamped. A paycheck with no status is shown as
+ * `pending` (paycheck-read-service.ts). No door cancels a payroll CFDI yet:
+ * `cancelled` is the door left for it.
+ */
+export const paycheckIsFreeToStamp = cfdiIsFreeToStamp;
+
+/** What the PAC answered, kept outside the transaction that writes it down. */
+interface Issued {
+  cfdi?: { uuid: string; provider: string };
 }
 
 /**
@@ -43,15 +61,64 @@ export async function generateAndStampCfdiNomina(
   context: { tenantId: string; userId: string },
   scope: Scope
 ): Promise<CfdiStampResult> {
+  // ONE TRANSACTION, AND THE PAYCHECK'S ROW HELD FROM THE READ TO THE WRITE
+  // (MNE-001-736, #601). Two stamps of one paycheck at once both read it
+  // unstamped and both reached the PAC. The lock is released by the COMMIT, or
+  // by Postgres if the process dies, so no marker is left that someone has to
+  // clear; the price is one pooled connection and one row for as long as the
+  // PAC takes. The other stamp waits for it, bounded by the pool's
+  // `lock_timeout`, and then reads the row as the first one left it.
+  const issued: Issued = {};
+  try {
+    return await withTransaction((tx) => stampHoldingThePaycheck(tx, paycheckId, context, scope, issued));
+  } catch (error) {
+    // Nothing reached the PAC, or the refusal is already the one below.
+    if (!issued.cfdi || (error instanceof AppError && error.code === 'PAYROLL_CFDI_NOT_RECORDED')) throw error;
+    throw stampNotRecorded(paycheckId, issued.cfdi, error);
+  }
+}
+
+/**
+ * The PAC issued a CFDI and the paycheck does not carry its UUID: the write
+ * failed, or the transaction was lost while the PAC worked. The UUID is said
+ * here, in the answer and in the log, because nothing else remembers it.
+ */
+function stampNotRecorded(
+  paycheckId: string,
+  cfdi: { uuid: string; provider: string },
+  cause: unknown
+): AppError {
+  logger.error('payroll_cfdi_stamped_not_recorded', {
+    paycheckId,
+    cfdiUuid: cfdi.uuid,
+    provider: cfdi.provider,
+    error: cause instanceof Error ? cause.message : 'the write of the UUID touched no row',
+  });
+  return new AppError(500, 'PAYROLL_CFDI_NOT_RECORDED', {
+    key: 'payrun.cfdi.stamped_not_recorded',
+    params: { id: paycheckId, uuid: cfdi.uuid, provider: cfdi.provider },
+  });
+}
+
+async function stampHoldingThePaycheck(
+  tx: PoolClient,
+  paycheckId: string,
+  context: { tenantId: string; userId: string },
+  scope: Scope,
+  issued: Issued
+): Promise<CfdiStampResult> {
   // El eje de entidad va sobre `employees`, que el JOIN ya trae. Un alcance de
   // inquilino no añade nada: `p.tenant_id` ya lo acota.
   const predicadoEntidad =
     scope.kind === 'entity'
       ? { sql: 'e.entity_id = $3', valores: [scope.entityId] }
       : { sql: 'TRUE', valores: [] as string[] };
-  const result = await query<{
+  const result = await tx.query<{
     paycheck_id: string;
     tenant_id: string;
+    cfdi_uuid: string | null;
+    cfdi_status: string | null;
+    cfdi_stamped_at: Date | null;
     gross_earnings: string;
     net_pay: string;
     isr_withheld: string;
@@ -85,6 +152,7 @@ export async function generateAndStampCfdiNomina(
     pay_frequency: Exclude<PayFrequency, 'annual'>;
   }>(
     `SELECT p.id AS paycheck_id, p.tenant_id,
+            p.cfdi_uuid, p.cfdi_status, p.cfdi_stamped_at,
             p.gross_earnings, p.net_pay,
             p.isr_withheld, p.subsidio_empleo, p.subsidio_entregado_efectivo,
             p.imss_employee, p.infonavit_withheld,
@@ -102,9 +170,17 @@ export async function generateAndStampCfdiNomina(
      JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
      JOIN employees e ON e.id = p.employee_id
      JOIN legal_entities ent ON ent.id = e.entity_id
-     WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}`,
+     WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}
+       FOR NO KEY UPDATE OF p`,
     [paycheckId, scope.tenantId, ...predicadoEntidad.valores]
-  );
+  ).catch((error: unknown) => {
+    // 55P03 lock_not_available: `lock_timeout` ran out while another stamp, or
+    // another writer of the paycheck, held the row. This attempt sent nothing.
+    if ((error as { code?: string }).code === '55P03') {
+      throw new ConflictError({ key: 'payrun.cfdi.stamp_in_progress', params: { id: paycheckId } });
+    }
+    throw error;
+  });
   if (result.rows.length === 0) throw new NotFoundError('Paycheck', paycheckId);
   const r = result.rows[0];
 
@@ -116,6 +192,22 @@ export async function generateAndStampCfdiNomina(
     throw new ConflictError({
       key: 'payrun.cfdi.run_not_approved',
       params: { id: paycheckId, run: r.run_id, status: r.run_status },
+    });
+  }
+
+  // THE PAYCHECK'S OWN CFDI, READ UNDER THE LOCK IN THE STATEMENT ABOVE
+  // (MNE-001-736). After the run's status, so a paycheck of an unapproved run
+  // still answers that; before anything else is read or sent. A stamp that
+  // waited for another one reads the row as that one left it.
+  if (!paycheckIsFreeToStamp(r.cfdi_status)) {
+    throw new ConflictError({
+      key: 'payrun.cfdi.already_stamped',
+      params: {
+        id: paycheckId,
+        uuid: r.cfdi_uuid ?? '-',
+        status: r.cfdi_status ?? '-',
+        stamped_at: r.cfdi_stamped_at?.toISOString() ?? '-',
+      },
     });
   }
 
@@ -136,7 +228,7 @@ export async function generateAndStampCfdiNomina(
   const hireDate = toCalendarDate(r.hire_date);
 
   // Load earnings and deductions
-  const earnings = await query<{
+  const earnings = await tx.query<{
     cfdi_clave_sat: string | null;
     amount: string;
     description: string | null;
@@ -150,7 +242,7 @@ export async function generateAndStampCfdiNomina(
        FROM paycheck_earnings WHERE paycheck_id = $1`,
     [paycheckId]
   );
-  const deductions = await query<{ cfdi_clave_sat: string | null; amount: string; description: string | null; deduction_type: string }>(
+  const deductions = await tx.query<{ cfdi_clave_sat: string | null; amount: string; description: string | null; deduction_type: string }>(
     `SELECT cfdi_clave_sat, amount, description, deduction_type FROM paycheck_deductions WHERE paycheck_id = $1 AND NOT is_employer_contribution`,
     [paycheckId]
   );
@@ -227,20 +319,43 @@ ${subsidyOtherPayment?.xml ?? ''}    </nomina12:Nomina>
 </cfdi:Comprobante>`;
 
   // Stamp via multi-PAC router (reuses existing integration — failover Finkok → SW Sapien → Edicom)
-  const stamp = await pacRouter.stamp(xml, {
-    tenantId: context.tenantId,
-    userId: context.userId,
-  });
+  //
+  // The transaction is open and idle while the PAC works. `pg` hands the loss
+  // of a connection somebody holds to its `error` event, and with nobody
+  // listening Node ends the process: the listener is what lets the write below
+  // fail and say which UUID it could not record. A lost connection keeps it,
+  // because the driver reports the loss twice and is then dropped by the pool.
+  let lost = false;
+  const connectionLost = (): void => {
+    lost = true;
+  };
+  tx.on('error', connectionLost);
+  const stamp = await pacRouter
+    .stamp(xml, { tenantId: context.tenantId, userId: context.userId })
+    .finally(() => {
+      if (!lost) tx.off('error', connectionLost);
+    });
+  issued.cfdi = { uuid: stamp.uuid, provider: stamp.provider_used };
 
   // Un folio simulado no se guarda como timbrado: ver el cerrojo en
   // services/integrations/mexico/pac/simulacion.ts.
   const { cfdi_status } = estadoParaPersistir(stamp);
 
-  await query(
+  // The write names its paycheck by the scope and by the state it was read in.
+  // The lock makes any other count unreachable; it is checked all the same,
+  // because a UUID that is not written down is a CFDI nobody can cancel.
+  const written = await tx.query(
     `UPDATE paychecks SET cfdi_uuid = $1, cfdi_status = $2, cfdi_provider = $3, cfdi_stamped_at = NOW()
-     WHERE id = $4`,
-    [stamp.uuid, cfdi_status, stamp.provider_used, paycheckId]
+     WHERE id = $4 AND tenant_id = $5
+       AND (cfdi_status IS NULL OR cfdi_status = ANY($6::text[]))
+       AND ($7::uuid IS NULL OR EXISTS (
+             SELECT 1 FROM employees e WHERE e.id = paychecks.employee_id AND e.entity_id = $7::uuid))`,
+    [
+      stamp.uuid, cfdi_status, stamp.provider_used, paycheckId, scope.tenantId,
+      FREE_TO_STAMP, scope.kind === 'entity' ? scope.entityId : null,
+    ]
   );
+  if (written.rowCount !== 1) throw stampNotRecorded(paycheckId, issued.cfdi, undefined);
 
   return {
     cfdi_uuid: stamp.uuid,

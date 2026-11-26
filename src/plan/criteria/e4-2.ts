@@ -10,7 +10,7 @@ import {
   fuentes,
   ok,
   RAIZ,
-  sinProsa,
+  readSchemaVocabularies,
 } from './shared.js';
 
 // ============================================================
@@ -659,20 +659,17 @@ export const E4_2: Criterio[] = [
         );
       }
 
-      // ── 5. The catalog covers the WHOLE domain, and the migration declares the
+      // ── 5. The catalog covers the WHOLE domain, and the migrations declare the
       // domain: a missing label does not throw —the labeller falls back to the key—
-      // so nothing else would accuse it.
-      const migration = 'src/database/migrations/078_lo_que_se_debe_y_todavia_no_se_paga.sql';
-      if (!existe(migration)) {
-        return falla(`${migration} ya no está (¿renumerada?): el catálogo de rótulos se quedaría sin dominio contra el que medirse`);
-      }
-      const check = sinProsa(crudoDe(migration)).match(/CHECK \(fs_category IN \(([\s\S]*?)\)\)/);
-      if (!check) {
-        return falla('la 078 dejó de declarar el dominio de fs_category en un CHECK: no hay contra qué medir el catálogo');
+      // so nothing else would accuse it. The CHECK in force is the LAST one the
+      // migrations write (078, widened by 346 with `earned_capital`), read in order.
+      const stored = readSchemaVocabularies().get('accounts.fs_category');
+      if (!stored || !stored.includes('ori')) {
+        return falla('ninguna migración declara el dominio de fs_category en un CHECK: no hay contra qué medir el catálogo');
       }
       // `other` is not in the CHECK and is in the data: report-service mints it
       // for the account that has no category (`acct.fs_category || 'other'`).
-      const domain = [...check[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).concat('other');
+      const domain = [...stored, 'other'];
       const unlabelled = domain.filter((c) => !englishCatalog.includes(`'report.category.${c}':`));
       if (unlabelled.length > 0) {
         return falla(

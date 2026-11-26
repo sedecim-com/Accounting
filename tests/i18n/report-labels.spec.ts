@@ -3,6 +3,7 @@ import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import {
   REPORT_SECTION_KEYS,
   reportCategoryLabel,
+  reportGroupLabel,
   reportSectionLabel,
   localizedSection,
 } from '../../src/i18n/report-labels.js';
@@ -48,13 +49,14 @@ const SECTIONS: ReadonlyArray<readonly [string, string, string]> = [
   ['result_of_the_period', 'Utilidad (pérdida) del ejercicio', 'Profit (loss) for the period'],
 ];
 
-/** The thirteen `fs_category` values a balance sheet can group by. */
+/** The fourteen `fs_category` values a balance sheet can group by. */
 const CATEGORIES: ReadonlyArray<readonly [string, string, string]> = [
   ['current_assets', 'Activo circulante', 'Current assets'],
   ['non_current_assets', 'Activo no circulante', 'Non-current assets'],
   ['current_liabilities', 'Pasivo a corto plazo', 'Current liabilities'],
   ['long_term_liabilities', 'Pasivo a largo plazo', 'Long-term liabilities'],
   ['equity', 'Capital contribuido', 'Contributed capital'],
+  ['earned_capital', 'Reservas y resultados acumulados', 'Reserves and retained earnings'],
   ['ori', 'Otros resultados integrales', 'Other comprehensive income'],
   ['revenue', 'Ingresos', 'Revenue'],
   ['cogs', 'Costo de ventas', 'Cost of sales'],
@@ -102,8 +104,8 @@ describe('a balance-sheet category has a label in both languages', () => {
     });
   }
 
-  it('there are thirteen of them, so one added to the CHECK without a label shows up here', () => {
-    expect(CATEGORIES).toHaveLength(13);
+  it('there are fourteen of them, so one added to the CHECK without a label shows up here', () => {
+    expect(CATEGORIES).toHaveLength(14);
   });
 });
 
@@ -140,6 +142,40 @@ describe('what the old prettifier got wrong, and the catalog does not', () => {
     expect(reportCategoryLabel('equity', 'es')).toBe('Capital contribuido');
     expect(reportSectionLabel('equity', 'en')).toBe('Equity');
     expect(reportCategoryLabel('equity', 'en')).toBe('Contributed capital');
+  });
+});
+
+describe('earned capital: the group and the category that share its key (MNE-001-652)', () => {
+  // NIF B-6 presents capital contable as contributed plus earned capital, and
+  // NIF C-11 (migration 346's header) puts the reserves, the accumulated
+  // results and the ORI in earned capital. The GROUP spans three subsections;
+  // the CATEGORY `earned_capital` is one of them. Labelled alike, the statement
+  // would print two «Total de Capital ganado» lines with different amounts.
+  it('the group reads «Capital ganado» in Spanish and "Earned capital" in English', () => {
+    expect(reportGroupLabel('earned_capital', 'es')).toBe('Capital ganado');
+    expect(reportGroupLabel('earned_capital', 'en')).toBe('Earned capital');
+  });
+
+  it('the category is labelled for what it holds, not as the group that contains it', () => {
+    for (const language of ['es', 'en'] as const) {
+      expect(reportCategoryLabel('earned_capital', language)).not.toBe(reportGroupLabel('earned_capital', language));
+    }
+    expect(reportCategoryLabel('earned_capital', 'es')).toBe('Reservas y resultados acumulados');
+    expect(reportCategoryLabel('earned_capital', 'en')).toBe('Reserves and retained earnings');
+  });
+
+  it('no category label says «contribuido» but the contributed one', () => {
+    for (const [key, es, en] of CATEGORIES) {
+      if (key === 'equity') continue;
+      expect(es, key).not.toMatch(/contribuido/i);
+      expect(en, key).not.toMatch(/contributed/i);
+    }
+  });
+
+  it('a group nobody has a label for prints its identifier, and the namespaces lend nothing', () => {
+    expect(reportGroupLabel('contributed_capital', 'es')).toBe('contributed_capital');
+    expect(reportGroupLabel('equity', 'es')).toBe('equity');
+    expect(reportGroupLabel('ori', 'en')).toBe('ori');
   });
 });
 
@@ -232,7 +268,7 @@ describe('ori is a statement CATEGORY, and it is in the enum that means that', (
     // CHECK it is asserted against; the catalog is the third. None is derived
     // from another, and that is the point.
     const values: readonly string[] = ACCOUNT_FS_CATEGORIES;
-    expect(values).toHaveLength(12);
+    expect(values).toHaveLength(13);
 
     const withLabel = new Set(CATEGORIES.map(([key]) => key));
     for (const value of values) {
@@ -240,7 +276,7 @@ describe('ori is a statement CATEGORY, and it is in the enum that means that', (
       expect(reportCategoryLabel(value, 'es'), `${value} has no Spanish label`).not.toBe(value);
       expect(reportCategoryLabel(value, 'en'), `${value} has no English label`).not.toBe(value);
     }
-    // The thirteenth row is `other`, which the enum cannot hold because the
+    // The fourteenth row is `other`, which the enum cannot hold because the
     // column is NULL there: `report-service.ts` coins it for an account with
     // no fs_category at all.
     expect(values as string[]).not.toContain('other');
@@ -264,22 +300,23 @@ describe('ori is a statement CATEGORY, and it is in the enum that means that', (
 });
 
 describe('the catalog covers the domain the database can actually store', () => {
-  it('every fs_category admitted by migration 078 has a label in both languages', () => {
+  it('every fs_category admitted by the CHECK in force (346, widening 078) has a label in both languages', () => {
     // Read by the seam, and anchored on the CONSTRAINT rather than on the file
     // as a whole: the same migration mentions `ori` again in a COMMENT, and a
     // grep for quoted words over the whole file would pass on the prose alone.
-    const sql = crudoDe('src/database/migrations/078_lo_que_se_debe_y_todavia_no_se_paga.sql');
+    const sql = crudoDe('src/database/migrations/346_earned_capital_is_its_own_statement_category.sql');
     const check = /accounts_fs_category_check[\s\S]*?CHECK \(fs_category IN \(([\s\S]*?)\)\)/.exec(
       sql
     );
     expect(check, 'the CHECK that fixes the domain of fs_category is no longer there').not.toBeNull();
 
     const stored = [...check![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    // Twelve in the CHECK; `other` is not storable — `report-service.ts` coins
+    // Thirteen in the CHECK; `other` is not storable — `report-service.ts` coins
     // it for an account whose fs_category is NULL — and the catalog needs it
     // all the same.
-    expect(stored).toHaveLength(12);
+    expect(stored).toHaveLength(13);
     expect(stored).toContain('ori');
+    expect(stored).toContain('earned_capital');
 
     const withLabel = new Set(CATEGORIES.map(([key]) => key));
     for (const key of [...stored, 'other']) {

@@ -16,8 +16,11 @@ import { enterTenant, currentTenant } from '../database/connection.js';
 import { resolveEntity } from '../ai/context.js';
 import type { Palette } from './palette.js';
 import {
+  argumentByKey,
   declareRisk,
+  describeCommand,
   gateMutation,
+  optionByKey,
   render,
   withOutput,
   withSelection,
@@ -134,13 +137,8 @@ function englishCell(labels: Map<string, string>, key: TranslationKey, params: M
 }
 
 export function registerBackupCommand(program: Command, deps: BackupCommandDeps): void {
-  const backup = program
-    .command('backup')
-    .alias('respaldo')
-    .description(
-      'Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) ' +
-        'and per-tenant logical exports (export)'
-    );
+  const backup = describeCommand(program.command('backup').alias('respaldo'), 'help.backup.description');
+  const targetDir = { dir: DESTINO_OMISION };
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -200,21 +198,11 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   // las tiene escritas en un script— y `--tenant` se comprueba TAMBIÉN en la
   // raíz, porque Commander entrega la opción larga repetida al programa padre
   // y no al subcomando (kernel/flags.ts lo documenta).
-  const create = backup
-    .command('create')
-    .alias('crear')
-    .description('Take a logical dump of the WHOLE installation with its schema-version manifest');
-  create
-    .option(
-      '-t, --tenant <id>',
-      'NOT here: this dump is not scoped. A per-tenant archive is `mnemosine backup export --tenant <id>`'
-    )
-    .option(
-      '-e, --entity <idOrName>',
-      'NOT here: a per-entity archive is `mnemosine backup export --entity <idOrName>`'
-    )
-    .option('--target <dir>', `directory to write into (default: ${DESTINO_OMISION})`)
-    .option('--json', 'JSON output');
+  const create = describeCommand(backup.command('create').alias('crear'), 'help.backup.create.description');
+  optionByKey(create, '-t, --tenant <id>', 'help.backup.create.option.tenant');
+  optionByKey(create, '-e, --entity <idOrName>', 'help.backup.create.option.entity');
+  optionByKey(create, '--target <dir>', 'help.backup.create.option.target', { params: targetDir });
+  optionByKey(create, '--json', 'help.backup.create.option.json');
   // Lectura para la base (no la modifica), pero IA ✗ por la regla (f) del
   // catálogo: produce un volcado SIN REDACTAR de todos los inquilinos.
   declareRisk(create, { risk: 'lectura', agent: false });
@@ -272,17 +260,11 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   // `export` es el verbo que §1 ya tiene para «sacar datos internos», y el
   // sustantivo sigue siendo `backup`·`respaldo`, que plataforma posee (§5
   // regla 41).
-  const exportar = backup
-    .command('export')
-    .alias('exportar')
-    .description(
-      "Logical EXPORT of ONE tenant (or one entity): consistent, scoped by the database's own RLS, with a manifest. NOT a restorable backup"
-    );
-  exportar
-    .option('-t, --tenant <id>', 'tenant (firm) to export (defaults to --tenant / MNEMOSINE_TENANT)')
-    .option('-e, --entity <idOrName>', 'narrow it further to one legal entity of that tenant')
-    .option('--target <dir>', `directory to write into (default: ${DESTINO_OMISION})`)
-    .option('--json', 'JSON output');
+  const exportar = describeCommand(backup.command('export').alias('exportar'), 'help.backup.export.description');
+  optionByKey(exportar, '-t, --tenant <id>', 'help.backup.export.option.tenant');
+  optionByKey(exportar, '-e, --entity <idOrName>', 'help.backup.export.option.entity');
+  optionByKey(exportar, '--target <dir>', 'help.backup.export.option.target', { params: targetDir });
+  optionByKey(exportar, '--json', 'help.backup.export.option.json');
   // IA ✗ por la misma regla (f) del catálogo: materializa los datos sin
   // redactar de un despacho entero, RFC de terceros incluidos.
   declareRisk(exportar, { risk: 'lectura', agent: false });
@@ -333,14 +315,9 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   );
 
   // ---- backup list --------------------------------------------------
-  const list = backup
-    .command('list')
-    .alias('listar')
-    .description(
-      'List known backups and exports with their date, scope, size, schema version and whether their hash still matches'
-    );
+  const list = describeCommand(backup.command('list').alias('listar'), 'help.backup.list.description');
   withOutput(withSelection(withContext(list)));
-  list.option('--target <dir>', `directory to read (default: ${DESTINO_OMISION})`);
+  optionByKey(list, '--target <dir>', 'help.backup.list.option.target', { params: targetDir });
   declareRisk(list, { risk: 'lectura', agent: true });
   list.action((opts: CommonOpts) =>
     run(async () => {
@@ -422,15 +399,11 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   );
 
   // ---- backup verify ------------------------------------------------
-  const verify = backup
-    .command('verify')
-    .alias('comprobar')
-    .argument('<file>', 'backup file to verify')
-    .description('Verify a backup against its manifest; with --restore, rehearse the restore and run the ledger checks');
+  const verify = describeCommand(backup.command('verify').alias('comprobar'), 'help.backup.verify.description');
+  argumentByKey(verify, '<file>', 'help.backup.verify.argument.file');
   withOutput(withContext(verify));
-  verify
-    .option('--restore', 'RESTORE it into a throwaway database and run the ledger checks (the only real proof)')
-    .option('--strict', 'exit 4 on warnings too');
+  optionByKey(verify, '--restore', 'help.backup.verify.option.restore');
+  optionByKey(verify, '--strict', 'help.backup.verify.option.strict');
   declareRisk(verify, { risk: 'lectura', agent: true });
   verify.action((archivo: string, opts: CommonOpts) =>
     run(async () => {
@@ -496,15 +469,11 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   );
 
   // ---- backup restore -----------------------------------------------
-  const restore = backup
-    .command('restore')
-    .alias('restaurar')
-    .argument('<file>', 'backup file to restore')
-    .description('Restore a backup into a NEW database; never over an existing one');
+  const restore = describeCommand(backup.command('restore').alias('restaurar'), 'help.backup.restore.description');
+  argumentByKey(restore, '<file>', 'help.backup.restore.argument.file');
   withContext(restore);
-  restore
-    .requiredOption('--target <database>', 'name of the NEW database to create and restore into')
-    .option('--json', 'JSON output');
+  optionByKey(restore, '--target <database>', 'help.backup.restore.option.target', { mandatory: true });
+  optionByKey(restore, '--json', 'help.backup.restore.option.json');
   declareRisk(restore, {
     risk: 'irreversible',
     llave: { sinLlave: { key: 'platform.backup.restore.retry_restores' } },

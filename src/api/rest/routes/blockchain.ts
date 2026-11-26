@@ -6,6 +6,8 @@ import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
+import { t } from '../../../i18n/index.js';
+import { responseLanguage } from '../middleware/locale.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
 import { CHAIN_CONFIGS, ChainId } from '../../../services/blockchain/chain-adapters.js';
 import { REDUNDANCY_MODES, VERIFICATION_LAYERS, MESSAGING_PROTOCOLS } from '../../../database/enums.js';
@@ -400,12 +402,11 @@ router.get('/attestations', requirePermission('settings:manage'), requireEntityA
 
   const simuladas = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
 
+  res.vary('Accept-Language');
   res.json({
     data: result.rows,
     aviso: simuladas > 0
-      ? `${simuladas} de ${result.rows.length} atestaciones de esta página son SIMULADAS: su ` +
-        'txHash, su número de bloque y su enlace al explorador están fabricados y no ' +
-        'corresponden a ninguna transacción. No sirven como prueba ante un tercero.'
+      ? t('api.blockchain.simulated_attestations', { simulated: simuladas, total: result.rows.length }, responseLanguage(res))
       : undefined,
     pagination: {
       page: pageNum, per_page: perPage,
@@ -486,12 +487,11 @@ router.get('/bitcoin/anchors', requirePermission('settings:manage'), asyncHandle
 
   const simulados = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
 
+  res.vary('Accept-Language');
   res.json({
     data: result.rows,
     aviso: simulados > 0
-      ? `${simulados} de ${result.rows.length} anclajes de esta página son SIMULADOS: su txid se ` +
-        'fabricó localmente y no existe en Bitcoin. No los publiques como prueba ante un tercero ' +
-        'ni compartas un enlace a un explorador con ellos.'
+      ? t('api.blockchain.simulated_anchors', { simulated: simulados, total: result.rows.length }, responseLanguage(res))
       : undefined,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });

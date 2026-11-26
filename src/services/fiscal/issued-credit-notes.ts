@@ -104,7 +104,8 @@ interface NoteRow {
 const q4 = (d: Decimal.Value): string => new Decimal(d).toFixed(4);
 const CENT = new Decimal('0.01');
 
-function negated(d: Desglose): Desglose {
+/** A split with every box's sign turned: a subtraction from its side of the paper. */
+export function negated(d: Desglose): Desglose {
   const box = (c: { base: string; iva: string }) => ({ base: q4(new Decimal(c.base).negated()), iva: q4(new Decimal(c.iva).negated()) });
   return {
     tasa16: box(d.tasa16), tasa8: box(d.tasa8), tasa0: box(d.tasa0), exento: box(d.exento),

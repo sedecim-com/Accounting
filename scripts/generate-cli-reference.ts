@@ -115,6 +115,15 @@ Notes for the agent:
   \`MNEMOSINE_TENANT\` or from a config file instead, the run only warns on
   stderr and CONTINUES: it ends with an empty report and exit 0. So never
   report "no rows" as an empty ledger without reading stderr first.
+- With \`--json\` (or \`--format json\` / \`--format ndjson\`), a command that
+  fails leaves stdout empty and writes ONE line of JSON as the last line of
+  stderr: \`{"schema": "mnemosine.error/1", "exit_code", "key", "params",
+  "message", "remedy"}\`. \`exit_code\` is the code the process exits with;
+  \`key\` and \`params\` are stable in every language (\`key\` is null when the
+  error has none); \`message\` and \`remedy\` are for the person, in their
+  language. Decide on \`exit_code\` and \`key\`, never on the wording. An
+  internal failure (database, network, system) says \`cli.error.internal\`
+  without its details: run the command without \`--json\` to read them.
 - Spanish aliases (shown as \`name|alias\`) are equivalent to the English
   names; use whichever matches the user's language.
 `;

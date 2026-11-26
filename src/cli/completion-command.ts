@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import type { Palette } from './palette.js';
-import { exitCodeFor, usageError } from './kernel/index.js';
+import { argumentByKey, describeCommand, exitCodeFor, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine completion
@@ -369,7 +369,7 @@ export function renderCompletionScript(program: Command, shell?: string): string
 export function registerCompletionCommand(program: Command, deps: CompletionCommandDeps): void {
   const { shutdown, reportError } = deps;
 
-  program
+  const completion = program
     .command('completion')
     // The Spanish alias is NOT invented here. docs/cli-command-registry.md —
     // the document kernel/vocabulary.ts declares itself generated from —
@@ -380,9 +380,12 @@ export function registerCompletionCommand(program: Command, deps: CompletionComm
     // registry has already named, which is the one thing the bilingual
     // bijection forbids. Unaccented, like every other alias in that table
     // (`conciliacion`, `politica`, `aprobacion`).
-    .alias('completado')
-    .description('Print a shell completion script (bash, zsh) on stdout')
-    .argument('[shell]', `Shell to generate for: ${COMPLETION_SHELLS.join(' or ')}`)
+    .alias('completado');
+  describeCommand(completion, 'help.completion.description');
+  argumentByKey(completion, '[shell]', 'help.completion.argument.shell', {
+    params: { list: COMPLETION_SHELLS.slice(0, -1).join(', '), last: COMPLETION_SHELLS[COMPLETION_SHELLS.length - 1] },
+  });
+  completion
     .addHelpText(
       'after',
       [

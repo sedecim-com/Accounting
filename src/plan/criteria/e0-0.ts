@@ -1218,8 +1218,8 @@ export const E0_0: Criterio[] = [
         // identidad de UN constructor de los ochenta y tantos, dejando el
         // rótulo puesto. Es el estado exacto de este archivo antes de I11.
         archivo: 'src/cli/init/s0-infra.ts',
-        de: "        ...RLS_CONTEXT,\n        level: 'ok',\n        detail: 'no tenant pinned yet",
-        a: "        name: 'RLS context',\n        level: 'ok',\n        detail: 'no tenant pinned yet",
+        de: "        ...RLS_CONTEXT,\n        level: 'ok',\n        detail: t('init.infra.rls.no_tenant')",
+        a: "        name: 'RLS context',\n        level: 'ok',\n        detail: t('init.infra.rls.no_tenant')",
         porque:
           'chequeo-anónimo: un solo constructor pierde su identidad y conserva el rótulo, que es invisible en pantalla',
       },
@@ -1354,6 +1354,86 @@ export const E0_0: Criterio[] = [
         de: '"perFile": {',
         a: '"perFile": {\n    "spanish-user-strings-cli": { "src/cli/bank-command.ts": 1 },',
         porque: 'terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-help-descriptions-lane-closed',
+    // MNE-001-405 (issue #314). The series 231 to 428 keyed every help
+    // description of the CLI, and this closes the lane that measured them.
+    // Three claims, each against one way of giving the ground back:
+    //   1. The lane declares `closed`, so `--check` demands 0 by itself.
+    //   2. `compare` judges a closed lane by `closedLaneFindings`, not by the
+    //      baseline; without the call the declaration is decoration.
+    //   3. The baseline has no entry for the lane, neither total nor family:
+    //      a number there is a ceiling that a hand edit can raise.
+    // The live count is `language:status --check`'s, which CI runs; this reads
+    // the sources through the seam, so each mutant below turns it red.
+    enunciado:
+      'Every CLI help description renders from a catalogue key: the lane that counts the ones without a key is closed at 0, with no baseline that a hand edit could raise (#314, MNE-001-405)',
+    evaluar: () => {
+      const LANE = 'help-descriptions-without-key';
+      const LANE_FILE = 'scripts/language/lanes/help.ts';
+      const METER = 'scripts/language-status.ts';
+      const BASELINE = 'docs/language-baseline.json';
+      for (const rel of [LANE_FILE, METER, BASELINE]) {
+        if (!existe(rel)) return noEvaluable(`${rel} is not in this tree`);
+      }
+      if (!new RegExp(`id: '${LANE}',[^}]*\\n\\s*closed: true,\\n\\s*\\} satisfies Lane`).test(crudoDe(LANE_FILE))) {
+        return falla(`«${LANE}» is not declared closed: its 0 is a baseline number again, which a hand edit can raise`);
+      }
+      const meter = crudoDe(METER);
+      if (
+        !/^\s*if \(c\.closed\) \{\n\s*findings\.push\(\.\.\.closedLaneFindings\(c, base\)\);\n\s*continue;/m.test(meter) ||
+        !/^\s*if \(c\.value > c\.target\) \{/m.test(meter)
+      ) {
+        return falla('`compare` does not judge a closed lane against its target: `--check` would let unkeyed help back in');
+      }
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(BASELINE)) as typeof baseline;
+      } catch {
+        return falla(`${BASELINE} is not valid JSON`);
+      }
+      if (Object.keys(baseline.lanes ?? {}).length === 0) {
+        return falla(`${BASELINE} has no lanes: the absence of «${LANE}» proves nothing`);
+      }
+      if (baseline.lanes?.[LANE] !== undefined || baseline.perFile?.[LANE] !== undefined) {
+        return falla(`${BASELINE} has an entry for «${LANE}» again: a ceiling a hand edit can raise`);
+      }
+      return ok(`«${LANE}» is closed at 0, judged by its target, with no entry in ${BASELINE}`);
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/language/lanes/help.ts',
+        de: '      closed: true,\n    } satisfies Lane,',
+        a: '    } satisfies Lane,',
+        porque: 'lane-reopened: the help lane is a ratchet again, so a hand-raised baseline lets prose help back in',
+      },
+      {
+        archivo: 'scripts/language-status.ts',
+        de: '      findings.push(...closedLaneFindings(c, base));\n',
+        a: '',
+        porque: 'closed-not-judged: compare skips a closed lane, so --check passes whatever the help lane measures',
+      },
+      {
+        archivo: 'scripts/language-status.ts',
+        de: '  if (c.value > c.target) {',
+        a: '  if (c.value > c.target + 1) {',
+        porque: 'target-loosened: a closed lane may carry one unkeyed description more than its target',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"lanes": {',
+        a: '"lanes": {\n    "help-descriptions-without-key": 1,',
+        porque: 'ceiling-back: the baseline holds a number for the help lane again, which a hand edit raises',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"perFile": {',
+        a: '"perFile": {\n    "help-descriptions-without-key": { "status": 1 },',
+        porque: 'family-back: the breakdown lets the status family carry one unkeyed description again',
       },
     ],
   },
@@ -2174,17 +2254,25 @@ export const E0_0: Criterio[] = [
     // question with no terminal. With the breakdown empty, `--tighten` drops
     // the lane from `perFile`, so every family's ground-given-back mutant now
     // anchors on `"perFile": {` and writes the breakdown back with one file.
+    //
+    // MNE-001-626 (230's split, part 2) keys the 38 English strings entry
+    // printed without a key, and the short English printed beside them. With
+    // it no leaf of the family is left in `cli-user-strings-without-key`, so a
+    // check 4 holds that: none of the six has an entry in its breakdown. The
+    // reused keys are period's active-entity note and unknown --status,
+    // account's unknown --type and ap's question with no terminal.
     enunciado:
-      'The ledger family (batch, account, fx, ledger, entry, period) prints no Spanish string from the code: its texts come from the I8.9 block of the catalogue, and the CLI lane of Spanish strings is at 0 (#271, MNE-001-229, MNE-001-230)',
+      'The ledger family (batch, account, fx, ledger, entry, period) prints no Spanish string and no English without a key from the code: its texts come from the I8.9 block of the catalogue, and the CLI lane of Spanish strings is at 0 (#271, MNE-001-229, MNE-001-230, MNE-001-626)',
     evaluar: () => {
-      const family = familySpeaksByKey('I8.9', 'ledger', [
+      const leaves = [
         'src/cli/batch-command.ts',
         'src/cli/account-command.ts',
         'src/cli/fx-command.ts',
         'src/cli/ledger-command.ts',
         'src/cli/entry-command.ts',
         'src/cli/period-command.ts',
-      ]);
+      ];
+      const family = familySpeaksByKey('I8.9', 'ledger', leaves);
       if (family.estado !== 'ok') return family;
       const LANE = 'spanish-user-strings-cli';
       const baseline = JSON.parse(crudoDe('docs/language-baseline.json')) as {
@@ -2199,7 +2287,13 @@ export const E0_0: Criterio[] = [
             ': the CLI writes Spanish strings in the code again, after I8 emptied it'
         );
       }
-      return family;
+      // 4 · No English without a key either (MNE-001-626).
+      const ENGLISH = 'cli-user-strings-without-key';
+      const unkeyed = leaves.filter((rel) => baseline.perFile?.[ENGLISH]?.[rel] !== undefined);
+      if (unkeyed.length) {
+        return falla(`${unkeyed.join(', ')} print English without a key again («${ENGLISH}»)`);
+      }
+      return ok(`${family.detalle}; none of its ${leaves.length} leaves prints English without a key`);
     },
     mutantes: [
       {
@@ -2237,6 +2331,18 @@ export const E0_0: Criterio[] = [
         de: '"spanish-user-strings-cli": 0,',
         a: '"spanish-user-strings-cli": 1,',
         porque: 'lane-not-at-zero: the lane total says the CLI carries one Spanish string again, with no file in the breakdown',
+      },
+      {
+        archivo: 'src/cli/entry-command.ts',
+        de: "key: 'ledger.entry.post.question'",
+        a: "key: 'Post {number} ({total}) to the ledger? This cannot be undone.' as never",
+        porque: 'string-back-in-the-code: entry post asks its question in English from the code again, and its key is left unread',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"cli-user-strings-without-key": {',
+        a: '"cli-user-strings-without-key": {\n      "src/cli/entry-command.ts": 1,',
+        porque: 'ground-given-back: the breakdown records English without a key in entry again, which only check 4 sees',
       },
     ],
   },

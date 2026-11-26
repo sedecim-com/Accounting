@@ -433,10 +433,11 @@ export async function ligarPagoREP(opts: {
     return {
       accion: 'revision',
       motivo:
-        // A refusal written by key renders in the active language, the one of
-        // the sentence around it (MNE-001-480): its `message` is English.
+        // The reason is stored with the document in Spanish, so a refusal
+        // written by key renders in Spanish too: one language in every
+        // session (MNE-001-728). Its `message` is English.
         'El comprobante no se pudo registrar como pago: ' +
-        (e instanceof AppError ? e.localized() : (e as Error).message),
+        (e instanceof AppError ? e.localized('es') : (e as Error).message),
       avisos,
     };
   }

@@ -24,6 +24,15 @@ Notes for the agent:
   `MNEMOSINE_TENANT` or from a config file instead, the run only warns on
   stderr and CONTINUES: it ends with an empty report and exit 0. So never
   report "no rows" as an empty ledger without reading stderr first.
+- With `--json` (or `--format json` / `--format ndjson`), a command that
+  fails leaves stdout empty and writes ONE line of JSON as the last line of
+  stderr: `{"schema": "mnemosine.error/1", "exit_code", "key", "params",
+  "message", "remedy"}`. `exit_code` is the code the process exits with;
+  `key` and `params` are stable in every language (`key` is null when the
+  error has none); `message` and `remedy` are for the person, in their
+  language. Decide on `exit_code` and `key`, never on the wording. An
+  internal failure (database, network, system) says `cli.error.internal`
+  without its details: run the command without `--json` to read them.
 - Spanish aliases (shown as `name|alias`) are equivalent to the English
   names; use whichever matches the user's language.
 
@@ -4020,7 +4029,7 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --overdue                                only customers with something past due
-  --balance-gt <amount>                    only customers owing more than this
+  --balance-gt <amount>                    only customers whose balance at book value, in the functional currency, is more than this (a foreign document weighs at the rate it was posted at)
   --inactive                               show archived customers instead of active ones
   -h, --help                               display help for command
 
@@ -8161,7 +8170,8 @@ Options:
 
 Commands:
   create|crear [options]             Create a draft run over a pay period; the
-                                     tax year is fixed from the period
+                                     tax year is fixed from the period, and a
+                                     period holds one regular run
   calculate|calcular [options] <id>  Calculate gross to net for each employee in
                                      the inputs file and total the run; a run
                                      that is not approved can be calculated
@@ -8180,7 +8190,8 @@ Commands:
 ```
 Usage: mnemosine pay-run create|crear [options]
 
-Create a draft run over a pay period; the tax year is fixed from the period
+Create a draft run over a pay period; the tax year is fixed from the period, and
+a period holds one regular run
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -10562,7 +10573,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity; empty lists them)
+  --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity, year-sweep; empty lists them)
   --account <code>                         scope the balance check to one account
   --period <expr>                          scope the balance check to one fiscal period: 2026-07, its id, or part of its name
   -h, --help                               display help for command
@@ -10573,7 +10584,7 @@ Examples:
   # One named check, scoped to a single account and period.
   mnemosine ledger check --check balance --account 1120 --period 2026-07
   # Every check, with warnings blocking too.
-  mnemosine ledger check --check balance,audit-trail,continuity --strict
+  mnemosine ledger check --check balance,audit-trail,continuity,year-sweep --strict
 ```
 
 ### `mnemosine ledger stale-draft` (alias: borrador-viejo)

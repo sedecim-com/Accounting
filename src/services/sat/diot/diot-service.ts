@@ -13,7 +13,7 @@ import {
   DECIMALES_DIOT,
   type PoliticaBaseExenta,
 } from './desglose.js';
-import { hechosDelMes, rangoDelMes, type HechoPagado } from './hechos.js';
+import { hechosDelMes, rangoDelMes, readVendorUndoIvaMonth, type HechoPagado } from './hechos.js';
 import { bloquean, type Hallazgo } from './hallazgos.js';
 import { normalizarRfc } from './rfc.js';
 import { resolverTercero, type PoliticasDelTercero, type TerceroCrudo } from './tercero.js';
@@ -173,20 +173,17 @@ async function contribuyente(
 
   if (!(await entityUsesCashBasisIva(client, entityId))) {
     throw new ValidationError(
-      `La entidad ${fila.name} no es mexicana (país ${fila.incorporation_country ?? '—'}). ` +
-        `La DIOT es una obligación de la LIVA: no hay declaración informativa de operaciones ` +
-        `con terceros que armar para una entidad que no causa IVA.`,
+      {
+        key: 'error.VALIDATION_ERROR.diot.entity_not_mexican',
+        params: { name: fila.name, country: fila.incorporation_country ?? '—' },
+      },
       'entity_id'
     );
   }
 
   const rfc = normalizarRfc(fila.tax_id);
   if (rfc === '') {
-    throw new ValidationError(
-      `La entidad ${fila.name} no tiene RFC en el expediente y la DIOT se presenta a nombre de ` +
-        `un contribuyente identificado.`,
-      'tax_id'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.diot.entity_without_rfc', params: { name: fila.name } }, 'tax_id');
   }
   return { rfc, razonSocial: fila.name };
 }
@@ -236,11 +233,7 @@ const BASES_EXENTAS: readonly string[] = ['exigir_base', 'derivar_del_subtotal',
 export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstruida> {
   const { tenantId, entityId, anio, mes } = opciones;
   if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
-    throw new ValidationError(
-      `El mes de la DIOT es ${String(mes)}. La declaración es mensual y no tiene mes 13: la ` +
-        `balanza de cierre del Anexo 24 sí, ésta no.`,
-      'mes'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.diot.month', params: { month: String(mes) } }, 'mes');
   }
 
   const ejecutar = async (client: pg.PoolClient): Promise<DiotConstruida> => {
@@ -255,6 +248,8 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     // Applied by the SAT batch serializer (sat-batch.ts): it decides which
     // creditable-IVA box of the 2025 layout carries the IVA paid.
     const pProportion = await getPolicy(ctx, 'diot_creditable_iva_proportion', client);
+    // MNE-001-754: the month that takes out an undone vendor payment, read once and handed to the facts.
+    const pUndoMonth = await readVendorUndoIvaMonth(ctx, client);
 
     const politicas: PoliticaAplicada[] = [
       pTipoOperacion,
@@ -262,6 +257,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
       pBaseExenta,
       pForeignOperation,
       pProportion,
+      pUndoMonth,
     ].map((p) => ({
       clave: p.key,
       valor: p.value,
@@ -296,7 +292,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     };
 
     // ── EL HECHO ────────────────────────────────────────────────────────
-    const { hechos, hallazgos: hallazgosDelMayor } = await hechosDelMes(client, entityId, anio, mes);
+    const { hechos, hallazgos: hallazgosDelMayor } = await hechosDelMes(client, entityId, anio, mes, pUndoMonth.value);
     hallazgos.push(...hallazgosDelMayor);
 
     // ── EL DESGLOSE, DOCUMENTO POR DOCUMENTO ────────────────────────────

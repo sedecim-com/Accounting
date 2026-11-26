@@ -27,28 +27,24 @@ export async function resolveClosablePeriod(
   candidates: ClosablePeriod[],
   opts: { openOnly?: boolean } = {}
 ): Promise<ClosablePeriod> {
-  const available = candidates.map((p) => p.period_name).join(', ') || 'none';
+  // A nested key, so the English `message` says «none» whatever the locale.
+  const available: string | { key: string } = candidates.map((p) => p.period_name).join(', ') || { key: 'closing.period.none' };
   let resolved: Awaited<ReturnType<typeof resolvePeriod>>;
   try {
     resolved = await resolvePeriod(ctx.entityId, ref, { refuseSharedMonth: true });
   } catch (err) {
     if (err instanceof NotFoundError) {
-      throw notFound(`No period matches "${ref}". Closable: ${available}.`);
+      throw notFound({ key: 'closing.period.not_found', params: { ref, available } });
     }
     throw err;
   }
   const chosen = candidates.find((p) => p.id === resolved.id);
   if (opts.openOnly && (!chosen || chosen.status !== 'open')) {
-    throw blockedByState(
-      `${resolved.period_name} is already ${resolved.status}: there is nothing left to conduct. ` +
-        `Seal it with \`mnemosine closing pack generate "${resolved.period_name}"\`.`
-    );
+    const command = `\`mnemosine closing pack generate "${resolved.period_name}"\``;
+    throw blockedByState({ key: 'closing.period.nothing_to_conduct', params: { period: resolved.period_name, status: resolved.status, command } });
   }
   if (!chosen) {
-    throw blockedByState(
-      `${resolved.period_name} is ${resolved.status}: only open or soft-closed periods can be closed. ` +
-        `Closable: ${available}.`
-    );
+    throw blockedByState({ key: 'closing.period.not_closable', params: { period: resolved.period_name, status: resolved.status, available } });
   }
   return chosen;
 }
