@@ -4,6 +4,7 @@ import { getPolicy } from '../../policy/policy-service.js';
 import type { PolicyContext } from '../../policy/policy-service.js';
 import { serializar, type NodoXml } from './xml.js';
 import { officialEnumeration } from './official-enumerations.js';
+import { officialXsdRefusal } from './official-xsd.js';
 import {
   validarCatalogo,
   bloquean,
@@ -31,6 +32,8 @@ import { archivarArtefacto, hashDelXml, type ArtefactoArchivado } from './artefa
 //     esperado CARÁCTER A CARÁCTER en una prueba unitaria, que es la única
 //     forma de defender de verdad la promesa de «bytes idénticos para entradas
 //     idénticas».
+//     Since #608 it also runs xmllint over its own bytes (the official XSD):
+//     a process, as deterministic as the rest. Same input, same verdict.
 //   · `generarCatalogoCuentas` es la envoltura de E/S: lee políticas, lee
 //     cuentas con la entidad DENTRO del SQL, llama a la función pura y archiva.
 //
@@ -433,6 +436,21 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
   };
 
   const xml = serializar(raiz);
+
+  // CONTRACT: the SAT's own schema has the last word on the finished bytes
+  // (#608). Its verdict is added AFTER the findings above, which name the
+  // account; it never replaces them, and a file xmllint could not judge is not
+  // deliverable either.
+  const refusal = officialXsdRefusal(xml, 'chart');
+  if (refusal !== null) {
+    hallazgos.push({
+      regla: refusal.reason === 'rejected' ? 'CAT-XSD-REJECTED' : 'CAT-XSD-NOT-VALIDATED',
+      severidad: 'bloquea',
+      procedencia: 'official_xsd',
+      mensaje: refusal.message,
+      ...(refusal.messageKey ? { messageKey: refusal.messageKey } : {}),
+    });
+  }
 
   return {
     xml,
