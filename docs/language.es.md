@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: e70ce328e62cbe14a00d240f20adf795be1362ac
+> Gemela en español de [`language.md`](language.md) · source_sha: 3b131c3debb00ef2444d15197cd6ad83233c7ec8
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -99,7 +99,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 
 | Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10439 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10437 | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5753 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
@@ -113,7 +113,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 332 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28940 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ | 28937 | 0 |
 | `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
