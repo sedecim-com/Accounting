@@ -7,6 +7,7 @@ import { JournalEntryType } from '../../../types/index.js';
 import { toCalendarDate } from '../../../utils/calendar-date.js';
 import { createDraft, type DraftPayload } from '../../../ai/draft-service.js';
 import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
+import { payrollDataGap } from '../tax-engine/tax-tables.js';
 import { PAYROLL_DRAFT_PRODUCER, linkPayRunEntry, payRunReference } from './pay-run-entry-link.js';
 
 export { payRunReference };
@@ -304,11 +305,10 @@ async function buildPayRunEntry(
       registro.valor === 'cuenta_por_cobrar_fisco' ? 'isr_payable' : 'subsidio_empleo_expense';
     const cuenta = accounts[cubeta];
     if (!cuenta) {
-      throw new Error(
-        `Missing payroll_account_mapping for bucket: ${cubeta}. La corrida entregó ` +
-          `${entregado.toFixed(2)} de subsidio al empleo en efectivo y la política ` +
-          `subsidio_al_empleo_entregado_registro dice registrarlo como ${registro.valor}.`
-      );
+      throw payrollDataGap('PAYROLL_ACCOUNT_MAPPING_MISSING', {
+        key: 'error.PAYROLL_ACCOUNT_MAPPING_MISSING.subsidy_in_cash',
+        params: { bucket: cubeta, amount: entregado.toFixed(2), value: registro.valor },
+      });
     }
     debit(
       cuenta,

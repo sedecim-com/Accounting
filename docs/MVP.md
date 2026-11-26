@@ -273,7 +273,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 |---|---|---|
 | `src/plan/mutation-census.txt` | El censo de espejos y anclas que sustituyó a `MIRRORS_FLOOR` y `ANCHORS_HERE` (#356). Una línea por espejo: dos PRs sólo chocan si tocan el mismo sitio | `npm run mutation:census` sobre el árbol fusionado; nunca se suma a mano |
 | `docs/language.md` y `docs/language.es.md` (bloque) | Lo genera el metro del idioma | `npm run language:status -- --write` |
-| `docs/language-baseline.json` | La línea base sólo baja. El carril `help-descriptions-without-key` va por familia del CLI: la ayuda nueva se registra con `describeCommand`/`optionByKey`/`argumentByKey`, no en prosa (#314) | `npm run language:status -- --tighten` |
+| `docs/language-baseline.json` | La línea base sólo baja. El carril `help-descriptions-without-key` va por familia del CLI y está cerrado en 0, sin línea base (MNE-001-405): la ayuda nueva se registra con `describeCommand`/`optionByKey`/`argumentByKey`, no en prosa (#314) | `npm run language:status -- --tighten` |
 | `src/i18n/en.ts` y `src/i18n/es.ts` | El extractor inserta antes del último `};` | Conservar el orden de los bloques en los dos archivos |
 | `src/ai/docs/manifiesto.json` | Sello del corpus contra sus fuentes | Releer el manual y `npx tsx scripts/corpus-manifiesto.ts --actualizar <manual>.md` |
 | `docs/cli-command-catalog.md` (bloque) y `docs/catalogo-minimos.json` | Recuento del binario y suelo | `npm run catalogo:estado`. Ojo: **sin `--check` reescribe el archivo** |
@@ -293,6 +293,9 @@ scripts/verify.sh                 # ya con integración y con los criterios ▶
 - **En Claude Code en la web**, el hook `SessionStart` (`.claude/hooks/session-start.sh`) corre `scripts/setup.sh --local-cluster`. Esa bandera arranca el Postgres del contenedor y le pone la contraseña de desarrollo: es sólo para contenedores desechables.
 - **En tu máquina**, `setup.sh` usa el Postgres que responda en `TEST_ADMIN_DATABASE_URL`. Si no responde ninguno y hay Docker, levanta el contenedor `mnemosine-postgres` con la versión de CI. Con otra versión mayor, avisa y sigue.
 - **El `.env`** lo escribe sólo si no existe, y nunca reescribe uno tuyo. `scripts/verify.sh` lee de ahí las URLs de base, igual que los procesos Node.
+- **El orden del texto.** Las bases de la CI ordenan el texto con `en_US.utf8`: minúsculas antes que mayúsculas, y sin mirar los signos en la primera pasada. `setup.sh` y la suite de integración crean sus bases con ese orden (MNE-001-753):
+  - si el Postgres local no trae ese locale, usan un sustituto de ICU y lo dicen en una línea; ordena igual salvo entre dos textos con las mismas letras y cifras que difieren en sus signos;
+  - una base que ya existía con otro orden no se toca: `setup.sh` avisa en cada corrida y dice cómo igualarla.
 
 Lo que hace por dentro, por si hay que hacerlo a mano:
 

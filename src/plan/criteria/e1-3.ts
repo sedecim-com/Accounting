@@ -446,7 +446,10 @@ export const E1_3: Criterio[] = [
     // hands them in. A site that forgets, or pins the wrong language, paints
     // Spanish beside English labels (or the reverse) and no type error says so.
     // The behaviour is pinned by tests/cli/pending-locale-readers.spec.ts; this
-    // criterion keeps the four sites on the seam.
+    // criterion keeps the four sites on the seam. The wizard keeps ONE language
+    // for the panel's text and its own chrome by asking both of the active one:
+    // the text through the seam, the chrome from its `init.policies.*` keys
+    // (MNE-001-479, which retired the English pin `WIZARD_LANGUAGE`).
     enunciado:
       'The four places that paint the policy panel (pending, the agent panel, the init wizard and the work board) ask the active language through panelTranslator/previewText, and the wizard keeps one language for text and chrome',
     mutantes: [
@@ -473,10 +476,10 @@ export const E1_3: Criterio[] = [
       },
       {
         archivo: 'src/cli/init/s4-policies.ts',
-        de: "const WIZARD_LANGUAGE = 'en' as const;",
-        a: "const WIZARD_LANGUAGE = 'es' as const;",
+        de: 'const wording = policyWording(row, panelTranslator());',
+        a: "const wording = policyWording(row, panelTranslator('en'));",
         porque:
-          "half-translated-wizard: the catalog text would come out Spanish beside the wizard's hand-written English labels",
+          "half-translated-wizard: under es-MX the question and options would come out English beside the wizard's Spanish labels",
       },
       {
         archivo: 'src/ai/pending-service.ts',
@@ -508,11 +511,13 @@ export const E1_3: Criterio[] = [
       }
       const wizard = codigoDe('src/cli/init/s4-policies.ts');
       if (
-        !/const WIZARD_LANGUAGE = 'en' as const;/.test(wizard) ||
-        !/panelTranslator\(WIZARD_LANGUAGE\)/.test(wizard) ||
-        !/previewText\(WIZARD_LANGUAGE\)/.test(wizard)
+        !/policyWording\(row, panelTranslator\(\)\)/.test(wizard) ||
+        !/specWording\(spec, panelTranslator\(\)\)/.test(wizard) ||
+        !/text: previewText\(\)/.test(wizard) ||
+        !/ambiguityQuestion\(interpreted\)/.test(wizard) ||
+        count(wizard, /\bt\('init\.policies\./g) < 15
       ) {
-        return falla('el asistente de init mezcla idiomas: su texto y sus etiquetas deben hablar el mismo hasta que I8 lo traduzca');
+        return falla('el asistente de init mezcla idiomas: el texto del panel y sus etiquetas deben pedir los dos el idioma activo');
       }
       const board = codigoDe('src/ai/pending-service.ts');
       if (count(board, /\bt\('pending\.board\./g) < 8) {

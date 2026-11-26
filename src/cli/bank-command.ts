@@ -1204,15 +1204,18 @@ function interesesComoDocumento(r: ResultadoDeIntereses): Row {
   };
 }
 
-/** A vendor cheque's cashing, or a receipt's with the IVA of an advance it caused (MNE-001-558). */
-type CheckCashingView = ResultadoDeCobroDeCheque & { advanceIva?: string | null };
+/**
+ * A vendor cheque's cashing, or a receipt's with the IVA of an advance it caused (MNE-001-558).
+ * MNE-001-794 · a receipt whose parts are caused on several days posts one entry per day: `entryViews`.
+ */
+type CheckCashingView = ResultadoDeCobroDeCheque & { advanceIva?: string | null; entryViews?: CheckCashingView[] };
 
 /**
  * MNE-001-556 · a customer cheque's cashing in the shape the command shows a
  * vendor cheque's in: one preview, one confirmation and one summary for both.
  */
 function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
-  return {
+  const whole: CheckCashingView = {
     advanceIva: r.advanceIva,
     paymentId: r.receiptId,
     paymentNumber: r.receiptNumber,
@@ -1222,6 +1225,8 @@ function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
       importe: r.transaction.amount, descripcion: r.transaction.description,
     },
     fechaDeCobro: r.cashedOn,
+    // MNE-001-794 · the day of its first entry: an invoice applied after the credit causes its IVA that day.
+    releasedOn: r.releasedOn,
     periodo: r.period ? { nombre: r.period.name, status: r.period.status } : null,
     reclasificado: r.released,
     porGasto: r.byInvoice.map((i) => ({ billId: i.invoiceId, billNumber: i.invoiceNumber, importe: i.amount })),
@@ -1229,6 +1234,21 @@ function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
     entryNumber: r.entryNumber,
     nota: r.note ? t(r.note) : null,
     ensayo: r.dryRun,
+  };
+  if (r.entries.length < 2) return whole;
+  return {
+    ...whole,
+    entryViews: r.entries.map((e) => ({
+      ...whole,
+      releasedOn: e.date,
+      periodo: e.period ? { nombre: e.period.name, status: e.period.status } : null,
+      reclasificado: e.released,
+      porGasto: e.byInvoice.map((i) => ({ billId: i.invoiceId, billNumber: i.invoiceNumber, importe: i.amount })),
+      advanceIva: e.advanceIva,
+      entryId: e.entryId,
+      entryNumber: e.entryNumber,
+      nota: null,
+    })),
   };
 }
 
@@ -1523,13 +1543,13 @@ const leerConParsers: LeerExtracto = ({ contenido, formato, perfil }) =>
 function archivosAImportar(posicionales: string[], dir: string | undefined): string[] {
   const candidatos = [...posicionales];
   if (dir !== undefined) {
-    let entradas;
+    let entryViews;
     try {
-      entradas = readdirSync(dir, { withFileTypes: true });
+      entryViews = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
       throw usageError(t('bank.dir.unreadable', { dir, error: (err as Error).message }));
     }
-    const dentro = entradas
+    const dentro = entryViews
       .filter((e) => e.isFile() && !e.name.startsWith('.'))
       .map((e) => path.join(dir, e.name))
       .sort();
@@ -5981,6 +6001,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
          * y su razón se imprimen antes de preguntar, no después.
          */
         const mostrar = (r: CheckCashingView): void => {
+          // MNE-001-794 · one block per entry, each with its own day and month.
+          if (r.entryViews) {
+            r.entryViews.forEach(mostrar);
+            return;
+          }
           const out = process.stdout;
           const renglon = (etiqueta: string, valor: string): void => {
             out.write(`    ${etiqueta.padEnd(16)}${valor}\n`);
@@ -6002,6 +6027,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               })
             )}`
           );
+          // MNE-001-778 · applied after the bank's charge: the entry takes the later day.
+          if (r.releasedOn !== null && r.releasedOn !== r.fechaDeCobro) {
+            renglon(
+              t('bank.check.reconcile.label.entry_date'),
+              `${r.releasedOn} ${p.dim(t(receipt ? 'bank.check.cashing.entry_after_cashing' : 'bank.check.reconcile.entry_after_cashing'))}`
+            );
+          }
           renglon(
             t('bank.match.preview.label.period'),
             r.periodo
@@ -6049,7 +6081,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               check: previo.map((x) => x.checkNumber ?? x.paymentNumber).join(', '),
               date: previo[0].fechaDeCobro,
               amount: previo.reduce((sum, x) => sum.plus(x.reclasificado), new Decimal(0)).toFixed(4),
-              period: previo[0].periodo?.nombre ?? t('bank.check.reconcile.no_period'),
+              // MNE-001-794 · every month an entry falls in, a deposit's and a split receipt's.
+              period: [...new Set(previo.flatMap((x) => (x.entryViews ?? [x])
+                .map((e) => e.periodo?.nombre ?? t('bank.check.reconcile.no_period'))))].join(', '),
             }),
         });
         // A key recorded before MNE-001-557 replays one result, not a list.
@@ -6069,30 +6103,39 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               ? {
                   ...doc, advance_iva: r.advanceIva ?? null,
                   by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })),
+                  // MNE-001-794 · the day of its first entry, and one row per entry when its parts fall on several days.
+                  entry_date: r.releasedOn,
+                  entries: (r.entryViews ?? (r.releasedOn ? [r] : [])).map((e) => ({
+                    entry_date: e.releasedOn, period: e.periodo?.nombre ?? null, reclassified: e.reclasificado,
+                    journal_entry: e.entryId, entry_number: e.entryNumber,
+                  })),
                 }
-              : { ...doc, by_bill: byDocument };
+              : { ...doc, by_bill: byDocument, entry_date: r.releasedOn };
           });
           render(rows, { json: true, idField: 'id' });
         }
         for (const r of rs) {
           if (!opts.json) {
             if (opts.yes === true || dryRun) mostrar(r);
-            process.stdout.write(
-              `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
-                r.checkNumber ?? r.paymentNumber
-              )} ${p.dim(
-                t('bank.check.reconcile.summary', {
-                  date: r.fechaDeCobro,
-                  period: r.periodo?.nombre ?? '—',
-                  amount: r.reclasificado,
-                }) +
-                  `${
-                    r.entryNumber
-                      ? ` · ${t('bank.entry_number', { entry: r.entryNumber })}`
-                      : ''
-                  }`
-              )}\n`
-            );
+            // MNE-001-794 · one line per entry, each with its month.
+            for (const e of r.entryViews ?? [r]) {
+              process.stdout.write(
+                `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
+                  e.checkNumber ?? e.paymentNumber
+                )} ${p.dim(
+                  t('bank.check.reconcile.summary', {
+                    date: e.fechaDeCobro,
+                    period: e.periodo?.nombre ?? '—',
+                    amount: e.reclasificado,
+                  }) +
+                    `${
+                      e.entryNumber
+                        ? ` · ${t('bank.entry_number', { entry: e.entryNumber })}`
+                        : ''
+                    }`
+                )}\n`
+              );
+            }
           }
           // CERO ES UN RESULTADO LEGÍTIMO y se dice en voz alta con su porqué:
           // casi siempre significa que el asiento del pago ya liberó el IVA en la

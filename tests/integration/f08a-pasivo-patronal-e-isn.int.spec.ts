@@ -10,6 +10,7 @@ import {
 } from '../../src/services/payroll/common/employer-liability-service.js';
 import { approvePayRun } from '../../src/services/payroll/common/pay-run-service.js';
 import { entityScope } from '../../src/database/scope.js';
+import { findingText } from '../../src/i18n/payroll-finding-text.js';
 
 // ============================================================
 // F08a · LO QUE EL PATRÓN DEBE, CONTRA UN POSTGRES DE VERDAD
@@ -171,8 +172,8 @@ describe('sin tasa capturada el resultado es un hallazgo con nombre, no un cero'
     expect(bloqueantes).toHaveLength(1);
     expect(bloqueantes[0].codigo).toBe('isn_sin_tasa_capturada');
     expect(bloqueantes[0].estado).toBe('JA');
-    expect(bloqueantes[0].mensaje).toContain('JA');
-    expect(bloqueantes[0].mensaje).toContain('2026-03-01 a 2026-03-15');
+    expect(findingText(bloqueantes[0], 'es')).toContain('JA');
+    expect(findingText(bloqueantes[0], 'es')).toContain('2026-03-01 a 2026-03-15');
   });
 
   it('NO deja un renglón de ISN en cero, que es la forma silenciosa del mismo defecto', async () => {
@@ -273,7 +274,7 @@ describe('un régimen que el motor no sabe calcular se niega contra la base real
 
     const bloqueantes = hallazgosQueBloquean(r.hallazgos);
     expect(bloqueantes[0].codigo).toBe('isn_regimen_no_soportado');
-    expect(bloqueantes[0].mensaje).toContain('escalonado');
+    expect(findingText(bloqueantes[0], 'es')).toContain('escalonado');
     const filas = await pasivosDe(corrida.payRunId);
     expect(filas.filter((x) => x.tax_type === 'isn')).toEqual([]);
   });
@@ -422,7 +423,7 @@ describe('aprobar la corrida es lo que apunta el pasivo', () => {
 
     const aviso = r.hallazgos.find((x) => x.codigo === 'recibos_de_otra_entidad_en_la_corrida');
     expect(aviso?.severidad).toBe('aviso');
-    expect(aviso?.mensaje).toContain('1 recibo(s)');
+    expect(findingText(aviso!, 'es')).toContain('1 recibo(s)');
     // Y el pasivo lleva SÓLO lo de esta entidad. El ISN va por corrida:
     // 10 000 × 2%, no los 109 999 de las dos entidades juntas.
     const isn = (await pasivosDe(corrida.payRunId)).filter((x) => x.tax_type === 'isn');
@@ -439,6 +440,6 @@ describe('aprobar la corrida es lo que apunta el pasivo', () => {
     const otro = await crearInquilino('F08a · inquilino vecino');
     await expect(
       acumularPasivoPatronal({ tenantId: otro.tenantId, payRunId: uuidv4() })
-    ).rejects.toThrow(/No existe la corrida/);
+    ).rejects.toThrow(/does not exist in this tenant/);
   });
 });

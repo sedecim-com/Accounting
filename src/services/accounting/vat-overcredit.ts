@@ -1,7 +1,6 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
-import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { ivaToReclassify, reclassRoles, VAT_OVERCREDIT_CORRECTION_SOURCE } from './iva-cash-basis.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { reopenClosedPeriod, restorePeriodStatus } from './fiscal-calendar-service.js';
@@ -14,6 +13,7 @@ import { billHeaderVat } from '../xml-ingestion/pre-registration-service.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 import { APPLICATION_CREDIT_DATE } from '../sat/diot/hechos.js';
 import { writtenOffOf } from '../payments/payment-service.js';
+import { queryVatOvercreditBills, type VatOvercreditBillRow } from '../reporting/report-service.js';
 
 // ============================================================
 // THE VAT RELEASED ABOVE A CFDI'S VAT (MNE-001-562 · #725).
@@ -157,25 +157,7 @@ export interface OvercreditFinding {
   correctable: boolean;
 }
 
-interface BillRow {
-  tenant_id: string;
-  bill_id: string;
-  entity_id: string;
-  entity_name: string;
-  bill_number: string;
-  cfdi_uuid: string | null;
-  header: string;
-  total: string;
-  amount_due: string;
-  currency_code: string;
-  functional_currency: string | null;
-  xml_taxes: string;
-  tax_breakdown: unknown;
-  has_note: boolean;
-  corrected: string;
-  correction_entries: string | null;
-  roles: number;
-}
+type BillRow = VatOvercreditBillRow;
 
 interface ApplicationRow {
   application_id: string;
@@ -186,44 +168,6 @@ interface ApplicationRow {
   applied: string;
   stored: string | null;
 }
-
-// The bill's oldest xml_cfdi pre-registration of its own entity, as migration
-// 328 and the REP linkage read it, and only when its summary lists a transfer
-// that is not VAT: a CFDI with VAT alone and a bill with no CFDI never enter.
-const BILLS = `
-SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bill_number, b.cfdi_uuid,
-       b.tax_amount::text AS header, b.total_amount::text AS total, b.amount_due::text AS amount_due,
-       b.currency_code, le.functional_currency, c.xml_taxes::text AS xml_taxes, c.tax_breakdown,
-       EXISTS (SELECT 1 FROM journal_entries n
-                WHERE n.entity_id = b.entity_id AND n.source_type = $3 AND n.source_id = b.id
-                  AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL) AS has_note,
-       COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
-                   FROM journal_entries k
-                   JOIN journal_entry_lines l ON l.journal_entry_id = k.id
-                   JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = b.entity_id
-                                        AND ar.role = $5 AND ar.qualifier IS NULL
-                  WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
-                    AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL), 0)::text AS corrected,
-       (SELECT string_agg(k.entry_number, ', ' ORDER BY k.entry_date, k.entry_number) FROM journal_entries k
-         WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id
-           AND k.status = 'posted' AND k.reversed_by_entry_id IS NULL) AS correction_entries,
-       (SELECT count(DISTINCT ar.role)::int FROM account_roles ar
-         WHERE ar.entity_id = b.entity_id AND ar.qualifier IS NULL AND ar.role IN ($5, $6)) AS roles
-  FROM (SELECT DISTINCT ON (p.bill_id) p.bill_id, p.entity_id, p.tax_amount AS xml_taxes, p.tax_breakdown
-          FROM pre_registrations p
-         WHERE p.source_type = 'xml_cfdi' AND p.bill_id IS NOT NULL
-         ORDER BY p.bill_id, p.created_at, p.id) c
-  JOIN bills b ON b.id = c.bill_id AND b.entity_id = c.entity_id
-  JOIN legal_entities le ON le.id = b.entity_id
- WHERE le.tenant_id = $1
-   AND ($2::uuid IS NULL OR le.id = $2::uuid)
-   AND ($7::uuid IS NULL OR b.id = $7::uuid)
-   AND ${sqlKeepsMexicanBooks('le')}
-   AND b.status NOT IN ('void', 'cancelled')
-   AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.tax_breakdown->'traslados') = 'array'
-                                                       THEN c.tax_breakdown->'traslados' ELSE '[]'::jsonb END) x
-                WHERE lpad(COALESCE(x->>'impuesto', ''), 3, '0') <> '002')
- ORDER BY le.name, b.bill_number, b.id`;
 
 // The live applications, bounded by the entity on both ends of the bridge
 // table (hechos.ts explains why both), in the order they were written.
@@ -315,16 +259,21 @@ async function readFindings(
   client: pg.PoolClient, tenantId: string, entityId: string | null, billId: string | null
 ): Promise<OvercreditFinding[]> {
   const { from, to } = reclassRoles('received');
-  const bills = await client.query<BillRow>(BILLS, [
-    tenantId, entityId, VENDOR_CREDIT_NOTE_SOURCE, VAT_OVERCREDIT_CORRECTION_SOURCE, from, to, billId,
-  ]);
-  if (bills.rows.length === 0) return [];
-  const apps = await client.query<ApplicationRow>(APPLICATIONS, [tenantId, bills.rows.map((b) => b.bill_id)]);
+  // MNE-001-619: the bills and what corrections put back are the report layer's
+  // (T14 · #101), the same statement on this client.
+  const bills = await queryVatOvercreditBills(
+    tenantId,
+    { entityId, billId },
+    { noteSource: VENDOR_CREDIT_NOTE_SOURCE, correctionSource: VAT_OVERCREDIT_CORRECTION_SOURCE, pendingRole: from, creditableRole: to },
+    client
+  );
+  if (bills.length === 0) return [];
+  const apps = await client.query<ApplicationRow>(APPLICATIONS, [tenantId, bills.map((b) => b.bill_id)]);
   const byBill = new Map<string, ApplicationRow[]>();
   for (const r of apps.rows) byBill.set(r.bill_id, [...(byBill.get(r.bill_id) ?? []), r]);
 
   const out: OvercreditFinding[] = [];
-  for (const bill of bills.rows) {
+  for (const bill of bills) {
     const finding = await findingOf(client, bill, byBill.get(bill.bill_id) ?? []);
     if (finding) out.push(finding);
   }
@@ -414,7 +363,7 @@ export async function correctionPeriodOf(
     if (!(CORRECTION_PERIODS as readonly string[]).includes(value)) {
       throw new AccountingError(
         'POLICY_VALUE_UNKNOWN',
-        `${key} = "${value}" is not a value this system knows (${CORRECTION_PERIODS.join(' | ')}); nothing was posted.`
+        { key: 'error.POLICY_VALUE_UNKNOWN', params: { policy: key, value, known: CORRECTION_PERIODS.join(' | ') } }
       );
     }
     optionOf.set(x.entityId, value as CorrectionPeriod);
@@ -537,7 +486,12 @@ export async function correctVatOvercredit(
         );
         const accountOf = (role: string): string => {
           const found = accounts.rows.find((r) => r.role === role);
-          if (!found) throw new AccountingError('MISSING_ROLE_ACCOUNT', `${x.entityName} has no account for the ${role} role.`);
+          if (!found) {
+            throw new AccountingError('MISSING_ROLE_ACCOUNT', {
+              key: 'error.MISSING_ROLE_ACCOUNT.no_account',
+              params: { entity: x.entityName, role },
+            });
+          }
           return found.account_id;
         };
 

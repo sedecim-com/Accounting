@@ -1066,7 +1066,10 @@ export async function getPeriodCloseStatus(
   // (balance, audit-trail), que es el contrato del catálogo; `balance` se
   // acota a este periodo, `audit-trail` es del mayor entero a propósito: un
   // posteo sin autor es un hecho sin autor, esté en el mes que esté.
-  const hallazgosMayor = await runLedgerChecks(entityId, undefined, { period: periodId });
+  // MNE-001-662 (#602): `closing` makes `year-sweep` name the sealed years
+  // this period follows, so the next close waits until period 13 is closed
+  // again, while the months of that same year can still close.
+  const hallazgosMayor = await runLedgerChecks(entityId, undefined, { period: periodId, closing: periodId });
   const bloqueantesMayor = hallazgosMayor.filter((h) => h.severity === 'blocking');
   checklist.push({
     codigo: 'ledger-integrity',
@@ -1321,17 +1324,17 @@ export async function softClosePeriod(
       [periodId, entityId]
     );
     if (candado.rows.length === 0) {
-      throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found');
+      throw new AccountingError('PERIOD_NOT_FOUND', { key: 'error.PERIOD_NOT_FOUND' });
     }
     if (candado.rows[0].status !== 'open') {
-      throw new AccountingError('PERIOD_NOT_OPEN', 'Period is not in open status');
+      throw new AccountingError('PERIOD_NOT_OPEN', { key: 'error.PERIOD_NOT_OPEN' });
     }
 
     const status = await getPeriodCloseStatus(periodId, entityId, client);
     if (!status.can_close) {
       throw new AccountingError(
         'CANNOT_CLOSE_PERIOD',
-        `Cannot close period: ${status.blocking_issues.join('; ')}`
+        { key: 'error.CANNOT_CLOSE_PERIOD', params: { issues: status.blocking_issues.join('; ') } }
       );
     }
 
@@ -1345,7 +1348,7 @@ export async function softClosePeriod(
     );
 
     if (result.rows.length === 0) {
-      throw new AccountingError('PERIOD_NOT_OPEN', 'Period is not in open status');
+      throw new AccountingError('PERIOD_NOT_OPEN', { key: 'error.PERIOD_NOT_OPEN' });
     }
 
     await registrarAuditoria(client, {
@@ -1408,7 +1411,7 @@ export async function hardClosePeriod(
     );
 
     if (periodResult.rows.length === 0) {
-      throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found');
+      throw new AccountingError('PERIOD_NOT_FOUND', { key: 'error.PERIOD_NOT_FOUND' });
     }
 
     const period = periodResult.rows[0];
@@ -1416,7 +1419,7 @@ export async function hardClosePeriod(
     if (period.status !== FiscalPeriodStatus.SOFT_CLOSE) {
       throw new AccountingError(
         'PERIOD_NOT_SOFT_CLOSED',
-        'Period must be in soft_close status before hard close'
+        { key: 'error.PERIOD_NOT_SOFT_CLOSED' }
       );
     }
 
@@ -1443,7 +1446,7 @@ export async function hardClosePeriod(
     if (!status.can_close) {
       throw new AccountingError(
         'CANNOT_CLOSE_PERIOD',
-        `Cannot close period: ${status.blocking_issues.join('; ')}`
+        { key: 'error.CANNOT_CLOSE_PERIOD', params: { issues: status.blocking_issues.join('; ') } }
       );
     }
 

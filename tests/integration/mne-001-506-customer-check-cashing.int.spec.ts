@@ -7,16 +7,19 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import {
   recordCustomerPayment, reverseCustomerPayment, applyCustomerPayment, unapplyCustomerPayment, getCustomerPayment,
+  transferCustomerCredit,
 } from '../../src/services/payments/payment-service.js';
 import {
   recordCustomerCheckCashing, recordCustomerChecksCashing, CUSTOMER_CHECK_CASHING_SOURCE,
 } from '../../src/services/banking/treasury-posting.js';
 import { crearGrupoDeCotejo, desaplicarCotejo, type ReferenciaDeLibros } from '../../src/services/banking/match-service.js';
 import { entityScope } from '../../src/database/scope.js';
-import { ValidationError } from '../../src/utils/errors.js';
+import { ValidationError, type AppError } from '../../src/utils/errors.js';
 import { registerBankCommand } from '../../src/cli/bank-command.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
+import { seedPolicies } from '../../src/services/policy/policy-service.js';
+import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 
 /**
  * MNE-001-506 (#700, part 1/4) · A CUSTOMER CHEQUE KEEPS THE DAY THE BANK CASHED IT.
@@ -61,11 +64,11 @@ async function bankLine(inAccount: string, date: string, amount: string): Promis
   return id;
 }
 
-/** A new PPD invoice of 1,000.00 + 160.00. */
-async function invoice(): Promise<string> {
+/** A new PPD (or `terms`) invoice of 1,000.00 + 160.00. */
+async function invoice(terms: 'PPD' | 'PUE' = 'PPD'): Promise<string> {
   const draft = await createInvoice({
     entity_id: mx.entityId, customer_id: customerId, invoice_date: '2026-05-10', due_date: '2026-05-10',
-    currency_code: 'MXN', terms: 'PPD', created_by: mx.userId,
+    currency_code: 'MXN', terms, created_by: mx.userId,
     lines: [{ revenue_account_id: mx.cuentas['4100'], description: 'Sale', quantity: '1', unit_price: '1000.00', tax_rate: '16.0000' }],
   });
   return (await issueInvoice(draft.id, mx.userId, { entityId: mx.entityId })).invoice.id;
@@ -165,7 +168,7 @@ const reviewer = async () =>
   (await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [mx.userId])).rows[0].email;
 
 /** Runs one leaf in-process, as the binary would; returns what it printed. */
-async function terminal(argv: string[]): Promise<string> {
+async function terminal(argv: string[], f: Fixture = mx): Promise<string> {
   const plain = Object.fromEntries(['dim', 'bold', 'cyan', 'red', 'green', 'yellow'].map((c) => [c, (x: string) => x]));
   const out: string[] = [];
   const stdout = process.stdout.write.bind(process.stdout);
@@ -176,7 +179,7 @@ async function terminal(argv: string[]): Promise<string> {
     const deps = { palette: plain as never, shutdown: () => undefined, reportError: (e: unknown) => { throw e; } };
     registerBankCommand(program, deps);
     registerReceiptCommand(program, deps);
-    await program.parseAsync(['node', 'mnemosine', ...argv, '-e', mx.entityId, '-t', mx.tenantId]);
+    await program.parseAsync(['node', 'mnemosine', ...argv, '-e', f.entityId, '-t', f.tenantId]);
   } finally {
     process.stdout.write = stdout;
   }
@@ -459,6 +462,114 @@ describe('a cheque releases its IVA the day the bank cashes it', () => {
 });
 
 /**
+ * MNE-001-779 (#787) · A CHEQUE CASHED WHILE ON ACCOUNT IS NOT APPLIED BEFORE
+ * ITS CASHING. A price paid by cheque is paid the day the bank cashes it (LIVA
+ * art. 1o.-B, second paragraph). Cashed with its cash still on account, the
+ * cheque has nothing to release and its cashing posts no entry, so only the
+ * receipt keeps that day; once cashed, its application causes the invoice's
+ * IVA on its own day. The customer side of MNE-001-746.
+ */
+describe('a cheque cashed while on account is not applied, nor transferred, before its cashing', () => {
+  const CASHED = '2026-07-03';
+  const ON_ACCOUNT = [
+    { account: 'anticipo_clientes', debit: '1160.0000', credit: null },
+    { account: 'cxc', debit: null, credit: '1160.0000' },
+  ];
+  const applyOn = (id: string, invoiceId: string, date: string, amount = '1160.00') =>
+    applyCustomerPayment(mx.entityId, id, [{ documentId: invoiceId, amountApplied: amount }], mx.userId, { date });
+  const refusal = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as AppError);
+  const applications = async (id: string) =>
+    (await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM journal_entries WHERE entity_id = $1 AND source_id = $2 AND source_type = 'receipt_application'`,
+      [mx.entityId, id]
+    )).rows[0].n;
+  /** A cheque of 1,160.00 received on 2026-05-30 and left on account, cashed on 2026-07-03 with no entry. */
+  async function cashedOnAccount(): Promise<string> {
+    const { id } = await pay(null);
+    expect(await record(id, await bankLine(account, CASHED, '1160.00'))).toMatchObject({
+      released: '0.0000', entryId: null, note: 'bank.check.cashing.note.nothing_to_release',
+    });
+    return id;
+  }
+
+  it('T7b · applied with --date 2026-06-20 is refused by key, in en and es, writing nothing; the cashing day itself takes DR 2125 / CR 2120 160.00', async () => {
+    const id = await cashedOnAccount();
+    const invoiceId = await invoice();
+    const before = await iva();
+
+    const refused = await refusal(applyOn(id, invoiceId, '2026-06-20'));
+    expect(refused, 'an application dated before the cashing is refused').not.toBeNull();
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode, field: refused?.field }).toEqual({
+      key: 'receipt.apply.date_before_cashing', status: 422, field: 'date',
+    });
+    const number = await numberOf(id);
+    expect(refused?.message).toContain(`The bank cashed the cheque of ${number} on ${CASHED}: an application dated 2026-06-20 `);
+    expect(refused?.localized('es')).toContain(`El banco cobró el cheque del cobro ${number} el ${CASHED}: una aplicación fechada el 2026-06-20 `);
+    expect(await stored(id), 'no allocation').toEqual([]);
+    expect(await applications(id), 'no entry').toBe('0');
+    expect(await iva(), 'the 160.00 stay in 2125').toEqual(before);
+
+    const applied = await applyOn(id, invoiceId, CASHED);
+    const entry = await query<{ d: string }>(
+      'SELECT entry_date::text AS d FROM journal_entries WHERE id = $1 AND entity_id = $2', [applied.journalEntry?.id, mx.entityId]
+    );
+    expect(entry.rows[0].d).toBe(CASHED);
+    expect(await linesOf(applied.journalEntry?.id as string)).toEqual([...ON_ACCOUNT, PENDING('160.0000'), DUE('160.0000')]);
+    expect(await stored(id)).toEqual(['160.0000']);
+    expect(await iva()).toEqual({ pending: before.pending - 160, due: before.due + 160 });
+  });
+
+  it('T7c · of the cashing and the receipt\'s last entry, the refusal names the later day', async () => {
+    const id = await cashedOnAccount();
+    await applyOn(id, await invoice(), '2026-07-10', '580.00');
+    const refused = await refusal(applyOn(id, await invoice(), '2026-06-20', '580.00'));
+    expect(refused?.messageKey).toMatchObject({ key: 'receipt.apply.date_before_last_event', params: { since: '2026-07-10' } });
+  });
+
+  it('T7d · a cheque nobody cashed takes a dated application as before, and its cashing releases the 160.00', async () => {
+    const { id } = await pay(null);
+    const applied = await applyOn(id, await invoice(), '2026-06-20');
+    expect(await linesOf(applied.journalEntry?.id as string)).toEqual(ON_ACCOUNT);
+    expect(await stored(id)).toEqual(['0.0000']);
+    expect(await record(id, await bankLine(account, CASHED, '1160.00'))).toMatchObject({ released: '160.0000' });
+  });
+
+  it('T7f · an unapply is not held to the cashing: cash applied and taken back before the bank paid is a legitimate order', async () => {
+    // Applied to a PUE invoice while held, the cash releases nothing at the cashing, which posts no entry.
+    const { id } = await pay(null);
+    const invoiceId = await invoice('PUE');
+    await applyOn(id, invoiceId, '2026-06-01');
+    expect((await record(id, await bankLine(account, CASHED, '1160.00'))).entryId).toBeNull();
+    const undone = await unapplyCustomerPayment(mx.entityId, id, { invoiceId, reason: 'wrong invoice', date: '2026-06-20' }, mx.userId);
+    const entry = await query<{ d: string }>(
+      'SELECT entry_date::text AS d FROM journal_entries WHERE id = $1 AND entity_id = $2', [undone.journalEntry.id, mx.entityId]
+    );
+    expect(entry.rows[0].d).toBe('2026-06-20');
+  });
+
+  it('T7e · a transfer of its cash on account dated before the cashing is refused by key, writing nothing', async () => {
+    const id = await cashedOnAccount();
+    const other = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, $3, 'Synthetic Transfer Receiver SA', 'MXN', $4)`,
+      [other, mx.entityId, `C-779-${other.slice(0, 6)}`, mx.userId]
+    );
+    const transfer = (date: string) =>
+      transferCustomerCredit(mx.entityId, id, { customerId: other, amount: '1160.00', date, reason: 'agreed by both' }, mx.userId);
+    const refused = await refusal(transfer('2026-06-20'));
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode, field: refused?.field }).toEqual({
+      key: 'receipt.transfer.date_before_cashing', status: 422, field: 'date',
+    });
+    expect(refused?.message).toContain(`on ${CASHED}: a transfer dated 2026-06-20 `);
+    expect(refused?.localized('es')).toContain(`el ${CASHED}: un traspaso fechado el 2026-06-20 `);
+    const rows = await query('SELECT 1 FROM customer_payments WHERE transferred_from_payment_id = $1 AND entity_id = $2', [id, mx.entityId]);
+    expect(rows.rows, 'no transfer row').toEqual([]);
+    expect((await transfer(CASHED)).transferNumber).toMatch(/^TRF/);
+  });
+});
+
+/**
  * MNE-001-557 (#700, part 3/4) · ONE CREDIT, SEVERAL CHEQUES. A deposit of
  * several cheques is one bank credit: one recording names all the receipts,
  * the credit is their exact sum, and each receipt gets its own entry. A credit
@@ -552,4 +663,191 @@ describe('one bank credit cashes several customer cheques in one act', () => {
     expect(await recordBoth([second.a.id, second.b.id], toLines)).toHaveLength(2);
     expect(await cashing(second.b.id)).toEqual({ date: '2026-06-10', tx: toLines });
   });
+});
+
+/**
+ * MNE-001-794 (#787) · A CHEQUE APPLIED AFTER THE CREDIT THAT CASHED IT. The
+ * customer mirror of MNE-001-778: cash on account is applied to a PPD invoice
+ * while the cheque is held (its row stores 0), and then the bank credit that
+ * cashed it, of an earlier day, is recorded. The invoice is paid when both
+ * have happened (LIVA art. 1o.-B): its IVA is caused on the later day, the
+ * one the IVA paper counts (`countedOn`). What the bank's day causes itself
+ * (cash an unapply put back on account) stays on the bank's day, and each
+ * day gets its own entry. One entity per story, so each month's paper reads
+ * only that story; May, June and July statements are imported.
+ */
+describe('a cheque applied after the credit that cashed it', () => {
+  interface Book { f: Fixture; customerId: string; account: string }
+  const day = (month: number, d: number): string => `2026-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  async function book(name: string): Promise<Book> {
+    const f = await crearInquilino(`MNE-001-794 ${name}`);
+    await seedPolicies({ tenantId: f.tenantId });
+    const customerId = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, $3, 'Synthetic Late Applier SA', 'MXN', $4)`,
+      [customerId, f.entityId, `C-794-${customerId.slice(0, 6)}`, f.userId]
+    );
+    const b = { f, customerId, account: await bankAccount(f, `Operating 794 ${name}`) };
+    for (const month of [5, 6, 7]) {
+      const end = new Date(Date.UTC(2026, month, 0)).getUTCDate();
+      await query(
+        `INSERT INTO bank_statements (entity_id, bank_account_id, period_start, period_end, opening_balance, closing_balance,
+                                      currency_code, source_format, file_sha256, imported_by)
+         VALUES ($1, $2, $3::date, $4::date, 0, 0, 'MXN', 'manual', $5, $6)`,
+        [f.entityId, b.account, day(month, 1), day(month, end), uuidv4().replace(/-/g, '').padEnd(64, '0'), f.userId]
+      );
+    }
+    return b;
+  }
+  /** A PPD invoice of 2026-05-10 for 1,000.00 + 160.00. */
+  async function sale(b: Book): Promise<string> {
+    const draft = await createInvoice({
+      entity_id: b.f.entityId, customer_id: b.customerId, invoice_date: day(5, 10), due_date: day(5, 10),
+      currency_code: 'MXN', terms: 'PPD', created_by: b.f.userId,
+      lines: [{ revenue_account_id: b.f.cuentas['4100'], description: 'Sale', quantity: '1', unit_price: '1000.00', tax_rate: '16.0000' }],
+    });
+    return (await issueInvoice(draft.id, b.f.userId, { entityId: b.f.entityId })).invoice.id;
+  }
+  /** A cheque received on 2026-05-30 and left on account. */
+  const onAccount = async (b: Book, amount: string): Promise<string> =>
+    (await recordCustomerPayment({
+      entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: amount, paymentDate: day(5, 30),
+      paymentMethod: 'check', bankAccountId: b.account, checkNumber: 'CHQ-794', applications: [], onAccount: true,
+    }, b.f.userId)).paymentId;
+  const applyOn = (b: Book, id: string, invoiceId: string, date: string, amount: string) =>
+    applyCustomerPayment(b.f.entityId, id, [{ documentId: invoiceId, amountApplied: amount }], b.f.userId, { date });
+  const cashOn = async (b: Book, ids: string[], date: string, amount: string) =>
+    recordCustomerChecksCashing(b.f.entityId, ids, { transactionId: await bankLine(b.account, date, amount), userId: b.f.userId });
+  /** A receipt's cashing entries, in day order, each line by its role. */
+  async function entriesOf(b: Book, id: string) {
+    const r = await query<{ id: string; date: string; period: string; lines: { role: string; debit: string | null; credit: string | null }[] }>(
+      `SELECT je.id, je.entry_date::text AS date, je.fiscal_period_id AS period,
+              (SELECT json_agg(json_build_object('role', ar.role, 'debit', l.debit_amount::text, 'credit', l.credit_amount::text)
+                               ORDER BY l.line_number)
+                 FROM journal_entry_lines l
+                 JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+                WHERE l.journal_entry_id = je.id) AS lines
+         FROM journal_entries je
+        WHERE je.entity_id = $1 AND je.source_type = $2 AND je.source_id = $3
+        ORDER BY je.entry_date, je.entry_number`,
+      [b.f.entityId, CUSTOMER_CHECK_CASHING_SOURCE, id]
+    );
+    return r.rows;
+  }
+  const line = (role: string, debit: string | null, credit: string | null) => ({ role, debit, credit });
+  const RELEASE = (amount: string) => [line('iva_trasladado_no_cobrado', amount, null), line('iva_trasladado', null, amount)];
+  const paper = (b: Book, month: number): Promise<IvaWorkpaper> =>
+    buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: 2026, month });
+  const at16 = (wp: IvaWorkpaper) => ({
+    base: Number(wp.figures.charged.tasa16.base).toFixed(2), iva: Number(wp.figures.charged.tasa16.iva).toFixed(2),
+  });
+  const TIE_OUT = 'IVA-WP-CHARGED-VS-LEDGER';
+  const codes = (wp: IvaWorkpaper): string[] => wp.findings.map((h) => h.codigo);
+
+  it('T14 · applied on 2026-07-10, cashed by a credit of 2026-06-10: DR 2125 / CR 2120 160.00 dated 2026-07-10, in July, where the paper counts it', async () => {
+    const b = await book('applied after credit');
+    const invoiceId = await sale(b);
+    const id = await onAccount(b, '1160.00');
+    await applyOn(b, id, invoiceId, day(7, 10), '1160.00');
+    const credit = await bankLine(b.account, day(6, 10), '1160.00');
+    const email = (await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [b.f.userId])).rows[0].email;
+    const number = (await getCustomerPayment(b.f.entityId, id)).payment_number;
+    const argv = ['bank', 'check', 'reconcile', '--receipt', number, '--transaction', credit, '--user', email];
+
+    const preview = await terminal([...argv, '--dry-run'], b.f);
+    expect(preview).toMatch(new RegExp(`entry dated\\s+${day(7, 10)}`));
+    const printed = await terminal([...argv, '--yes', '--json'], b.f);
+    expect((JSON.parse(printed) as { rows: unknown[] }).rows).toEqual([
+      expect.objectContaining({ id, cleared_on: day(6, 10), entry_date: day(7, 10), reclassified: '160.0000' }),
+    ]);
+
+    const entries = await entriesOf(b, id);
+    expect(entries.map(({ date, period, lines }) => ({ date, period, lines }))).toEqual([
+      { date: day(7, 10), period: b.f.periodos[7], lines: RELEASE('160.0000') },
+    ]);
+    expect((await getCustomerPayment(b.f.entityId, id)).check_cashed_date).toBe(day(6, 10));
+
+    const [june, july] = [await paper(b, 6), await paper(b, 7)];
+    expect([at16(june), june.ledger.iva_trasladado]).toEqual([{ base: '0.00', iva: '0.00' }, '0.0000']);
+    expect([at16(july), july.ledger.iva_trasladado]).toEqual([{ base: '1000.00', iva: '160.00' }, '-160.0000']);
+    expect(july.contributions.charged.find((c) => c.documentId === invoiceId)?.entryIds).toContain(entries[0].id);
+    for (const wp of [june, july]) expect(codes(wp)).not.toContain(TIE_OUT);
+  }, 180_000);
+
+  it('T15 · two halves applied on 2026-06-20 and 2026-07-10: one entry per day, 80.00 each, in June and in July', async () => {
+    const b = await book('two halves late');
+    const invoiceId = await sale(b);
+    const id = await onAccount(b, '1160.00');
+    await applyOn(b, id, invoiceId, day(6, 20), '580.00');
+    await applyOn(b, id, invoiceId, day(7, 10), '580.00');
+    const [cashed] = await cashOn(b, [id], day(6, 10), '1160.00');
+    expect(cashed).toMatchObject({ cashedOn: day(6, 10), released: '160.0000' });
+
+    const entries = await entriesOf(b, id);
+    expect(entries.map(({ date, period, lines }) => ({ date, period, lines }))).toEqual([
+      { date: day(6, 20), period: b.f.periodos[6], lines: RELEASE('80.0000') },
+      { date: day(7, 10), period: b.f.periodos[7], lines: RELEASE('80.0000') },
+    ]);
+    expect(await query<{ iva: string }>(
+      'SELECT iva_reclass_amount::text AS iva FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL ORDER BY created_at', [id]
+    ).then((r) => r.rows.map((x) => x.iva)), 'each row stores what its day released').toEqual(['80.0000', '80.0000']);
+
+    const [june, july] = [await paper(b, 6), await paper(b, 7)];
+    expect([at16(june), june.ledger.iva_trasladado]).toEqual([{ base: '500.00', iva: '80.00' }, '-80.0000']);
+    expect([at16(july), july.ledger.iva_trasladado]).toEqual([{ base: '500.00', iva: '80.00' }, '-80.0000']);
+    for (const wp of [june, july]) expect(codes(wp)).not.toContain(TIE_OUT);
+  }, 180_000);
+
+  it('T16 · cash an unapply put back while held is caused on the bank\'s day, and the late application on its own: two entries', async () => {
+    const b = await book('back and late');
+    const [first, second] = [await sale(b), await sale(b)];
+    const id = await onAccount(b, '2320.00');
+    await applyOn(b, id, first, day(6, 1), '1160.00');
+    await unapplyCustomerPayment(b.f.entityId, id, { invoiceId: first, reason: 'wrong invoice', date: day(6, 5) }, b.f.userId);
+    await applyOn(b, id, second, day(7, 10), '1160.00');
+    const [cashed] = await cashOn(b, [id], day(6, 10), '2320.00');
+    expect(cashed).toMatchObject({ cashedOn: day(6, 10), released: '320.0000', advanceIva: '160.0000' });
+
+    const entries = await entriesOf(b, id);
+    expect(entries.map(({ date, period, lines }) => ({ date, period, lines }))).toEqual([
+      { date: day(6, 10), period: b.f.periodos[6], lines: [line('anticipo_clientes', '160.0000', null), line('iva_trasladado', null, '160.0000')] },
+      { date: day(7, 10), period: b.f.periodos[7], lines: RELEASE('160.0000') },
+    ]);
+
+    const [june, july] = [await paper(b, 6), await paper(b, 7)];
+    expect([at16(june).iva, june.ledger.iva_trasladado]).toEqual(['160.00', '-160.0000']);
+    expect([at16(july).iva, july.ledger.iva_trasladado]).toEqual(['160.00', '-160.0000']);
+    for (const wp of [june, july]) expect(codes(wp)).not.toContain(TIE_OUT);
+  }, 180_000);
+
+  it('T17 · one credit cashes two cheques: each entry on its own day; a closed month of either refuses the act, writing nothing', async () => {
+    const b = await book('deposit');
+    const late = await onAccount(b, '1160.00');
+    await applyOn(b, late, await sale(b), day(7, 10), '1160.00');
+    const onTime = await onAccount(b, '580.00');
+    await applyOn(b, onTime, await sale(b), day(6, 1), '580.00');
+    const credit = await bankLine(b.account, day(6, 10), '1740.00');
+    const both = () => recordCustomerChecksCashing(b.f.entityId, [late, onTime], { transactionId: credit, userId: b.f.userId });
+
+    await query(`UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1`, [b.f.periodos[7]]);
+    try {
+      const refused = await both().then(() => null, (e: unknown) => e as AppError);
+      expect(refused?.messageKey).toMatchObject({
+        key: 'bank.check.cashing.refused.entry_period_closed', params: { date: day(7, 10), cashedOn: day(6, 10) },
+      });
+      for (const id of [late, onTime]) {
+        expect(await entriesOf(b, id)).toEqual([]);
+        expect((await getCustomerPayment(b.f.entityId, id)).check_cashed_date).toBeNull();
+      }
+    } finally {
+      await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [b.f.periodos[7]]);
+    }
+
+    const results = await both();
+    expect(results.map((r) => r.released)).toEqual(['160.0000', '80.0000']);
+    expect((await entriesOf(b, late)).map((e) => [e.date, e.period])).toEqual([[day(7, 10), b.f.periodos[7]]]);
+    expect((await entriesOf(b, onTime)).map((e) => [e.date, e.period])).toEqual([[day(6, 10), b.f.periodos[6]]]);
+  }, 180_000);
 });

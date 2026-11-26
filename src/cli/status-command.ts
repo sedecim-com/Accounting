@@ -18,7 +18,7 @@ import { probeAll, type NamedProbeResult, type ProbeOptions } from '../ai/provid
 import { credentialState } from '../ai/providers/credential-state.js';
 import { FLOOR_MAX_AUTO_POST, floorMaxAutoAmount } from '../ai/floor.js';
 import type { ResolvedProfile } from '../ai/providers/types.js';
-import { exitCodeFor } from './kernel/index.js';
+import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
 
 // ============================================================
 // mnemosine status [--all] [--json]
@@ -365,19 +365,12 @@ export function formatStatus(report: StatusReport, c: StatusDeps['palette']): st
 }
 
 export function registerStatusCommand(program: Command, deps: StatusDeps): void {
-  program
-    .command('status')
-    .alias('estado')
-    .description('Health snapshot: config, live provider probes, database and RLS (redacted, shareable)')
-    .option('--all', 'Probe every configured profile, not only the active failover chain')
-    .option('-t, --tenant <id>', 'Tenant (for the RLS-active check)')
-    .option('--json', 'JSON output (same redacted structure, for support tickets)')
-    .option(
-      '--strict',
-      'Also exit 1 when any provider probe fails or is skipped ' +
-        '(by default only database unreachability fails the command)'
-    )
-    .action(async (opts: { all?: boolean; tenant?: string; json?: boolean; strict?: boolean }) => {
+  const status = describeCommand(program.command('status').alias('estado'), 'help.status.description');
+  optionByKey(status, '--all', 'help.status.option.all');
+  optionByKey(status, '-t, --tenant <id>', 'help.status.option.tenant');
+  optionByKey(status, '--json', 'help.status.option.json');
+  optionByKey(status, '--strict', 'help.status.option.strict');
+  status.action(async (opts: { all?: boolean; tenant?: string; json?: boolean; strict?: boolean }) => {
       try {
         bootstrapTenant(opts.tenant);
         const report = await buildStatusReport({ all: opts.all });

@@ -17,7 +17,7 @@ import {
   type MetodoDeFlujo,
 } from '../../../services/reporting/cash-flow-service.js';
 import { toCsv, csvAttachment } from '../../../utils/csv.js';
-import { localizedSection } from '../../../i18n/report-labels.js';
+import { localizedSection, reportGroupLabel } from '../../../i18n/report-labels.js';
 import type { Language } from '../../../i18n/index.js';
 import { responseLanguage, responseLocale } from '../middleware/locale.js';
 import { todayForEntity } from '../../../services/policy/today.js';
@@ -196,6 +196,9 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
       assets: localizedSection(report.assets, language),
       liabilities: localizedSection(report.liabilities, language),
       equity: localizedSection(report.equity, language),
+      // Reserves, results, the result of the period and ORI (NIF C-11): named
+      // in the negotiated language, as the CLI table names it (MNE-001-652).
+      earned_capital: { ...report.earned_capital, name: reportGroupLabel(report.earned_capital.key, language) },
       total_liabilities_and_equity: report.total_liabilities_and_equity,
       // El sobre CALCULABA estas dos y las tiraba: getBalanceSheet las publica
       // (report-service.ts:1031-1032) y aquí se quedaban fuera, así que un
@@ -275,11 +278,15 @@ router.get('/aged-receivables', requirePermission('reports:read'), requireEntity
 
   // Unlike its siblings this endpoint has never validated entity_id; the cast
   // keeps that behaviour rather than turning a silent empty result into a 422.
-  const report = await getAgedReceivables(entityId as string, { asOfDate: asOf, order: 'party' });
+  // MNE-001-648: a stated as_of_date is read as that date; without one, today's balances.
+  const report = await getAgedReceivables(entityId as string, {
+    asOfDate: asOf, order: 'party', reconstruct: Boolean(as_of_date),
+  });
 
   res.json({
     data: {
-      entity_id: entityId, as_of_date: asOf, invoices: report.rows.map(publishedInvoice),
+      entity_id: entityId, as_of_date: asOf, balance_basis: report.balance_basis,
+      invoices: report.rows.map(publishedInvoice),
       totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
     },
     meta: meta(req),
@@ -296,7 +303,7 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
 
   res.json({
     data: {
-      entity_id: entityId, as_of_date: asOf, bills: report.rows.map(publishedBill),
+      entity_id: entityId, as_of_date: asOf, balance_basis: report.balance_basis, bills: report.rows.map(publishedBill),
       totals_by_currency: report.totals_by_currency, total_book_amount_due: report.total_book_amount_due,
     },
     meta: meta(req),

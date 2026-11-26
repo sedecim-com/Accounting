@@ -35,6 +35,7 @@ import {
   type TipoCambioResuelto as FxRate,
 } from './moneda-origen.js';
 import { tenantDe } from '../audit/audit-log.js';
+import { queryHeldNoteIvaByCashedReceipt, queryInvoiceEntryNetOnAccount } from '../reporting/report-service.js';
 
 // ============================================================
 // AR/AP → GL POSTING
@@ -577,7 +578,7 @@ export async function postCreditNoteEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'CREDIT_NOTE_ALREADY_POSTED',
-      `${note.credit_note_number} already has an entry or is not this entity's: no second one is linked.`
+      { key: 'error.CREDIT_NOTE_ALREADY_POSTED', params: { note: note.credit_note_number } }
     );
   }
   return entry;
@@ -643,9 +644,10 @@ export function assertBankCurrency(
   if (bank.currency && bank.currency !== paymentCurrency) {
     throw new AccountingError(
       'FX_BANK_CURRENCY_MISMATCH',
-      `${paymentNumber} is in ${paymentCurrency} but its bank account is kept in ${bank.currency}. ` +
-        'The bank converted the money at its own rate, which this payment does not carry: record it ' +
-        `against a ${paymentCurrency} bank account, or record the conversion separately.`
+      {
+        key: 'error.FX_BANK_CURRENCY_MISMATCH',
+        params: { payment: paymentNumber, currency: paymentCurrency, bankCurrency: bank.currency },
+      }
     );
   }
 }
@@ -905,8 +907,10 @@ export async function postCustomerPaymentEntry(
     if (!stored.rowCount) {
       throw new AccountingError(
         'PAYMENT_ALLOCATION_NOT_FOUND',
-        `${payment.payment_number}: no live allocation to invoice ${item.documentId} is waiting for its ` +
-          'released IVA, so the amount an unapply would re-park cannot be recorded.'
+        {
+          key: 'error.PAYMENT_ALLOCATION_NOT_FOUND.no_live_allocation',
+          params: { payment: payment.payment_number, invoice: item.documentId },
+        }
       );
     }
   }
@@ -933,8 +937,10 @@ export async function postCustomerPaymentEntry(
     if (zeroed.rowCount !== unreleased.rows.length) {
       throw new AccountingError(
         'PAYMENT_ALLOCATION_NOT_FOUND',
-        `${payment.payment_number}: ${unreleased.rows.length} live allocations released no IVA and ` +
-          `${zeroed.rowCount ?? 0} recorded it, so an unapply could not tell them from rows that never stored one.`
+        {
+          key: 'error.PAYMENT_ALLOCATION_NOT_FOUND.release_not_recorded',
+          params: { payment: payment.payment_number, unreleased: unreleased.rows.length, recorded: zeroed.rowCount ?? 0 },
+        }
       );
     }
   }
@@ -947,7 +953,7 @@ export async function postCustomerPaymentEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'PAYMENT_ALREADY_POSTED',
-      `${payment.payment_number} already has an entry or is not this entity's: no second one is linked.`
+      { key: 'error.PAYMENT_ALREADY_POSTED.payment', params: { payment: payment.payment_number } }
     );
   }
   return difference ? { ...entry, realisedFx: difference } : entry;
@@ -995,8 +1001,15 @@ async function functionalReceiptLines(
   if (!advanceBase.plus(advanceIva).equals(remanente)) {
     throw new AccountingError(
       'ADVANCE_SPLIT_MISMATCH',
-      `${payment.payment_number}: the advance's base ${advanceBase.toFixed(2)} plus its IVA ${advanceIva.toFixed(2)} ` +
-        `is not the ${remanente.toFixed(2)} left on account.`
+      {
+        key: 'error.ADVANCE_SPLIT_MISMATCH',
+        params: {
+          payment: payment.payment_number,
+          base: advanceBase.toFixed(2),
+          iva: advanceIva.toFixed(2),
+          remaining: remanente.toFixed(2),
+        },
+      }
     );
   }
   const rolesPedidos = ['cxc', ...(remanente.greaterThan(0) ? ['anticipo_clientes'] : []),
@@ -1137,14 +1150,7 @@ async function receivableCredit(
   const cumulative = prior.plus(app.aplicado);
   const atRate = (x: Decimal): Decimal => new Decimal(convertirAFuncional(x.toFixed(4), app.tasaHistorica));
   if (app.documentTotal !== undefined && cumulative.equals(app.documentTotal)) {
-    const born = await client.query<{ born: string | null }>(
-      `SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born
-         FROM invoices i
-         JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id
-        WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3`,
-      [app.billId, entityId, arAccount]
-    );
-    const bornDebit = born.rows[0]?.born;
+    const bornDebit = await queryInvoiceEntryNetOnAccount(entityId, app.billId, arAccount, client);
     if (bornDebit) return new Decimal(bornDebit).minus(atRate(prior)).toFixed(4);
   }
   return atRate(cumulative).minus(atRate(prior)).toFixed(4);
@@ -1930,23 +1936,8 @@ export async function followNoteReversal(
   mirror: { id: string },
   userId: string
 ): Promise<JournalEntry[]> {
-  const held = await client.query<{ payment_id: string; payment_number: string; invoice_id: string; iva: string; day: string }>(
-    `SELECT cp.id::text AS payment_id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id' AS invoice_id,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva,
-            GREATEST(m.entry_date, MAX(c.entry_date))::text AS day
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1
-       JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1
-       JOIN customer_payments cp ON cp.id::text = l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'payment_id' AND cp.entity_id = $1
-                                AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL
-       JOIN journal_entries c ON c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' AND c.source_id = cp.id
-                             AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false
-      WHERE l.tags ? '${HELD_RESTITUTION_TAG}'
-      GROUP BY cp.id, cp.payment_number, l.tags -> '${HELD_RESTITUTION_TAG}' ->> 'invoice_id', m.entry_date
-      ORDER BY cp.payment_number`,
-    [note.entity_id, note.id, mirror.id]
-  );
-  const due = held.rows.filter((x) => new Decimal(x.iva).greaterThan('0.00005'));
+  const held = await queryHeldNoteIvaByCashedReceipt(note.entity_id, { noteEntryId: note.id, mirrorEntryId: mirror.id }, client);
+  const due = held.filter((x) => new Decimal(x.iva).greaterThan('0.00005'));
   if (due.length === 0) return [];
   const { to } = reclassRoles('issued');
   const roles = await roleAccounts(client, note.entity_id, ['anticipo_clientes', to]);
@@ -2022,7 +2013,7 @@ export async function postCustomerCreditTransferEntry(
   if (linked.rowCount !== 1) {
     throw new AccountingError(
       'PAYMENT_ALREADY_POSTED',
-      `${transfer.transfer_number} already has an entry or is not this entity's transfer: no second one is linked.`
+      { key: 'error.PAYMENT_ALREADY_POSTED.transfer', params: { transfer: transfer.transfer_number } }
     );
   }
   return entry;

@@ -162,21 +162,75 @@ describe('el desglose por renglón y el clasificador se reparten el trabajo', ()
   });
 });
 
+/** The entity's role map without one role, as on a chart that never had it. */
+function withoutRole(missing: string): void {
+  consultaFalsa.mockImplementation((sql: string, params: unknown[]) => {
+    if (/FROM account_roles/.test(sql)) {
+      return Promise.resolve({
+        rows: ROLES.filter(([r]) => r !== missing).map(([role, code, name]) => ({ role, code, name })),
+      });
+    }
+    if (/FROM accounts WHERE entity_id/.test(sql)) {
+      const codigos = params[1] as string[];
+      return Promise.resolve({ rows: codigos.map((code) => ({ id: idDe(code), code })) });
+    }
+    throw new Error(`Consulta no esperada: ${sql}`);
+  });
+}
+
+// MNE-001-742: 1,000.00 + 160.00 = 1,160.00. Off Mexican books no payment releases VAT, so none is parked.
+describe('an entity that does not keep Mexican books parks no VAT', () => {
+  const planOf = (xml: string) => planearAsiento({
+    entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml, renglones: RENGLONES, referencia: 'BILL',
+    vendorExists: true, periodOpen: true, satStatus: 'vigente', cashBasisVat: false,
+  });
+
+  it.each([['PUE', XML_PUE], ['PPD', XML_PPD]])('%s: the 160.00 go to the creditable role (1130), and the line says why', async (_method, xml) => {
+    const plan = await planOf(xml);
+    expect(plan.clasificacion.verdict).toBe('ready');
+    expect(lineaDe(plan, idDe('1130'))?.debit_amount).toBe('160.0000');
+    expect(lineaDe(plan, idDe('1130'))?.description).toMatch(/off the Mexican cash basis/);
+    expect(lineaDe(plan, idDe('1135'))).toBeUndefined();
+    expect(lineaDe(plan, idDe('2110'))?.credit_amount).toBe('1160.0000');
+    expect(plan.clasificacion.lines.map((l) => l.role)).toEqual(['gasto', 'iva_acreditable', 'cxp']);
+  });
+
+  it('on a chart with no role for parked VAT the plan is postable: the role is never asked for', async () => {
+    withoutRole('iva_pendiente_acreditar');
+    const plan = await planOf(XML_PPD);
+    expect(plan.clasificacion.missingRoles).toEqual([]);
+    expect(planContabilizable(plan)).toMatchObject({ ok: true });
+  });
+});
+
+// MNE-001-759: the mirror on a sale, 8,000.00 + 1,280.00 = 9,280.00 PPD. Off Mexican books no collection moves its VAT.
+describe('an entity that does not keep Mexican books parks no VAT on a sale', () => {
+  const SALE = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml'), 'utf-8');
+  const planOf = () => planearAsiento({
+    entityId: ENTIDAD, entityRfc: 'SIN060101AB1', xml: SALE, referencia: 'INV', periodOpen: true, satStatus: 'vigente',
+    renglones: [{ line_number: 1, descripcion: 'Consulting', importe: 8000 }], cashBasisVat: false,
+  });
+
+  it('PPD: the 1,280.00 go to the due role (2120), and the line says why', async () => {
+    const plan = await planOf();
+    expect(plan.clasificacion.verdict).toBe('ready');
+    expect(lineaDe(plan, idDe('2120'))?.credit_amount).toBe('1280.0000');
+    expect(lineaDe(plan, idDe('2120'))?.description).toMatch(/off the Mexican cash basis/);
+    expect(lineaDe(plan, idDe('2125'))).toBeUndefined();
+    expect(plan.clasificacion.lines.map((l) => l.role)).toEqual(['cxc', 'ingreso', 'iva_trasladado']);
+  });
+
+  it('on a chart with no role for parked VAT the plan is postable: the role is never asked for', async () => {
+    withoutRole('iva_trasladado_no_cobrado');
+    const plan = await planOf();
+    expect(plan.clasificacion.missingRoles).toEqual([]);
+    expect(planContabilizable(plan)).toMatchObject({ ok: true });
+  });
+});
+
 describe('un plan incompleto no se contabiliza', () => {
   it('si a la entidad le falta la cuenta de un rol, se dice cuál y no se postea', async () => {
-    consultaFalsa.mockImplementation((sql: string, params: unknown[]) => {
-      if (/FROM account_roles/.test(sql)) {
-        return Promise.resolve({
-          rows: ROLES.filter(([r]) => r !== 'iva_pendiente_acreditar')
-            .map(([role, code, name]) => ({ role, code, name })),
-        });
-      }
-      if (/FROM accounts WHERE entity_id/.test(sql)) {
-        const codigos = params[1] as string[];
-        return Promise.resolve({ rows: codigos.map((code) => ({ id: idDe(code), code })) });
-      }
-      throw new Error(`Consulta no esperada: ${sql}`);
-    });
+    withoutRole('iva_pendiente_acreditar');
 
     const plan = await planearAsiento({
       entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PPD,

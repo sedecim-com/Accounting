@@ -29,6 +29,8 @@ export {
   formatMoneyMx,
   FORMATS,
   SCHEMA_VERSION,
+  ERROR_SCHEMA_NAME,
+  ERROR_SCHEMA_VERSION,
   type Format,
   type Row,
   type RenderOptions,
@@ -95,6 +97,15 @@ export {
 export { type KeyedMessage, type KeyedLine } from './exit.js';
 export * from './cli-error.js';
 export { renderKeyed } from './render-keyed.js';
+export {
+  setErrorOutput,
+  machineErrorOutput,
+  resetErrorOutput,
+  errorEnvelope,
+  writeErrorEnvelope,
+  type ErrorEnvelope,
+  type ToldError,
+} from './error-envelope.js';
 
 import { ExitCode, type ExitCodeValue } from './exit.js';
 import { CliError } from './cli-error.js';

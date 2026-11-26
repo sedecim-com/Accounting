@@ -20,7 +20,7 @@ export interface Hallazgo {
   /** Código estable, para poder contarlos en una prueba sin casar prosa. */
   codigo: string;
   severidad: Severidad;
-  /** En español, y nombrando SIEMPRE al proveedor o al documento culpable. */
+  /** It ALWAYS names the vendor or the document at fault. Spanish in the findings born before MNE-001-153; new prose is born in English. */
   mensaje: string;
   /** La política que decidió esta severidad, cuando fue una política. */
   politica?: string;

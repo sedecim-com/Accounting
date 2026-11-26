@@ -249,7 +249,7 @@ export async function createJournalEntry(
     if (periodResult.rows.length === 0) {
       throw new AccountingError(
         ErrorCodes.PERIOD_CLOSED,
-        'No open fiscal period found for the entry date'
+        { key: 'error.PERIOD_CLOSED.no_open_period' }
       );
     }
 
@@ -355,7 +355,7 @@ export async function createJournalEntry(
       if (!validation.isValid) {
         throw new AccountingError(
           'VALIDATION_FAILED',
-          `Validation failed: ${validation.errors.join('; ')}`
+          { key: 'error.VALIDATION_FAILED', params: { errors: validation.errors.join('; ') } }
         );
       }
 
@@ -463,17 +463,17 @@ export async function postJournalEntry(
     );
 
     if (entryResult.rows.length === 0) {
-      throw new AccountingError('ENTRY_NOT_FOUND', 'Journal entry not found');
+      throw new AccountingError('ENTRY_NOT_FOUND', { key: 'error.ENTRY_NOT_FOUND' });
     }
 
     const entry = entryResult.rows[0];
 
     if (entry.status === JournalEntryStatus.POSTED) {
-      throw new AccountingError('ALREADY_POSTED', 'Journal entry is already posted');
+      throw new AccountingError('ALREADY_POSTED', { key: 'error.ALREADY_POSTED.post' });
     }
 
     if (entry.status === JournalEntryStatus.VOID) {
-      throw new AccountingError('ENTRY_VOID', 'Cannot post a voided entry');
+      throw new AccountingError('ENTRY_VOID', { key: 'error.ENTRY_VOID.post' });
     }
 
     const linesResult = await client.query<JournalEntryLine>(
@@ -486,7 +486,7 @@ export async function postJournalEntry(
     if (!validation.isValid) {
       throw new AccountingError(
         'VALIDATION_FAILED',
-        `Validation failed: ${validation.errors.join('; ')}`
+        { key: 'error.VALIDATION_FAILED', params: { errors: validation.errors.join('; ') } }
       );
     }
 
@@ -598,12 +598,12 @@ async function bloquearPeriodoParaPostear(
   );
   const p = r.rows[0];
   if (!p) {
-    throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found while posting');
+    throw new AccountingError('PERIOD_NOT_FOUND', { key: 'error.PERIOD_NOT_FOUND.posting' });
   }
   if (p.status === 'hard_close' || p.status === 'locked') {
     throw new AccountingError(
       'PERIOD_CLOSED',
-      `${p.period_name} is '${p.status}': it closed while this entry was in flight; nothing was posted`
+      { key: 'error.PERIOD_CLOSED.in_flight', params: { period: p.period_name, status: p.status } }
     );
   }
 }
@@ -683,13 +683,13 @@ export async function reverseWithinTransaction(
   if (entry.status !== JournalEntryStatus.POSTED) {
     throw new AccountingError(
       'ENTRY_NOT_POSTED',
-      `Only posted entries can be reversed; ${entry.entry_number} is '${entry.status}' and never touched the ledger — reject or void it instead`
+      { key: 'error.ENTRY_NOT_POSTED', params: { entry: entry.entry_number, status: entry.status } }
     );
   }
   if (entry.reversed_by_entry_id) {
     throw new AccountingError(
       'ALREADY_REVERSED',
-      `Entry ${entry.entry_number} already has a reversal — reversing again would corrupt balances`
+      { key: 'error.ALREADY_REVERSED', params: { entry: entry.entry_number } }
     );
   }
 
@@ -775,7 +775,7 @@ export async function reverseJournalEntry(
       [entryId]
     );
     if (entryResult.rows.length === 0) {
-      throw new AccountingError('ENTRY_NOT_FOUND', 'Journal entry not found');
+      throw new AccountingError('ENTRY_NOT_FOUND', { key: 'error.ENTRY_NOT_FOUND' });
     }
     const entry = entryResult.rows[0];
 
@@ -827,7 +827,7 @@ async function reversalFollowUps(
     if (refreshed !== 1) {
       throw new AccountingError(
         'ASSET_CARD_NOT_REFRESHED',
-        `Entry ${entry.entry_number} is a depreciation entry and its asset is not in this entity: the reversal was not posted`
+        { key: 'error.ASSET_CARD_NOT_REFRESHED', params: { entry: entry.entry_number } }
       );
     }
     return [];
@@ -860,13 +860,13 @@ export async function voidJournalEntryInTx(
   );
 
   if (entryResult.rows.length === 0) {
-    throw new AccountingError('ENTRY_NOT_FOUND', 'Journal entry not found');
+    throw new AccountingError('ENTRY_NOT_FOUND', { key: 'error.ENTRY_NOT_FOUND' });
   }
 
   const entry = entryResult.rows[0];
 
   if (entry.status === JournalEntryStatus.VOID) {
-    throw new AccountingError('ALREADY_VOID', 'Journal entry is already voided');
+    throw new AccountingError('ALREADY_VOID', { key: 'error.ALREADY_VOID' });
   }
 
   let reversal: JournalEntry | null = null;

@@ -22,7 +22,7 @@ vi.mock('../../../src/services/audit/audit-log.js', () => ({
 
 import { query, withTransaction } from '../../../src/database/connection.js';
 import { checkDraftDocument, resolveDraftLines } from '../../../src/services/accounting/journal-entry-service.js';
-import { createJournalEntry, reverseWithinTransaction } from '../../../src/services/accounting/posting.js';
+import { createJournalEntry, exigirSegregacion, reverseWithinTransaction } from '../../../src/services/accounting/posting.js';
 import {
   ORIGEN_LOTE_IMPORTADO,
   checkBatch,
@@ -40,6 +40,7 @@ const mockCheckDraft = checkDraftDocument as unknown as Mock;
 const mockResolveLines = resolveDraftLines as unknown as Mock;
 const mockCreate = createJournalEntry as unknown as Mock;
 const mockReverse = reverseWithinTransaction as unknown as Mock;
+const mockLock = exigirSegregacion as unknown as Mock;
 
 const CTX = { tenantId: 'ten-1', entityId: 'ent-1' };
 
@@ -93,6 +94,7 @@ beforeEach(() => {
   mockResolveLines.mockReset();
   mockCreate.mockReset();
   mockReverse.mockReset();
+  mockLock.mockClear();
   mockTx.mockReset();
   mockTx.mockImplementation((fn: (c: ClienteFalso) => Promise<unknown>) => fn(cliente));
 });
@@ -440,6 +442,51 @@ function poliza(n: number, extra: Record<string, unknown> = {}): Record<string, 
   };
 }
 
+// #592 (MNE-001-642). The lock compares text: an e-mail against a user id never
+// matched, and the importer posted their own batch from the terminal.
+describe('postBatch — the four-eyes lock is handed two user ids', () => {
+  const refusal = new Error('lock');
+
+  it('reads the importer as a user of the batch tenant in the header statement itself', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [lote('checked', { created_by: 'ana@example.test', importer_id: 'u-ana' })] });
+    mockLock.mockRejectedValueOnce(refusal);
+
+    await expect(postBatch(CTX, 'lote-1', 'u-ana')).rejects.toBe(refusal);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('u.tenant_id = b.tenant_id');
+    expect(sql).toContain('u.id::text = b.created_by OR u.email = b.created_by');
+    expect(sql).toContain('WHERE b.id = $1 AND b.tenant_id = $2 AND b.entity_id = $3');
+    expect(params).toEqual(['lote-1', 'ten-1', 'ent-1']);
+    expect(mockLock).toHaveBeenCalledWith({
+      tenantId: 'ten-1', entityId: 'ent-1', creador: 'u-ana', ejecutor: 'u-ana', referencia: 'El lote lote-1',
+    });
+    expect(mockTx).not.toHaveBeenCalled();
+  });
+
+  it('falls back on the stored value when it names no user of the tenant', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [lote('checked', { created_by: 'gone@example.test', importer_id: null })] });
+    mockLock.mockRejectedValueOnce(refusal);
+
+    await expect(postBatch(CTX, 'lote-1', 'u-beto')).rejects.toBe(refusal);
+
+    expect(mockLock).toHaveBeenCalledWith(expect.objectContaining({ creador: 'gone@example.test', ejecutor: 'u-beto' }));
+  });
+
+  it('locks the header alone: the importer is on the nullable side of the join', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [lote('checked')] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    cliente.query.mockResolvedValueOnce({ rows: [lote('checked')] });
+    cliente.query.mockResolvedValueOnce({ rows: [] });
+    cliente.query.mockResolvedValueOnce({ rows: [] });
+
+    await postBatch(CTX, 'lote-1', 'u2');
+
+    expect((cliente.query.mock.calls[0] as [string])[0]).toMatch(/FOR UPDATE OF b$/);
+  });
+});
+
 describe('reverseBatch — el lote se reversa como unidad', () => {
   it('sin motivo no hay reversa: ValidationError antes de tocar la base', async () => {
     await expect(reverseBatch(CTX, 'lote-1', 'u1', { reason: '  ' })).rejects.toThrow(/--reason/);
@@ -535,6 +582,19 @@ describe('listBatches y showBatch', () => {
     );
   });
 
+  it('show and list name the importer by e-mail, whatever form created_by holds (#592)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [lote('staged', { created_by: 'u-ana', importer_id: 'u-ana', importer_email: 'ana@example.test' })] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ entries_posted: 0 }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect((await showBatch(CTX, 'lote-1')).lote.created_by).toBe('ana@example.test');
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await listBatches(CTX);
+    const sql = (mockQuery.mock.calls[3] as [string])[0];
+    expect(sql).toContain('COALESCE(importer.email, b.created_by) AS created_by');
+    expect(sql).toContain('u.tenant_id = b.tenant_id');
+  });
+
   it('show agrupa los parse_error por categoría y liga cada fila con su póliza', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [lote('posted')] });
     mockQuery.mockResolvedValueOnce({ rows: [{ entries_posted: 1 }] });
@@ -563,6 +623,8 @@ describe('listBatches y showBatch', () => {
 
     expect(r.errores_por_categoria).toEqual({ json: 1 });
     expect(r.lote.entries_posted).toBe(1);
+    // No user of the tenant behind `created_by`: the stored value is shown.
+    expect(r.lote.created_by).toBe('u1');
     expect(r.filas[0]).toMatchObject({ row_number: 1, categoria: 'json', entry_number: null });
     expect(r.filas[1]).toMatchObject({
       row_number: 2,

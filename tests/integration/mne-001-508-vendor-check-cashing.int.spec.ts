@@ -15,6 +15,7 @@ import {
 import { conciliarCheque } from '../../src/services/banking/treasury-posting.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { construirDiot } from '../../src/services/sat/diot/diot-service.js';
+import type { AppError } from '../../src/utils/errors.js';
 
 /**
  * MNE-001-508 (#700), part 1: the ledger of a cheque written to a vendor.
@@ -208,6 +209,98 @@ describe('a cheque to a vendor credits its IVA the day the bank cashes it', () =
     expect(await stored(cashedFirst)).toEqual(['160.0000']);
   }, 120_000);
 
+  it('T4b · MNE-001-746 · a cheque cashed while on account is not applied on a day before its cashing', async () => {
+    const { billId, vendorId } = await bill();
+    const paymentId = await pay(vendorId, 'check');
+    // On account there is no IVA to release: the cashing posts no entry and only the payment keeps its day.
+    expect((await cash(paymentId)).entryId).toBeNull();
+    const apply = (date: string) =>
+      applyVendorPayment(f.entityId, paymentId, [{ documentId: billId, amountApplied: '1160.00' }], f.userId, { date });
+
+    // Signed on 2026-01-15, cashed on 2026-03-10: February 20th is after every entry of the payment.
+    const refused = await apply('2026-02-20').then(() => null, (e: unknown) => e as AppError);
+    expect(refused, 'an application dated before the cashing is refused').not.toBeNull();
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode, field: refused?.field }).toEqual({
+      key: 'payment.apply.date_before_cashing', status: 422, field: 'date',
+    });
+    expect(refused?.message).toMatch(/cashed the cheque of \S+ on 2026-03-10: an application dated 2026-02-20 /);
+    expect(refused?.localized('es')).toMatch(/cobró el cheque del pago \S+ el 2026-03-10: una aplicación fechada el 2026-02-20 /);
+    expect(await stored(paymentId), 'no application').toEqual([]);
+    expect(await entryOf(paymentId, 'vendor_application'), 'no entry').toBeUndefined();
+    expect(await ivaOf(billId, paymentId), 'the 160.00 stay in 1135').toEqual({ '1130': '0.00', '1135': '160.00' });
+
+    // The cashing day is the first day it takes: DR 1130 160.00 / CR 1135 160.00 dated 2026-03-10.
+    const applied = await apply(CASHED);
+    expect((await entryOf(paymentId, 'vendor_application')).d).toBe(CASHED);
+    expect(await ivaLines(applied.journalEntry?.id)).toEqual(['1130 160.00 0.00', '1135 0.00 160.00']);
+    expect(await stored(paymentId)).toEqual(['160.0000']);
+  }, 120_000);
+
+  it('T4c · MNE-001-746 · a cheque nobody cashed takes a dated application as before, and its IVA waits for the bank', async () => {
+    const { billId, vendorId } = await bill();
+    const paymentId = await pay(vendorId, 'check');
+    const applied = await applyVendorPayment(
+      f.entityId, paymentId, [{ documentId: billId, amountApplied: '1160.00' }], f.userId, { date: '2026-02-20' }
+    );
+    expect((await entryOf(paymentId, 'vendor_application')).d).toBe('2026-02-20');
+    expect(await ivaLines(applied.journalEntry?.id)).toEqual([]);
+    expect(await stored(paymentId)).toEqual(['0.0000']);
+
+    expect((await cash(paymentId)).reclasificado).toBe('160.0000');
+    expect((await entryOf(paymentId, 'bank_check_clearing')).d).toBe(CASHED);
+    expect(await ivaOf(billId, paymentId)).toEqual({ '1130': '160.00', '1135': '0.00' });
+  }, 120_000);
+
+  it('T4d · MNE-001-746 · of the cashing and the payment\'s last entry, the refusal names the later day', async () => {
+    // A cheque of 1,160.00: 580.00 on the bill (80.00 of its IVA held) and 580.00 on account.
+    const { billId, vendorId } = await bill();
+    const paid = await recordVendorPayment(
+      {
+        entityId: f.entityId, counterpartyId: vendorId, paymentAmount: '1160.00', paymentDate: SIGNED,
+        paymentMethod: 'check', bankAccountId: bank, checkNumber: uuidv4().slice(0, 6),
+        applications: [{ documentId: billId, amountApplied: '580.00' }], onAccount: true,
+      },
+      f.userId
+    );
+    const rest = (date: string) =>
+      applyVendorPayment(f.entityId, paid.paymentId, [{ documentId: billId, amountApplied: '580.00' }], f.userId, { date });
+    const keyOf = (date: string) => rest(date).then(() => null, (e: unknown) => (e as AppError).messageKey);
+
+    // The cashing releases the 80.00 on 2026-03-10, so that day is the last entry too: the cashing speaks.
+    expect((await cash(paid.paymentId)).reclasificado).toBe('80.0000');
+    expect(await keyOf('2026-02-20')).toMatchObject({ key: 'payment.apply.date_before_cashing', params: { cashedOn: CASHED } });
+
+    // An unapply on 2026-03-20 is later than the cashing: now the last entry speaks, and names its own day.
+    await unapplyVendorPayment(f.entityId, paid.paymentId, { billId, reason: 'synthetic', date: '2026-03-20' }, f.userId);
+    expect(await keyOf('2026-03-15')).toMatchObject({ key: 'payment.apply.date_before_last_event', params: { since: '2026-03-20' } });
+    expect(await keyOf('2026-02-20')).toMatchObject({ key: 'payment.apply.date_before_last_event', params: { since: '2026-03-20' } });
+    const rows = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM payment_applications WHERE payment_id = $1`, [paid.paymentId]);
+    expect(rows.rows[0].n, 'the refused ones wrote no application').toBe('1');
+  }, 120_000);
+
+  it('T4e · MNE-001-778 · a cashing that would credit two applications on two days is refused, naming them, and writes nothing', async () => {
+    // A cheque of 1,160.00 on account, applied to one bill in two halves while not yet cashed:
+    // 580.00 on 2026-04-10 and 580.00 on 2026-05-10, 80.00 of IVA each. The bank charged it on 2026-03-10.
+    const { billId, vendorId } = await bill();
+    const paymentId = await pay(vendorId, 'check');
+    for (const date of ['2026-04-10', '2026-05-10']) {
+      await applyVendorPayment(f.entityId, paymentId, [{ documentId: billId, amountApplied: '580.00' }], f.userId, { date });
+    }
+    const refused = await cash(paymentId).then(() => null, (e: unknown) => e as AppError);
+    expect(refused, 'one cashing cannot date one entry on two days').not.toBeNull();
+    expect({ key: refused?.messageKey?.key, status: refused?.statusCode }).toEqual({
+      key: 'bank.check.reconcile.several_release_days', status: 422,
+    });
+    expect(refused?.messageKey?.params).toMatchObject({ cashedOn: CASHED, days: '2026-04-10, 2026-05-10', first: '2026-04-10' });
+    expect(refused?.message).toMatch(/cashed the cheque of payment \S+ on 2026-03-10.*2026-04-10, 2026-05-10.*nothing was written/);
+    expect(refused?.localized('es')).toMatch(/cobró el cheque del pago \S+ el 2026-03-10.*2026-04-10, 2026-05-10.*no se escribió nada/);
+    const row = await query<{ d: string | null }>(`SELECT check_cleared_date::text AS d FROM vendor_payments WHERE id = $1`, [paymentId]);
+    expect(row.rows[0].d, 'no cashing recorded').toBeNull();
+    expect(await entryOf(paymentId, 'bank_check_clearing'), 'no entry').toBeUndefined();
+    expect(await stored(paymentId), 'nothing released').toEqual(['0.0000', '0.0000']);
+    expect(await ivaOf(billId, paymentId), 'the 160.00 stay in 1135').toEqual({ '1130': '0.00', '1135': '160.00' });
+  }, 120_000);
+
   it('T5 · an unapply re-parks nothing before the cashing and 160.00 after it', async () => {
     const { billId, vendorId } = await bill();
     const paymentId = await pay(vendorId, 'check');
@@ -309,6 +402,38 @@ describe('the IVA paper and the DIOT credit a vendor cheque in the month the ban
     expect(march.entries).toEqual([(await entryOf(paymentId, 'bank_check_clearing')).id]);
     expect(march.tieOut).toEqual([]);
     expect([january.notCashed, january.early, march.notCashed, march.early].flatMap((x) => [...x.paper, ...x.diot])).toEqual([]);
+  }, 120_000);
+
+  it('T9b · MNE-001-778 · a cheque applied on 2026-05-10 and cashed on 2026-03-10 is credited in May by the ledger, the paper and the DIOT', async () => {
+    // Applied while not yet cashed, so the application holds its IVA; the bank's charge is earlier than the application.
+    const { billId, vendorId } = await bill();
+    const paymentId = await pay(vendorId, 'check');
+    const applied = await applyVendorPayment(
+      f.entityId, paymentId, [{ documentId: billId, amountApplied: '1160.00' }], f.userId, { date: '2026-05-10' }
+    );
+    expect(await ivaLines(applied.journalEntry?.id)).toEqual([]);
+
+    const r = await cash(paymentId);
+    const cashing = await entryOf(paymentId, 'bank_check_clearing');
+    expect({ moved: r.reclasificado, d: cashing.d, period: cashing.period }, 'released on the later of the two days')
+      .toEqual({ moved: '160.0000', d: '2026-05-10', period: 5 });
+    expect(await ivaLines(cashing.id)).toEqual(['1130 160.00 0.00', '1135 0.00 160.00']);
+    expect({ cashedOn: r.fechaDeCobro, entryDate: r.releasedOn }).toEqual({ cashedOn: CASHED, entryDate: '2026-05-10' });
+    const name = await query<{ n: string }>(
+      `SELECT period_name AS n FROM fiscal_periods WHERE entity_id = $1 AND period_number = 5 AND start_date <= '2026-05-10' AND end_date >= '2026-05-10'`,
+      [f.entityId]
+    );
+    expect(r.periodo?.nombre, 'the period the entry falls in').toBe(name.rows[0].n);
+    const row = await query<{ d: string }>(`SELECT check_cleared_date::text AS d FROM vendor_payments WHERE id = $1`, [paymentId]);
+    expect(row.rows[0].d, 'the bank still dates the cashing').toBe(CASHED);
+
+    const march = await month(3, billId);
+    expect(figures(march)).toEqual(NOTHING);
+    expect(march.tieOut, 'March: nothing in 1130 and nothing declared').toEqual([]);
+    const may = await month(5, billId);
+    expect(figures(may)).toEqual(CREDITED);
+    expect(may.entries).toContain(cashing.id);
+    expect(may.tieOut, 'May: 1130 holds what is declared').toEqual([]);
   }, 120_000);
 
   it('T10 · a cheque nobody cashed is credited in no month, and each month warns and settles', async () => {

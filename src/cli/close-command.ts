@@ -17,6 +17,7 @@ import {
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine cierre
@@ -56,12 +57,12 @@ const MARK = { done: '✔', missing: '✘' } as const;
 export function renderCarryForward(r: CarryForwardResult, c: CloseCliDeps['palette']): string[] {
   const lines: string[] = [];
   if (r.periods.length > 0) {
-    lines.push(c.dim(`  Beginning balances carried into: ${r.periods.join(', ')}`));
+    lines.push(c.dim(`  ${t('close.carry.into', { periods: r.periods.join(', ') })}`));
   }
   if (r.stopped_at_locked) {
     lines.push(
-      c.red(`  ✘ ${r.stopped_at_locked} is locked: its beginning balances were NOT rewritten.`),
-      c.dim('    It and the periods after it still open at the old figures; book the correction in an open period.')
+      c.red(`  ✘ ${t('close.carry.locked', { period: r.stopped_at_locked })}`),
+      c.dim(`    ${t('close.carry.locked_detail')}`)
     );
   }
   return lines;
@@ -73,7 +74,7 @@ export function renderReadiness(r: CloseReadiness, c: CloseCliDeps['palette']): 
   const p = r.period;
   out.push(
     c.bold(`${p.period_name}`) +
-      c.dim(`  ${p.start_date} → ${p.end_date} · ${p.status}${p.overdue ? ' · overdue' : ''}`)
+      c.dim(`  ${p.start_date} → ${p.end_date} · ${p.status}${p.overdue ? t('ledger.period.show.overdue') : ''}`)
   );
   out.push('');
 
@@ -84,20 +85,20 @@ export function renderReadiness(r: CloseReadiness, c: CloseCliDeps['palette']): 
 
   if (r.blockingIssues.length > 0) {
     out.push('');
-    out.push(c.red('  Blocking:'));
+    out.push(c.red(`  ${t('closing.readiness.blocking')}`));
     for (const b of r.blockingIssues) out.push(c.red(`    · ${b}`));
   }
   if (r.warnings.length > 0) {
     out.push('');
-    out.push('  Warnings:');
+    out.push(`  ${t('closing.readiness.warnings')}`);
     for (const w of r.warnings) out.push(c.dim(`    · ${w}`));
   }
 
   out.push('');
   out.push(
     r.canClose
-      ? '  Ready to close.'
-      : c.red('  Cannot close yet: resolve the blocking items above.')
+      ? `  ${t('close.ready')}`
+      : c.red(`  ${t('close.not_ready')}`)
   );
   out.push('');
   return out;
@@ -117,26 +118,24 @@ export async function confirmarCierre(
   kind: string,
   destino: { hard: boolean; periodName: string }
 ): Promise<{ procede: boolean; mensaje?: string }> {
-  const veredicto = await confirmarConReintento(preguntar, c.cyan(yesNoPrompt(`Proceed with ${kind}?`)));
+  const veredicto = await confirmarConReintento(preguntar, c.cyan(yesNoPrompt(t('close.confirm.proceed', { kind }))));
   if (!veredicto.si) {
     return {
       procede: false,
       mensaje:
         veredicto.incomprendida !== undefined
-          ? `${noEntendi(veredicto.incomprendida)} — Cancelled.`
-          : 'Cancelled.',
+          ? `${noEntendi(veredicto.incomprendida)} — ${t('ledger.period.reopen.cancelled')}`
+          : t('ledger.period.reopen.cancelled'),
     };
   }
   if (destino.hard) {
     const escrito = await preguntar(
-      c.cyan(
-        `A hard close cannot be undone. Type the period name (${destino.periodName}) to confirm: `
-      )
+      c.cyan(`${t('close.confirm.type_name', { period: destino.periodName })} `)
     );
     if ((escrito ?? '').trim() !== destino.periodName) {
       return {
         procede: false,
-        mensaje: `That does not match ${destino.periodName}: nothing was closed.`,
+        mensaje: t('close.confirm.mismatch', { period: destino.periodName }),
       };
     }
   }
@@ -207,14 +206,14 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         const periods = await listClosablePeriods(ctx);
 
         if (periods.length === 0) {
-          console.log('No open periods: nothing to close.');
+          console.log(t('close.none_open'));
           await deps.shutdown(0);
         }
 
         if (opts.list) {
           console.log('');
           for (const p of periods) {
-            const tag = p.overdue ? ' · overdue' : '';
+            const tag = p.overdue ? t('ledger.period.show.overdue') : '';
             console.log(`  ${p.period_name}  ${deps.palette.dim(`${p.start_date} → ${p.end_date} · ${p.status}${tag}`)}`);
           }
           console.log('');
@@ -226,7 +225,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         const period = opts.period
           ? await resolveClosablePeriod(ctx, opts.period, periods)
           : await nextPeriodToClose(ctx);
-        if (!period) throw notFound('No open periods: nothing to close.');
+        if (!period) throw notFound({ key: 'close.none_open' });
 
         const readiness = await getCloseReadiness(ctx, period);
 
@@ -243,13 +242,13 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         }
 
         const { dryRun, reason } = gateMutation(close, opts);
-        const kind = opts.hard ? 'HARD close (irreversible)' : 'soft close (reversible)';
+        const kind = t(opts.hard ? 'close.kind.hard' : 'close.kind.soft');
 
         if (dryRun) {
           // El mismo veredicto que el acto real daría: aquí sólo se llega con
           // canClose en verde, así que la marcha seca informa y sale 0.
-          console.log(deps.palette.bold(`Would ${opts.hard ? 'hard' : 'soft'} close ${period.period_name}.`));
-          console.log(deps.palette.dim('  (dry-run: nothing was written)'));
+          console.log(deps.palette.bold(t('close.dry_run.would', { mode: opts.hard ? 'hard' : 'soft', period: period.period_name })));
+          console.log(deps.palette.dim(`  ${t('close.dry_run.nothing')}`));
           await deps.shutdown(0);
         }
 
@@ -258,10 +257,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         // assuming consent — re-run with --yes once you are sure.
         if (!opts.yes) {
           if (!stdin.isTTY) {
-            throw abortedByUser(
-              `Proceed with ${kind}? — there is no terminal to ask on. ` +
-                'Re-run with --yes once you are sure, or with --dry-run to see the effect first.'
-            );
+            throw abortedByUser({ key: 'ap.payment.confirm.no_terminal', params: { question: { key: 'close.confirm.proceed_as', params: { mode: opts.hard ? 'hard' : 'soft' } } } });
           }
           rl = readline.createInterface({ input: stdin, output: stdout });
           const askFn = deps.ask ?? (async (r: readline.Interface, q: string) => r.question(q).catch(() => null));
@@ -301,19 +297,17 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         );
 
         if (acto.repetido) {
-          console.log(
-            `↩ Idempotency hit: key "${opts.idempotencyKey}" already closed ` +
-              `${acto.resultado.period_name} (now ${acto.resultado.status}). Nothing was executed again.`
-          );
+          const hit = { key: String(opts.idempotencyKey), period: acto.resultado.period_name, status: acto.resultado.status };
+          console.log(`↩ ${t('close.idempotency_hit', hit)}`);
           await deps.shutdown(0);
         }
 
-        console.log(`✔ ${acto.resultado.period_name} is now ${acto.resultado.status} (by ${reviewer.email})`);
+        console.log(`✔ ${t('close.done', { period: acto.resultado.period_name, status: acto.resultado.status, email: reviewer.email })}`);
         if (acto.resultado.carry_forward) {
           for (const line of renderCarryForward(acto.resultado.carry_forward, deps.palette)) console.log(line);
         }
         if (!opts.hard) {
-          console.log(deps.palette.dim('  Soft close is reversible. To seal it: mnemosine close --hard'));
+          console.log(deps.palette.dim(`  ${t('close.soft_reversible', { command: 'mnemosine close --hard' })}`));
         }
         await deps.shutdown(0);
       } catch (err) {

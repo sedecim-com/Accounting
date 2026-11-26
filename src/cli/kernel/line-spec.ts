@@ -19,6 +19,7 @@
 // and one with a semicolon in it is not.
 // ============================================================
 
+import { t } from '../../i18n/index.js';
 import { usageError } from './cli-error.js';
 
 export const LINE_PAIR_SEPARATOR = ';';
@@ -40,11 +41,11 @@ export interface LineGrammar {
   /** Keys folded into another key before any check (entry: SIDE_ALIASES). */
   readonly aliases?: Readonly<Record<string, string>>;
   /**
-   * Different keys that set one field (price and unit-price). A line may give
-   * only one key of each group: silently keeping one of two amounts is how a
-   * ledger goes wrong.
+   * Two keys that set one field (price and unit-price). A line may give only
+   * one of the pair: silently keeping one of two amounts is how a ledger goes
+   * wrong.
    */
-  readonly sameField?: ReadonlyArray<readonly string[]>;
+  readonly sameField?: ReadonlyArray<readonly [string, string]>;
 }
 
 /**
@@ -68,10 +69,7 @@ export interface ParsedLineSpec {
 function splitPair(part: string, spec: string): [string, string] {
   const eq = part.indexOf('=');
   if (eq < 1) {
-    throw usageError(
-      `Cannot read the line "${spec}". Each part is key=value, separated by ";": ` +
-        '--line "account=5100;qty=2;price=350.00;description=Text".'
-    );
+    throw usageError({ key: 'cli.line.pair_unreadable', params: { spec } });
   }
   return [part.slice(0, eq), part.slice(eq + 1).trim()];
 }
@@ -124,7 +122,7 @@ function normalizePairs(pairs: Array<[string, unknown]>, label: string, grammar?
     const folded = normalizeLineKey(raw);
     const key = grammar?.aliases?.[folded] ?? folded;
     if (key in out) {
-      throw usageError(`The line "${label}" gives "${key}" twice (as "${written[key]}" and "${raw.trim()}").`);
+      throw usageError({ key: 'cli.line.key_twice', params: { label, key, first: written[key], second: raw.trim() } });
     }
     out[key] = (typeof value === 'string' ? value : JSON.stringify(value)).trim();
     written[key] = raw.trim();
@@ -133,18 +131,14 @@ function normalizePairs(pairs: Array<[string, unknown]>, label: string, grammar?
 
   const unknown = Object.keys(out).filter((k) => !grammar.known.includes(k));
   if (unknown.length) {
-    throw usageError(
-      `Unknown key(s) in --line: ${unknown.map((k) => written[k]).join(', ')}. ` +
-        `Known keys: ${grammar.known.join(', ')}.`
-    );
+    throw usageError({
+      key: 'cli.line.unknown_keys',
+      params: { count: unknown.length, unknown: unknown.map((k) => written[k]).join(', '), known: grammar.known.join(', ') },
+    });
   }
-  for (const group of grammar.sameField ?? []) {
-    const given = group.filter((k) => k in out);
-    if (given.length > 1) {
-      throw usageError(
-        `The line "${label}" gives one field twice: ${given.map((k) => `"${written[k]}"`).join(' and ')} ` +
-          'are the same key. Give only one.'
-      );
+  for (const [first, second] of grammar.sameField ?? []) {
+    if (first in out && second in out) {
+      throw usageError({ key: 'cli.line.same_field', params: { label, first: written[first], second: written[second] } });
     }
   }
   return out;
@@ -155,17 +149,21 @@ export function isKeyValueLine(spec: string): boolean {
   return /^\s*[A-Za-z][A-Za-z_-]*\s*=/.test(spec);
 }
 
-/** One stderr line, once per invocation, when a line used bill's commas. */
-export const LEGACY_COMMA_WARNING =
-  `--line pairs separated by "," are deprecated; separate them with ";" ` +
-  `(account=5100;qty=1;price=1000;tax-amount=160). Commas stop working in ${LEGACY_LINE_FORMS_RETIRE_IN}.`;
+/**
+ * One stderr line, once per invocation, when a line used bill's commas. A
+ * function, not a constant: the locale is resolved after this module loads.
+ */
+export function legacyCommaWarning(): string {
+  return t('cli.line.legacy_comma', { version: LEGACY_LINE_FORMS_RETIRE_IN });
+}
 
-/** The help block that lists the keys of one command's --line. */
+/**
+ * The help block that lists the keys of one command's --line. Call it when the
+ * help is shown (`addHelpText('after', () => …)`), so its heading follows the
+ * active language; the padding is computed from the keys, which are never
+ * translated.
+ */
 export function lineKeysHelp(rows: ReadonlyArray<readonly [string, string]>): string {
   const width = Math.max(...rows.map(([k]) => k.length)) + 2;
-  return (
-    `\nKeys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):\n` +
-    rows.map(([k, text]) => `  ${k.padEnd(width)} ${text}`).join('\n') +
-    '\n'
-  );
+  return `\n${t('cli.line.keys_heading')}\n` + rows.map(([k, text]) => `  ${k.padEnd(width)} ${text}`).join('\n') + '\n';
 }

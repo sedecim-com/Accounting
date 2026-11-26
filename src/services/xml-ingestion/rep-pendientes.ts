@@ -1,6 +1,6 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
-import { PreRegistrationService } from './pre-registration-service.js';
+import { PreRegistrationService, reasonText } from './pre-registration-service.js';
 import { listPaymentsAwaitingRep } from '../accounting/rep-expected.js';
 
 // ============================================================
@@ -125,10 +125,10 @@ export async function reprocesarREPsAparcados(
       const code = (err as { code?: string }).code;
       if (code === 'CFDI_REQUIERE_DECISION') {
         resultado.siguen_aparcados += 1;
-        resultado.detalles.push({ id: rep.id, resultado: 'aparcado', motivo: (err as Error).message });
+        resultado.detalles.push({ id: rep.id, resultado: 'aparcado', motivo: reasonText(err) });
       } else {
         resultado.errores += 1;
-        resultado.detalles.push({ id: rep.id, resultado: 'error', motivo: (err as Error).message });
+        resultado.detalles.push({ id: rep.id, resultado: 'error', motivo: reasonText(err) });
       }
     }
   }

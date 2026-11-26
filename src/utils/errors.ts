@@ -13,14 +13,34 @@ export interface ErrorMessageKey {
   readonly params?: MessageParams;
 }
 
+/**
+ * A keyed message some of whose parameters are lists of keyed items
+ * (MNE-001-726, the refusals of the DIOT batch file): each item renders in the
+ * language of its frame, and the items join with `join`. A param is a flat
+ * string, so a list that must follow the reader's language cannot be one.
+ */
+export interface KeyedText extends ErrorMessageKey {
+  readonly lists?: Readonly<Record<string, { readonly join: string; readonly items: readonly KeyedText[] }>>;
+}
+
+/** The params of `text` with each of its lists rendered in `language`. */
+function paramsIn(text: KeyedText, language: Language | undefined): MessageParams {
+  if (text.lists === undefined) return text.params ?? {};
+  const params: Record<string, string | number> = { ...text.params };
+  for (const [name, list] of Object.entries(text.lists)) {
+    params[name] = list.items.map((item) => t(item.key, paramsIn(item, language), language)).join(list.join);
+  }
+  return params;
+}
+
 export class AppError extends Error {
   /** The key the message was written with, when it was. Absent for prose errors. */
-  public readonly messageKey?: ErrorMessageKey;
+  public readonly messageKey?: KeyedText;
 
   constructor(
     public statusCode: number,
     public code: string,
-    message: string | ErrorMessageKey,
+    message: string | KeyedText,
     public field?: string,
     public details?: Record<string, unknown>
   ) {
@@ -29,9 +49,13 @@ export class AppError extends Error {
     // trace and in a log, and a log whose language depends on who made the
     // request cannot be searched. The reader's language is applied only when
     // the message is rendered — see `localized`.
-    super(typeof message === 'string' ? message : t(message.key, message.params ?? {}, 'en'));
+    super(typeof message === 'string' ? message : t(message.key, paramsIn(message, 'en'), 'en'));
     this.name = 'AppError';
-    if (typeof message !== 'string') this.messageKey = message;
+    if (typeof message !== 'string') {
+      // With lists, `params` also carries them in English, so a reader of
+      // `messageKey` (the CLI's JSON envelope) still has every placeholder.
+      this.messageKey = message.lists ? { ...message, params: paramsIn(message, 'en') } : message;
+    }
   }
 
   /**
@@ -41,15 +65,39 @@ export class AppError extends Error {
    */
   localized(language?: Language): string {
     return this.messageKey
-      ? t(this.messageKey.key, this.messageKey.params ?? {}, language)
+      ? t(this.messageKey.key, paramsIn(this.messageKey, language), language)
       : this.message;
   }
 }
 
 export class ValidationError extends AppError {
-  constructor(message: string | ErrorMessageKey, field?: string, details?: Record<string, unknown>) {
+  constructor(message: string | KeyedText, field?: string, details?: Record<string, unknown>) {
     super(422, 'VALIDATION_ERROR', message, field, details);
     this.name = 'ValidationError';
+  }
+}
+
+/**
+ * MNE-001-822 · The refusal of a SUA file that contradicts the employer
+ * liability already recorded (`generateSuaFile`, #92). The frame is
+ * `imss.sua.mismatch` and each blocking finding is a key whose figures travel
+ * as the cross-check computed them, the difference included: rendered in the
+ * reader's language, frame and findings alike. `details` keeps the findings by
+ * code and figure for a caller that renders its own (`imss sua export`).
+ */
+export class SuaMismatchError extends ValidationError {
+  constructor(blocking: readonly ErrorMessageKey[], details: Record<string, unknown>) {
+    super({ key: 'imss.sua.mismatch', lists: { findings: { join: ' · ', items: blocking } } }, undefined, details);
+  }
+
+  /**
+   * The text a finding is STORED with, in the filing's
+   * `tax_form_filings.data`: stored text keeps the language it was written
+   * in, Spanish, whoever reads it later (MNE-001-728's rule). The language is
+   * fixed, so no service reads the reader's language through it (E4.2).
+   */
+  static storedDetail(finding: ErrorMessageKey): string {
+    return t(finding.key, finding.params ?? {}, 'es');
   }
 }
 
@@ -122,8 +170,9 @@ export class RequestValidationError extends ValidationError {
 }
 
 export class NotFoundError extends AppError {
-  constructor(resource: string, id?: string) {
-    super(404, 'RESOURCE_NOT_FOUND', `${resource}${id ? ` with id ${id}` : ''} not found`);
+  /** `resource` and `id` build an English message; a key alone is the whole message, by catalogue. */
+  constructor(resource: string | ErrorMessageKey, id?: string) {
+    super(404, 'RESOURCE_NOT_FOUND', typeof resource === 'string' ? `${resource}${id ? ` with id ${id}` : ''} not found` : resource);
     this.name = 'NotFoundError';
   }
 }
@@ -136,14 +185,14 @@ export class ConflictError extends AppError {
 }
 
 export class UnauthorizedError extends AppError {
-  constructor(message = 'Unauthorized') {
+  constructor(message: string | ErrorMessageKey = 'Unauthorized') {
     super(401, 'UNAUTHORIZED', message);
     this.name = 'UnauthorizedError';
   }
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = 'Forbidden', details?: Record<string, unknown>) {
+  constructor(message: string | ErrorMessageKey = 'Forbidden', details?: Record<string, unknown>) {
     super(403, 'FORBIDDEN', message, undefined, details);
     this.name = 'ForbiddenError';
   }
@@ -163,7 +212,7 @@ export class ForbiddenError extends AppError {
  * answers 501 is a promise the system has publicly withdrawn.
  */
 export class NotImplementedError extends AppError {
-  constructor(message: string, details?: Record<string, unknown>) {
+  constructor(message: string | ErrorMessageKey, details?: Record<string, unknown>) {
     super(501, 'NOT_IMPLEMENTED', message, undefined, details);
     this.name = 'NotImplementedError';
   }

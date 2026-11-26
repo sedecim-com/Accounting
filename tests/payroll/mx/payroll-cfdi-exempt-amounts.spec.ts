@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 // now come from the parts stored on each earning row (migration 094).
 // ============================================================
 
-vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+// The generator runs on one transaction since MNE-001-736: its client is this same double.
+vi.mock('../../../src/database/connection.js', () => {
+  const query = vi.fn();
+  return { query, withTransaction: (fn: (tx: unknown) => unknown) => fn({ query, on: vi.fn(), off: vi.fn() }) };
+});
 vi.mock('../../../src/services/integrations/mexico/pac/pac-router.js', () => ({
   pacRouter: { stamp: vi.fn() },
 }));
@@ -35,6 +39,7 @@ function paycheckWith(earnings: EarningRow[]): void {
     if (/FROM paychecks p/.test(sql)) {
       return {
         rows: [{
+          cfdi_uuid: null, cfdi_status: null, cfdi_stamped_at: null,
           paycheck_id: 'pc-1', tenant_id: 't-1', gross_earnings: gross, net_pay: gross,
           isr_withheld: '0', subsidio_empleo: '0', subsidio_entregado_efectivo: '0',
           imss_employee: '0', infonavit_withheld: '0',
@@ -50,7 +55,7 @@ function paycheckWith(earnings: EarningRow[]): void {
     if (/FROM paycheck_earnings/.test(sql)) {
       return { rows: earnings.map((e) => ({ ...e, cfdi_clave_sat: null, description: null })) };
     }
-    return { rows: [] };
+    return { rows: [], rowCount: 1 };
   });
 }
 

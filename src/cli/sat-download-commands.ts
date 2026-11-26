@@ -153,7 +153,8 @@ async function requestOrNotFound(scope: EntityScope, id: string): Promise<Mirror
 /** What an action body needs from the outside: where it prints, how it asks, and (for tests) the SAT and the clock. */
 export interface RunIo {
   log: (line: string) => void;
-  reportError: (err: unknown) => void;
+  /** `exitCode` is the code the leaf will exit with, which the machine error states (MNE-001-698). */
+  reportError: (err: unknown, exitCode?: number) => void;
   dim: (s: string) => string;
   confirm: (prompt: string) => Promise<boolean>;
   /** The engine's URLs and fetch; the simulator's in tests. */
@@ -396,7 +397,7 @@ export async function runPackageDownload(
       try {
         kept = await ensurePackage(authCtx(ctx, reviewer), scope, row, packageId, io.sat);
       } catch (err) {
-        io.reportError(err);
+        io.reportError(err, exitForSat(err));
         satExit ??= exitForSat(err);
         continue;
       }
@@ -434,7 +435,7 @@ export async function runPackageDownload(
 export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps): void {
   const { color: c, shutdown, reportError, ask } = deps;
   const fail = async (err: unknown): Promise<never> => {
-    reportError(err);
+    reportError(err, exitForSat(err));
     return shutdown(exitForSat(err));
   };
   const io = (): RunIo => ({

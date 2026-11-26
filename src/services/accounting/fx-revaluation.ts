@@ -7,7 +7,12 @@ import { FX_REVALUATION_POLICY_KEYS, getPolicy } from '../policy/policy-service.
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { JournalEntry } from '../../types/index.js';
-import { queryEntryMovementsOnAccount } from '../reporting/report-service.js';
+import {
+  queryEntryMovementsOnAccount,
+  queryForeignBalancesByAccount,
+  queryRevaluationNetByAccount,
+  type ForeignBalanceRow,
+} from '../reporting/report-service.js';
 
 type EntryLine = Parameters<typeof createJournalEntry>[4][number];
 
@@ -200,42 +205,20 @@ async function reversalPeriod(
   return { id: next.id, startDate: next.start_date };
 }
 
-interface Balance {
-  account_id: string;
-  code: string;
-  currency: string;
-  foreign: string;
-  book: string;
-}
+type Balance = ForeignBalanceRow;
 
-/** The foreign balances of receivables, payables and banks at the period's last day, per account and currency. */
+/**
+ * The foreign balances of receivables, payables and banks at the period's last
+ * day, per account and currency. MNE-001-617: the sum is the report layer's
+ * (T14 · #101), the same statement on the run's transaction client.
+ */
 async function foreignBalances(
   client: pg.PoolClient,
   entityId: string,
   closingDate: string,
   functional: string
 ): Promise<Balance[]> {
-  const r = await client.query<Balance>(
-    `WITH scope AS (
-       SELECT account_id FROM account_roles
-        WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco')
-       UNION
-       SELECT gl_account_id FROM bank_accounts WHERE entity_id = $1
-     )
-     SELECT l.account_id, a.code, l.currency_code AS currency,
-            SUM(COALESCE(l.foreign_debit, 0) - COALESCE(l.foreign_credit, 0))::text AS foreign,
-            SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS book
-       FROM journal_entry_lines l
-       JOIN journal_entries je ON je.id = l.journal_entry_id
-       JOIN accounts a ON a.id = l.account_id AND a.entity_id = je.entity_id
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.entry_date <= $2::date
-        AND l.account_id IN (SELECT account_id FROM scope)
-        AND l.currency_code IS NOT NULL AND l.currency_code <> $3
-      GROUP BY l.account_id, a.code, l.currency_code
-      ORDER BY a.code, l.currency_code`,
-    [entityId, closingDate, functional]
-  );
-  return r.rows;
+  return queryForeignBalancesByAccount(entityId, closingDate, functional, client);
 }
 
 async function closingRate(
@@ -252,8 +235,10 @@ async function closingRate(
   if (!(policy.value in CLOSING_SOURCE)) {
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `closing_exchange_rate_source is "${policy.value}" and this reader only understands ` +
-        `${Object.keys(CLOSING_SOURCE).join(', ')}. Fix it with mnemosine pending.`
+      {
+        key: 'error.FX_POLITICA_DESCONOCIDA.policy',
+        params: { policy: 'closing_exchange_rate_source', value: policy.value, known: Object.keys(CLOSING_SOURCE).join(', ') },
+      }
     );
   }
   const source = CLOSING_SOURCE[policy.value];
@@ -271,8 +256,10 @@ async function assertReversalPolicy(client: pg.PoolClient, ctx: { tenantId: stri
   if (!REVERSAL_POLICY.has(policy.value)) {
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `fx_revaluation_reversal is "${policy.value}" and this reader only understands ` +
-        `${[...REVERSAL_POLICY].join(', ')}. Fix it with mnemosine pending.`
+      {
+        key: 'error.FX_POLITICA_DESCONOCIDA.policy',
+        params: { policy: 'fx_revaluation_reversal', value: policy.value, known: [...REVERSAL_POLICY].join(', ') },
+      }
     );
   }
 }
@@ -283,7 +270,7 @@ async function roleAccount(client: pg.PoolClient, entityId: string, role: string
     [entityId, role]
   );
   if (!r.rows[0]) {
-    throw new AccountingError('MISSING_ROLE_ACCOUNT', `No account is mapped to the role "${role}" in this entity.`);
+    throw new AccountingError('MISSING_ROLE_ACCOUNT', { key: 'error.MISSING_ROLE_ACCOUNT.fx_revaluation', params: { role } });
   }
   return r.rows[0].account_id;
 }
@@ -340,22 +327,15 @@ async function assertMarkerMatchesLedger(
   let agrees = inLedger.size === inMarker.size && [...inMarker].every((id) => inLedger.has(id));
   if (agrees && inLedger.size > 0) {
     // The gain and loss lines are the counterpart, not a revalued balance.
-    const net = await client.query<{ account_id: string; net: string }>(
-      `SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net
-         FROM journal_entry_lines
-        WHERE journal_entry_id = ANY($1::uuid[])
-          AND account_id NOT IN (SELECT account_id FROM account_roles
-                                  WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria'))
-        GROUP BY account_id`,
-      [[...inLedger], entityId]
-    );
+    // MNE-001-617: the sum is the report layer's (T14 · #101), on this client.
+    const net = await queryRevaluationNetByAccount(entityId, [...inLedger], client);
     const markerNet = new Map<string, Decimal>();
     for (const run of prior) {
       for (const l of run.lines) {
         markerNet.set(l.accountId, (markerNet.get(l.accountId) ?? new Decimal(0)).plus(l.difference));
       }
     }
-    const ledgerNet = new Map(net.rows.map((r) => [r.account_id, new Decimal(r.net)]));
+    const ledgerNet = new Map(net.map((r) => [r.account_id, new Decimal(r.net)]));
     const accounts = new Set([...markerNet.keys(), ...ledgerNet.keys()]);
     agrees = [...accounts].every((a) => (ledgerNet.get(a) ?? new Decimal(0)).equals(markerNet.get(a) ?? new Decimal(0)));
   }

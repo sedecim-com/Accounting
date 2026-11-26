@@ -77,6 +77,16 @@ import {
   totalTrialBalance,
   getTrialBalance,
   queryAccountAncestry,
+  queryLedgerNetsWithoutReversalPairs,
+  queryInvoiceEntryNetOnAccount,
+  queryHeldNoteIvaByCashedReceipt,
+  queryIssuedInvoiceVatTaken,
+  queryVatOvercreditBills,
+  postedBalanceOnAccountSql,
+  queryPostedLinesOnAccount,
+  queryEntriesMovingAccounts,
+  queryEntriesNetOnAccounts,
+  queryWithholdingNetByEntry,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -84,6 +94,13 @@ import {
   queryIncomeStatementRows,
   queryPeriodMovementByAccount,
   queryEntryMovementsTouching,
+  queryOpeningAndMovement,
+  queryEntryEffectByCounterpart,
+  queryForeignBalancesByAccount,
+  queryRevaluationNetByAccount,
+  queryIepsParkedByInvoice, queryIepsMovedForInvoice, queryIepsKeptOnAccount, queryIepsTakenByRows,
+  queryBankBookBalanceAsOf,
+  queryFeeVatParked,
   buildIncomeStatementSection,
   getIncomeStatement,
   queryLedgerRows,
@@ -98,8 +115,10 @@ import {
   getPeriodMovementByAccountType,
 } from '../../../src/services/reporting/report-service.js';
 import { query, currentTenant } from '../../../src/database/connection.js';
+import { amountDueAsOfSql, voidedAfterSql } from '../../../src/services/ar/customer-service.js';
+import { sqlKeepsMexicanBooks } from '../../../src/services/jurisdiction/jurisdiction.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
-import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
+import { criterioDeCierreEnInformes, predicadoSinCierre } from '../../../src/services/reporting/criterio-cierre.js';
 import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -1062,6 +1081,94 @@ describe('the result of the period belongs to equity', () => {
   });
 });
 
+// ============================================================
+// MNE-001-652 (#597) · CONTRIBUTED CAPITAL, THEN EARNED CAPITAL
+//
+// NIF B-6 presents capital contable as contributed capital plus earned
+// capital, and NIF C-11 (migration 346's header) puts the reserves, the
+// accumulated results and the ORI in earned capital; the result of the period
+// is an accumulated result not yet swept. Hand figures: bank 3,800.00 = share
+// capital 2,500.00 + legal reserve 100.00 + prior years 400.00 + ORI 500.00 +
+// the result of the period 300.00. Earned capital: 1,300.00.
+//
+// The ORI account is numbered 3050 on purpose, BEFORE the reserve: the order
+// of the statement must come from what each line is, not from a code.
+// ============================================================
+
+describe('equity presents contributed capital, then earned capital (MNE-001-652)', () => {
+  const EQUITY_ROWS = [
+    { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '3800.0000' },
+    { id: 'o', code: '3050', name: 'Superávit por revaluación', account_type: 'equity', fs_category: 'ori', balance: '-500.0000' },
+    { id: 'c', code: '3100', name: 'Capital social', account_type: 'equity', fs_category: 'equity', balance: '-2500.0000' },
+    { id: 'r', code: '3150', name: 'Reserva legal', account_type: 'equity', fs_category: 'earned_capital', balance: '-100.0000' },
+    { id: 'p', code: '3200', name: 'Resultado de ejercicios anteriores', account_type: 'equity', fs_category: 'earned_capital', balance: '-400.0000' },
+  ];
+
+  async function sheet(rows: typeof EQUITY_ROWS, unclosed: string) {
+    mockQuery.mockResolvedValueOnce({ rows });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: unclosed }] });
+    return getBalanceSheet(ENTITY, { asOfDate: '2026-12-31' });
+  }
+
+  it('orders the subsections contributed, reserves and results, result of the period, ORI', async () => {
+    const bs = await sheet(EQUITY_ROWS, '-300.0000');
+    expect(bs.equity.subsections.map((s) => [s.key, s.total])).toEqual([
+      ['equity', '2500.0000'],
+      ['earned_capital', '500.0000'],
+      ['result_of_the_period', '300.0000'],
+      ['ori', '500.0000'],
+    ]);
+    expect(bs.equity.total).toBe('3800.0000');
+    expect(bs.is_balanced).toBe(true);
+    // Still two queries: the grouping reads what the one statement query brought.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('totals earned capital over the reserves, the results, the result of the period and the ORI', async () => {
+    const bs = await sheet(EQUITY_ROWS, '-300.0000');
+    expect(bs.earned_capital).toEqual({
+      key: 'earned_capital',
+      total: '1300.0000',
+      subsections: ['earned_capital', 'result_of_the_period', 'ori'],
+    });
+    // Contributed + earned = equity, with nothing left over.
+    expect(Number(bs.equity.subsections[0].total) + Number(bs.earned_capital.total)).toBe(3800);
+  });
+
+  it('a loss of the period reduces earned capital', async () => {
+    const bs = await sheet(EQUITY_ROWS, '200.0000');
+    expect(bs.earned_capital.total).toBe('800.0000');
+    expect(bs.equity.total).toBe('3300.0000');
+  });
+
+  it('an entity with only contributed capital has no earned capital to present', async () => {
+    const bs = await sheet(
+      [
+        { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '2500.0000' },
+        { id: 'c', code: '3100', name: 'Capital social', account_type: 'equity', fs_category: 'equity', balance: '-2500.0000' },
+      ],
+      '0'
+    );
+    expect(bs.earned_capital).toEqual({ key: 'earned_capital', total: '0.0000', subsections: [] });
+  });
+
+  it('a category outside both components keeps its own line, after earned capital', async () => {
+    // An equity account with no fs_category (`other`), numbered first of all.
+    const bs = await sheet(
+      [
+        { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '3810.0000' },
+        { id: 'x', code: '3010', name: 'Sin clasificar', account_type: 'equity', fs_category: '', balance: '-10.0000' },
+        ...EQUITY_ROWS.slice(1),
+      ],
+      '-300.0000'
+    );
+    expect(bs.equity.subsections.map((s) => s.key)).toEqual([
+      'equity', 'earned_capital', 'result_of_the_period', 'ori', 'other',
+    ]);
+    expect(bs.earned_capital.total).toBe('1300.0000');
+  });
+});
+
 describe('income statement', () => {
   it('keeps the historical HAVING by default and widens it only on request', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
@@ -1201,6 +1308,378 @@ describe('the cash-flow statement reads (MNE-001-052)', () => {
   });
 });
 
+describe('the cash-flow tie-out read (MNE-001-433)', () => {
+  it('queryOpeningAndMovement: one statement, the opening before the range and the movement inside it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '3800.0000', movement: '977.0000' }] });
+    const r = await queryOpeningAndMovement(ENTITY, {
+      accountIds: ['id-1110', 'id-1111'],
+      startDate: '2026-02-01',
+      endDate: '2026-02-28',
+    });
+    expect(r).toEqual({ opening: '3800.0000', movement: '977.0000' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const s = sql(0);
+    expect(s).toMatch(
+      /COALESCE\(SUM\(CASE WHEN je\.entry_date < \$2 THEN COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\) ELSE 0 END\), 0\)::text AS opening/
+    );
+    expect(s).toMatch(
+      /COALESCE\(SUM\(CASE WHEN je\.entry_date BETWEEN \$2 AND \$3 THEN COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\) ELSE 0 END\), 0\)::text AS movement/
+    );
+    // The inner (jel JOIN je) pair, with the entity bound on the entry's side
+    // and on the account's, and the cut at the end of the range.
+    expect(s).toMatch(
+      /FROM \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.status = 'posted' AND je\.entity_id = \$1 AND je\.entry_date <= \$3\) JOIN accounts a ON a\.id = jel\.account_id AND a\.entity_id = \$1 WHERE jel\.account_id = ANY\(\$4::uuid\[\]\)$/
+    );
+    expect(s).not.toMatch(/LEFT JOIN|GROUP BY/);
+    expect(params(0)).toEqual([ENTITY, '2026-02-01', '2026-02-28', ['id-1110', 'id-1111']]);
+  });
+
+  it('counts the closing entries and reads no closing policy: a closing entry never touches cash', async () => {
+    vi.mocked(criterioDeCierreEnInformes).mockClear();
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '0', movement: '0' }] });
+    await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-12-31' });
+    expect(sql(0)).not.toContain('entry_type');
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('a range that ends before it starts goes to Postgres as given, so its answer is today\'s', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ opening: '5000.0000', movement: '0' }] });
+    const r = await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-03-01', endDate: '2026-01-15' });
+    expect(r).toEqual({ opening: '5000.0000', movement: '0' });
+    expect(params(0)).toEqual([ENTITY, '2026-03-01', '2026-01-15', ['id-1111']]);
+  });
+
+  it('a missing row reads as zero, as the consumer read it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(
+      await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-01-31' })
+    ).toEqual({ opening: '0', movement: '0' });
+  });
+
+  it('does not repeat the sum E1.2 counts five times in this file', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryOpeningAndMovement(ENTITY, { accountIds: ['id-1111'], startDate: '2026-01-01', endDate: '2026-01-31' });
+    expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
+  });
+});
+
+describe('the residue suspects read (MNE-001-434)', () => {
+  const OPTS = { accountIds: ['id-1110', 'id-1111'], startDate: '2026-01-01', endDate: '2026-01-31', limit: 40 };
+  const ROW = {
+    entry_number: 'PD-0003',
+    entry_date: '2026-01-15',
+    description: 'Amortización de préstamo con intereses',
+    effect: '-2000.000000000000000000',
+    counterpart_code: '3100',
+    counterpart_name: 'Capital Social',
+    counterpart_type: 'equity',
+    counterpart_subtype: null,
+    counterpart_fs: 'contributed_capital',
+    counterpart_role: null,
+  };
+
+  it('queryEntryEffectByCounterpart: one statement, the net on cash per entry spread over its other lines', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [ROW] });
+    const r = await queryEntryEffectByCounterpart(ENTITY, OPTS);
+    expect(r).toEqual([ROW]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const s = sql(0);
+    // Each posted entry's net on the cash ids, in the range, only when it moved
+    // cash: the inner (jel JOIN je) pair, with the entity and the range inside.
+    expect(s).toMatch(
+      /^WITH cash AS \( SELECT jel\.journal_entry_id AS je_id, SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) AS effect FROM \(journal_entry_lines jel JOIN journal_entries je ON je\.id = jel\.journal_entry_id AND je\.status = 'posted' AND je\.entity_id = \$1 AND je\.entry_date BETWEEN \$2 AND \$3\) WHERE jel\.account_id = ANY\(\$4::uuid\[\]\) GROUP BY jel\.journal_entry_id HAVING SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) <> 0 \)/
+    );
+    // The split stays in SQL numeric: effect × line ÷ Σ lines of the entry,
+    // over the lines that are not cash.
+    expect(s).toContain(
+      'counterparts AS ( SELECT e.je_id, jel.account_id, e.effect * (COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0)) / NULLIF(SUM(COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0)) OVER (PARTITION BY e.je_id), 0) AS effect FROM cash e JOIN journal_entry_lines jel ON jel.journal_entry_id = e.je_id WHERE NOT (jel.account_id = ANY($4::uuid[])) )'
+    );
+    // The entity bound on the entry's side, the account's and the role's.
+    expect(s).toContain(
+      'FROM counterparts c JOIN journal_entries je ON je.id = c.je_id AND je.entity_id = $1 JOIN accounts a ON a.id = c.account_id AND a.entity_id = $1 LEFT JOIN account_roles ar ON ar.account_id = a.id AND ar.entity_id = $1'
+    );
+    expect(s).toContain('SUM(c.effect)::text AS effect');
+    expect(s).toContain('MIN(ar.role) AS counterpart_role');
+    expect(s).toMatch(
+      /GROUP BY je\.entry_number, je\.entry_date::text, je\.description, a\.code, a\.name, a\.account_type, a\.account_subtype, a\.fs_category ORDER BY ABS\(SUM\(c\.effect\)\) DESC, je\.entry_date::text, je\.entry_number LIMIT \$5$/
+    );
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-01-31', ['id-1110', 'id-1111'], 40]);
+  });
+
+  it('reads no table outside the ledger, and no closing policy: a closing entry never touches cash', async () => {
+    vi.mocked(criterioDeCierreEnInformes).mockClear();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntryEffectByCounterpart(ENTITY, OPTS)).toEqual([]);
+    expect(sql(0)).not.toMatch(/fixed_assets|EXISTS|entry_type/);
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat the sum E1.2 counts five times in this file', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryEffectByCounterpart(ENTITY, OPTS);
+    expect(sql(0)).not.toContain('COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))');
+  });
+});
+
+// MNE-001-617 · the two ledger sums of the closing revaluation, moved here
+// verbatim from fx-revaluation.ts. Each test pins the whole statement, the
+// parameter order and the connection it runs on.
+describe('the FX revaluation reads (MNE-001-617)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+
+  it('foreign balances: per account and currency, the scope\'s FX columns and book value, on the caller\'s client', async () => {
+    // By hand: USD 1 000.0000 in 1150 born at 17.50 is 17 500.0000 of book value.
+    const rows = [{ account_id: 'acc-1150', code: '1150', currency: 'USD', foreign: '1000.0000', book: '17500.0000' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryForeignBalancesByAccount(ENTITY, '2026-08-31', 'MXN', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-08-31', 'MXN']);
+    expect(folded(text)).toBe(
+      "WITH scope AS ( SELECT account_id FROM account_roles WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco') " +
+        'UNION SELECT gl_account_id FROM bank_accounts WHERE entity_id = $1 ) ' +
+        'SELECT l.account_id, a.code, l.currency_code AS currency, ' +
+        'SUM(COALESCE(l.foreign_debit, 0) - COALESCE(l.foreign_credit, 0))::text AS foreign, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS book ' +
+        'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+        'JOIN accounts a ON a.id = l.account_id AND a.entity_id = je.entity_id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' AND je.entry_date <= $2::date " +
+        'AND l.account_id IN (SELECT account_id FROM scope) ' +
+        'AND l.currency_code IS NOT NULL AND l.currency_code <> $3 ' +
+        'GROUP BY l.account_id, a.code, l.currency_code ORDER BY a.code, l.currency_code'
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('foreign balances read through the pool without a client, and nothing foreign is an empty list', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryForeignBalancesByAccount(ENTITY, '2026-08-31', 'MXN')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-08-31', 'MXN']);
+  });
+
+  it('the revaluation net: per account over the given entries, the gain and loss accounts left out, on the caller\'s client', async () => {
+    // By hand: +700.0000 then −700.0000 on 1150 nets to 0.0000.
+    const rows = [{ account_id: 'acc-1150', net: '0.0000' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const ids = ['je-r1', 'je-r2'];
+    const out = await queryRevaluationNetByAccount(ENTITY, ids, { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([['je-r1', 'je-r2'], ENTITY]);
+    // A copy, not the caller's array.
+    expect((values as unknown[])[0]).not.toBe(ids);
+    expect(folded(text)).toBe(
+      'SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net ' +
+        'FROM journal_entry_lines WHERE journal_entry_id = ANY($1::uuid[]) ' +
+        'AND account_id NOT IN (SELECT account_id FROM account_roles ' +
+        "WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria')) " +
+        'GROUP BY account_id'
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('the revaluation net reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryRevaluationNetByAccount(ENTITY, ['je-r1'])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([['je-r1'], ENTITY]);
+  });
+});
+
+// MNE-001-618 · the four ledger sums of the IEPS on cash basis, moved here
+// verbatim from ieps-cash-basis.ts. Each test pins the whole statement, the
+// parameter order and the connection it runs on.
+describe('the IEPS cash-basis reads (MNE-001-618)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const FROM_ROLES =
+    'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+    'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL ';
+  const LIVE = "WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false ";
+  const onClient = (rows: unknown[]) => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    return { clientQuery, client: { query: clientQuery } as never };
+  };
+  const call = (clientQuery: Mock) => clientQuery.mock.calls[0] as [string, unknown[]];
+
+  it('parked: credit − debit on the uncollected role of the invoice\'s own posted, unreversed entry, on the caller\'s client', async () => {
+    // By hand: IEPS 8% on a 1 000.00 sale parks 80.0000 in 2181.
+    const { clientQuery, client } = onClient([{ ieps_parked: '80.0000' }]);
+    expect(await queryIepsParkedByInvoice(ENTITY, 'inv-a', client)).toBe('80.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'inv-a', 'ieps_trasladado_no_cobrado']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS ieps_parked ' +
+        FROM_ROLES +
+        "WHERE je.entity_id = $1 AND je.source_type = 'invoice' AND je.source_id = $2 " +
+        "AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL AND ar.role = $3"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('parked reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsParkedByInvoice(ENTITY, 'inv-a')).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'inv-a', 'ieps_trasladado_no_cobrado']);
+  });
+
+  it('moved: debit − credit on the uncollected role over the invoice\'s tagged lines, by one receipt or by all, on the caller\'s client', async () => {
+    // By hand: a collection of half the invoice moved 80.0000 × 1/2 = 40.0000 out of 2181.
+    const { clientQuery, client } = onClient([{ moved: '40.0000' }]);
+    expect(await queryIepsMovedForInvoice(ENTITY, 'inv-a', 'pay-1', client)).toBe('40.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', 'inv-a', 'pay-1']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS moved ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = $2 AND l.tags -> 'ieps_release' ->> 'invoice_id' = $3 " +
+        "AND ($4::text IS NULL OR l.tags -> 'ieps_release' ->> 'payment_id' = $4::text)"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('moved by every receipt binds a null receipt, through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsMovedForInvoice(ENTITY, 'inv-a', null)).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', 'inv-a', null]);
+  });
+
+  it('kept: credit − debit over both IEPS roles on the receipt\'s tagged lines, on the caller\'s client', async () => {
+    // By hand: an unapply that kept 80.0000 caused left 2181 Cr 80.0000 alone on the receipt's tag.
+    const { clientQuery, client } = onClient([{ kept: '80.0000' }]);
+    expect(await queryIepsKeptOnAccount(ENTITY, 'pay-1', client)).toBe('80.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], 'pay-1']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = ANY($2::text[]) AND l.tags -> 'ieps_release' ->> 'payment_id' = $3"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('kept reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsKeptOnAccount(ENTITY, 'pay-1')).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], 'pay-1']);
+  });
+
+  it('taken: per allocation row, the share released from 2181 and the net over both roles, in one statement on the caller\'s client', async () => {
+    // By hand: row-1 released nothing and took 80 × 1 000 / 1 080 = 74.0741 from the cash on account.
+    const rows = [{ allocation_id: 'row-1', released: '0', taken: '74.0741' }];
+    const { clientQuery, client } = onClient(rows);
+    const ids = ['row-1', 'row-2'];
+    expect(await queryIepsTakenByRows(ENTITY, ids, client)).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1', 'row-2']]);
+    // A copy, not the caller's array.
+    expect(values[3]).not.toBe(ids);
+    expect(folded(text)).toBe(
+      "SELECT l.tags -> 'ieps_release' ->> 'allocation_id' AS allocation_id, " +
+        'SUM(CASE WHEN ar.role = $2 THEN COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0) ELSE 0 END)::text AS released, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS taken ' +
+        FROM_ROLES +
+        LIVE +
+        "AND ar.role = ANY($3::text[]) AND l.tags -> 'ieps_release' ->> 'allocation_id' = ANY($4::text[]) GROUP BY 1"
+    );
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('taken reads through the pool without a client, and no tagged row is an empty list', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIepsTakenByRows(ENTITY, ['row-1'])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'ieps_trasladado_no_cobrado', ['ieps_trasladado_no_cobrado', 'ieps_por_pagar'], ['row-1']]);
+  });
+});
+
+// MNE-001-621 · the bank reconciliation's book balance (saldoDeLibros) and
+// the VAT a bank fee still has parked (releaseFeeVat), moved here from
+// reconciliation-service.ts and treasury-posting.ts. Each test pins the whole
+// SQL, the parameter order and the connection it runs on.
+describe('the bank reconciliation and fee VAT reads (MNE-001-621)', () => {
+  /** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+  const COUNTED_BY_E1_2 = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const onClient = (rows: unknown[]) => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    return { clientQuery, client: { query: clientQuery } as never };
+  };
+  const call = (clientQuery: Mock) => clientQuery.mock.calls[0] as [string, unknown[]];
+  const BOOK_BALANCE =
+    'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance ' +
+    'FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journal_entry_id ' +
+    'JOIN bank_accounts ba ON ba.gl_account_id = l.account_id ' +
+    "WHERE ba.id = $1 AND ba.entity_id = $2 AND j.entity_id = $2 AND j.status = 'posted' " +
+    'AND j.entry_date <= $3::date';
+  const FEE_VAT_PARKED =
+    'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked ' +
+    'FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id ' +
+    'WHERE je.entity_id = $1 AND je.source_type = ANY($2::text[]) AND je.source_id = $3 ' +
+    "AND je.status = 'posted' AND l.account_id = $4";
+
+  it('book balance: the posted lines on the bank account\'s GL account up to a date, bound to the entity on both ends, on the caller\'s client', async () => {
+    // By hand: 265 000.00 in the books at 31 Jul 2026.
+    const { clientQuery, client } = onClient([{ balance: '265000.0000' }]);
+    expect(await queryBankBookBalanceAsOf(ENTITY, 'bank-1', '2026-07-31', client)).toBe('265000.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = call(clientQuery);
+    expect(values).toEqual(['bank-1', ENTITY, '2026-07-31']);
+    expect(folded(text)).toBe(BOOK_BALANCE);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('book balance reads through the pool without a client', async () => {
+    // By hand: 10 000.00 − 100.00 = 9 900.00 at 31 Aug 2026.
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '9900.0000' }] });
+    expect(await queryBankBookBalanceAsOf(ENTITY, 'bank-1', '2026-08-31')).toBe('9900.0000');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(BOOK_BALANCE);
+    expect(params(0)).toEqual(['bank-1', ENTITY, '2026-08-31']);
+  });
+
+  it('fee VAT parked: the account\'s posted net over the movement\'s fee and release entries, on the caller\'s client', async () => {
+    // By hand: a fee of 116.00 at 16% parked Dr 16.0000 in 1135, nothing released yet.
+    const { clientQuery, client } = onClient([{ parked: '16.0000' }]);
+    const values: Parameters<typeof queryFeeVatParked>[0] = [ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135'];
+    expect(await queryFeeVatParked(values, client)).toBe('16.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, sent] = call(clientQuery);
+    expect(sent).toEqual([ENTITY, ['bank_fee', 'bank_fee_vat_release'], 'mov-1', 'acc-1135']);
+    expect(folded(text)).toBe(FEE_VAT_PARKED);
+    expect(String(text)).not.toContain(COUNTED_BY_E1_2);
+  });
+
+  it('fee VAT parked reads through the pool without a client, and no row is 0', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryFeeVatParked([ENTITY, ['bank_fee'], 'mov-1', 'acc-1135'])).toBe('0');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(folded(sql(0))).toBe(FEE_VAT_PARKED);
+    expect(params(0)).toEqual([ENTITY, ['bank_fee'], 'mov-1', 'acc-1135']);
+  });
+});
+
 describe('general ledger', () => {
   it('filters by account id, code and dates in a stable parameter order', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
@@ -1276,6 +1755,31 @@ describe('ageing', () => {
     await queryAgedPayableRows(ENTITY, { asOfDate: '2026-08-25', order: 'x; DROP TABLE bills' as never });
     expect(sql(0)).toMatch(/ORDER BY v\.company_name, b\.due_date$/);
     expect(sql(0)).not.toMatch(/DROP TABLE/);
+  });
+
+  // MNE-001-648 (#596): a stated cutoff reads what was owed that day.
+  it('receivables as of the cutoff: the balance of that day, its book value and the void after it, in one query', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAgedReceivableRows(ENTITY, { asOfDate: '2026-08-31', reconstruct: true });
+    const flat = (text: string) => text.replace(/\s+/g, ' ');
+    expect(sql(0)).toContain(flat(`CROSS JOIN LATERAL (SELECT ${amountDueAsOfSql('$2')} AS amount_due OFFSET 0) d`));
+    expect(sql(0)).toContain(flat(`${bookAmountDueSql('i', '$1', 'd.amount_due')} as book_amount_due`));
+    expect(sql(0)).toMatch(/ROUND\(d\.amount_due \* i\.exchange_rate, 4\)/);
+    expect(sql(0)).toMatch(/\(\$2::date - i\.due_date\) as days_overdue/);
+    expect(sql(0)).toMatch(/WHERE i\.entity_id = \$1 AND i\.invoice_date <= \$2::date/);
+    expect(sql(0)).toContain(flat(`(i.status <> ALL($3::text[]) OR (i.status = 'void' AND ${voidedAfterSql('$2')}))`));
+    expect(sql(0)).toMatch(/AND d\.amount_due > 0/);
+    expect(sql(0)).not.toMatch(/i\.amount_due/);
+    expect(params(0)).toEqual([ENTITY, '2026-08-31', ['draft', 'void', 'cancelled']]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('the report says which balances it read; payables read the current ones', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    expect((await getAgedReceivables(ENTITY, { asOfDate: '2026-08-31', reconstruct: true })).balance_basis).toBe('as_of_date');
+    expect((await getAgedReceivables(ENTITY, { asOfDate: '2026-08-31' })).balance_basis).toBe('current');
+    expect((await getAgedPayables(ENTITY, { asOfDate: '2026-08-31' })).balance_basis).toBe('current');
+    expect(sql(1)).toMatch(/i\.status IN \('sent', 'viewed', 'partially_paid', 'overdue'\) AND i\.amount_due > 0/);
   });
 
   // MNE-001-647 (#596). MXN 1 000 + 2 000 and USD 3 000 at 17.50 (book
@@ -1632,5 +2136,371 @@ describe('queryAccountAncestry — one recursive CTE, scoped and cycle-safe', ()
     expect(sql(0)).not.toContain('UNION ALL');
     expect(m.get('a')).toEqual({ level: 1, ancestors: [] });
     expect(m.get('b')).toEqual({ level: 2, ancestors: ['a'] });
+  });
+});
+
+// ============================================================
+// MNE-001-616 · the three ledger sums that lived in ar-ap-posting.ts and
+// opening-balance.ts, moved here verbatim. Each test pins the predicates
+// that decide the figure, the parameter order, and the connection it runs on.
+// ============================================================
+
+/** E1.2 counts five copies of this sum in report-service.ts: a moved read must not add a sixth. */
+const E1_2_COUNTED_SUM = 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))';
+
+describe('queryLedgerNetsWithoutReversalPairs — the opening check\'s ledger (MNE-001-616)', () => {
+  it('every account of the entity, with its parent, net at the cut, reversal pairs left out', async () => {
+    const rows = [
+      { id: 'id-1110', code: '1110', parent_code: null, normal_balance: 'debit', codigo_agrupador_sat: '102.01', net: '1000.0000' },
+      { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', codigo_agrupador_sat: null, net: '-1000.0000' },
+    ];
+    mockQuery.mockResolvedValueOnce({ rows });
+    expect(await queryLedgerNetsWithoutReversalPairs(ENTITY, '2026-01-01')).toEqual(rows);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01']);
+    const s = sql(0);
+    expect(s).toMatch(
+      /^SELECT a\.id, a\.code, p\.code AS parent_code, a\.normal_balance, a\.codigo_agrupador_sat, COALESCE\(SUM\(COALESCE\(l\.debit_amount, 0\) - COALESCE\(l\.credit_amount, 0\)\) FILTER \(WHERE e\.id IS NOT NULL\), 0\)::text AS net FROM accounts a/
+    );
+    // An account without lines still comes back, at zero: LEFT JOINs, and the
+    // entry's predicates inside its ON so a draft line is dropped, not its account.
+    expect(s).toContain('LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id');
+    expect(s).toContain('LEFT JOIN journal_entry_lines l ON l.account_id = a.id');
+    expect(s).toContain(
+      "LEFT JOIN journal_entries e ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id AND e.status = 'posted' AND e.entry_date <= $2::date AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL"
+    );
+    expect(s).toMatch(/WHERE a\.entity_id = \$1 GROUP BY a\.id, a\.code, p\.code, a\.normal_balance, a\.codigo_agrupador_sat$/);
+    expect(s).not.toContain('entry_type');
+    expect(s).not.toContain(E1_2_COUNTED_SUM);
+  });
+});
+
+describe('queryInvoiceEntryNetOnAccount — what a receivable was born with (MNE-001-616)', () => {
+  it('the net the invoice\'s own entry left on the account, on the caller\'s transaction client', async () => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [{ born: '17500.0001' }] });
+    const born = await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc', { query: clientQuery } as never);
+    expect(born).toBe('17500.0001');
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(String(text).replace(/\s+/g, ' ')).toBe(
+      'SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS born FROM invoices i ' +
+        'JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id ' +
+        'WHERE i.id = $1 AND i.entity_id = $2 AND l.account_id = $3'
+    );
+    expect(values).toEqual(['inv-1', ENTITY, 'acc-cxc']);
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('reads through the pool without a client, and a document with no line reads as null', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ born: null }] });
+    expect(await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc')).toBeNull();
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryInvoiceEntryNetOnAccount(ENTITY, 'inv-1', 'acc-cxc')).toBeNull();
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(params(0)).toEqual(['inv-1', ENTITY, 'acc-cxc']);
+  });
+});
+
+describe('queryHeldNoteIvaByCashedReceipt — the held IVA a reversed note gives back (MNE-001-616)', () => {
+  it('one statement on the caller\'s client: per cashed receipt, the note\'s held lines summed, entity-scoped', async () => {
+    const rows = [{ payment_id: 'pay-A', payment_number: 'PMT-A', invoice_id: 'inv-S', iva: '40.0000', day: '2026-07-10' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryHeldNoteIvaByCashedReceipt(
+      ENTITY,
+      { noteEntryId: 'note-je', mirrorEntryId: 'mirror-je' },
+      { query: clientQuery } as never
+    );
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    const s = String(text).replace(/\s+/g, ' ');
+    expect(values).toEqual([ENTITY, 'note-je', 'mirror-je']);
+    expect(s).toContain("SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS iva");
+    expect(s).toContain('GREATEST(m.entry_date, cp.check_cashed_date)::text AS day');
+    expect(s).toContain('JOIN journal_entries je ON je.id = l.journal_entry_id AND je.id = $2 AND je.entity_id = $1');
+    expect(s).toContain('JOIN journal_entries m ON m.id = $3 AND m.entity_id = $1');
+    expect(s).toContain(
+      "JOIN customer_payments cp ON cp.id::text = l.tags -> 'held_restitution' ->> 'payment_id' AND cp.entity_id = $1 " +
+        "AND cp.status = 'completed' AND cp.check_cashed_tx_id IS NOT NULL"
+    );
+    expect(s).toContain("WHERE l.tags ? 'held_restitution'");
+    // The cashing is asked for, not joined: a join would sum the note's lines once per cashing entry.
+    expect(s).toContain(
+      "AND EXISTS (SELECT 1 FROM journal_entries c WHERE c.entity_id = $1 AND c.source_type = 'customer_cheque_cashing' " +
+        "AND c.source_id = cp.id AND c.status = 'posted' AND c.reversed_by_entry_id IS NULL AND c.is_reversal = false)"
+    );
+    expect(s).toMatch(
+      /GROUP BY cp\.id, cp\.payment_number, l\.tags -> 'held_restitution' ->> 'invoice_id', m\.entry_date, cp\.check_cashed_date ORDER BY cp\.payment_number$/
+    );
+    expect(s).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryHeldNoteIvaByCashedReceipt(ENTITY, { noteEntryId: 'note-je', mirrorEntryId: 'mirror-je' })).toEqual([]);
+    expect(params(0)).toEqual([ENTITY, 'note-je', 'mirror-je']);
+  });
+});
+
+// MNE-001-619 · the two ledger sums of the IVA cash basis and of the
+// over-credit census, moved here verbatim with their statements from
+// iva-cash-basis.ts and vat-overcredit.ts. Each test pins the whole statement,
+// the parameter order and the connection it runs on.
+describe('the IVA cash-basis and over-credit reads (MNE-001-619)', () => {
+  const folded = (text: unknown) => String(text).replace(/\s+/g, ' ').trim();
+  const OVERCREDIT_KEYS = {
+    noteSource: 'vendor_credit_note',
+    correctionSource: 'vat_overcredit_correction',
+    pendingRole: 'iva_pendiente_acreditar',
+    creditableRole: 'iva_acreditable',
+  };
+
+  it('an issued invoice\'s VAT taken: releases, unstored cash and its notes\' share of 2125, on the caller\'s client', async () => {
+    // By hand: 1 000.00 + 160.00 IVA; a collection released 80.0000 and a
+    // credit note took 20.0000 back from 2125.
+    const row = { released: '80.0000', unknown: '0', notes: '20.0000', tax: '160.0000', total: '1160.0000' };
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [row] });
+    const out = await queryIssuedInvoiceVatTaken(ENTITY, 'inv-1', 'iva_trasladado_no_cobrado', { query: clientQuery } as never);
+    expect(out).toEqual(row);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, 'inv-1', 'iva_trasladado_no_cobrado']);
+    expect(folded(text)).toBe(
+      'SELECT COALESCE((SELECT SUM(pa.iva_reclass_amount) FROM payment_allocations pa ' +
+        'JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 ' +
+        'WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL), 0)::text AS released, ' +
+        'COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount) ' +
+        'FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1 ' +
+        'WHERE pa.invoice_id = i.id AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NULL), 0)::text AS unknown, ' +
+        'COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) FROM credit_notes cn ' +
+        "JOIN journal_entries je ON je.entity_id = $1 AND je.source_type = 'credit_note' AND je.source_id = cn.id " +
+        "AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL " +
+        'JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = $1 AND ar.role = $3 AND ar.qualifier IS NULL ' +
+        'WHERE cn.entity_id = $1 AND cn.invoice_id = i.id), 0)::text AS notes, ' +
+        'i.tax_amount::text AS tax, i.total_amount::text AS total FROM invoices i WHERE i.id = $2 AND i.entity_id = $1'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('an issued invoice\'s VAT taken reads through the pool without a client, and an unknown invoice is undefined', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryIssuedInvoiceVatTaken(ENTITY, 'inv-x', 'iva_trasladado_no_cobrado')).toBeUndefined();
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, 'inv-x', 'iva_trasladado_no_cobrado']);
+  });
+
+  it('the over-credit census\'s bills: per CFDI bill with IEPS, what corrections put back in 1135, on the caller\'s client', async () => {
+    // By hand: two corrections of 20.0000 and 10.0000 put back 30.0000.
+    const rows = [{ bill_id: 'bill-1', corrected: '30.0000', correction_entries: 'JE-1, JE-2', roles: 2 }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryVatOvercreditBills('ten-1', { entityId: ENTITY, billId: 'bill-1' }, OVERCREDIT_KEYS, {
+      query: clientQuery,
+    } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([
+      'ten-1', ENTITY, 'vendor_credit_note', 'vat_overcredit_correction', 'iva_pendiente_acreditar', 'iva_acreditable', 'bill-1',
+    ]);
+    expect(folded(text)).toBe(
+      folded(
+        'SELECT le.tenant_id, b.id AS bill_id, b.entity_id, le.name AS entity_name, b.bill_number, b.cfdi_uuid, ' +
+          'b.tax_amount::text AS header, b.total_amount::text AS total, b.amount_due::text AS amount_due, ' +
+          'b.currency_code, le.functional_currency, c.xml_taxes::text AS xml_taxes, c.tax_breakdown, ' +
+          'EXISTS (SELECT 1 FROM journal_entries n WHERE n.entity_id = b.entity_id AND n.source_type = $3 AND n.source_id = b.id ' +
+          "AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL) AS has_note, " +
+          'COALESCE((SELECT SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) FROM journal_entries k ' +
+          'JOIN journal_entry_lines l ON l.journal_entry_id = k.id ' +
+          'JOIN account_roles ar ON ar.account_id = l.account_id AND ar.entity_id = b.entity_id AND ar.role = $5 AND ar.qualifier IS NULL ' +
+          "WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id AND k.status = 'posted' " +
+          'AND k.reversed_by_entry_id IS NULL), 0)::text AS corrected, ' +
+          "(SELECT string_agg(k.entry_number, ', ' ORDER BY k.entry_date, k.entry_number) FROM journal_entries k " +
+          "WHERE k.entity_id = b.entity_id AND k.source_type = $4 AND k.source_id = b.id AND k.status = 'posted' " +
+          'AND k.reversed_by_entry_id IS NULL) AS correction_entries, ' +
+          '(SELECT count(DISTINCT ar.role)::int FROM account_roles ar WHERE ar.entity_id = b.entity_id AND ar.qualifier IS NULL ' +
+          'AND ar.role IN ($5, $6)) AS roles ' +
+          'FROM (SELECT DISTINCT ON (p.bill_id) p.bill_id, p.entity_id, p.tax_amount AS xml_taxes, p.tax_breakdown ' +
+          "FROM pre_registrations p WHERE p.source_type = 'xml_cfdi' AND p.bill_id IS NOT NULL " +
+          'ORDER BY p.bill_id, p.created_at, p.id) c ' +
+          'JOIN bills b ON b.id = c.bill_id AND b.entity_id = c.entity_id JOIN legal_entities le ON le.id = b.entity_id ' +
+          'WHERE le.tenant_id = $1 AND ($2::uuid IS NULL OR le.id = $2::uuid) AND ($7::uuid IS NULL OR b.id = $7::uuid) ' +
+          `AND ${sqlKeepsMexicanBooks('le')} AND b.status NOT IN ('void', 'cancelled') ` +
+          "AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.tax_breakdown->'traslados') = 'array' " +
+          "THEN c.tax_breakdown->'traslados' ELSE '[]'::jsonb END) x " +
+          "WHERE lpad(COALESCE(x->>'impuesto', ''), 3, '0') <> '002') " +
+          'ORDER BY le.name, b.bill_number, b.id'
+      )
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the over-credit census\'s bills read through the pool without a client, the whole tenant when no entity or bill is named', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryVatOvercreditBills('ten-1', { entityId: null, billId: null }, OVERCREDIT_KEYS)).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([
+      'ten-1', null, 'vendor_credit_note', 'vat_overcredit_correction', 'iva_pendiente_acreditar', 'iva_acreditable', null,
+    ]);
+  });
+});
+
+// MNE-001-620 · the two ledger sums of a bank account, moved here verbatim
+// from bank-account-service.ts: the book balance its projection reads per row
+// (a correlated subquery the projection composes, as bookAmountDueSql) and the
+// posted lines the remap guard counts. Each test pins the whole SQL, the
+// parameter order and the connection it runs on.
+describe('the bank account book balance reads (MNE-001-620)', () => {
+  it('the book balance of an account: the lateral\'s subquery, byte for byte, with the account and entity placed', () => {
+    const text = postedBalanceOnAccountSql('b.gl_account_id', 'b.entity_id');
+    expect(text).toBe(
+      'SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0) AS saldo\n' +
+        '        FROM journal_entry_lines l\n' +
+        '        JOIN journal_entries j ON j.id = l.journal_entry_id\n' +
+        '       WHERE l.account_id = b.gl_account_id\n' +
+        '         AND j.entity_id = b.entity_id\n' +
+        "         AND j.status = 'posted'"
+    );
+    expect(text).not.toContain(E1_2_COUNTED_SUM);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('the posted lines on an account: count and debit-positive net of posted entries, on the caller\'s client', async () => {
+    // By hand: Dr 1 000.00 and Cr 250.00 posted on the account, 2 lines, 750.0000.
+    const row = { lines: '2', balance: '750.0000' };
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [row] });
+    expect(await queryPostedLinesOnAccount(ENTITY, 'acc-1111', { query: clientQuery } as never)).toEqual(row);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual(['acc-1111', ENTITY]);
+    expect(String(text).replace(/\s+/g, ' ').trim()).toBe(
+      'SELECT COUNT(*)::text AS lines, ' +
+        'COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS balance ' +
+        'FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journal_entry_id ' +
+        "WHERE l.account_id = $1 AND j.entity_id = $2 AND j.status = 'posted'"
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the posted lines read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ lines: '0', balance: '0' }] });
+    expect(await queryPostedLinesOnAccount(ENTITY, 'acc-1112')).toEqual({ lines: '0', balance: '0' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual(['acc-1112', ENTITY]);
+  });
+});
+
+// MNE-001-622 · the three ledger sums of the monthly papers, moved here
+// verbatim: the entries that move a line's accounts and the entries a builder
+// chose, each with its net (filing-workpaper.ts), and the ISR withheld per
+// entry and account (provisional-income-tax.ts). Each test pins the whole SQL,
+// the parameter order and the connection it runs on.
+describe('the filing workpaper and provisional ISR reads (MNE-001-622)', () => {
+  const fold = (sql: unknown) => String(sql).replace(/\s+/g, ' ').trim();
+  const closing = fold(predicadoSinCierre());
+
+  it('the entries moving some accounts: posted, in the range, closing aside, on the caller\'s client', async () => {
+    // By hand: invoice JE-0007 credits 2130 by 160.00, payment JE-0009 debits it by 40.00.
+    const rows = [
+      { id: 'je-7', entry_number: 'JE-0007', entry_date: '2026-06-05', source_type: 'invoice', description: null, net: '-160.0000' },
+      { id: 'je-9', entry_number: 'JE-0009', entry_date: '2026-06-20', source_type: 'payment', description: null, net: '40.0000' },
+    ];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const accounts = ['acc-2130'];
+    const out = await queryEntriesMovingAccounts(ENTITY, accounts, '2026-06-01', '2026-06-30', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-06-01', '2026-06-30', ['acc-2130']]);
+    expect(values[3]).not.toBe(accounts);
+    expect(fold(text)).toBe(
+      "SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description, " +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net ' +
+        'FROM journal_entries je JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' " +
+        'AND je.entry_date >= $2::date AND je.entry_date <= $3::date ' +
+        'AND l.account_id = ANY($4::uuid[]) ' +
+        `${closing} ` +
+        'GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description ' +
+        'ORDER BY je.entry_date, je.entry_number'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the entries moving some accounts read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntriesMovingAccounts(ENTITY, ['acc-2130'], '2026-01-01', '2026-06-30')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-06-30', ['acc-2130']]);
+  });
+
+  it('entries by id: each once, with what it nets on the accounts, zero without a line there', async () => {
+    const rows = [
+      { id: 'je-7', entry_number: 'JE-0007', entry_date: '2026-06-05', source_type: 'invoice', description: null, net: '-160.0000' },
+      { id: 'je-8', entry_number: 'JE-0008', entry_date: '2026-06-06', source_type: null, description: 'otra', net: '0' },
+    ];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const accounts = ['acc-2130'];
+    const out = await queryEntriesNetOnAccounts(ENTITY, ['je-7', 'je-8', 'je-7'], accounts, { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, ['je-7', 'je-8'], ['acc-2130']]);
+    expect(values[2]).not.toBe(accounts);
+    expect(fold(text)).toBe(
+      "SELECT je.id, je.entry_number, to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date, je.source_type, je.description, " +
+        'COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)) ' +
+        'FILTER (WHERE l.account_id = ANY($3::uuid[])), 0)::text AS net ' +
+        'FROM journal_entries je LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[]) ' +
+        'GROUP BY je.id, je.entry_number, je.entry_date, je.source_type, je.description ' +
+        'ORDER BY je.entry_date, je.entry_number'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('entries by id read through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryEntriesNetOnAccounts(ENTITY, ['je-1'], [])).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, ['je-1'], []]);
+  });
+
+  it('the ISR withheld per entry and account: posted, in the range, closing aside, on the caller\'s client', async () => {
+    // By hand: an August withholding of 123.45 on 1145.
+    const rows = [{ entry_id: 'je-aug', source_type: null, reverses_entry_id: null, code: '1145', net: '123.4500' }];
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows });
+    const out = await queryWithholdingNetByEntry(ENTITY, ['acc-1145'], '2026-01-01', '2026-08-31', { query: clientQuery } as never);
+    expect(out).toEqual(rows);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = clientQuery.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([ENTITY, '2026-01-01', '2026-08-31', ['acc-1145']]);
+    expect(fold(text)).toBe(
+      'SELECT je.id AS entry_id, je.source_type, je.reverses_entry_id, a.code, ' +
+        'SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))::text AS net ' +
+        'FROM journal_entries je JOIN journal_entry_lines l ON l.journal_entry_id = je.id ' +
+        'JOIN accounts a ON a.id = l.account_id ' +
+        "WHERE je.entity_id = $1 AND je.status = 'posted' " +
+        'AND je.entry_date >= $2::date AND je.entry_date <= $3::date ' +
+        'AND l.account_id = ANY($4::uuid[]) ' +
+        `${closing} ` +
+        'GROUP BY je.id, je.source_type, je.reverses_entry_id, a.code ' +
+        'ORDER BY a.code'
+    );
+    expect(String(text)).not.toContain(E1_2_COUNTED_SUM);
+  });
+
+  it('the ISR withheld per entry reads through the pool without a client', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await queryWithholdingNetByEntry(ENTITY, ['acc-1145'], '2026-01-01', '2026-03-31')).toEqual([]);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY, '2026-01-01', '2026-03-31', ['acc-1145']]);
   });
 });

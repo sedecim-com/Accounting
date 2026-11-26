@@ -34,7 +34,7 @@ export interface SatCommandDeps {
   color: { dim: (s: string) => string; bold: (s: string) => string; cyan: (s: string) => string };
   colorErr: { dim: (s: string) => string; red: (s: string) => string };
   shutdown: (code: number) => Promise<never>;
-  reportError: (err: unknown) => void;
+  reportError: (err: unknown, exitCode?: number) => void;
   ask: (rl: readline.Interface, prompt: string) => Promise<string | null>;
 }
 

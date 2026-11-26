@@ -107,6 +107,48 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.ENTITY_NOT_FOUND.posting': 'La entidad {entity} no existe o no es visible.',
   'error.TENANT_NO_RESUELTO.entry':
     'No se pudo determinar el inquilino de la entidad {entity}: el asiento no se escribe sin rastro de auditoría.',
+  // part 2 (MNE-001-627); see en.ts
+  'error.CREDIT_NOTE_ALREADY_POSTED': '{note} ya tiene póliza o no es de esta entidad: no se enlaza otra.',
+  'error.FX_BANK_CURRENCY_MISMATCH':
+    '{payment} está en {currency}, pero su cuenta bancaria se lleva en {bankCurrency}. El banco convirtió el dinero a su propio tipo de cambio, que este pago no trae: regístralo contra una cuenta bancaria en {currency}, o registra la conversión por separado.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.no_live_allocation':
+    '{payment}: ninguna aplicación vigente a la factura {invoice} espera su IVA liberado, así que no se puede registrar el monto que una desaplicación volvería a aparcar.',
+  'error.PAYMENT_ALLOCATION_NOT_FOUND.release_not_recorded':
+    '{payment}: {unreleased} aplicación(es) vigente(s) no liberaron IVA y {recorded} lo registraron, así que una desaplicación no podría distinguirlas de las filas que nunca lo guardaron.',
+  'error.PAYMENT_ALREADY_POSTED.payment': '{payment} ya tiene póliza o no es de esta entidad: no se enlaza otra.',
+  'error.ADVANCE_SPLIT_MISMATCH': '{payment}: la base del anticipo {base} más su IVA {iva} no suman los {remaining} que quedan a cuenta.',
+  'error.PAYMENT_ALREADY_POSTED.transfer':
+    '{transfer} ya tiene póliza o no es una transferencia de esta entidad: no se enlaza otra.',
+  'error.PERIOD_NOT_FOUND': 'No se encontró el periodo fiscal',
+  'error.UNKNOWN_CLOSING_STEP': 'Paso desconocido "{step}". Los pasos son: {steps}.',
+  'error.MISSING_ROLE_ACCOUNT.no_account': '{entity} no tiene cuenta para el rol {role}.',
+  'error.PERIOD_NOT_FUTURE':
+    "{period} está '{status}', no 'future'. Sólo se abre un periodo futuro; reabrir un periodo cerrado es otra operación, que queda auditada.",
+  'error.FX_POLITICA_DESCONOCIDA.policy':
+    'La política {policy} vale "{value}" y este lector solo entiende {known}. Corrige la política en mnemosine pending.',
+  'error.MISSING_ROLE_ACCOUNT.fx_revaluation': 'No hay cuenta mapeada al rol "{role}" en esta entidad.',
+  'error.MISSING_ROLE_ACCOUNT.ieps':
+    'No hay cuenta mapeada al rol "{role}" en esta entidad, y una factura aparcó IEPS que se causa con {event, select, collection {este cobro} unapply {esta desaplicación} other {{event}}} (LIEPS art. 10). Mapea la cuenta con: mnemosine account map set (o revisa con: mnemosine doctor)',
+  'error.IVA_ROLE_UNRESOLVED.same_role':
+    'La taxonomía CFDI manda el IVA de un PPD recibido a {role}: un pago no tendría de dónde liberarlo. Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.',
+  'error.ENTRY_NOT_FOUND.ref': 'No se encontró la póliza {entry}',
+  'error.PERIOD_NOT_OPEN': 'El periodo no está abierto',
+  'error.CANNOT_CLOSE_PERIOD': 'No se puede cerrar el periodo: {issues}',
+  'error.PERIOD_NOT_SOFT_CLOSED': 'El periodo debe estar en soft_close antes del cierre definitivo',
+  'error.PERIOD_CLOSED.no_open_period': 'No hay un periodo fiscal abierto para la fecha de la póliza',
+  'error.VALIDATION_FAILED': 'La póliza no pasó la validación: {errors}',
+  'error.ENTRY_NOT_FOUND': 'No se encontró la póliza',
+  'error.ALREADY_POSTED.post': 'La póliza ya está aplicada',
+  'error.ENTRY_VOID.post': 'No se puede aplicar una póliza anulada',
+  'error.PERIOD_NOT_FOUND.posting': 'No se encontró el periodo fiscal al aplicar la póliza',
+  'error.PERIOD_CLOSED.in_flight': "{period} está '{status}': se cerró mientras esta póliza estaba en curso; no se aplicó nada",
+  'error.ENTRY_NOT_POSTED':
+    "Sólo se revierte una póliza aplicada; {entry} está en '{status}' y nunca tocó el mayor — recházala o anúlala",
+  'error.ALREADY_REVERSED': 'La póliza {entry} ya tiene reversión — revertirla otra vez corrompería los saldos',
+  'error.ASSET_CARD_NOT_REFRESHED':
+    'La póliza {entry} es de depreciación y su activo no está en esta entidad: la reversión no se aplicó',
+  'error.ALREADY_VOID': 'La póliza ya está anulada',
+  'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" no es un valor que este sistema conozca ({known}); no se aplicó nada.',
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
   'error.VALIDATION_ERROR.payment.destination_bank_both':
     'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
@@ -191,6 +233,268 @@ export const ES: Record<keyof typeof EN, string> = {
     'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que desapareció.',
   'error.VALIDATION_ERROR.payment.short_pay_forbidden':
     'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o cambia la política con `mnemosine pending reopen pago_corto_residual` (si ya estaba definida) y luego `mnemosine pending define pago_corto_residual`.',
+  // ---- MNE-001-725 · I9 by folder, part 2: the refusals of the bank match in src/services/banking; see en.ts ----
+  'error.VALIDATION_ERROR.bank_match.write_off_on_zero':
+    'El grupo cuadra exacto (residual 0.0000): no hay nada que cancelar, así que --residual write-off sobra. Usa keep o quita la bandera.',
+  'error.VALIDATION_ERROR.bank_match.residual_undeclared':
+    'El grupo no cuadra y nadie declaró qué hacer con lo que sobra. Banco {bank} = Libros {books} + Ajustes {adjustments} deja una diferencia de {difference}. Declárala con --residual keep (queda viva como partida conciliatoria) o --residual write-off --write-off-account <cuenta> (se cancela contra esa cuenta), o corrige las partidas del grupo.',
+  'error.VALIDATION_ERROR.bank_match.write_off_needs_account':
+    'Un residual de {difference} que se cancela necesita cuenta: --residual write-off exige --write-off-account. Sin ella el dinero se quedaría sin destino y el descuadre reaparecería en la sesión.',
+  'error.VALIDATION_ERROR.bank_match.write_off_account_with_keep':
+    '--write-off-account sólo tiene sentido con --residual write-off: un residual que se conserva no se cancela contra ninguna cuenta.',
+  'error.VALIDATION_ERROR.bank_match.repeated_id':
+    'El {side, select, bank {movimiento de banco} other {partida de libros}} {id} aparece dos veces en el grupo: su importe contaría doble y el grupo cuadraría afirmando el doble de lo que hay.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_sealed_by_other_group':
+    'La partida {id} ya está sellada por el grupo de cotejo {group}. Desaplica ese cotejo antes de volver a cotejarla.',
+  'error.VALIDATION_ERROR.bank_match.session_other_account':
+    'La sesión {session} concilia otra cuenta bancaria: un cotejo no puede pertenecer a la conciliación de una cuenta distinta de la del movimiento.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_add':
+    "La sesión {session} está en '{status}': añadirle cotejos ahora reescribiría una aseveración ya firmada.",
+  'error.VALIDATION_ERROR.bank_match.preview_needs_target': 'Previsualizar necesita una cuenta bancaria (--account) o un movimiento concreto.',
+  'error.VALIDATION_ERROR.bank_match.apply_needs_transaction': 'Aplicar necesita al menos un movimiento: no hay nada que cotejar.',
+  'error.VALIDATION_ERROR.bank_match.apply_one_account':
+    'Todos los movimientos de un mismo `apply` tienen que ser de la misma cuenta bancaria: una sola transacción no puede ligarse a dos conciliaciones.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account_than_group':
+    'El movimiento {id} es de otra cuenta bancaria que la del grupo ({account}): un cotejo no puede quedar colgado de una cuenta que no es la suya.',
+  'error.VALIDATION_ERROR.bank_match.group_needs_bank': 'Un grupo de cotejo necesita al menos un movimiento de banco.',
+  'error.VALIDATION_ERROR.bank_match.group_needs_books': 'Un grupo de cotejo necesita al menos una partida de libros.',
+  'error.VALIDATION_ERROR.bank_match.transaction_other_account':
+    'El movimiento {id} pertenece a otra cuenta bancaria: un grupo de cotejo no puede cruzar dos cuentas.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.period_closed':
+    "El movimiento {id} cae en un periodo '{status, select, missing {inexistente} other {{status}}}': no se cotejan movimientos de un periodo cerrado con llave.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.transaction_already_matched':
+    'El movimiento {id} ya tiene el cotejo vivo {match}: desaplícalo antes de meterlo en un grupo nuevo, o el mismo dinero quedaría cotejado dos veces.',
+  'error.VALIDATION_ERROR.bank_match.item_entry_not_posted':
+    "La partida {id} pertenece a un asiento en '{status}': sólo se coteja contra asientos contabilizados.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.item_already_matched':
+    'La partida {id} ya está cotejada: desaplica ese cotejo antes de incluirla en un grupo nuevo.',
+  'error.VALIDATION_ERROR.bank_match.opposite_directions':
+    'El grupo suma {bank} de banco contra {books} de libros: los dos lados apuntan en direcciones opuestas, así que el grupo cotejaría una entrada de dinero contra una salida.',
+  'error.VALIDATION_ERROR.bank_match.orphan_transaction':
+    'El movimiento {id} no recibe ninguna partida de libros: los ajustes y el residual lo absorben entero, así que quedaría marcado como cotejado sin nada que lo explique. Sácalo del grupo o dale una partida.',
+  'error.VALIDATION_ERROR.bank_match.orphan_item':
+    'La partida {id} no recibe ningún movimiento de banco: los ajustes y el residual la absorben entera, así que quedaría sellada sin cotejo que la explique. Sácala del grupo, o mete el movimiento de banco que la cubre.',
+  'error.VALIDATION_ERROR.bank_match.unapply_reason_unknown':
+    "Motivo de desaplicación desconocido: '{reason}'. Los admitidos son {known}. El motivo es un código y no prosa libre porque las causas tienen que poder contarse, no sólo leerse.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.already_unapplied':
+    'El cotejo {match} ya se desaplicó: deshacer lo ya deshecho no es un acto, y su fila sigue en el expediente con su motivo.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_match.session_signed_unapply':
+    "La sesión {session} está en '{status}': deshacer un cotejo suyo reescribiría una aseveración ya firmada. Corrígela con una sesión nueva, no borrando ésta.",
+  'error.VALIDATION_ERROR.bank_book_item.partial_seal':
+    'El sello de conciliación alcanzó {sealed} de {count} partida(s). Las que faltan ya estaban selladas, pertenecen a un asiento no contabilizado, o no son de la misma entidad que el grupo {group}. No se sella nada a medias: revisa la lista con `bank book-item list` y vuelve a armar el grupo.',
+  'error.VALIDATION_ERROR.bank_book_item.partial_release':
+    'Se liberaron {released} de {count} partida(s). Las que faltan no estaban selladas, o su sello lo puso algo que no es un grupo de cotejo bancario de esta entidad —la certificación de cuentas usa la misma columna— y no se levanta desde aquí.',
+  // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
+  'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
+    'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
+  'error.VALIDATION_ERROR.iva_workpaper.prior_balance_amount':
+    'El saldo a favor de periodos anteriores vale "{value}": debe ser un importe de cero o más.',
+  'error.VALIDATION_ERROR.iva_workpaper.month': 'El mes {month} no existe: el IVA definitivo es mensual.',
+  'error.VALIDATION_ERROR.iva_workpaper.entity_without_mexican_iva':
+    'La entidad no causa IVA mexicano: no hay IVA definitivo que calcular.',
+  'error.VALIDATION_ERROR.isr_workpaper.amount': '{field} vale "{value}": debe ser un importe de cero o más.',
+  'error.VALIDATION_ERROR.isr_workpaper.month': 'El mes {month} no existe: el pago provisional es mensual.',
+  'error.VALIDATION_ERROR.isr_workpaper.entity_without_mexican_books':
+    'La entidad no lleva libros mexicanos: no hay ISR provisional que calcular.',
+  'error.VALIDATION_ERROR.income_tax_input.payment_month': '{year}-{month} no es un mes de pago provisional.',
+  'error.VALIDATION_ERROR.income_tax_input.kind': '"{kind}" no es un dato del ISR provisional: {known}.',
+  'error.VALIDATION_ERROR.income_tax_input.year_not_integer': 'El ejercicio de la declaración fuente es un año entero.',
+  'error.VALIDATION_ERROR.income_tax_input.value_format':
+    '"{value}" no es una cifra no negativa con hasta cuatro decimales.',
+  'error.VALIDATION_ERROR.income_tax_input.source_missing':
+    'Falta la fuente: la declaración anual de la que se tomó la cifra.',
+  'error.VALIDATION_ERROR.income_tax_input.filed_inside_year':
+    'La declaración de {year} se presenta después de que termina el ejercicio: "{filedOn}" no puede ser su fecha.',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_required':
+    'Las pérdidas pendientes dicen hasta qué mes del INPC están actualizadas (AAAA-MM, LISR art. 57).',
+  'error.VALIDATION_ERROR.income_tax_input.update_month_only_for_losses':
+    'Sólo las pérdidas pendientes llevan mes de actualización.',
+  // ---- MNE-001-728 · I9 by folder, part 5: the refusals of src/services/xml-ingestion; see en.ts ----
+  'error.PROVEEDOR_NUEVO_SIN_AUTORIZAR':
+    'El CFDI lo emite "{name}" (RFC {rfc}), que no existe en el catálogo de proveedores de esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, con `mnemosine vendor create --tax-id {rfc}`, y vuelve a ejecutar (el pre-registro lo encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como viene en el comprobante.',
+  'error.AP_ACCOUNT_MISSING':
+    'La entidad no tiene cuenta para el rol "cxp" (proveedores). Siembra la contabilidad con: mnemosine init --section identity',
+  'error.MISSING_ROLE_ACCOUNT.seed_identity':
+    'La entidad no tiene cuenta para el rol "{role}". Siembra la contabilidad con: mnemosine init --section identity',
+  'error.REP_SIN_XML': 'No se conserva el XML del comprobante de pago.',
+  'error.ENTITY_NOT_FOUND.pre_registration': 'La entidad del pre-registro no existe.',
+  'error.REP_SIN_PAGOS': 'El comprobante es de tipo P pero no trae complemento de pagos: no hay nada que ligar.',
+  'error.CFDI_REQUIERE_DECISION.not_a_party':
+    'El comprobante es de {issuer} para {receiver} y la entidad es {entity}: no es parte de la operación. Revisa si se subió a la entidad equivocada.',
+  'error.CFDI_REQUIERE_DECISION.missing_accounts':
+    'La entidad no tiene cuenta para: {missing}. Siembra la contabilidad con: mnemosine init --section identity',
+  'error.CFDI_REQUIERE_DECISION.unbalanced': 'El asiento propuesto no cuadra: cargos {debits} vs abonos {credits}.',
+  'error.VALIDATION_ERROR.cfdi.direction': '--direction ilegible "{direction}": emitido, recibido o ajeno.',
+  'error.RESOURCE_NOT_FOUND.classification_trail':
+    'Clasificación with id {uuid} (el rastro existe para lo ingerido desde F02; lo anterior se clasificó y se tiró) not found',
+  // ---- MNE-001-729 · I9 by folder, part 6: the messages of src/api/rest; see en.ts ----
+  'error.FORBIDDEN.entity_header_repeated': 'x-entity-id viene repetida: la petición actúa sobre una sola entidad',
+  'error.VALIDATION_ERROR.entity.several_named':
+    'La petición nombra {count} entidades distintas ({named}). Cada ruta usa la fuente que le corresponde y la bitácora registra la de la cabecera, así que con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
+  'error.VALIDATION_ERROR.entity.named_source':
+    '{source, select, header {la cabecera x-entity-id} route {la ruta (:entity_id)} body {el cuerpo} other {la cadena de consulta (?entity_id=)}}: {value}',
+  'error.VALIDATION_ERROR.idempotency_key.repeated':
+    'La petición trae {count} cabeceras {header}. Manda exactamente una: con dos, cuál manda decidiría en silencio si este acto se repite o no.',
+  'error.VALIDATION_ERROR.idempotency_key.empty':
+    'La cabecera {header} viene vacía. Quítala, o manda una llave: una llave vacía no deduplica nada y hace creer que sí.',
+  'error.VALIDATION_ERROR.idempotency_key.too_long': 'La llave de idempotencia mide {length} caracteres y el máximo es {max}.',
+  'error.VALIDATION_ERROR.idempotency_key.malformed':
+    'La llave de idempotencia "{value}" trae caracteres que no se admiten. Usa letras, dígitos y _ . : @ + / = - (un UUID sirve). La coma y el espacio quedan fuera a propósito: es como llegan DOS cabeceras unidas por el servidor, y una llave así no es la que mandó nadie — el reintento no casaría y el acto se repetiría en silencio.',
+  'error.VALIDATION_ERROR.idempotency_key.no_tenant':
+    'No se puede honrar {header}: la petición no identifica un inquilino, y las llaves consumadas se guardan por inquilino.',
+  'error.UNAUTHORIZED.no_tenant': 'El token no identifica un inquilino: la petición no puede acotarse y se rechaza.',
+  'error.VALIDATION_ERROR.xml.batch_cap': 'xml_contents debe ser un arreglo de a lo más {max} documentos.',
+  'error.FORBIDDEN.detail.issued_payment_receipt': 'Un comprobante de pago emitido registra cobros de clientes.',
+  'api.invoices.send_note': 'La factura queda registrada como enviada; el sistema no transmite correo. El envío es del usuario.',
+  'error.NOT_IMPLEMENTED.cfdi_cancellation':
+    'mnemosine todavía no cancela CFDI ante el SAT. Cancela en el portal de tu PAC o en el del SAT, y después reversa el asiento con `mnemosine entry reverse <numero> --reason "CFDI cancelado, acuse <folio>"`. Cuando exista, la cancelación irá por pac-router con acuse archivado y reversa encadenada.',
+  'api.blockchain.simulated_attestations':
+    '{simulated} de {total} atestaciones de esta página son SIMULADAS: su txHash, su número de bloque y su enlace al explorador están fabricados y no corresponden a ninguna transacción. No sirven como prueba ante un tercero.',
+  'api.blockchain.simulated_anchors':
+    '{simulated} de {total} anclajes de esta página son SIMULADOS: su txid se fabricó localmente y no existe en Bitcoin. No los publiques como prueba ante un tercero ni compartas un enlace a un explorador con ellos.',
+  'error.ATTESTATION_SIMULATED':
+    '{what, select, entry_attestation {La atestación de ese asiento} period_commitment {El compromiso de ese periodo} bitcoin_anchor {Ese anclaje de Bitcoin} other {La prueba de anclaje de ese asiento}} existe, pero su anclaje es SIMULADO: ningún hash se escribió en ninguna cadena, así que no hay nada que un tercero pueda comprobar. Este endpoint se niega a presentarlo como prueba. Volverá a responder cuando exista un adaptador de cadena real.',
+  'api.public_verification.bitcoin_simulated_step': '6. El anclaje de Bitcoin es SIMULADO: no hay OP_RETURN en la cadena que comprobar',
+  // ---- MNE-001-730 ·I9 by folder, part 7: the refusals of src/services/payroll; see en.ts ----
+  'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales':
+    'La política provision_cuotas_patronales vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende si las cuotas patronales se apuntan con cada corrida o una vez al mes, y aplicar la omisión como si fuera tu criterio deja el pasivo del mes repartido entre dos formas de contarlo. Corrígela con `mnemosine pending define provision_cuotas_patronales <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion':
+    'La política isn_momento_de_causacion vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende a qué MES pertenece el ISN de una nómina que cruza el fin de mes, y con él su fecha límite: un pasivo apuntado un mes antes de lo decidido no se distingue de uno correcto hasta que llega el requerimiento. Corrígela con `mnemosine pending define isn_momento_de_causacion <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.policy.isn_estado_que_causa':
+    'La política isn_estado_que_causa vale "{value}" y este motor sólo entiende {known}. No se elige uno por ti: de esa respuesta depende a qué estado se le declara el ISN, y aplicar la omisión como si fuera tu criterio es cómo se le acaba debiendo a un estado durante años. Corrígela con `mnemosine pending define isn_estado_que_causa <{choices}>`.',
+  'error.VALIDATION_ERROR.payroll.date_unreadable':
+    'Se esperaba una fecha \'YYYY-MM-DD\' y llegó "{date}": una fecha ilegible aquí produciría una fecha límite plausible y falsa.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_found': 'No existe la corrida de nómina {payRunId} en este inquilino.',
+  'error.VALIDATION_ERROR.payroll.pay_run_not_closed':
+    'La corrida {payRunId} está en estado "{status}": el pasivo patronal se apunta cuando la corrida se cierra (approved o paid), no antes. Apuntarlo sobre números que todavía pueden cambiar deja un pasivo que no corresponde a ningún recibo.',
+  'error.POLICY_VALUE_UNKNOWN.payroll_reader':
+    'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
+  'error.VALIDATION_ERROR.payroll.termination_reason':
+    'termination_reason inválido o ausente: se esperaba {known}. Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más grande del finiquito, así que no tiene valor por omisión.',
+  // ---- MNE-001-815 · I9 by folder, part 7b: the findings and notes of src/services/payroll; see en.ts ----
+  'payroll.finding.isn_sin_estado_en_el_trabajador':
+    '{count} recibo(s) del periodo {start} a {end} suman {base} sin estado que los cause: el ISN de esa base no se puede calcular ni declarar. Captura el estado de trabajo del trabajador, o cambia la política isn_estado_que_causa a domicilio_fiscal si tu criterio es declararlo todo en el domicilio de la entidad.',
+  'payroll.finding.isn_sin_tasa_capturada.none':
+    'No hay tasa de ISN capturada para {state} en el periodo {start} a {end} (causación {causation}). La base de {base} de {count} recibo(s) queda SIN calcular: no se declara cero, se declara que falta el dato. Captura la tasa con su fundamento en mx_isn_tasas_estatales.',
+  'payroll.finding.isn_sin_tasa_capturada.not_in_force':
+    '{state} tiene {count} vigencia(s) capturada(s) que tocan el periodo {start} a {end} o su causación, pero ninguna cubre la fecha de causación {causation}: la base de {base} queda sin calcular. Revisa vigencia_desde/vigencia_hasta.',
+  'payroll.finding.isn_regimen_no_soportado':
+    'La tasa de ISN de {state} vigente desde {since} está capturada como régimen «{regime}»{exempt, select, none {} other { (exime {exempt} al mes)}}, y este motor sólo sabe calcular tasa plana. La base de {base} del periodo {start} a {end} NO se calcula: aplicarle la tasa como si fuera plana daría un importe de la magnitud correcta y del valor equivocado.',
+  'payroll.finding.isn_tasa_cambia_dentro_del_periodo':
+    '{state} cambió de tasa dentro del periodo {start} a {end}: se aplicó la vigente al {causation} ({rate}, desde {since}) a la base completa, sin partirla por días.',
+  'payroll.finding.recibos_de_otra_entidad_en_la_corrida':
+    '{count} recibo(s) mexicanos de esta corrida son de trabajadores de OTRA entidad legal y no entran en el pasivo de {entityId}, que es la del calendario de la corrida. Su IMSS, INFONAVIT e ISN no quedan acumulados en ninguna parte.',
+  'payroll.finding.imss_patronal_en_cero':
+    'La corrida tiene {count} recibo(s) mexicanos y el IMSS patronal suma cero. Revisa el SBC de esos trabajadores: sin él no hay cuota que acumular y el costo laboral de la corrida queda corto.',
+  'payroll.finding.pasivo_por_corrida_absorbido_por_el_mensual':
+    '{count} renglón(es) de cuotas patronales que esta corrida había apuntado por su cuenta se retiraron: `provision_cuotas_patronales` dice ahora «mensual_al_cierre» y el renglón del mes ya los incluye. Dejarlos habría duplicado el IMSS patronal del mes.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez':
+    'Hay {count} renglón(es) de cuotas patronales provisionados AL CIERRE DEL MES en los meses que toca esta corrida ({rows}), y esta corrida los está apuntando además POR CORRIDA porque `provision_cuotas_patronales` cambió a «por_corrida». Lo provisionado queda contado dos veces. El renglón mensual agrega varias corridas y este cierre no lo puede retirar sin llevarse el pasivo de las demás: resuélvelo a mano antes de declarar.',
+  'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez.row': '{taxType} {amount} del mes que inicia el {monthStart}',
+  'payroll.finding.share_in_already_settled_month':
+    'La corrida cruza el cambio de mes: {days} día(s) cotizados, del {start} al {end}, caen en el mes que inicia el {monthStart}, que ya tiene {settled, select, rows {{closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados} sua {su archivo del SUA ya generado} other {{closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados y su archivo del SUA ya generado}}. Esa parte de las cuotas llega después de cerrado el mes: el SUA ya generado la declara de menos y, si el renglón del mes ya se depositó, no se reescribe. Presenta la complementaria de ese mes.',
+  'payroll.finding.pasivo_reubicado_de_mes':
+    '{count} renglón(es) de pasivo de esta corrida cambiaron de mes en este cierre y el apunte anterior se retiró: la respuesta de `isn_momento_de_causacion` mueve el ISN al mes del devengo o al del pago, y dejar los dos habría duplicado el impuesto. Revisa las fechas límite del mes que se vació y del que se llenó.',
+  'payroll.finding.pasivo_ya_depositado_no_se_toca':
+    '{count} renglón(es) de pasivo ya no están en \'pending\' —depositados, dispensados o marcados como tardíos— y NO se reescribieron: {rows}. Cambiarles el importe borraría la evidencia de lo que se pagó.',
+  'payroll.finiquito.seniority_premium.not_owed':
+    'no se devenga: la renuncia paga prima de antigüedad sólo con quince años cumplidos (LFT art. 162 fr. III)',
+  'payroll.finiquito.seniority_premium.not_calculated':
+    'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. Se deben {days} días de prima de antigüedad y NO están en este total',
+  'payroll.finiquito.seniority_premium.calculated':
+    '{days} días × {base} (LFT art. 162 fr. I, base topada por el 486 con un mínimo de {minimumWage})',
+  // ---- MNE-001-822 · I9 by folder, part 7c: the SUA cross-check and the data gaps of src/services/payroll; see en.ts ----
+  'payroll.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay ningún renglón de pasivo apuntado para {monthStart}..{monthEnd} contra el que cotejarlo: la cifra sale de un solo camino y nadie la confirma',
+  'payroll.sua.finding.mismatch':
+    '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger} (diferencia {difference}). Si un periodo cruza el cambio de mes y su pasivo se apuntó antes del reparto por días cotizados, ese renglón lo lleva entero en un solo mes: `npm run backfill:straddling-liabilities -- --tenant <id>` lo reparte',
+  'error.PAYROLL_ACCOUNT_MAPPING_MISSING.subsidy_in_cash':
+    'Missing payroll_account_mapping for bucket: {bucket}. La corrida entregó {amount} de subsidio al empleo en efectivo y la política subsidio_al_empleo_entregado_registro dice registrarlo como {value}.',
+  'error.EMPLOYMENT_SUBSIDY_PERIOD_UNSUPPORTED':
+    'No hay regla del subsidio al empleo para el periodo «{frequency}»: el decreto prorratea por días entre 30.4, y sólo la semana (7), la quincena (15) y el mes tienen tarifa del art. 96 con la que acreditarlo. Configura la nómina como semanal, quincenal o mensual.',
+  'error.ISR_TARIFF_PERIOD_UNSUPPORTED':
+    'No hay tarifa del art. 96 publicada para el periodo «{frequency}»: el Anexo 8 publica diaria, 7, 10 y 15 días y mensual, y no catorcenal. Antes se le aplicaba la MENSUAL a la base del periodo, que subretiene entre el 85 % y el 100 %. Configura la nómina como quincenal o mensual, o siembra la tarifa que corresponda con su fuente.',
+  'error.TAX_PARAMETERS_YEAR_MISMATCH':
+    'Se pidieron los parámetros de {jurisdiction} para el ejercicio {taxYear} con una fecha de otro año ({day}): el ejercicio y la fecha del acto tienen que ser el mismo, o el recálculo de un recibo viejo tomaría los parámetros de hoy.',
+  'error.TAX_PARAMETERS_MISSING':
+    'No hay parámetros fiscales de {jurisdiction} vigentes el {day} (ejercicio {taxYear}): siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.',
+  'error.TAX_PARAMETER_MISSING':
+    'Falta el parámetro fiscal «{parameter}» de {jurisdiction} para {taxYear}: sin él no se puede calcular la cuota. Antes se sustituía por un valor quemado y la cifra inventada salía en el recibo, en el CFDI de nómina y en la línea de captura.',
+  'error.TAX_RATES_MISSING.block':
+    'Falta el bloque de tasas «{block}» de MX para {taxYear}: sin él la cuota saldría en cero con los días cotizados correctos, que es un recibo creíble y falso.',
+  'error.TAX_RATES_MISSING.rates':
+    'Faltan tasas en «{block}» de MX para {taxYear}: {missing}. Una tasa ausente no es una tasa de cero.',
+  // ---- MNE-001-726 · I9 by folder, part 3: the refusals of src/services/sat/diot; see en.ts ----
+  'error.VALIDATION_ERROR.diot.entity_not_mexican':
+    'La entidad {name} no es mexicana (país {country}). La DIOT es una obligación de la LIVA: no hay declaración informativa de operaciones con terceros que armar para una entidad que no causa IVA.',
+  'error.VALIDATION_ERROR.diot.entity_without_rfc':
+    'La entidad {name} no tiene RFC en el expediente y la DIOT se presenta a nombre de un contribuyente identificado.',
+  'error.VALIDATION_ERROR.diot.month':
+    'El mes de la DIOT es {month}. La declaración es mensual y no tiene mes 13: la balanza de cierre del Anexo 24 sí, ésta no.',
+  'error.DIOT_FORMATO_NO_FUNDAMENTADO':
+    'La DIOT de {period} se presenta con el layout del ejercicio 2024 y anteriores, que este repositorio no implementa: sólo está fundamentado el de 2025 en adelante ({url}, consultado el {consulted}). No se escribe con la forma nueva un periodo que la autoridad valida con la vieja.',
+  'error.DIOT_NO_ENTREGABLE.no_third_parties':
+    'La DIOT de {period} no tiene terceros que declarar: un archivo de lote vacío no es una declaración, y no se escribe.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch': 'La DIOT de {period} no cabe en el layout del SAT tal cual:\n  · {refusals}',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.operation':
+    '{who}: tipo de tercero {partyType} con tipo de operación {operation}, que el layout 2025 no admite (§3.1: {allowed}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country':
+    '{who}: el país "{country}" no es una clave de tres letras del catálogo de países del layout (§5, p. ej. USA; ZZZ para otro). Corrige el país de residencia del proveedor.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.country_other':
+    '{who}: país ZZZ (Otro) exige especificar la jurisdicción, y el expediente no la tiene.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_long':
+    '{who}: la identificación fiscal pasa de 40 caracteres o el nombre de 300 (§3.1).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.too_wide':
+    '{who}: el importe {amount} no cabe en un campo numérico de {digits} posiciones.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.iva_without_acts':
+    '{who}: tiene IVA de {iva} (campo {ivaField}) sin un valor de los actos mayor a cero en el campo {valueField}, y el layout sólo admite el IVA cuando lo hay (§3.3).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.border_rate':
+    '{who}: tiene actos a la tasa del 8 %, y el layout los separa en región fronteriza NORTE (campos 8 y 18) y SUR (10 y 20). El expediente no dice en cuál está el proveedor.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.unnamed_rates': '{who}: tiene importes a tasas que el layout no nombra ({rates}).',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.foreign_zero_rate':
+    '{who}: tiene actos a tasa 0 % ({base}) de un proveedor extranjero. El campo 51 es para actos nacionales a tasa 0 %; lo de un extranjero va en el 53 (no objeto, sin establecimiento en México), en importación de servicios (IVA autodeterminado) o en el 49 (importación exenta), según la operación. Captúralo en el portal.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net':
+    '{who}: el neto del mes es negativo ({fields}): lo que el mes deshizo o devolvió supera a lo que pagó. Gastos de un pago desaplicado o reversado en el mes: {anyUndone, select, no {ninguno} other {{undone}}}. El layout no admite importes negativos y declara las devoluciones, descuentos y bonificaciones en sus propios campos de §3.2, que este archivo todavía no llena; captúralo en el portal.',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field': 'campo {field}: {amount}',
+  'error.DIOT_NO_ENTREGABLE.sat_batch.proportion':
+    'La política diot_creditable_iva_proportion vale "{proportion}": la entidad aplica la proporción del art. 5 frac. V LIVA, que este sistema todavía no calcula. El IVA acreditable se reparte a mano en el portal.',
+  // ---- MNE-001-731 · I9 by folder, part 8: the refusals of src/services/assets; see en.ts ----
+  'error.VALIDATION_ERROR.asset.category_empty': '--category llegó vacía: el activo necesita su clase.',
+  'error.VALIDATION_ERROR.asset.category_ambiguous':
+    '"{text}" casa con {count} categorías ({matches}). Escribe el nombre completo o pasa su id: elegir la primera depreciaría contra las cuentas de otra clase durante toda la vida del activo.',
+  'error.VALIDATION_ERROR.asset.category_unknown': 'No hay ninguna categoría llamada "{text}" en esta entidad. Las que hay: {known}.',
+  'error.VALIDATION_ERROR.asset.book_unknown':
+    '--book "{declared}" no existe: los dos libros son {first} y {second} (el contable de la NIF C-6 y el fiscal de la LISR).',
+  'error.VALIDATION_ERROR.asset.book_contradicts_policy':
+    '--book {requested} contradice al panel: `base_depreciacion` vale "{base}", así que el libro que llega al mayor es {book}{defined, select, yes {} other { (defecto declarado, nadie ha contestado)}}. Esta bandera declara sobre qué libro crees estar operando, no lo elige: cuál de las dos depreciaciones se postea es criterio del despacho y se contesta con `mnemosine pending reopen base_depreciacion` (si ya estaba definida) y luego `mnemosine pending define base_depreciacion`.',
+  'error.VALIDATION_ERROR.asset.date_format': 'La fecha de {field} tiene que venir como "YYYY-MM-DD"; llegó "{value}".',
+  'error.VALIDATION_ERROR.asset.life_not_positive_integer':
+    'La vida útil en {field} tiene que ser un entero mayor que cero; llegó {value}.',
+  'error.VALIDATION_ERROR.asset.life_missing':
+    'Ni el alta ni la categoría dicen cuánto dura el activo. Indica `useful_life_years` o `useful_life_months`, o dale a la categoría su vida por omisión.',
+  'error.VALIDATION_ERROR.asset.life_years_months_mismatch':
+    'Los años y los meses de vida útil no casan: {months} meses caben en {derived} año(s) y se declararon {years}. Los años son el techo de los meses entre doce —40 meses son 4 años—; corrige uno de los dos u omite los años y se derivan.',
+  'error.VALIDATION_ERROR.asset.amount_not_a_number': 'El importe de {field} no es un número: "{value}".',
+  'error.VALIDATION_ERROR.asset.amount_not_finite': 'El importe de {field} no es finito: "{value}".',
+  'error.VALIDATION_ERROR.asset.cost_not_positive': 'El costo de adquisición tiene que ser mayor que cero; llegó {cost}.',
+  'error.VALIDATION_ERROR.asset.salvage_negative': 'El valor de salvamento no puede ser negativo; llegó {salvage}.',
+  'error.VALIDATION_ERROR.asset.salvage_reaches_cost':
+    'El valor de salvamento ({salvage}) no puede alcanzar ni superar el costo de adquisición ({cost}): la base depreciable sería cero o negativa y el activo no produciría un solo renglón de depreciación.',
+  'error.VALIDATION_ERROR.asset.name_empty': 'El activo necesita nombre: `asset_name` llegó vacío.',
+  'error.VALIDATION_ERROR.asset.category_inactive':
+    'La categoría "{name}" está dada de baja: no admite altas nuevas. Reactívala o elige otra.',
+  'error.VALIDATION_ERROR.asset.start_before_acquisition':
+    'La depreciación no puede arrancar el {start}, antes de la adquisición ({acquired}). Si lo que buscas es la convención de mes completo, omite `depreciation_start_date` y el sistema la deriva del panel.',
+  'error.VALIDATION_ERROR.asset.accounts_missing':
+    'Faltan cuentas para el activo ({fields}) y la categoría "{name}" no las trae por omisión. Pásalas en el alta o complétale las cuentas a la categoría.',
+  'error.VALIDATION_ERROR.asset.accounts_rejected':
+    'Estas cuentas no están en el catálogo de esta entidad, o son de encabezado y no admiten movimientos: {fields}.',
+  'error.RESOURCE_ALREADY_EXISTS.asset.number_taken': 'Ya hay un activo con el número "{number}" en esta entidad.',
+  'error.VALIDATION_ERROR.depreciation.policy_base_unknown':
+    'La política `base_depreciacion` vale "{value}", que no es ninguna de las dos bases posibles ({known}). Corrígela con `mnemosine pending reopen base_depreciacion` (si ya estaba definida) y luego `mnemosine pending define base_depreciacion` antes de correr la depreciación.',
+  'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
+    'La política `convencion_primer_mes` vale "{value}", que no es ninguna de las dos convenciones posibles ({known}). Corrígela con `mnemosine pending reopen convencion_primer_mes` (si ya estaba definida) y luego `mnemosine pending define convencion_primer_mes` antes de correr la depreciación.',
+  'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'No se pudo determinar el inquilino de la entidad {entityId}.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
@@ -1688,6 +1992,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
 
+  'policy.separate_payment_isr.question':
+    'Cuando un trabajador recibe un segundo recibo en el mismo periodo de pago (un aguinaldo pagado en su propia corrida, por ejemplo), ¿sobre qué base se le retiene el ISR?',
+  'policy.separate_payment_isr.impact':
+    'Decide el ISR retenido, el neto y el CFDI de nómina de un recibo que comparte su periodo de pago con otro recibo del trabajador, o que es él mismo un recibo aparte (una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo). Lo lee separate-payment-isr.ts. Con "period_accumulated_base" la tarifa del periodo se aplica a la base del ISR de los recibos del periodo juntos, y el recibo retiene eso menos el ISR que los otros ya causaron, nunca menos de cero, sin importar cuál se calculó primero. Con "own_paycheck_base" cada recibo se grava sobre su propia base. "regulation_optional_procedure" se niega: el recibo aparte no se calcula hasta que el texto del procedimiento esté en este sistema.',
+  'policy.separate_payment_isr.rationale':
+    'La tarifa del art. 96 de la LISR es la que se publica para el periodo de pago, y se aplica al ingreso de ese periodo. Su tasa marginal sube con el ingreso, así que la tarifa sobre el ingreso del periodo junto nunca retiene menos que las tarifas de cada recibo por separado: es la opción conservadora del ADR-0006, decisión 1. El procedimiento opcional del Reglamento para pagos extraordinarios (art. 174 del RLISR) no se compara, porque este sistema no tiene su texto.',
+  'policy.separate_payment_isr.why':
+    'Pagar el aguinaldo en su propia corrida es común, y su ISR se puede calcular sobre el ingreso de todo el periodo, con el procedimiento opcional del Reglamento o sobre ese recibo solo: cada uno da una retención distinta. Gravado sobre su propia base, un aguinaldo de 10,000.00 pagado aparte de una quincena de 10,000.00 retiene 541.53; sobre la base del periodo, 1,384.28.',
+  'policy.separate_payment_isr.what':
+    'Antes de calcular el ISR de un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "period_accumulated_base" aplico la tarifa del periodo a su base del ISR más la de éste, y el recibo retiene la diferencia con el ISR que ellos causaron, nunca menos de cero. Con "own_paycheck_base" la aplico sólo a la base de este recibo. Con "regulation_optional_procedure" me niego a calcular el recibo aparte y digo por qué. El recibo guarda el tratamiento y las cifras en su detalle de cálculo.',
+  'policy.separate_payment_isr.if_skipped':
+    'Aplico la tarifa del periodo a la base acumulada del periodo, y el recibo retiene sólo la diferencia.',
+  'policy.separate_payment_isr.option.period_accumulated_base':
+    'Sobre la base acumulada del periodo: la tarifa sobre todos los recibos del periodo juntos, menos el ISR que causaron los otros',
+  'policy.separate_payment_isr.option.regulation_optional_procedure':
+    'El procedimiento opcional del Reglamento para pagos extraordinarios (art. 174 del RLISR): no disponible hasta que su texto esté en este sistema',
+  'policy.separate_payment_isr.option.own_paycheck_base':
+    'Sobre el recibo solo: cada recibo gravado sobre su propia base, como lo hacía el motor',
+
   'policy.imss_old_age_band_edge.question':
     'Cuando el SBC de un trabajador queda apenas arriba del límite superior de un tramo de la cuota patronal de cesantía en edad avanzada y vejez, ¿qué tramo paga?',
   'policy.imss_old_age_band_edge.impact':
@@ -1972,6 +2295,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.note_reversal_after_cashing_iva.option.cashing_month':
     'Contarlo en el mes del cobro, como si la nota nunca se hubiera emitido',
 
+  'policy.vendor_undo_iva_month.question':
+    'Un pago a proveedor que liberó el IVA de un gasto se desaplica o se reversa en un mes posterior: ¿en qué mes sacan ese IVA la DIOT y el papel de trabajo del IVA?',
+  'policy.vendor_undo_iva_month.impact':
+    'Gobierna la DIOT y el papel de trabajo del IVA después de `payment unapply` o `payment reverse` de un pago a proveedor aplicado en un mes anterior; hechos.ts la lee una vez por cada mes que cualquiera de los dos arma. Con cualquiera de las dos respuestas el mayor abona el IVA acreditable (1130) el día del deshacer. Con "undo_month" los papeles lo sacan en el mes del deshacer, así que el mes en que contó conserva lo que declaró y cada mes cuadra con el mayor. Con "payment_month" los papeles leen la aplicación como si nunca hubiera existido: el mes en que contó deja de contarla y necesita una complementaria, y el mes del deshacer no saca nada; el aviso DIOT-PAYMENT-UNDONE lo dice en los dos meses, y el cotejo nombra la causa en los dos. Un deshacer fechado en el mes de la aplicación se netea ahí con cualquiera de las dos respuestas.',
+  'policy.vendor_undo_iva_month.rationale':
+    'El mayor saca el IVA de la 1130 el día del deshacer, y el IVA acreditable es el impuesto efectivamente pagado sobre un gasto (LIVA art. 5 fr. III, como lo trae el manual de CFDI de este sistema; el texto de la LIVA no está en este sistema): después del deshacer los libros dicen que el gasto se debe otra vez. Contar el deshacer en su propio mes no cambia ningún mes ya declarado y deja cada mes amarrado al mayor, la opción conservadora de ADR-0006. Cuando la aplicación nunca debió existir, también se acepta corregir con una complementaria el mes en que contó (CFF art. 32).',
+  'policy.vendor_undo_iva_month.why':
+    'Una reversa de pago a proveedor no guarda su causa, así que no distingo una transferencia que regresó de una aplicación que nunca debió existir. Algunos despachos sacan el deshacer en su propio mes, como el mayor; otros corrigen el mes en que contó el pago.',
+  'policy.vendor_undo_iva_month.what':
+    'Con "undo_month" saco el IVA deshecho en el mes del deshacer. Con "payment_month" no lo cuento en ningún mes, y nombro, en el aviso y en el cotejo de los dos meses, la complementaria que necesita el mes del pago.',
+  'policy.vendor_undo_iva_month.if_skipped': 'Lo saco en el mes del deshacer.',
+  'policy.vendor_undo_iva_month.option.undo_month': 'Sacarlo en el mes del deshacer, como el mayor',
+  'policy.vendor_undo_iva_month.option.payment_month': 'No contarlo en ningún mes, y corregir el mes del pago',
+
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
   'policy.cash_over_limit_outside_ingestion.impact':
@@ -2218,6 +2555,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'cli.error.missing_mandatory_option': 'error: falta la opción obligatoria «{flags}»',
   'cli.error.did_you_mean': '(¿Querías decir {suggestion}?)',
   'cli.error.did_you_mean_one_of': '(¿Querías decir alguno de {suggestions}?)',
+
+  // --- The machine error of a leaf asked for JSON (MNE-001-698) ---------
+  'cli.error.internal':
+    'El comando falló por un error interno (de la base de datos, la red o el sistema); ' +
+    'sus detalles no forman parte de un error de máquina.',
+  'cli.error.internal_remedy': 'Corre el mismo comando sin --json para leer los detalles.',
 
   // --- El diccionario de banderas (`src/cli/kernel/flags.ts`) ----------
   'cli.flag.entity': 'entidad legal sobre la que operar (por omisión, la activa)',
@@ -2601,6 +2944,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El cobro {receipt} no se puede desaplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se desaplicó nada.',
   'receipt.apply.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  // MNE-001-779: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'receipt.apply.date_before_cashing':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}: una aplicación fechada el {date} aplicaría su efectivo, y causaría el IVA que cobra, antes de que el cheque se pagara. Féchala el {cashedOn} o después. No se aplicó nada.',
   'receipt.unapply.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: una desaplicación fechada el {date} lo desharía antes de que ocurriera. Féchala el {since} o después. No se desaplicó nada.',
   'receipt.apply.date_before_invoice':
@@ -2628,6 +2974,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El pago {payment} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
   'payment.apply.date_before_last_event':
     'El último asiento del pago {payment} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  // MNE-001-746: `since` cannot see a cashing that posted no entry, the cash being still on account.
+  'payment.apply.date_before_cashing':
+    'El banco cobró el cheque del pago {payment} el {cashedOn}: una aplicación fechada el {date} aplicaría su efectivo, y acreditaría el IVA que paga, antes de que el cheque se pagara. Féchala el {cashedOn} o después. No se aplicó nada.',
   'payment.apply.date_before_bill':
     '{bill} es del {billDate}: el efectivo aplicado el {date} lo saldaría antes de que existiera el gasto. Fecha la aplicación el {billDate} o después. No se aplicó nada.',
   'payment.apply.date_period_closed':
@@ -2724,6 +3073,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'El cobro {receipt} no se puede traspasar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se escribió nada.',
   'receipt.transfer.date_before_last_event':
     'El último asiento del cobro {receipt} es del {since}: un traspaso fechado el {date} cedería su efectivo antes de que eso ocurriera. Féchalo el {since} o después. No se escribió nada.',
+  // MNE-001-779: the bound of an application holds for a transfer, which takes a check only once cashed.
+  'receipt.transfer.date_before_cashing':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}: un traspaso fechado el {date} cedería su efectivo antes de que el cheque se pagara. Féchalo el {cashedOn} o después. No se escribió nada.',
   'receipt.reverse.has_transfer':
     'Parte del saldo a cuenta de {receipt} se traspasó a otro cliente ({transfers}): reversar el cobro dejaría ese crédito sin dinero detrás. Reversa primero el traspaso con `mnemosine receipt reverse <traspaso> --reason "<por qué>"`. No se escribió nada.',
   'receipt.reverse.transfer_applied':
@@ -3271,6 +3623,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.no_number': 'sin folio',
   'bank.check.reconcile.dated_by_bank':
     '(lo fecha el banco: movimiento {transaction}, {amount})',
+  'bank.check.reconcile.label.entry_date': 'asiento del',
+  'bank.check.reconcile.entry_after_cashing':
+    '(ese día se aplicó a sus gastos, después del cobro: el IVA se acredita el más tardío de los dos días)',
   'bank.check.reconcile.no_open_period': 'sin periodo abierto en esa fecha',
   'bank.check.reconcile.no_period': 'sin periodo',
   'bank.check.reconcile.why':
@@ -3285,6 +3640,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.already_cleared': 'cheque cobrado el {date}',
   'bank.check.reconcile.changed_meanwhile':
     'El pago {payment} («{status}») cambió mientras se registraba el cobro de su cheque, o no es un pago completado. No se escribió nada.',
+  'bank.check.reconcile.several_release_days':
+    'El banco cobró el cheque del pago {payment} el {cashedOn}, y el IVA de sus aplicaciones se acredita el más tardío entre ese día y el de cada aplicación: {days}. Un cobro postea un asiento con una sola fecha, así que no se escribió nada. Desaplica las aplicaciones fechadas después del {first}, registra el cobro y vuelve a aplicarlas.',
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',
@@ -3306,6 +3663,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'El movimiento {transaction} es del {date} y el cobro {receipt} del {receiptDate}: un cheque no se cobra antes de recibirse.',
   'bank.check.cashing.refused.period_closed':
     'El cobro del cheque del cobro {receipt} es del {date}, y ningún periodo abierto contiene esa fecha. Su IVA pertenece a ese mes y no se contabiliza con otra fecha: reabre antes el periodo.',
+  'bank.check.cashing.refused.entry_period_closed':
+    'El banco cobró el cheque del cobro {receipt} el {cashedOn}, y sus facturas aplicadas el {date} causan su IVA ese día, el más tardío de los dos, y ningún periodo abierto lo contiene. Ese IVA no se contabiliza con otra fecha: reabre antes el periodo. No se escribió nada.',
   'bank.check.cashing.note.already_released':
     'Sin asiento: el cobro ya había liberado este IVA en su propia fecha.',
   'bank.check.cashing.note.nothing_to_release':
@@ -3327,6 +3686,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.cashing.refused.credit_matched':
     'El movimiento {transaction} está ligado por el cotejo vivo {match} a {type} {matched}, que no es ninguno de los cobros {receipt} ni un renglón de banco de sus pólizas: el abono pagó otra cosa. Si ese cotejo está mal, deshazlo con `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · cobro {payment}',
+  'bank.check.cashing.entry_after_cashing':
+    '(ese día se aplicó a sus facturas, después del cobro: su IVA se causa el más tardío de los dos días)',
   'bank.check.cashing.why':
     'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
     'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
@@ -3371,6 +3732,7 @@ export const ES: Record<keyof typeof EN, string> = {
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
 
+  'ar.customer.show.book_value': 'Valor en libros',
   'ar.receipt.invoice_missing':
     'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
   'ar.receipt.invoice_without_amount':
@@ -3388,6 +3750,20 @@ export const ES: Record<keyof typeof EN, string> = {
     'el borrado sólo es irrepetible por estado del borrador, no por llave',
   'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
+
+  // An invoice that holds a CFDI is not stamped again (MNE-001-763, #696).
+  'ar.invoice.cfdi.already_stamped':
+    'La factura {id} no se timbró otra vez: ya tiene un CFDI, folio {uuid} ({status}), timbrado el ' +
+    '{stamped_at}. Un segundo timbre sería un segundo CFDI ante el SAT por la misma venta. No se envió nada al ' +
+    'PAC ni se escribió nada.',
+  'ar.invoice.cfdi.stamp_in_progress':
+    'Este intento no timbró la factura {id}: otro timbrado de la misma factura, u otro cambio sobre ella, sigue ' +
+    'en curso y este intento dejó de esperar. No envió nada al PAC ni escribió nada. Lee la factura antes de ' +
+    'pedirlo de nuevo: si el otro timbrado terminó, la factura ya lleva su folio.',
+  'ar.invoice.cfdi.stamped_not_recorded':
+    'La factura {id} SÍ se timbró: el PAC ({provider}) respondió con el folio {uuid}, y el folio no se pudo ' +
+    'escribir en la factura. No la timbres otra vez. Guarda este folio: la factura no lo lleva, y es lo que ' +
+    'pide una cancelación.',
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
 
@@ -4291,6 +4667,61 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.entry.import.repeated': ' [repetido: lote de la primera corrida]',
   'ledger.entry.import.not_in_ledger':
     'El lote NO tocó el mayor: se valida y aplica con la familia batch (check/post); mientras, es inspeccionable por batch_id.',
+  // MNE-001-626: entry, its English without a key.
+  'ledger.entry.line.no_account': 'La línea "{spec}" no tiene account=<código>.',
+  'ledger.entry.line.one_side':
+    'La línea "{spec}" necesita exactamente uno de debit=<importe> o credit=<importe> (cargo=/abono=).',
+  'ledger.entry.idempotency_hit':
+    '↩ Idempotency hit: la llave "{key}" ya consumó este acto — {what}\n  Nada se ejecutó otra vez; esto es el resultado grabado.',
+  'ledger.entry.list.as_of_unsupported': '`entry list` filtra un RANGO de fechas: usa --since y --until, no --as-of.',
+  'ledger.entry.list.date_basis_unavailable':
+    '--date-basis {value} no está disponible: journal_entries guarda una sola fecha (entry_date, la fecha contable). Sólo se admite --date-basis posting.',
+  'ledger.entry.show.reference': 'referencia: {reference}',
+  'ledger.entry.show.reverses': 'reversa a: {number}',
+  'ledger.entry.show.reversed_by': 'reversada por: {number} (esta póliza está anulada)',
+  'ledger.entry.show.totals': 'totales: {debits} cargos / {credits} abonos',
+  'ledger.entry.lines_or_file': 'Pasa banderas --line o un documento --file, no ambos.',
+  'ledger.entry.create.nothing_to_record':
+    'Nada que registrar. Da las líneas con --line "account=<código>;debit=<importe>" (repítela), o un documento JSON con --file.',
+  'ledger.entry.create.drafted': '{number} creada como borrador',
+  'ledger.entry.create.drafted_detail':
+    '({count, plural, one {# línea} other {# líneas}}, {debits} / {credits})',
+  'ledger.entry.create.not_posted': 'Nada se movió en el mayor. Contabilízala con: mnemosine entry post {number}',
+  'ledger.entry.verdict.would_draft': 'Crearía el borrador',
+  'ledger.entry.verdict.checked': 'Verificada',
+  'ledger.entry.verdict.would_post': 'Contabilizaría',
+  'ledger.entry.verdict.cannot_post': 'No se puede contabilizar',
+  'ledger.entry.verdict.new_entry': '(póliza nueva)',
+  'ledger.entry.verdict.context': '{date} · {period} ({status}) · {count, plural, one {# línea} other {# líneas}}',
+  'ledger.entry.verdict.all_rules_pass': 'Pasan las siete reglas.',
+  'ledger.entry.verdict.no_blocking': 'Sin errores bloqueantes.',
+  'ledger.entry.check.nothing_to_check': 'Nada que verificar: pasa --entry <número> o --file <ruta>.',
+  'ledger.entry.check.one_at_a_time': 'Verifica una cosa a la vez: --entry o --file, no ambos.',
+  'ledger.entry.post.already_posted':
+    '{number} ya está contabilizada ({date}). Corrígela con `entry reverse`, que deja rastro de auditoría.',
+  'ledger.entry.post.void': '{number} está anulada y nunca podrá contabilizarse.',
+  'ledger.entry.post.invalid': '{number} no pasa la validación, así que no se contabilizó.',
+  'ledger.entry.post.question': '¿Contabilizar {number} ({total}) en el mayor? Esto no se puede deshacer.',
+  'ledger.entry.post.recorded': '{number} contabilizada {amounts}',
+  'ledger.entry.reverse.not_posted':
+    "{number} está '{status}' y nunca tocó el mayor, así que no hay nada que reflejar. Usa `entry void` sobre un borrador.",
+  'ledger.entry.reverse.already_reversed': '{number} ya tiene una reversa. Un segundo espejo duplicaría la corrección.',
+  'ledger.entry.reverse.would_mirror': 'Crearía el espejo de {number}',
+  'ledger.entry.reverse.would_mirror_detail': 'con fecha {date}, contabilizado de inmediato',
+  'ledger.entry.reverse.stays_posted': '{number} sigue contabilizada y sin cambios; las dos quedan ligadas.',
+  'ledger.entry.reverse.question': '¿Reversar {number} ({total})? El espejo se contabiliza de inmediato.',
+  'ledger.entry.reverse.recorded': '{number} contabilizada como reversa de {original}',
+  'ledger.entry.reverse.linked': '{number} queda sin cambios y ahora ligada a su espejo.',
+  'ledger.entry.void.already_void': '{number} ya está anulada.',
+  'ledger.entry.void.already_reversed': '{number} ya quedó anulada por su reversa. Una segunda duplicaría la corrección.',
+  'ledger.entry.void.effect_posted':
+    '{number} está contabilizada, así que NO cambiará de estado: se crea y se contabiliza una póliza espejo ligada, que es como se anula una póliza contabilizada sin que la balanza de comprobación discrepe de los saldos.',
+  'ledger.entry.void.effect_draft':
+    "{number} está '{status}' y nunca llegó al mayor, así que se marca anulada. Su número se conserva y nunca se reutiliza.",
+  'ledger.entry.void.would_void': 'Anularía {number}',
+  'ledger.entry.void.question': '¿Anular {number} ({total})?',
+  'ledger.entry.void.recorded': '{number} anulada {state}',
+  'ledger.entry.void.state': "(ahora '{status}')",
   // MNE-001-230: period and year.
   'ledger.period.active_entity': '→ {entity} (entidad activa; nombra otra con --entity)',
   'ledger.period.remedy.close_again': 'Vuelve a cerrarlo con: {close}',
@@ -4350,6 +4781,647 @@ export const ES: Record<keyof typeof EN, string> = {
   'ledger.period.year.carry.unchanged':
     'Los saldos iniciales de {period} ya son los saldos finales de {source}: no hay nada que corregir y no se escribió nada.',
   // ==== end of I8.9 ====
+  // ==== I8b · run-time strings by key, family init, part 1 (MNE-001-479, issue #150) ====
+  'init.badge.ok': 'configurada',
+  'init.badge.partial': 'incompleta',
+  'init.badge.missing': 'pendiente',
+  'init.secret.skipped': '(se omitió: no hay terminal interactiva)',
+  'init.status.title': 'Estado de la configuración',
+  'init.status.optional': '(opcional)',
+  'init.wizard.unknown_section': 'Sección desconocida: "{section}". Opciones: {options}',
+  'init.wizard.rescue_intro':
+    'Vamos a dejarte listo. Enter acepta el valor entre paréntesis; Ctrl+C hace una pausa — tu avance no se pierde porque el estado vive en el sistema, no en un archivo.',
+  'init.wizard.title': 'Configuración de Mnemosine',
+  'init.wizard.interactive': 'Sólo pregunto lo que falta. Enter acepta el valor entre paréntesis.',
+  'init.wizard.non_interactive': 'Modo no interactivo: uso los valores por omisión y las banderas.',
+  'init.wizard.already_configured': 'Ya está configurada; sigo.',
+  'init.wizard.configure_now': '¿La configuro ahora?',
+  'init.wizard.skipped': 'Omitida. Aparecerá como pendiente en init --status.',
+  'init.wizard.final_verification': 'Verificación final',
+  'init.wizard.unresolved': 'Quedan puntos sin resolver. Vuelve a correr: {command}',
+  'init.wizard.start_chat': '¿Empezamos a conversar ahora?',
+  'init.wizard.seed_with_data': 'Salúdame y hazme un chequeo rápido de la salud de mis libros.',
+  'init.wizard.seed_fresh': 'Salúdame y dime qué puedes hacer cuando cargue mi contabilidad.',
+  'init.wizard.opening_chat':
+    'Abriré el chat y enviaré tu primer mensaje: "{seed}". (El agente lee tus datos reales — puede tardar unos segundos.)',
+  'init.wizard.open_chat_with': 'Abre el chat con: {command}',
+  'init.wizard.ready': 'Listo. Prueba:',
+  'init.wizard.try.chat': 'conversa con tu contabilidad',
+  'init.wizard.try.review': 'aprueba o rechaza los borradores pendientes',
+  'init.wizard.try.status': 'cómo van las cosas',
+  'init.wizard.try.pending': 'lo que necesita tu atención',
+  'init.wizard.try.doctor': 'la salud del sistema',
+  'init.infra.title': 'Infraestructura (base de datos, migraciones, cifrado)',
+  'init.infra.env_tightened': '{path} tenía el modo {mode}; se ajustó a 600 (guarda secretos)',
+  'init.infra.no_env': 'No hay .env.',
+  'init.infra.here': 'Aquí:',
+  'init.infra.user_dir': 'Usuario:',
+  'init.infra.create_here': '¿Lo creo aquí (Sí) o en el directorio del usuario (No)?',
+  'init.infra.env_location': 'Ubicación del .env: {path}',
+  'init.infra.chosen_without_asking': '(sin terminal: se eligió sin preguntar)',
+  'init.infra.created_from_example': 'Se creó {path} a partir de .env.example',
+  'init.infra.created_empty': 'Se creó un {path} vacío',
+  'init.infra.key_generated':
+    'Se generó una ENCRYPTION_KEY propia de 256 bits (la anterior era la llave de ejemplo)',
+  'init.infra.database_url': 'DATABASE_URL (Enter para conservar la actual):',
+  'init.infra.database_url_saved': 'Se guardó DATABASE_URL. Vuelve a lanzar el comando para reconectar.',
+  'init.infra.start_postgres': 'Arranca PostgreSQL y vuelve a correr: docker compose up -d postgres',
+  'init.infra.apply_migrations': '¿Aplico las migraciones ahora?',
+  'init.infra.migrations_applied': 'Migraciones aplicadas',
+  'init.infra.failed': 'Falló: {message}',
+  'init.infra.run_manually': 'Córrelas a mano: {command}',
+  'init.infra.fix': 'Arreglo: {fix}',
+  'init.infra.rls.no_tenant': 'todavía no hay inquilino fijado (lo fija la sección de identidad)',
+  'init.infra.rls.unscoped': 'app.current_tenant vale "{applied}" en vez de "{tenant}": las consultas correrían sin alcance',
+  'init.infra.rls.unscoped_fix':
+    'Revisa MNEMOSINE_TENANT en .env; el módulo de conexión debe aplicar el inquilino en cada consulta',
+  'init.infra.rls.scoped':
+    'inquilino {tenant} acotado · {count, plural, one {# entidad visible} other {# entidades visibles}}',
+  'init.infra.rls.select_failed': 'falló el SELECT acotado: {message}',
+  'init.infra.rls.select_failed_fix': '{command} (puede faltar la tabla legal_entities o sus políticas de RLS)',
+  'init.policies.title': 'Políticas contables',
+  'init.policies.no_entity': 'Todavía no hay una entidad resuelta; las políticas se configuran cuando la entidad exista.',
+  'init.policies.all_defined': 'Todas las políticas ya están definidas.',
+  'init.policies.intro_count':
+    '{count, plural, one {Hay # decisión que no puedo tomar por mi cuenta.} other {Hay # decisiones que no puedo tomar por mi cuenta.}}',
+  'init.policies.intro_firm': 'Dependen del criterio de tu despacho, no de una regla que yo pueda consultar.',
+  'init.policies.intro_skip':
+    'Puedes saltarte cualquiera: cada una tiene un valor por omisión que funciona. Lo que dejes abierto se ve en `{command}`.',
+  'init.policies.non_interactive':
+    'Modo no interactivo: dejo {count, plural, one {# política en su valor por omisión} other {# políticas en su valor por omisión}}.',
+  'init.policies.none': '(ninguno)',
+  'init.policies.stopping': 'Me detengo aquí. Las demás se quedan en su valor por omisión.',
+  'init.policies.defined': 'Definidas: {answered} de {total}.',
+  'init.policies.still_open': '{left, plural, one {# sigue abierta} other {# siguen abiertas}} — mira `{command}`.',
+  'init.policies.nothing_open': 'No queda nada abierto.',
+  'init.policies.why_i_ask': 'Por qué lo pregunto:',
+  'init.policies.what_i_do': 'Qué hago:',
+  'init.policies.in_your_data': 'En tus datos:',
+  'init.policies.current_default': '← valor por omisión actual',
+  'init.policies.enter_keeps': 'Enter = conservar el valor por omisión ({value})   ·   q = dejar de preguntar',
+  'init.policies.left_open': 'Queda abierta: {text}',
+  'init.policies.could_not_save': 'No se pudo guardar: {message}',
+  'init.policies.check.not_seeded': 'Todavía no está sembrado; corre `{init}` o `{pending}`',
+  'init.policies.check.summary': '{count, plural, one {# política} other {# políticas}}, {pending} todavía en su valor por omisión',
+  'init.policies.check.high_impact': '{keys} siguen en su valor por omisión — cambian cómo se registran las facturas',
+  'init.policies.check.could_not_read': 'No se pudo leer: {message}',
+  // ==== end of I8b · init, part 1 ====
+  // ==== I8b · run-time strings by key, family init, part 2 (MNE-001-798, issue #150) ====
+  'init.identity.title': 'Identidad fiscal (inquilino, entidad legal, ejercicio fiscal)',
+  'init.identity.check.no_open_periods': 'no hay periodos abiertos: no se puede contabilizar ninguna póliza',
+  'init.identity.check.periods_available': '{count, plural, one {# periodo disponible} other {# periodos disponibles}}',
+  'init.identity.existing': '{count, plural, one {Ya hay # entidad:} other {Ya hay # entidades:}}',
+  'init.identity.add_another': '¿Agrego otra entidad?',
+  'init.identity.name_prompt': 'Nombre de la entidad legal:',
+  'init.identity.country_prompt': 'País [{choices}] ({default}):',
+  'init.identity.no_name': 'Sin un nombre no puedo crear la entidad; la sección queda incompleta.',
+  'init.identity.no_tax_id': 'Sin {label} no puedo crear la entidad; la sección queda incompleta.',
+  'init.identity.created': 'Se creó la entidad "{name}" ({taxId}, {country}, {currency})',
+  'init.identity.tenant_pinned': 'Inquilino fijado en {path} (aislamiento RLS activo)',
+  'init.identity.chart_seeded':
+    'Se sembró el catálogo de cuentas ({count, plural, one {# cuenta} other {# cuentas}})',
+  'init.identity.chart_kept': 'El catálogo de cuentas ya existía — se conserva tal cual',
+  'init.identity.control_accounts': 'Se añadieron cuentas de control ({count})',
+  'init.identity.roles_mapped': 'Se asignaron los roles de cuenta ({count})',
+  'init.identity.roles_unmapped':
+    '{count, plural, one {# rol sin cuenta en este catálogo:} other {# roles sin cuenta en este catálogo:}}',
+  'init.identity.expected_code': '{role} → código esperado {code}',
+  'init.identity.map_with': 'Asígnalos con: {command}',
+  'init.identity.year_created':
+    'Se creó el ejercicio fiscal {year} con 12 periodos mensuales y el periodo de ajuste de cierre (13)',
+  'init.identity.year_empty':
+    'El ejercicio fiscal {year} existe pero no tiene periodos — no se puede contabilizar nada. Borra la fila vacía de fiscal_years y vuelve a correr, o crea otro ejercicio con `{command}`.',
+  'init.identity.year_has':
+    'El ejercicio fiscal {year} ya tiene {count, plural, one {# periodo} other {# periodos}}',
+  'init.users.title': 'Usuarios y roles',
+  'init.users.check.none': 'no hay ningún usuario activo: review/outbox/questions no pueden atribuir',
+  'init.users.check.no_owner':
+    '{count, plural, one {# usuario, pero ninguno con el rol owner} other {# usuarios, pero ninguno con el rol owner}}',
+  'init.users.check.summary': '{count, plural, one {# activo} other {# activos}}, {owners} con el rol owner',
+  'init.users.check.multiple': 'con varios usuarios, review/questions exigen {flag}',
+  'init.users.current': 'Usuarios actuales:',
+  'init.users.no_role': 'sin rol',
+  'init.users.add_another': '¿Agrego otro usuario?',
+  'init.users.email_prompt': 'Correo del usuario:',
+  'init.users.invalid_email': 'Correo no válido; la sección queda incompleta.',
+  'init.users.roles': 'Roles disponibles:',
+  'init.users.role_prompt': 'Rol [1-{count}] (1):',
+  'init.users.password_prompt': 'Contraseña (mínimo {min} caracteres):',
+  'init.users.section_incomplete': 'La sección queda incompleta.',
+  'init.users.without_terminal': 'Sin terminal: {command}',
+  'init.users.created': 'Se creó el usuario {email} con el rol {role}',
+  'init.users.tenant_missing': 'El inquilino {tenant} no existe; la sección queda incompleta (ver: {command}).',
+  'init.users.no_tenant': 'Configura primero la sección de identidad (no hay inquilino).',
+  'init.users.many_tenants': 'Esta instalación tiene más de un inquilino: nombra el despacho con {flag}.',
+  'init.users.choosing_for_you': 'Elegir por ti podría darle a este acceso los libros de otro despacho:',
+  'init.ai.title': 'Proveedor de IA',
+  'init.ai.verifying': 'El proveedor "{profile}" ya está configurado; lo verifico en vivo…',
+  'init.ai.verified': 'Verificado: responde a un chat mínimo (la configuración no se tocó)',
+  'init.ai.repair':
+    'Reparación: elige un proveedor que sí responda (la configuración actual se conserva hasta que uno se verifique).',
+  'init.ai.available': 'Proveedores disponibles:',
+  'init.ai.which_default': '¿Cuál uso por omisión? ({suggested}):',
+  'init.ai.unknown': '"{profile}" no existe. Dejo la configuración como está.',
+  'init.ai.get_credential': 'Consigue la credencial en: {url}',
+  'init.ai.key_prompt': '{variable} (Enter para omitir):',
+  'init.ai.key_saved': 'Se guardó {variable} en {path}',
+  'init.ai.no_credential': 'Sin una credencial, {profile} todavía no se puede usar.',
+  'init.ai.ollama_models': 'Modelos instalados en Ollama:',
+  'init.ai.model_prompt': 'Modelo (1):',
+  'init.ai.try_another': '¿Pruebo otro proveedor?',
+  'init.ai.nothing_persisted': 'No se guardó nada: se conserva la configuración anterior (si la había).',
+  'init.ai.responds': 'Responde a un chat mínimo',
+  'init.ai.default_saved': 'Proveedor por omisión: {profile}',
+  'init.ai.env_wins': 'MNEMOSINE_PROVIDER={value} manda sobre el default_provider que se acaba de guardar.',
+  'init.ai.env_wins_empty': 'Vacíala (en tu .env o en tu shell) para usar {profile} por omisión.',
+  'init.ai.too_many': 'Demasiados intentos fallidos; no se guardó nada.',
+  'init.ai.env_location': 'Ubicación del .env: {path} (el tuyo; nunca el ./.env de la carpeta)',
+  'init.ai.removed_empty': 'Se quitó el {variable}= vacío de {path}, que ocultaría tu llave',
+  'init.ai.local_wins': '{variable} en {path} manda en {cwd}: esa llave sirve a todos los que corren mnemosine aquí.',
+  'init.ai.tools_ok': 'Admite llamadas a herramientas (las herramientas contables funcionan)',
+  'init.ai.tools_missing': 'NO admite llamadas a herramientas: sirve para conversar, no para operar',
+  'init.ai.tools_missing_fix': 'Marca tools:false en su perfil, o elige otro proveedor.',
+  'init.ai.no_response': 'Sin respuesta: {detail}',
+  'init.ai.cause.auth': 'Causa: se rechazó la credencial (no válida, vencida o sin permisos).',
+  'init.ai.fresh_key': 'Consigue una nueva en: {url}',
+  'init.ai.cause.connection': 'Causa: no se pudo llegar al servicio. Revisa base_url, tu red,',
+  'init.ai.cause.connection_more': 'y que el servicio esté corriendo (en los locales: ollama serve, hermes gateway…).',
+  'init.ai.cause.other': 'Causa: el proveedor respondió con un error inesperado (ver el detalle arriba).',
+  'init.ai.project_readers': 'todos los que corren mnemosine en {cwd} leen {path}.',
+  'init.ai.save_there': '¿Guardo tu elección ahí (No: en {path})?',
+  'init.ai.still_decides': '{path} sigue mandando en {cwd}; tu archivo aplica en otros lados.',
+  'init.ai.not_copied':
+    '"{profile}" sólo está definido en {source}; no se copia a {target}, así que no se guardó nada.',
+  'init.ai.saved_to': 'Se guardó en {path}',
+  'init.ai.window': '{profile} declara una ventana de contexto de {tokens} tokens para {declared}, no para {model}.',
+  'init.ai.window_fix': 'Si la tuya es distinta, fija compaction.threshold_tokens en el archivo de configuración.',
+  // ==== end of I8b · init, part 2 ====
+  // ==== I8b · run-time strings by key, family init, part 3 (MNE-001-799, issue #150) ====
+  'init.import.title': 'Trae tu contabilidad',
+  'init.import.no_entity': 'Todavía no hay una entidad resuelta; la importación va después de que exista la entidad.',
+  'init.import.why': 'Por qué pregunto: mnemosine sirve más cuando ve tu contabilidad real.',
+  'init.import.what': 'Qué hago: todo llega como borradores por revisar — nada se contabiliza sin ti.',
+  'init.import.how': '¿Cómo quieres empezar?',
+  'init.import.door.api': 'Importar de otro sistema contable por API (hoy, {product})',
+  'init.import.door.xml': 'Ingerir archivos XML de CFDI desde una carpeta',
+  'init.import.door.fresh': 'Empezar desde cero — puedes importar cuando quieras',
+  'init.import.non_interactive':
+    'Modo no interactivo: se empieza desde cero. Puedes importar cuando quieras: {command}',
+  'init.import.choice_prompt': 'Opción [{choices}] ({default}):',
+  'init.import.fresh': 'Se empieza desde cero. Puedes importar cuando quieras: {command}',
+  'init.import.system_prompt': 'Sistema externo ({default}):',
+  'init.import.cutoff_prompt': 'Fecha de corte, saldos al AAAA-MM-DD:',
+  'init.import.cutoff_invalid': 'El corte debe ser AAAA-MM-DD. No se importó nada — vuelve a correr cuando estés listo:',
+  'init.import.reading': 'Leyendo la balanza de comprobación remota…',
+  'init.import.plan_failed': 'No pude planear la importación: {message}',
+  'init.import.plan_failed_more': 'No se creó nada. Control completo de la importación: {command}',
+  'init.import.plan_accounts': 'Cuentas remotas: {remote} · ya existen: {existing} · por crear: {create}',
+  'init.import.plan_opening':
+    'Saldo inicial: {count, plural, one {# línea} other {# líneas}} · cargos {debits} · abonos {credits}',
+  'init.import.nothing': 'Nada que importar: la balanza de comprobación remota no tiene saldos.',
+  'init.import.unbalanced': 'La balanza de comprobación remota no cuadra (diferencia {imbalance}).',
+  'init.import.balancing_prompt': 'Código de la cuenta de cuadre ({default}):',
+  'init.import.confirm':
+    '{count, plural, one {¿Creo # cuenta y el saldo inicial como borrador?} other {¿Creo # cuentas y el saldo inicial como borrador?}}',
+  'init.import.cancelled': 'Cancelado. No se creó nada. Puedes importar cuando quieras: {command}',
+  'init.import.accounts_created': '{count, plural, one {Se creó # cuenta.} other {Se crearon # cuentas.}}',
+  'init.import.opening_draft': 'Saldo inicial en el borrador {draftId} (ref {reference}).',
+  'init.import.review': 'Revisa los borradores: {command}',
+  'init.import.failed': 'Falló la importación: {message}',
+  'init.import.retry_full': 'Reintenta con control completo: {command}',
+  'init.import.key.resume': 'La sección queda incompleta. Vuelve a correr para registrarla: {command}',
+  'init.import.key.none': '{entity} todavía no tiene una clave de {provider} que sirva.',
+  'init.import.key.same_rfc': 'Cada entidad lee y escribe sólo con la clave de su propia empresa (el mismo RFC).',
+  'init.import.key.where': 'En {provider}: abre la empresa con RFC {rfc} → {menu}.',
+  'init.import.key.prompt': 'Clave de API de {provider} para el RFC {rfc} (Enter para omitir):',
+  'init.import.key.attest': '¿Esta clave abre la empresa de {provider} con RFC {rfc}, y ninguna otra?',
+  'init.import.key.not_attested': 'No se registró: una clave de otra empresa escribiría en sus libros.',
+  'init.import.key.failed': 'No pude registrar la clave: {message}',
+  'init.import.key.registered': 'Clave de {provider} registrada para el RFC {rfc} (guardada en la bóveda).',
+  'init.import.xml.prompt': 'Carpeta con archivos XML de CFDI:',
+  'init.import.xml.no_folder': 'No diste una carpeta. Puedes ingerir cuando quieras: {command}',
+  'init.import.xml.unreadable': 'No pude leer la carpeta: {message}',
+  'init.import.xml.anytime': 'Puedes ingerir cuando quieras: {command}',
+  'init.import.xml.none': 'No encontré archivos *.xml ahí. Puedes ingerir cuando quieras: {command}',
+  'init.import.xml.capped':
+    'Encontré {count} archivos; tomo los primeros {cap} en esta primera corrida para que la revisión siga siendo manejable. Ingiere el resto con: {command}',
+  'init.import.xml.found': '{count, plural, one {Encontré # archivo.} other {Encontré # archivos.}}',
+  'init.import.xml.done':
+    'Listo: {rules} por reglas, {drafts, plural, one {# borrador} other {# borradores}}, {blocked, plural, one {# bloqueado} other {# bloqueados}}, {duplicates, plural, one {# duplicado} other {# duplicados}}, {errors} con errores.',
+  'init.import.xml.failed': 'Falló la ingesta: {message}',
+  'init.import.xml.retry': 'Reintenta cuando quieras: {command}',
+  'init.import.check.data':
+    '{entries, plural, one {# póliza} other {# pólizas}}, {xmls, plural, one {# CFDI ingerido} other {# CFDI ingeridos}}',
+  'init.import.check.no_data': 'Todavía no hay datos contables',
+  'init.import.check.no_data_fix': 'Importa con `{onboard}` o ingiere CFDI con `{ingest}`',
+  'init.import.check.drafts':
+    '{count, plural, one {# borrador de saldo inicial en espera de aprobación} other {# borradores de saldo inicial en espera de aprobación}}',
+  'init.import.check.drafts_fix': 'Apruébalo o recházalo con `{command}`',
+  'init.first_run.no_env': 'no hay archivo .env (nunca se configuró)',
+  'init.first_run.no_database_url': '{variable} no está definida (agrégala a tu .env)',
+  'init.first_run.database_unreachable': 'sin conexión con la base de datos: {message}',
+  'init.first_run.timed_out': 'se agotó el tiempo de espera tras {ms} ms',
+  'init.first_run.no_entities': 'no hay entidades legales registradas',
+  'init.first_run.no_provider': 'el proveedor de IA no está configurado',
+  'init.first_run.provider_missing': 'el proveedor {name} no existe',
+  'init.first_run.check_failed': 'falló la revisión de la configuración: {message}',
+  'provider.list.default': '← por omisión',
+  'provider.list.tools': 'herramientas',
+  'provider.list.no_tools': 'sin herramientas',
+  'provider.list.config': 'Configuración: {source}',
+  'provider.list.builtin':
+    'Se usan los perfiles integrados. Personalízalos con mnemosine.config.json (o ~/.mnemosine/config.json) y elige el predeterminado con "default_provider", MNEMOSINE_PROVIDER o --provider.',
+  'provider.tick.no_config': 'proveedor: la configuración no carga ({command} dice por qué)',
+  'provider.tick.missing': 'el proveedor {name} no existe ({command} dice más)',
+  'provider.tick.line': 'proveedor {name} · {credential} · la credencial del usuario que corre esta pasada',
+  // ==== end of I8b · init, part 3 ====
+  // ==== I8b · run-time strings by key, family ar, part 1 (MNE-001-802, issue #150) ====
+  'ar.confirm.aborted': 'Cancelado — {reason}.',
+  'ar.invoice.line.legacy_tax_key': 'En una línea de factura, tax= es la TASA en porcentaje; escribe tax-rate= para que no se lea como un importe. tax= deja de funcionar en {version}.',
+  'ar.invoice.line.no_price': 'La línea "{spec}" no trae price=<importe>.',
+  'ar.invoice.due_before_date': '--due-date {due} cae antes de la fecha de la factura {date}.',
+  'ar.invoice.amount_due_on': '({amount} {currency}, vence {date})',
+  'ar.invoice.dry_run': 'No se escribió nada.',
+  'ar.invoice.file.unreadable': 'No se puede leer {path} como JSON: {message}',
+  'ar.invoice.file.not_array': '{path} debe contener un arreglo JSON de objetos de línea.',
+  'ar.invoice.file.line_not_object': '{path} contiene una línea que no es un objeto.',
+  'ar.invoice.list.date_basis_value': '--date-basis value no está disponible en una factura: la fecha valor es del dinero que la liquida, no del documento. Usa --date-basis document o posting.',
+  'ar.invoice.list.period_or_range': 'Usa --period o --since/--until, no los dos.',
+  'ar.invoice.show.disappeared': 'La factura {ref} desapareció mientras se leía.',
+  'ar.invoice.show.invoice_date': 'Fecha de factura',
+  'ar.invoice.show.due_date': 'Vencimiento',
+  'ar.invoice.show.tax': 'Impuestos',
+  'ar.invoice.show.paid': 'Cobrado',
+  'ar.invoice.show.due': 'Por cobrar',
+  'ar.invoice.show.po': 'Orden de compra',
+  'ar.invoice.show.memo': 'Nota',
+  'ar.invoice.show.ledger_entry': 'Póliza',
+  'ar.invoice.show.not_posted': 'sin contabilizar — corre `{command}`',
+  'ar.invoice.show.not_stamped': 'sin timbrar — es un documento local',
+  'ar.invoice.show.lines': 'Líneas',
+  'ar.invoice.show.cash_applied': 'Cobros aplicados',
+  'ar.invoice.create.customer_archived': '{number} está archivado. Restáuralo con `{command}` antes de facturarle.',
+  'ar.invoice.create.lines_missing': 'Una factura necesita al menos una línea: pasa --line "account=<código>;qty=<n>;price=<importe>;tax-rate=<%>" (repetible) o --from-file <ruta>.',
+  'ar.invoice.create.terms_unreadable': 'No se puede calcular un vencimiento con las condiciones de este cliente ("{terms}"). Pasa --due-date <AAAA-MM-DD>.',
+  'ar.invoice.create.not_revenue': 'Nota: {code} {name} es de tipo "{type}", no de ingresos.',
+  'ar.invoice.create.drafted': '{number} quedó en borrador para {customer}',
+  'ar.invoice.create.not_posted': 'No se contabilizó ni se timbró nada. Contabilízala con `{command}`.',
+  'ar.invoice.issue.already_issued': '{number} ya se emitió y está en el mayor. Corrígela con `{command}`, que revierte la póliza y deja el rastro.',
+  'ar.invoice.issue.never': '{number} está en {status} y nunca podrá emitirse.',
+  'ar.invoice.issue.zero_total': '{number} suma {total}. Una factura sin importe no contabiliza nada; agrégale líneas con `{command}` o anúlala.',
+  'ar.invoice.issue.confirm': '¿Contabilizar {number} ({amount} {currency}) en el mayor? Esto no se deshace.',
+  'ar.invoice.issue.would_post': 'Se contabilizaría {number}',
+  'ar.invoice.issue.as_entry': 'como {entry}',
+  'ar.invoice.issue.no_entry': 'sin póliza',
+  'ar.invoice.issue.issued': '{number} emitida como {entry}',
+  'ar.invoice.issue.dry_run_note': 'No se escribió nada. Vuelve a correrlo sin --dry-run para contabilizarla.',
+  'ar.invoice.issue.posted_note': 'El documento está contabilizado, sin timbrar y sin entregar.',
+  'ar.invoice.void.paid': '{number} está pagada. Desaplica primero el cobro, o emite una nota de crédito.',
+  'ar.invoice.void.confirm': '¿Anular {number} ({amount} {currency}){reverse, select, yes { y revertir su póliza} other {}}?',
+  'ar.invoice.void.would_void': 'Se anularía {number}',
+  'ar.invoice.void.voided': '{number} anulada',
+  'ar.invoice.void.would_reverse': 'y se revertiría su póliza.',
+  'ar.invoice.void.reversed': 'y su póliza quedó revertida.',
+  'ar.invoice.void.never_posted': '(nunca había llegado al mayor).',
+  'ar.invoice.edit.not_draft': '{number} está en "{status}". Sólo un borrador se puede editar: corrige una factura emitida con `{command}` o con una nota de crédito.',
+  'ar.invoice.edit.edited': '{number} editada',
+  'ar.invoice.edit.still_draft': 'Sigue en borrador: nada contabilizado, nada timbrado.',
+  'ar.invoice.delete.not_draft': '{number} está en "{status}". Sólo un borrador se puede eliminar; una factura emitida se anula, y eso deja el rastro de la reversa.',
+  'ar.invoice.delete.would_delete': 'Se eliminaría {number}',
+  'ar.invoice.delete.would_delete_detail': '({amount} {currency}, borrador). El folio quedaría como un hueco documentado.',
+  'ar.invoice.delete.confirm': '¿Eliminar el borrador {number} ({amount} {currency})? El documento se borra; sólo el rastro de auditoría conserva sus cifras.',
+  'ar.invoice.delete.deleted': '{number} eliminada',
+  'ar.invoice.delete.gap_note': 'el folio queda como un hueco que `{command}` reportará como explicado.',
+  'ar.invoice.series.list.no_status': '`{command}` no tiene estado de ciclo de vida por el cual filtrar: una serie de folios es un contador, no un documento.',
+  'ar.invoice.series.check.year_invalid': '--year debe ser un año de cuatro dígitos; llegó "{value}".',
+  'ar.invoice.series.check.usage': '{used, plural, one {# usado} other {# usados}}, contador en {counter}',
+  'ar.invoice.series.check.no_gaps': 'Sin huecos: la serie es continua.',
+  'ar.invoice.series.check.unexplained': '{count, plural, one {# hueco SIN rastro} other {# huecos SIN rastro}}: una transacción que se revirtió a media emisión, o algo peor. Cada folio necesita una explicación que un auditor acepte.',
+  'ar.invoice.series.check.all_explained': 'Cada hueco tiene su rastro de auditoría (borradores eliminados con motivo).',
+  'ar.reconcile.title': 'Conciliación de CxC',
+  'ar.reconcile.header': 'cuenta de control {code} {name}',
+  'ar.reconcile.row.control_balance': 'Saldo de la cuenta de control',
+  'ar.reconcile.row.open_invoices': 'Facturas abiertas',
+  'ar.reconcile.row.unapplied_credit_notes': 'Notas de crédito sin aplicar',
+  'ar.reconcile.row.fx_revaluation': 'Revaluación cambiaria (NIF B-15)',
+  'ar.reconcile.row.subledger_net': 'Neto del auxiliar',
+  'ar.reconcile.delta': 'Diferencia {delta} — el auxiliar y el mayor cuentan historias distintas.',
+  'ar.reconcile.manual_entries': 'Asientos manuales que tocan la cuenta de control',
+  'ar.reconcile.manual_note': 'Un asiento manual en una cuenta de control es la causa clásica de una diferencia que nadie encuentra.',
+  'ar.check.title': 'Controles de CxC',
+  'ar.check.blocking': '{count, plural, one {# bloqueante} other {# bloqueantes}}',
+  'ar.check.warnings': '{count, plural, one {# advertencia} other {# advertencias}}',
+  'ar.check.no_warnings': '0 advertencias',
+  // ==== end of I8b · ar, part 1 ====
+  // ==== I8b · run-time strings by key, family ar, part 2 (MNE-001-803, issue #150) ====
+  'ar.receipt.record.not_collectable': '{number} está en "{status}". {reason, select, paid {Ya está liquidada.} draft {Emítela primero: una factura tiene que estar en el mayor antes de aplicarle un cobro.} other {Sólo se cobran facturas en {collectable}.}}',
+  'ar.receipt.record.confirm': '¿Registrar {amount} {currency} cobrados en {invoice}{balances}{left, select, none {} other {, con {leftAmount} a cuenta}}{advance}{bank, select, none {} other {, en {bankName}}}, en {entity}? Esto contabiliza en el mayor.',
+  'ar.receipt.record.would_record_advance': 'Registraría un anticipo a cuenta',
+  'ar.receipt.on_account': '{amount} a cuenta',
+  'ar.receipt.show.date': 'Fecha',
+  'ar.receipt.show.amount': 'Importe',
+  'ar.receipt.show.method': 'Forma de pago',
+  'ar.receipt.show.reference': 'Referencia',
+  'ar.receipt.show.on_account': 'A cuenta',
+  'ar.receipt.show.reversed': 'Reversado',
+  'ar.receipt.show.reversal_cause': 'Causa de la reversa',
+  'ar.receipt.show.cause_not_stated': 'sin declarar',
+  'ar.receipt.show.cause_stated': 'Causa declarada',
+  'ar.receipt.show.applications': 'Aplicaciones',
+  'ar.receipt.list.status_filter': 'Filtra los cobros con --unapplied o --needs-rep: la columna de estado sigue al dinero, no a un flujo de trabajo.',
+  'ar.receipt.apply.confirm': '¿Aplicar {documents} de {payment} (a cuenta {before} → {after}) el {date} en {entity}? Esto contabiliza en el mayor.',
+  'ar.receipt.apply.would': 'Aplicaría',
+  'ar.receipt.apply.applied': '{payment} aplicado',
+  'ar.receipt.withheld': 'retenido {parts}',
+  'ar.receipt.withheld.vat': 'IVA',
+  'ar.receipt.unapply.would': 'Desaplicaría {amount} de {invoice}',
+  'ar.receipt.unapply.would_detail': '({before} → {after}, de vuelta a cuenta{withheld}{advance}) el {date}',
+  'ar.receipt.unapply.reparked': 'IVA reaparcado {iva}{estimate, select, yes { (estimación prorrateada)} other {}}',
+  'ar.receipt.unapply.confirm': '¿Desaplicar {amount} de {payment} de {invoice} ({before} → {after}{withheld}{advance}) el {date}? El dinero queda a cuenta; la factura se reabre.{kept}',
+  'ar.receipt.unapply.done': '{payment} desaplicado de {invoice}',
+  'ar.receipt.reverse.would': 'Reversaría {payment}',
+  'ar.receipt.reverse.would_detail': '{entries, plural, one {# asiento reflejado} other {# asientos reflejados}}, {invoices, plural, one {# factura reabierta} other {# facturas reabiertas}}',
+  'ar.receipt.reverse.confirm': '¿Reversar {payment} ({amount} {currency}; {cause})? {entries, plural, one {# asiento del mayor recibe su espejo} other {# asientos del mayor reciben su espejo}} y {invoices, plural, one {# factura se reabre} other {# facturas se reabren}}.',
+  'ar.receipt.reverse.done': '{payment} reversado',
+  'ar.receipt.reverse.reopened': '{count, plural, one {# factura reabierta} other {# facturas reabiertas}}',
+  'ar.receipt.cause.key_unneeded': 'una causa se escribe una sola vez: un reintento encuentra el cobro con su causa y se rechaza',
+  'ar.receipt.trace.key_unneeded': 'sólo se llenan los campos vacíos: un reintento los encuentra llenos y los reporta sin cambio',
+  'ar.credit_note.create.target_missing': 'Una nota de crédito necesita su destino: --invoice <ref> (lo recomendado: la liga fiscal decide el IVA) o --customer <ref> para una nota suelta.',
+  'ar.credit_note.create.drafted': '{number} quedó en borrador',
+  'ar.credit_note.create.drafted_detail': '({type}, {amount} {currency}{target, select, invoice {, acredita {invoice}} customer {, {customer}} other {}})',
+  'ar.credit_note.create.not_posted': 'No se contabilizó nada. Contabilízala con `{issue}` y luego `{apply}`.',
+  'ar.credit_note.show.type': 'Tipo',
+  'ar.credit_note.show.credits_invoice': 'Acredita la factura',
+  'ar.credit_note.show.relates_to': 'Relacionada con el CFDI',
+  'ar.credit_note.show.applied': 'Aplicado',
+  'ar.credit_note.show.available': 'Disponible',
+  'ar.credit_note.show.reason': 'Motivo',
+  'ar.credit_note.issue.not_draft': '{number} está en "{status}"{posted, select, yes { y ya está en el mayor.} other { y ya no puede emitirse.}}',
+  'ar.credit_note.issue.confirm': '¿Contabilizar {number} ({amount} {currency} contra la cuenta por cobrar) en el mayor? Esto no se deshace.',
+  'ar.credit_note.issue.nothing_written': 'no se escribió nada.',
+  'ar.credit_note.issue.now_credit': 'la nota ya es saldo a favor del cliente; aplícala con `{command}`.',
+  'ar.credit_note.apply.invoice_missing': 'Di a qué factura o facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>. Una nota emitida sin nada aplicado YA ES el saldo a favor del cliente — para eso no hace falta ningún comando.',
+  'ar.credit_note.apply.no_amount': 'La factura "{spec}" no trae importe. Con varias facturas cada una lleva el suyo ("folio:importe"); con una sola puede ir en --amount.',
+  'ar.credit_note.apply.available': 'disponible {before} → {after}',
+  'ar.credit_note.apply.confirm': '¿Aplicar {number} a {documents} en {entity}?',
+  'ar.credit_note.apply.applied': '{number} aplicada',
+  'ar.credit_note.apply.applied_detail': 'disponible {available} · nota {status}',
+  'ar.customer.list.balance_not_number': '--balance-gt tiene que ser un número; llegó "{value}".',
+  'ar.customer.list.status_unknown': '--status "{value}" desconocido. El estado de ciclo de vida de un cliente es su estado de crédito: {statuses}.',
+  'ar.customer.show.point_in_time': '`{command}` es una ficha a una fecha: usa --as-of para la fecha de referencia. Para un rango de fechas, usa `{range}`.',
+  'ar.customer.show.date_basis': '--date-basis no aplica al saldo de un cliente: se arma con la fecha del documento de lo facturado y la fecha de pago de lo cobrado, las dos a la vez.',
+  'ar.customer.show.disappeared': 'El cliente {ref} desapareció mientras se leía.',
+  'ar.customer.show.archived': '[archivado]',
+  'ar.customer.show.tax_id': 'Identificación fiscal',
+  'ar.customer.show.email': 'Correo',
+  'ar.customer.show.phone': 'Teléfono',
+  'ar.customer.show.terms': 'Condiciones',
+  'ar.customer.show.currency': 'Moneda',
+  'ar.customer.show.credit_status': 'Estado de crédito',
+  'ar.customer.show.credit_limit': 'Límite de crédito',
+  'ar.customer.show.amount_due': 'Saldo por cobrar',
+  'ar.customer.show.past_due': 'Vencido',
+  'ar.customer.show.oldest_due': 'Vencimiento más antiguo',
+  'ar.customer.show.as_of': 'Al',
+  'ar.customer.show.open_documents': 'Documentos abiertos',
+  'ar.customer.show.recent_payments': 'Cobros recientes',
+  'ar.customer.create.name_missing': 'Un cliente necesita un nombre: pasa --name "ACME SA" o --first-name.',
+  'ar.customer.create.currency_invalid': '--currency tiene que ser un código de 3 letras; llegó "{value}".',
+  'ar.customer.edit.nothing_to_change': 'Nada que cambiar. Pasa --name, --first-name, --last-name, --email, --phone, --terms o --notes.',
+  'ar.customer.edit.updated': '{number} actualizado',
+  'ar.customer.archive.archived': '{number} archivado.',
+  'ar.customer.archive.open_documents': '{count, plural, one {Queda # documento abierto} other {Quedan # documentos abiertos}} por {balance} en los libros.',
+  'ar.customer.restore.active': '{number} vuelve a estar activo.',
+  'ar.customer.tax.regime': 'Régimen',
+  'ar.customer.tax.postal_code': 'Código postal',
+  'ar.customer.tax.complete': 'Completo: el timbrado tiene contra qué cotejarse en el padrón del SAT.',
+  'ar.customer.tax.missing': 'Falta {missing}: un CFDI para este cliente sería rechazado.',
+  'ar.customer.tax.updated': 'perfil fiscal de {number} actualizado',
+  'ar.customer.tax.updated_complete': 'completo',
+  'ar.customer.tax.still_missing': 'todavía falta {missing}',
+  'ar.customer.tax.list_no_status': '`{command}` no tiene filtro de ciclo de vida: usa --missing.',
+  // ==== end of I8b · ar, part 2 ====
+  // ==== I8b · run-time strings by key, family payroll (MNE-001-804, issue #150) ====
+  // Same keys, same order as en.ts; the plurals are ICU. Commands, panel keys, rates, amounts and dates are parameters.
+  'payroll.isn.state_missing': 'Nombra el estado: el ISN es un impuesto estatal y una tasa sin estado no es de nadie. Usa la clave c_Estado del SAT tal como está escrita en tus trabajadores (por ejemplo JAL, o JA).',
+  'payroll.isn.state_invalid': '"{value}" no es una clave de estado. Tiene que tener 2 o 3 letras —la clave c_Estado del SAT— y coincidir, carácter por carácter, con lo guardado en el trabajador (employees.work_state) o en la entidad (legal_entities.state_province). El motor las compara en mayúsculas y sin espacios, y nada más.',
+  'payroll.isn.rate_missing': 'La tasa es obligatoria: dala como fracción (0.03) o como porcentaje (3%).',
+  'payroll.isn.rate_invalid': '"{value}" no es una tasa. Escríbela como fracción (0.03) o como porcentaje (3%). El ISN no tiene tasas negativas.',
+  'payroll.isn.rate_too_precise': '{rate} tiene más de {decimals} decimales y la columna guarda {decimals}. Redondearla aquí guardaría una tasa que nadie tecleó; redondéala tú a la cifra publicada y captura ésa.',
+  'payroll.isn.rate_above_ceiling': '{rate} rebasa el tope de {ceiling} que impone la tabla (migración 067). El impuesto estatal sobre nóminas ronda del 1% al 4%. Si quisiste decir tres por ciento, escribe 0.03 o 3%: un 3 a secas es trescientos por ciento.',
+  'payroll.isn.date_not_real': '{name} "{value}" no es una fecha que exista.',
+  'payroll.isn.regime_unknown': '--regime "{value}" desconocido. La tabla sólo conoce: {regimes} (la migración 067 los pone en un CHECK).',
+  'payroll.isn.legal_basis_missing': '--legal-basis es obligatorio: una tasa sin la ley que la sostiene no se puede auditar. Cita la ley de hacienda del estado y su artículo, y el periódico oficial que publicó la cifra vigente; por ejemplo: "Ley de Hacienda del Estado de Jalisco art. 41, reforma publicada en el Periodico Oficial 2025-12-15".',
+  'payroll.isn.legal_basis_too_short': '--legal-basis "{value}" es demasiado corto para ser una cita. Nombra la ley y el artículo: dentro de dos años la pregunta no será cuánto se pagó, sino de dónde salió la tasa.',
+  'payroll.isn.exemption_missing': '--regime con_exencion exige --exemption <importe>: un régimen que exenta tiene que decir cuánto exenta, o el motor no lo distingue de una tasa plana.',
+  'payroll.isn.exemption_invalid': '--exemption "{value}" no es un importe. Escríbelo como decimal, 8000.00.',
+  'payroll.isn.exemption_not_allowed': '--exemption sólo va con --regime con_exencion; éste es "{regime}". El CHECK de la migración 067 rechaza la pareja, y la rechaza porque una exención que nadie aplica es una exención que el lector cree aplicada.',
+  'payroll.isn.period_not_month': '--period "{value}" no es un mes. Los pasivos patronales se enteran por mes, así que aquí va AAAA-MM (2026-07).',
+  'payroll.isn.period_month_range': '--period "{value}": el mes va de 01 a 12.',
+  'payroll.isn.open_end': '(abierta)',
+  'payroll.isn_rate_set.reaches_count': '{count, plural, one {# trabajador lleva} other {# trabajadores llevan}} "{state}"',
+  'payroll.isn_rate_set.nobody': 'NADIE',
+  'payroll.isn_rate_set.reaches_nobody': 'NADIE: ningún trabajador vivo de esta entidad lleva "{state}" en {source}',
+  'payroll.isn_rate_set.keys_in_use': 'claves que sí se usan: {keys}',
+  'payroll.isn_rate_set.blank_key': '(vacía)',
+  'payroll.isn_rate_set.key_too_long': 'employees.work_state es VARCHAR(2) y esta clave tiene 3 letras: nunca puede coincidir. Captura la clave de 2 letras que llevan tus trabajadores, o corrige a los trabajadores.',
+  'payroll.isn_rate_set.overlap': 'SOLAPE',
+  'payroll.isn_rate_set.overlap_detail': '{state} {from} -> {to} a {rate}: el disparador trg_isn_sin_solape va a rechazar esta escritura.',
+  'payroll.isn_rate_set.heading': 'Por capturar una tasa de ISN',
+  'payroll.isn_rate_set.regime_not_computed': 'NOTA: el motor sólo calcula tasa_plana. Capturada como "{regime}", se negará a calcular y lo dirá, que es justo lo que se busca: no aplicará la tasa como si el régimen fuera plano.',
+  'payroll.isn_rate_set.effective_from_missing': '--effective-from es obligatorio: una tasa sin vigencia no es una tasa, es un recuerdo. Los congresos estatales las mueven por decreto, y calcular la nómina de marzo con la tasa de diciembre da un número verosímil y equivocado.',
+  'payroll.isn_rate_set.superseded_before': '--superseded-on {to} no es posterior a --effective-from {from}. Una vigencia que termina antes de empezar no es una vigencia (el CHECK isn_vigencia_coherente de la migración 067 también la rechaza).',
+  'payroll.isn_rate_set.dry_run': 'Ensayo: no se escribió nada.',
+  'payroll.isn_rate_set.overlap_refused': '{state} ya tiene {count, plural, one {# vigencia que se solapa} other {# vigencias que se solapan}} con {from}{to, select, none { en adelante} other {..{to}}}: {clashes}. Dos vigencias solapadas hacen que el ISN del mes dependa de cuál se lea primero. Cierra la anterior con --superseded-on y vuelve a capturar ésta.',
+  'payroll.isn_rate_set.clash': '{from}->{to} a {rate}',
+  'payroll.isn_rate_set.confirm': '¿Capturar {state} a {rate} desde {from}? Toda corrida de nómina MX de ese estado a partir de esa fecha la multiplicará, para TODOS los despachos de esta instalación: la tabla de tasas de ISN es ley pública, no dato del inquilino, y no lleva tenant_id. Tu id de usuario es el único rastro de quién la capturó.',
+  'payroll.isn_rate_set.aborted': 'No se capturó nada.',
+  'payroll.isn_rate_set.aborted_no_terminal': 'No se capturó nada: no hay terminal donde confirmar. Agrega -y para capturar sin preguntar, o --dry-run para ver qué se escribiría.',
+  'payroll.isn_rate_set.captured': 'Capturada. {state} calcula ahora a {rate} desde {from}{to, select, none { en adelante} other { hasta {to}}}. No se acumuló nada: el pasivo se escribe cuando cierra una corrida de nómina.',
+  'payroll.isn_rate_set.duplicate': '{state} ya tiene una tasa capturada con vigencia desde {from}. Una tasa no se edita a ciegas: mírala primero con `{command}` y, si tiene que cambiar, ciérrala con --superseded-on y captura la nueva.',
+  'payroll.isn_rate_set.db_refused': 'La base rechazó la escritura: {message}. Dos vigencias solapadas hacen que el ISN del mes dependa de cuál lea primero el motor, así que el disparador lo impide. Cierra la anterior con --superseded-on y vuelve a capturar ésta.',
+  'payroll.isn_rate_list.none_captured': 'No hay ninguna tasa de ISN capturada. La tabla nace vacía a propósito (migración 067): treinta y dos estados recordados de memoria son treinta y dos números inventados, así que el motor se niega a calcular en vez de reportar un cero que parece un resultado.',
+  'payroll.isn_rate_list.none_in_force': 'Nada rige el {date}{state, select, none {} other { para {state}}}, aunque {count, plural, one {hay # vigencia capturada} other {hay # vigencias capturadas}}. Usa -a para verlas.',
+  'payroll.isn_rate_list.capture_hint': 'Captura una con: {command}',
+  'payroll.isn_calculate.run_required': '--run <payRunId> es obligatorio: el ISN se calcula con los recibos de una corrida de nómina, porque ahí están las remuneraciones y los estados.',
+  'payroll.isn_calculate.run_not_found': 'No hay corrida de nómina {id} en esta entidad. Una corrida de otra entidad no se ve aquí a propósito: el ISN de una corrida es de la entidad cuyo calendario la produjo.',
+  'payroll.isn_calculate.heading': 'ISN — corrida de nómina {id}',
+  'payroll.isn_calculate.window': '{start} -> {end} ({status}) · fecha de causación {date}',
+  'payroll.isn_calculate.defaults_unanswered': 'Al menos un criterio es un DEFECTO declarado y no una decisión del despacho. Contéstalos con `{stateCommand}` / `{momentCommand}`.',
+  'payroll.isn_calculate.total': 'ISN calculado: {amount} MXN en {count, plural, one {# estado} other {# estados}}',
+  'payroll.isn_calculate.findings': '{blocking, plural, one {# bloqueante} other {# bloqueantes}}, {warnings, plural, one {# aviso} other {# avisos}}. Un hallazgo bloqueante quiere decir que una base NO se calculó: es un hueco en el número de arriba, no un cero.',
+  'payroll.isn_calculate.not_accrued': 'Aquí no se acumuló nada. El pasivo se escribe cuando la corrida cierra.',
+  'payroll.tax_deposit.status_unknown': '--status desconocido: {values}. La tabla sólo tiene: {statuses} (migración 008).',
+  'payroll.tax_deposit.status_empty': '--status no nombró nada. Disponibles: {statuses}.',
+  'payroll.tax_deposit.none': 'No hay nada acumulado que coincida. `employer_tax_liabilities` se escribe cuando una corrida de nómina CIERRA (aprobada o pagada), no cuando se calcula: una lista vacía casi siempre quiere decir que todavía no se ha cerrado ninguna corrida en esta ventana, no que no se deba nada.',
+  'payroll.tax_deposit.summary': '{shown} de {total, plural, one {# renglón} other {# renglones}} · {amount} MXN a la vista · estado {statuses}{scope, select, all { · todas las entidades} other {}}',
+  'payroll.tax_deposit.overdue': '{count, plural, one {# renglón ya pasó su fecha límite y sigue abierto} other {# renglones ya pasaron su fecha límite y siguen abiertos}}. El impuesto patronal vencido causa recargos y actualización por ley; la fecha es la fecha.',
+  'payroll.tax_deposit.due_date_rule': 'Aquí las fechas límite siguen la regla general (el día 17 del mes siguiente) y NO se recorren al día hábil: el artículo 12 del CFF necesita un calendario de días inhábiles que este sistema no tiene, y varios estados publican su propio calendario de ISN. Revisa el calendario del estado antes de fiarte de una fecha de ISN.',
+  'payroll.employee.create.file_missing': 'Falta --file: los identificadores se leen de un archivo, nunca de banderas.',
+  'payroll.employee.create.file_not_json': '--file no es JSON válido.',
+  'payroll.employee.create.file_not_object': '--file tiene que traer UN empleado como objeto JSON; la carga masiva es `{command}`.',
+  'payroll.employee.create.file_scoped': '--file no puede fijar {fields}: la entidad es la que se nombra con -e/--entity.',
+  'payroll.employee.create.file_unknown_fields': '--file trae campos desconocidos: {fields}.',
+  'payroll.employee.create.missing': 'Falta {fields}.',
+  'payroll.employee.create.country_invalid': 'country_code "{value}": usa MX o US.',
+  'payroll.employee.create.hire_date_invalid': 'hire_date "{value}": usa AAAA-MM-DD.',
+  'payroll.employee.create.rehearsal': 'Ensayo: la transacción se deshizo. No se guardó ningún empleado.',
+  'payroll.employee.list.status_unknown': '--status {values}: usa uno de {states}.',
+  'payroll.employee.list.status_one': '--status toma un estado a la vez; usa -a/--all para todos.',
+  'payroll.employee.list.none': 'Ningún empleado coincide en esta entidad.',
+  'payroll.garnishment.not_whole_number': '{name} tiene que ser un número entero de 0 o más; llegó "{value}".',
+  'payroll.garnishment.record.missing': 'Falta {flags}. Una orden sin tipo no se puede calcular, una sin autoridad emisora no se puede rastrear hasta el juzgado que la dictó, y `start_date` es NOT NULL.',
+  'payroll.garnishment.record.rehearsal': 'Ensayo: la transacción se deshizo. No se registró ninguna orden.',
+  'payroll.garnishment.record.cascade': 'este trabajador tiene ahora {count} órdenes vivas. El día de pago las toma en esta secuencia (sus topes combinados se cotejaron contra el ingreso disponible antes de registrar):',
+  'payroll.garnishment.record.cascade_row': '{type} · rango {rank} · prioridad {priority} · {amountType} {amountValue}',
+  'payroll.garnishment.list.status_unknown': '--status {values}: una orden está activa o archivada. Usa -a/--all para las dos.',
+  'payroll.garnishment.list.none': 'Ninguna orden de embargo coincide. Aquí no se está reteniendo nada.',
+  'payroll.garnishment.archive.stays_on_file': 'La orden sigue en el expediente. Lo que se detuvo es la retención: el motor lee is_active y nada más.',
+  'payrun.type_unknown': 'se esperaba uno de {types}',
+  // ==== end of I8b · payroll ====
+  // ==== I8b · run-time strings by key, family report (MNE-001-807, issue #150) ====
+  // Same keys, same order as en.ts; the plurals are ICU. Commands, policy keys and values, flags, periods, dates and amounts are parameters.
+  'report.period.calendar_fallback': '"{period}" no coincide con un solo periodo fiscal; se usa el rango de calendario {start} → {end}.',
+  'report.period.required': '{command} necesita un periodo: pasa --period (2026-07, 2026-Q3, FY2026) o --since y --until juntos. Un estado de flujos de efectivo es un movimiento entre dos fechas.',
+  'report.status_not_applicable': '--status no aplica a "{command}": informa saldos contabilizados, no un estado del ciclo de vida.',
+  'report.scope.cumulative': 'acumulado al {date}',
+  'report.scope.period': 'periodo {name}',
+  'report.scope.open_range': '{start, select, none {inicio} other {{start}}} → {end, select, none {hoy} other {{end}}}',
+  'report.scope.full_history': 'todo lo contabilizado',
+  'report.scope.account': 'cuenta {code}',
+  'report.scope.as_of': 'al {date}',
+  'report.title.trial_balance': 'Balanza de comprobación',
+  'report.title.balance_sheet': 'Balance general',
+  'report.title.income_statement': 'Estado de resultados',
+  'report.title.general_ledger': 'Libro mayor',
+  'report.title.aged_receivables': 'Antigüedad de saldos por cobrar',
+  'report.title.aged_payables': 'Antigüedad de saldos por pagar',
+  'report.title.views': 'Vistas de informes',
+  'report.trial_balance.level_invalid': '--level tiene que ser un número entero de 1 o más; llegó "{value}".',
+  'report.trial_balance.sat_mismatch': 'SaldoIni + Debe - Haber no da SaldoFin en {count, plural, one {# cuenta} other {# cuentas}}: {accounts}',
+  'report.trial_balance.footing': 'Cargos {debits}   Abonos {credits}   ({count, plural, one {# cuenta} other {# cuentas}})',
+  'report.trial_balance.balanced': '{footing}   cuadra',
+  'report.trial_balance.out_of_balance': '{footing}   DESCUADRADA por {difference}',
+  'report.balance_sheet.unbalanced': 'El balance general no cuadra: activo {assets} contra pasivo más capital {total}, una diferencia de {difference}. El propio mayor es inconsistente a esta fecha; corre `mnemosine entry check` y concilia los auxiliares antes de confiar en cualquier estado.',
+  'report.income_statement.period_required': 'Un estado de resultados cubre un periodo. Pasa --period <expr>, o --since y --until juntos.',
+  'report.general_ledger.page_totals': 'Cargos de la página {debits}   abonos de la página {credits}   ({shown} de {total, plural, one {# movimiento} other {# movimientos}})',
+  'report.aging.as_of_due_dates_only': '--as-of {date} sólo envejece los vencimientos. Los importes son los saldos abiertos de hoy, no los saldos como estaban en esa fecha.',
+  'report.view.scope': 'totales de cada vista contra el mayor vivo',
+  'report.view.stale': 'Al menos una vista ya no coincide con el mayor. El disparador de refresco sólo se activa cuando un asiento queda contabilizado, así que las migraciones y las cargas masivas dejan atrás a las vistas. Reconstrúyelas con `mnemosine report view sync`.',
+  'report.view.fresh': 'Todas las vistas de informes coinciden con el mayor.',
+  'report.view.synced': 'Vistas de informes reconstruidas para todas las entidades de esta instalación.',
+  'report.cashflow.method_unknown': '--method tiene que ser uno de: indirect, direct (indirecto, directo); llegó "{value}". El método no es cosmético: decide cómo se construye el estado.',
+  'report.cashflow.method_label': 'método: {method} ({source, select, flag {--method} other {política `{policy}`}} · {value})',
+  'report.cashflow.row.non_cash_total': 'Total de partidas que no son efectivo',
+  'report.cashflow.row.working_capital_total': 'Total del cambio en el capital de trabajo',
+  'report.cashflow.row.operating_total': 'Flujo neto de actividades de operación',
+  'report.cashflow.row.investing_total': 'Flujo neto de actividades de inversión',
+  'report.cashflow.row.financing_total': 'Flujo neto de actividades de financiamiento',
+  'report.cashflow.row.net_change': 'Cambio neto en el efectivo',
+  'report.cashflow.row.unclassified_total': 'Total sin clasificar (fuera de toda sección, y fuera del neto de arriba)',
+  'report.cashflow.row.cash_opening': 'Efectivo y equivalentes, saldo inicial',
+  'report.cashflow.row.cash_movement': 'Efectivo y equivalentes, movimiento en el mayor',
+  'report.cashflow.row.cash_closing': 'Efectivo y equivalentes, saldo final',
+  'report.cashflow.row.residue': 'Residuo (neto del estado − movimiento en el mayor)',
+  'report.cashflow.heading': 'Estado de flujos de efectivo · {entity} · {currency} · {scope}',
+  'report.cashflow.cash_accounts': 'Efectivo y equivalentes: {accounts} (criterio «{criterion}»)',
+  'report.cashflow.non_cash': '{count, plural, one {# operación de inversión o financiamiento que no movió efectivo, excluida del estado y revelada aquí} other {# operaciones de inversión o financiamiento que no movieron efectivo, excluidas del estado y reveladas aquí}}: {transactions}',
+  'report.cashflow.ties_unclassified': 'El neto del estado amarra con el efectivo ({net}), pero no está clasificado: {note} Los subtotales de arriba no se sostienen; el neto sí.',
+  'report.cashflow.ties': 'Amarra: el neto del estado es igual al movimiento del efectivo y equivalentes en el mayor.',
+  'report.cashflow.untied': 'El estado no amarra con el efectivo: declara un neto de {net} y el efectivo y equivalentes se movieron {movement} en el mayor. Residuo de {residue}, impreso arriba y sin absorberse en ningún renglón. Corre `mnemosine cashflow reconcile --show-candidates`.',
+  'report.cashflow.untied_blocking': '{sentence} La política `{policy}` es «{value}»: el estado no se sostiene.',
+  'report.cashflow.untied_silent': '{sentence} La política `{policy}` es «{value}»: se informa como nota, no como hallazgo.',
+  'report.cashflow_reconcile.heading': 'Conciliación del flujo de efectivo · {entity} · {currency} · {scope}',
+  // ==== end of I8b · report ====
+  // ==== I8b · run-time strings by key, family close (MNE-001-805, issue #150) ====
+  'closing.check.none_selected': '(no se seleccionó ninguna verificación)',
+  'closing.check.unknown_codes': '{count, plural, one {Código de verificación desconocido} other {Códigos de verificación desconocidos}}: {codes}. Disponibles: {available}.',
+  'closing.check.ai_drafts': '{count, plural, one {# borrador de IA fechado dentro del periodo bloquea este cierre} other {# borradores de IA fechados dentro del periodo bloquean este cierre}} ({command})',
+  'closing.check.ai_questions': '{count, plural, one {# pregunta de IA sin responder} other {# preguntas de IA sin responder}} ({command})',
+  'closing.check.ai_outbox': '{count, plural, one {# escritura externa en cola} other {# escrituras externas en cola}} ({command})',
+  'closing.readiness.blocking': 'Bloqueos:',
+  'closing.readiness.warnings': 'Avisos:',
+  'closing.preview.can_enter': 'El periodo puede entrar a cierre.',
+  'closing.preview.cannot_enter': 'El periodo todavía no puede entrar a cierre: resuelve los bloqueos de arriba.',
+  'closing.explain.fix_with': 'se corrige con:',
+  'closing.explain.clean': 'nada que explicar: la verificación está limpia en este periodo',
+  'closing.period.none': 'ninguno',
+  'closing.period.not_found': 'Ningún periodo coincide con "{ref}". Cerrables: {available}.',
+  'closing.period.nothing_to_conduct': '{period} ya está en {status}: no queda nada que conducir. Séllalo con {command}.',
+  'closing.period.not_closable': '{period} está en {status}: sólo se cierran periodos abiertos o con cierre suave. Cerrables: {available}.',
+  'closing.period.none_to_preview': 'No hay periodos abiertos: nada que previsualizar ni verificar.',
+  'closing.period.none_to_conduct': 'No hay periodos abiertos: nada que conducir.',
+  'closing.period.none_to_seal': 'Todavía no hay un periodo cerrado que sellar. Nombra el periodo para sellar uno abierto a propósito, p. ej. {example}.',
+  'closing.confirm.taken_as_no': '{reason}; lo tomo como no.',
+  'closing.run.key_unneeded':
+    'los motores nunca contabilizan dos veces el mismo mes y un candado consultivo impide que dos conductores corran el mismo periodo: volver a correrlo, con --resume cuando hay una corrida abierta, no duplica nada',
+  'closing.run.step_unknown': 'Paso "{step}" desconocido. Los pasos son: {steps}.',
+  'closing.run.open_run': 'Este periodo ya tiene una corrida de cierre abierta ({run}). Continúala con --resume, o mírala antes con --dry-run.',
+  'closing.run.nothing_to_resume': 'Nada que reanudar: este periodo no tiene una corrida de cierre abierta. Córrelo sin --resume para empezar una.',
+  'closing.run.confirm':
+    '¿Conducir el cierre de {period}? Cuatro de sus pasos contabilizan en el mayor, que no admite deshacer, y el último hace el cierre duro del periodo.',
+  'closing.run.aborted': 'No se hizo nada: el mayor no se tocó.',
+  'closing.run.aborted_no_tty':
+    'No se hizo nada: no hay terminal donde confirmar. Agrega -y para conducir sin preguntar, o --dry-run para ver lo pendiente sin escribir.',
+  'closing.run.prior_attempt': '(también lo registró un intento anterior de esta corrida)',
+  'closing.run.how_fresh': 'córrelo sin --dry-run',
+  'closing.run.how_resume': 'córrelo con --resume',
+  'closing.run.how_wait': 'espera a que se detenga el conductor que actúa sobre su corrida, y luego córrelo con --resume',
+  'closing.run.line.completed': 'El cierre quedó conducido. Sella el expediente con {command}.',
+  'closing.run.line.stopped_seal': 'Detenido antes del sello, como se pidió: el periodo tiene cierre suave. Séllalo con {seal}.',
+  'closing.run.line.stopped': 'Detenido antes de {step}, como se pidió. El periodo sigue abierto; continúa con --resume.',
+  'closing.run.line.blocked': 'Bloqueado en {step}. Resuelve los bloqueos y luego continúa con --resume.',
+  'closing.run.line.failed_seal': 'Falló en el sello: el periodo tiene cierre suave. Corrige la causa y luego séllalo con {seal}.',
+  'closing.run.line.failed': 'Falló en {step}. Corrige la causa y luego continúa con --resume.',
+  'closing.run.line.previewed_stop': 'No se escribió nada. Una corrida de verdad se detendría antes de {step}; para conducir, {how}.',
+  'closing.run.line.previewed_block': 'No se escribió nada. La lista de verificación bloquearía en {step}: resuélvela y luego {how}.',
+  'closing.run.line.previewed': 'No se escribió nada. Para conducir, {how}.',
+  'closing.pack.verify_with': 'compruébalo con: {command}',
+  'closing.pack.verify.cannot_read': 'No se puede leer {file}.',
+  'closing.pack.verify.wrong_entity': 'Este expediente es de "{dossier}" y la entidad activa es "{active}". Nombra la correcta con --entity.',
+  'closing.pack.verify.as_of': '{entity} · al {date}',
+  'closing.pack.verify.seal': 'el archivo concuerda con su sello',
+  'closing.pack.verify.issued': 'estos libros emitieron un expediente con este sello',
+  'closing.pack.verify.figures': 'las cifras se reproducen contra los libros',
+  'closing.pack.verify.warning': 'aviso:',
+  'closing.pack.verify.identity_changed':
+    'un nombre cambió desde el sellado — la entidad, el periodo o el nombre de una cuenta (renglones marcados identity); ninguna cifra se movió por eso',
+  'closing.pack.verify.envelope_differs': 'el sobre (quién, cuándo, qué corrida) no es el que se registró al emitirlo',
+  'closing.pack.verify.row.issued': 'emitido por estos libros',
+  'closing.pack.verify.row.not_issued': 'no emitido',
+  'closing.pack.verify.row.as_registered': 'como se registró',
+  'closing.pack.verify.row.differs': 'difiere',
+  'closing.fx.revalue.key_unneeded':
+    'fx_revaluation_runs resta lo que contabilizaron las corridas anteriores del periodo: volver a correrlo contabiliza sólo lo que se movió desde entonces, o nada',
+  'close.none_open': 'No hay periodos abiertos: nada que cerrar.',
+  'close.ready': 'Listo para cerrar.',
+  'close.not_ready': 'Todavía no se puede cerrar: resuelve los bloqueos de arriba.',
+  'close.kind.hard': 'cierre DURO (irreversible)',
+  'close.kind.soft': 'cierre suave (reversible)',
+  'close.confirm.proceed': '¿Proceder con el {kind}?',
+  'close.confirm.proceed_as': '¿Proceder con el {mode, select, hard {cierre DURO (irreversible)} other {cierre suave (reversible)}}?',
+  'close.confirm.type_name': 'Un cierre duro no se deshace. Escribe el nombre del periodo ({period}) para confirmar:',
+  'close.confirm.mismatch': 'Eso no coincide con {period}: no se cerró nada.',
+  'close.dry_run.would': '{mode, select, hard {Haría el cierre duro de} other {Haría el cierre suave de}} {period}.',
+  'close.dry_run.nothing': '(ensayo: no se escribió nada)',
+  'close.idempotency_hit': 'Llave ya usada: la llave "{key}" ya cerró {period} (ahora {status}). No se volvió a ejecutar nada.',
+  'close.done': '{period} queda en {status} (por {email})',
+  'close.soft_reversible': 'El cierre suave es reversible. Para sellarlo: {command}',
+  'close.carry.into': 'Saldos iniciales arrastrados a: {periods}',
+  'close.carry.locked': '{period} está bloqueado: sus saldos iniciales NO se reescribieron.',
+  'close.carry.locked_detail': 'Él y los periodos que le siguen todavía abren con las cifras viejas; registra la corrección en un periodo abierto.',
+  // ==== end of I8b · close ====
+  // ==== I8b · run-time strings by key, kernel line-spec (MNE-001-806, issue #150) ====
+  'cli.line.pair_unreadable':
+    'No se puede leer la línea "{spec}". Cada parte es clave=valor, y las partes van separadas por ";": --line "account=5100;qty=2;price=350.00;description=Text".',
+  'cli.line.key_twice': 'La línea "{label}" da "{key}" dos veces (como "{first}" y como "{second}").',
+  'cli.line.unknown_keys':
+    '{count, plural, one {Clave desconocida} other {Claves desconocidas}} en --line: {unknown}. Claves conocidas: {known}.',
+  'cli.line.same_field': 'La línea "{label}" da un mismo campo dos veces: "{first}" y "{second}" son la misma clave. Escribe sólo una.',
+  'cli.line.legacy_comma':
+    'Separar los pares de --line con "," está en desuso; sepáralos con ";" (account=5100;qty=1;price=1000;tax-amount=160). Las comas dejan de funcionar en {version}.',
+  'cli.line.keys_heading': 'Claves que acepta --line (pares clave=valor separados por ";"; "_" y "-" son lo mismo):',
+  // ==== end of I8b · line-spec ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
   // default (src/gateway/app/messages.ts falls back to es).
@@ -4631,7 +5703,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.description':
     'Corridas de nómina de un periodo de pago: crear, calcular de bruto a neto, aprobar y contabilizar la póliza',
   'help.pay_run.create.description':
-    'Crea una corrida en borrador sobre un periodo de pago; el ejercicio fiscal se toma del periodo',
+    'Crea una corrida en borrador sobre un periodo de pago; el ejercicio fiscal se toma del periodo, ' +
+    'y un periodo lleva una sola corrida ordinaria (tipo regular)',
   'help.pay_run.create.option.period': 'periodo de pago de la entidad activa (su id)',
   'help.pay_run.create.option.type': 'tipo de corrida: {types}',
   'help.pay_run.calculate.description':
@@ -4783,6 +5856,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'ciérrala con `receipt allocation close <cobro> --invoice <factura> --reason "<por qué>"`, que no postea nada, ' +
     'antes de volver a cobrar esa factura. En un cobro anulado o fallido, repórtala',
   'ar.check.orphan_application.none': 'ninguna',
+  'ledger.check.year_sweep.found':
+    'posteada en {period} el {posted}, después de que {sealed} barrió el ejercicio el {sealed_at}: {accounts} ya no cuadran con ese barrido. Cierra {sealed} otra vez (period reopen y después close dos veces), o reversa la póliza',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
@@ -5656,7 +6731,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Lista los clientes con sus condiciones de pago, su estado de crédito y el saldo que deben',
   'help.customer.list.argument.query': 'texto que se busca en el nombre o en el número del cliente',
   'help.customer.list.option.overdue': 'sólo los clientes con algo vencido',
-  'help.customer.list.option.balance_gt': 'sólo los clientes que deben más de este importe',
+  'help.customer.list.option.balance_gt':
+    'sólo los clientes cuyo saldo a valor en libros, en la moneda funcional, pase de este importe (un documento en otra moneda pesa al tipo de cambio con que se registró)',
   'help.customer.list.option.inactive': 'muestra los clientes archivados en vez de los activos',
   'help.customer.show.description':
     'Muestra un cliente: perfil, identificador fiscal, crédito, saldo y documentos abiertos',
@@ -6504,6 +7580,65 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.outbox.run.argument.id': 'ids de las operaciones que se ejecutan; omítelos para revisar toda la cola de forma interactiva',
   'help.outbox.run.option.entity': 'Entidad legal (id, RFC o parte del nombre)',
   'help.outbox.run.option.user': 'Quién ejecuta (por omisión: el único usuario activo del inquilino)',
+  // ==== MNE-001-428 · help by key, audit, backup, status, subscription and completion (issue #314) ====
+  'help.audit.description': 'Lee la bitácora de auditoría: quién cambió qué, cuándo y desde qué valor',
+  'help.audit.list.description': 'Bitácora de los cambios: quién, cuándo, qué objeto y qué campos cambiaron',
+  'help.audit.list.option.user': 'sólo los registros que escribió este usuario (correo); este comando no atribuye nada',
+  'help.audit.list.option.since': 'límite inferior inclusivo de la fecha y hora del registro (AAAA-MM-DD)',
+  'help.audit.list.option.until': 'límite superior inclusivo de la fecha y hora del registro (AAAA-MM-DD)',
+  'help.audit.list.option.actor': 'human | agent | agent:<sesión> (ver la nota sobre --actor agent)',
+  'help.audit.list.option.action': 'una de: {actions}',
+  'help.audit.list.option.object': 'familia de objetos: {families}; sin valor, las lista',
+  'help.audit.list.option.entity_type': 'valor exacto de audit_log.entity_type, cuando la familia no basta',
+  'help.audit.show.description': 'Un registro de auditoría completo: el valor anterior, el posterior y el motivo',
+  'help.audit.show.option.user': 'sólo los registros que escribió este usuario (correo); este comando no atribuye nada',
+  'help.audit.show.argument.id': 'id del renglón de audit_log (la columna id de `audit list`)',
+  'help.backup.description':
+    'Respaldos lógicos de toda la instalación (create, list, verify ensayando la restauración, restore) y exportaciones lógicas por inquilino (export)',
+  'help.backup.create.description':
+    'Hace un volcado lógico de TODA la instalación, con su manifiesto de versión del esquema',
+  'help.backup.create.option.tenant':
+    'AQUÍ NO: este volcado no se acota. El archivo de un solo inquilino es `mnemosine backup export --tenant <id>`',
+  'help.backup.create.option.entity':
+    'AQUÍ NO: el archivo de una sola entidad es `mnemosine backup export --entity <idOrName>`',
+  'help.backup.create.option.target': 'directorio donde se escribe (por omisión: {dir})',
+  'help.backup.create.option.json': 'salida en JSON',
+  'help.backup.export.description':
+    'EXPORTACIÓN lógica de UN inquilino (o de una entidad): consistente, acotada por la propia RLS de la base de datos y con manifiesto. NO es un respaldo restaurable',
+  'help.backup.export.option.tenant': 'inquilino (despacho) que se exporta (por omisión, --tenant / MNEMOSINE_TENANT)',
+  'help.backup.export.option.entity': 'la acota además a una entidad legal de ese inquilino',
+  'help.backup.export.option.target': 'directorio donde se escribe (por omisión: {dir})',
+  'help.backup.export.option.json': 'salida en JSON',
+  'help.backup.list.description':
+    'Lista los respaldos y las exportaciones conocidos con su fecha, alcance, tamaño, versión del esquema y si su hash todavía coincide',
+  'help.backup.list.option.target': 'directorio que se lee (por omisión: {dir})',
+  'help.backup.verify.description':
+    'Comprueba un respaldo contra su manifiesto; con --restore, ensaya la restauración y corre las comprobaciones del mayor',
+  'help.backup.verify.argument.file': 'archivo de respaldo que se comprueba',
+  'help.backup.verify.option.restore':
+    'lo RESTAURA en una base de datos desechable y corre las comprobaciones del mayor (la única prueba real)',
+  'help.backup.verify.option.strict': 'sale con 4 también ante avisos',
+  'help.backup.restore.description': 'Restaura un respaldo en una base de datos NUEVA; nunca sobre una existente',
+  'help.backup.restore.argument.file': 'archivo de respaldo que se restaura',
+  'help.backup.restore.option.target': 'nombre de la base de datos NUEVA que se crea y en la que se restaura',
+  'help.backup.restore.option.json': 'salida en JSON',
+  'help.status.description':
+    'Foto del estado: configuración, sondeo en vivo de los proveedores, base de datos y RLS (sin secretos, se puede compartir)',
+  'help.status.option.all': 'Sondea todos los perfiles configurados, no sólo la cadena de failover activa',
+  'help.status.option.tenant': 'Inquilino (despacho), para comprobar que la RLS está activa',
+  'help.status.option.json': 'salida en JSON (la misma estructura sin secretos, para tickets de soporte)',
+  'help.status.option.strict':
+    'Sale también con 1 cuando el sondeo de algún proveedor falla o se omite (por omisión, el comando sólo falla si no alcanza la base de datos)',
+  'help.subscription.delivery.description': 'Bitácora de las entregas salientes y sus reintentos',
+  'help.subscription.delivery.sweep.description':
+    'Reintenta cada entrega saliente cuya hora de reintento ya pasó, con espera exponencial; las que agotan sus intentos se declaran muertas y se reportan (llámalo desde cron)',
+  'help.subscription.delivery.sweep.option.tenant': 'Inquilino (despacho) que se barre (por omisión, MNEMOSINE_TENANT)',
+  'help.subscription.delivery.sweep.option.all_tenants':
+    'Barre todos los inquilinos activos, cada uno en su propio contexto de inquilino',
+  'help.subscription.delivery.sweep.option.limit': 'Máximo de entregas por inquilino en esta pasada',
+  'help.subscription.delivery.sweep.option.json': 'salida en JSON',
+  'help.completion.description': 'Imprime en la salida estándar un script de autocompletado para el shell (bash, zsh)',
+  'help.completion.argument.shell': 'Shell para el que se genera: {list} o {last}',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -6522,6 +7657,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.current_liabilities': 'Pasivo a corto plazo',
   'report.category.long_term_liabilities': 'Pasivo a largo plazo',
   'report.category.equity': 'Capital contribuido',
+  'report.category.earned_capital': 'Reservas y resultados acumulados',
   'report.category.ori': 'Otros resultados integrales',
   'report.category.revenue': 'Ingresos',
   'report.category.cogs': 'Costo de ventas',
@@ -6530,6 +7666,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.category.other_expenses': 'Otros gastos',
   'report.category.tax': 'Impuestos',
   'report.category.other': 'Otros',
+  'report.group.earned_capital': 'Capital ganado',
   'report.total_of': 'Total de {name}',
   'report.total_liabilities_and_equity': 'Suma del pasivo y el capital contable',
   'report.net_income': 'Utilidad neta',
@@ -6662,6 +7799,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.create.period_required':
     'Falta --period: una corrida es de un periodo de pago de la entidad, y no se adivina del reloj.',
   'payrun.create.next': 'Sigue: `mnemosine pay-run calculate {id} --file <insumos.json>`.',
+  // A period holds one regular run (MNE-001-659, #601).
+  'payrun.create.regular_run_exists':
+    'El periodo de pago {period} ya tiene una corrida ordinaria, {run}, en estado {status}: un periodo lleva ' +
+    'una sola corrida ordinaria (tipo regular). No se creó ninguna corrida. Esa corrida se vuelve a calcular ' +
+    'mientras no esté aprobada; un pago aparte del ordinario (un aguinaldo, un finiquito, un pago fuera de ' +
+    'ciclo) va en una corrida de ese tipo (bonus, final, off_cycle).',
   'payrun.calculate.file_required':
     'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
   'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',
@@ -6670,6 +7813,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'other {# de sus recibos ya tienen}} un CFDI de nómina o un lote de depósito, y volver a calcular ' +
     'reemplaza todos los recibos de la corrida. No se cambió nada.',
   'payrun.calculate.changed_meanwhile': 'La corrida {id} cambió mientras se calculaba. No se escribió nada.',
+  // A yearly parameter whose new row is not loaded by the pay date (MNE-001-636, #953).
+  'payrun.calculate.stale_parameter':
+    '{parameter}: en la fecha de pago {pay_date} sigue vigente {value}, desde el {since}. Su valor nuevo ' +
+    'debía regir desde el {due} y no está cargado, así que la corrida se calcula con {value}; no se cambió ' +
+    'ningún importe. Carga el valor nuevo de su publicación en el DOF y vuelve a calcular la corrida.',
+  'payroll.parameter.minimum_wage_general': 'Salario mínimo general',
+  'payroll.parameter.minimum_wage_border': 'Salario mínimo de la Zona Libre de la Frontera Norte',
+  'payroll.parameter.uma_daily': 'UMA diaria',
+  'payroll.parameter.uma_monthly': 'UMA mensual',
   'payrun.approve.confirm':
     'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
     'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',
@@ -6724,7 +7876,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.deposit_file.run_not_approved':
     'No se generó el archivo de depósito de la corrida {id}: está en estado {status}, y el archivo de depósito ' +
     'sólo se genera para una corrida aprobada o pagada. No se escribió nada.',
+  // A paycheck that holds a payroll CFDI is not stamped again (MNE-001-736, #601).
+  'payrun.cfdi.already_stamped':
+    'El recibo {id} no se timbró otra vez: ya tiene un CFDI de nómina, folio {uuid} ({status}), timbrado el ' +
+    '{stamped_at}. Un segundo timbre sería un segundo CFDI ante el SAT por el mismo pago. No se envió nada al ' +
+    'PAC ni se escribió nada.',
+  'payrun.cfdi.stamp_in_progress':
+    'Este intento no timbró el recibo {id}: otro timbrado del mismo recibo, u otro cambio sobre él, sigue en ' +
+    'curso y este intento dejó de esperar. No envió nada al PAC ni escribió nada. Lee el recibo antes de ' +
+    'pedirlo de nuevo: si el otro timbrado terminó, el recibo ya lleva su folio.',
+  'payrun.cfdi.stamped_not_recorded':
+    'El recibo {id} SÍ se timbró: el PAC ({provider}) respondió con el folio {uuid}, y el folio no se pudo ' +
+    'escribir en el recibo. No lo timbres otra vez. Guarda este folio: el recibo no lo lleva, y es lo que ' +
+    'pide una cancelación.',
   // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.separate_payment_isr.regulation_procedure_not_in_corpus':
+    'La política {key} dice que el ISR de este recibo aparte se retenga con el procedimiento opcional del Reglamento (art. 174 del RLISR), y este sistema no tiene el texto de ese procedimiento, así que no lo calcula de memoria. No se calculó nada. Contesta {key} con otra opción en mnemosine pending, o primero agrega el texto al corpus normativo.',
   'payroll.employment_subsidy.excess_rule_unknown':
     'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
     'y sólo 0 o 1 es una regla: con 1 el subsidio que excede al ISR se entrega al trabajador en efectivo, con 0 no se ' +

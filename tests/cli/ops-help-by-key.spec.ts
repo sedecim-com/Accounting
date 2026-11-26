@@ -5,6 +5,7 @@ import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import type { MessageParams, TranslationKey } from '../../src/i18n/index.js';
 import { JOB_KINDS } from '../../src/ai/jobs/job-store.js';
 import { WEBHOOK_SOURCE_KINDS } from '../../src/ai/webhooks/intake.js';
+import { unkeyedDescriptions } from '../../scripts/language/lanes/help.js';
 import {
   describedIn,
   expectEveryKeyInFormat,
@@ -22,8 +23,14 @@ import {
 // and `outbox` whole. `jobs adopt`, `jobs unadopt`, `outbox list` and the
 // `outbox` root description were born keyed; this keys the rest. No node of
 // these families is author prose in Castilian, so the English moves to en.ts
-// as shown. `audit`, `backup`, `status`, `subscription` and `completion` are
-// the second part.
+// as shown.
+//
+// MNE-001-428 is the second part: `audit`, `backup`, `status`, `subscription`
+// and `completion`, the last five families the lane still listed. The
+// `subscription` root was born keyed. `audit list|show -u/--user` overwrote
+// the kernel's text in place and now does it through `describeOption`, with a
+// key per leaf; `audit list -n/--limit` and `--offset` already had the exact
+// text of `cli.flag.limit` and `cli.flag.offset` and take those keys.
 // ============================================================
 
 afterEach(() => resetLanguage());
@@ -186,5 +193,158 @@ describe('the jobs, webhooks and outbox families, help by key (#314, MNE-001-244
     expect(longs('webhooks deliveries')).toEqual(['--entity', '--tenant', '--limit', '--json']);
     expect(longs('outbox')).toEqual(['--entity', '--user', '--list']);
     expect(longs('outbox run').slice(0, 2)).toEqual(['--entity', '--user']);
+  });
+});
+
+/** The five families of operations 2/2 → the prefix of their keys. */
+const FAMILIES_428: Record<string, string> = {
+  audit: 'audit',
+  backup: 'backup',
+  status: 'status',
+  subscription: 'subscription',
+  completion: 'completion',
+};
+
+// The lists the leaves interpolate, written out by hand: a change to them is a
+// change to the help, and this spec should see it.
+const ACTIONS: MessageParams = { actions: 'create, update, delete, post, void, approve, close, reopen' };
+const OBJECT_FAMILIES: MessageParams = { families: 'ledger, period, bank, ar, ap, asset, fiscal' };
+const TARGET_DIR: MessageParams = { dir: './respaldos' };
+const SHELLS: MessageParams = { list: 'bash', last: 'zsh' };
+
+describe('the audit, backup, status, subscription and completion families, help by key (#314, MNE-001-428)', () => {
+  it('the lane finds nothing in these families, nor anywhere in the tree, and each root has a key of its own', () => {
+    expect(unkeyedInFamilies(Object.keys(FAMILIES_428))).toEqual([]);
+    expect(unkeyedDescriptions(program)).toEqual([]);
+    for (const [family, prefix] of Object.entries(FAMILIES_428)) {
+      expect(helpKeyOf(node(family)) ?? 'no key', family).toMatch(keyFormat(prefix));
+    }
+  });
+
+  it.each(Object.entries(FAMILIES_428))('every description of %s has a key in the decided format', (path, prefix) => {
+    expectEveryKeyInFormat(describedIn(node(path)), prefix);
+  });
+
+  it('the family rows of `mnemosine --help` are in Spanish', () => {
+    setLanguage('es');
+    const help = flat(program.helpInformation());
+    for (const prefix of Object.values(FAMILIES_428)) {
+      expect(help).toContain(t(`help.${prefix}.description` as TranslationKey, {}, 'es'));
+    }
+  });
+
+  it.each<[string, TranslationKey, MessageParams?]>([
+    ['audit', 'help.audit.list.description'],
+    ['audit', 'help.audit.show.description'],
+    ['audit list', 'help.audit.list.option.user'],
+    ['audit list', 'help.audit.list.option.since'],
+    ['audit list', 'help.audit.list.option.until'],
+    ['audit list', 'help.audit.list.option.actor'],
+    ['audit list', 'help.audit.list.option.action', ACTIONS],
+    ['audit list', 'help.audit.list.option.object', OBJECT_FAMILIES],
+    ['audit list', 'help.audit.list.option.entity_type'],
+    ['audit list', 'cli.flag.limit'],
+    ['audit list', 'cli.flag.offset'],
+    ['audit show', 'help.audit.show.option.user'],
+    ['audit show', 'help.audit.show.argument.id'],
+    ['backup', 'help.backup.create.description'],
+    ['backup', 'help.backup.export.description'],
+    ['backup', 'help.backup.list.description'],
+    ['backup', 'help.backup.verify.description'],
+    ['backup', 'help.backup.restore.description'],
+    ['backup create', 'help.backup.create.option.tenant'],
+    ['backup create', 'help.backup.create.option.entity'],
+    ['backup create', 'help.backup.create.option.target', TARGET_DIR],
+    ['backup create', 'help.backup.create.option.json'],
+    ['backup export', 'help.backup.export.option.tenant'],
+    ['backup export', 'help.backup.export.option.entity'],
+    ['backup export', 'help.backup.export.option.target', TARGET_DIR],
+    ['backup export', 'help.backup.export.option.json'],
+    ['backup list', 'help.backup.list.option.target', TARGET_DIR],
+    ['backup verify', 'help.backup.verify.argument.file'],
+    ['backup verify', 'help.backup.verify.option.restore'],
+    ['backup verify', 'help.backup.verify.option.strict'],
+    ['backup restore', 'help.backup.restore.argument.file'],
+    ['backup restore', 'help.backup.restore.option.target'],
+    ['backup restore', 'help.backup.restore.option.json'],
+    ['status', 'help.status.option.all'],
+    ['status', 'help.status.option.tenant'],
+    ['status', 'help.status.option.json'],
+    ['status', 'help.status.option.strict'],
+    ['subscription', 'help.subscription.delivery.description'],
+    ['subscription delivery', 'help.subscription.delivery.sweep.description'],
+    ['subscription delivery sweep', 'help.subscription.delivery.sweep.option.tenant'],
+    ['subscription delivery sweep', 'help.subscription.delivery.sweep.option.all_tenants'],
+    ['subscription delivery sweep', 'help.subscription.delivery.sweep.option.limit'],
+    ['subscription delivery sweep', 'help.subscription.delivery.sweep.option.json'],
+    ['completion', 'help.completion.argument.shell', SHELLS],
+  ])('`%s --help` in es-MX shows %s in Spanish', (path, key, params) => {
+    expectSpanishHelp(path, key, params);
+  });
+
+  it('every generic flag a 428 leaf declares keeps a key of its own, but for the two that already had the kernel text', () => {
+    const own: Record<string, string[]> = {
+      'audit list': ['--user', '--since', '--until'],
+      'audit show': ['--user'],
+      'backup create': ['--tenant', '--entity', '--json'],
+      'backup export': ['--tenant', '--entity', '--json'],
+      'backup verify': ['--strict'],
+      'backup restore': ['--json'],
+      status: ['--all', '--tenant', '--json', '--strict'],
+      'subscription delivery sweep': ['--tenant', '--limit', '--json'],
+    };
+    for (const [path, flags] of Object.entries(own)) {
+      const prefix = `help.${path.replace(/-/g, '_').replace(/ /g, '.')}.option`;
+      for (const flag of flags) expect(keyOf(path, flag), `${path} ${flag}`).toBe(`${prefix}.${flag.slice(2).replace(/-/g, '_')}`);
+    }
+    const kernel = [
+      keyOf('audit list', '--limit'),
+      keyOf('audit list', '--offset'),
+      keyOf('audit list', '--entity'),
+      keyOf('audit list', '--tenant'),
+      keyOf('audit list', '--json'),
+      keyOf('backup list', '--limit'),
+      keyOf('backup verify', '--json'),
+      keyOf('backup restore', '--tenant'),
+      keyOf('subscription delivery sweep', '--dry-run'),
+      keyOf('subscription delivery sweep', '--live'),
+    ];
+    expect(kernel).toEqual([
+      'cli.flag.limit',
+      'cli.flag.offset',
+      'cli.flag.entity',
+      'cli.flag.tenant_scope',
+      'cli.flag.json',
+      'cli.flag.limit',
+      'cli.flag.json',
+      'cli.flag.tenant_scope',
+      'cli.flag.dry_run',
+      'cli.flag.live',
+    ]);
+  });
+
+  it('the 428 leaves keep their machine contract: required options, defaults, parsers, argument arity, option order', () => {
+    expect(option('backup restore', '--target')?.mandatory).toBe(true);
+    expect(option('backup create', '--target')?.mandatory).toBe(false);
+    expect(option('subscription delivery sweep', '--limit')?.defaultValue).toBe('100');
+    expect(option('subscription delivery sweep', '--limit')?.short).toBe('-n');
+    expect(option('audit list', '--limit')?.parseArg?.('7', undefined)).toBe(7);
+    expect(() => option('audit list', '--limit')?.parseArg?.('0', undefined)).toThrow();
+    expect(option('audit list', '--offset')?.parseArg?.('0', undefined)).toBe(0);
+    expect(() => option('audit list', '--offset')?.parseArg?.('-1', undefined)).toThrow();
+    expect(option('audit list', '--object')?.optional).toBe(true);
+    const args = (path: string) => node(path).registeredArguments.map((a) => [a.name(), a.required, a.variadic]);
+    expect(args('audit show')).toEqual([['id', true, false]]);
+    expect(args('backup verify')).toEqual([['file', true, false]]);
+    expect(args('backup restore')).toEqual([['file', true, false]]);
+    expect(args('completion')).toEqual([['shell', false, false]]);
+    const longs = (path: string) => node(path).options.map((o) => o.long);
+    expect(longs('audit list').slice(-8)).toEqual([
+      '--since', '--until', '--actor', '--action', '--object', '--entity-type', '--limit', '--offset',
+    ]);
+    expect(longs('backup create').slice(0, 4)).toEqual(['--tenant', '--entity', '--target', '--json']);
+    expect(longs('backup export').slice(0, 4)).toEqual(['--tenant', '--entity', '--target', '--json']);
+    expect(longs('status')).toEqual(['--all', '--tenant', '--json', '--strict']);
+    expect(longs('subscription delivery sweep').slice(0, 4)).toEqual(['--tenant', '--all-tenants', '--limit', '--json']);
   });
 });

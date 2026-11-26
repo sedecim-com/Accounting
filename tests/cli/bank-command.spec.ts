@@ -2067,7 +2067,7 @@ describe('bank match create · el grupo explícito', () => {
       lectorCotejo()
     );
     expect(r.exitCode).toBe(4);
-    expect((r.errs[0] as Error).message).toMatch(/dos veces/);
+    expect((r.errs[0] as Error).message).toMatch(/appears twice/);
   });
 });
 
@@ -2270,8 +2270,9 @@ const mundo =
     if (/FROM bank_statements s/.test(text)) {
       return filas(over.extractos ?? [extractoDeSesion()]);
     }
+    // The book balance is report-service's reader since MNE-001-621, and its column is `balance`.
     if (/FROM journal_entry_lines l/.test(text)) {
-      return filas([{ saldo: over.saldoLibros ?? '750.0000' }]);
+      return filas([{ balance: over.saldoLibros ?? '750.0000' }]);
     }
     if (/COALESCE\(SUM\(bt\.amount\), 0\)/.test(text)) {
       return filas([over.sinExplicar ?? { cuantos: '0', importe: '0.0000' }]);

@@ -2,7 +2,12 @@ import Decimal from 'decimal.js';
 import { query, currentTenant } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { LEDGER_SCALE } from './report-service.js';
+import {
+  LEDGER_SCALE,
+  queryEntryEffectByCounterpart,
+  queryOpeningAndMovement,
+  type EntryEffectByCounterpartRow,
+} from './report-service.js';
 // The two modules import each other: the statement takes the cash roles and
 // subtypes from here, and this file takes the statement's resolver. Neither
 // reads the other at load time, only inside functions, so either may load
@@ -299,6 +304,10 @@ export async function cuentasDeEfectivo(
  * barre resultados contra capital y no toca una sola cuenta de efectivo, así
  * que excluirlos no cambiaría una cifra y sí introduciría un criterio de
  * presentación donde aquí sólo hay hechos del libro.
+ *
+ * The ledger read is `queryOpeningAndMovement` in report-service
+ * (MNE-001-433): one statement for the opening and the movement, so one
+ * snapshot, and the same answer as before on every range.
  */
 export async function movimientoRealDeEfectivo(
   entityId: string,
@@ -319,32 +328,15 @@ export async function movimientoRealDeEfectivo(
           : `Marca las cuentas de efectivo con account_subtype en (${SUBTIPOS_DE_EFECTIVO.join(', ')}).`)
     );
   }
-  const ids = cuentas.map((c) => c.account_id);
 
-  // El par (jel JOIN je) va entre paréntesis y con el predicado de fecha
-  // DENTRO del JOIN, igual que en report-service: encadenar dos JOIN sueltos
-  // deja pasar líneas de asientos en borrador o anulados.
-  const r = await query<{ inicial: string; variacion: string }>(
-    `SELECT
-       COALESCE(SUM(CASE WHEN je.entry_date < $2
-                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
-                    ELSE 0 END), 0)::text AS inicial,
-       COALESCE(SUM(CASE WHEN je.entry_date BETWEEN $2 AND $3
-                    THEN COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
-                    ELSE 0 END), 0)::text AS variacion
-       FROM (journal_entry_lines jel
-        JOIN journal_entries je
-          ON je.id = jel.journal_entry_id
-         AND je.status = 'posted'
-         AND je.entity_id = $1
-         AND je.entry_date <= $3)
-       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
-      WHERE jel.account_id = ANY($4::uuid[])`,
-    [entityId, opts.startDate, opts.endDate, ids]
-  );
+  const r = await queryOpeningAndMovement(entityId, {
+    accountIds: cuentas.map((c) => c.account_id),
+    startDate: opts.startDate,
+    endDate: opts.endDate,
+  });
 
-  const inicial = cero(r.rows[0]?.inicial);
-  const variacion = cero(r.rows[0]?.variacion);
+  const inicial = cero(r.opening);
+  const variacion = cero(r.movement);
   return {
     criterio,
     criterio_definido: politica.defined,
@@ -355,28 +347,6 @@ export async function movimientoRealDeEfectivo(
   };
 }
 
-interface FilaDeSospechoso {
-  entry_number: string;
-  /**
-   * Ya en texto desde Postgres (`::text`), no como Date.
-   *
-   * `pg` entrega una columna DATE como un Date en medianoche LOCAL, y
-   * volverla a ISO en una zona con desplazamiento negativo la retrasa un
-   * día: una póliza del 25 se imprimía como del 24. Casteando en el SQL no
-   * llega a existir ningún Date que pueda desplazarse.
-   */
-  entry_date: string;
-  description: string | null;
-  efecto: string;
-  counterpart_code: string;
-  counterpart_name: string;
-  counterpart_type: string;
-  counterpart_subtype: string | null;
-  counterpart_fs: string | null;
-  counterpart_role: string | null;
-  activo_en_tabla: boolean;
-}
-
 /**
  * A qué sección del estado pertenecería una contrapartida — por TIPO y por
  * ROL, nunca por nombre.
@@ -385,7 +355,7 @@ interface FilaDeSospechoso {
  * fuera. Que las dos coincidan no está garantizado, y por eso lo que sale de
  * aquí es una lista de sospechosos y no un veredicto.
  */
-function categoriaDe(f: FilaDeSospechoso): CategoriaProbable {
+function categoriaDe(f: EntryEffectByCounterpartRow): CategoriaProbable {
   const tipo = f.counterpart_type;
   if (tipo === 'revenue' || tipo === 'expense') return 'operacion';
   if (f.counterpart_role === 'cxc' || f.counterpart_role === 'cxp') return 'operacion';
@@ -400,6 +370,30 @@ function categoriaDe(f: FilaDeSospechoso): CategoriaProbable {
     return 'financiamiento';
   }
   return 'sin_clasificar';
+}
+
+/**
+ * Whether the period has acquisitions or disposals in `fixed_assets`, where
+ * the investing section takes its figures from: an investing counterpart of
+ * cash is then a suspect of being counted twice. It is not a ledger read, so
+ * it stays here and not in report-service (MNE-001-434). As a second read it
+ * may see another snapshot than the ledger statement; it only shapes a
+ * diagnostic list, and the exit code reads `hallazgos` alone.
+ */
+async function fixedAssetsMovedInPeriod(
+  entityId: string,
+  opts: { startDate: string; endDate: string }
+): Promise<boolean> {
+  const r = await query<{ in_table: boolean }>(
+    `SELECT EXISTS (
+              SELECT 1 FROM fixed_assets fa
+               WHERE fa.entity_id = $1
+                 AND (fa.acquisition_date BETWEEN $2 AND $3
+                      OR fa.disposal_date BETWEEN $2 AND $3)
+            ) AS in_table`,
+    [entityId, opts.startDate, opts.endDate]
+  );
+  return r.rows[0]?.in_table === true;
 }
 
 /**
@@ -418,82 +412,36 @@ function categoriaDe(f: FilaDeSospechoso): CategoriaProbable {
  *   periodo además tiene altas o bajas en la tabla `fixed_assets`, de donde
  *   la sección de inversión saca sus cifras (defecto 4). El mismo hecho
  *   económico puede entrar dos veces, por el mayor y por la tabla.
+ *
+ * The ledger read is `queryEntryEffectByCounterpart` in report-service
+ * (MNE-001-434); the classification and the filter stay here.
  */
 export async function sospechososDelResiduo(
   entityId: string,
   opts: { startDate: string; endDate: string; cuentas: string[]; limite: number }
 ): Promise<Sospechoso[]> {
-  const r = await query<FilaDeSospechoso>(
-    `WITH efectivo AS (
-       SELECT jel.journal_entry_id AS je_id,
-              SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) AS efecto
-         FROM (journal_entry_lines jel
-          JOIN journal_entries je
-            ON je.id = jel.journal_entry_id
-           AND je.status = 'posted'
-           AND je.entity_id = $1
-           AND je.entry_date BETWEEN $2 AND $3)
-        WHERE jel.account_id = ANY($4::uuid[])
-        GROUP BY jel.journal_entry_id
-       HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) <> 0
-     ),
-     contrapartes AS (
-       SELECT e.je_id,
-              jel.account_id,
-              -- El efecto sobre el efectivo se reparte entre las
-              -- contrapartidas en proporción a su importe: una póliza con
-              -- una salida de banco y tres cargos distintos no puede
-              -- atribuirle la salida entera a cada uno.
-              e.efecto * (COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
-                / NULLIF(SUM(COALESCE(jel.debit_amount, 0) + COALESCE(jel.credit_amount, 0))
-                         OVER (PARTITION BY e.je_id), 0) AS efecto
-         FROM efectivo e
-         JOIN journal_entry_lines jel ON jel.journal_entry_id = e.je_id
-        WHERE NOT (jel.account_id = ANY($4::uuid[]))
-     )
-     SELECT je.entry_number,
-            je.entry_date::text AS entry_date,
-            je.description,
-            SUM(c.efecto)::text AS efecto,
-            a.code AS counterpart_code,
-            a.name AS counterpart_name,
-            a.account_type AS counterpart_type,
-            a.account_subtype AS counterpart_subtype,
-            a.fs_category AS counterpart_fs,
-            MIN(ar.role) AS counterpart_role,
-            EXISTS (
-              SELECT 1 FROM fixed_assets fa
-               WHERE fa.entity_id = $1
-                 AND (fa.acquisition_date BETWEEN $2 AND $3
-                      OR fa.disposal_date BETWEEN $2 AND $3)
-            ) AS activo_en_tabla
-       FROM contrapartes c
-       JOIN journal_entries je ON je.id = c.je_id AND je.entity_id = $1
-       JOIN accounts a ON a.id = c.account_id AND a.entity_id = $1
-       LEFT JOIN account_roles ar ON ar.account_id = a.id AND ar.entity_id = $1
-      GROUP BY je.entry_number, je.entry_date::text, je.description,
-               a.code, a.name, a.account_type, a.account_subtype, a.fs_category
-      -- El desempate va sobre entry_date::text, la MISMA expresión que
-      -- agrupa. Postgres no reconoce entry_date a secas como agrupada cuando
-      -- lo que está en el GROUP BY es el casteo, y rechaza la consulta
-      -- entera. (Sin comillas invertidas aquí dentro: esto vive en un
-      -- template literal y una sola lo cerraría.)
-      ORDER BY ABS(SUM(c.efecto)) DESC, je.entry_date::text, je.entry_number
-      LIMIT $5`,
-    [entityId, opts.startDate, opts.endDate, opts.cuentas, opts.limite * 4]
-  );
+  const rows = await queryEntryEffectByCounterpart(entityId, {
+    accountIds: opts.cuentas,
+    startDate: opts.startDate,
+    endDate: opts.endDate,
+    limit: opts.limite * 4,
+  });
+  const categories = rows.map(categoriaDe);
+  // The fixed-asset question only changes an investing row, so without one it
+  // is not asked.
+  const inFixedAssets = categories.includes('inversion') && (await fixedAssetsMovedInPeriod(entityId, opts));
 
   const salida: Sospechoso[] = [];
-  for (const f of r.rows) {
-    const categoria = categoriaDe(f);
-    const dobleConteo = categoria === 'inversion' && f.activo_en_tabla;
+  for (const [i, f] of rows.entries()) {
+    const categoria = categories[i];
+    const dobleConteo = categoria === 'inversion' && inFixedAssets;
     const sinReclamar = categoria === 'financiamiento' || categoria === 'sin_clasificar';
     if (!dobleConteo && !sinReclamar) continue;
     salida.push({
       entry_number: f.entry_number,
       entry_date: f.entry_date,
       description: f.description,
-      efecto_en_efectivo: money(cero(f.efecto)),
+      efecto_en_efectivo: money(cero(f.effect)),
       counterpart_code: f.counterpart_code,
       counterpart_name: f.counterpart_name,
       counterpart_type: f.counterpart_type,

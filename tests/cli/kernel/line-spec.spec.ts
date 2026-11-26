@@ -6,15 +6,16 @@ import {
   SIDE_ALIASES,
   isKeyValueLine,
   lineKeysHelp,
-  LEGACY_COMMA_WARNING,
+  legacyCommaWarning,
   LEGACY_LINE_FORMS_RETIRE_IN,
+  type LineGrammar,
 } from '../../../src/cli/kernel/line-spec.js';
 import { parseEntryLine } from '../../../src/cli/entry-command.js';
 import { parseLineSpec } from '../../../src/cli/bill-command.js';
 import {
   parseInvoiceLine,
   resolveInvoiceTaxRate,
-  LEGACY_INVOICE_TAX_KEY_WARNING,
+  legacyInvoiceTaxKeyWarning,
 } from '../../../src/cli/invoice-command.js';
 
 // One --line grammar for entry, bill and invoice (#327, MNE-001-100): key=value
@@ -74,7 +75,7 @@ describe('the kernel line grammar', () => {
   });
 
   it('refuses two keys that set one field, whatever the values', () => {
-    const grammar = { known: ['price', 'unit-price'], sameField: [['price', 'unit-price']] };
+    const grammar: LineGrammar = { known: ['price', 'unit-price'], sameField: [['price', 'unit-price']] };
     expect(() => parseKeyValueLine('price=100;unit_price=1000', { grammar })).toThrow(
       /gives one field twice: "price" and "unit_price"/
     );
@@ -88,7 +89,7 @@ describe('the kernel line grammar', () => {
 
   it('prints the key block and carries a retirement version on the comma warning', () => {
     expect(lineKeysHelp([['account', 'code'], ['description', 'text']])).toContain('  account       code');
-    expect(LEGACY_COMMA_WARNING).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
+    expect(legacyCommaWarning()).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
   });
 });
 
@@ -147,8 +148,8 @@ describe('invoice --line', () => {
       tax_rate: '16',
       usedLegacyTaxKey: true,
     });
-    expect(LEGACY_INVOICE_TAX_KEY_WARNING).toMatch(/tax-rate=/);
-    expect(LEGACY_INVOICE_TAX_KEY_WARNING).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
+    expect(legacyInvoiceTaxKeyWarning()).toMatch(/tax-rate=/);
+    expect(legacyInvoiceTaxKeyWarning()).toContain(LEGACY_LINE_FORMS_RETIRE_IN);
   });
 
   it('refuses price with unit-price, or qty with quantity, in one line', () => {

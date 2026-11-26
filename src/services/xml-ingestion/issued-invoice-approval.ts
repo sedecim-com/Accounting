@@ -5,7 +5,8 @@ import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
-import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
+import { IEPS_DUE_ROLE, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
+import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { identityRfc } from '../ar/opening-invoices.js';
 import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
 import { extractImpuestosLocales } from './cfdi-facts.js';
@@ -19,10 +20,13 @@ export interface ApprovedDraftInvoice {
   close(journalEntryId: string): Promise<void>;
 }
 
+/** The role of the CFDI's local taxes (ISH and other state taxes), as the check row names it. */
+const LOCAL_TAX_ROLE = 'impuestos_locales_por_pagar';
+
 /** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
-  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, 'impuestos_locales_por_pagar',
+  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, LOCAL_TAX_ROLE,
 ];
 
 /**
@@ -158,7 +162,12 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     ieps_por_pagar (2180), a PPD's on ieps_trasladado_no_cobrado (2181),
  *     because it is caused on collection (LIEPS art. 10) and each collection
  *     moves its share to 2180 (ieps-cash-basis.ts). An entity with no account
- *     for that role refuses a PPD with IEPS, naming the backfill (#699).
+ *     for that role refuses a PPD with IEPS, naming the backfill (#699);
+ *   - all of the above on Mexican books. On an entity that does not keep them
+ *     (keepsMexicanBooks) no collection moves tax, so each tax counts on its
+ *     due role and its parked role together (2120 with 2125, 2180 with
+ *     2181), whatever the MetodoPago, and 2181 is never asked for
+ *     (MNE-001-759).
  */
 export async function registerIssuedInvoice(
   client: pg.PoolClient,
@@ -177,7 +186,8 @@ export async function registerIssuedInvoice(
   const locked = await client.query<Record<string, unknown>>(
     `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal, COALESCE(x.descuento, 0) AS x_descuento,
             x.total AS x_total, x.metodo_pago AS x_metodo_pago, x.receptor_rfc AS x_receptor_rfc,
-            x.receptor_nombre AS x_receptor_nombre, x.xml_content AS x_xml_content
+            x.receptor_nombre AS x_receptor_nombre, x.xml_content AS x_xml_content,
+            le.incorporation_country AS x_entity_country, le.accounting_standard AS x_entity_standard
        FROM pre_registrations p
        JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
        JOIN legal_entities le ON le.id = p.entity_id AND UPPER(TRIM(le.tax_id)) = UPPER(TRIM(x.emisor_rfc))
@@ -269,9 +279,18 @@ export async function registerIssuedInvoice(
   // no terms and no memo, so it is the only signal a later reader of that invoice will have.
   const method = decideMetodoPago('issued', { cfdiMetodoPago: preReg.x_metodo_pago });
   const pue = method.metodo === 'PUE';
-  const vatRole = !pue
-    ? 'iva_trasladado_no_cobrado, parked until the REP'
-    : method.assumed ? 'iva_trasladado; no MetodoPago, read as PUE' : 'iva_trasladado';
+  // MNE-001-759: on books that are not Mexican no collection moves tax, so `cfdi post` books it due
+  // (cfdi-classifier.ts, `offCashBasis`); the parked role is still counted, as the received approval
+  // counts any VAT account on such books. The two columns ride on the locked read above.
+  const mexicanBooks = keepsMexicanBooks(preReg.x_entity_country as string | null, preReg.x_entity_standard as string | null);
+  const vatRole = !mexicanBooks
+    ? 'iva_trasladado or iva_trasladado_no_cobrado; books off the Mexican cash basis'
+    : !pue
+      ? 'iva_trasladado_no_cobrado, parked until the REP'
+      : method.assumed ? 'iva_trasladado; no MetodoPago, read as PUE' : 'iva_trasladado';
+  const vatRoles = !mexicanBooks
+    ? ['iva_trasladado', 'iva_trasladado_no_cobrado']
+    : [pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'];
   const lines = opts.lines.map((l) => ({
     accountId: l.accountId,
     description: l.description,
@@ -289,8 +308,8 @@ export async function registerIssuedInvoice(
   const paid = toAr.isZero() && pue && net(accountsOf('banco'), 'debit').gt(0);
   const vat = sumTax(summary.traslados, '002');
   const ieps = sumTax(summary.traslados, '003');
-  const iepsRole = pue ? 'ieps_por_pagar' : IEPS_UNCOLLECTED_ROLE;
-  if (!pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
+  const iepsRoles = !mexicanBooks ? [IEPS_DUE_ROLE, IEPS_UNCOLLECTED_ROLE] : [pue ? IEPS_DUE_ROLE : IEPS_UNCOLLECTED_ROLE];
+  if (mexicanBooks && !pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
   const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
   const figures = [
     {
@@ -300,17 +319,17 @@ export async function registerIssuedInvoice(
     },
     {
       figure: `transferred VAT (${vatRole})`,
-      entry: net(accountsOf(pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'), 'credit'),
+      entry: net(accountsOf(...vatRoles), 'credit'),
       cfdi: vat,
     },
     {
-      figure: `transferred IEPS (${iepsRole})`,
-      entry: net(accountsOf(iepsRole), 'credit'),
+      figure: `transferred IEPS (${iepsRoles.join(' or ')})`,
+      entry: net(accountsOf(...iepsRoles), 'credit'),
       cfdi: ieps,
     },
     {
-      figure: 'transferred local taxes (impuestos_locales_por_pagar)',
-      entry: net(accountsOf('impuestos_locales_por_pagar'), 'credit'),
+      figure: `transferred local taxes (${LOCAL_TAX_ROLE})`,
+      entry: net(accountsOf(LOCAL_TAX_ROLE), 'credit'),
       cfdi: money(localTaxes),
     },
     {

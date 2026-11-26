@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { withTransaction } from '../../../database/connection.js';
+import type { TranslationKey } from '../../../i18n/index.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
@@ -113,15 +114,14 @@ function exigirCriterio<T extends string>(
   conocidos: Record<string, T>,
   clave: string,
   valor: string,
-  consecuencia: string
+  /** The refusal names the policy and says what hangs on its answer (MNE-001-730). */
+  key: TranslationKey
 ): T {
   const criterio = conocidos[valor];
   if (!criterio) {
     const admitidos = Object.keys(conocidos);
     throw new ValidationError(
-      `La política ${clave} vale "${valor}" y este motor sólo entiende ` +
-        `${admitidos.join(', ')}. No se elige uno por ti: ${consecuencia} ` +
-        `Corrígela con \`mnemosine pending define ${clave} <${admitidos.join('|')}>\`.`,
+      { key, params: { value: valor, known: admitidos.join(', '), choices: admitidos.join('|') } },
       clave
     );
   }
@@ -133,9 +133,7 @@ export function criterioProvisionDe(valor: string): CriterioProvision {
     PROVISIONES_CONOCIDAS,
     'provision_cuotas_patronales',
     valor,
-    'de esa respuesta depende si las cuotas patronales se apuntan con cada corrida o una ' +
-      'vez al mes, y aplicar la omisión como si fuera tu criterio deja el pasivo del mes ' +
-      'repartido entre dos formas de contarlo.'
+    'error.VALIDATION_ERROR.payroll.policy.provision_cuotas_patronales'
   );
 }
 
@@ -144,9 +142,7 @@ export function criterioCausacionDe(valor: string): CriterioCausacionIsn {
     CAUSACIONES_CONOCIDAS,
     'isn_momento_de_causacion',
     valor,
-    'de esa respuesta depende a qué MES pertenece el ISN de una nómina que cruza el fin de ' +
-      'mes, y con él su fecha límite: un pasivo apuntado un mes antes de lo decidido no se ' +
-      'distingue de uno correcto hasta que llega el requerimiento.'
+    'error.VALIDATION_ERROR.payroll.policy.isn_momento_de_causacion'
   );
 }
 
@@ -200,11 +196,7 @@ export interface EntradaAcumulacion {
 function partesDeFecha(fecha: string): { anio: number; mes: number } {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
   if (!m) {
-    throw new ValidationError(
-      `Se esperaba una fecha 'YYYY-MM-DD' y llegó "${fecha}": una fecha ilegible aquí ` +
-        'produciría una fecha límite plausible y falsa.',
-      'fecha'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payroll.date_unreadable', params: { date: fecha } }, 'fecha');
   }
   return { anio: Number(m[1]), mes: Number(m[2]) };
 }
@@ -472,17 +464,12 @@ async function acumular(
     [payRunId, tenantId]
   );
   if (corrida.rowCount === 0) {
-    throw new ValidationError(
-      `No existe la corrida de nómina ${payRunId} en este inquilino.`,
-      'pay_run_id'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.payroll.pay_run_not_found', params: { payRunId } }, 'pay_run_id');
   }
   const c = corrida.rows[0];
   if (c.status !== 'approved' && c.status !== 'paid') {
     throw new ValidationError(
-      `La corrida ${payRunId} está en estado "${c.status}": el pasivo patronal se apunta ` +
-        'cuando la corrida se cierra (approved o paid), no antes. Apuntarlo sobre números ' +
-        'que todavía pueden cambiar deja un pasivo que no corresponde a ningún recibo.',
+      { key: 'error.VALIDATION_ERROR.payroll.pay_run_not_closed', params: { payRunId, status: c.status } },
       'status'
     );
   }
@@ -533,10 +520,7 @@ async function acumular(
       codigo: 'recibos_de_otra_entidad_en_la_corrida',
       severidad: 'aviso',
       periodo: `${c.period_start} a ${c.period_end}`,
-      mensaje:
-        `${recibosAjenos} recibo(s) mexicanos de esta corrida son de trabajadores de OTRA ` +
-        `entidad legal y no entran en el pasivo de ${entityId}, que es la del calendario de ` +
-        'la corrida. Su IMSS, INFONAVIT e ISN no quedan acumulados en ninguna parte.',
+      mensaje: { key: 'payroll.finding.recibos_de_otra_entidad_en_la_corrida', params: { count: recibosAjenos, entityId } },
     });
   }
   const imssPropio = new Decimal(propios.rows[0]?.imss ?? '0');
@@ -554,10 +538,7 @@ async function acumular(
       codigo: 'imss_patronal_en_cero',
       severidad: 'aviso',
       periodo: `${c.period_start} a ${c.period_end}`,
-      mensaje:
-        `La corrida tiene ${paychecksThatContribute} recibo(s) mexicanos y el IMSS patronal suma cero. ` +
-        'Revisa el SBC de esos trabajadores: sin él no hay cuota que acumular y el costo ' +
-        'laboral de la corrida queda corto.',
+      mensaje: { key: 'payroll.finding.imss_patronal_en_cero', params: { count: paychecksThatContribute } },
     });
   }
 
@@ -595,11 +576,10 @@ async function acumular(
         codigo: 'pasivo_por_corrida_absorbido_por_el_mensual',
         severidad: 'aviso',
         periodo: `${c.period_start} a ${c.period_end}`,
-        mensaje:
-          `${barridos.rowCount} renglón(es) de cuotas patronales que esta corrida había ` +
-          'apuntado por su cuenta se retiraron: `provision_cuotas_patronales` dice ahora ' +
-          '«mensual_al_cierre» y el renglón del mes ya los incluye. Dejarlos habría ' +
-          'duplicado el IMSS patronal del mes.',
+        mensaje: {
+          key: 'payroll.finding.pasivo_por_corrida_absorbido_por_el_mensual',
+          params: { count: barridos.rowCount ?? 0 },
+        },
       });
     }
 
@@ -668,16 +648,16 @@ async function acumular(
         codigo: 'pasivo_mensual_y_por_corrida_a_la_vez',
         severidad: 'bloqueante',
         periodo: `${months[0]} a ${finDeMes(months[months.length - 1])}`,
-        mensaje:
-          `Hay ${mensualVivo.rowCount} renglón(es) de cuotas patronales provisionados AL ` +
-          'CIERRE DEL MES en los meses que toca esta corrida (' +
-          mensualVivo.rows
-            .map((x) => `${x.tax_type} ${x.amount} del mes que inicia el ${x.period_start}`)
-            .join('; ') +
-          '), y esta corrida los está apuntando además POR CORRIDA porque ' +
-          '`provision_cuotas_patronales` cambió a «por_corrida». Lo provisionado queda contado ' +
-          'dos veces. El renglón mensual agrega varias corridas y este cierre no lo puede ' +
-          'retirar sin llevarse el pasivo de las demás: resuélvelo a mano antes de declarar.',
+        mensaje: {
+          key: 'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez',
+          params: { count: mensualVivo.rowCount ?? 0 },
+        },
+        lists: {
+          rows: mensualVivo.rows.map((x) => ({
+            key: 'payroll.finding.pasivo_mensual_y_por_corrida_a_la_vez.row' as const,
+            params: { taxType: x.tax_type, amount: x.amount, monthStart: x.period_start },
+          })),
+        },
       });
     }
 
@@ -740,20 +720,17 @@ async function acumular(
     );
     const { closed_rows: closedRows, sua_filings: suaFilings } = settled.rows[0];
     if (closedRows === 0 && suaFilings === 0) continue;
-    const reasons = [
-      closedRows > 0 ? `${closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados` : null,
-      suaFilings > 0 ? 'su archivo del SUA ya generado' : null,
-    ].filter((x): x is string => x !== null);
     hallazgos.push({
       codigo: 'share_in_already_settled_month',
       severidad: 'aviso',
       periodo: `${s.start} a ${s.end}`,
-      mensaje:
-        `La corrida cruza el cambio de mes: ${s.days} día(s) cotizados, del ${s.start} al ` +
-        `${s.end}, caen en el mes que inicia el ${monthStart}, que ya tiene ` +
-        `${reasons.join(' y ')}. Esa parte de las cuotas llega después de cerrado el mes: ` +
-        'el SUA ya generado la declara de menos y, si el renglón del mes ya se depositó, ' +
-        'no se reescribe. Presenta la complementaria de ese mes.',
+      mensaje: {
+        key: 'payroll.finding.share_in_already_settled_month',
+        params: {
+          days: s.days, start: s.start, end: s.end, monthStart, closedRows,
+          settled: closedRows === 0 ? 'sua' : suaFilings === 0 ? 'rows' : 'both',
+        },
+      },
     });
   }
 
@@ -806,11 +783,7 @@ async function acumular(
       codigo: 'pasivo_reubicado_de_mes',
       severidad: 'aviso',
       periodo: `${c.period_start} a ${c.period_end}`,
-      mensaje:
-        `${reubicados} renglón(es) de pasivo de esta corrida cambiaron de mes en este cierre ` +
-        'y el apunte anterior se retiró: la respuesta de `isn_momento_de_causacion` mueve el ' +
-        'ISN al mes del devengo o al del pago, y dejar los dos habría duplicado el impuesto. ' +
-        'Revisa las fechas límite del mes que se vació y del que se llenó.',
+      mensaje: { key: 'payroll.finding.pasivo_reubicado_de_mes', params: { count: reubicados } },
     });
   }
 
@@ -819,11 +792,10 @@ async function acumular(
     hallazgos.push({
       codigo: 'pasivo_ya_depositado_no_se_toca',
       severidad: 'aviso',
-      mensaje:
-        `${intactos.length} renglón(es) de pasivo ya no están en 'pending' —depositados, ` +
-        'dispensados o marcados como tardíos— y NO se reescribieron: ' +
-        `${intactos.map((r) => `${r.taxType}/${r.jurisdiction}`).join(', ')}. ` +
-        'Cambiarles el importe borraría la evidencia de lo que se pagó.',
+      mensaje: {
+        key: 'payroll.finding.pasivo_ya_depositado_no_se_toca',
+        params: { count: intactos.length, rows: intactos.map((r) => `${r.taxType}/${r.jurisdiction}`).join(', ') },
+      },
     });
   }
 

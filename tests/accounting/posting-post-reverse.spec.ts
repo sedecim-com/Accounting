@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clienteFalso, type ClienteFalso, type ReglaConsulta } from '../helpers/fake-pg.js';
 import { asientoFalso, lineaFalsa, ID } from '../helpers/entidades.js';
 import type { JournalEntry } from '../../src/types/index.js';
+import type { AccountingError } from '../../src/utils/errors.js';
 
 // vi.hoisted eleva estas referencias junto con los vi.mock que las capturan:
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
@@ -214,6 +215,23 @@ describe('reverseJournalEntry · NIF B-1', () => {
     ));
     await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/already has a reversal|ALREADY_REVERSED/);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+  });
+
+  // MNE-001-627 (#151): the refusals throw by key; the English is today's, and a Spanish session reads Spanish.
+  it('las negativas del motor van por clave: inglés de hoy en message, español al pintarlas', async () => {
+    arnes.actual = reglasReversa(asientoFalso({ status: 'posted', reversed_by_entry_id: 'espejo-previo' } as Partial<JournalEntry>));
+    const reversed = (await reverseJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e)) as AccountingError;
+    expect(reversed).toMatchObject({
+      code: 'ALREADY_REVERSED',
+      messageKey: { key: 'error.ALREADY_REVERSED', params: { entry: 'JE-2026-00007' } },
+      message: 'Entry JE-2026-00007 already has a reversal — reversing again would corrupt balances',
+    });
+    expect(reversed.localized('es')).toBe('La póliza JE-2026-00007 ya tiene reversión — revertirla otra vez corrompería los saldos');
+
+    arnes.actual = reglas(asientoFalso({ status: 'posted' } as Partial<JournalEntry>));
+    const posted = (await postJournalEntry(ID.asiento, ID.usuario).catch((e: unknown) => e)) as AccountingError;
+    expect(posted).toMatchObject({ code: 'ALREADY_POSTED', messageKey: { key: 'error.ALREADY_POSTED.post' }, message: 'Journal entry is already posted' });
+    expect(posted.localized('es')).toBe('La póliza ya está aplicada');
   });
 
   it('crea el espejo con las columnas invertidas y lo marca como reversa', async () => {

@@ -1,5 +1,6 @@
 import type * as readline from 'node:readline/promises';
 import type { CheckResult } from '../../ai/doctor-service.js';
+import { t, type TranslationKey } from '../../i18n/index.js';
 
 // ============================================================
 // SETUP SECTION
@@ -54,8 +55,14 @@ export interface SetupSection {
   verify(): Promise<CheckResult[]>;
 }
 
-export const BADGE: Record<SectionStatus, string> = {
-  ok: '✔ configured',
-  partial: '◐ incomplete',
-  missing: '○ pending',
+const BADGE_MARK: Record<SectionStatus, string> = { ok: '✔', partial: '◐', missing: '○' };
+const BADGE_KEY: Record<SectionStatus, TranslationKey> = {
+  ok: 'init.badge.ok',
+  partial: 'init.badge.partial',
+  missing: 'init.badge.missing',
 };
+
+/** «✔ configured», in the language of the moment it is printed. */
+export function badge(status: SectionStatus): string {
+  return `${BADGE_MARK[status]} ${t(BADGE_KEY[status])}`;
+}

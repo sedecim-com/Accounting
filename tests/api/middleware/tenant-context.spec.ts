@@ -55,7 +55,8 @@ describe('tenantContext', () => {
     expect(next).toHaveBeenCalledTimes(1);
     const arg = next.mock.calls[0][0];
     expect(arg).toBeInstanceOf(UnauthorizedError);
-    expect((arg as Error).message).toMatch(/no identifica un inquilino/);
+    expect((arg as Error).message).toMatch(/does not identify a tenant/);
+    expect((arg as UnauthorizedError).localized('es')).toMatch(/no identifica un inquilino/);
   });
 
   it('fuera del contexto no hay inquilino: el estado no se filtra', async () => {

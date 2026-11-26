@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, vi } from 'vitest';
 import { Command } from 'commander';
+import { v4 as uuidv4 } from 'uuid';
 import {
   crearInquilino,
   crearEntidadHermana,
@@ -612,6 +613,76 @@ describe('--show-candidates: quién pudo dejar el residuo', () => {
     for (const s of c.candidatos ?? []) {
       expect(s.efecto_en_efectivo).not.toBe('90000.0000');
     }
+  });
+
+  // MNE-001-434: nothing pinned this motive. The investing section takes its
+  // figures from the ledger, and the same purchase also lives in
+  // `fixed_assets`; when the period has a row there, an investing counterpart
+  // of cash is a suspect of being counted twice. Without a row of ITS OWN
+  // entity in the period, the same purchase is an ordinary investing line.
+  it('señala el activo fijo que el periodo también tiene en `fixed_assets`: doble_conteo', async () => {
+    const parent = await crearInquilino('Sospechosos doble conteo');
+    enterTenant(parent.tenantId);
+    const sister = await crearEntidadHermana(parent, 'Sospechosos doble conteo hermana');
+
+    // January by hand: +5 000.00 collected, −30 000.00 for equipment paid
+    // from the bank. Real movement −25 000.00. The statement claims −55 000.00
+    // (the purchase entered twice), so the residue is −30 000.00.
+    await asiento(parent, 1, 5, 'Cobro', parent.cuentas['1111'], parent.cuentas['1120'], '5000.0000');
+    await asiento(parent, 1, 12, 'Compra de equipo', parent.cuentas['1210'], parent.cuentas['1111'], '30000.0000');
+
+    const addFixedAsset = async (f: Fixture, date: string) => {
+      const category = uuidv4();
+      await query(
+        `INSERT INTO asset_categories (id, entity_id, name, default_useful_life_years,
+           default_depreciation_method) VALUES ($1, $2, 'Equipo', 10, 'straight_line')`,
+        [category, f.entityId]
+      );
+      await query(
+        `INSERT INTO fixed_assets (id, entity_id, asset_number, asset_name, category_id,
+           acquisition_date, acquisition_cost, useful_life_years, useful_life_months,
+           depreciation_method, depreciation_start_date, current_book_value,
+           asset_account_id, accumulated_depreciation_account_id, depreciation_expense_account_id,
+           created_by)
+         VALUES ($1, $2, 'FA-1', 'Equipo', $3, $4, '30000.0000', 10, 120,
+           'straight_line', $4, '30000.0000', $5, $6, $7, $8)`,
+        [uuidv4(), f.entityId, category, date, f.cuentas['1210'], f.cuentas['1290'], f.cuentas['6140'], f.userId]
+      );
+    };
+    const reconcile = () =>
+      conciliarFlujoDeEfectivo(parent.entityId, {
+        startDate: ENERO.desde,
+        endDate: ENERO.hasta,
+        derivado: derivado('5000.0000', '-60000.0000'),
+        candidatos: 10,
+      });
+
+    // No row anywhere: an investing line, claimed by a section, not a suspect.
+    const withoutRow = await reconcile();
+    expect(withoutRow.residuo.importe).toBe('-30000.0000');
+    expect(withoutRow.candidatos!.map((s) => s.counterpart_code)).not.toContain('1210');
+
+    // A row in the SISTER entity, in January: the question is the entity's own.
+    await addFixedAsset(sister, '2026-01-12');
+    expect((await reconcile()).candidatos!.map((s) => s.counterpart_code)).not.toContain('1210');
+
+    // Its own row, acquired in January: now it is a suspect, and says why.
+    await addFixedAsset(parent, '2026-01-12');
+    const withRow = await reconcile();
+    expect(withRow.residuo.importe).toBe('-30000.0000');
+    const equipment = withRow.candidatos!.filter((s) => s.counterpart_code === '1210');
+    expect(equipment).toEqual([
+      expect.objectContaining({
+        description: 'Compra de equipo',
+        efecto_en_efectivo: '-30000.0000',
+        counterpart_name: 'Mobiliario y Equipo',
+        counterpart_type: 'asset',
+        categoria_probable: 'inversion',
+        motivo: 'doble_conteo',
+      }),
+    ]);
+    // The collection is operating (1120 has the role cxc): never a suspect.
+    expect(withRow.candidatos!.map((s) => s.counterpart_code)).not.toContain('1120');
   });
 });
 

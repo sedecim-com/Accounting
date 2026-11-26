@@ -418,8 +418,7 @@ export async function openPeriod(
     if (period.status !== FiscalPeriodStatus.FUTURE) {
       throw new AccountingError(
         'PERIOD_NOT_FUTURE',
-        `${period.period_name} is '${period.status}', not 'future'. ` +
-          'Only a future period can be opened; reopening a closed period is a separate, audited operation.'
+        { key: 'error.PERIOD_NOT_FUTURE', params: { period: period.period_name, status: period.status } }
       );
     }
 

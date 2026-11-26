@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
-import { sumarDesgloses, DECIMALES_DIOT } from './desglose.js';
+import type { KeyedText } from '../../../utils/errors.js';
+import { baseDelDesglose, sumarDesgloses, DECIMALES_DIOT } from './desglose.js';
 import type { DiotConstruida, RenglonDiot } from './modelo.js';
 import { RFC_GENERICO_EXTRANJERO, RFC_GENERICO_NACIONAL } from './rfc.js';
 import { OPERATIONS_BY_PARTY_TYPE } from './tercero.js';
@@ -99,9 +100,10 @@ export const LAYOUT_ANSWERS: readonly LayoutAnswer[] = Object.freeze([
       'it. The §3.6 example fills 16 %, border and import boxes on a single line. For the same ' +
       'reason one key (third-party type, operation type, RFC or foreign tax id) is one record: ' +
       'vendor records that share it — every global (15) supplier, or two records with one RFC — ' +
-      'are added up before rounding. A negative net (returns larger than purchases) is refused: ' +
-      'it belongs in the §3.2 "devoluciones, descuentos y bonificaciones" fields, which this file ' +
-      'does not fill yet.',
+      'are added up before rounding, a document of the month with negative amounts included (a ' +
+      'vendor payment unapplied or reversed, MNE-001-682). A negative net is refused, once per ' +
+      'third party: the amounts carry no sign, and returns belong in the §3.2 "devoluciones, ' +
+      'descuentos y bonificaciones" fields, which this file does not fill yet.',
     section: '§3.2, §3.6',
   },
 ]);
@@ -137,7 +139,8 @@ const COUNTRY_KEY = /^[A-Z]{3}$/;
 export interface SatBatchRefusal {
   /** The vendor records behind the refused record; empty for a file-wide refusal. */
   vendorIds: string[];
-  message: string;
+  /** A key the error renders in its reader's language (MNE-001-726). */
+  message: KeyedText;
 }
 
 export interface SatBatchOptions {
@@ -205,7 +208,7 @@ function groupByKey(rows: readonly RenglonDiot[]): Group[] {
   return [...groups.values()];
 }
 
-function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
+function record(r: RenglonDiot, refuse: (m: KeyedText) => void): string[] {
   const t = r.tercero;
   const d = r.desglose;
   const f: string[] = new Array<string>(54).fill('');
@@ -213,10 +216,10 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
 
   const operation = operationOf(r);
   if (!OPERATIONS[t.tipoTercero]?.includes(operation)) {
-    refuse(
-      `${who}: tipo de tercero ${t.tipoTercero} con tipo de operación ${operation}, que el layout ` +
-        `2025 no admite (§3.1: ${(OPERATIONS[t.tipoTercero] ?? []).join(', ')}).`
-    );
+    refuse({
+      key: 'error.DIOT_NO_ENTREGABLE.sat_batch.operation',
+      params: { who, partyType: t.tipoTercero, operation, allowed: (OPERATIONS[t.tipoTercero] ?? []).join(', ') },
+    });
   }
   f[0] = t.tipoTercero;
   f[1] = operation;
@@ -226,32 +229,26 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     f[4] = clean(t.nombre);
     f[5] = (t.paisResidencia ?? '').trim().toUpperCase();
     if (!COUNTRY_KEY.test(f[5])) {
-      refuse(
-        `${who}: el país "${f[5]}" no es una clave de tres letras del catálogo de países del ` +
-          `layout (§5, p. ej. USA; ZZZ para otro). Corrige el país de residencia del proveedor.`
-      );
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.country', params: { who, country: f[5] } });
     } else if (f[5] === OTHER_COUNTRY) {
-      refuse(`${who}: país ZZZ (Otro) exige especificar la jurisdicción, y el expediente no la tiene.`);
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.country_other', params: { who } });
     }
     if (f[3].length > 40 || f[4].length > 300) {
-      refuse(`${who}: la identificación fiscal pasa de 40 caracteres o el nombre de 300 (§3.1).`);
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.too_long', params: { who } });
     }
   } else {
     f[2] = t.tipoTercero === '15' ? RFC_GENERICO_NACIONAL : (t.rfc ?? '');
   }
 
+  /** The fields whose net of the month is negative: refused once, together, at the end. */
+  const negative: KeyedText[] = [];
   const amount = (i: number, value: string, keepZero = false): void => {
     if (!keepZero && new Decimal(value).isZero()) return;
     const units = toWholeUnits(value);
     if (units.startsWith('-')) {
-      refuse(
-        `${who}: el neto del mes es negativo (${value}, campo ${i + 1}): las devoluciones, ` +
-          `descuentos y bonificaciones superan a las compras. El layout los declara en sus ` +
-          `propios campos de §3.2 ("devoluciones, descuentos y bonificaciones"), que este ` +
-          `archivo todavía no llena; captúralo en el portal.`
-      );
+      negative.push({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net.field', params: { field: i + 1, amount: value } });
     } else if (units.length > MAX_DIGITS) {
-      refuse(`${who}: el importe ${value} no cabe en un campo numérico de ${MAX_DIGITS} posiciones.`);
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.too_wide', params: { who, amount: value, digits: MAX_DIGITS } });
     }
     f[i] = units;
   };
@@ -265,24 +262,18 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     amount(valueIndex, base);
     if (f[valueIndex] !== '' && new Decimal(f[valueIndex]).greaterThan(0)) {
       amount(ivaIndex, iva, true);
+    } else if (f[valueIndex].startsWith('-')) {
+      amount(ivaIndex, iva);
     } else if (toWholeUnits(iva) !== '0') {
-      refuse(
-        `${who}: tiene IVA de ${iva} (campo ${ivaIndex + 1}) sin un valor de los actos mayor a ` +
-          `cero en el campo ${valueIndex + 1}, y el layout sólo admite el IVA cuando lo hay (§3.3).`
-      );
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.iva_without_acts', params: { who, iva, ivaField: ivaIndex + 1, valueField: valueIndex + 1 } });
     }
   };
 
   if (!new Decimal(d.tasa8.base).isZero() || !new Decimal(d.tasa8.iva).isZero()) {
-    refuse(
-      `${who}: tiene actos a la tasa del 8 %, y el layout los separa en región fronteriza NORTE ` +
-        `(campos 8 y 18) y SUR (10 y 20). El expediente no dice en cuál está el proveedor.`
-    );
+    refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.border_rate', params: { who } });
   }
   if (d.otras.length > 0) {
-    refuse(
-      `${who}: tiene importes a tasas que el layout no nombra (${d.otras.map((o) => o.etiqueta).join(', ')}).`
-    );
+    refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.unnamed_rates', params: { who, rates: d.otras.map((o) => o.etiqueta).join(', ') } });
   }
   // A foreign supplier does not charge Mexican IVA: the IVA paid on its
   // services is the IVA of importing them (§3.2 fields 16–17, §3.3 26–27).
@@ -299,17 +290,21 @@ function record(r: RenglonDiot, refuse: (m: string) => void): string[] {
     // Mexico), in the import boxes (IVA self-assessed) or in field 49 (exempt
     // import) — a fact of each operation that the ledger does not hold.
     if (!new Decimal(d.tasa0.base).isZero()) {
-      refuse(
-        `${who}: tiene actos a tasa 0 % (${d.tasa0.base}) de un proveedor extranjero. El campo ` +
-          `51 es para actos nacionales a tasa 0 %; lo de un extranjero va en el 53 (no objeto, ` +
-          `sin establecimiento en México), en importación de servicios (IVA autodeterminado) ` +
-          `o en el 49 (importación exenta), según la operación. Captúralo en el portal.`
-      );
+      refuse({ key: 'error.DIOT_NO_ENTREGABLE.sat_batch.foreign_zero_rate', params: { who, base: d.tasa0.base } });
     }
   } else {
     amount(50, d.tasa0.base);
   }
   amount(47, r.ivaRetenido);
+  if (negative.length > 0) {
+    // MNE-001-682: the documents the month took out, which is what a vendor payment undone in it leaves.
+    const undone = r.documentos.filter((x) => new Decimal(x.ivaPagado).isNegative() || new Decimal(baseDelDesglose(x.desglose)).isNegative());
+    refuse({
+      key: 'error.DIOT_NO_ENTREGABLE.sat_batch.negative_net',
+      params: { who, anyUndone: undone.length > 0 ? 'yes' : 'no', undone: undone.map((x) => x.billNumber).join(', ') },
+      lists: { fields: { join: '; ', items: negative } },
+    });
+  }
   // The IVA was credited in the ledger, so the CFDIs were given tax effects.
   f[53] = '01';
   return f;
@@ -328,10 +323,7 @@ export function serializeSatBatch(
   if (options.proportion !== 'taxed_only') {
     refusals.push({
       vendorIds: [],
-      message:
-        `La política diot_creditable_iva_proportion vale "${options.proportion}": la entidad ` +
-        `aplica la proporción del art. 5 frac. V LIVA, que este sistema todavía no calcula. El ` +
-        `IVA acreditable se reparte a mano en el portal.`,
+      message: { key: 'error.DIOT_NO_ENTREGABLE.sat_batch.proportion', params: { proportion: options.proportion } },
     });
   }
   const lines = groupByKey(diot.renglones).map((g) =>

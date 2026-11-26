@@ -3,7 +3,11 @@ import { bootstrapTenant } from '../ai/context.js';
 import { query } from '../database/connection.js';
 import type { Palette } from './palette.js';
 import {
+  argumentByKey,
   declareRisk,
+  describeCommand,
+  describeOption,
+  optionByKey,
   render,
   withContext,
   withOutput,
@@ -15,7 +19,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
-import { t } from '../i18n/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine audit · auditoria
@@ -158,9 +162,9 @@ function exigirFecha(flag: string, valor: string): string {
  * grafía y su forma corta; lo que cambia es qué significa en un comando que
  * no escribe nada, y eso tiene que decirlo el `--help`, no sólo el código.
  */
-function describirFiltroDeUsuario(cmd: Command): void {
+function describirFiltroDeUsuario(cmd: Command, key: TranslationKey): void {
   const opt = cmd.options.find((o) => o.long === '--user');
-  if (opt) opt.description = 'only entries written by this user (email); this command attributes nothing';
+  if (opt) describeOption(opt, key);
 }
 
 /**
@@ -211,10 +215,7 @@ Examples:
 };
 
 export function registerAuditCommand(program: Command, deps: AuditCommandDeps): void {
-  const audit = program
-    .command('audit')
-    .alias('auditoria')
-    .description('Read the audit trail: who changed what, when, and from which value');
+  const audit = describeCommand(program.command('audit').alias('auditoria'), 'help.audit.description');
 
   /**
    * El manejador DEVUELVE su código y `run` lo cierra UNA sola vez. La forma
@@ -261,10 +262,7 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
   };
 
   // ---- audit list ---------------------------------------------------
-  const list = audit
-    .command('list')
-    .alias('listar')
-    .description('Audit trail of mutations: who, when, which object, and which fields changed');
+  const list = describeCommand(audit.command('list').alias('listar'), 'help.audit.list.description');
   withOutput(withContext(list));
   // `-u/--user` cambia de SENTIDO en esta hoja, y hay que decirlo donde se
   // lee. En todo el resto del binario significa «actuando como», porque
@@ -274,34 +272,39 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
   // del diccionario del núcleo —que es lo que el diccionario gobierna— y sólo
   // se reescribe el texto de ayuda: un lector que vea «acting user» en el
   // comando de «quién hizo esto» va a creer que está firmando su consulta.
-  describirFiltroDeUsuario(list);
-  list
-    // `--since`/`--until` sueltas y no con `withTime()`: el grupo entero
-    // arrastra `--period`, `--as-of` y `--date-basis`, y una bitácora no
-    // tiene base de fecha que elegir —tiene UNA marca de tiempo—. Declarar
-    // cinco banderas para rechazar tres es peor superficie que declarar dos.
-    .option('--since <date>', 'inclusive lower bound on the entry timestamp (YYYY-MM-DD)')
-    .option('--until <date>', 'inclusive upper bound on the entry timestamp (YYYY-MM-DD)')
-    .option('--actor <who>', 'human | agent | agent:<session> (see the note on --actor agent)')
-    .option('--action <name>', `one of: ${ACCIONES.join(', ')}`)
-    .option('--object [family]', `object family: ${Object.keys(FAMILIAS).join(', ')}; with no value, lists them`)
-    .option('--entity-type <name>', 'exact audit_log.entity_type value, when the family is not enough')
-    // `-n/--limit` y `--offset` a mano en vez de `withSelection()`: el grupo
-    // trae además `-s/--status` y `-a/--all`, y una fila de bitácora no tiene
-    // ciclo de vida ni archivo. Las grafías y las formas cortas son las del
-    // diccionario del núcleo, que es lo que el diccionario gobierna.
-    .option('-n, --limit <n>', 'maximum rows to return', (v: string) => {
+  describirFiltroDeUsuario(list, 'help.audit.list.option.user');
+  // `--since`/`--until` sueltas y no con `withTime()`: el grupo entero
+  // arrastra `--period`, `--as-of` y `--date-basis`, y una bitácora no
+  // tiene base de fecha que elegir —tiene UNA marca de tiempo—. Declarar
+  // cinco banderas para rechazar tres es peor superficie que declarar dos.
+  optionByKey(list, '--since <date>', 'help.audit.list.option.since');
+  optionByKey(list, '--until <date>', 'help.audit.list.option.until');
+  optionByKey(list, '--actor <who>', 'help.audit.list.option.actor');
+  optionByKey(list, '--action <name>', 'help.audit.list.option.action', { params: { actions: ACCIONES.join(', ') } });
+  optionByKey(list, '--object [family]', 'help.audit.list.option.object', {
+    params: { families: Object.keys(FAMILIAS).join(', ') },
+  });
+  optionByKey(list, '--entity-type <name>', 'help.audit.list.option.entity_type');
+  // `-n/--limit` y `--offset` a mano en vez de `withSelection()`: el grupo
+  // trae además `-s/--status` y `-a/--all`, y una fila de bitácora no tiene
+  // ciclo de vida ni archivo. Las grafías, las formas cortas y el texto son
+  // los del diccionario del núcleo (`cli.flag.limit`, `cli.flag.offset`).
+  optionByKey(list, '-n, --limit <n>', 'cli.flag.limit', {
+    parser: (v: string) => {
       const n = Number(v);
       if (!Number.isSafeInteger(n) || n <= 0) throw usageError({ key: 'platform.audit.list.limit_invalid', params: { value: v } });
       return n;
-    })
-    .option('--offset <n>', 'skip this many rows', (v: string) => {
+    },
+  });
+  optionByKey(list, '--offset <n>', 'cli.flag.offset', {
+    parser: (v: string) => {
       const n = Number(v);
       if (!Number.isSafeInteger(n) || n < 0) {
         throw usageError({ key: 'cli.flag.error_not_whole_number', params: { name: '--offset', value: v } });
       }
       return n;
-    });
+    },
+  });
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: ListOpts) =>
@@ -447,13 +450,10 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
   // Una fila entera, con `old_values` y `new_values` desplegados. Es lo que
   // el listado no puede hacer sin volverse ilegible, y es la pregunta que
   // sigue SIEMPRE a la primera: no «quién tocó esto», sino «desde qué valor».
-  const show = audit
-    .command('show')
-    .alias('ver')
-    .argument('<id>', 'audit_log row id (the id column of `audit list`)')
-    .description('One audit entry in full: the value before, the value after, and the reason');
+  const show = describeCommand(audit.command('show').alias('ver'), 'help.audit.show.description');
+  argumentByKey(show, '<id>', 'help.audit.show.argument.id');
   withOutput(withContext(show));
-  describirFiltroDeUsuario(show);
+  describirFiltroDeUsuario(show, 'help.audit.show.option.user');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((id: string, opts: CommonOpts) =>

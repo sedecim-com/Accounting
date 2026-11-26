@@ -19,7 +19,7 @@ vi.mock('../../src/ai/draft-service.js', () => ({
 }));
 vi.mock('../../src/services/ar/invoice-service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/ar/invoice-service.js')>()),
-  resolveInvoice: vi.fn(async (_e: string, ref: string) => ({ id: `id-${ref}`, invoice_number: ref })),
+  resolveInvoice: vi.fn(async (_e: string, ref: string) => ({ id: `id-${ref}`, invoice_number: ref, currency_code: 'MXN' })),
 }));
 vi.mock('../../src/services/ar/customer-service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/ar/customer-service.js')>()),
@@ -38,7 +38,7 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
     }],
     remanenteAnterior: '0.00', remanenteNuevo: '0.00',
   })),
-  getCustomerPayment: vi.fn(async () => ({ id: 'pay-1', payment_number: 'PMT-2026-00042' })),
+  getCustomerPayment: vi.fn(async () => ({ id: 'pay-1', payment_number: 'PMT-2026-00042', payment_amount: '100.00', currency_code: 'MXN' })),
   reverseCustomerPayment: vi.fn(async () => ({
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', reversals: [{ entryNumber: 'JE-2', of: 'JE-1' }],
     attestations: [], documentosReabiertos: [], cause: 'taken_back', causeDefaulted: false, warnings: [],
@@ -57,7 +57,7 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
       id: 'id-INV-2026-00042', numero: 'INV-2026-00042', saldoAnterior: '11600.00', saldoNuevo: '0.00',
       estado: 'paid', moneda: 'MXN', withholdingIsr: '1000.00', withholdingIva: '1066.67',
     }],
-    remanenteAnterior: '9533.33', remanenteNuevo: '0.00',
+    remanenteAnterior: '9533.33', remanenteNuevo: '0.00', date: '2026-12-31',
   })),
 }));
 
@@ -750,7 +750,7 @@ describe('receipt record warns of the voucher trace from the generator (MNE-001-
     await record(['INV-1', '--amount', '100.00', '--dry-run']);
     expect(warn).not.toHaveBeenCalled();
     vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
-      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'cus-1',
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'cus-1', currency_code: 'MXN',
     } as never);
     const { errs } = await record(['INV-1', '--amount', '100.00', '--yes']);
     expect(errs).toEqual([]);

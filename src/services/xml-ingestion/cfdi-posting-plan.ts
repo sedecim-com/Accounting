@@ -4,6 +4,7 @@ import { query } from '../../database/connection.js';
 import { classifyXml, type Classification, type ProposedLine } from './cfdi-classifier.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
 import { NO_ELIGIBLE_SUGGESTION, pickLineAccount } from './expense-line-account.js';
+import type { ErrorMessageKey } from '../../utils/errors.js';
 
 // ============================================================
 // DEL VEREDICTO AL ASIENTO.
@@ -127,6 +128,8 @@ export interface OpcionesPlan {
    * contestaba umbral_capitalizacion_mxn y no cambiaba nada.
    */
   thresholds?: PolicyThresholds;
+  /** MNE-001-742: `false` on an entity that does not keep Mexican books; see `ClassifyOptions.cashBasisVat`. */
+  cashBasisVat?: boolean;
   /**
    * Opens the revenue line of an issued sale by concept. Each credit goes to
    * the first account that exists: the line's `account_id`, `callerAccountId`,
@@ -158,6 +161,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     satStatus: opts.satStatus,
     answers: opts.answers,
     thresholds: opts.thresholds,
+    cashBasisVat: opts.cashBasisVat,
   });
 
   const avisos = [...clasificacion.warnings];
@@ -312,7 +316,7 @@ function aLineaDeAsiento(
  * mapeado a un código que la entidad no tiene produce un asiento incompleto,
  * y un asiento incompleto no descuadra por casualidad —descuadra siempre—.
  */
-export function planContabilizable(plan: PlanDeAsiento): { ok: boolean; motivo: string } {
+export function planContabilizable(plan: PlanDeAsiento): { ok: boolean; motivo: string | ErrorMessageKey } {
   if (plan.clasificacion.verdict !== 'ready') {
     return { ok: false, motivo: plan.clasificacion.reason };
   }
@@ -320,19 +324,17 @@ export function planContabilizable(plan: PlanDeAsiento): { ok: boolean; motivo: 
     const faltan = plan.cuentasFaltantes
       .map((c) => `${c.role}${c.code ? ` (${c.code})` : ''}`)
       .join(', ');
-    return {
-      ok: false,
-      motivo:
-        `La entidad no tiene cuenta para: ${faltan}. ` +
-        `Siembra la contabilidad con: mnemosine init --section identity`,
-    };
+    return { ok: false, motivo: { key: 'error.CFDI_REQUIERE_DECISION.missing_accounts', params: { missing: faltan } } };
   }
   const cargos = plan.lineas.reduce((s, l) => s.plus(l.debit_amount ?? 0), new Decimal(0));
   const abonos = plan.lineas.reduce((s, l) => s.plus(l.credit_amount ?? 0), new Decimal(0));
   if (!cargos.equals(abonos)) {
     return {
       ok: false,
-      motivo: `El asiento propuesto no cuadra: cargos ${cargos.toFixed(2)} vs abonos ${abonos.toFixed(2)}.`,
+      motivo: {
+        key: 'error.CFDI_REQUIERE_DECISION.unbalanced',
+        params: { debits: cargos.toFixed(2), credits: abonos.toFixed(2) },
+      },
     };
   }
   return { ok: true, motivo: plan.clasificacion.reason };

@@ -2456,6 +2456,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I recompute on the combined income of the period and credit only the difference.',
     priority: 42,
   },
+  // #601 · MNE-001-739. How the ISR of a paycheck paid apart is withheld (the
+  // restriction of #601). Read by `readSeparatePaymentIsr`
+  // (payroll/mx/separate-payment-isr.ts), through `calculatePaycheck`.
+  {
+    key: 'separate_payment_isr',
+    textKey: 'separate_payment_isr',
+    category: 'fiscal',
+    question:
+      'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), on what base is its ISR withheld?',
+    impact:
+      'It decides the ISR withheld, the net pay and the payroll CFDI of a paycheck that shares its pay period with another paycheck of the worker, or that is itself separate (a run other than the regular one, or a paycheck that pays only aguinaldo). Read by separate-payment-isr.ts. With "period_accumulated_base" the period\'s tariff is applied to the ISR base of the period\'s paychecks together, and the paycheck withholds that less the ISR the others already caused, never below zero, whichever was calculated first. With "own_paycheck_base" each paycheck is taxed on its own base alone. "regulation_optional_procedure" is refused: the separate paycheck is not calculated until the text of the procedure is in this system.',
+    options: [
+      { value: 'period_accumulated_base', label: 'On the period\'s accumulated base: the tariff on all the paychecks of the period together, less the ISR the others caused' },
+      {
+        value: 'regulation_optional_procedure',
+        label: 'The optional procedure of the Regulation for extraordinary payments (RLISR art. 174): not available until its text is in this system',
+      },
+      { value: 'own_paycheck_base', label: 'On the paycheck alone: each paycheck taxed on its own base, as the engine did before' },
+    ],
+    defaultValue: 'period_accumulated_base',
+    defaultRationale:
+      'The tariff of LISR art. 96 is the one published for the pay period, and it is applied to the income of that period. Its marginal rate rises with the income, so the tariff on the period\'s income together never withholds less than the tariffs of each paycheck alone: it is the conservative option of ADR-0006, decision 1. The optional procedure of the Regulation for extraordinary payments (RLISR art. 174) is not compared, because this system does not carry its text.',
+    whyAsking:
+      'Paying the aguinaldo in its own run is common, and its ISR can be computed on the income of the whole period, by the optional procedure of the Regulation, or on that paycheck alone: each gives a different withholding. Taxed on its own base, an aguinaldo of 10,000.00 paid apart from a fortnight of 10,000.00 withholds 541.53; on the period\'s base, 1,384.28.',
+    whatIDo:
+      'Before withholding the ISR of a paycheck, I read the other calculated, approved or paid paychecks of the same worker and period. With "period_accumulated_base" I apply the period\'s tariff to their ISR base plus this one and withhold the difference with the ISR they caused, never below zero. With "own_paycheck_base" I apply it to this paycheck\'s base alone. With "regulation_optional_procedure" I refuse to calculate the separate paycheck and say why. The paycheck records the treatment and the figures in its calculation details.',
+    ifSkipped: 'I apply the period\'s tariff to the accumulated base of the period and withhold only the difference.',
+    priority: 42,
+  },
   // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
   // old-age quota to two decimals and gives no rounding rule. Read by
   // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer
@@ -3059,6 +3088,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'With "reversal_month" I count that IVA in the month of the reversal\'s correction. With "cashing_month" I count it in the month of the cashing and name, in the tie-out, the amended return and the correction.',
     ifSkipped: 'I count it in the month of the reversal.',
     priority: 60,
+  },
+  {
+    // MNE-001-754 (#855, part 2 of MNE-001-682) · A vendor payment undone in a
+    // later month. The ledger is the same under either answer; the answer
+    // decides the papers' month. Reader: `readVendorUndoIvaMonth` (sat/diot),
+    // which the DIOT and the IVA workpaper call once for each month they build.
+    key: 'vendor_undo_iva_month',
+    textKey: 'vendor_undo_iva_month',
+    category: 'fiscal',
+    question:
+      'A vendor payment that released a bill\'s IVA is unapplied or reversed in a later month: in which month do the DIOT and the IVA workpaper take that IVA out?',
+    impact:
+      'Governs the DIOT and the IVA workpaper after `payment unapply` or `payment reverse` of a vendor payment applied in an earlier month; hechos.ts reads it once for each month either builds. ' +
+      'Under either answer the ledger credits the creditable IVA (1130) on the day of the undo. ' +
+      'With "undo_month" the papers take it out in the month of the undo, so the month it counted in keeps what it declared and every month ties out with the ledger. ' +
+      'With "payment_month" the papers read the application as never having existed: the month it counted in no longer counts it and needs an amended return, and the month of the undo takes nothing out; the notice DIOT-PAYMENT-UNDONE says so in both months, and the tie-out names the cause in both. ' +
+      'An undo dated in the month of the application nets there under either answer.',
+    options: [
+      { value: 'undo_month', label: 'Take it out in the month of the undo, as the ledger does' },
+      { value: 'payment_month', label: 'Count it in no month, and amend the month of the payment' },
+    ],
+    defaultValue: 'undo_month',
+    defaultRationale:
+      'The ledger takes the IVA out of 1130 on the day of the undo, and creditable IVA is the tax effectively paid on a bill (LIVA art. 5 fr. III, as the CFDI manual of this system carries it; the text of the LIVA is not in this system): after the undo the books show the bill owed again. ' +
+      'Counting the undo in its own month changes no month already declared and keeps every month tied to the ledger, the conservative option of ADR-0006. ' +
+      'When the application should never have existed, amending the month it counted in (CFF art. 32) is also accepted.',
+    whyAsking:
+      'A vendor reversal stores no cause, so I cannot tell a transfer that came back from an application that should never have existed. Some firms take the undo out in its own month, as the ledger does; others amend the month the payment counted in.',
+    whatIDo:
+      'With "undo_month" I take the undone IVA out in the month of the undo. With "payment_month" I count it in no month, and name, in the notice and the tie-out of both months, the amended return the month of the payment needs.',
+    ifSkipped: 'I take it out in the month of the undo.',
+    priority: 61,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

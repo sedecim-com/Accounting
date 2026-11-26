@@ -11,6 +11,7 @@ import {
 } from '../accounting/iva-cash-basis.js';
 import { saleSources, type SaleSource } from './sale-sources.js';
 import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
+import { receivedCreditNotesOfRange } from './received-credit-notes.js';
 import { bankFeesOfRange } from './bank-fee-iva.js';
 import { balancesInFavorBefore } from './filed-returns.js';
 import { overrideFindings, proposePriorCredit, type PriorBalance } from './prior-balance.js';
@@ -18,12 +19,14 @@ import { backAsAdvance, HELD_RESTITUTION_TAG, keptCashOf, KEPT_RESTITUTION_TAG, 
 import {
   acumuladoDelDocumento,
   APPLIED_ON,
+  UNDONE_ON,
   desglosarDocumento,
   desgloseCero,
   hechosDelMes,
   ivaDelDesglose,
   porcionDelDocumento,
   rangoDelMes,
+  readVendorUndoIvaMonth,
   sumarDesgloses,
   type Desglose,
   type Hallazgo,
@@ -121,7 +124,9 @@ import {
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition. Cash on account
 //                  counts the day it was applied to its bill (MNE-001-679,
-//                  `APPLICATION_CREDIT_DATE`). Plus the bank fees
+//                  `APPLICATION_CREDIT_DATE`), and leaves in the month it
+//                  was unapplied or its payment reversed, never in the one it
+//                  counted in (MNE-001-682, `UNDONE_ON`). Plus the bank fees
 //                  (MNE-001-566, `bank-fee-iva.ts`), which no bill carries: the
 //                  charge is their payment (MNE-001-041), so their IVA counts
 //                  in the month its entry moved 1130.
@@ -189,11 +194,10 @@ export async function readFilingRounding(ctx: PolicyContext, client?: pg.PoolCli
   const policy = await getPolicy(ctx, FILING_ROUNDING_POLICY, client);
   const value = KNOWN_ROUNDINGS.find((r) => r === policy.value);
   if (!value) {
-    throw new AccountingError(
-      'FILING_ROUNDING_UNKNOWN',
-      `La política ${FILING_ROUNDING_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_ROUNDINGS.join(', ')}. Corrígela en mnemosine pending.`
-    );
+    throw new AccountingError('FILING_ROUNDING_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN.fiscal_reader',
+      params: { policy: FILING_ROUNDING_POLICY, value: String(policy.value), known: KNOWN_ROUNDINGS.join(', ') },
+    });
   }
   return value;
 }
@@ -213,11 +217,10 @@ export async function readCreditableProration(
   const policy = await getPolicy(ctx, CREDITABLE_PRORATION_POLICY, client);
   const value = KNOWN_PRORATIONS.find((r) => r === policy.value);
   if (!value) {
-    throw new AccountingError(
-      'CREDITABLE_PRORATION_UNKNOWN',
-      `La política ${CREDITABLE_PRORATION_POLICY} vale "${policy.value}" y este lector sólo ` +
-        `entiende ${KNOWN_PRORATIONS.join(', ')}. Corrígela en mnemosine pending.`
-    );
+    throw new AccountingError('CREDITABLE_PRORATION_UNKNOWN', {
+      key: 'error.POLICY_VALUE_UNKNOWN.fiscal_reader',
+      params: { policy: CREDITABLE_PRORATION_POLICY, value: String(policy.value), known: KNOWN_PRORATIONS.join(', ') },
+    });
   }
   return value;
 }
@@ -2091,7 +2094,8 @@ export interface DocumentContribution {
   documentNumber: string;
   /**
    * 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423).
-   * 'credit_note': an issued credit note, subtracted (MNE-001-565).
+   * 'credit_note': a credit note, subtracted: issued on the charged side (MNE-001-565),
+   * received on the creditable side (MNE-001-760; the id is its CFDI's row).
    * 'bank_fee': a bank fee's IVA, creditable at its charge (MNE-001-566); the id is its movement or its adjustment.
    */
   documentKind: 'invoice' | 'bill' | 'receipt' | 'credit_note' | 'bank_fee';
@@ -2334,14 +2338,15 @@ async function chargedOfMonth(
  * picked: the bill's own entry (a `bill` fact) or, for a `payment` fact, the
  * entries dated in the month of the payments applied to it in the month: their
  * own, their applications' (`vendor_application`, MNE-001-679) and the cashing
- * entries of the cheques cashed in it. Both the selection of bills and which
- * event each one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits,
- * not the method); this only looks the entries up.
+ * entries of the cheques cashed in it, and the entries that took the VAT out
+ * of an application the month undid (MNE-001-682). Both the selection of bills
+ * and which event each one has stay `hechosDelMes`'s (MNE-001-491: where the
+ * VAT sits, not the method); this only looks the entries up.
  */
 async function billEntryIds(
   client: pg.PoolClient,
   entityId: string,
-  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'event'>>,
+  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'event' | 'undoneInMonth'>>,
   range: RangoDelMes
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -2372,6 +2377,8 @@ async function billEntryIds(
     // A cheque cashed in the month (MNE-001-559): its cashing entry is the one
     // that credited the IVA, so the bill traces to it. One whose own entry
     // credited the IVA has no cashing entry, and its payment entry is above.
+    // The cashing entry is found by its own day: since MNE-001-778 it is the
+    // later day its applications were applied on when that follows the bank's.
     // Cash on account applied in the month (MNE-001-679): the application's
     // entry credited the IVA, dated the day its row stores. A row with no
     // stored day names no entry and keeps its payment's, above.
@@ -2385,13 +2392,39 @@ async function billEntryIds(
         WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
           AND vp.status <> 'void'
           AND ((je.source_type = '${ORIGEN_COBRO_DE_CHEQUE}'
-                AND vp.check_cleared_date >= $3::date AND vp.check_cleared_date <= $4::date)
+                AND je.entry_date >= $3::date AND je.entry_date <= $4::date)
             OR (je.source_type = 'vendor_application' AND je.entry_date = pa.applied_on
                 AND pa.applied_on >= $3::date AND pa.applied_on <= $4::date))
         ORDER BY 1, 2`,
       [entityId, byPayment, range.desde, range.hasta]
     );
     for (const r of later.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
+    // An application the month undid (MNE-001-682): the unapplication's entry,
+    // dated the day its row was closed, and the mirrors a reversal posted that
+    // day. Asked only when a fact of the month says it undid something.
+    // NOTE: neither entry names its bill, so two bills one payment was undone
+    // from on the same day each trace both.
+    const undone = facts.filter((h) => h.event === 'payment' && !new Decimal(h.undoneInMonth).isZero()).map((h) => h.billId);
+    if (undone.length > 0) {
+      const undoes = await client.query<{ id: string; entry: string }>(
+        `SELECT DISTINCT pa.bill_id AS id, e.id::text AS entry
+           FROM payment_applications pa
+           JOIN vendor_payments vp ON vp.id = pa.payment_id
+           JOIN bills b ON b.id = pa.bill_id
+           JOIN journal_entries je ON je.source_id = vp.id AND je.entity_id = vp.entity_id AND je.status = 'posted'
+                                  AND je.source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication',
+                                                         '${ORIGEN_COBRO_DE_CHEQUE}')
+           LEFT JOIN journal_entries m ON m.id = je.reversed_by_entry_id AND m.entity_id = je.entity_id
+          CROSS JOIN LATERAL (VALUES (je.id, je.source_type = 'vendor_unapplication' AND je.entry_date = ${UNDONE_ON}),
+                                     (m.id, m.entry_date = ${UNDONE_ON})) e(id, hit)
+          WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
+            AND vp.status <> 'void'
+            AND ${UNDONE_ON} >= $3::date AND ${UNDONE_ON} <= $4::date AND e.hit
+          ORDER BY 1, 2`,
+        [entityId, undone, range.desde, range.hasta]
+      );
+      for (const r of undoes.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
+    }
   }
   return out;
 }
@@ -2526,7 +2559,7 @@ export function priorBalanceOf(raw: string | undefined): string {
   }
   if (value === null || !value.isFinite() || value.isNegative()) {
     throw new ValidationError(
-      `El saldo a favor de periodos anteriores vale "${String(raw)}": debe ser un importe de cero o más.`,
+      { key: 'error.VALIDATION_ERROR.iva_workpaper.prior_balance_amount', params: { value: String(raw) } },
       'priorBalanceInFavor'
     );
   }
@@ -2536,7 +2569,7 @@ export function priorBalanceOf(raw: string | undefined): string {
 export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaWorkpaper> {
   const { tenantId, entityId, year, month } = opts;
   if (!Number.isInteger(month) || month < 1 || month > 12) {
-    throw new ValidationError(`El mes ${String(month)} no existe: el IVA definitivo es mensual.`, 'month');
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.iva_workpaper.month', params: { month: String(month) } }, 'month');
   }
   const reason = opts.priorBalanceReason?.trim() || undefined;
   if ((opts.priorBalanceInFavor === undefined) !== (reason === undefined)) {
@@ -2550,7 +2583,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     ]);
     if (!rowCount) throw new NotFoundError('Entidad legal', entityId);
     if (!(await entityUsesCashBasisIva(client, entityId))) {
-      throw new ValidationError('La entidad no causa IVA mexicano: no hay IVA definitivo que calcular.', 'entity_id');
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.iva_workpaper.entity_without_mexican_iva' }, 'entity_id');
     }
     const ctx = { tenantId, entityId };
     const range = rangoDelMes(year, month);
@@ -2561,7 +2594,9 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const charged = await chargedOfMonth(client, entityId, range);
     const findings: Hallazgo[] = [...charged.findings];
 
-    const { hechos: facts, hallazgos: factFindings } = await hechosDelMes(client, entityId, year, month);
+    // MNE-001-754: read once a month; under payment_month the facts name what they count apart from the ledger.
+    const undoMonth = await readVendorUndoIvaMonth(ctx, client);
+    const { hechos: facts, hallazgos: factFindings, apartFromLedger } = await hechosDelMes(client, entityId, year, month, undoMonth.value);
     findings.push(...factFindings);
     let creditable = desgloseCero();
     const billEntries = await billEntryIds(client, entityId, facts, range);
@@ -2592,6 +2627,11 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     creditable = sumarDesgloses(creditable, fees.breakdown);
     creditableContributions.push(...fees.contributions);
     findings.push(...fees.findings);
+    // MNE-001-760 · a received credit note, less what its own entry took out of 1130 (never what left 1135).
+    const receivedNotes = await receivedCreditNotesOfRange(client, entityId, range, exemptBase);
+    creditable = sumarDesgloses(creditable, receivedNotes.breakdown);
+    creditableContributions.push(...receivedNotes.contributions);
+    findings.push(...receivedNotes.findings);
 
     const ledger = await roleMovements(client, tenantId, entityId, range);
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
@@ -2605,7 +2645,10 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(),
       [...gapCauses(charged, receiptLedger, await reversedAfterCashing(client, ctx)), ...charged.noteCauses]
     );
-    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), fees.causes);
+    tieOut(
+      findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'),
+      [...fees.causes, ...receivedNotes.causes, ...apartFromLedger.map((a) => ({ amount: new Decimal(a.iva), text: a.text }))]
+    );
     // Debits only: the month's settlement or offset entry credits the account,
     // and a net movement would read as zero once it is posted.
     tieOut(findings, 'IVA-WP-WITHHELD-VS-LEDGER', 'IVA retenido que las ventas del mes registraron al emitirse', 'iva_retenido_a_favor (cargos)', charged.withheldPostedAtIssuance, ledger.iva_retenido_a_favor.debit);
