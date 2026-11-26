@@ -780,6 +780,30 @@ export const EN = {
   'error.VALIDATION_ERROR.schema.void_reason_required': 'Reason is required for voiding',
   /** The regex of a calendar date field: the format it expects. */
   'error.VALIDATION_ERROR.schema.date_format': 'YYYY-MM-DD',
+  // The array caps of the REST bodies (#407): `received` is how many
+  // elements arrived and `maximum` the cap. Their
+  // Spanish is the text every cap answered with before MNE-001-588.
+  /** The cap of `transactions` on a bank statement import. */
+  'error.VALIDATION_ERROR.cap.bank_transactions':
+    '{received} transactions arrived and {maximum} fit in one request. Split the statement, or load it with `mnemosine bank statement import`, which inserts in batches.',
+  /** The cap of a vendor bill's `lines`. */
+  'error.VALIDATION_ERROR.cap.bill_lines':
+    '{received} lines arrived and {maximum} fit in one request. Split the voucher: with more lines than that, what you have is an import.',
+  /** The cap of `applications` on a vendor payment. */
+  'error.VALIDATION_ERROR.cap.bill_payment_applications':
+    '{received} applications arrived and {maximum} fit in one request. A payment against more documents than that is a remittance: record it as several payments.',
+  /** The cap of an invoice's `lines`. */
+  'error.VALIDATION_ERROR.cap.invoice_lines':
+    '{received} lines arrived and {maximum} fit in one request. Split the invoice: no PAC stamps a voucher with more lines than that.',
+  /** The cap of a journal entry's `lines`. */
+  'error.VALIDATION_ERROR.cap.journal_entry_lines':
+    '{received} lines arrived and {maximum} fit in one request. A journal entry longer than that is an import: split it, or use `mnemosine entry import`.',
+  /** The cap of `ids` on a bulk pre-registration action. */
+  'error.VALIDATION_ERROR.cap.pre_registration_ids':
+    '{received} ids arrived and {maximum} fit in one request. Split the batch into several requests.',
+  /** The cap of `xml_contents` on an upload. */
+  'error.VALIDATION_ERROR.cap.xml_documents':
+    '{received} documents arrived and {maximum} fit in one request. Split the batch, or load it with `mnemosine ingest`, which processes one file at a time.',
   // ---- MNE-001-150 · a path no route serves (issue #151) ----
   /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
   'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',

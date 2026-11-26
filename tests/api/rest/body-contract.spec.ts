@@ -8,6 +8,7 @@ import { z } from 'zod';
 // ============================================================
 // CONTRACT: the REST 422 body, and the parsed body behind it (#367).
 // CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
+// CONTRACT: since MNE-001-588 the over-cap line is a catalogue key: English here, and under es the Spanish every language read before (G6).
 //
 // Except for the over-cap 422 (#407), this file must pass UNCHANGED on zod 3.25.76 and on zod 4: the owner's
 // decision on #367 is that the Zod 4 migration keeps every 422 byte-identical
@@ -68,7 +69,9 @@ const movement = (extra: Record<string, unknown> = {}) => ({
   description: 'd',
   ...extra,
 });
-const CAP_EXIT = 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.';
+// The cap's English since MNE-001-588; before it every language read the Spanish that es.ts keeps.
+const CAP_LINE =
+  'transactions: 5001 transactions arrived and 5000 fit in one request. Split the statement, or load it with `mnemosine bank statement import`, which inserts in batches.';
 const INVALID = 'Invalid request body: ';
 
 describe('G1 · every REST body probe answers what zod 3 answered (bar the #407 over-cap 422)', () => {
@@ -137,7 +140,7 @@ describe('G2 · targeted rows on real routes', () => {
       'the array cap names what arrived and where to go',
       'POST /v1/bank-accounts/:account_id/import',
       { transactions: Array.from({ length: 5001 }, () => movement()) },
-      `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
+      `422 VALIDATION_ERROR ${INVALID}${CAP_LINE}`,
     ],
     [
       // CONTRACT (#407, MNE-001-395; frozen by #367 until then): a body past the
@@ -146,7 +149,7 @@ describe('G2 · targeted rows on real routes', () => {
       'the array cap is reported alone, before the element issues',
       'POST /v1/bank-accounts/:account_id/import',
       { transactions: [movement({ bank_transaction_id: '' }), ...Array.from({ length: 5000 }, () => movement())] },
-      `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
+      `422 VALIDATION_ERROR ${INVALID}${CAP_LINE}`,
     ],
     [
       'passthrough keeps an unknown key',
@@ -522,6 +525,71 @@ describe('G6 · every message a schema sets itself is a catalogue key (MNE-001-5
     expect(err.message).toBe(`${INVALID}${english}`);
     expect(err.localized('en')).toBe(`${INVALID}${english}`);
     expect(err.localized('es')).toBe(`${SPANISH_FRAME}${spanish}`);
+  });
+
+  // An array past its cap, whatever else the body carries: the cap line is
+  // English under en and, in Spanish, the text every cap answered with before.
+  const over = (n: number): unknown[] => Array.from({ length: n }, () => null);
+  const caps: Array<[string, string, unknown, string, string]> = [
+    [
+      'the bank statement import',
+      'POST /v1/bank-accounts/:account_id/import',
+      { transactions: over(5001) },
+      'transactions: 5001 transactions arrived and 5000 fit in one request. Split the statement, or load it with `mnemosine bank statement import`, which inserts in batches.',
+      'transactions: llegaron 5001 movimientos y caben 5000 por petición. Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.',
+    ],
+    [
+      'the lines of a vendor bill',
+      'POST /v1/bills',
+      { lines: over(1001) },
+      'lines: 1001 lines arrived and 1000 fit in one request. Split the voucher: with more lines than that, what you have is an import.',
+      'lines: llegaron 1001 renglones y caben 1000 por petición. Parte el comprobante: con más renglones que eso lo que hay es una importación.',
+    ],
+    [
+      'the applications of a vendor payment',
+      'POST /v1/bills/payments',
+      { applications: over(501) },
+      'applications: 501 applications arrived and 500 fit in one request. A payment against more documents than that is a remittance: record it as several payments.',
+      'applications: llegaron 501 aplicaciones y caben 500 por petición. Un pago contra más documentos que eso es una remesa: regístrala como varios pagos.',
+    ],
+    [
+      'the lines of an invoice',
+      'POST /v1/invoices',
+      { lines: over(1001) },
+      'lines: 1001 lines arrived and 1000 fit in one request. Split the invoice: no PAC stamps a voucher with more lines than that.',
+      'lines: llegaron 1001 renglones y caben 1000 por petición. Parte la factura: un comprobante con más renglones que eso no lo timbra ningún PAC.',
+    ],
+    [
+      'the lines of a journal entry',
+      'POST /v1/journal-entries',
+      { lines: over(1001) },
+      'lines: 1001 lines arrived and 1000 fit in one request. A journal entry longer than that is an import: split it, or use `mnemosine entry import`.',
+      'lines: llegaron 1001 renglones y caben 1000 por petición. Una póliza más larga que eso es una importación: pártela, o usa `mnemosine entry import`.',
+    ],
+    [
+      'the ids of a bulk pre-registration action',
+      'POST /v1/pre-registrations/bulk',
+      { ids: over(101) },
+      'ids: 101 ids arrived and 100 fit in one request. Split the batch into several requests.',
+      'ids: llegaron 101 ids y caben 100 por petición. Parte el lote en varias peticiones.',
+    ],
+    [
+      'the XML documents of an upload',
+      'POST /v1/upload',
+      { xml_contents: over(101) },
+      'xml_contents: 101 documents arrived and 100 fit in one request. Split the batch, or load it with `mnemosine ingest`, which processes one file at a time.',
+      'xml_contents: llegaron 101 documentos y caben 100 por petición. Parte el lote, o cárgalo con `mnemosine ingest`, que procesa por archivo.',
+    ],
+  ];
+
+  it.each(caps)('the cap of %s', (_label, key, body, english, spanish) => {
+    const err = refusalOf(key, body);
+    expect(err.message.startsWith(INVALID)).toBe(true);
+    expect(err.message.slice(INVALID.length).split('; ')).toContain(english);
+    expect(err.localized('en')).toBe(err.message);
+    const es = err.localized('es');
+    expect(es.startsWith(SPANISH_FRAME)).toBe(true);
+    expect(es.slice(SPANISH_FRAME.length).split('; ')).toContain(spanish);
   });
 });
 

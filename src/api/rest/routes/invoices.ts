@@ -62,8 +62,7 @@ const createInvoiceSchema = z.object({
   // El porqué del número, en topes.ts.
   lines: arregloAcotado(invoiceLineSchema, {
     tope: MAX_RENGLONES_POR_DOCUMENTO,
-    plural: 'renglones',
-    salida: 'Parte la factura: un comprobante con más renglones que eso no lo timbra ningún PAC.',
+    refusal: 'error.VALIDATION_ERROR.cap.invoice_lines',
     minimo: 1,
     mensajeMinimo: schemaMessage('error.VALIDATION_ERROR.schema.invoice_min_lines'),
   }),

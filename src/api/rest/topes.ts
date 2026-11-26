@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { TranslationKey } from '../../i18n/index.js';
+import { keyedIssueParams } from '../../utils/zod-client-errors.js';
 
 // ============================================================
 // LOS TOPES DE ARREGLO DE LA API REST.
@@ -107,10 +109,13 @@ const MARCA_COTA = Symbol('cota-de-arreglo');
 
 const REFUSAL_MARK = Symbol('cota-de-arreglo-refusal');
 
+/** The English message of a cap refusal, and the params that carry its key and the cap to the 422. */
+type CapRefusal = { message: string; params: Record<string, unknown> };
+
 type CappedCheck = z.core.$ZodCheck & {
   [MARCA_COTA]?: number;
-  /** The refusal message for an array of `length` elements, shared by the check and the early exit. */
-  [REFUSAL_MARK]?: (length: number) => string;
+  /** The refusal of an array of `length` elements, keyed, shared by the check and the early exit. */
+  [REFUSAL_MARK]?: (length: number) => CapRefusal;
 };
 
 /**
@@ -137,7 +142,7 @@ const ZodCappedArray = z.core.$constructor('ZodCappedArray', (inst: z.ZodArray, 
     }
     // No `continue: true`: the issue aborts the node, so the check that
     // enforces the same cap afterwards does not report it a second time.
-    payload.issues.push({ code: 'custom', input, inst, message: reject(input.length), params: { maximum: ceiling } });
+    payload.issues.push({ code: 'custom', input, inst, ...reject(input.length) });
     return payload;
   };
 });
@@ -165,7 +170,9 @@ export function cotaDeArreglo(esquema: z.core.$ZodType): number | undefined {
  * `z.array(...).max(n)` ya nombra el tope («at most 5000 element(s)»), pero
  * no dice cuántos llegaron ni a dónde ir con el resto, y quien recibe ese
  * 422 con un extracto de veinte mil líneas necesita las dos cosas para
- * partirlo. El mensaje se arma aquí para que todos los topes suenen igual.
+ * partirlo. Each call site names its refusal as a catalogue key with
+ * `{received}` and `{maximum}` (MNE-001-588), so the 422 reads it in the
+ * reader's language, and every cap still says the same two things.
  *
  * The minimum is an option rather than a chained `.min()` for a reason zod 3
  * had (its refinement wrapper had no `.min()`); on zod 4 chaining would work,
@@ -176,15 +183,13 @@ export function arregloAcotado<T extends z.ZodType>(
   elemento: T,
   opciones: {
     tope: number;
-    /** Cómo se llama lo que va dentro, en plural: «movimientos», «renglones». */
-    plural: string;
-    /** Qué hacer con lo que no cupo. */
-    salida: string;
+    /** The refusal: how many arrived (`received`), the cap (`maximum`), and what to do with the rest. */
+    refusal: TranslationKey;
     minimo?: number;
     mensajeMinimo?: string;
   }
 ): z.ZodArray<T> {
-  const { tope, plural, salida, minimo, mensajeMinimo } = opciones;
+  const { tope, refusal: refusalKey, minimo, mensajeMinimo } = opciones;
   const base =
     minimo === undefined ? z.array(elemento) : z.array(elemento).min(minimo, mensajeMinimo);
   // A `custom` issue and not a built-in `too_big`: src/utils/zod-client-errors.ts
@@ -192,11 +197,13 @@ export function arregloAcotado<T extends z.ZodType>(
   // by ZodCappedArray before any element is read. The check below stays as the
   // carrier of the published cap and as the net for a schema rebuilt without
   // the subclass.
-  const refusal = (length: number): string =>
-    `llegaron ${length} ${plural} y caben ${tope} por petición. ${salida}`;
+  const refusal = (length: number): CapRefusal => {
+    const keyed = keyedIssueParams({ key: refusalKey, params: { received: String(length), maximum: String(tope) } });
+    return { message: keyed.message, params: { ...keyed.params, maximum: tope } };
+  };
   const cap: CappedCheck = z.superRefine((valor: z.output<T>[], ctx) => {
     if (valor.length <= tope) return;
-    ctx.addIssue({ code: 'custom', message: refusal(valor.length), params: { maximum: tope } });
+    ctx.addIssue({ code: 'custom', ...refusal(valor.length) });
   });
   cap[MARCA_COTA] = tope;
   cap[REFUSAL_MARK] = refusal;

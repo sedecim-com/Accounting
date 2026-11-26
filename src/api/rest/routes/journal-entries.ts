@@ -67,8 +67,7 @@ const createJournalEntrySchema = z.object({
   // el periodo fiscal bloqueado mientras dura. El porqué del número, en topes.ts.
   lines: arregloAcotado(journalLineSchema, {
     tope: MAX_RENGLONES_POR_DOCUMENTO,
-    plural: 'renglones',
-    salida: 'Una póliza más larga que eso es una importación: pártela, o usa `mnemosine entry import`.',
+    refusal: 'error.VALIDATION_ERROR.cap.journal_entry_lines',
     minimo: 2,
     mensajeMinimo: schemaMessage('error.VALIDATION_ERROR.schema.entry_min_lines'),
   }),

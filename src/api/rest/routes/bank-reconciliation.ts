@@ -38,8 +38,7 @@ const importTransactionsSchema = z.object({
   // lotes; éste se quedó abierto. El porqué del número, en topes.ts.
   transactions: arregloAcotado(bankTransactionSchema, {
     tope: MAX_MOVIMIENTOS_POR_IMPORTACION,
-    plural: 'movimientos',
-    salida: 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.',
+    refusal: 'error.VALIDATION_ERROR.cap.bank_transactions',
     minimo: 1,
   }),
   source: z.string().optional(),
