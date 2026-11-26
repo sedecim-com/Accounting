@@ -1,6 +1,41 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type pg from 'pg';
-import { heldIepsShare, iepsHeldForCashing, iepsKeptOnAccount, iepsMoveLines, iepsTakenByRows } from '../../src/services/accounting/ieps-cash-basis.js';
+
+vi.mock('../../src/database/connection.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/database/connection.js')>();
+  return { ...real, query: vi.fn() };
+});
+// MNE-001-618 · spied, not replaced: the real report-layer reads run against
+// the fake transaction clients below, and the spies prove the four IEPS sums
+// read them, on the caller's client.
+vi.mock('../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/reporting/report-service.js')>();
+  return {
+    ...real,
+    queryIepsParkedByInvoice: vi.fn(real.queryIepsParkedByInvoice),
+    queryIepsMovedForInvoice: vi.fn(real.queryIepsMovedForInvoice),
+    queryIepsKeptOnAccount: vi.fn(real.queryIepsKeptOnAccount),
+    queryIepsTakenByRows: vi.fn(real.queryIepsTakenByRows),
+  };
+});
+
+import {
+  heldIepsShare,
+  iepsCausedBy,
+  iepsHeldForCashing,
+  iepsKeptOnAccount,
+  iepsMovedForInvoice,
+  iepsMoveLines,
+  iepsParkedByInvoice,
+  iepsTakenByRows,
+} from '../../src/services/accounting/ieps-cash-basis.js';
+import { query } from '../../src/database/connection.js';
+import {
+  queryIepsKeptOnAccount,
+  queryIepsMovedForInvoice,
+  queryIepsParkedByInvoice,
+  queryIepsTakenByRows,
+} from '../../src/services/reporting/report-service.js';
 
 // MNE-001-590 (#792) · the lines that keep an unapplied receipt's IEPS caused and
 // net it on a later application, by hand. The ledger reads themselves are
@@ -191,5 +226,95 @@ describe('iepsTakenByRows', () => {
     expect(sql[0]).toContain('je.entity_id = $1 AND je.status = \'posted\' AND je.reversed_by_entry_id IS NULL AND je.is_reversal = false');
     expect(await iepsTakenByRows(client, ENTITY, [])).toEqual(new Map());
     expect(sql).toHaveLength(1);
+  });
+});
+
+// MNE-001-618 (#101) · the four IEPS sums read through report-service, on the
+// caller's transaction client, and the consumers give back what they gave
+// before: the same clamps, scales and empty answers. By hand.
+describe('MNE-001-618 · the IEPS sums read report-service, on the caller\'s client', () => {
+  const mockQuery = query as unknown as Mock;
+
+  /** A transaction client that answers each sum by its column, and refuses any other statement. */
+  function ledgerClient(answers: { ieps_parked?: string; moved?: string; kept?: string; taken?: unknown[] }) {
+    const q = vi.fn(async (text: string) => {
+      const s = String(text);
+      if (s.includes('AS ieps_parked')) return { rows: [{ ieps_parked: answers.ieps_parked }] };
+      if (s.includes('AS moved')) return { rows: [{ moved: answers.moved }] };
+      if (s.includes('AS kept')) return { rows: [{ kept: answers.kept }] };
+      if (s.includes('AS taken')) return { rows: answers.taken ?? [] };
+      throw new Error(`unexpected statement: ${s.slice(0, 80)}`);
+    });
+    return { client: { query: q } as unknown as pg.PoolClient, q };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    vi.mocked(queryIepsParkedByInvoice).mockClear();
+    vi.mocked(queryIepsMovedForInvoice).mockClear();
+    vi.mocked(queryIepsKeptOnAccount).mockClear();
+    vi.mocked(queryIepsTakenByRows).mockClear();
+  });
+
+  it('parked: asked once on the client; 80.0000 stays 80, and a negative read is 0', async () => {
+    const { client, q } = ledgerClient({ ieps_parked: '80.0000' });
+    expect((await iepsParkedByInvoice(client, ENTITY, 'inv-a')).toFixed(4)).toBe('80.0000');
+    expect(vi.mocked(queryIepsParkedByInvoice).mock.calls).toEqual([[ENTITY, 'inv-a', client]]);
+    expect(q).toHaveBeenCalledTimes(1);
+    expect((await iepsParkedByInvoice(ledgerClient({ ieps_parked: '-0.0001' }).client, ENTITY, 'inv-a')).toFixed(4)).toBe('0.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('moved: by one receipt or by every one (a null receipt), on the client, signed as read', async () => {
+    const { client } = ledgerClient({ moved: '40.0000' });
+    expect((await iepsMovedForInvoice(client, ENTITY, 'inv-a', 'pay-1')).toFixed(4)).toBe('40.0000');
+    // An unapply that re-parked more than this receipt moved reads below zero, and is not clamped.
+    const { client: other } = ledgerClient({ moved: '-12.5000' });
+    expect((await iepsMovedForInvoice(other, ENTITY, 'inv-a')).toFixed(4)).toBe('-12.5000');
+    expect(vi.mocked(queryIepsMovedForInvoice).mock.calls).toEqual([
+      [ENTITY, 'inv-a', 'pay-1', client],
+      [ENTITY, 'inv-a', null, other],
+    ]);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('one collection of half the invoice causes 80.0000 × 580 / 1 160 = 40.0000, less nothing moved; parked and moved on the same client', async () => {
+    const { client, q } = ledgerClient({ ieps_parked: '80.0000', moved: '0' });
+    const doc = { invoiceId: 'inv-a', totalAmount: '1160.00', priorApplied: '0.0000', appliedNow: '580.0000' };
+    expect(await iepsCausedBy(client, ENTITY, doc)).toBe('40.0000');
+    // By hand: with 50.0000 already moved only 30.0000 is still parked, so the share stops there.
+    expect(await iepsCausedBy(ledgerClient({ ieps_parked: '80.0000', moved: '50.0000' }).client, ENTITY, doc)).toBe('30.0000');
+    expect(vi.mocked(queryIepsParkedByInvoice).mock.calls[0]).toEqual([ENTITY, 'inv-a', client]);
+    expect(vi.mocked(queryIepsMovedForInvoice).mock.calls[0]).toEqual([ENTITY, 'inv-a', null, client]);
+    expect(q).toHaveBeenCalledTimes(2);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('kept: asked once on the client, at four decimals, never below 0', async () => {
+    const { client } = ledgerClient({ kept: '80' });
+    expect(await iepsKeptOnAccount(client, ENTITY, 'pay-1')).toBe('80.0000');
+    expect(vi.mocked(queryIepsKeptOnAccount).mock.calls).toEqual([[ENTITY, 'pay-1', client]]);
+    expect(await iepsKeptOnAccount(ledgerClient({ kept: '-0.0001' }).client, ENTITY, 'pay-1')).toBe('0.0000');
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('taken: one read for the rows on the client, by row at four decimals; no rows asks nothing', async () => {
+    // By hand: row-1 released nothing and took 80 × 1 000 / 1 080 = 74.0741; row-2 released 40 and took 40.
+    const { client, q } = ledgerClient({
+      taken: [
+        { allocation_id: 'row-1', released: '0', taken: '74.0741' },
+        { allocation_id: 'row-2', released: '40', taken: '40.00000' },
+      ],
+    });
+    const read = await iepsTakenByRows(client, ENTITY, ['row-1', 'row-2']);
+    expect([...read.entries()]).toEqual([
+      ['row-1', { released: '0.0000', taken: '74.0741' }],
+      ['row-2', { released: '40.0000', taken: '40.0000' }],
+    ]);
+    expect(vi.mocked(queryIepsTakenByRows).mock.calls).toEqual([[ENTITY, ['row-1', 'row-2'], client]]);
+    expect(q).toHaveBeenCalledTimes(1);
+    expect(await iepsTakenByRows(client, ENTITY, [])).toEqual(new Map());
+    expect(queryIepsTakenByRows).toHaveBeenCalledTimes(1);
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });
