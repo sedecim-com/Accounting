@@ -60,7 +60,7 @@ import {
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import {
-  LEGACY_COMMA_WARNING,
+  legacyCommaWarning,
   LEGACY_LINE_FORMS_RETIRE_IN,
   lineKeysHelp,
   normalizeLineRecord,
@@ -151,7 +151,7 @@ function requireDate(flag: string, value: string): string {
 /**
  * `--line "account=5100;qty=2;price=350.00;tax-amount=112;description=Papelería"`,
  * the one grammar of #327. The old comma form is still read (with a warning,
- * see LEGACY_COMMA_WARNING). Keys are spelled the way the flags are, not the
+ * see legacyCommaWarning). Keys are spelled the way the flags are, not the
  * way the columns are: a person typing a bill is not reading the schema.
  */
 export function parseLineSpec(spec: string): Record<string, string> {
@@ -206,9 +206,10 @@ export function legacyTaxKeyWarning(): string {
 /**
  * La ayuda de --line, una clave por renglón. El help enumeraba cinco claves de
  * las que el comando acepta, y justo la que faltaba documentar (tax) era la
- * que se prestaba a registrar el IVA equivocado.
+ * que se prestaba a registrar el IVA equivocado. Built when the help is shown:
+ * its heading is keyed.
  */
-const LINE_KEYS_HELP = lineKeysHelp([
+const billLineKeysHelp = (): string => lineKeysHelp([
   ['account', 'chart account code the line is coded to (required)'],
   ['qty', 'quantity; defaults to 1'],
   ['quantity', 'same as qty'],
@@ -597,7 +598,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   optionByKey(create, '--bill-date <date>', 'help.bill.create.option.bill_date');
   optionByKey(create, '--due-date <date>', 'help.bill.create.option.due_date');
   optionByKey(create, '--line <spec...>', 'help.bill.create.option.line');
-  create.addHelpText('after', LINE_KEYS_HELP);
+  create.addHelpText('after', billLineKeysHelp);
   optionByKey(create, '--currency <code>', 'help.bill.create.option.currency');
   optionByKey(create, '--terms <text>', 'help.bill.create.option.terms');
   optionByKey(create, '--description <text>', 'help.bill.create.option.description');
@@ -668,7 +669,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           process.stderr.write(deps.palette.dim(`  ${legacyTaxKeyWarning()}\n`));
         }
         if (someLineUsedLegacyComma) {
-          process.stderr.write(deps.palette.dim(`  ${LEGACY_COMMA_WARNING}\n`));
+          process.stderr.write(deps.palette.dim(`  ${legacyCommaWarning()}\n`));
         }
 
         const billDate = opts.billDate
