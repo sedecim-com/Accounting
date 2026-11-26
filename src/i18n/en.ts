@@ -6014,6 +6014,67 @@ export const EN = {
   'payroll.garnishment.archive.stays_on_file': 'The order stays on file. What stopped is the withholding: the engine reads is_active and nothing else.',
   'payrun.type_unknown': 'expected one of {types}',
   // ==== end of I8b · payroll ====
+  // ==== I8b · run-time strings by key, family report (MNE-001-807, issue #150) ====
+  // `report`, `cashflow` and `cashflow reconcile`: their English byte for byte (every "(s)" plural included).
+  // Commands, policy keys and values, flags, periods, dates and amounts are parameters, never translated.
+  'report.period.calendar_fallback': '"{period}" matched no single fiscal period; using the calendar range {start} → {end}.',
+  /** `command` is `cashflow generate` or `cashflow reconcile`. */
+  'report.period.required': '{command} needs a period: pass --period (2026-07, 2026-Q3, FY2026) or both --since and --until. A statement of cash flows is a movement between two dates.',
+  'report.status_not_applicable': '--status does not apply to "{command}": it reports posted balances, not a lifecycle state.',
+  'report.scope.cumulative': 'cumulative to {date}',
+  'report.scope.period': 'period {name}',
+  /** A bound is `none` when the caller did not give it. */
+  'report.scope.open_range': '{start, select, none {start} other {{start}}} → {end, select, none {today} other {{end}}}',
+  'report.scope.full_history': 'full posted history',
+  'report.scope.account': 'account {code}',
+  'report.scope.as_of': 'as of {date}',
+  'report.title.trial_balance': 'Trial balance',
+  'report.title.balance_sheet': 'Balance sheet',
+  'report.title.income_statement': 'Income statement',
+  'report.title.general_ledger': 'General ledger',
+  'report.title.aged_receivables': 'Aged receivables',
+  'report.title.aged_payables': 'Aged payables',
+  'report.title.views': 'Reporting views',
+  'report.trial_balance.level_invalid': '--level must be a whole number of at least 1; got "{value}".',
+  /** The four columns are named as the SAT's trial balance names them, the same in both catalogues. */
+  'report.trial_balance.sat_mismatch': 'SaldoIni + Debe - Haber does not give SaldoFin in {count} account(s): {accounts}',
+  'report.trial_balance.footing': 'Debits {debits}   Credits {credits}   ({count} accounts)',
+  'report.trial_balance.balanced': '{footing}   balanced',
+  'report.trial_balance.out_of_balance': '{footing}   OUT OF BALANCE by {difference}',
+  'report.balance_sheet.unbalanced': 'The balance sheet does not balance: assets {assets} vs liabilities plus equity {total} — out by {difference}. The ledger itself is inconsistent at this date; run `mnemosine entry check` and reconcile the subledgers before relying on any statement.',
+  'report.income_statement.period_required': 'An income statement covers a period. Pass --period <expr>, or both --since and --until.',
+  'report.general_ledger.page_totals': 'Page debits {debits}   page credits {credits}   ({shown} of {total} movements)',
+  'report.aging.as_of_due_dates_only': "--as-of {date} ages the due dates only. The amounts are today's open balances, not the balances as they stood on that date.",
+  'report.view.scope': 'view totals vs the live ledger',
+  'report.view.stale': 'At least one view no longer agrees with the ledger. The refresh trigger fires only when an entry becomes posted, so migrations and bulk loads leave the views behind. Rebuild them with `mnemosine report view sync`.',
+  'report.view.fresh': 'Every reporting view agrees with the ledger.',
+  'report.view.synced': 'Reporting views rebuilt for every entity in this installation.',
+  'report.cashflow.method_unknown': '--method must be one of: indirect, direct (indirecto, directo); got "{value}". The method is not cosmetic: it decides how the statement is built.',
+  /** `source` is `flag` when --method was given; `policy` is the panel key and `value` its answer. */
+  'report.cashflow.method_label': 'method: {method} ({source, select, flag {--method} other {policy `{policy}`}} · {value})',
+  /** The labels of the statement's rows: stored in English, rendered in the reader's language by the table. */
+  'report.cashflow.row.non_cash_total': 'Total non-cash items',
+  'report.cashflow.row.working_capital_total': 'Total change in working capital',
+  'report.cashflow.row.operating_total': 'Net cash from operating activities',
+  'report.cashflow.row.investing_total': 'Net cash from investing activities',
+  'report.cashflow.row.financing_total': 'Net cash from financing activities',
+  'report.cashflow.row.net_change': 'Net change in cash',
+  'report.cashflow.row.unclassified_total': 'Total unclassified (outside every section, and outside the net above)',
+  'report.cashflow.row.cash_opening': 'Cash and equivalents, opening balance',
+  'report.cashflow.row.cash_movement': 'Cash and equivalents, movement in the ledger',
+  'report.cashflow.row.cash_closing': 'Cash and equivalents, closing balance',
+  'report.cashflow.row.residue': 'Residue (statement net − ledger movement)',
+  'report.cashflow.heading': 'Statement of cash flows · {entity} · {currency} · {scope}',
+  'report.cashflow.cash_accounts': 'Cash and equivalents: {accounts} (criterio «{criterion}»)',
+  'report.cashflow.non_cash': '{count} non-cash investing/financing transaction(s), excluded from the statement and disclosed here: {transactions}',
+  'report.cashflow.ties_unclassified': 'The statement net ties to cash ({net}), but it is not classified: {note} The subtotals above do not stand; the net does.',
+  'report.cashflow.ties': 'Ties: the statement net equals the movement of cash and equivalents in the ledger.',
+  'report.cashflow.untied': 'The statement does not tie to cash: it states a net of {net} and cash and equivalents moved {movement} in the ledger. Residue of {residue}, printed above and absorbed into no line. Run `mnemosine cashflow reconcile --show-candidates`.',
+  /** `sentence` is `report.cashflow.untied`; `policy` and `value` are the panel's key and answer. */
+  'report.cashflow.untied_blocking': '{sentence} Policy `{policy}` is «{value}»: the statement does not stand.',
+  'report.cashflow.untied_silent': '{sentence} Policy `{policy}` is «{value}»: reported as a note, not as a finding.',
+  'report.cashflow_reconcile.heading': 'Cash flow reconciliation · {entity} · {currency} · {scope}',
+  // ==== end of I8b · report ====
   // ==== I8b · run-time strings by key, family close (MNE-001-805, issue #150) ====
   // `closing`, `close`, `closing fx` and the period resolver they share: their English byte for byte (every "(s)"
   // plural included), the Spanish with its plural; commands, steps, periods, statuses and check codes are parameters.
