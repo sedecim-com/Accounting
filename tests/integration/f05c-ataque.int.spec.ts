@@ -671,7 +671,7 @@ describe('ATAQUE · la sesión cerrada', () => {
   it('8b · no admite ajustes nuevos', async () => {
     await expect(
       crearAjuste(A.entityId, cerrada, { tipo: 'comision', importe: '-1', cuenta: '6100' }, A.userId)
-    ).rejects.toThrow(/no admite ajustes nuevos/);
+    ).rejects.toThrow(/takes no new adjustments/);
   });
 
   it('8c · no se cierra dos veces', async () => {

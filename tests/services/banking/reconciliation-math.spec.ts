@@ -392,7 +392,7 @@ describe('calcularAritmetica · lo que rechaza en vez de dejar pasar', () => {
   it('rechaza un tipo que el CHECK de la 053 no admite, sin esconderlo en un conteo', () => {
     const inventada = { tipo: 'cheque-perdido', importe: '-1.00' } as unknown as PartidaParaAritmetica;
     expect(() => calcularAritmetica(entrada({ partidas: [inventada] }))).toThrow(
-      /Tipo de partida conciliatoria desconocido/
+      /Unknown reconciling item type/
     );
   });
 });

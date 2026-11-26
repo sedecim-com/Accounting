@@ -1708,9 +1708,10 @@ export const E5_1: Criterio[] = [
           'el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)',
       },
       {
-        archivo: 'src/services/banking/reconciliation-adjustments.ts',
-        de: 'Recházalo en \\`mnemosine review\\`',
-        a: 'Recházalo con \\`mnemosine review ' + 'reject\\`',
+        // The orphan draft's refusal lives in the catalogue since MNE-001-825; the mutant follows it there.
+        archivo: 'src/i18n/en.ts',
+        de: 'Reject it in `mnemosine review`',
+        a: 'Reject it with `mnemosine review ' + 'reject`',
         porque:
           'el-verbo-muerto tras una hoja: `review` es interactivo y no declara argumentos, así que `reject` sólo puede ser un verbo que no tiene (#300)',
       },
