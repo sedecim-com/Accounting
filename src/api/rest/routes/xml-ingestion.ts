@@ -60,8 +60,7 @@ export const uploadXmlSchema = z.object({
   // por lotes, no una petición HTTP, y para eso está `mnemosine ingest`.
   xml_contents: arregloAcotado(boundedString({ min: 1 }), {
     tope: MAX_XML_POR_LOTE,
-    plural: 'documentos',
-    salida: 'Parte el lote, o cárgalo con `mnemosine ingest`, que procesa por archivo.',
+    refusal: 'error.VALIDATION_ERROR.cap.xml_documents',
   }).optional(),
   source: z.string().optional(),
 }).refine((o) => !!(o.xml_content || (o.xml_contents && o.xml_contents.length > 0)), {
@@ -97,8 +96,7 @@ export const bulkPreRegSchema = z.object({
   // arriba por esto mismo; que este quedara sin acotar era el descuido.
   ids: arregloAcotado(uuidString(), {
     tope: MAX_XML_POR_LOTE,
-    plural: 'ids',
-    salida: 'Parte el lote en varias peticiones.',
+    refusal: 'error.VALIDATION_ERROR.cap.pre_registration_ids',
     minimo: 1,
   }),
   params: z.record(z.string(), z.unknown()).optional(),

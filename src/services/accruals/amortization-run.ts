@@ -18,13 +18,14 @@ import {
   type ConvencionAmortizacion,
 } from './amortization-math.js';
 import {
+  CONVENTION_KEY_OF_KIND,
   RENGLON_VIGENTE,
   anticiposPorDevengar,
-  devengadoEnElMayor,
   inquilinoDeLaEntidad,
   medianocheLocal,
   refrescarFichasDeAnticipos,
-  type PrepaidExpenseRow,
+  type RunnableScheduleRow,
+  type PrepaidKind,
 } from './prepaid-service.js';
 
 // ============================================================
@@ -125,14 +126,18 @@ export interface ResultadoDeCorrida {
 export async function runMonthlyAmortization(
   entityId: string,
   fiscalPeriodId: string,
-  userId: string
+  userId: string,
+  kind: PrepaidKind = 'prepaid_expense'
 ): Promise<ResultadoDeCorrida> {
   let processed = 0;
   let skipped = 0;
   let total = new Decimal(0);
   const errors: string[] = [];
 
-  const periodo = await periodoDeLaCorrida(entityId, fiscalPeriodId);
+  const periodo =
+    kind === 'deferred_revenue'
+      ? await periodoDeLaCorridaComun(entityId, fiscalPeriodId, 'deferred revenue recognition')
+      : await periodoDeLaCorrida(entityId, fiscalPeriodId);
   const tenantId = await inquilinoDeLaEntidad(entityId);
 
   // LA POLÍTICA SE LEE PARA COMPARAR, NO PARA APLICAR.
@@ -144,7 +149,7 @@ export async function runMonthlyAmortization(
   // hecho que el auditor necesita, así que se lee y se anota en cada renglón.
   // El día que alguien pregunte «¿por qué este seguro devenga por días si
   // nuestra política son meses completos?», la respuesta está en la fila.
-  const delPanel = await getPolicy({ tenantId, entityId }, 'amortizacion_anticipados_convencion');
+  const delPanel = await getPolicy({ tenantId, entityId }, CONVENTION_KEY_OF_KIND[kind]);
   const convencionDelPanel: ConvencionAmortizacion = esConvencionDeAmortizacion(delPanel.value)
     ? delPanel.value
     : 'proporcional_dias';
@@ -156,7 +161,9 @@ export async function runMonthlyAmortization(
   // corregir.
   await refrescarFichasDeAnticipos(entityId);
 
-  const anticipos = await anticiposPorDevengar(entityId);
+  // MNE-001-299 · the brake and the ledger's accrued-to-date come with the
+  // list, in one query, instead of two reads per schedule.
+  const anticipos = await anticiposPorDevengar(entityId, kind, periodo.id);
 
   for (const anticipo of anticipos) {
     try {
@@ -176,11 +183,25 @@ export async function runMonthlyAmortization(
       total = total.plus(devengado);
       processed++;
     } catch (err) {
-      errors.push(`Anticipo ${anticipo.description}: ${(err as Error).message}`);
+      const label = kind === 'deferred_revenue' ? 'Deferred revenue' : 'Anticipo';
+      errors.push(`${label} ${anticipo.description}: ${(err as Error).message}`);
     }
   }
 
   return { processed, total: total.toFixed(4), skipped, errors };
+}
+
+/**
+ * MNE-001-299 · the revenue side of the same run: each deferred-revenue
+ * schedule recognizes its period (DR contract liability / CR revenue). Its
+ * own name so the close conductor's step says which engine it delegates to.
+ */
+export async function runMonthlyDeferredRevenue(
+  entityId: string,
+  fiscalPeriodId: string,
+  userId: string
+): Promise<ResultadoDeCorrida> {
+  return runMonthlyAmortization(entityId, fiscalPeriodId, userId, 'deferred_revenue');
 }
 
 /**
@@ -191,7 +212,7 @@ export async function runMonthlyAmortization(
  * vuelve invisibles.
  */
 async function devengarUnAnticipo(a: {
-  anticipo: PrepaidExpenseRow;
+  anticipo: RunnableScheduleRow;
   periodo: PeriodoDeCorrida;
   entityId: string;
   tenantId: string;
@@ -210,13 +231,11 @@ async function devengarUnAnticipo(a: {
   //     renglón seguía ahí, el freno seguía mordiendo, y el gasto que la
   //     reversa sacó del resultado no volvía nunca. Una reversa es una
   //     corrección —la única que el mayor admite (041)—, no una condena.
-  const existente = await query<{ id: string }>(
-    `SELECT s.id FROM prepaid_amortization_schedules s
-      WHERE s.prepaid_expense_id = $1 AND s.fiscal_period_id = $2 AND s.entity_id = $3
-        AND ${RENGLON_VIGENTE}`,
-    [anticipo.id, periodo.id, entityId]
-  );
-  if (existente.rows.length > 0) return null;
+  //
+  //     MNE-001-299: the question is asked once for the whole run, in the
+  //     list query (`ran_in_period`). The UNIQUE and the DELETE's condition
+  //     inside the transaction still stop a concurrent run of the same month.
+  if (anticipo.ran_in_period) return null;
 
   // La convención llega de un VARCHAR, y un valor fuera del vocabulario DETIENE
   // este anticipo en vez de caer al defecto: elegir en silencio el otro recorte
@@ -265,7 +284,7 @@ async function devengarUnAnticipo(a: {
   //     ella el tope recortaría el importe repuesto —o, si la reversa fue del
   //     último mes, daría cero y cerraría un anticipo que el mayor todavía
   //     debe.
-  const devengado = new Decimal(await devengadoEnElMayor(anticipo.id, entityId));
+  const devengado = new Decimal(anticipo.posted_to_date);
   const restante = new Decimal(anticipo.total_amount).minus(devengado);
   if (restante.lessThanOrEqualTo(0)) {
     await marcarAgotado(anticipo.id, entityId);
@@ -299,29 +318,17 @@ async function devengarUnAnticipo(a: {
     // ajuste — no hay que inventar un tipo para decir la verdad. Quien busque
     // estos asientos los encuentra por `source_type = 'prepaid_amortization'`,
     // que es más específico que cualquier tipo que se pudiera añadir.
+    const asiento = entryOfKind(anticipo, importe, periodo.nombre);
     const je = await createJournalEntry(
       entityId,
       fechaDelAsiento(periodo),
       JournalEntryType.ADJUSTING,
-      `Prepaid amortization ${periodo.nombre} - ${anticipo.description}`,
-      [
-        {
-          account_id: anticipo.expense_account_id,
-          debit_amount: importe,
-          credit_amount: null,
-          description: `Accrued expense - ${anticipo.description}`,
-        },
-        {
-          account_id: anticipo.prepaid_account_id,
-          debit_amount: null,
-          credit_amount: importe,
-          description: `Prepaid expenses - ${anticipo.description}`,
-        },
-      ],
+      asiento.description,
+      asiento.lines,
       userId,
       // Mismo client: la fila del calendario, el asiento y la cabecera
       // confirman (o abortan) juntos y no en conexiones distintas.
-      { sourceType: 'prepaid_amortization', sourceId: anticipo.id, autoPost: true, client }
+      { sourceType: asiento.sourceType, sourceId: anticipo.id, autoPost: true, client }
     );
 
     // EL RENGLÓN ANULADO SE RETIRA ANTES DE ESCRIBIR EL NUEVO.
@@ -436,6 +443,53 @@ async function devengarUnAnticipo(a: {
   attestEntryAsync(a.tenantId, entityId, entryId);
 
   return importe;
+}
+
+/** The `source_type` each kind's run posts with. */
+export const SOURCE_TYPE_OF_KIND: Readonly<Record<PrepaidKind, string>> = {
+  prepaid_expense: 'prepaid_amortization',
+  deferred_revenue: 'deferred_revenue_recognition',
+};
+
+/**
+ * MNE-001-299 · one period's entry of a schedule. A prepaid runs its asset
+ * down to expense (DR expense / CR 1160); a deferred revenue runs its
+ * contract liability down to revenue (DR liability / CR revenue, NIF D-1).
+ * Neither carries IVA: it was caused when the money arrived (LIVA art. 1o.-B).
+ */
+export function entryOfKind(
+  s: { kind: PrepaidKind; description: string; prepaid_account_id: string; expense_account_id: string },
+  amount: string,
+  periodName: string
+): {
+  description: string;
+  sourceType: string;
+  lines: { account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }[];
+} {
+  const line = (account_id: string, debit: boolean, description: string) => ({
+    account_id,
+    debit_amount: debit ? amount : null,
+    credit_amount: debit ? null : amount,
+    description,
+  });
+  if (s.kind === 'deferred_revenue') {
+    return {
+      description: `Deferred revenue recognized ${periodName} - ${s.description}`,
+      sourceType: SOURCE_TYPE_OF_KIND.deferred_revenue,
+      lines: [
+        line(s.prepaid_account_id, true, `Contract liability - ${s.description}`),
+        line(s.expense_account_id, false, `Revenue recognized - ${s.description}`),
+      ],
+    };
+  }
+  return {
+    description: `Prepaid amortization ${periodName} - ${s.description}`,
+    sourceType: SOURCE_TYPE_OF_KIND.prepaid_expense,
+    lines: [
+      line(s.expense_account_id, true, `Accrued expense - ${s.description}`),
+      line(s.prepaid_account_id, false, `Prepaid expenses - ${s.description}`),
+    ],
+  };
 }
 
 /**

@@ -132,6 +132,15 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Anticipos recibidos: pasivo hasta que se devenga el ingreso.',
   },
   {
+    // MNE-001-299 (#111). The contract liability a calendar turns into revenue
+    // (NIF D-1), apart from 2150: an advance is released when it is applied to
+    // an invoice, this one month by month, and one balance cannot back both.
+    // SAT grouping code 203.18, other collections in advance.
+    code: '2158', name: 'Ingresos Cobrados por Anticipado', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
+    description: 'Servicios cobrados o facturados por adelantado: pasivo que se reconoce como ingreso mes a mes con su calendario (deferred-revenue).',
+  },
+  {
     code: '2160', name: 'Sueldos por Pagar', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'Neto de nómina pendiente de pagar al trabajador.',
@@ -283,6 +292,7 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   otros_ingresos: '4300',
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
+  ingreso_cobrado_por_anticipado: '2158',
   cxc: '1120',
   // BAN-1 (#324): a leaf, never 1110 «Caja y Bancos». 1110 is the PARENT of
   // the bank accounts, and a role that posts to a parent leaves that parent

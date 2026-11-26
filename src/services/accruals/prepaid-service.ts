@@ -49,8 +49,17 @@ import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/
 //   · `amortizacion_faltante_al_cierre` — en la revisión del cierre.
 // ============================================================
 
+/**
+ * MNE-001-299 (#111, migration 347). The register holds both sides of a
+ * calendar: an asset (1160) amortized to expense, and a contract liability
+ * (2158) recognized to revenue (NIF D-1). Same window, same arithmetic, same
+ * guards; the kind decides the roles, the panel key and the entry's direction.
+ */
+export type PrepaidKind = 'prepaid_expense' | 'deferred_revenue';
+
 export interface PrepaidExpenseRow {
   id: string;
+  kind: PrepaidKind;
   entity_id: string;
   description: string;
   vendor_name: string | null;
@@ -78,7 +87,7 @@ export interface PrepaidExpenseRow {
   notes: string | null;
 }
 
-const COLUMNAS = `id, entity_id, description, vendor_name, reference, total_amount,
+const COLUMNAS = `id, entity_id, kind, description, vendor_name, reference, total_amount,
   coverage_start_date, coverage_end_date, prepaid_account_id, expense_account_id,
   amortization_convention, origin, source_journal_entry_id, cfdi_uuid,
   amortized_to_date, remaining_amount, last_amortization_date, status, notes`;
@@ -156,6 +165,21 @@ export async function inquilinoDeLaEntidad(entityId: string): Promise<string> {
 
 // ---- Las cuentas, por ROL y acotadas por entidad -------------------------
 
+/** The balance-sheet role and the income-statement role of each kind. */
+export const ROLES_OF_KIND: Readonly<Record<PrepaidKind, readonly [string, string]>> = {
+  prepaid_expense: ['gasto_anticipado', 'gasto'],
+  deferred_revenue: ['ingreso_cobrado_por_anticipado', 'ingreso'],
+};
+
+/** The panel key that cuts a deferred revenue's calendar (§3 of the plan of MNE-001-299). */
+export const DEFERRED_REVENUE_CONVENTION_KEY = 'deferred_revenue_recognition_convention';
+
+/** The panel key that cuts each kind's calendar. */
+export const CONVENTION_KEY_OF_KIND: Readonly<Record<PrepaidKind, string>> = {
+  prepaid_expense: 'amortizacion_anticipados_convencion',
+  deferred_revenue: DEFERRED_REVENUE_CONVENTION_KEY,
+};
+
 export interface CuentasDelAnticipo {
   prepaidAccountId: string;
   expenseAccountId: string;
@@ -182,7 +206,8 @@ export interface CuentasDelAnticipo {
 export async function cuentasDelAnticipo(
   entityId: string,
   override?: Partial<CuentasDelAnticipo>,
-  client?: pg.PoolClient
+  client?: pg.PoolClient,
+  kind: PrepaidKind = 'prepaid_expense'
 ): Promise<CuentasDelAnticipo> {
   const ejecutar = client
     ? <T extends pg.QueryResultRow>(sql: string, params: unknown[]) => client.query<T>(sql, params)
@@ -190,12 +215,32 @@ export async function cuentasDelAnticipo(
 
   // El alcance por entidad DENTRO del SQL, no por un id que venía de una
   // consulta anterior: van cuatro fugas cerradas en este proyecto por eso.
+  const [balanceRole, resultRole] = ROLES_OF_KIND[kind];
   const r = await ejecutar<{ role: string; account_id: string }>(
     `SELECT role, account_id FROM account_roles
       WHERE entity_id = $1 AND role = ANY($2::text[]) AND qualifier IS NULL`,
-    [entityId, ['gasto_anticipado', 'gasto']]
+    [entityId, [balanceRole, resultRole]]
   );
   const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));
+
+  if (kind === 'deferred_revenue') {
+    const balance = override?.prepaidAccountId ?? mapa.get(balanceRole);
+    const result = override?.expenseAccountId ?? mapa.get(resultRole);
+    const missing = !balance ? balanceRole : !result ? resultRole : null;
+    if (missing) {
+      throw new ValidationError(
+        `No account is mapped to the role "${missing}" in this entity, so a deferred-revenue schedule has ` +
+          'nothing to run. Seed the roles with: mnemosine init --section identity'
+      );
+    }
+    if (balance === result) {
+      throw new ValidationError(
+        `The roles "${balanceRole}" and "${resultRole}" point to the same account: the recognition entry would ` +
+          'debit and credit itself and move nothing.'
+      );
+    }
+    return { prepaidAccountId: balance as string, expenseAccountId: result as string };
+  }
 
   const prepaidAccountId = override?.prepaidAccountId ?? mapa.get('gasto_anticipado');
   const expenseAccountId = override?.expenseAccountId ?? mapa.get('gasto');
@@ -246,8 +291,23 @@ export interface CriteriosDeAnticipo {
  */
 export async function criteriosDeAnticipo(
   tenantId: string,
-  entityId: string
+  entityId: string,
+  kind: PrepaidKind = 'prepaid_expense'
 ): Promise<CriteriosDeAnticipo> {
+  if (kind === 'deferred_revenue') {
+    // No threshold: the prepaid threshold key is the materiality line for
+    // spreading an expense, and NIF D-1 has no amount below which an
+    // obligation not yet rendered is revenue.
+    const key = DEFERRED_REVENUE_CONVENTION_KEY;
+    const c = await getPolicy({ tenantId, entityId }, DEFERRED_REVENUE_CONVENTION_KEY);
+    if (!esConvencionDeAmortizacion(c.value)) {
+      throw new ValidationError(
+        `The policy \`${key}\` is "${c.value}", none of ${CONVENCIONES_AMORTIZACION.join(', ')}. ` +
+          `Correct it with ${changePolicyHint(key)} before creating the schedule.`
+      );
+    }
+    return { convencion: c.value, convencionDefinida: c.defined, umbral: '0.0000', umbralDefinido: false };
+  }
   const convencion = await getPolicy({ tenantId, entityId }, 'amortizacion_anticipados_convencion');
   const umbral = await getPolicy({ tenantId, entityId }, 'umbral_anticipado_mxn');
 
@@ -289,6 +349,8 @@ export async function criteriosDeAnticipo(
 
 export interface AltaDeAnticipo {
   entityId: string;
+  /** Prepaid expense by default; `deferred_revenue` adopts a credit on the contract liability (MNE-001-299). */
+  kind?: PrepaidKind;
   descripcion: string;
   importe: string;
   inicio: Date | string;
@@ -341,6 +403,7 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
   const fin = medianocheLocal(alta.fin);
   const importe = new Decimal(alta.importe);
   const avisos: string[] = [];
+  const kind: PrepaidKind = alta.kind ?? 'prepaid_expense';
 
   if (alta.origen === 'cfdi' && !alta.sourceJournalEntryId) {
     throw new ValidationError(
@@ -350,7 +413,7 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
   }
 
   const tenantId = await inquilinoDeLaEntidad(alta.entityId);
-  const criterios = await criteriosDeAnticipo(tenantId, alta.entityId);
+  const criterios = await criteriosDeAnticipo(tenantId, alta.entityId, kind);
 
   // 1 · EL UMBRAL.
   const umbral = new Decimal(criterios.umbral);
@@ -378,7 +441,7 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
     convencion: criterios.convencion,
   });
 
-  const cuentas = await cuentasDelAnticipo(alta.entityId, alta.cuentas);
+  const cuentas = await cuentasDelAnticipo(alta.entityId, alta.cuentas, undefined, kind);
   const notas = [alta.notas, ...avisos].filter(Boolean).join(' · ') || null;
 
   // 2 · EL RESPALDO EN LA CUENTA, MEDIDO Y CONSUMIDO EN LA MISMA TRANSACCIÓN.
@@ -413,7 +476,16 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
       );
     }
 
-    const respaldo = await respaldoDisponible(alta.entityId, cuentas.prepaidAccountId, client);
+    const respaldo = await respaldoDisponible(alta.entityId, cuentas.prepaidAccountId, client, kind);
+    if (importe.greaterThan(respaldo.disponible) && kind === 'deferred_revenue') {
+      throw new ValidationError(
+        `No posted credit backs this schedule. The contract liability holds ` +
+          `${new Decimal(respaldo.saldoPosteado).toFixed(2)} in the ledger, of which ` +
+          `${new Decimal(respaldo.yaAdoptado).toFixed(2)} already has a schedule: ` +
+          `${new Decimal(respaldo.disponible).toFixed(2)} is left and this schedule asks for ${importe.toFixed(2)}. ` +
+          'Post the invoice or the reclassification to the liability first.'
+      );
+    }
     if (importe.greaterThan(respaldo.disponible)) {
       throw new ValidationError(
         `No hay saldo posteado que respalde este calendario. La cuenta de pagos anticipados tiene ` +
@@ -430,9 +502,9 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
       `INSERT INTO prepaid_expenses (
          id, entity_id, description, vendor_name, reference, total_amount,
          coverage_start_date, coverage_end_date, prepaid_account_id, expense_account_id,
-         amortization_convention, origin, source_journal_entry_id, cfdi_uuid, notes, created_by
+         amortization_convention, origin, source_journal_entry_id, cfdi_uuid, notes, created_by, kind
        )
-       SELECT $1, e.id, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16
+       SELECT $1, e.id, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17
          FROM legal_entities e
         WHERE e.id = $2
        RETURNING ${COLUMNAS}`,
@@ -453,6 +525,7 @@ export async function registrarPagoAnticipado(alta: AltaDeAnticipo): Promise<Ant
         alta.cfdiUuid ?? null,
         notas,
         alta.createdBy,
+        kind,
       ]
     );
     const fila = insercion.rows[0];
@@ -491,14 +564,17 @@ export interface RespaldoDeLaCuenta {
 export async function respaldoDisponible(
   entityId: string,
   prepaidAccountId: string,
-  client?: pg.PoolClient
+  client?: pg.PoolClient,
+  kind: PrepaidKind = 'prepaid_expense'
 ): Promise<RespaldoDeLaCuenta> {
   const ejecutar = client
     ? <T extends pg.QueryResultRow>(sql: string, params: unknown[]) => client.query<T>(sql, params)
     : query;
   // The posted balance comes from the report layer (T14 · #101), on the
   // caller's connection so it is read under the caller's FOR UPDATE.
-  const postedBalance = await queryAccountBalance(entityId, prepaidAccountId, client);
+  // Debit-positive: a contract liability backs a schedule with its CREDIT.
+  const debitPositive = await queryAccountBalance(entityId, prepaidAccountId, client);
+  const postedBalance = kind === 'deferred_revenue' ? debitPositive.negated() : debitPositive;
   const r = await ejecutar<{ adoptado: string }>(
     // LAS DOS MITADES SE MIDEN CONTRA EL MAYOR, no una contra el mayor y otra
     // contra una columna guardada.
@@ -516,9 +592,10 @@ export async function respaldoDisponible(
            FROM prepaid_expenses pe
           WHERE pe.entity_id = $1
             AND pe.prepaid_account_id = $2
+            AND pe.kind = $3
             AND pe.status <> 'cancelled'
        ), 0)::text AS adoptado`,
-    [entityId, prepaidAccountId]
+    [entityId, prepaidAccountId, kind]
   );
   const adoptado = new Decimal(r.rows[0]?.adoptado ?? '0');
   return {
@@ -650,7 +727,8 @@ export interface RevisionDeCierre {
  */
 export async function revisionDeAmortizacionAlCierre(
   entityId: string,
-  fiscalPeriodId: string
+  fiscalPeriodId: string,
+  kind: PrepaidKind = 'prepaid_expense'
 ): Promise<RevisionDeCierre> {
   const tenantId = await inquilinoDeLaEntidad(entityId);
   const politica = await getPolicy({ tenantId, entityId }, 'amortizacion_faltante_al_cierre');
@@ -689,6 +767,7 @@ export async function revisionDeAmortizacionAlCierre(
             (pe.total_amount - ${DEVENGADO_VIGENTE})::text AS remaining_amount
        FROM prepaid_expenses pe
       WHERE pe.entity_id = $1
+        AND pe.kind = $5
         AND pe.status <> 'cancelled'
         AND pe.coverage_start_date <= $3::date
         AND pe.coverage_end_date   >= $2::date
@@ -701,14 +780,17 @@ export async function revisionDeAmortizacionAlCierre(
                  AND ${RENGLON_VIGENTE}
             )
       ORDER BY pe.coverage_start_date ASC`,
-    [entityId, p.start_date, p.end_date, fiscalPeriodId]
+    [entityId, p.start_date, p.end_date, fiscalPeriodId, kind]
   );
 
   const bloquea = politica.value === 'bloquear' && r.rows.length > 0;
   const mensaje =
     r.rows.length === 0
       ? null
-      : `${r.rows.length} pago(s) anticipado(s) sin amortizar en ${p.period_name}: el gasto de ` +
+      : kind === 'deferred_revenue'
+        ? `${r.rows.length} deferred-revenue schedule(s) not recognized in ${p.period_name}: that month's ` +
+          'revenue is still in the liability. Run `deferred-revenue run` before closing.'
+        : `${r.rows.length} pago(s) anticipado(s) sin amortizar en ${p.period_name}: el gasto de ` +
         'ese mes no está en el resultado y la 1160 lo sigue mostrando como activo. Corre ' +
         '`accruals run` antes de cerrar.';
 
@@ -725,12 +807,15 @@ export async function revisionDeAmortizacionAlCierre(
 // ---- Lecturas sueltas ----------------------------------------------------
 
 /** Los anticipos vivos de una entidad. Acotado por entidad DENTRO del SQL. */
-export async function anticiposActivos(entityId: string): Promise<PrepaidExpenseRow[]> {
+export async function anticiposActivos(
+  entityId: string,
+  kind: PrepaidKind = 'prepaid_expense'
+): Promise<PrepaidExpenseRow[]> {
   const r = await query<PrepaidExpenseRow>(
     `SELECT ${COLUMNAS} FROM prepaid_expenses
-      WHERE entity_id = $1 AND status = 'active'
+      WHERE entity_id = $1 AND kind = $2 AND status = 'active'
       ORDER BY coverage_start_date ASC`,
-    [entityId]
+    [entityId, kind]
   );
   return r.rows;
 }
@@ -749,14 +834,37 @@ export async function anticiposActivos(entityId: string): Promise<PrepaidExpense
  * cancelado cuyo total supere lo que el mayor respalda. Un anticipo terminado
  * de verdad no entra porque la resta da cero, no porque una columna lo diga.
  */
-export async function anticiposPorDevengar(entityId: string): Promise<PrepaidExpenseRow[]> {
-  const r = await query<PrepaidExpenseRow>(
-    `SELECT ${COLUMNAS} FROM prepaid_expenses pe
+export interface RunnableScheduleRow extends PrepaidExpenseRow {
+  /** What the ledger backs as run so far (the live-rows sum), read in the same query. */
+  posted_to_date: string;
+  /** A live row already exists for the period being run: the double-run brake, read in the same query. */
+  ran_in_period: boolean;
+}
+
+/**
+ * MNE-001-299 · the run's list carries the two facts it used to ask per row
+ * (the brake and the ledger's accrued-to-date): one query for the whole run.
+ */
+export async function anticiposPorDevengar(
+  entityId: string,
+  kind: PrepaidKind = 'prepaid_expense',
+  fiscalPeriodId: string | null = null
+): Promise<RunnableScheduleRow[]> {
+  const r = await query<RunnableScheduleRow>(
+    `SELECT ${COLUMNAS},
+            (${DEVENGADO_VIGENTE})::text AS posted_to_date,
+            EXISTS (
+              SELECT 1 FROM prepaid_amortization_schedules s
+               WHERE s.prepaid_expense_id = pe.id AND s.fiscal_period_id = $3
+                 AND s.entity_id = pe.entity_id AND ${RENGLON_VIGENTE}
+            ) AS ran_in_period
+       FROM prepaid_expenses pe
       WHERE pe.entity_id = $1
+        AND pe.kind = $2
         AND pe.status <> 'cancelled'
         AND pe.total_amount > ${DEVENGADO_VIGENTE}
       ORDER BY pe.coverage_start_date ASC`,
-    [entityId]
+    [entityId, kind, fiscalPeriodId]
   );
   return r.rows;
 }

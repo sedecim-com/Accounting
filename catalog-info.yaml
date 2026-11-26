@@ -71,7 +71,10 @@ provides:
     # issue order do not change. The messages the REST schemas set themselves (refine
     # messages, array minimums, the date format) are keys too since MNE-001-588, with
     # their English unchanged; a message still written as prose reads the same in every
-    # language. The only changes
+    # language. The over-cap line of the seven array caps (#407) is a key as well, and
+    # it is the one text that moves: it was Spanish in every language, and now reads
+    # English under en and with no supported Accept-Language, and the same Spanish
+    # under es (nine lines of rest-body.golden.json). The only changes
     # of the zod 4 migration are two tightenings: JSON 1e999 (Infinity) is rejected
     # wherever zod 3 accepted it as a number (T1), and so is an integer beyond
     # 2^53 - 1 on integer fields (T2). Where zod 3 already rejected 1e999 (a field

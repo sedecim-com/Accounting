@@ -2862,6 +2862,60 @@
       "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
     },
     {
+      "path": "deferred-revenue create",
+      "aliases": ["crear"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [
+        {"name":"description","type":"string","required":true}
+      ],
+      "options": [
+        {"name":"amount","flags":"--amount <amount>","type":"string","required":false},
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"end","flags":"--end <date>","type":"string","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"fields","flags":"--fields [names]","type":"boolean|string","required":false},
+        {"name":"format","flags":"--format <table|json|ndjson|csv|tsv|md>","type":"string","required":false,"choices":["table","json","ndjson","csv","tsv","md"],"default":"table"},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"origin","flags":"--origin <cfdi|manual|saldo_preexistente>","type":"string","required":false,"choices":["cfdi","manual","saldo_preexistente"]},
+        {"name":"output","flags":"-o, --output <path>","type":"string","required":false},
+        {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
+        {"name":"reference","flags":"--reference <text>","type":"string","required":false},
+        {"name":"sourceEntry","flags":"--source-entry <id>","type":"string","required":false},
+        {"name":"start","flags":"--start <date>","type":"string","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
+    },
+    {
+      "path": "deferred-revenue run",
+      "aliases": ["ejecutar"],
+      "risk": "irreversible",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"unneeded"},
+      "arguments": [],
+      "options": [
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"fields","flags":"--fields [names]","type":"boolean|string","required":false},
+        {"name":"format","flags":"--format <table|json|ndjson|csv|tsv|md>","type":"string","required":false,"choices":["table","json","ndjson","csv","tsv","md"],"default":"table"},
+        {"name":"idempotencyKey","flags":"--idempotency-key <key>","type":"string","required":false},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"output","flags":"-o, --output <path>","type":"string","required":false},
+        {"name":"period","flags":"--period <expr>","type":"string","required":false},
+        {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
+    },
+    {
       "path": "depreciation post",
       "aliases": ["contabilizar"],
       "risk": "irreversible",

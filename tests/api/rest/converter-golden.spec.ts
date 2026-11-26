@@ -33,7 +33,7 @@ import { montarSuperficieCensable } from '../../../src/api/rest/montajes.js';
 import { construirOpenAPI } from '../../../src/api/rest/openapi.js';
 
 const capped = (minimum?: number) =>
-  arregloAcotado(z.string(), { tope: 10, plural: 'filas', salida: 'Parte el lote.', minimo: minimum });
+  arregloAcotado(z.string(), { tope: 10, refusal: 'error.VALIDATION_ERROR.cap.pre_registration_ids', minimo: minimum });
 
 const ROWS: Array<[string, z.ZodType, string]> = [
   ['string with min and max', z.string().min(1).max(255), '{"type":"string","minLength":1,"maxLength":255}'],

@@ -402,7 +402,7 @@ describe('a body far past an array cap is refused at once (#407)', () => {
       issues: [
         {
           path: 'xml_contents',
-          message: expect.stringContaining(`llegaron ${ELEMENTS} documentos y caben 100 por petición.`) as string,
+          message: expect.stringContaining(`${ELEMENTS} documents arrived and 100 fit in one request.`) as string,
         },
       ],
     });

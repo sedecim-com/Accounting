@@ -14,6 +14,7 @@ import { Command } from 'commander';
 const { POLICY } = vi.hoisted(() => ({
   POLICY: {
     id: 'p1',
+    kind: 'prepaid_expense' as const,
     entity_id: 'e1',
     description: 'Insurance policy 2026',
     vendor_name: 'Insurer SA',
