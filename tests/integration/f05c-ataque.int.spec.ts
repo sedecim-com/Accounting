@@ -665,7 +665,7 @@ describe('ATAQUE · la sesión cerrada', () => {
     const scope = entityScope(A.tenantId, A.entityId);
     await expect(
       clasificarPartidasDeSesion(scope, cerrada, { userId: A.userId })
-    ).rejects.toThrow(/no admite partidas nuevas/);
+    ).rejects.toThrow(/takes no new items/);
   });
 
   it('8b · no admite ajustes nuevos', async () => {

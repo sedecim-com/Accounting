@@ -1,6 +1,9 @@
 import Decimal from 'decimal.js';
+import * as path from 'node:path';
 import type { DescuadreDeCuenta } from '../../reporting/report-service.js';
+import type { ErrorMessageKey } from '../../../utils/errors.js';
 import { DECIMALES_IMPORTE_ANEXO24, importeAnexo24 } from './xml.js';
+import { OFFICIAL_SCHEMAS, OfficialXsdRefusal, officialXsdRefusal } from './official-xsd.js';
 
 // ============================================================
 // F07b · LAS INVARIANTES DE LA BALANZA, SIN TOCAR LA BASE
@@ -177,7 +180,13 @@ export const BALANZA_CHECK_NAMES = [
   'cuentas-en-catalogo',
   'natur-coherente',
   'sin-sello',
+  'xsd',
 ] as const;
+// NOTE: 'xsd' (MNE-001-774, #608) is the SAT's own schema over the bytes
+// `balance generate` would build. It is the one check that is not a function
+// of the context: it runs xmllint over those bytes, so `correrVerificaciones`
+// leaves it to the caller that holds them (`xsdFindings`, below). Last, so
+// its finding comes after the ones that name the account.
 // NOTE: 'mayor-sin-agregar' was retired with #323. It warned that ledger
 // accounts with subaccounts went out at zero because this generator declared
 // each account's OWN balance. The balanza now comes rolled up from
@@ -198,6 +207,8 @@ export interface HallazgoBalanza {
   referencia: string;
   /** El porqué, en español y CON LA CIFRA que falla dentro. */
   detalle: string;
+  /** When set, the screen renders the catalogue text; `detalle` holds its English (#608). */
+  messageKey?: ErrorMessageKey;
 }
 
 /** El catálogo contra el que se coteja la balanza. */
@@ -410,7 +421,40 @@ export function verificarSello(ctx: ContextoDeVerificacion): HallazgoBalanza[] {
   ];
 }
 
-const REGISTRO: Record<BalanzaCheckName, (ctx: ContextoDeVerificacion) => HallazgoBalanza[]> = {
+/** A refusal of the official XSD as the one blocking finding of the whole file. */
+function xsdFinding(refusal: OfficialXsdRefusal): HallazgoBalanza {
+  return {
+    check: 'xsd',
+    severity: 'blocking',
+    referencia: '',
+    detalle: refusal.message,
+    ...(refusal.messageKey ? { messageKey: refusal.messageKey } : {}),
+  };
+}
+
+/**
+ * `xsd` · the official XSD over the bytes (MNE-001-774). A rejection, or an
+ * xmllint that did not run, blocks: the same verdict `balance generate`
+ * refuses with (#608).
+ */
+export function xsdFindings(xml: string): HallazgoBalanza[] {
+  const refusal = officialXsdRefusal(xml, 'trialBalance');
+  return refusal === null ? [] : [xsdFinding(refusal)];
+}
+
+/**
+ * `xsd` when there are no bytes to judge: the builder refused them (an RFC with
+ * no RFC shape, no account to declare, `C` without FechaModBal…), and
+ * `balance generate` refuses for the same `cause`. Blocking, never clean.
+ */
+export function xsdFindingWithoutFile(cause: string): HallazgoBalanza {
+  const schema = path.basename(OFFICIAL_SCHEMAS.trialBalance);
+  return xsdFinding(new OfficialXsdRefusal('not_built', { schema, cause }));
+}
+
+type DataCheck = Exclude<BalanzaCheckName, 'xsd'>;
+
+const REGISTRO: Record<DataCheck, (ctx: ContextoDeVerificacion) => HallazgoBalanza[]> = {
   saldos: verificarSaldos,
   redondeo: verificarRedondeo,
   'cuentas-en-catalogo': verificarCuentasEnCatalogo,
@@ -418,13 +462,18 @@ const REGISTRO: Record<BalanzaCheckName, (ctx: ContextoDeVerificacion) => Hallaz
   'sin-sello': verificarSello,
 };
 
-/** Corre la batería, o exactamente las que se nombren, en el orden publicado. */
+/**
+ * Runs the battery, or exactly the checks named, in the published order.
+ * Never `xsd`: that one judges bytes, and its caller runs `xsdFindings`.
+ */
 export function correrVerificaciones(
   ctx: ContextoDeVerificacion,
   cuales: readonly BalanzaCheckName[] = BALANZA_CHECK_NAMES
 ): HallazgoBalanza[] {
   const pedidas = new Set(cuales);
-  return BALANZA_CHECK_NAMES.filter((n) => pedidas.has(n)).flatMap((n) => REGISTRO[n](ctx));
+  return BALANZA_CHECK_NAMES.filter((n): n is DataCheck => n !== 'xsd' && pedidas.has(n)).flatMap(
+    (n) => REGISTRO[n](ctx)
+  );
 }
 
 /** Cuenta de hallazgos en el vocabulario del contrato de códigos de salida. */

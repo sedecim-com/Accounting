@@ -353,6 +353,30 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown':
     'Tipo de partida conciliatoria desconocido en partida {item}: "{value}". Los admitidos son: {known}.',
   // ---- end of MNE-001-825 ----
+  // ---- MNE-001-857 · I9 by folder, part 2c, part 2: the reconciling items; see en.ts ----
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable': 'Importe ilegible al clasificar la partida: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite': 'Importe no finito al clasificar la partida: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown': 'Tipo de partida conciliatoria desconocido "{value}". Los admitidos son: {known}.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open':
+    'La sesión {session} está en estado "{status}"{closedAt, select, none {} other { y cerrada el {closedAt}}}: no admite partidas nuevas. Sus cifras son el resumen congelado al cerrar; para volver a clasificar hay que reabrirla.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open':
+    'La sesión {session} está en estado "{status}"{closedAt, select, none {} other { y cerrada el {closedAt}}}: sus partidas ya no se tocan. Sus cifras son el resumen congelado al cerrar, y mover una partida después las contradiría sin que nadie haya reabierto nada.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved':
+    'La partida {item} ya está resuelta: dejó de explicar una diferencia y reclasificarla cambiaría una historia cerrada.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount':
+    'Pasar la partida {item} de "{type}" (lado {side}) a "{newType}" (lado {newSide}) cambia a cuál de los dos saldos corrige, y su aportación de {amount} dejaría de significar lo mismo. Indica el importe nuevo, FIRMADO por su aportación al lado de {newSide}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable': 'Importe ilegible al reclasificar: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero':
+    'El importe de una partida no puede ser cero ni ilegible; llegó "{value}". Una partida que aporta cero no explica ninguna diferencia: resuélvela en vez de dejarla en cero.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race':
+    'No se reclasificó la partida {item}: o su sesión ya no está en curso, o la partida se resolvió mientras tanto. Nada se cambió.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format': '`fechaEsperada` tiene que venir como YYYY-MM-DD; llegó "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand':
+    '"vencido" no se marca a mano: lo decide la fecha esperada contra el día de hoy. Si la partida ya venció, ajusta su `fechaEsperada`; si sólo se persiguió, márcala "avisado".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown': 'Escalamiento desconocido "{value}". Admitidos aquí: {known}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign':
+    'No se indicó nada que asignar: responsable, fechaEsperada, escalamiento o notas.',
+  // ---- end of MNE-001-857 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
@@ -5174,6 +5198,48 @@ export const ES: Record<keyof typeof EN, string> = {
   'provider.tick.missing': 'el proveedor {name} no existe ({command} dice más)',
   'provider.tick.line': 'proveedor {name} · {credential} · la credencial del usuario que corre esta pasada',
   // ==== end of I8b · init, part 3 ====
+  // ==== I8b · run-time strings by key, family root, part 1 (MNE-001-800, issue #150) ====
+  'root.provider.anthropic_auth': 'Error de autenticación con la API de Anthropic.',
+  'root.provider.rejected': 'El proveedor rechazó la credencial (401).',
+  'root.provider.rejected_remedy': 'Revisa la variable de entorno que nombra api_key_env en el perfil (mnemosine providers).',
+  'root.provider.unreachable': 'No se pudo conectar con el endpoint del proveedor.',
+  'root.provider.unreachable_remedy': 'Si es un modelo local (ollama, hermes-agent), revisa que el servidor esté corriendo.',
+  'root.provider.api_error': 'Error de la API del proveedor ({status}): {message}',
+  'root.ask.heading': '❓ El agente pregunta:',
+  'root.ask.hint': '(número de opción o texto libre; vacío = dejarla pendiente para `mnemosine questions`)',
+  'root.ask.prompt': 'respuesta>',
+  'root.ask.left_pending': 'Quedó pendiente: no se registró nada como precedente.',
+  'root.broken.heading': 'Algo necesita atención antes de poder conversar:',
+  'root.rescue.welcome': 'Bienvenido. Mnemosine es un contador con IA que mantiene tu contabilidad auditable: él propone, tú apruebas.',
+  'root.tenant.flags_disagree': '--tenant dice {root} y -t dice {leaf}. Elige uno: son la misma bandera y dos inquilinos distintos.',
+  'root.tenant.from_config': 'la clave `tenant` de mnemosine.config.json',
+  'root.tenant.not_uuid': 'El inquilino debe ser un UUID; {source} trae "{tenant}".',
+  'root.tenant.not_uuid_remedy': 'mnemosine entity list --tenant <uuid>   (el id que imprimió `mnemosine init`)',
+  'root.tenant.flag_over_env': 'inquilino {tenant} (--tenant); se ignora MNEMOSINE_TENANT={ignored}',
+  'root.tenant.in_use': 'inquilino {tenant} ({origin})',
+  'root.tenant.no_context': 'sin contexto de inquilino: toda consulta acotada por RLS devolverá cero filas',
+  'root.tunnel_established': 'Túnel SSH establecido',
+  'root.tenant.missing': 'No hay ningún inquilino con id {tenant}. Nada sería visible bajo él, y un informe vacío no es lo mismo que una contabilidad vacía.',
+  'root.tenant.missing_remedy': 'revisa el id que imprimió `mnemosine init`, o MNEMOSINE_TENANT en .env',
+  'root.tenant.inherited_from': 'viene de {source}',
+  'root.tenant.inactive': 'El inquilino {tenant} existe pero no está activo. Sus datos siguen donde están; reactívalo antes de operar sobre él.',
+  'root.entities.renamed': '`mnemosine entities` ahora es `mnemosine entity list`; el nombre anterior sigue funcionando.',
+  'root.entities.none_active': 'No hay entidades activas en este inquilino.',
+  'root.entities.none_visible': 'No hay entidades visibles. Si la base aplica aislamiento por inquilino, indica uno con --tenant <uuid> o MNEMOSINE_TENANT.',
+  'banner.tagline': 'Tu contabilidad, recordada.',
+  'banner.hint': 'chat: sólo escribe · /help para los comandos · mnemosine status para una revisión',
+  'banner.label.entity': 'entidad',
+  'banner.label.provider': 'proveedor',
+  'banner.label.language': 'idioma',
+  'banner.label.pending': 'pendiente',
+  'banner.pending.drafts': '{count, plural, one {# borrador} other {# borradores}}',
+  'banner.pending.questions': '{count, plural, one {# duda} other {# dudas}}',
+  'banner.pending.writes': '{count, plural, one {# escritura en cola} other {# escrituras en cola}}',
+  'web.start.flag_against': '{flag} {value} frente a {origin}',
+  'web.start.origin_mismatch': 'el navegador llega al gateway en {origin}, donde esta corrida no escucha ({problems}). Pasa --public-origin con la dirección que abre el navegador, define GATEWAY_PUBLIC_ORIGIN o quita la bandera.',
+  'web.start.refuses': 'el gateway web se niega a arrancar:\n  - {problems}',
+  'payment.trace.dry_run': 'Ensayo: no se escribió nada.',
+  // ==== end of I8b · root, part 1 ====
   // ==== I8b · run-time strings by key, family ar, part 1 (MNE-001-802, issue #150) ====
   'ar.confirm.aborted': 'Cancelado — {reason}.',
   'ar.invoice.line.legacy_tax_key': 'En una línea de factura, tax= es la TASA en porcentaje; escribe tax-rate= para que no se lea como un importe. tax= deja de funcionar en {version}.',
@@ -7498,7 +7564,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.e_accounting.balance.generate.option.yes':
     'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
   'help.e_accounting.balance.check.description':
-    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, y cada cuenta en el catálogo',
+    'Corre las invariantes que vuelve a correr el SAT: SaldoIni + Debe − Haber = SaldoFin según la Natur, cada cuenta en el catálogo, ' +
+    'y el XSD del SAT sobre el archivo que balance generate construiría',
   'help.e_accounting.balance.check.option.period': 'periodo a verificar: 2026-02, su nombre o el id del periodo fiscal',
   'help.e_accounting.balance.check.option.closing': 'verifica la balanza de cierre (mes 13) en lugar de la de un mes',
   'help.e_accounting.balance.check.option.check':
@@ -8402,6 +8469,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'Este archivo no se validó contra el XSD del SAT ({schema}) porque xmllint no corrió ({cause}), así que no ' +
     'es entregable. Instala libxml2-utils (apt, apk) o libxml2 (Homebrew), compruébalo con `mnemosine doctor` ' +
     'y vuelve a generar.',
+  // --- balance check · the xsd check (MNE-001-774, #608) -----------------
+  'anexo24.xsd.not_built':
+    'No se construyó ningún archivo que comprobar contra el XSD del SAT ({schema}), así que `balance generate` ' +
+    'también lo rechaza: {cause}',
+  // --- end of MNE-001-774 ---
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',

@@ -155,10 +155,16 @@ export function proponerPartida(origen: OrigenDePartida, importeDelOrigen: strin
   try {
     importe = new Decimal(importeDelOrigen);
   } catch {
-    throw new ValidationError(`Importe ilegible al clasificar la partida: "${importeDelOrigen}".`);
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable',
+      params: { value: importeDelOrigen },
+    });
   }
   if (!importe.isFinite()) {
-    throw new ValidationError(`Importe no finito al clasificar la partida: "${importeDelOrigen}".`);
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite',
+      params: { value: importeDelOrigen },
+    });
   }
   if (importe.isZero()) return null;
 
@@ -227,10 +233,10 @@ interface FilaPartida {
 
 function exigirTipoDePartida(valor: string): TipoDePartida {
   if (!(TIPOS_DE_PARTIDA as readonly string[]).includes(valor)) {
-    throw new ValidationError(
-      `Tipo de partida conciliatoria desconocido "${valor}". ` +
-        `Los admitidos son: ${TIPOS_DE_PARTIDA.join(', ')}.`
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown',
+      params: { value: valor, known: TIPOS_DE_PARTIDA.join(', ') },
+    });
   }
   return valor as TipoDePartida;
 }
@@ -307,8 +313,9 @@ async function listarPartidasCon(
   }
   if (opts.overDays !== undefined) {
     if (!Number.isInteger(opts.overDays) || opts.overDays < 0) {
+      // For a developer: the CLI parses --over-days before it calls (rule 1 of docs/language.md).
       throw new ValidationError(
-        `\`overDays\` tiene que ser un número entero de días no negativo; llegó ${String(opts.overDays)}.`
+        `\`overDays\` must be a non-negative whole number of days; got ${String(opts.overDays)}.`
       );
     }
     params.push(opts.overDays);
@@ -501,7 +508,8 @@ export async function clasificarPartidas(
 ): Promise<ResultadoDeClasificacion> {
   const limite = opts.limite ?? LIMITE_DE_CLASIFICACION;
   if (!Number.isInteger(limite) || limite < 1) {
-    throw new ValidationError(`\`limite\` tiene que ser un entero positivo; llegó ${String(limite)}.`);
+    // For a developer: no caller passes this cap (rule 1 of docs/language.md).
+    throw new ValidationError(`\`limite\` must be a positive integer; got ${String(limite)}.`);
   }
 
   const ses = await client.query<FilaSesion>(
@@ -523,12 +531,10 @@ export async function clasificarPartidas(
   // que nadie hubiera reabierto nada. El descuadre aparecería en un informe
   // posterior, lejos de aquí y sin quién lo explique.
   if (sesion.status !== 'in_progress' || sesion.closed_at !== null) {
-    throw new ConflictError(
-      `La sesión ${sessionId} está en estado "${sesion.status}"${
-        sesion.closed_at !== null ? ` y cerrada el ${sesion.closed_at}` : ''
-      }: no admite partidas nuevas. Sus cifras son el resumen congelado al cerrar; ` +
-        `para volver a clasificar hay que reabrirla.`
-    );
+    throw new ConflictError({
+      key: 'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open',
+      params: { session: sessionId, status: sesion.status, closedAt: sesion.closed_at ?? 'none' },
+    });
   }
 
   const candidatosBanco = await client.query<FilaCandidataBanco>(
@@ -768,12 +774,10 @@ async function sesionEnCursoBajoCandado(
   if (r.rows.length === 0) throw new NotFoundError('Reconciliation Session', sessionId);
   const s = r.rows[0];
   if (s.status !== 'in_progress' || s.closed_at !== null) {
-    throw new ConflictError(
-      `La sesión ${sessionId} está en estado "${s.status}"${
-        s.closed_at !== null ? ` y cerrada el ${s.closed_at}` : ''
-      }: sus partidas ya no se tocan. Sus cifras son el resumen congelado al ` +
-        `cerrar, y mover una partida después las contradiría sin que nadie haya reabierto nada.`
-    );
+    throw new ConflictError({
+      key: 'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open',
+      params: { session: sessionId, status: s.status, closedAt: s.closed_at ?? 'none' },
+    });
   }
 }
 
@@ -825,20 +829,18 @@ export async function reclasificarPartida(
     const partida = actual.find((p) => p.id === partidaId);
     if (!partida) throw new NotFoundError('Reconciling Item', partidaId);
     if (partida.resuelta) {
-      throw new ConflictError(
-        `La partida ${partidaId} ya está resuelta: dejó de explicar una diferencia y ` +
-          `reclasificarla cambiaría una historia cerrada.`
-      );
+      throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved', params: { item: partidaId } });
     }
 
     const cambiaDeLado = LADO_DE[nuevo] !== partida.lado;
     if (cambiaDeLado && cambio.importe === undefined) {
-      throw new ValidationError(
-        `Pasar la partida ${partidaId} de "${partida.tipo}" (lado ${partida.lado}) a "${nuevo}" ` +
-          `(lado ${LADO_DE[nuevo]}) cambia a cuál de los dos saldos corrige, y su aportación de ` +
-          `${partida.importe} dejaría de significar lo mismo. Indica el importe nuevo, FIRMADO por ` +
-          `su aportación al lado de ${LADO_DE[nuevo]}.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount',
+        params: {
+          item: partidaId, type: partida.tipo, side: partida.lado, newType: nuevo, newSide: LADO_DE[nuevo],
+          amount: partida.importe,
+        },
+      });
     }
 
     let importe = partida.importe;
@@ -847,13 +849,16 @@ export async function reclasificarPartida(
       try {
         d = new Decimal(cambio.importe);
       } catch {
-        throw new ValidationError(`Importe ilegible al reclasificar: "${cambio.importe}".`);
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable',
+          params: { value: cambio.importe },
+        });
       }
       if (!d.isFinite() || d.isZero()) {
-        throw new ValidationError(
-          `El importe de una partida no puede ser cero ni ilegible; llegó "${cambio.importe}". ` +
-            `Una partida que aporta cero no explica ninguna diferencia: resuélvela en vez de dejarla en cero.`
-        );
+        throw new ValidationError({
+          key: 'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero',
+          params: { value: cambio.importe },
+        });
       }
       importe = monto(d);
     }
@@ -876,10 +881,7 @@ export async function reclasificarPartida(
       [nuevo, importe, partidaId, entityId, sessionId]
     );
     if (r.rowCount !== 1) {
-      throw new ConflictError(
-        `No se reclasificó la partida ${partidaId}: o su sesión ya no está en curso, o la partida ` +
-          `se resolvió mientras tanto. Nada se cambió.`
-      );
+      throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race', params: { item: partidaId } });
     }
 
     const despues = await listarPartidasCon(client, entityId, sessionId, { incluirResueltas: true });
@@ -928,24 +930,23 @@ export async function asignarPartida(
   }
   if (seguimiento.fechaEsperada !== undefined) {
     if (seguimiento.fechaEsperada !== null && !FECHA_RE.test(seguimiento.fechaEsperada)) {
-      throw new ValidationError(
-        `\`fechaEsperada\` tiene que venir como YYYY-MM-DD; llegó "${seguimiento.fechaEsperada}".`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format',
+        params: { value: seguimiento.fechaEsperada },
+      });
     }
     params.push(seguimiento.fechaEsperada);
     campos.push(`fecha_esperada = $${params.length}::date`);
   }
   if (seguimiento.escalamiento !== undefined) {
     if (seguimiento.escalamiento === 'vencido') {
-      throw new ValidationError(
-        `"vencido" no se marca a mano: lo decide la fecha esperada contra el día de hoy. ` +
-          `Si la partida ya venció, ajusta su \`fechaEsperada\`; si sólo se persiguió, márcala "avisado".`
-      );
+      throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand' });
     }
     if (!(ESCALAMIENTOS as readonly string[]).includes(seguimiento.escalamiento)) {
-      throw new ValidationError(
-        `Escalamiento desconocido "${String(seguimiento.escalamiento)}". Admitidos aquí: ninguno, avisado.`
-      );
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown',
+        params: { value: String(seguimiento.escalamiento), known: ESCALAMIENTOS.filter((e) => e !== 'vencido').join(', ') },
+      });
     }
     params.push(seguimiento.escalamiento);
     campos.push(`escalamiento = $${params.length}`);
@@ -956,9 +957,7 @@ export async function asignarPartida(
   }
 
   if (campos.length === 0) {
-    throw new ValidationError(
-      'No se indicó nada que asignar: responsable, fechaEsperada, escalamiento o notas.'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign' });
   }
 
   params.push(partidaId, entityId, sessionId);
