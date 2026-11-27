@@ -233,7 +233,8 @@ describe('el cuerpo publicado es el que la API valida', () => {
     // gana cota a `count`, que era un bucle de INSERT sin tope. El censo es
     // una cifra a mano a propósito — subirla obliga a mirar qué ruta se añadió,
     // que es lo que este archivo existe para provocar.
-    expect(conCuerpo.length).toBe(63);
+    // 65 since MNE-001-906: `POST /pre-registrations/:id/answer`, at both mounts of the ingestion router.
+    expect(conCuerpo.length).toBe(65);
   });
 
   it('el cuerpo es obligatorio cuando el esquema rechaza el objeto vacío', () => {

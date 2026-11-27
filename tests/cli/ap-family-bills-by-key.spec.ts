@@ -52,6 +52,9 @@ vi.mock('../../src/services/xml-ingestion/pre-registration-coding.js', async (or
   ...(await original<Record<string, unknown>>()),
   codePreRegistration: vi.fn(async () => ({ lines: [], default_account_id: 'a1', document_type: 'bill' })),
 }));
+vi.mock('../../src/services/xml-ingestion/decision-answers.js', () => ({
+  answerHeldDecision: vi.fn(async (_e: string, _id: string, a: { decision: string; answer: string }) => ({ ...a, entryPending: false })),
+}));
 const processSpy = vi.fn();
 vi.mock('../../src/services/xml-ingestion/pre-registration-service.js', async (original) => ({
   ...(await original<Record<string, unknown>>()),
@@ -324,6 +327,10 @@ const CASES: Case[] = [
     en: ['✔ 11111111 default account set · 0 lines still without an account\n', `  Post it with \`mnemosine bill inbox run ${ID}\`.\n`][i],
     es: ['✔ 11111111 cuenta por omisión fijada · 0 líneas siguen sin cuenta\n', `  Contabilízalo con \`mnemosine bill inbox run ${ID}\`.\n`][i],
   })),
+  // MNE-001-906: the answer to a decision one held CFDI waits on.
+  { key: 'ap.bill.inbox.answer.done', argv: ['bill', 'inbox', 'answer', ID, 'efectivo_no_deducible', 'gasto'], where: 'out',
+    en: '✔ 11111111 efectivo_no_deducible = gasto: answered for this CFDI alone.\n',
+    es: '✔ 11111111 efectivo_no_deducible = gasto: contestada sólo para este CFDI.\n' },
   ...([1, 2] as const).map((n): Case => ({
     key: 'ap.bill.inbox.edit.uncoded', argv: ['bill', 'inbox', 'edit', ID, '--line', '1', '--account', '6130'], where: 'out',
     setup: () => { vi.mocked(uncodedLines).mockReturnValue(Array.from({ length: n }, () => ({})) as never); },

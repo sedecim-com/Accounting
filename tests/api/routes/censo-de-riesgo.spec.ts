@@ -104,7 +104,7 @@ describe('censo de riesgo de rutas', () => {
     expect(censarRutas(app).map((route) => route.ruta)).toEqual(['(prefijo no literal)/x', '/x']);
   });
 
-  it('las 87 rutas que mutan están declaradas, con su reparto por clase', () => {
+  it('las 88 rutas que mutan están declaradas, con su reparto por clase', () => {
     // Se cuenta sobre los routers DISTINTOS, no sobre la app: xml-ingestion y
     // blockchain se montan dos veces cada uno, y contar la app duplicaría sus
     // rutas. Lo que se cuenta aquí es cuántas rutas hay escritas, no cuántas
@@ -127,8 +127,9 @@ describe('censo de riesgo de rutas', () => {
       }
     }
 
-    expect(mutantes).toBe(87);
-    // La suma da 87 exactamente: sólo las rutas que mutan declaran, y todas
+    // 88 since MNE-001-906: `POST /pre-registrations/:id/answer`, a person's answer to a held CFDI.
+    expect(mutantes).toBe(88);
+    // La suma da 88 exactamente: sólo las rutas que mutan declaran, y todas
     // declaran. Cuatro de ellas se declaran `lectura` — son POST que calculan
     // y contestan sin escribir nada, y la clase describe el acto, no el verbo.
     expect(porClase).toEqual({
@@ -139,7 +140,8 @@ describe('censo de riesgo de rutas', () => {
       // exactamente eso — processXMLUpload → processToAccounting →
       // createJournalEntry({ autoPost: true }) — mientras se declaraba
       // escritura. El mismo acto no puede tener dos clases según la puerta.
-      escritura: 46,
+      // 47 since MNE-001-906: the answer writes the classification trail and posts nothing.
+      escritura: 47,
       irreversible: 23,
       externo: 14,
     });

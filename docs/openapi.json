@@ -7902,6 +7902,82 @@
         }
       }
     },
+    "/v1/pre-registrations/{id}/answer": {
+      "post": {
+        "operationId": "post_v1_pre_registrations_id_answer",
+        "tags": [
+          "pre-registrations"
+        ],
+        "summary": "Mutating route declared \"escritura\".",
+        "x-riesgo": "escritura",
+        "x-agente-permitido": false,
+        "x-exige-marcha-seca": false,
+        "x-exige-compuerta-en-vivo": false,
+        "x-exige-llave-de-idempotencia": false,
+        "x-escribe": "cfdi_classifications.decisions",
+        "x-permisos-requeridos": [
+          "bills:create"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/EntidadActiva"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "answer": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "decision",
+                  "answer"
+                ],
+                "additionalProperties": true,
+                "x-claves-desconocidas": "descartadas"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/CuerpoInvalido"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorInterno"
+          }
+        }
+      }
+    },
     "/v1/pre-registrations/{id}/approve": {
       "post": {
         "operationId": "post_v1_pre_registrations_id_approve",
@@ -10040,6 +10116,82 @@
                 "additionalProperties": true,
                 "x-claves-desconocidas": "descartadas",
                 "x-validacion-adicional": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/CuerpoInvalido"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorInterno"
+          }
+        }
+      }
+    },
+    "/v1/xml/pre-registrations/{id}/answer": {
+      "post": {
+        "operationId": "post_v1_xml_pre_registrations_id_answer",
+        "tags": [
+          "xml"
+        ],
+        "summary": "Mutating route declared \"escritura\".",
+        "x-riesgo": "escritura",
+        "x-agente-permitido": false,
+        "x-exige-marcha-seca": false,
+        "x-exige-compuerta-en-vivo": false,
+        "x-exige-llave-de-idempotencia": false,
+        "x-escribe": "cfdi_classifications.decisions",
+        "x-permisos-requeridos": [
+          "bills:create"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/EntidadActiva"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "answer": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "decision",
+                  "answer"
+                ],
+                "additionalProperties": true,
+                "x-claves-desconocidas": "descartadas"
               }
             }
           }

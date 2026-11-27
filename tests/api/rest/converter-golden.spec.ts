@@ -141,7 +141,8 @@ describe('the census of every published request body', () => {
     // object that turned passthrough, or an `.int()` that lost its type, moves
     // one of these numbers even when the node that moved is hard to spot.
     expect(census()).toEqual({
-      descartadas: 57,
+      // 59: 57 plus the body of `POST /pre-registrations/:id/answer` (MNE-001-906), published at both mounts of its router.
+      descartadas: 59,
       conservadas: 15,
       strict: 1,
       // 15: 12 on develop plus 3 since MNE-001-309 — `pacId` (a refine against the PAC registry) is read by three bodies.

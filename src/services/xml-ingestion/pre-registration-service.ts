@@ -6,6 +6,7 @@ import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import {
   planearAsiento, planContabilizable, singleExpenseRole, type OpcionesPlan, type PlanDeAsiento,
 } from './cfdi-posting-plan.js';
+import { answerablePending, answerWithoutEntry, documentAnswers, optionsText } from './decision-answers.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import { getPolicySpec } from '../policy/pending-catalog.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
@@ -881,14 +882,45 @@ export class PreRegistrationService {
     // tiraba. Se escribe ANTES del veredicto de contabilizable: el rastro
     // de un CFDI bloqueado vale tanto como el de uno posteado — es el que
     // el reproceso y el auditor van a leer.
-    await this.guardarClasificacion(preReg, plan);
-
     const { ok, motivo } = planContabilizable(plan);
+    // MNE-001-906: an answer the entry cannot honour yet keeps a postable CFDI held.
+    const awaited = ok
+      ? answerWithoutEntry(plan.documentAnswers ?? {}, {
+          lineRoles: new Set(plan.clasificacion.lines.map((l) => l.role)),
+          openedOffRoleAccount: plan.openedOffRoleAccount ?? {},
+        })
+      : null;
+    await this.guardarClasificacion(preReg, plan, awaited !== null);
+
     if (!ok) {
       // No se contabiliza a medias: el pre-registro queda marcado para
       // revisión con la razón y las decisiones que faltan (ver el catch de
       // processToAccounting).
-      throw new AccountingError('CFDI_REQUIERE_DECISION', motivo);
+      // MNE-001-906: held on decisions a person answers for this CFDI, the refusal says how.
+      const pending = answerablePending(plan.clasificacion.decisions);
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        typeof motivo === 'string' && pending.length > 0
+          ? {
+              key: 'error.CFDI_REQUIERE_DECISION.answer_per_document',
+              params: { reason: motivo, id: String(preReg.id), options: optionsText(pending) },
+            }
+          : motivo
+      );
+    }
+    if (awaited) {
+      const { why, decision, answer, role, account } = awaited;
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        why === 'non_deductible'
+          ? { key: 'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending', params: { decision, answer, role } }
+          : why === 'not_followed'
+            ? { key: 'error.CFDI_REQUIERE_DECISION.answer_not_followed', params: { decision, answer, role } }
+            : {
+                key: 'error.CFDI_REQUIERE_DECISION.answer_entry_not_built',
+                params: { decision, answer, role, account: account ?? '', id: String(preReg.id) },
+              }
+      );
     }
 
     // Los avisos del clasificador —IVA de moneda extranjera, partidas
@@ -922,11 +954,14 @@ export class PreRegistrationService {
    */
   private async guardarClasificacion(
     preReg: Record<string, unknown>,
-    plan: PlanDeAsiento
+    plan: PlanDeAsiento,
+    /** MNE-001-906: a postable CFDI the door still holds is `blocked`, not `ready`. */
+    held = false
   ): Promise<void> {
     const c = plan.clasificacion;
     const estado =
-      c.verdict === 'ready' ? 'ready'
+      held ? 'blocked'
+      : c.verdict === 'ready' ? 'ready'
       : c.verdict === 'needs_input' ? 'pending'
       : c.verdict === 'blocked' ? 'blocked'
       : 'skipped';
@@ -941,7 +976,22 @@ export class PreRegistrationService {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (entity_id, cfdi_uuid)
       DO UPDATE SET case_id = EXCLUDED.case_id, facts = EXCLUDED.facts,
-                    decisions = EXCLUDED.decisions, status = EXCLUDED.status,
+                    -- MNE-001-906: what a person answered stays, read from the row at the write, so an
+                    -- answer given while this run classified is not lost; the rest is what is pending now.
+                    decisions = (
+                      SELECT COALESCE(jsonb_agg(d.element ORDER BY d.answered DESC, d.position), '[]'::jsonb)
+                        FROM (
+                          SELECT kept.element, kept.position, true AS answered
+                            FROM jsonb_array_elements(cfdi_classifications.decisions) WITH ORDINALITY AS kept(element, position)
+                           WHERE kept.element ? 'answer'
+                          UNION ALL
+                          SELECT asked.element, asked.position, false
+                            FROM jsonb_array_elements(EXCLUDED.decisions) WITH ORDINALITY AS asked(element, position)
+                           WHERE NOT EXISTS (
+                                   SELECT 1 FROM jsonb_array_elements(cfdi_classifications.decisions) AS was(element)
+                                    WHERE was.element ? 'answer' AND was.element->>'id' = asked.element->>'id')
+                        ) d),
+                    status = EXCLUDED.status,
                     updated_at = NOW()`,
       [
         uuidv4(), tenant.rows[0]?.tenant_id, preReg.entity_id,
@@ -962,8 +1012,12 @@ export class PreRegistrationService {
   ): Promise<PlanDeAsiento | null> {
     if (!preReg.xml_document_id) return null;
 
-    const doc = await query<{ xml_content: string; sat_validation_status: string | null }>(
-      `SELECT xml_content, sat_validation_status FROM xml_documents WHERE id = $1`,
+    // MNE-001-906: the answers a person gave for this CFDI ride on the read of its XML, from its trail.
+    const doc = await query<{ xml_content: string; sat_validation_status: string | null; decisions: unknown }>(
+      `SELECT x.xml_content, x.sat_validation_status, cc.decisions
+         FROM xml_documents x
+         LEFT JOIN cfdi_classifications cc ON cc.entity_id = x.entity_id AND cc.cfdi_uuid = x.cfdi_uuid
+        WHERE x.id = $1`,
       [preReg.xml_document_id]
     );
     if (doc.rows.length === 0 || !doc.rows[0].xml_content) return null;
@@ -1012,7 +1066,8 @@ export class PreRegistrationService {
       // MNE-001-057: any other declared withholding that differs from the law's.
       getPolicy(ctx, 'withholding_mismatch'),
     ]);
-    const answers: Record<string, string> = {};
+    const answeredHere = documentAnswers(doc.rows[0].decisions);
+    const answers: Record<string, string> = { ...answeredHere };
     if (polRestaurantes.defined) answers.consumo_restaurante = polRestaurantes.value;
     if (polIeps.defined) answers.ieps_acreditable = polIeps.value;
     if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;
@@ -1059,6 +1114,7 @@ export class PreRegistrationService {
         unwithheldFees: unwithheldFees.value,
       },
     });
+    plan.documentAnswers = answeredHere;
     if (fechaContableHoy) {
       plan.fechaContableHoy = true;
       plan.avisos.push(

@@ -1889,6 +1889,26 @@
       "output": {"formats":["json"],"file":false}
     },
     {
+      "path": "bill inbox answer",
+      "aliases": ["responder"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [
+        {"name":"id","type":"string","required":true},
+        {"name":"decision","type":"string","required":true},
+        {"name":"value","type":"string","required":true}
+      ],
+      "options": [
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":[],"file":false}
+    },
+    {
       "path": "bill inbox edit",
       "aliases": ["editar"],
       "risk": "escritura",

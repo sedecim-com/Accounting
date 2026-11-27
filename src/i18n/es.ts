@@ -4828,6 +4828,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'ap.bill.inbox.run.not_schedulable': 'está completado o rechazado: ya no se programa',
 
   // ==== end of I8.8 ====
+  // ==== MNE-001-906 · bill inbox answer: a person answers a held CFDI, per document; see en.ts ====
+  'help.bill.inbox.answer.description':
+    'Contesta, para un CFDI detenido, una decisión que su corrida espera; `bill inbox run` lo contabiliza después',
+  'help.bill.inbox.answer.argument.id': 'un pre-registro, por su id',
+  'help.bill.inbox.answer.argument.decision': 'la decisión que detiene al CFDI, como la nombra su negativa',
+  'help.bill.inbox.answer.argument.value': 'una de las opciones que ofrece la decisión; las listan la negativa y `cfdi explain`',
+  'help.bill.inbox.answer.footer':
+    'Ejemplos:\n' +
+    '  Detenido por «Requires a decision: efectivo_no_deducible»: la forma de pago en efectivo de este CFDI está mal. `bill inbox run` lo contabiliza después:\n' +
+    '    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 efectivo_no_deducible gasto\n' +
+    '  Una compra arriba del umbral de capitalización que es gasto del periodo. `cfdi explain` muestra las opciones y la respuesta:\n' +
+    '    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 gasto_vs_activo gasto',
+  'ap.bill.inbox.answer.done': '{ref} {decision} = {answer}: contestada sólo para este CFDI.',
+  'error.CFDI_ANSWER_NOT_OPEN':
+    'El pre-registro {id} está "{status}" o ya tiene su factura: una decisión se contesta mientras el CFDI espera en la bandeja (draft, ready o error, sin factura y sin póliza). No se escribió nada.',
+  'error.CFDI_ANSWER_INVALID.not_asked':
+    'El CFDI del pre-registro {id} no está detenido por la decisión "{decision}". {held, select, none {Ninguna corrida lo ha detenido por una decisión que se conteste aquí: córrelo primero con `mnemosine bill inbox run {id}`} other {Lo detienen: {held}}}. No se escribió nada.',
+  'error.CFDI_ANSWER_INVALID.not_per_document':
+    'La decisión "{decision}" no se contesta para un solo CFDI: sus opciones no dicen a dónde iría el CFDI, así que una respuesta sólo lo soltaría. La decide el despacho en el panel (`mnemosine pending`) o se rechaza el CFDI (`mnemosine bill inbox run <id> --action reject --reason <texto>`). No se escribió nada.',
+  'error.CFDI_ANSWER_INVALID.unknown_option':
+    '"{value}" no es una opción de "{decision}" para este CFDI. Las opciones son: {options}. No se escribió nada.',
+  'error.CFDI_REQUIERE_DECISION.answer_per_document':
+    '{reason}. Contesta sólo para este CFDI con `mnemosine bill inbox answer {id} <decision> <value>` ({options}) y córrelo de nuevo.',
+  'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending':
+    'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza de un gasto no deducible, que lleva su IVA a la cuenta no deducible en vez de acreditarlo, todavía no se construye. No se contabilizó nada.',
+  'error.CFDI_REQUIERE_DECISION.answer_not_followed':
+    'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza que se le propone no tiene renglón en el rol {role}, que es el que la respuesta nombra, así que contabilizarla la ignoraría. No se contabilizó nada.',
+  'error.CFDI_REQUIERE_DECISION.answer_entry_not_built':
+    'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza que lleva su importe a la cuenta {account}, la del rol {role}, todavía no se construye (tarea pendiente), y sus renglones están codificados a otras cuentas. Codifica cada renglón a la {account} con `mnemosine bill inbox edit {id} --line <n> --account {account}` y córrelo de nuevo. No se contabilizó nada.',
+  // ==== end of MNE-001-906 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
   // MNE-001-229: batch.

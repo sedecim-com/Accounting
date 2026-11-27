@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 262 of 418 subcommands
+  spelling is `-T` at the root and `-t` on the 263 of 419 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -3840,16 +3840,14 @@ Usage: mnemosine bill inbox|bandeja [options] [command]
 CFDI inbox: pre-registrations waiting to become vendor bills
 
 Options:
-  -h, --help                   display help for command
+  -h, --help                                          display help for command
 
 Commands:
-  list|listar [options]        The CFDI queue: what arrived, whose it is, and
-                               what is holding it up
-  edit|editar [options] <id>   Code a pre-registration by hand: the account (and
-                               cost center) of a line, or its default account
-  run|ejecutar [options] [id]  Turn pre-registrations into vendor bills, or
-                               approve, reject and schedule them in bulk
-  help [command]               display help for command
+  list|listar [options]                               The CFDI queue: what arrived, whose it is, and what is holding it up
+  edit|editar [options] <id>                          Code a pre-registration by hand: the account (and cost center) of a line, or its default account
+  answer|responder [options] <id> <decision> <value>  Answer, for one held CFDI, a decision its run waits on; `bill inbox run` then posts it
+  run|ejecutar [options] [id]                         Turn pre-registrations into vendor bills, or approve, reject and schedule them in bulk
+  help [command]                                      display help for command
 ```
 
 #### `mnemosine bill inbox list` (alias: listar)
@@ -3913,6 +3911,36 @@ Examples:
   mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --line 1 --account 6130
   # One account for every line that has none of its own.
   mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --account 6130
+```
+
+#### `mnemosine bill inbox answer` (alias: responder)
+
+```
+Usage: mnemosine bill inbox answer|responder [options] <id> <decision> <value>
+
+Answer, for one held CFDI, a decision its run waits on; `bill inbox run` then
+posts it
+
+Arguments:
+  id                       one pre-registration, by id
+  decision                 the decision the CFDI is held on, as its refusal
+                           names it
+  value                    one of the options the decision offers; the refusal
+                           and `cfdi explain` list them
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+Examples:
+  Held for «Requires a decision: efectivo_no_deducible»: the cash payment form of this CFDI is wrong. `bill inbox run` posts it next:
+    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 efectivo_no_deducible gasto
+  A purchase over the capitalization threshold that is a period expense. `cfdi explain` shows the options and the answer:
+    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 gasto_vs_activo gasto
 ```
 
 #### `mnemosine bill inbox run` (alias: ejecutar)

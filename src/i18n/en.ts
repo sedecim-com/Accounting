@@ -5595,6 +5595,40 @@ export const EN = {
   'ap.bill.inbox.run.not_schedulable': 'it is completed or rejected: it is no longer scheduled',
 
   // ==== end of I8.8 ====
+  // ==== MNE-001-906 · bill inbox answer: a person answers a held CFDI, per document (issue #1075) ====
+  // Decision ids, option values and commands are parameters or literals, never translated.
+  'help.bill.inbox.answer.description':
+    'Answer, for one held CFDI, a decision its run waits on; `bill inbox run` then posts it',
+  'help.bill.inbox.answer.argument.id': 'one pre-registration, by id',
+  'help.bill.inbox.answer.argument.decision': 'the decision the CFDI is held on, as its refusal names it',
+  'help.bill.inbox.answer.argument.value': 'one of the options the decision offers; the refusal and `cfdi explain` list them',
+  'help.bill.inbox.answer.footer':
+    'Examples:\n' +
+    '  Held for «Requires a decision: efectivo_no_deducible»: the cash payment form of this CFDI is wrong. `bill inbox run` posts it next:\n' +
+    '    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 efectivo_no_deducible gasto\n' +
+    '  A purchase over the capitalization threshold that is a period expense. `cfdi explain` shows the options and the answer:\n' +
+    '    mnemosine bill inbox answer 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 gasto_vs_activo gasto',
+  'ap.bill.inbox.answer.done': '{ref} {decision} = {answer}: answered for this CFDI alone.',
+  /** `AccountingError('CFDI_ANSWER_NOT_OPEN')`: the pre-registration is posted, rejected or processing. */
+  'error.CFDI_ANSWER_NOT_OPEN':
+    'Pre-registration {id} is "{status}" or already has its bill: a decision is answered while the CFDI waits in the inbox (draft, ready or error, with no bill and no entry). Nothing was written.',
+  /** `AccountingError('CFDI_ANSWER_INVALID')`: `held` lists the decisions a person answers for this CFDI, or `none`. */
+  'error.CFDI_ANSWER_INVALID.not_asked':
+    'The CFDI of pre-registration {id} is not held on the decision "{decision}". {held, select, none {No run has held it on a decision that is answered here: run it first with `mnemosine bill inbox run {id}`} other {It is held on: {held}}}. Nothing was written.',
+  'error.CFDI_ANSWER_INVALID.not_per_document':
+    'The decision "{decision}" is not answered for one CFDI: its options do not say where the CFDI would post, so an answer would only release it. It is decided by the firm in the panel (`mnemosine pending`) or by rejecting the CFDI (`mnemosine bill inbox run <id> --action reject --reason <text>`). Nothing was written.',
+  'error.CFDI_ANSWER_INVALID.unknown_option':
+    '"{value}" is not an option of "{decision}" for this CFDI. The options are: {options}. Nothing was written.',
+  /** The inbox's hold on decisions a person answers per document: `reason` is the classifier's, `options` each decision with its values. */
+  'error.CFDI_REQUIERE_DECISION.answer_per_document':
+    '{reason}. Answer for this CFDI alone with `mnemosine bill inbox answer {id} <decision> <value>` ({options}), then run it again.',
+  'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending':
+    'The answer {decision} = {answer} is kept and the CFDI stays held: the entry of a non-deductible expense, which takes its IVA to the non-deductible account instead of crediting it, is not built yet. Nothing was posted.',
+  'error.CFDI_REQUIERE_DECISION.answer_not_followed':
+    'The answer {decision} = {answer} is kept and the CFDI stays held: the entry proposed for it has no line on the role {role}, which the answer names, so posting it would ignore the answer. Nothing was posted.',
+  'error.CFDI_REQUIERE_DECISION.answer_entry_not_built':
+    'The answer {decision} = {answer} is kept and the CFDI stays held: the entry that takes its amount to account {account}, the one of the role {role}, is not built yet (a pending task), and its lines are coded to other accounts. Code each line to {account} with `mnemosine bill inbox edit {id} --line <n> --account {account}` and run it again. Nothing was posted.',
+  // ==== end of MNE-001-906 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
   // MNE-001-229: batch. The two aborts are the kernel's no_changes_* keys.

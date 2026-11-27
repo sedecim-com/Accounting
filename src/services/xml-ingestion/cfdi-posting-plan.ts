@@ -102,6 +102,18 @@ export interface PlanDeAsiento {
    */
   fechaContableHoy?: boolean;
   /**
+   * MNE-001-906: the answers a person gave for this CFDI alone, read from its
+   * trail (decision-answers.ts). Set by `planDeAsiento` of the pre-registration
+   * service; the door reads them to hold an answer whose entry does not exist yet.
+   */
+  documentAnswers?: Record<string, string>;
+  /**
+   * MNE-001-906: the expense roles this plan opened into the document's lines
+   * with at least one line coded to an account other than the role's own, and
+   * that account's code. The amount of such a role does not land on its account.
+   */
+  openedOffRoleAccount?: Partial<Record<AccountRole, string>>;
+  /**
    * Set when `revenueLines` was asked for and the concepts' nets differ from
    * the CFDI's revenue (SubTotal − Descuento) by more than 0.01: the revenue
    * line was left whole.
@@ -244,6 +256,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
   }
 
   const lineas: LineaAsiento[] = [];
+  const openedOffRoleAccount: Partial<Record<AccountRole, string>> = {};
   for (const propuesta of clasificacion.lines) {
     if (revenueNets && propuesta === revenue[0]) {
       const roleAccount = propuesta.accountCode ? porCodigo.get(propuesta.accountCode) : undefined;
@@ -269,6 +282,10 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     if (desglose === 'abierta' && ROLES_DE_GASTO.has(propuesta.role)) {
       // La línea de gasto se abre en los renglones del documento; cada uno
       // conserva su cuenta y su centro de costo.
+      const roleAccount = propuesta.accountCode ? porCodigo.get(propuesta.accountCode) : undefined;
+      if (propuesta.accountCode && opts.renglones.some((r) => cuentaDe(r) !== roleAccount)) {
+        openedOffRoleAccount[propuesta.role] = propuesta.accountCode;
+      }
       for (const r of opts.renglones) {
         lineas.push({
           account_id: cuentaDe(r) as string,
@@ -289,7 +306,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
   }
 
   return {
-    clasificacion, lineas, cuentasFaltantes, desglose, avisos,
+    clasificacion, lineas, cuentasFaltantes, desglose, avisos, openedOffRoleAccount,
     ...(revenueLinesMismatch ? { revenueLinesMismatch } : {}),
   };
 }

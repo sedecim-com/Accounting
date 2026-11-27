@@ -15,6 +15,7 @@ import {
   codePreRegistration,
   PRE_REGISTRATION_NOT_CODABLE,
 } from '../services/xml-ingestion/pre-registration-coding.js';
+import { answerHeldDecision } from '../services/xml-ingestion/decision-answers.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import {
   listBills,
@@ -1034,6 +1035,48 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           process.stderr.write(deps.palette.dim(`  ${t('ap.bill.inbox.edit.post_with', { id: idArg.trim() })}\n`));
         }
       })
+  );
+
+  // ---- bill inbox answer -------------------------------------------
+  // MNE-001-906 (#1075): the answer to a decision ONE held CFDI waits on. A verb
+  // on the document and not a flag of `run`, which takes a batch: a fact about
+  // one CFDI (its payment form is wrong) must not reach the next one. It only
+  // writes the trail; `bill inbox run` posts. A person answers, never the agent.
+  const inboxAnswer = describeCommand(inbox.command('answer').alias('responder'), 'help.bill.inbox.answer.description');
+  argumentByKey(inboxAnswer, '<id>', 'help.bill.inbox.answer.argument.id');
+  argumentByKey(inboxAnswer, '<decision>', 'help.bill.inbox.answer.argument.decision');
+  argumentByKey(inboxAnswer, '<value>', 'help.bill.inbox.answer.argument.value');
+  withContext(inboxAnswer);
+  declareRisk(inboxAnswer, { risk: 'escritura', agent: false, writes: 'cfdi_classifications.decisions' });
+  inboxAnswer.addHelpText('after', () => `\n${t('help.bill.inbox.answer.footer')}\n`);
+  inboxAnswer.action((idArg: string, decision: string, value: string, opts: CommonOpts) =>
+    run(async () => {
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      if (!UUID_RE.test(idArg.trim())) {
+        throw usageError({ key: 'ap.bill.inbox.id_invalid', params: { id: idArg } });
+      }
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      let kept;
+      try {
+        kept = await answerHeldDecision(ctx.entityId, idArg.trim(), { decision: decision.trim(), answer: value.trim() }, reviewer.userId);
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'CFDI_ANSWER_NOT_OPEN') throw blockedByState(err.messageKey ?? err.message);
+        throw err;
+      }
+      process.stdout.write(
+        `${deps.palette.green('✔')} ${t('ap.bill.inbox.answer.done', {
+          ref: idArg.trim().slice(0, 8), decision: kept.decision, answer: kept.answer,
+        })}\n`
+      );
+      process.stderr.write(
+        deps.palette.dim(
+          `  ${kept.entryPending
+            ? t('error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending', { decision: kept.decision, answer: kept.answer })
+            : t('ap.bill.inbox.edit.post_with', { id: idArg.trim() })}\n`
+        )
+      );
+    })
   );
 
   // ---- bill inbox run ----------------------------------------------
