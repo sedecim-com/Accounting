@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **298 comandos** repartidos en **81 familias** de primer nivel. De las **1651** filas del catálogo, **282** (17.1 %) ya se pueden invocar.
+El binario ejecuta hoy **299 comandos** repartidos en **81 familias** de primer nivel. De las **1652** filas del catálogo, **283** (17.1 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **317** filas lo declaran completo, **380** a medias y **954** inexistente.
+Del motor que cada comando necesita, **318** filas lo declaran completo, **380** a medias y **954** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **398** filas, de las que **227** ya se teclean.
 
-**El objetivo comprometible son 1408 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1409 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1651 filas son **1629 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1652 filas son **1630 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -74,9 +74,9 @@ Contadas por COMANDO, las 1651 filas son **1629 rutas únicas**: **17 rutas** es
 | `closing` | 37 | 7 |
 | `e-accounting` | 12 | 7 |
 | `entity` | 11 | 7 |
+| `vendor` | 24 | 6 |
 | `period` | 15 | 6 |
 | `close` | 9 | 6 |
-| `vendor` | 23 | 5 |
 
 **1 de 609** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
@@ -864,6 +864,7 @@ Cuentas por pagar es el subdiario que *debe dinero*: cada objeto crea una obliga
 | `mnemosine vendor archive <id>` · `proveedor archivar` | Marca el proveedor como inactivo sin borrar historia; barrido por inactividad | `--no-activity-since 90d`, `--reason`, `--dry-run` | 🟡 src/api/rest/routes/vendors.ts:114 (`is_active` es el único mecanismo; no hay barrido) | escritura | ✗ | 2 |
 | `mnemosine vendor restore <id>` · `proveedor restaurar` | Reactiva un proveedor archivado con motivo | `--reason` | 🟡 src/api/rest/routes/vendors.ts:114 (`is_active = true`) | escritura | ✗ | 2 |
 | `mnemosine vendor terms set <id>` · `proveedor terminos fijar` | Fija plazo de pago, descuento por pronto pago, método y calendario de pago | `--terms "2/10 net 30"`, `--method spei\|ach\|check\|wire`, `--pay-day`, `--currency`, `--reason` | 🟡 src/api/rest/routes/vendors.ts:114 (`payment_terms VARCHAR(100)` texto libre, 002_ap_ar_schema.sql:24; el parser ya no vive suelto en la ruta: es `parsePaymentTerms` (src/services/ap/vendor-service.ts:139), entiende `Net 30`, `2/10 net 30`, `30 días` y «due on receipt», y el comando `mnemosine vendor terms set` ya existe (src/cli/vendor-command.ts:357)) | escritura | ✗ | 2 |
+| `mnemosine vendor tax set <id>` · `proveedor fiscal fijar` | Corrige el identificador fiscal (RFC, EIN o VAT) de un proveedor ya dado de alta, con motivo obligatorio y un renglón de auditoría que guarda el valor anterior y el nuevo; no reescribe facturas, pagos ni pólizas, y es el remedio de `DIOT-SIN-RFC` y del nodo de pago que el XML de pólizas del Anexo 24 deja fuera | `--tax-id`, `--tax-id-type rfc\|ein\|vat`, `--reason`, `--json` | ✅ **invocable desde MNE-001-664**: `setVendorTaxId` (src/services/ap/vendor-service.ts) valida la forma con `normalizeTaxId` antes de escribir, niega el identificador que ya lleva otro proveedor de la entidad, bloquea la fila dentro de su alcance, y su `UPDATE` lleva entidad, inquilino y el valor leído bajo el candado; el perfil fiscal con vigencias sigue siendo `vendor tax-profile set` | escritura | ✗ | 2 |
 | `mnemosine vendor tax-profile set <id>` · `proveedor perfil-fiscal fijar` | Define régimen fiscal, RESICO, REPSE, perfil de retención (MX) o caja 1099/W-8 (US), con vigencias | `--regimen 601\|612\|626`, `--resico`, `--repse <num> --repse-expiry`, `--withholding-profile`, `--1099-box`, `--w8-type --w8-expiry`, `--effective-from` | ❌ requiere tabla `vendor_tax_profiles` con vigencias; hoy `vendors` sólo tiene `tax_id`, `tax_id_type` e `is_1099_vendor` (002_ap_ar_schema.sql:15-17) | escritura | ✗ | 2 |
 | `mnemosine vendor tax-profile show <id>` · `proveedor perfil-fiscal ver` | Muestra el perfil fiscal vigente a una fecha y las retenciones que dispararía un pago | `--as-of`, `--explain`, `--redacted`, `--json` | ❌ mismo faltante | lectura | ✓ | 2 |
 | `mnemosine vendor tax-form import <id>` · `proveedor documento-fiscal importar` | Carga y fecha la CSF (MX) o W-9/W-8 (US), extrae RFC/CP/régimen y los propone al perfil | `--file`, `--type csf\|w9\|w8ben\|w8bene\|repse\|coi`, `--issued-on`, `--dry-run` | ❌ sin almacén documental de proveedor (no hay adaptador de almacenamiento: el stub de S3 se retiró en #370) | escritura | ✗ | 2 |

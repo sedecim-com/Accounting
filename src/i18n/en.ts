@@ -8436,6 +8436,28 @@ export const EN = {
     'Vendor {number} already has the tax id {taxId} under that type: there is nothing to correct. Nothing was written.',
   'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
     'The tax id {taxId} already belongs to vendor {number} of this entity. Two vendors with one tax id are one taxpayer twice: correct the right record. Nothing was written.',
+  // Part 2: the leaf `vendor tax set`, its help, its footer and its receipt.
+  'help.vendor.tax.description': 'The tax id a vendor is identified by',
+  'help.vendor.tax.set.description':
+    'Correct the tax id of a vendor, with the reason and an audit row that keeps the old and the new value; no posted document is rewritten',
+  'help.vendor.tax.set.argument.vendor': 'vendor number, name or id',
+  'help.vendor.tax.set.option.tax_id': 'the correct RFC (Mexico), EIN (USA) or VAT number; its shape is validated before anything is written (required)',
+  'help.vendor.tax.set.option.tax_id_type': "{types} (defaults to the type the vendor has, then to the entity's country)",
+  'help.vendor.tax.set.option.json': 'JSON output',
+  'help.vendor.tax.set.footer':
+    'This changes one row of the vendor master and writes its audit row: the old tax id, the new one, who and why.\n' +
+    'No bill, payment or entry is rewritten. The DIOT and the Anexo 24 vouchers file read the tax id when they are generated, so generate them again after the correction.\n' +
+    'It is refused when the tax id is malformed or when another vendor of the entity already carries it.\n' +
+    '\nExamples:\n' +
+    '  A vendor captured without RFC, which the DIOT reports as DIOT-SIN-RFC:\n' +
+    '    mnemosine vendor tax set "Papeleria del Centro" --tax-id PCE180412TF4 --reason "Tax status certificate of July"\n' +
+    '  A US vendor of a Mexican entity, saying which rule applies, as JSON:\n' +
+    '    mnemosine vendor tax set "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --reason "W-9 received" --json',
+  /** The receipt of `vendor tax set`. `had` is `none` when the vendor had no tax id. */
+  'ap.vendor.tax.set.done':
+    '{vendor}: the tax id is now {taxId} ({type}); {had, select, none {it had none} other {it was {previous}}}.',
+  'ap.vendor.tax.set.posted':
+    'This vendor has {bills, plural, one {# posted bill} other {# posted bills}} and {payments, plural, one {# posted payment} other {# posted payments}}: none was rewritten. What is generated from now on (the DIOT, the Anexo 24 vouchers file) reads the new tax id; a file already generated keeps the one it was generated with.',
   // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   //

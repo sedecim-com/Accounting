@@ -7546,6 +7546,27 @@ export const ES: Record<keyof typeof EN, string> = {
     'El proveedor {number} ya tiene el identificador fiscal {taxId} con ese tipo: no hay nada que corregir. No se escribió nada.',
   'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
     'El identificador fiscal {taxId} ya es del proveedor {number} de esta entidad. Dos proveedores con un mismo identificador son un contribuyente dado de alta dos veces: corrige el registro que corresponde. No se escribió nada.',
+  // Part 2: the leaf `vendor tax set`, its help, its footer and its receipt.
+  'help.vendor.tax.description': 'El identificador fiscal con el que se identifica a un proveedor',
+  'help.vendor.tax.set.description':
+    'Corrige el identificador fiscal de un proveedor, con el motivo y un registro de auditoría que guarda el valor anterior y el nuevo; no se reescribe ningún documento contabilizado',
+  'help.vendor.tax.set.argument.vendor': 'número, nombre o id del proveedor',
+  'help.vendor.tax.set.option.tax_id': 'el RFC (México), EIN (EE. UU.) o número de IVA (VAT) correcto; su forma se valida antes de escribir nada (obligatorio)',
+  'help.vendor.tax.set.option.tax_id_type': '{types} (por omisión, el tipo que ya tiene el proveedor y, si no tiene, según el país de la entidad)',
+  'help.vendor.tax.set.option.json': 'salida en JSON',
+  'help.vendor.tax.set.footer':
+    'Cambia un renglón del catálogo de proveedores y escribe su registro de auditoría: el identificador anterior, el nuevo, quién y por qué.\n' +
+    'No se reescribe ninguna factura, pago ni póliza. La DIOT y el archivo de pólizas del Anexo 24 leen el identificador al generarse, así que genéralos de nuevo después de corregirlo.\n' +
+    'Se rechaza cuando el identificador está mal formado o cuando ya lo tiene otro proveedor de la entidad.\n' +
+    '\nEjemplos:\n' +
+    '  Un proveedor dado de alta sin RFC, que la DIOT reporta como DIOT-SIN-RFC:\n' +
+    '    mnemosine vendor tax set "Papeleria del Centro" --tax-id PCE180412TF4 --reason "Constancia de situación fiscal de julio"\n' +
+    '  Un proveedor estadounidense de una entidad mexicana, diciendo qué regla aplica, en JSON:\n' +
+    '    mnemosine vendor tax set "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --reason "W-9 recibido" --json',
+  'ap.vendor.tax.set.done':
+    '{vendor}: el identificador fiscal es ahora {taxId} ({type}); {had, select, none {no tenía ninguno} other {era {previous}}}.',
+  'ap.vendor.tax.set.posted':
+    'Este proveedor tiene {bills, plural, one {# factura contabilizada} other {# facturas contabilizadas}} y {payments, plural, one {# pago contabilizado} other {# pagos contabilizados}}: ninguno se reescribió. Lo que se genere de ahora en adelante (la DIOT, el archivo de pólizas del Anexo 24) lee el identificador nuevo; un archivo ya generado conserva el que tenía cuando se generó.',
   // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   'help.payment.description':
