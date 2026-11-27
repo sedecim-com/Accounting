@@ -49,6 +49,7 @@ import {
   createVendor,
   updateVendor,
   setVendorTerms,
+  setVendorTaxId,
   normalizeTaxId,
   taxIdTypeForCountry,
   parsePaymentTerms,
@@ -531,5 +532,94 @@ describe('setVendorTerms', () => {
 
   it('refuses to write nothing', async () => {
     await expect(setVendorTerms('v1', SCOPE, {}, { userId: USER })).rejects.toThrow(ValidationError);
+  });
+});
+
+// ============================================================
+// MNE-001-664 (#607) · the tax id of a vendor can be corrected, with a
+// mandatory reason and an audit row. Statements inside the transaction, in
+// order: 0 the advisory lock, 1 the scoped lock of the row, 2 the facts,
+// 3 the guarded UPDATE, 4 the audit row.
+// ============================================================
+
+describe('setVendorTaxId', () => {
+  const WHO = { userId: USER, reason: 'Tax status certificate of July' };
+  const RFC = { taxId: 'TST010101AA1', taxIdType: 'rfc' } as const;
+  const stored = { id: 'v1', entity_id: 'e-1', vendor_number: 'VND-0007', tax_id: null, tax_id_type: null };
+  const facts = (over: Record<string, unknown> = {}) => ({ rows: [{ taken_by: null, bills: 0, payments: 0, ...over }] });
+  const queue = (before: Record<string, unknown>, read = facts(), updated: unknown[] = [{ ...before, tax_id: 'TST010101AA1', tax_id_type: 'rfc' }]) => {
+    for (const answer of [{ rows: [] }, { rows: [before] }, read, { rows: updated, rowCount: updated.length }, { rows: [] }]) {
+      mockQuery.mockResolvedValueOnce(answer);
+    }
+  };
+
+  it('refuses a blank reason by key and a malformed id with its rule, before touching the database', async () => {
+    await expect(setVendorTaxId('v1', SCOPE, RFC, { userId: USER, reason: '   ' })).rejects.toMatchObject({
+      messageKey: { key: 'error.VALIDATION_ERROR.vendor.tax_id_reason_required' }, field: 'reason',
+    });
+    await expect(setVendorTaxId('v1', SCOPE, { taxId: 'TST0101AA1', taxIdType: 'rfc' }, WHO)).rejects.toThrow(/is not a valid RFC/);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('locks the row in scope and writes the normalized id with entity, tenant and state in the UPDATE', async () => {
+    queue({ ...stored, tax_id: 'tst 0101', tax_id_type: 'rfc' }, facts({ bills: 3, payments: 2 }));
+    const r = await setVendorTaxId('v1', SCOPE, { taxId: ' tst010101aa1 ', taxIdType: 'rfc' }, WHO);
+
+    expect(sql(0)).toMatch(/pg_advisory_xact_lock/);
+    expect(params(0)).toEqual(['vendor-tax-id:e-1:TST010101AA1']);
+    expect(sql(1)).toMatch(/SELECT \* FROM vendors WHERE id = \$1 AND entity_id = \$2/);
+    expect(sql(3)).toMatch(/UPDATE vendors SET tax_id = \$4, tax_id_type = \$5, updated_at = NOW\(\)/);
+    expect(sql(3)).toMatch(/WHERE id = \$1 AND entity_id = \$2 AND entity_id IN \(SELECT id FROM legal_entities WHERE tenant_id = \$3\)/);
+    expect(sql(3)).toMatch(/tax_id IS NOT DISTINCT FROM \$6 AND tax_id_type IS NOT DISTINCT FROM \$7/);
+    expect(params(3)).toEqual(['v1', 'e-1', 't-1', 'TST010101AA1', 'rfc', 'tst 0101', 'rfc']);
+    expect(r).toMatchObject({
+      previous: { tax_id: 'tst 0101', tax_id_type: 'rfc' }, posted: { bills: 3, payments: 2 }, vendor: { tax_id: 'TST010101AA1' },
+    });
+    // The audit row of the same transaction: the old value, the new one, who and why.
+    expect(sql(4)).toMatch(/INSERT INTO audit_log/);
+    expect(params(4)).toEqual(expect.arrayContaining([
+      USER, 't-1', 'e-1', 'update', 'vendor', 'v1',
+      '{"tax_id":"tst 0101","tax_id_type":"rfc"}', '{"tax_id":"TST010101AA1","tax_id_type":"rfc"}', WHO.reason,
+    ]));
+  });
+
+  it('refuses an id another vendor of the entity carries, naming it, and writes nothing', async () => {
+    queue(stored, facts({ taken_by: 'VND-0003' }));
+    await expect(setVendorTaxId('v1', SCOPE, RFC, WHO)).rejects.toMatchObject({
+      statusCode: 409,
+      messageKey: { key: 'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken', params: { taxId: 'TST010101AA1', number: 'VND-0003' } },
+    });
+    // The duplicate is looked for inside the entity, on the id without spaces, hyphens or case.
+    expect(sql(2)).toMatch(/o\.entity_id = \$2 AND o\.id <> \$1/);
+    expect(params(2)).toEqual(['v1', 'e-1', 'TST010101AA1']);
+    expect(mockQuery.mock.calls).toHaveLength(3);
+  });
+
+  it('compares an EIN without its hyphen, and never treats a SAT generic RFC as taken', async () => {
+    queue(stored, facts(), [{ ...stored, tax_id: '47-1234567', tax_id_type: 'ein' }]);
+    await setVendorTaxId('v1', SCOPE, { taxId: '471234567', taxIdType: 'ein' }, WHO);
+    expect(params(2)[2]).toBe('471234567');
+    expect(params(3)[3]).toBe('47-1234567');
+    mockQuery.mockReset();
+    queue(stored, facts(), [{ ...stored, tax_id: 'XEXX010101000', tax_id_type: 'rfc' }]);
+    await setVendorTaxId('v1', SCOPE, { taxId: 'XEXX010101000', taxIdType: 'rfc' }, WHO);
+    expect(params(2)[2]).toBeNull();
+  });
+
+  it('refuses the id and type the vendor already has: there is nothing to correct', async () => {
+    queue({ ...stored, tax_id: RFC.taxId, tax_id_type: RFC.taxIdType });
+    await expect(setVendorTaxId('v1', SCOPE, RFC, WHO)).rejects.toMatchObject({
+      messageKey: { key: 'error.VALIDATION_ERROR.vendor.tax_id_unchanged' },
+    });
+    expect(mockQuery.mock.calls).toHaveLength(3);
+  });
+
+  it('a vendor out of scope is NotFound, and so is an UPDATE that reaches no row', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    await expect(setVendorTaxId('gone', SCOPE, RFC, WHO)).rejects.toThrow(NotFoundError);
+    mockQuery.mockReset();
+    queue(stored, facts(), []);
+    await expect(setVendorTaxId('v1', SCOPE, RFC, WHO)).rejects.toThrow(NotFoundError);
+    expect(mockQuery.mock.calls).toHaveLength(4);
   });
 });
