@@ -139,19 +139,27 @@ describe('the employment subsidy node of the payroll CFDI', () => {
     expect(verdict.errors.join('\n')).toMatch(/TipoOtroPago/);
   });
 
-  it('T13 · ISR above the subsidy: no OtrosPagos, and the ISR deduction is the difference', async () => {
+  // MNE-001-279 (#92) reversed the first half of T13: a TipoRegimen 02 receipt
+  // always declares OtroPago 002 (NOM105), so the ordinary band carries it too.
+  it('T13 · ISR above the subsidy: OtroPago 002 with Importe 0.00, and the ISR deduction is the difference', async () => {
     const xml = await xmlFor({ isr_withheld: '150.00', net_pay: '50.00' });
-    expect(xml).not.toMatch(/OtrosPagos|OtroPago/);
+    expect(xml).toMatch(/<nomina12:OtroPago TipoOtroPago="002"[^>]* Importe="0\.00">/);
+    expect(xml).toContain('<nomina12:SubsidioAlEmpleo SubsidioCausado="100.00"/>');
+    expect(xml).toContain('TotalOtrosPagos="0.00"');
     expect(xml).toContain('<nomina12:Deduccion TipoDeduccion="002" Clave="ISR" Concepto="ISR" Importe="50.00"/>');
-    expect(employmentSubsidyOtherPayment({ isr: '150.00', subsidyCaused: '100.00', cashHandedOver: '0' })).toBeNull();
-    expect(employmentSubsidyOtherPayment({ isr: '100.00', subsidyCaused: '100.00', cashHandedOver: '0' })).toBeNull();
+    expectTotalIdentity(xml);
+    const ordinary = { subsidyCaused: '100.00', cashHandedOver: '0' };
+    expect(employmentSubsidyOtherPayment({ isr: '150.00', ...ordinary, regime: '02' })?.total).toBe('0.00');
+    expect(employmentSubsidyOtherPayment({ isr: '100.00', ...ordinary, regime: '02' })?.total).toBe('0.00');
+    // Outside TipoRegimen 02 the key 002 is not allowed (NOM106): no node, as before.
+    expect(employmentSubsidyOtherPayment({ isr: '150.00', ...ordinary, regime: '09' })).toBeNull();
+    expect(employmentSubsidyOtherPayment({ isr: '100.00', ...ordinary, regime: '09' })).toBeNull();
   });
 
   it('the pure function states the cash it is given and never more than the subsidy caused', () => {
-    expect(employmentSubsidyOtherPayment({ isr: '10.00', subsidyCaused: '100.00', cashHandedOver: '0' })?.total).toBe('0.00');
-    expect(employmentSubsidyOtherPayment({ isr: '10.00', subsidyCaused: '100.00', cashHandedOver: '90' })?.total).toBe('90.00');
-    expect(() =>
-      employmentSubsidyOtherPayment({ isr: '10.00', subsidyCaused: '100.00', cashHandedOver: '100.01' })
-    ).toThrow(/100\.01.*100\.00/);
+    const excess = { isr: '10.00', subsidyCaused: '100.00', regime: '02' };
+    expect(employmentSubsidyOtherPayment({ ...excess, cashHandedOver: '0' })?.total).toBe('0.00');
+    expect(employmentSubsidyOtherPayment({ ...excess, cashHandedOver: '90' })?.total).toBe('90.00');
+    expect(() => employmentSubsidyOtherPayment({ ...excess, cashHandedOver: '100.01' })).toThrow(/100\.01.*100\.00/);
   });
 });

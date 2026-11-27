@@ -248,16 +248,21 @@ async function stampHoldingThePaycheck(
   );
 
   const totalPercepciones = parseFloat(r.gross_earnings);
-  const isrNet = Math.max(0, parseFloat(r.isr_withheld) - parseFloat(r.subsidio_empleo));
-  const totalImpRetenidos = isrNet;
-  const totalOtrasDeducciones = parseFloat(r.imss_employee) + parseFloat(r.infonavit_withheld) +
-    deductions.rows.reduce((s, d) => s + parseFloat(d.amount), 0);
-  const totalDeducciones = totalImpRetenidos + totalOtrasDeducciones;
+  const deductionsNode = payrollDeductionsNode({
+    socialSecurity: r.imss_employee,
+    housingCredit: r.infonavit_withheld,
+    isrRetained: Decimal.max(0, new Decimal(r.isr_withheld).minus(r.subsidio_empleo)).toFixed(2),
+    stored: deductions.rows,
+  });
+  const totalDeducciones = deductionsNode.total;
 
+  // The worker's regime as the complement states it below: it decides the subsidy node.
+  const regime = r.tipo_regimen_sat || '02';
   const subsidyOtherPayment = employmentSubsidyOtherPayment({
     isr: r.isr_withheld,
     subsidyCaused: r.subsidio_empleo,
     cashHandedOver: r.subsidio_entregado_efectivo ?? '0',
+    regime,
   });
 
   // Days worked in period (inclusive)
@@ -273,7 +278,6 @@ async function stampHoldingThePaycheck(
   const totalExempt = Decimal.sum(0, ...isrParts.map((p) => p.exempt));
 
   const percepcionesXml = earnings.rows.map((e, i) => `    <nomina12:Percepcion TipoPercepcion="${e.cfdi_clave_sat || '001'}" Clave="${e.earning_type}" Concepto="${escapeXml(e.description || e.earning_type)}" ImporteGravado="${isrParts[i].taxable.toFixed(2)}" ImporteExento="${isrParts[i].exempt.toFixed(2)}"/>`).join('\n');
-  const deduccionesXml = deductions.rows.map((d) => `    <nomina12:Deduccion TipoDeduccion="${d.cfdi_clave_sat || '004'}" Clave="${d.deduction_type}" Concepto="${escapeXml(d.description || d.deduction_type)}" Importe="${parseFloat(d.amount).toFixed(2)}"/>`).join('\n');
 
   const payrollType = payrollTypeForRunType(r.run_type);
   const paymentPeriodicity = paymentPeriodicityFor(payrollType, r.pay_frequency);
@@ -304,17 +308,13 @@ async function stampHoldingThePaycheck(
       <nomina12:Receptor Curp="${r.emp_curp || 'XAXX010101HDFNNN00'}" NumSeguridadSocial="${r.emp_nss || ''}"
         FechaInicioRelLaboral="${hireDate}" Antiguedad="${seniority}"
         TipoContrato="${r.tipo_contrato_sat || '01'}" TipoJornada="${r.tipo_jornada_sat || '01'}"
-        TipoRegimen="${r.tipo_regimen_sat || '02'}" NumEmpleado="${r.emp_number}"
+        TipoRegimen="${regime}" NumEmpleado="${r.emp_number}"
         Puesto="${escapeXml(r.puesto || 'Empleado')}" RiesgoPuesto="${r.riesgo_puesto || '01'}"
         PeriodicidadPago="${paymentPeriodicity}" ClaveEntFed="MEX"/>
       <nomina12:Percepciones TotalGravado="${totalTaxable.toFixed(2)}" TotalExento="${totalExempt.toFixed(2)}" TotalSueldos="${totalPercepciones.toFixed(2)}">
 ${percepcionesXml}
       </nomina12:Percepciones>
-      <nomina12:Deducciones TotalOtrasDeducciones="${totalOtrasDeducciones.toFixed(2)}" TotalImpuestosRetenidos="${totalImpRetenidos.toFixed(2)}">
-${deduccionesXml}
-        ${totalImpRetenidos > 0 ? `<nomina12:Deduccion TipoDeduccion="002" Clave="ISR" Concepto="ISR" Importe="${totalImpRetenidos.toFixed(2)}"/>` : ''}
-      </nomina12:Deducciones>
-${subsidyOtherPayment?.xml ?? ''}    </nomina12:Nomina>
+${deductionsNode.xml}${subsidyOtherPayment?.xml ?? ''}    </nomina12:Nomina>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
 
@@ -389,20 +389,33 @@ ${subsidyOtherPayment?.xml ?? ''}    </nomina12:Nomina>
  *   other keys must be above zero. Importe="0.00" is therefore valid, and
  *   TotalOtrosPagos must exist whenever OtrosPagos does.
  *
- * With the ISR at or above the subsidy no node is written, as before: that
- * band belongs to MNE-001-279 (#92). A cash amount with no excess (a stored
- * paycheck that does not add up) is still declared, so Total keeps its
- * identity; one above the subsidy caused is refused, because a stamped CFDI
- * cannot be taken back.
+ * CONTRACT: a receipt of regime 02 (wages) always carries the node (#92,
+ * MNE-001-279). The standard, as read on 2026-11-27, asks every regime 02
+ * receipt for an OtroPago keyed 002 unless one keyed 007 or 008 is there, and
+ * the generator writes neither of those: NOM105 of the SAT's matrix of
+ * 29 Dec 2021. So with the ISR at or above the subsidy the node states an
+ * amount of 0.00 and the subsidy caused, which is the part of the ISR the
+ * receipt no longer shows as retained; with no subsidy caused it states 0.00
+ * in both.
+ *
+ * Any other regime must not carry the key 002 (NOM106): with nothing caused
+ * and nothing handed over no node is written. A subsidy on such a regime is a
+ * matter of the calculation, which does not read the regime, and is declared
+ * as it was before this task. A cash amount with no excess (a stored paycheck
+ * that does not add up) is still declared, so Total keeps its identity; one
+ * above the subsidy caused is refused, because a stamped CFDI cannot be taken
+ * back.
  */
 export function employmentSubsidyOtherPayment(p: {
   isr: string;
   subsidyCaused: string;
   cashHandedOver: string;
+  /** The worker's regime key, as the complement states it. */
+  regime: string;
 }): { xml: string; total: string } | null {
   const caused = new Decimal(p.subsidyCaused);
   const cash = new Decimal(p.cashHandedOver);
-  if (!caused.greaterThan(p.isr) && !cash.greaterThan(0)) return null;
+  if (p.regime !== '02' && !caused.greaterThan(p.isr) && !cash.greaterThan(0)) return null;
   if (cash.greaterThan(caused)) {
     throw new ValidationError(
       `The employment subsidy handed over in cash (${cash.toFixed(2)}) is above the subsidy caused ` +
@@ -418,6 +431,67 @@ export function employmentSubsidyOtherPayment(p: {
       </nomina12:OtrosPagos>
 `;
   return { xml, total };
+}
+
+/**
+ * CONTRACT: the deductions node of the payroll CFDI adds up to its own
+ * children (#92, MNE-001-279).
+ *
+ * The worker's IMSS and the INFONAVIT credit were inside the total of other
+ * deductions and in no node of their own, and that sum is one the PAC checks.
+ * Each is a node now, and both totals are computed from the nodes written,
+ * grouped by the key each node carries, so they cannot differ from them.
+ *
+ * What the SAT's documents say, as read on 2026-11-27:
+ * - Catalogue of deduction types: 001 is social security, 002 the ISR and 010
+ *   the payment of a housing credit. The concept of each node is the
+ *   catalogue's own description, as the filling guide's example does.
+ * - Standard of the complement (revision C, 29 Dec 2021): the total of taxes
+ *   withheld is the sum of the nodes keyed 002 (NOM91); the schema defines
+ *   the total of other deductions as that of every other key; the total of
+ *   deductions is the sum of the two (NOM39); the amount of a node must be
+ *   above zero (NOM96), so an amount of zero writes no node.
+ *
+ * NOTE: the node is still written when it has no child, and with a total of
+ * taxes withheld of 0.00 when no ISR is retained. The schema refuses the
+ * first and NOM92 the second: both belong to the task that takes the whole
+ * complement to the SAT's schema (#92).
+ */
+export function payrollDeductionsNode(p: {
+  /** paychecks.imss_employee: the worker's IMSS contribution. */
+  socialSecurity: string;
+  /** paychecks.infonavit_withheld: the discount of the INFONAVIT credit. */
+  housingCredit: string;
+  /** The ISR retained: the ISR of the paycheck less the subsidy credited, never below zero. */
+  isrRetained: string;
+  stored: { cfdi_clave_sat: string | null; amount: string; description: string | null; deduction_type: string }[];
+}): { xml: string; total: Decimal } {
+  const lines = [
+    { type: '001', key: 'IMSS', concept: 'Seguridad social', amount: p.socialSecurity },
+    { type: '002', key: 'ISR', concept: 'ISR', amount: p.isrRetained },
+    { type: '010', key: 'INFONAVIT', concept: 'Pago por crédito de vivienda', amount: p.housingCredit },
+    ...p.stored.map((d) => ({
+      type: d.cfdi_clave_sat || '004',
+      key: d.deduction_type,
+      concept: d.description || d.deduction_type,
+      amount: d.amount,
+    })),
+  ]
+    .map((line) => ({ ...line, amount: new Decimal(line.amount).toDecimalPlaces(2) }))
+    .filter((line) => line.amount.greaterThan(0));
+  const sumOf = (isTax: boolean): Decimal =>
+    Decimal.sum(0, ...lines.filter((line) => (line.type === '002') === isTax).map((line) => line.amount));
+  const taxesWithheld = sumOf(true);
+  const otherDeductions = sumOf(false);
+  const nodes = lines.map(
+    (line) =>
+      `        <nomina12:Deduccion TipoDeduccion="${line.type}" Clave="${line.key}" ` +
+      `Concepto="${escapeXml(line.concept)}" Importe="${line.amount.toFixed(2)}"/>\n`
+  );
+  const xml =
+    `      <nomina12:Deducciones TotalOtrasDeducciones="${otherDeductions.toFixed(2)}" ` +
+    `TotalImpuestosRetenidos="${taxesWithheld.toFixed(2)}">\n${nodes.join('')}      </nomina12:Deducciones>\n`;
+  return { xml, total: taxesWithheld.plus(otherDeductions) };
 }
 
 type PayRunType = (typeof PAY_RUN_TYPES)[number];

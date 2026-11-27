@@ -340,6 +340,11 @@ external:
     # Importe = the cash the paycheck handed over (0.00 when paid from 1 May 2024), its
     # SubsidioCausado = the whole subsidy of the period, and TotalOtrosPagos. The node is
     # checked against the SAT's nomina12.xsd, vendored in src/services/sat/cfdi40/xsd.
+    # CONTRACT: every TipoRegimen 02 payroll CFDI carries that OtroPago 002 node, with
+    # Importe 0.00 when the ISR is at or above the subsidy and SubsidioCausado 0.00 when
+    # none was caused (NOM105 of the SAT's matrix; #92, MNE-001-279). The worker's IMSS is
+    # Deduccion 001 and the INFONAVIT credit Deduccion 010, and TotalOtrasDeducciones and
+    # TotalImpuestosRetenidos are the sums of the Deduccion nodes written.
     # CONTRACT: the payroll CFDI writes Fecha as AAAA-MM-DDThh:mm:ss (tdCFDI:t_FechaH) and
     # FechaPago, FechaInicialPago, FechaFinalPago and FechaInicioRelLaboral as AAAA-MM-DD
     # (tdCFDI:t_Fecha): the calendar days pay_periods and employees store, whatever the
