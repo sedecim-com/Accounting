@@ -3265,6 +3265,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 62,
   },
   {
+    // MNE-001-909 (#1075, the standards review of 27 Nov 2026, finding V-4).
+    // The IVA workpaper credited the whole IVA of a paid bill in the month of
+    // its payment, the part the entity withholds and remits included. LIVA
+    // art. 5o. fr. IV credits that part in the monthly return after the one
+    // that remitted it: one paper, the one of the month after. Reader: `readWithheldVatCreditMonth`
+    // (fiscal/withheld-vat-credit.ts), once for each month the paper builds.
+    key: 'withheld_vat_credit_month',
+    textKey: 'withheld_vat_credit_month',
+    category: 'fiscal',
+    question:
+      'A vendor\'s bill carries IVA the entity withholds and remits (LIVA art. 1o.-A): in which month does the IVA workpaper credit that withheld IVA?',
+    impact:
+      'Governs the creditable IVA of the IVA workpaper for a bill whose CFDI withholds IVA; withheld-vat-credit.ts reads it once for each month the paper builds. ' +
+      'With "after_remittance" the month of the payment credits only the IVA paid to the vendor, and the withheld part is credited in the paper of the following month, and in no other, when a person states its remittance there (`--withheld-vat-remitted`, the month it was withheld in and the acuse of the return that remitted it); with no statement it is credited in no month, and that paper names it. ' +
+      'With "payment_month" the whole IVA of the bill is credited in the month of its payment, as before this key. ' +
+      'Under either answer the ledger debits the creditable IVA (1130) on payment, so under "after_remittance" the tie-out names the difference in both months. ' +
+      'The DIOT does not read this key.',
+    options: [
+      { value: 'after_remittance', label: 'Credit it in the return after the one that remitted it' },
+      { value: 'payment_month', label: 'Credit it with the rest of the bill\'s IVA, in the month of its payment' },
+    ],
+    defaultValue: 'after_remittance',
+    defaultRationale:
+      'LIVA art. 5o. fr. IV, as the payables manual of this system carries it from the official text: the IVA withheld and remitted may be credited in the monthly return following the one in which the withholding was remitted. ' +
+      'Waiting for the remittance never credits before the law allows, the conservative option of ADR-0006. ' +
+      'Crediting it with the payment is what this system did before the key, and stays for the firm that decides it.',
+    whyAsking:
+      'The law credits withheld IVA only after it is remitted, and I keep no record of that remittance: a person states it with its acuse. Before this key I credited it with the payment.',
+    whatIDo:
+      'With "after_remittance" I leave the withheld IVA out of the month of the payment and credit it in the paper of the following month, when you state its remittance there. With "payment_month" I credit the whole IVA of the bill in the month of its payment.',
+    ifSkipped: 'I credit it only in the paper of the following month, when its remittance is stated there.',
+    priority: 63,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live

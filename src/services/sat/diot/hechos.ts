@@ -234,6 +234,14 @@ const q = (d: Decimal): string => {
   return (rounded.isZero() ? new Decimal(0) : rounded).toFixed(DECIMALES_DIOT);
 };
 
+/**
+ * MNE-001-909 · Narrows a reading to the bills whose CFDI withheld IVA: the IVA
+ * workpaper's look at an earlier month, for what that month withheld (LIVA art.
+ * 5o. fr. IV). The DIOT never asks for it.
+ */
+const WITHHELD_ONLY = `AND EXISTS (SELECT 1 FROM xml_documents x
+                     WHERE x.cfdi_uuid = b.cfdi_uuid AND x.entity_id = b.entity_id AND x.total_iva_retenido > 0)`;
+
 /** Primer y último día del mes, como los espera Postgres. */
 export function rangoDelMes(anio: number, mes: number): RangoDelMes {
   const dosDigitos = String(mes).padStart(2, '0');
@@ -252,7 +260,8 @@ export function rangoDelMes(anio: number, mes: number): RangoDelMes {
 async function gastosDelMes(
   client: pg.PoolClient,
   entityId: string,
-  rango: RangoDelMes
+  rango: RangoDelMes,
+  withheldOnly: boolean
 ): Promise<FilaGasto[]> {
   const { rows } = await client.query<FilaGasto>(
     `SELECT b.id, b.bill_number, b.vendor_id,
@@ -263,6 +272,7 @@ async function gastosDelMes(
         AND b.bill_date >= $2::date AND b.bill_date <= $3::date
         AND b.journal_entry_id IS NOT NULL
         AND b.status NOT IN ('void', 'cancelled')
+        ${withheldOnly ? WITHHELD_ONLY : ''}
       ORDER BY b.bill_number`,
     [entityId, rango.desde, rango.hasta]
   );
@@ -374,7 +384,8 @@ async function gastosPagadosEnElMes(
   client: pg.PoolClient,
   entityId: string,
   rango: RangoDelMes,
-  amend: boolean
+  amend: boolean,
+  withheldOnly: boolean
 ): Promise<FilaGasto[]> {
   const sumWhere = (p: string): string => `COALESCE(SUM(pa.amount_applied) FILTER (WHERE ${p}), 0)`;
   const atEnd = sumWhere(countsOn('$3::date', '$4::boolean'));
@@ -405,6 +416,7 @@ async function gastosPagadosEnElMes(
         AND vp.status <> 'void'
         AND cd.credited_on <= $3::date
         AND b.status NOT IN ('void', 'cancelled')
+        ${withheldOnly ? WITHHELD_ONLY : ''}
       GROUP BY b.id, b.bill_number, b.vendor_id, b.tax_amount, b.total_amount,
                b.exchange_rate, b.amount_paid, b.terms, b.memo, b.cfdi_uuid
      HAVING ${atEnd} <> ${atStart} OR ($4::boolean AND ${ledgerAtEnd} <> ${ledgerAtStart})
@@ -602,13 +614,18 @@ async function appliedThrough(
  * the caller reads once (`readVendorUndoIvaMonth`). Under `payment_month`,
  * `apartFromLedger` names each bill whose IVA the papers count apart from the
  * ledger's 1130 that month; under `undo_month` it is empty.
+ *
+ * MNE-001-909 · `only: 'withheld'` reads the bills whose CFDI withheld IVA and
+ * no other, and skips the notices about checks: the same facts for them, at
+ * the cost of those bills alone.
  */
 export async function hechosDelMes(
   client: pg.PoolClient,
   entityId: string,
   anio: number,
   mes: number,
-  undoMonth: VendorUndoIvaMonth
+  undoMonth: VendorUndoIvaMonth,
+  only?: 'withheld'
 ): Promise<{ hechos: HechoPagado[]; hallazgos: Hallazgo[]; apartFromLedger: ApartFromLedger[] }> {
   const rango = rangoDelMes(anio, mes);
   const hallazgos: Hallazgo[] = [];
@@ -617,8 +634,9 @@ export async function hechosDelMes(
   const amend = undoMonth === 'payment_month';
   const answer = `${VENDOR_UNDO_IVA_MONTH_KEY} = ${undoMonth}`;
 
-  const datedInMonth = await gastosDelMes(client, entityId, rango);
-  const paidInMonth = await gastosPagadosEnElMes(client, entityId, rango, amend);
+  const withheldOnly = only === 'withheld';
+  const datedInMonth = await gastosDelMes(client, entityId, rango, withheldOnly);
+  const paidInMonth = await gastosPagadosEnElMes(client, entityId, rango, amend, withheldOnly);
 
   const byBill: FilaGasto[] = [];
   const byPayment: FilaGasto[] = [];
@@ -873,7 +891,7 @@ export async function hechosDelMes(
   // Notices only. Waiting for the cashing never underpays, and a cheque
   // credited on its payment day keeps that month: the past is not rewritten.
   // A bill declared by its own entry is not dated by its payments at all.
-  for (const c of await checksToFlag(client, entityId, rango)) {
+  for (const c of withheldOnly ? [] : await checksToFlag(client, entityId, rango)) {
     if ((await eventOf(c)) !== 'payment') continue;
     const iva = acumuladoDelDocumento(c.tax_amount, c.applied, c.total_amount, c.exchange_rate);
     hallazgos.push(

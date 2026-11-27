@@ -9,6 +9,7 @@ import {
   type FilingRounding,
   type IvaWorkpaper,
 } from './iva-workpaper.js';
+import type { WithheldVatRemittance } from './withheld-vat-credit.js';
 import {
   buildProvisionalIncomeTaxWorkpaper,
   type ProvisionalIncomeTaxWorkpaper,
@@ -140,6 +141,8 @@ export interface FilingWorkpaperOptions {
   /** A person's prior balance in favour instead of the filed returns', with its reason: see the IVA workpaper. */
   priorBalanceInFavor?: string;
   priorBalanceReason?: string;
+  /** The remittance of the IVA withheld in the month before, stated by a person: see the IVA workpaper (MNE-001-909). */
+  withheldVatRemittances?: readonly WithheldVatRemittance[];
   client?: pg.PoolClient;
 }
 
@@ -168,6 +171,8 @@ export function ivaSourceRule(key: string): SourceRule {
     case 'withheld_to_remit': return { roles: ['iva_retenido_por_pagar'], creditsOnly: true };
     case 'prior_balance_in_favor': return { filedReturns: true };
     case 'creditable.prorated': return { kind: 'derived', ref: 'proration' };
+    case 'creditable.withheld_awaiting_remittance': return { kind: 'derived', ref: 'withheld_vat' };
+    case 'creditable.withheld_remitted': return { kind: 'captured', ref: 'withheld_vat' };
     default: return { kind: 'derived' };
   }
 }
@@ -337,6 +342,18 @@ async function ivaSection(client: pg.PoolClient, o: FilingWorkpaperOptions, wp: 
       ivaPaid: pr?.paid ?? null,
       creditable: pr?.creditable ?? null,
     },
+    // MNE-001-909 · Only under after_remittance: under payment_month the paper is the one before the key.
+    ...(wp.withheldVat.value === 'after_remittance' ? { withheld_vat: {
+      policy: wp.withheldVat.key,
+      value: wp.withheldVat.value,
+      policyDefined: wp.withheldVat.defined,
+      awaitingRemittance: wp.withheldVat.awaitingRemittance,
+      credited: wp.withheldVat.credited.map((c) => `${c.period}:${c.acknowledgement}=${c.amount}`).join(' ') || null,
+      notCredited: wp.withheldVat.notCredited.map((n) => `${n.period}=${n.amount}`).join(' ') || null,
+      capturedBy: 'a person (--withheld-vat-remitted)',
+      checkedBySystem: false,
+      rule: 'LIVA art. 5o. fr. IV: credited in the monthly return after the one that remitted it',
+    } } : {}),
   };
   return {
     form: 'iva',
@@ -420,6 +437,7 @@ export async function generateFilingWorkpaper(opts: FilingWorkpaperOptions): Pro
           ? await ivaSection(client, opts, await buildIvaWorkpaper({
               tenantId, entityId, year, month, client,
               priorBalanceInFavor: opts.priorBalanceInFavor, priorBalanceReason: opts.priorBalanceReason,
+              withheldVatRemittances: opts.withheldVatRemittances,
             }))
           : await isrSection(
               client,

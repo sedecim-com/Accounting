@@ -434,9 +434,20 @@ export function unitsOfProductionNote(
   const more = assets.length > NAMED_IN_NOTE ? ` (+${assets.length - NAMED_IN_NOTE} more)` : '';
   return (
     `${assets.length} asset(s) skipped by units of production (unidades_de_produccion), nothing posted for them: ` +
-    `${named}${more}. The period's production cannot be captured yet: book the month's charge by hand (entry create)`
+    `${named}${more}. The period's production cannot be captured yet: book the month's charge by hand (entry create), or give the asset another method (asset edit --method)`
   );
 }
+
+/** The columns the card refresh writes: the only ones a posting run moves. */
+const CARD_COLUMNS = new Set(['accumulated_depreciation', 'current_book_value', 'last_depreciation_date', 'updated_at']);
+
+/**
+ * MNE-001-880 · The asset without its card columns, to tell whether the row
+ * a run computed from is still the row in the register. Every other column
+ * counts, so one added later is compared without touching this.
+ */
+const asTheRunReadIt = (asset: FixedAsset): string =>
+  JSON.stringify(Object.entries(asset).filter(([column]) => !CARD_COLUMNS.has(column)));
 
 /**
  * La corrida mensual: un renglón de calendario y un asiento por activo activo.
@@ -596,6 +607,22 @@ export async function runMonthlyDepreciation(
           // confirman (o abortan) juntos y no en conexiones distintas.
           { sourceType: 'depreciation', sourceId: asset.id, autoPost: true, client }
         );
+
+        // MNE-001-880 · THE ASSET IS LOCKED, AND IT IS STILL THE ONE THIS RUN
+        // COMPUTED FROM. `asset edit` holds this same lock while it checks
+        // that no live row exists: without it, an edit committed between the
+        // read above and this write would leave a month posted from the old
+        // figures. After the entry, so the order of locks stays the one a
+        // reversal takes (the entry number first, the asset after).
+        const current = await client.query<FixedAsset>(
+          'SELECT * FROM fixed_assets WHERE id = $1 AND entity_id = $2 FOR UPDATE',
+          [asset.id, entityId]
+        );
+        if (current.rows.length !== 1 || asTheRunReadIt(current.rows[0]) !== asTheRunReadIt(asset)) {
+          throw new ValidationError(
+            'it changed in the register while this run was posting: nothing was posted for it. Run the month again.'
+          );
+        }
 
         // MNE-001-646 · THE DEAD ROW GOES BEFORE THE NEW ONE IS WRITTEN, of
         // either book: UNIQUE(asset, period, book) says a month is one row,

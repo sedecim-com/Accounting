@@ -54,6 +54,7 @@ vi.mock('../../src/services/assets/asset-service.js', () => ({
   })),
   sembrarCategoriasDeActivo: vi.fn(),
 }));
+vi.mock('../../src/services/assets/asset-edit.js', () => ({ editAsset: vi.fn() }));
 vi.mock('node:readline/promises', () => ({
   createInterface: vi.fn(() => ({ question: vi.fn(async () => 'quizá'), close: vi.fn() })),
 }));
@@ -65,6 +66,8 @@ import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
 import * as planModule from '../../src/services/assets/depreciation-plan.js';
 import * as engine from '../../src/services/assets/depreciation.js';
 import * as store from '../../src/services/idempotency/idempotency-store.js';
+import { editAsset } from '../../src/services/assets/asset-edit.js';
+import { t } from '../../src/i18n/index.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import type { PlanDeDepreciacion } from '../../src/services/assets/depreciation-plan.js';
 
@@ -344,7 +347,8 @@ describe('I8.5 · depreciation post speaks by key', () => {
     expect(r.err).toContain(
       '  ⚠ AF-2026-00009 Torno was skipped and nothing was posted for it: it depreciates by units of production, ' +
         'and the production of Periodo 8/2026 cannot be captured yet. Book its charge by hand (mnemosine entry ' +
-        'create); the close counts it under `depreciacion_faltante_al_cierre`.\n'
+        'create), or give it another method (mnemosine asset edit --method); the close counts it under ' +
+        '`depreciacion_faltante_al_cierre`.\n'
     );
     expect(r.code).toBe(0);
     setLanguage('es');
@@ -352,7 +356,8 @@ describe('I8.5 · depreciation post speaks by key', () => {
     expect(spanish.err).toContain(
       '  ⚠ AF-2026-00009 Torno se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, ' +
         'y la producción de Periodo 8/2026 todavía no se puede capturar. Registra su cargo a mano (mnemosine ' +
-        'entry create); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.\n'
+        'entry create), o dale otro método (mnemosine asset edit --method); el cierre lo cuenta según ' +
+        '`depreciacion_faltante_al_cierre`.\n'
     );
   });
 
@@ -389,5 +394,82 @@ describe('I8.5 · asset create speaks by key', () => {
     setLanguage('es');
     const spanish = await cli(args);
     expect(spanish.err).toContain('Ensayo: la transacción se deshizo. No se creó ningún activo.');
+  });
+});
+
+// MNE-001-880 (#1069), part 1. Texts written by hand, before the code.
+describe('MNE-001-880 · asset edit speaks by key', () => {
+  const EDIT = ['asset', 'edit', 'AF-2026-00007', '--entity', 'ent-1', '--reason', 'Cost mistyped'];
+  const edited = (changes: Array<{ field: string; before: string; after: string }>, startRederived = false) =>
+    ({ id: 'fa-7', asset_number: 'AF-2026-00007', asset_name: 'Camioneta', changes, startRederived }) as never;
+  const leaf = async () =>
+    (await cli(RUN)).program.commands.find((c) => c.name() === 'asset')!.commands.find((c) => c.name() === 'edit')!;
+
+  it('hands the service what was typed and nothing else, with the reason and the person', async () => {
+    vi.mocked(editAsset).mockResolvedValue(edited([{ field: 'acquisition_cost', before: '4890000.0000', after: '489000.0000' }]));
+    const r = await cli([...EDIT, '--cost', '489,000.00', '--json']);
+    expect(r.errs).toEqual([]);
+    const [entity, asset, changes, reason, user, opts] = vi.mocked(editAsset).mock.calls.at(-1)!;
+    expect([entity, asset, reason, user, opts]).toEqual(['ent-1', 'AF-2026-00007', 'Cost mistyped', 'u-1', { client: undefined }]);
+    expect(JSON.parse(JSON.stringify(changes))).toEqual({ acquisition_cost: '489000.0000' });
+    expect(r.out).toContain('"before": "4890000.0000"');
+    expect(r.out).toContain('"after": "489000.0000"');
+  });
+
+  it('the dry run goes through the real path on a transaction it rolls back, and a start that moved is named, in both languages', async () => {
+    vi.mocked(editAsset).mockResolvedValue(edited([
+      { field: 'acquisition_date', before: '2026-01-08', after: '2026-03-20' },
+      { field: 'depreciation_start_date', before: '2026-01-01', after: '2026-03-01' },
+    ], true));
+    const args = [...EDIT, '--acquired', '2026-03-20', '--dry-run'];
+    const r = await cli(args);
+    expect(r.errs).toEqual([]);
+    expect(vi.mocked(editAsset).mock.calls.at(-1)![5]).toEqual({ client: {} });
+    expect(r.err).toContain(
+      'The start of depreciation moved from 2026-01-01 to 2026-03-01: it follows the acquisition date, by ' +
+        '`convencion_primer_mes` on the panel, unless --in-service is given.'
+    );
+    expect(r.err).toContain('Dry run: it really was written, and then rolled back.');
+    setLanguage('es');
+    const spanish = await cli(args);
+    expect(spanish.err).toContain(
+      'El inicio de la depreciación pasó de 2026-01-01 a 2026-03-01: sigue a la fecha de adquisición, según ' +
+        '`convencion_primer_mes` del panel, salvo que se dé --in-service.'
+    );
+  });
+
+  it('the refusal of an asset with posted months names the reversal and the disposal to come, in both languages', () => {
+    const key = 'error.VALIDATION_ERROR.asset.edit_has_posted_months';
+    expect(t(key, { asset: 'AF-2026-00007', months: 1, entries: 'DEP-0003', more: 0 }, 'en')).toBe(
+      'AF-2026-00007 cannot be edited: it has depreciation posted in 1 month (DEP-0003), computed from the values ' +
+        'you want to change. Reverse those entries first (mnemosine entry reverse <number> --reason "..."): a reversed ' +
+        'month is owed again, and the next run posts it from the corrected values. To take the asset out of the ' +
+        'register instead, `asset dispose` is coming. Nothing was changed.'
+    );
+    expect(t(key, { asset: 'AF-2026-00007', months: 8, entries: 'DEP-0003, DEP-0009', more: 6 }, 'es')).toBe(
+      'AF-2026-00007 no se puede editar: tiene depreciación contabilizada en 8 meses (DEP-0003, DEP-0009 y 6 más), ' +
+        'calculada con los valores que quieres cambiar. Reversa primero esas pólizas (mnemosine entry reverse <numero> ' +
+        '--reason "..."): un mes reversado vuelve a deberse, y la siguiente corrida lo contabiliza con los valores ' +
+        'corregidos. Para sacar el activo del registro, `asset dispose` está por llegar. No se cambió nada.'
+    );
+  });
+
+  it('asks for a reason, offers the five methods of registration, and keeps the agent out', async () => {
+    const calls = vi.mocked(editAsset).mock.calls.length;
+    await expect(cli(['asset', 'edit', 'AF-2026-00007', '--entity', 'ent-1', '--cost', '1'])).rejects.toThrow(/--reason <text>/);
+    const blank = await cli(['asset', 'edit', 'AF-2026-00007', '--entity', 'ent-1', '--cost', '1', '--reason', '  ']);
+    expect((blank.errs[0] as CliError).message).toBe("error: required option '--reason <text>' not specified");
+    const typo = await cli([...EDIT, '--method', 'units_of_production_x']);
+    expect((typo.errs[0] as CliError).message).toContain('--method "units_of_production_x" does not exist');
+    expect(vi.mocked(editAsset).mock.calls.length).toBe(calls);
+
+    const edit = await leaf();
+    expect(edit.options.find((o) => o.long === '--method')!.description).toBe(
+      'BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs'
+    );
+    expect(riskOf(edit)).toMatchObject({ risk: 'escritura', agentAllowed: false });
+    expect(riskOf(edit)!.writes).toBe(
+      'fixed_assets (the columns given, only while no depreciation row is live) + audit_log; no journal entry'
+    );
   });
 });
