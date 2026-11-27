@@ -1606,7 +1606,6 @@
       "src/services/backup/backup-service.ts": 22,
       "src/services/backup/exportacion-inquilino.ts": 21,
       "src/services/backup/ledger-en-base.ts": 2,
-      "src/services/banking/bank-account-service.ts": 24,
       "src/services/banking/bank-statement-service.ts": 36,
       "src/services/banking/parsers/avisos.ts": 1,
       "src/services/banking/parsers/camt053.ts": 23,

@@ -67,14 +67,16 @@ describe('MNE-001-620 · the book balance of show and list, and the posted lines
   it('set to 1112 is refused naming 1111\'s 2 posted lines and their 750.00', async () => {
     const e = await setBankGlMapping(scope(), bank, '1112', { userId: f.userId }).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ConflictError);
-    expect((e as Error).message).toContain('1111 ya tiene 2 líneas contabilizadas (saldo 750.00)');
+    expect((e as Error).message).toContain('1111 already has 2 posted lines (balance 750.00)');
   });
 
   it('forced as a dry run, set reports the 2 lines and 750.00, and the mapping stays on 1111', async () => {
     const r = await setBankGlMapping(scope(), bank, '1112', { userId: f.userId, force: true, reason: 'Prueba del remapeo', dryRun: true });
     expect(r.dryRun).toBe(true);
     expect(r.movimientosPosteados).toBe(2);
-    expect(r.advertencias.join(' ')).toContain('2 líneas contabilizadas de 1111 (saldo 750.00)');
+    expect(r.advertencias).toEqual([
+      { key: 'bank.account.warning.remapped_over_history', params: { code: '1111', lines: 2, balance: '750.00' } },
+    ]);
     // Inside the rolled-back transaction the account already points at 1112, which no entry moves.
     expect(r.cuenta.saldoLibro).toBe('0.00');
     expect((await getBankAccount(scope(), bank)).glAccount?.code).toBe('1111');

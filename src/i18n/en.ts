@@ -443,6 +443,54 @@ export const EN = {
     'Unknown reconciling item type in item {item}: "{value}". The accepted ones are: {known}.',
   // ---- end of MNE-001-825 ----
 
+  // ---- MNE-001-856 · I9 by folder, part 2b, part 2: the GL mapping gate, the conflicts, the rest of edit and set and the warnings of a bank account in src/services/banking (issue #151) ----
+  // Same recipe as MNE-001-824 above: `error.<CODE>.<area>.<case>`, codes and
+  // fields unchanged, the Spanish twin is the text each site printed. The header
+  // or no-entries reason and the ASSET or LIABILITY class are selects, and the
+  // posted line or lines of the remap is an ICU plural, so each fragment goes
+  // with its sentence. The warnings are not errors: they are the key half of
+  // BankAccountWarning, rendered by the surface (bank-command.ts warningText).
+  'error.VALIDATION_ERROR.bank_account.gl_inactive': 'GL account {code} is inactive: a bank account mapped to it could post nothing.',
+  'error.VALIDATION_ERROR.bank_account.gl_not_postable':
+    '{code} {reason, select, header {is a header account} other {does not take entries}}: the bank mapping must point at a posting account.',
+  'error.VALIDATION_ERROR.bank_account.gl_wrong_class':
+    'An account of type {type} is {expected, select, liability {a LIABILITY} other {an ASSET}} and {code} is classified as {glType}. With the type crossed, the balance is presented with its sign inverted.',
+  'error.VALIDATION_ERROR.bank_account.gl_currency':
+    'The bank account is in {currency} and GL account {code} in {glCurrency}. A book balance that adds two currencies cannot be reconciled against any statement: use a GL account in {currency}, or create the bank account in {glCurrency}.',
+  // the conflicts: one name, one GL account, one account per ref
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.ambiguous_ref':
+    '"{ref}" names {count} bank accounts within this scope. Narrow it to an entity or use the id.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.name_taken':
+    'This entity already has a bank account called "{name}" ({id}). The name is what the terminal calls it by: repeating it leaves both without a handle.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken':
+    "GL account {code} is already taken by bank account \"{name}\" ({id}). The mapping is 1:1: two bank accounts on the same GL account share a book balance and each reconciliation sees the other's transactions.",
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken_unseen':
+    'GL account {code} is already taken by a bank account this scope cannot see. The mapping is 1:1.',
+  // edit and set
+  'error.VALIDATION_ERROR.bank_account.gl_outside_entity':
+    'The account points at a GL account outside this entity: fix the mapping with `bank account set` before moving type or currency.',
+  'error.VALIDATION_ERROR.bank_account.sensitive_needs_reason':
+    'Changing {fields} requires a reason: it is the datum the money leaves with, and a change with no reason in the log cannot be told apart from a diversion.',
+  'error.VALIDATION_ERROR.bank_account.clabe_other_bank':
+    'The new CLABE belongs to bank {bank} and the account keeps SAT code {code}. Changing banks is creating another account, not editing this one.',
+  'error.VALIDATION_ERROR.bank_account.nothing_to_change':
+    'No change was asked for. Editable fields: name, bank, branch, SWIFT, IBAN, SAT code, type, currency, CLABE, account number, routing and the foreign-bank mark.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.remap_has_history':
+    '{code} already has {lines} posted {lines, plural, one {line} other {lines}} (balance {balance}). Remapping would leave that balance orphaned: with no bank account to reconcile it and out of the new one\'s reach. If that is really what you want, repeat with --force and a reason.',
+  'error.VALIDATION_ERROR.bank_account.forced_remap_needs_reason': 'Forcing the remap of an account with posted history requires a reason.',
+  // the warnings: BankAccountWarning, rendered by the surface (bank-command.ts warningText)
+  'bank.account.warning.gl_outside_entity':
+    'The mapped GL account does not belong to this entity: the book balance reads as zero and the reconciliation has nothing to run against. Fix it with `bank account set`.',
+  'bank.account.warning.gl_currency':
+    'The account is in {currency} and its GL account {code} in {glCurrency}: the book balance mixes two currencies.',
+  'bank.account.warning.gl_class': 'An account of type {type} should map to a GL account of type {expected}, and {code} is {glType}.',
+  'bank.account.warning.single_signature':
+    'Identifier change applied with ONE signature only. The catalogue requires a second approval by another user and the table to hold it does not exist yet; the reason and the actor stay in the log.',
+  'bank.account.warning.already_mapped': 'The account was already mapped to {code}: there was nothing to write.',
+  'bank.account.warning.remapped_over_history':
+    'Remapped over {lines} posted {lines, plural, one {line} other {lines}} of {code} (balance {balance}): that balance is left with no bank account to reconcile it.',
+  // ---- end of MNE-001-856 ----
+
   // ---- MNE-001-857 · I9 by folder, part 2c, part 2: the refusals of the reconciling items, reconciling-items.ts in src/services/banking (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes unchanged: VALIDATION_ERROR for a
   // ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The Spanish
