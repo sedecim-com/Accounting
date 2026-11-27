@@ -7012,12 +7012,17 @@ export const EN = {
   'migration.opening.receivable_iva_no_role':
     'The customer invoices carry {tax} of IVA not yet collected and no account has the role "{role}". Each ' +
     'collection would release IVA the ledger never parked. Point the role at the uncollected-IVA account of the ' +
-    'trial balance (mnemosine account role set {role} <account>) or correct the rate of the documents.',
+    'trial balance (mnemosine account role set {role} <account>). A document whose IVA the previous system had ' +
+    'already caused says "ivaPending": false: it keeps its rate, and nothing is parked or released for it.',
   'migration.opening.receivable_iva_not_parked':
     'The customer invoices carry {tax} of IVA not yet collected and the opening only puts {parked} on ' +
     '"{account}", the account with the role "{role}". Each collection would release IVA the ledger never parked. ' +
     'Point the role at the uncollected-IVA account of the trial balance (mnemosine account role set {role} ' +
-    '<account>) or correct the rate of the documents.',
+    '<account>). A document whose IVA the previous system had already caused says "ivaPending": false: it keeps ' +
+    'its rate, and nothing is parked or released for it.',
+  'migration.opening.receivable_iva_settled':
+    '{count} customer document(s) say "ivaPending": false, {tax} of IVA the previous system had already caused: ' +
+    'they keep their rate, the opening parks none of that IVA, and collecting them causes none: {documents}.',
   // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //

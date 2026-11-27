@@ -191,6 +191,14 @@ export interface OpeningDocument {
    * (`opening-invoices.ts`).
    */
   ivaRate?: string;
+  /**
+   * Receivables (MNE-001-946): `false` when the previous system had already
+   * caused the IVA inside the open balance, so the opening holds none of it
+   * as not yet collected. The invoice keeps its true rate, and collecting it
+   * causes nothing. Omitted means pending. NOTE: a payable document does not
+   * read it yet.
+   */
+  ivaPending?: boolean;
 }
 
 /** Una cuenta de la entidad tal como está HOY. El plan se calcula contra esto. */
