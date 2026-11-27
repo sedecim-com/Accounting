@@ -39,6 +39,8 @@ export interface DocumentoDelRenglon {
   origenDelMetodo: string;
   ivaPagado: string;
   ivaRetenido: string;
+  /** MNE-001-906 · VAT paid in the month that is not creditable, when the document has any; never part of the breakdown by rate. */
+  nonCreditableVat?: string;
   desglose: Desglose;
 }
 

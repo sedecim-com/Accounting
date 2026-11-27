@@ -231,6 +231,8 @@ export const CODIGOS_POR_CHECK = Object.freeze({
     'DIOT-CHEQUE-NOT-CASHED',
     'DIOT-CHEQUE-CREDITED-BEFORE-CASHING',
     'DIOT-PAYMENT-UNDONE',
+    // MNE-001-906: IVA the month paid that the ledger did not credit (a non-deductible expense).
+    'DIOT-IVA-NOT-CREDITABLE',
   ]),
   /** El reparto por tasa: la DIOT declara por casilla, no un total. */
   'desglose-por-tasa': Object.freeze([

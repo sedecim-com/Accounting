@@ -300,11 +300,26 @@ export async function classifyParsed(
   // ── An answer can change the role of the expense line
   const roleOverride = resolveRoleOverride(points, answers);
 
+  // MNE-001-906 · The IVA of an expense that is not deductible is not creditable
+  // (LIVA art. 5o. fr. I). When an answer sends the expense line to the
+  // non-deductible role, the IVA the CFDI transfers joins that line and no line
+  // reaches an IVA role: one debit, as the AP door's draft moves both
+  // (cash-deductibility.ts). Withholdings, IEPS and local taxes keep their lines.
+  const receivedVat = reclassRoles('received');
+  const isReceivedVat = (t: (typeof matched.posting)[number]): boolean =>
+    t.side === 'debit' && (t.role === receivedVat.from || t.role === receivedVat.to);
+  const vatWithExpense =
+    roleOverride === 'gasto_no_deducible' && matched.posting.some((t) => t.role === 'gasto')
+      ? matched.posting.filter(isReceivedVat).reduce((sum, t) => sum.plus(t.amount(facts)), new Decimal(0))
+      : null;
+
   const lines: ProposedLine[] = [];
   const missingRoles: AccountRole[] = [];
   const unparked = opts.cashBasisVat === false ? offCashBasis() : null;
   for (const t of matched.posting) {
-    const amount = t.amount(facts);
+    if (vatWithExpense && isReceivedVat(t)) continue;
+    const withItsVat = vatWithExpense !== null && t.role === 'gasto';
+    const amount = withItsVat ? vatWithExpense.plus(t.amount(facts)).toNumber() : t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
     const released = unparked?.get(t.role);
     const role = t.role === 'gasto' && roleOverride ? roleOverride : released ? released.role : t.role;
@@ -320,7 +335,9 @@ export async function classifyParsed(
       accountName: acct?.name ?? null,
       debit: t.side === 'debit' ? round2(amount) : null,
       credit: t.side === 'credit' ? round2(amount) : null,
-      description: released ? released.description : t.description,
+      description: withItsVat
+        ? 'Non-deductible expense with its VAT, which is not creditable (LIVA art. 5-I)'
+        : released ? released.description : t.description,
     });
   }
 

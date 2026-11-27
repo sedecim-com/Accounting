@@ -5531,12 +5531,13 @@ export const EN = {
   /** The inbox's hold on decisions a person answers per document: `reason` is the classifier's, `options` each decision with its values. */
   'error.CFDI_REQUIERE_DECISION.answer_per_document':
     '{reason}. Answer for this CFDI alone with `mnemosine bill inbox answer {id} <decision> <value>` ({options}), then run it again.',
-  'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending':
-    'The answer {decision} = {answer} is kept and the CFDI stays held: the entry of a non-deductible expense, which takes its IVA to the non-deductible account instead of crediting it, is not built yet. Nothing was posted.',
   'error.CFDI_REQUIERE_DECISION.answer_not_followed':
     'The answer {decision} = {answer} is kept and the CFDI stays held: the entry proposed for it has no line on the role {role}, which the answer names, so posting it would ignore the answer. Nothing was posted.',
   'error.CFDI_REQUIERE_DECISION.answer_entry_not_built':
     'The answer {decision} = {answer} is kept and the CFDI stays held: the entry that takes its amount to account {account}, the one of the role {role}, is not built yet (a pending task), and its lines are coded to other accounts. Code each line to {account} with `mnemosine bill inbox edit {id} --line <n> --account {account}` and run it again. Nothing was posted.',
+  /** `DIOT-IVA-NOT-CREDITABLE` (MNE-001-906): a notice of the DIOT and of the IVA paper; `iva` is the month's share, four decimals. */
+  'diot.finding.vat_not_creditable':
+    'Bill {billNumber}: {iva} of IVA paid this month is not creditable. Its entry took the IVA to the non-deductible expense with the expense itself (LIVA art. 5o. fr. I), so the month credits 0.00 for it, as the ledger did. The DIOT declares the value of its acts with no creditable IVA; the boxes of non-creditable IVA are not filled yet (a pending task), so the file does not declare the {iva}.',
   // ==== end of MNE-001-906 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====

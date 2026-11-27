@@ -56,14 +56,17 @@ describe('an answer the entry cannot honour yet keeps the CFDI held', () => {
   const judged = (roles: string[], openedOffRoleAccount: Record<string, string> = {}) => ({ lineRoles: new Set(roles), openedOffRoleAccount });
   const expenseEntry = judged(['gasto', 'iva_pendiente_acreditar', 'cxp']);
 
-  it('«no_deducible», whichever decision carries it and whatever the entry', () => {
-    expect(answerWithoutEntry({ efectivo_no_deducible: 'no_deducible' })).toEqual({
-      decision: 'efectivo_no_deducible', answer: 'no_deducible', role: 'gasto_no_deducible', why: 'non_deductible',
+  it('«no_deducible» is judged like any other answer: posted when the entry carries its role, held when it does not', () => {
+    const nonDeductibleEntry = judged(['gasto_no_deducible', 'cxp']);
+    expect(answerWithoutEntry({ efectivo_no_deducible: 'no_deducible' }, nonDeductibleEntry)).toBeNull();
+    expect(answerWithoutEntry({ efectivo_no_deducible: 'no_deducible', combustible_efectivo: 'gasto' }, nonDeductibleEntry)).toBeNull();
+    // The classifier followed an earlier «gasto»: the entry would credit the IVA of an expense answered non-deductible.
+    expect(answerWithoutEntry({ efectivo_no_deducible: 'gasto', combustible_efectivo: 'no_deducible' }, expenseEntry)).toEqual({
+      decision: 'combustible_efectivo', answer: 'no_deducible', role: 'gasto_no_deducible', why: 'not_followed',
     });
-    expect(answerWithoutEntry({ efectivo_no_deducible: 'gasto', combustible_efectivo: 'no_deducible' }, expenseEntry))
-      .toMatchObject({ decision: 'combustible_efectivo', why: 'non_deductible' });
-    expect(answerWithoutEntry({ efectivo_no_deducible: 'no_deducible' }, judged(['gasto_no_deducible'])))
-      .toMatchObject({ why: 'non_deductible' });
+    // An asset bought in cash above the limit: two answers that move the expense, and one entry.
+    expect(answerWithoutEntry({ gasto_vs_activo: 'activo_fijo', efectivo_no_deducible: 'no_deducible' }, judged(['activo_fijo', 'iva_pendiente_acreditar', 'cxp'])))
+      .toMatchObject({ decision: 'efectivo_no_deducible', why: 'not_followed' });
   });
 
   it('an answer whose role has no line in the entry the classifier proposes', () => {
@@ -94,7 +97,6 @@ describe('an answer the entry cannot honour yet keeps the CFDI held', () => {
     expect(answerWithoutEntry({ efectivo_no_deducible: 'gasto', gasto_vs_activo: 'activo_fijo' }, expenseEntry))
       .toMatchObject({ decision: 'gasto_vs_activo', role: 'activo_fijo', why: 'not_followed' });
     expect(answerWithoutEntry({}, expenseEntry)).toBeNull();
-    expect(answerWithoutEntry({ efectivo_no_deducible: 'gasto' })).toBeNull();
     // A value the decision does not offer names no role: the verb refuses it before it is stored.
     expect(answerWithoutEntry({ efectivo_no_deducible: 'deducible' }, expenseEntry)).toBeNull();
   });

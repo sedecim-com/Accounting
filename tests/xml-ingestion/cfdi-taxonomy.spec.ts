@@ -394,6 +394,66 @@ describe('decisions for the user', () => {
     expect(d!.basis).toMatch(/LISR/);
   });
 
+  // MNE-001-906, part 2 · LIVA art. 5o. fr. I: the IVA of a non-deductible expense is not creditable.
+  const entryOf = (c: Awaited<ReturnType<typeof classify>>) =>
+    c.lines.map((l) => `${l.role} ${l.accountCode} ${l.debit ?? 0}/${l.credit ?? 0}`);
+
+  it('cash above the limit answered «no_deducible»: the expense and its IVA are one debit to 6900, none to 1135 or 1130', async () => {
+    const c = await classify(
+      { formaPago: '01', subtotal: 5000, iva: 800, total: 5800 },
+      { answers: { efectivo_no_deducible: 'no_deducible' } }
+    );
+    // 5,000.00 + 800.00 = 5,800.00
+    expect(entryOf(c)).toEqual(['gasto_no_deducible 6900 5800/0', 'cxp 2110 0/5800']);
+    expect(c.verdict).toBe('ready');
+    expect(c.lines[0].description).toMatch(/LIVA art\. 5/);
+  });
+
+  it('answered «gasto» the entry is the one of any PUE expense', async () => {
+    const c = await classify(
+      { formaPago: '01', subtotal: 5000, iva: 800, total: 5800 },
+      { answers: { efectivo_no_deducible: 'gasto' } }
+    );
+    expect(entryOf(c)).toEqual(['gasto 6100 5000/0', 'iva_pendiente_acreditar 1135 800/0', 'cxp 2110 0/5800']);
+  });
+
+  it('fuel in cash answered «no_deducible» takes the same road: 1,000.00 + 160.00 to 6900', async () => {
+    const c = await classify(
+      { formaPago: '01', subtotal: 1000, iva: 160, total: 1160, claveProdServ: '15101514' },
+      { answers: { combustible_efectivo: 'no_deducible' } }
+    );
+    expect(entryOf(c)).toEqual(['gasto_no_deducible 6900 1160/0', 'cxp 2110 0/1160']);
+  });
+
+  it('on books that keep no cash-basis IVA the creditable line goes with the expense too', async () => {
+    const c = await classify(
+      { formaPago: '01', subtotal: 5000, iva: 800, total: 5800 },
+      { answers: { efectivo_no_deducible: 'no_deducible' }, cashBasisVat: false }
+    );
+    expect(entryOf(c)).toEqual(['gasto_no_deducible 6900 5800/0', 'cxp 2110 0/5800']);
+  });
+
+  it('withholdings keep their lines: only the IVA transferred joins the expense', async () => {
+    // 10,000.00 + 1,600.00 − 1,000.00 ISR − 1,066.67 IVA withheld = 9,533.33 in cash.
+    const c = await classify(
+      { formaPago: '01', subtotal: 10000, iva: 1600, isrRet: 1000, ivaRet: 1066.67, total: 9533.33 },
+      { answers: { efectivo_no_deducible: 'no_deducible' } }
+    );
+    const lines = entryOf(c);
+    expect(lines[0]).toBe('gasto_no_deducible 6900 11600/0');
+    expect(lines.some((l) => /^iva_(acreditable|pendiente_acreditar) /.test(l))).toBe(false);
+    expect(lines).toContain('cxp 2110 0/9533.33');
+  });
+
+  it('a restaurant meal under the panel answer «no_deducible»: the whole 2,320.00 to 6900', async () => {
+    // Fixture description stays in Spanish: it is invoice data matched by the Spanish-language rules.
+    const c = await classify(
+      { descripcion: 'Consumo de alimentos en restaurante', subtotal: 2000, iva: 320, total: 2320 },
+      { answers: { consumo_restaurante: 'no_deducible' } }
+    );
+    expect(entryOf(c)).toEqual(['gasto_no_deducible 6900 2320/0', 'cxp 2110 0/2320']);
+  });
+
   it('suggests the 8.5% split for restaurant meals', async () => {
     // Fixture description stays in Spanish: it is invoice data matched by the Spanish-language rules.
     const c = await classify({ descripcion: 'Consumo de alimentos en restaurante', subtotal: 2000, iva: 320, total: 2320 });

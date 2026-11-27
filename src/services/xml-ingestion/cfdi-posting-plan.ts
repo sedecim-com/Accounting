@@ -49,6 +49,15 @@ const ROLES_DE_GASTO = new Set<AccountRole>([
 ]);
 
 /**
+ * MNE-001-906 · The expense roles a person's coding of each concept may refine.
+ * The non-deductible role is not one of them: an expense the law does not let
+ * deduct, with the IVA that goes with it (LIVA art. 5o. fr. I), posts to the
+ * account of that role, whatever account its lines are coded to. Opened by
+ * line, the answer «non-deductible» moved nothing.
+ */
+const OPENED_BY_LINE = new Set<AccountRole>([...ROLES_DE_GASTO].filter((role) => role !== 'gasto_no_deducible'));
+
+/**
  * The one expense role of a classification and its account code, or why there
  * is none. Read under `received_line_without_account = role_generic_account`
  * (MNE-001-553, #684): a line nobody coded takes that account only when the
@@ -192,7 +201,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
   );
 
   // ── ¿Se puede abrir la línea de gasto en los renglones del documento?
-  const lineasGasto = clasificacion.lines.filter((l) => ROLES_DE_GASTO.has(l.role));
+  const lineasGasto = clasificacion.lines.filter((l) => OPENED_BY_LINE.has(l.role));
   const importeGasto = lineasGasto.reduce(
     (s, l) => s.plus(l.debit ?? 0).minus(l.credit ?? 0),
     new Decimal(0)
@@ -203,7 +212,9 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
   // plan reads no accounts' eligibility, so a suggestion alone opens nothing here.
   const cuentaDe = (r: RenglonDocumento) => pickLineAccount(r, opts.cuentaGastoPorDefecto, NO_ELIGIBLE_SUGGESTION);
 
-  let desglose: PlanDeAsiento['desglose'] = 'sin_gasto';
+  // An expense line that is not opened by line posts to the account of its role.
+  let desglose: PlanDeAsiento['desglose'] =
+    clasificacion.lines.some((l) => ROLES_DE_GASTO.has(l.role)) ? 'generica' : 'sin_gasto';
   if (lineasGasto.length > 0) {
     const cuadra = importeGasto.minus(sumaRenglones).abs().lessThanOrEqualTo('0.01');
     const todosConCuenta = opts.renglones.every((r) => cuentaDe(r) !== undefined);
@@ -279,7 +290,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
       }
       continue;
     }
-    if (desglose === 'abierta' && ROLES_DE_GASTO.has(propuesta.role)) {
+    if (desglose === 'abierta' && OPENED_BY_LINE.has(propuesta.role)) {
       // La línea de gasto se abre en los renglones del documento; cada uno
       // conserva su cuenta y su centro de costo.
       const roleAccount = propuesta.accountCode ? porCodigo.get(propuesta.accountCode) : undefined;

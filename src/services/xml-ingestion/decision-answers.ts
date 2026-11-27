@@ -68,7 +68,7 @@ export interface AnswerWithoutEntry {
   decision: string;
   answer: string;
   role: string;
-  why: 'non_deductible' | 'not_followed' | 'off_role_account';
+  why: 'not_followed' | 'off_role_account';
   /** `off_role_account`: the code of the account of the role, where the amount should land. */
   account?: string;
 }
@@ -84,11 +84,7 @@ export interface EntryToJudge {
 /**
  * The first stored answer the entry cannot honour yet, or null. The door never
  * posts an entry that ignores what a person answered; holding is what it did
- * before the answer existed. Without `entry` only the first reason is judged.
- *
- * NOTE(MNE-001-906, part 2): `non_deductible`, an answer that sends the expense
- * to the non-deductible role, has no entry yet. Today's would debit the lines'
- * own accounts and park the IVA as creditable, which LIVA art. 5o. fr. I denies.
+ * before the answer existed.
  *
  * `not_followed`: no line of the classifier sits on the role the answer names.
  * It follows one answer per CFDI, and only on a case that has an expense line.
@@ -101,15 +97,16 @@ export interface EntryToJudge {
  * An answer that names the plain expense role asks for no change: it is judged
  * only when no other answer moves the expense, and never by the lines' accounts,
  * which are the person's own coding of an expense.
+ *
+ * MNE-001-906, part 2: «non-deductible» is judged like any other answer since
+ * its entry exists (cfdi-classifier.ts takes the IVA with the expense, and the
+ * plan posts that role to its own account).
  */
-export function answerWithoutEntry(answers: Record<string, string>, entry?: EntryToJudge): AnswerWithoutEntry | null {
+export function answerWithoutEntry(answers: Record<string, string>, entry: EntryToJudge): AnswerWithoutEntry | null {
   const asked = Object.entries(answers).flatMap(([decision, answer]) => {
     const role = getDecision(decision)?.options.find((o) => o.value === answer)?.role;
     return role ? [{ decision, answer, role }] : [];
   });
-  const nonDeductible = asked.find((a) => a.role === 'gasto_no_deducible');
-  if (nonDeductible) return { ...nonDeductible, why: 'non_deductible' };
-  if (!entry) return null;
   const moves = asked.filter((a) => a.role !== 'gasto');
   const unmet = (moves.length > 0 ? moves : asked).find((a) => !entry.lineRoles.has(a.role));
   if (unmet) return { ...unmet, why: 'not_followed' };
@@ -124,8 +121,6 @@ export interface HeldDecisionAnswer {
   answer: string;
   answeredBy: string;
   answeredAt: string;
-  /** True when the answer is kept but its entry does not exist yet (`answerWithoutEntry`). */
-  entryPending: boolean;
 }
 
 const invalid = (message: ErrorMessageKey) => new AccountingError('CFDI_ANSWER_INVALID', message);
@@ -199,7 +194,6 @@ export async function answerHeldDecision(
       answer: input.answer,
       answeredBy: userId,
       answeredAt,
-      entryPending: answerWithoutEntry({ [asked.id]: input.answer }) !== null,
     };
   });
 }

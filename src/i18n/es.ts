@@ -4763,12 +4763,12 @@ export const ES: Record<keyof typeof EN, string> = {
     '"{value}" no es una opción de "{decision}" para este CFDI. Las opciones son: {options}. No se escribió nada.',
   'error.CFDI_REQUIERE_DECISION.answer_per_document':
     '{reason}. Contesta sólo para este CFDI con `mnemosine bill inbox answer {id} <decision> <value>` ({options}) y córrelo de nuevo.',
-  'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending':
-    'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza de un gasto no deducible, que lleva su IVA a la cuenta no deducible en vez de acreditarlo, todavía no se construye. No se contabilizó nada.',
   'error.CFDI_REQUIERE_DECISION.answer_not_followed':
     'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza que se le propone no tiene renglón en el rol {role}, que es el que la respuesta nombra, así que contabilizarla la ignoraría. No se contabilizó nada.',
   'error.CFDI_REQUIERE_DECISION.answer_entry_not_built':
     'La respuesta {decision} = {answer} queda guardada y el CFDI sigue detenido: la póliza que lleva su importe a la cuenta {account}, la del rol {role}, todavía no se construye (tarea pendiente), y sus renglones están codificados a otras cuentas. Codifica cada renglón a la {account} con `mnemosine bill inbox edit {id} --line <n> --account {account}` y córrelo de nuevo. No se contabilizó nada.',
+  'diot.finding.vat_not_creditable':
+    'Gasto {billNumber}: {iva} de IVA pagado este mes no son acreditables. Su póliza llevó el IVA al gasto no deducible junto con el gasto (LIVA art. 5o. fr. I), así que el mes acredita 0.00 por él, como el mayor. La DIOT declara el valor de sus actos sin IVA acreditable; las casillas de IVA no acreditable todavía no se llenan (tarea pendiente), así que el archivo no declara los {iva}.',
   // ==== end of MNE-001-906 ====
 
   // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====

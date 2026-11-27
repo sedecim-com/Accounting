@@ -137,6 +137,20 @@ import { getPolicy, type PolicyContext } from '../../policy/policy-service.js';
 // ledger is the same under both, so the papers part from it in those two
 // months, and say why (`apartFromLedger`).
 //
+//
+// THE IVA THE LEDGER DID NOT CREDIT (MNE-001-906, #1075)
+//
+// The IVA of an expense that is not deductible is not creditable (LIVA art.
+// 5o. fr. I). A bill posted that way debits its IVA to the non-deductible
+// expense with the expense itself and nothing to 1135 or 1130. The mark is
+// read where it cannot be reworded, in the lines of the bill's own entry by
+// the role of their accounts (`vatNotCredited`, one statement a month), never
+// in a description. Such a bill is declared by its payments, whatever its
+// method, since the DIOT reports what was paid; the month credits nothing for
+// it, as the ledger did, and the fact carries the share of its header IVA the
+// month paid as `nonCreditableVat`. `DIOT-IVA-NOT-CREDITABLE` names it: the
+// boxes of non-creditable IVA of the file are MNE-001-918's.
+//
 // ============================================================
 
 /** Un documento y el tramo suyo que este mes declaró como pagado. */
@@ -156,6 +170,12 @@ export interface HechoPagado {
   ivaPagado: string;
   /** El IVA retenido a este tercero en el tramo, en moneda funcional. */
   ivaRetenido: string;
+  /**
+   * MNE-001-906 · The IVA of the month's share that is not creditable, in the
+   * functional currency: the bill's entry took it to the non-deductible expense.
+   * '0.0000' for every other bill. Never part of `ivaPagado`.
+   */
+  nonCreditableVat: string;
   /**
    * What the month undid of the payments applied to the bill, in its currency
    * ('0.0000' when nothing): `ivaPagado`, `ivaRetenido` and `porcion` are
@@ -462,6 +482,34 @@ async function checksToFlag(
   return rows;
 }
 
+/**
+ * MNE-001-906 · The bills, among `billIds`, whose own entry debits the account
+ * of the non-deductible role and no account of a received-IVA role, and whose
+ * header carries IVA: the ledger did not credit it. One statement, bounded by
+ * the entity and by the month's own bills.
+ */
+async function vatNotCredited(
+  client: pg.PoolClient,
+  entityId: string,
+  billIds: readonly string[]
+): Promise<Set<string>> {
+  if (billIds.length === 0) return new Set();
+  const vat = reclassRoles('received');
+  const { rows } = await client.query<{ id: string }>(
+    `SELECT b.id
+       FROM bills b
+       JOIN journal_entries je ON je.id = b.journal_entry_id AND je.entity_id = b.entity_id
+                              AND je.source_type = 'bill' AND je.source_id = b.id AND je.status = 'posted'
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id AND jel.debit_amount > 0
+       JOIN account_roles ar ON ar.account_id = jel.account_id AND ar.entity_id = b.entity_id AND ar.qualifier IS NULL
+      WHERE b.entity_id = $1 AND b.id = ANY($2::uuid[]) AND b.tax_amount > 0
+      GROUP BY b.id
+     HAVING bool_or(ar.role = 'gasto_no_deducible') AND NOT bool_or(ar.role = ANY($3::text[]))`,
+    [entityId, billIds, [vat.from, vat.to]]
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
 interface FilaRenglon {
   bill_id: string;
   tipo_factor: string;
@@ -619,6 +667,11 @@ export async function hechosDelMes(
 
   const datedInMonth = await gastosDelMes(client, entityId, rango);
   const paidInMonth = await gastosPagadosEnElMes(client, entityId, rango, amend);
+  const checks = await checksToFlag(client, entityId, rango);
+  // MNE-001-906: the month's bills whose IVA the ledger did not credit.
+  const notCreditable = await vatNotCredited(
+    client, entityId, [...new Set([...datedInMonth, ...paidInMonth, ...checks].map((g) => g.id))]
+  );
 
   const byBill: FilaGasto[] = [];
   const byPayment: FilaGasto[] = [];
@@ -663,6 +716,12 @@ export async function hechosDelMes(
   const eventOf = async (g: FilaGasto): Promise<HechoPagado['event']> => {
     const known = events.get(g.id);
     if (known) return known;
+    // MNE-001-906: IVA that is not creditable is declared when it is paid, never by the bill's month.
+    if (notCreditable.has(g.id)) {
+      await metodoDe(g);
+      events.set(g.id, 'payment');
+      return 'payment';
+    }
     const parkedNothing =
       (await parkedOf(g)).isZero() &&
       new Decimal(
@@ -676,7 +735,7 @@ export async function hechosDelMes(
   const waiting: FilaGasto[] = [];
   for (const g of datedInMonth) {
     if ((await eventOf(g)) === 'bill') byBill.push(g);
-    else if (clasificado.get(g.id)!.metodo === 'PUE') waiting.push(g);
+    else if (clasificado.get(g.id)!.metodo === 'PUE' && !notCreditable.has(g.id)) waiting.push(g);
   }
   for (const g of paidInMonth) {
     if ((await eventOf(g)) === 'payment') byPayment.push(g);
@@ -712,7 +771,8 @@ export async function hechosDelMes(
     g: FilaGasto,
     event: HechoPagado['event'],
     porcion: PorcionPagada,
-    ivaPagado: string
+    ivaPagado: string,
+    nonCreditableVat = q(new Decimal(0))
   ): HechoPagado => ({
     billId: g.id,
     billNumber: g.bill_number,
@@ -722,6 +782,7 @@ export async function hechosDelMes(
     ivaCabecera: g.tax_amount,
     ivaPagado,
     ivaRetenido: porcionDelDocumento(retenciones.get(g.id) ?? '0', porcion),
+    nonCreditableVat,
     // Under payment_month the papers take nothing out, so nothing undone is traced.
     undoneInMonth: q(new Decimal(amend ? '0' : g.undone_in_month ?? '0')),
     porcion,
@@ -790,7 +851,19 @@ export async function hechosDelMes(
     const ivaPagado = capped(hastaFin).minus(capped(hastaInicio));
 
     const sinTope = new Decimal(porcionDelDocumento(g.tax_amount, porcion));
-    if (sinTope.greaterThan(ivaPagado)) {
+    // MNE-001-906: nothing was parked because nothing is creditable; the month's share of the
+    // header IVA is what the month paid and may not credit.
+    const marked = notCreditable.has(g.id);
+    if (marked && !sinTope.isZero()) {
+      hallazgos.push({
+        codigo: 'DIOT-IVA-NOT-CREDITABLE',
+        severidad: 'aviso',
+        documentId: g.id,
+        documentNumber: g.bill_number,
+        mensaje: { key: 'diot.finding.vat_not_creditable', params: { billNumber: g.bill_number, iva: q(sinTope) } },
+      });
+    }
+    if (!marked && sinTope.greaterThan(ivaPagado)) {
       hallazgos.push({
         codigo: 'DIOT-TOPE-APARCADO',
         severidad: 'aviso',
@@ -806,7 +879,9 @@ export async function hechosDelMes(
 
     // MNE-001-754 · Under payment_month a bill kept only because the ledger
     // moved declares nothing: no zero row in the DIOT, no zero contribution.
-    if (!new Decimal(hastaFin).equals(hastaInicio)) hechos.push(arma(g, 'payment', porcion, q(ivaPagado)));
+    if (!new Decimal(hastaFin).equals(hastaInicio)) {
+      hechos.push(arma(g, 'payment', porcion, q(ivaPagado), marked ? q(sinTope) : undefined));
+    }
 
     const undone = new Decimal(g.undone_from_before ?? '0');
     const later = amend ? new Decimal(g.undone_later ?? '0') : new Decimal(0);
@@ -873,8 +948,8 @@ export async function hechosDelMes(
   // Notices only. Waiting for the cashing never underpays, and a cheque
   // credited on its payment day keeps that month: the past is not rewritten.
   // A bill declared by its own entry is not dated by its payments at all.
-  for (const c of await checksToFlag(client, entityId, rango)) {
-    if ((await eventOf(c)) !== 'payment') continue;
+  for (const c of checks) {
+    if ((await eventOf(c)) !== 'payment' || notCreditable.has(c.id)) continue;
     const iva = acumuladoDelDocumento(c.tax_amount, c.applied, c.total_amount, c.exchange_rate);
     hallazgos.push(
       c.cashed_on === null

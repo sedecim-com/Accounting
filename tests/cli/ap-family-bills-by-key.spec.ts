@@ -53,7 +53,7 @@ vi.mock('../../src/services/xml-ingestion/pre-registration-coding.js', async (or
   codePreRegistration: vi.fn(async () => ({ lines: [], default_account_id: 'a1', document_type: 'bill' })),
 }));
 vi.mock('../../src/services/xml-ingestion/decision-answers.js', () => ({
-  answerHeldDecision: vi.fn(async (_e: string, _id: string, a: { decision: string; answer: string }) => ({ ...a, entryPending: false })),
+  answerHeldDecision: vi.fn(async (_e: string, _id: string, a: { decision: string; answer: string }) => ({ ...a })),
 }));
 const processSpy = vi.fn();
 vi.mock('../../src/services/xml-ingestion/pre-registration-service.js', async (original) => ({

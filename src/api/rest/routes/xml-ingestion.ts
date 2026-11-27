@@ -478,7 +478,6 @@ router.post('/pre-registrations/:id/answer', declararRiesgoRuta({ riesgo: 'escri
       answer: kept.answer,
       answered_by: kept.answeredBy,
       answered_at: kept.answeredAt,
-      entry_pending: kept.entryPending,
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });

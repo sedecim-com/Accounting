@@ -148,7 +148,7 @@ describe('cash above the limit: the person answers efectivo_no_deducible for one
     expect(await entryOf(doc.id)).toEqual([]);
 
     const answered = await answerHeldDecision(f.entityId, doc.id, { decision: 'efectivo_no_deducible', answer: 'gasto' }, f.userId);
-    expect(answered).toMatchObject({ decision: 'efectivo_no_deducible', answer: 'gasto', answeredBy: f.userId, entryPending: false });
+    expect(answered).toMatchObject({ decision: 'efectivo_no_deducible', answer: 'gasto', answeredBy: f.userId });
 
     expect((await run(doc.id)).bill).toBeDefined();
     // Today's entry of a PUE expense that is not cash: 5,000.00 + 800.00 parked until it is paid.
@@ -166,29 +166,23 @@ describe('cash above the limit: the person answers efectivo_no_deducible for one
     ).rejects.toMatchObject({ code: 'CFDI_ANSWER_NOT_OPEN' });
   }, 120_000);
 
-  it('answered «no_deducible», the answer is kept and the CFDI stays held: nothing is posted until its entry exists', async () => {
+  it('answered «no_deducible», the run posts the expense and its IVA to 6900, and the bill keeps its header IVA', async () => {
     const doc = await upload(cash());
     await expect(run(doc.id)).rejects.toMatchObject({ code: 'CFDI_REQUIERE_DECISION' });
-    const answered = await answerHeldDecision(f.entityId, doc.id, { decision: 'efectivo_no_deducible', answer: 'no_deducible' }, f.userId);
-    expect(answered.entryPending).toBe(true);
+    await answerHeldDecision(f.entityId, doc.id, { decision: 'efectivo_no_deducible', answer: 'no_deducible' }, f.userId);
 
-    await expect(run(doc.id)).rejects.toMatchObject({
-      code: 'CFDI_REQUIERE_DECISION',
-      messageKey: {
-        key: 'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending',
-        params: { decision: 'efectivo_no_deducible', answer: 'no_deducible' },
-      },
-    });
-    expect(await entryOf(doc.id)).toEqual([]);
-    expect((await query(`SELECT 1 FROM bills WHERE entity_id = $1 AND cfdi_uuid = $2`, [f.entityId, doc.uuid])).rowCount).toBe(0);
-    const trail = await getClassificationTrail(f.entityId, doc.uuid);
-    expect(trail.status).toBe('blocked');
-    expect((trail.decisions as TrailDecision[]).find((d) => d.id === 'efectivo_no_deducible')).toMatchObject({ answer: 'no_deducible' });
-
-    // The person can still say the CFDI's payment form was wrong: the last answer stands.
-    await answerHeldDecision(f.entityId, doc.id, { decision: 'efectivo_no_deducible', answer: 'gasto' }, f.userId);
     expect((await run(doc.id)).bill).toBeDefined();
-    expect(await entryOf(doc.id)).toEqual(['1135 800.00/0.00', '2110 0.00/5800.00', '6100 5000.00/0.00']);
+    // 5,000.00 + 800.00 = 5,800.00 in one debit; nothing on 1135 or 1130 (LIVA art. 5o. fr. I).
+    expect(await entryOf(doc.id)).toEqual(['2110 0.00/5800.00', '6900 5800.00/0.00']);
+    const bill = await query<{ subtotal: string; tax_amount: string; total_amount: string }>(
+      `SELECT subtotal::numeric(19,2)::text, tax_amount::numeric(19,2)::text, total_amount::numeric(19,2)::text
+         FROM bills WHERE entity_id = $1 AND cfdi_uuid = $2`,
+      [f.entityId, doc.uuid]
+    );
+    expect(bill.rows).toEqual([{ subtotal: '5000.00', tax_amount: '800.00', total_amount: '5800.00' }]);
+    const trail = await getClassificationTrail(f.entityId, doc.uuid);
+    expect(trail.status).toBe('posted');
+    expect((trail.decisions as TrailDecision[]).find((d) => d.id === 'efectivo_no_deducible')).toMatchObject({ answer: 'no_deducible' });
   }, 120_000);
 });
 
@@ -222,14 +216,20 @@ describe('the same verb answers any blocking decision whose options say where th
       'efectivo_no_deducible:gasto', 'combustible_efectivo:?',
     ]);
 
-    // One «no_deducible» among the answers keeps it held, whichever decision carries it.
+    // The classifier follows the first answer only (a finding): «gasto» then «no_deducible» would credit
+    // the IVA of an expense answered non-deductible, so the door holds it.
     await answerHeldDecision(f.entityId, doc.id, { decision: 'combustible_efectivo', answer: 'no_deducible' }, f.userId);
     await expect(run(doc.id)).rejects.toMatchObject({
-      messageKey: { key: 'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending', params: { decision: 'combustible_efectivo' } },
+      messageKey: {
+        key: 'error.CFDI_REQUIERE_DECISION.answer_not_followed',
+        params: { decision: 'combustible_efectivo', answer: 'no_deducible', role: 'gasto_no_deducible' },
+      },
     });
-    await answerHeldDecision(f.entityId, doc.id, { decision: 'combustible_efectivo', answer: 'gasto' }, f.userId);
+    expect(await entryOf(doc.id)).toEqual([]);
+    // Both answered «no_deducible», the entry is the non-deductible one: 5,000.00 + 800.00 to 6900.
+    await answerHeldDecision(f.entityId, doc.id, { decision: 'efectivo_no_deducible', answer: 'no_deducible' }, f.userId);
     expect((await run(doc.id)).bill).toBeDefined();
-    expect(await entryOf(doc.id)).toEqual(['1135 800.00/0.00', '2110 0.00/5800.00', '6100 5000.00/0.00']);
+    expect(await entryOf(doc.id)).toEqual(['2110 0.00/5800.00', '6900 5800.00/0.00']);
   }, 120_000);
 
   it('an answer the proposed entry does not follow keeps the CFDI held: an advance answered «gasto»', async () => {
@@ -291,7 +291,7 @@ describe('the same verb answers any blocking decision whose options say where th
       const ok = await pedir(s, 'POST', `/v1/pre-registrations/${doc.id}/answer`, { decision: 'efectivo_no_deducible', answer: 'gasto' });
       expect(ok.status).toBe(200);
       expect((ok.body as { data: Record<string, unknown> }).data).toMatchObject({
-        pre_registration_id: doc.id, decision: 'efectivo_no_deducible', answer: 'gasto', answered_by: f.userId, entry_pending: false,
+        pre_registration_id: doc.id, decision: 'efectivo_no_deducible', answer: 'gasto', answered_by: f.userId,
       });
       expect((await pedir(s, 'POST', `/v1/pre-registrations/${doc.id}/process`, {})).status).toBe(200);
     } finally {

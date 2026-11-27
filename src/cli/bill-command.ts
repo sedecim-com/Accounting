@@ -1069,13 +1069,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           ref: idArg.trim().slice(0, 8), decision: kept.decision, answer: kept.answer,
         })}\n`
       );
-      process.stderr.write(
-        deps.palette.dim(
-          `  ${kept.entryPending
-            ? t('error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending', { decision: kept.decision, answer: kept.answer })
-            : t('ap.bill.inbox.edit.post_with', { id: idArg.trim() })}\n`
-        )
-      );
+      process.stderr.write(deps.palette.dim(`  ${t('ap.bill.inbox.edit.post_with', { id: idArg.trim() })}\n`));
     })
   );
 

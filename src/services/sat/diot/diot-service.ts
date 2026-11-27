@@ -322,6 +322,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
         origenDelMetodo: h.metodo.origin,
         ivaPagado: h.ivaPagado,
         ivaRetenido: h.ivaRetenido,
+        ...(new Decimal(h.nonCreditableVat).isZero() ? {} : { nonCreditableVat: h.nonCreditableVat }),
         desglose,
       });
       acumulado.retenido = acumulado.retenido.plus(h.ivaRetenido);

@@ -912,14 +912,12 @@ export class PreRegistrationService {
       const { why, decision, answer, role, account } = awaited;
       throw new AccountingError(
         'CFDI_REQUIERE_DECISION',
-        why === 'non_deductible'
-          ? { key: 'error.CFDI_REQUIERE_DECISION.non_deductible_entry_pending', params: { decision, answer, role } }
-          : why === 'not_followed'
-            ? { key: 'error.CFDI_REQUIERE_DECISION.answer_not_followed', params: { decision, answer, role } }
-            : {
-                key: 'error.CFDI_REQUIERE_DECISION.answer_entry_not_built',
-                params: { decision, answer, role, account: account ?? '', id: String(preReg.id) },
-              }
+        why === 'not_followed'
+          ? { key: 'error.CFDI_REQUIERE_DECISION.answer_not_followed', params: { decision, answer, role } }
+          : {
+              key: 'error.CFDI_REQUIERE_DECISION.answer_entry_not_built',
+              params: { decision, answer, role, account: account ?? '', id: String(preReg.id) },
+            }
       );
     }
 
