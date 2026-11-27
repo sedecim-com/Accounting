@@ -2318,7 +2318,7 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
     expect(r.out, 'un cero aquí sería exactamente el defecto histórico').not.toMatch(
       /VARIACIÓN\s+0\.00/
     );
-    expect(r.out).toMatch(/nadie restó nada/);
+    expect(r.out).toMatch(/A zero here would mean "nobody subtracted anything"/);
   });
 
   it('NUNCA lee `variance` de la columna como la respuesta', async () => {
@@ -3672,6 +3672,51 @@ describe('I7 · el piloto bilingüe: la misma hoja en los dos locales', () => {
     expect(r.out).toMatch(/statement balance\s+750\.00/);
     expect(r.out).toMatch(/VARIANCE\s+-70\.00/);
     expect(r.out).not.toMatch(/saldo del extracto/);
+  });
+
+  // MNE-001-858: a finding of the arithmetic follows the reader. One that the
+  // service puts inside its own Spanish sentence stays Spanish, whole.
+  describe('the findings of the arithmetic', () => {
+    type Sheet = { findings: { code: string; detail: string }[]; blockers: { code: string; detail: string }[] };
+    const unexplained = { sinExplicar: { cuantos: '2', importe: '-50.0000' } };
+    const spanish =
+      '2 movimiento(s) del extracto sin cotejo y sin partida que los explique. Qué hacer con ellos lo decide la ' +
+      'política `linea_banco_sin_partida_al_cierre`.';
+    const sheet = async (locale: string, world: typeof responder = mundo(unexplained)): Promise<Sheet> => {
+      const r = await withLocale(locale, () => run(['bank', 'reconciliation', 'status', SES, '--json'], world));
+      return (JSON.parse(r.out) as { rows: Sheet[] }).rows[0];
+    };
+
+    it('reads English with en-US and the Spanish of before with es-MX, in the JSON and on the sheet', async () => {
+      expect((await sheet('en-US')).findings).toEqual([{
+        code: 'linea-de-banco-sin-explicar',
+        detail:
+          '2 statement movement(s) with no match and no item that explains them. What to do with them is decided ' +
+          'by the policy `linea_banco_sin_partida_al_cierre`.',
+      }]);
+      expect((await sheet('es-MX')).findings).toEqual([{ code: 'linea-de-banco-sin-explicar', detail: spanish }]);
+
+      const undated = (locale: string) =>
+        withLocale(locale, () => run(['bank', 'reconciliation', 'status', SES], mundo({ partidas: [partidaFila()] })));
+      expect((await undated('en-US')).out).toContain('[partida-sin-fechar] 1 open item(s) with no expected date.');
+      expect((await undated('es-MX')).out).toContain('[partida-sin-fechar] 1 partida(s) abierta(s) sin fecha esperada.');
+    });
+
+    it('inside the Spanish sentence of a policy it stays Spanish, whatever the reader', async () => {
+      const [carried] = (await sheet('en-US')).blockers;
+      expect(carried.detail).toBe(
+        `${spanish} Con "partida_conciliatoria" no hace falta que nadie diga qué son: \`bank reconciliation run\` las ` +
+          'levanta y las tipifica por su signo. Lo que sí hace falta después es fecharlas y asignarles responsable, y ' +
+          'eso no lo puede inventar el programa.'
+      );
+      const suspense = mundo(unexplained);
+      const [parked] = (await sheet('en-US', (text, params) =>
+        /FROM policy_decisions/.test(text) && params[1] === 'linea_banco_sin_partida_al_cierre'
+          ? filas([{ key: params[1], status: 'resolved', resolved_value: 'suspenso', question: 'q', resolution_notes: null, default_value: null }])
+          : suspense(text)
+      )).blockers;
+      expect(parked.detail).toMatch(/^2 movimiento\(s\) del extracto .*`\. La política de este despacho es "suspenso"/);
+    });
   });
 
   it('el TIPO de una partida NO se traduce: es el valor del CHECK de la 053', async () => {

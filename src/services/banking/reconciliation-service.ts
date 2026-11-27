@@ -5,7 +5,7 @@ import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import { condicionDeAlcance, type Scope } from '../../database/scope.js';
 import { RECONCILIATION_SESSION_STATUSES } from '../../database/enums.js';
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError, textIn, type KeyedText } from '../../utils/errors.js';
 import { FLOOR_MAX_TOLERANCIA_CONCILIACION, floorTolerancia } from '../../ai/floor.js';
 import {
   canonicalDraftHash,
@@ -1055,7 +1055,14 @@ export type CodigoDeReparoDeSesion = Reparo['codigo'] | 'deriva-del-extracto';
 
 export interface ReparoDeSesion {
   codigo: CodigoDeReparoDeSesion;
-  detalle: string;
+  /**
+   * A finding of the arithmetic arrives by key and is rendered by its reader
+   * (MNE-001-858). One this file frames in its own Spanish sentence, and the
+   * statement drift, are Spanish prose: the finding goes in with
+   * `textIn(…, 'es')`, so each sentence has one language and no service reads
+   * the reader's language (E4.2).
+   */
+  detalle: string | KeyedText;
 }
 
 export interface ResumenCongelado {
@@ -1294,7 +1301,7 @@ function reparosQueBloquean(
         bloqueantes.push({
           codigo: r.codigo,
           detalle:
-            `${r.detalle} Con "partida_conciliatoria" no hace falta que nadie diga qué son: ` +
+            `${textIn(r.detalle, 'es')} Con "partida_conciliatoria" no hace falta que nadie diga qué son: ` +
             `\`bank reconciliation run\` las levanta y las tipifica por su signo. Lo que sí hace ` +
             `falta después es fecharlas y asignarles responsable, y eso no lo puede inventar el ` +
             `programa.`,
@@ -1305,7 +1312,7 @@ function reparosQueBloquean(
         bloqueantes.push({
           codigo: r.codigo,
           detalle:
-            `${r.detalle} La política de este despacho es "suspenso", y llevar una línea a una ` +
+            `${textIn(r.detalle, 'es')} La política de este despacho es "suspenso", y llevar una línea a una ` +
             `cuenta puente exige CONTABILIZAR, que es F05d (\`bank reconciliation post\`). ` +
             `Mientras tanto no se cierra: parkear la diferencia sin asiento la escondería detrás ` +
             `de un saldo sin dejar rastro.`,
@@ -1601,7 +1608,7 @@ export async function cerrarSesion(
           `Banco ajustado ${a.banco.ajustado ?? 'sin observar'} contra libros ajustado ` +
           `${a.libros.ajustado ?? 'sin observar'}; variación ` +
           `${a.variacion ?? 'NO CALCULADA (no es cero: es que falta un lado)'}.\n` +
-          estado.bloqueantes.map((r) => `  · [${r.codigo}] ${r.detalle}`).join('\n') +
+          estado.bloqueantes.map((r) => `  · [${r.codigo}] ${textIn(r.detalle, 'es')}`).join('\n') +
           `\nMarcarla "balanced" con esto abierto le diría al tablero de cierre que el efectivo ` +
           `de esta cuenta está verificado contra el banco.`
       );
@@ -2016,7 +2023,7 @@ export async function correrConciliacion(
         : `Variación ${estado.aritmetica.variacion ?? 'SIN CALCULAR'} con ` +
           `${estado.bloqueantes.length} reparo(s) abiertos.`,
     });
-    for (const r of estado.bloqueantes) loQueFalta.push(`[${r.codigo}] ${r.detalle}`);
+    for (const r of estado.bloqueantes) loQueFalta.push(`[${r.codigo}] ${textIn(r.detalle, 'es')}`);
     if (estado.listaParaCerrar) {
       loQueFalta.push('Cerrar con `bank reconciliation close`, que es un acto de una persona.');
     }
@@ -2491,7 +2498,7 @@ export async function aprobarSesion(
     if (deriva.length > 0) {
       throw new ConflictError(
         `La sesión ${sesionId} no se firma: el extracto cambió después de cerrarla.\n` +
-          deriva.map((r) => `  · ${r.detalle}`).join('\n') +
+          deriva.map((r) => `  · ${textIn(r.detalle, 'es')}`).join('\n') +
           `\nUna firma sobre un documento que ya no es el que se concilió no prueba nada.`
       );
     }
