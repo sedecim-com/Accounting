@@ -35,6 +35,7 @@ import {
   type TipoCambioResuelto as FxRate,
 } from './moneda-origen.js';
 import { tenantDe } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
 import { queryHeldNoteIvaByCashedReceipt, queryInvoiceEntryNetOnAccount } from '../reporting/report-service.js';
 
 // ============================================================
@@ -118,6 +119,56 @@ function withAssumptionNote(base: string, decision: MetodoPagoDecision | null): 
   return decision?.assumed ? `${base} · MetodoPago missing: ${decision.metodo} assumed` : base;
 }
 
+/** fx_conversion_cent_difference: where the cent of a converted document goes. */
+const CENT_DIFFERENCE_POLICY = 'fx_conversion_cent_difference';
+const CENT_DIFFERENCE_VALUES = ['exchange_difference_line', 'largest_line'];
+
+/**
+ * MNE-001-862 · The cent between a foreign document's converted lines and its
+ * converted total. `lines` is the entry: the control account first, then the
+ * `documentLines` lines of the document, then its tax. Each is `foreign ×
+ * rate` at the minor unit, which the engine verifies exactly, so when they do
+ * not add up the difference is one more line, with no origin: on the exchange
+ * difference accounts (the default: no line and no tax changes) or on the
+ * account of the largest document line, as the panel key says. The key is
+ * read only when there is a cent. A document that does not foot in its own
+ * currency gets no line: the entry stays unbalanced and the engine refuses it.
+ */
+async function conversionCentLine(
+  client: pg.PoolClient,
+  entityId: string,
+  lines: JeLine[],
+  documentLines: number,
+  label: string
+): Promise<JeLine | null> {
+  const net = (debit: 'debit_amount' | 'foreign_debit', credit: 'credit_amount' | 'foreign_credit'): Decimal =>
+    lines.reduce((s, l) => s.plus(l[debit] ?? '0').minus(l[credit] ?? '0'), new Decimal(0));
+  const cent = net('debit_amount', 'credit_amount');
+  if (cent.isZero() || !net('foreign_debit', 'foreign_credit').isZero()) return null;
+
+  const policy = await getPolicy({ tenantId: await tenantDe(client, entityId), entityId }, CENT_DIFFERENCE_POLICY, client);
+  let account: string;
+  if (policy.value === 'exchange_difference_line') {
+    const role = cent.greaterThan(0) ? 'utilidad_cambiaria' : 'perdida_cambiaria';
+    account = requireRole(await roleAccounts(client, entityId, [role]), role);
+  } else if (policy.value === 'largest_line') {
+    const amount = (l: JeLine): Decimal => new Decimal(l.debit_amount ?? l.credit_amount ?? '0');
+    account = lines.slice(1, 1 + documentLines).reduce((a, b) => (amount(b).greaterThan(amount(a)) ? b : a)).account_id;
+  } else {
+    throw new AccountingError('FX_POLITICA_DESCONOCIDA', {
+      key: 'error.FX_POLITICA_DESCONOCIDA.policy',
+      params: { policy: CENT_DIFFERENCE_POLICY, value: policy.value, known: CENT_DIFFERENCE_VALUES.join(', ') },
+    });
+  }
+  const amount = cent.abs().toFixed(4);
+  return {
+    account_id: account,
+    debit_amount: cent.isNegative() ? amount : null,
+    credit_amount: cent.isNegative() ? null : amount,
+    description: `Conversion rounding ${label}`,
+  };
+}
+
 /**
  * DR cxc (total) · CR revenue per line · CR the IVA role the MetodoPago
  * selects: iva_trasladado for PUE, iva_trasladado_no_cobrado for PPD.
@@ -178,7 +229,7 @@ export async function postInvoiceEntry(
   }
   const fx = rate;
   const toFunctional = (amount: string): string =>
-    fx ? convertirAFuncional(amount, fx.tasa) : amount;
+    fx ? convertirAFuncional(amount, fx.tasa, functional) : amount;
   const fxCredit = (
     amount: string
   ): Pick<JeLine, 'currency_code' | 'foreign_credit' | 'exchange_rate'> =>
@@ -205,27 +256,23 @@ export async function postInvoiceEntry(
     });
   }
 
-  // The cxc debit mirrors postBillEntry's cxp credit: in foreign currency it
-  // is the SUM of the credits already rounded, so the entry balances against
-  // what was posted, and it carries its origin only when total × rate agrees
-  // with that sum (otherwise verificarOrigenFx would reject the whole entry).
-  const receivableDebit = fx
-    ? credits.reduce((s, l) => s.plus(l.credit_amount ?? '0'), new Decimal(0)).toFixed(4)
-    : invoice.total_amount;
-  const fxReceivable =
-    fx && new Decimal(receivableDebit).equals(convertirAFuncional(invoice.total_amount, fx.tasa))
-      ? { currency_code: invoice.currency_code, foreign_debit: invoice.total_amount, exchange_rate: fx.tasa }
-      : {};
+  // The cxc debit is the document (MNE-001-862): its total, converted to the
+  // minor unit, always with its origin, so the revaluation reads every
+  // foreign receivable. The cent the converted lines may leave is its own line.
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
-      debit_amount: receivableDebit,
+      debit_amount: toFunctional(invoice.total_amount),
       credit_amount: null,
       description: `Invoice ${invoice.invoice_number}`,
-      ...fxReceivable,
+      ...(fx ? { currency_code: invoice.currency_code, foreign_debit: invoice.total_amount, exchange_rate: fx.tasa } : {}),
     },
     ...credits,
   ];
+  if (fx) {
+    const cent = await conversionCentLine(client, invoice.entity_id, jeLines, lines.length, `Invoice ${invoice.invoice_number}`);
+    if (cent) jeLines.push(cent);
+  }
 
   const entry = await createJournalEntry(
     invoice.entity_id,
@@ -310,7 +357,7 @@ export async function postBillEntry(
     }
   }
   const conv = (importe: string): string =>
-    enExtranjera ? convertirAFuncional(importe, bill.exchange_rate) : importe;
+    enExtranjera ? convertirAFuncional(importe, bill.exchange_rate, funcional) : importe;
   const fxCargo = (
     importe: string
   ): Pick<JeLine, 'currency_code' | 'foreign_debit' | 'exchange_rate'> =>
@@ -343,40 +390,25 @@ export async function postBillEntry(
     });
   }
 
-  // El abono a cxp: en funcional es el total del documento, como siempre.
-  // En extranjera es la SUMA de los cargos YA convertidos, no total × tasa:
-  // cada cargo se redondeó a 4 decimales por separado y el asiento cuadra
-  // contra lo que de verdad se asentó, no contra la multiplicación teórica.
-  const abonoCxp = enExtranjera
-    ? cargos.reduce((s, l) => s.plus(l.debit_amount ?? '0'), new Decimal(0)).toFixed(4)
-    : bill.total_amount;
-  // Las columnas FX del abono, sólo cuando dicen la verdad: si la suma de
-  // los cargos redondeados coincide con total × tasa (el caso normal), el
-  // pasivo lleva su origen completo. Cuando difieren por el redondeo por
-  // línea —construible: dos líneas cuyos productos redondean hacia arriba—
-  // NINGÚN par (importe, tasa) honesto reproduce la suma, y declarar
-  // total × tasa hacía que verificarOrigenFx tumbara el asiento ENTERO:
-  // el gasto legítimo no se podía postear. El origen del documento queda en
-  // bills (currency_code, exchange_rate), que es de donde lee el pago.
-  const fxAbonoCxp =
-    enExtranjera &&
-    new Decimal(abonoCxp).equals(convertirAFuncional(bill.total_amount, bill.exchange_rate))
-      ? {
-          currency_code: bill.currency_code,
-          foreign_credit: bill.total_amount,
-          exchange_rate: bill.exchange_rate,
-        }
-      : {};
+  // The cxp credit is the document (MNE-001-862): its total, converted to the
+  // minor unit, always with its origin, whether or not the rounded debits add
+  // up to it. The cent they may leave is its own line.
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxp'),
       debit_amount: null,
-      credit_amount: abonoCxp,
+      credit_amount: conv(bill.total_amount),
       description: `Bill ${bill.bill_number}`,
-      ...fxAbonoCxp,
+      ...(enExtranjera
+        ? { currency_code: bill.currency_code, foreign_credit: bill.total_amount, exchange_rate: bill.exchange_rate }
+        : {}),
     },
     ...cargos,
   ];
+  if (enExtranjera) {
+    const cent = await conversionCentLine(client, bill.entity_id, jeLines, lines.length, `Bill ${bill.bill_number}`);
+    if (cent) jeLines.push(cent);
+  }
 
   const entry = await createJournalEntry(
     bill.entity_id,
@@ -1078,7 +1110,7 @@ async function foreignReceiptLines(
   const jeLines: JeLine[] = [
     {
       account_id: bank.glAccountId,
-      debit_amount: convertirAFuncional(payment.payment_amount, fx.tasaPago),
+      debit_amount: convertirAFuncional(payment.payment_amount, fx.tasaPago, fx.monedaFuncional),
       credit_amount: null,
       description: `Payment received ${payment.payment_number}`,
       currency_code: fx.moneda,
@@ -1090,7 +1122,7 @@ async function foreignReceiptLines(
   for (const app of fx.aplicaciones) {
     if (!new Decimal(app.aplicado).greaterThan(0)) continue;
     const foreign = new Decimal(app.aplicado).toFixed(4);
-    const atBirthRate = convertirAFuncional(foreign, app.tasaHistorica);
+    const atBirthRate = convertirAFuncional(foreign, app.tasaHistorica, fx.monedaFuncional);
     jeLines.push({
       account_id: arAccount,
       debit_amount: null,
@@ -1105,7 +1137,7 @@ async function foreignReceiptLines(
     // the sum of its rounded lines, and each earlier tranche was rounded on
     // its own. The remainder is a functional-only line on the same account,
     // so the receivable of a fully collected invoice ends at exactly zero.
-    const remainder = new Decimal(await receivableCredit(client, payment.entity_id, arAccount, app)).minus(atBirthRate);
+    const remainder = new Decimal(await receivableCredit(client, payment.entity_id, arAccount, app, fx.monedaFuncional)).minus(atBirthRate);
     if (!remainder.isZero()) {
       jeLines.push({
         account_id: arAccount,
@@ -1144,11 +1176,12 @@ async function receivableCredit(
   client: pg.PoolClient,
   entityId: string,
   arAccount: string,
-  app: AplicacionCambiaria
+  app: AplicacionCambiaria,
+  functional: string
 ): Promise<string> {
   const prior = new Decimal(app.priorApplied ?? '0');
   const cumulative = prior.plus(app.aplicado);
-  const atRate = (x: Decimal): Decimal => new Decimal(convertirAFuncional(x.toFixed(4), app.tasaHistorica));
+  const atRate = (x: Decimal): Decimal => new Decimal(convertirAFuncional(x.toFixed(4), app.tasaHistorica, functional));
   if (app.documentTotal !== undefined && cumulative.equals(app.documentTotal)) {
     const bornDebit = await queryInvoiceEntryNetOnAccount(entityId, app.billId, arAccount, client);
     if (bornDebit) return new Decimal(bornDebit).minus(atRate(prior)).toFixed(4);
@@ -2197,6 +2230,17 @@ export async function postVendorPaymentEntry(
         foreign_debit: pas.extranjero,
         exchange_rate: pas.tasa,
       });
+      // MNE-001-862: the cent the telescoped settlement takes besides the
+      // truthful line above, so a bill paid in parts leaves nothing on cxp.
+      const rounding = new Decimal(pas.rounding ?? '0');
+      if (!rounding.isZero()) {
+        jeLines.push({
+          account_id: requireRole(roles, 'cxp'),
+          debit_amount: rounding.isNegative() ? null : rounding.toFixed(4),
+          credit_amount: rounding.isNegative() ? rounding.abs().toFixed(4) : null,
+          description: `AP rounding at ${pas.tasa} ${payment.payment_number} - Bill ${pas.numero}`,
+        });
+      }
     }
     if (hayAnticipo) {
       // El anticipo es efectivo que salió HOY: va a la tasa del pago.

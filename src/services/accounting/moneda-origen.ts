@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { getPolicy } from '../policy/policy-service.js';
 import { AccountingError } from '../../utils/errors.js';
+import { convertirImporte } from '../fx/conversion.js';
 
 // ============================================================
 // R4 · LA MONEDA EXTRANJERA, CONVERTIDA EN EL ORIGEN (NIF B-15)
@@ -30,9 +31,15 @@ const D = Decimal.clone({ precision: 40 });
 /** Decimales con los que viaja el dinero en el mayor (DECIMAL(19,4)). */
 const ESCALA = 4;
 
-/** importe (moneda del documento) × tasa → moneda funcional, a 4 decimales. */
-export function convertirAFuncional(importe: string, tasa: string): string {
-  return new D(importe).times(tasa).toFixed(ESCALA);
+/**
+ * Amount in the document's currency × rate → functional currency, half-up at
+ * the minor unit of the functional currency and written with the ledger's
+ * four decimals (MNE-001-862). One arithmetic: it is `convertirImporte`, the
+ * one the posting engine verifies every foreign line against. `functional` is
+ * the peso where the caller holds none; the engine checks with the entity's.
+ */
+export function convertirAFuncional(importe: string, tasa: string, functional?: string): string {
+  return convertirImporte(importe, tasa, functional);
 }
 
 export interface DiferenciaCambiaria {
@@ -50,7 +57,7 @@ export interface DiferenciaCambiaria {
  * en funcional al registrarse (importe × tasa histórica) y lo que costó
  * extinguirlo (importe × tasa del pago).
  *
- * Se redondea CADA producto a 4 decimales ANTES de restar, porque eso es lo
+ * Se redondea CADA producto al centavo ANTES de restar, porque eso es lo
  * que de verdad se asienta en cada línea del mayor: la diferencia tiene que
  * ser exactamente la que deja el asiento cuadrado, no la teórica.
  */
@@ -85,9 +92,10 @@ export interface AplicacionCambiaria {
    */
   tasaHistorica: string;
   /**
-   * Collection side only: what earlier collections already applied to the
-   * invoice, and its total, both in its currency. They let the receivable
-   * be credited telescopically and emptied exactly by the last tranche.
+   * What earlier events already settled of the document, and (collection
+   * side only) its total, both in its currency. They let the control account
+   * be settled telescopically and emptied exactly by the last tranche: the
+   * receivable since MNE-001-082, the payable since MNE-001-862.
    */
   priorApplied?: string;
   documentTotal?: string;
@@ -111,6 +119,13 @@ export interface LineaCambiaria {
   extranjero: string;
   tasa: string;
   montoFuncional: string;
+  /**
+   * MNE-001-862 · payable lines only: what the telescoped settlement takes
+   * besides `montoFuncional`, signed, in the functional currency. Each tranche
+   * is rounded to the cent on its own, so a bill paid in parts would leave a
+   * cent on the payable; this goes on a line without origin.
+   */
+  rounding?: string;
 }
 
 export interface DesgloseCambiario {
@@ -132,7 +147,7 @@ export interface DesgloseCambiario {
  * asiento necesita. Cada pasivo se extingue al tipo al que NACIÓ (por eso el
  * desglose es por documento: cada gasto trae su tasa) y el efectivo sale al
  * tipo de HOY; la brecha entre ambos mundos es la diferencia realizada, y se
- * calcula como resta exacta de los importes YA redondeados a 4 decimales —
+ * calcula como resta exacta de los importes YA redondeados al centavo —
  * la única definición con la que el asiento cuadra siempre.
  */
 export function desgloseCambiarioDelPago(
@@ -149,18 +164,25 @@ export function desgloseCambiarioDelPago(
     const extingue = new D(app.aplicado).plus(app.descuento);
     aplicadoTotal = aplicadoTotal.plus(app.aplicado);
     if (extingue.greaterThan(0)) {
-      const monto = convertirAFuncional(extingue.toFixed(ESCALA), app.tasaHistorica);
+      const atBirthRate = (x: Decimal): Decimal =>
+        new D(convertirAFuncional(x.toFixed(ESCALA), app.tasaHistorica, ctx.monedaFuncional));
+      const monto = atBirthRate(extingue);
+      // q(settled with this tranche × rate) − q(settled before it × rate): the
+      // tranches add up to q(total × rate), what the payable was born with.
+      const prior = new D(app.priorApplied ?? '0');
+      const telescoped = atBirthRate(prior.plus(extingue)).minus(atBirthRate(prior));
       pasivos.push({
         billId: app.billId,
         numero: app.numero,
         extranjero: extingue.toFixed(ESCALA),
         tasa: app.tasaHistorica,
-        montoFuncional: monto,
+        montoFuncional: monto.toFixed(ESCALA),
+        rounding: telescoped.minus(monto).toFixed(ESCALA),
       });
-      debitos = debitos.plus(monto);
+      debitos = debitos.plus(telescoped);
     }
     if (new D(app.descuento).greaterThan(0)) {
-      const monto = convertirAFuncional(app.descuento, app.tasaHistorica);
+      const monto = convertirAFuncional(app.descuento, app.tasaHistorica, ctx.monedaFuncional);
       descuentos.push({
         billId: app.billId,
         numero: app.numero,
@@ -174,11 +196,11 @@ export function desgloseCambiarioDelPago(
 
   const anticipo = new D(efectivo).minus(aplicadoTotal);
   const anticipoFuncional = anticipo.greaterThan(0)
-    ? convertirAFuncional(anticipo.toFixed(ESCALA), ctx.tasaPago)
+    ? convertirAFuncional(anticipo.toFixed(ESCALA), ctx.tasaPago, ctx.monedaFuncional)
     : new D(0).toFixed(ESCALA);
   if (anticipo.greaterThan(0)) debitos = debitos.plus(anticipoFuncional);
 
-  const bancoFuncional = convertirAFuncional(efectivo, ctx.tasaPago);
+  const bancoFuncional = convertirAFuncional(efectivo, ctx.tasaPago, ctx.monedaFuncional);
   creditos = creditos.plus(bancoFuncional);
 
   // creditos > debitos: salió más funcional del que extinguía pasivo —

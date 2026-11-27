@@ -154,7 +154,7 @@ describe('idempotencia del post', () => {
     const { batchId } = await prepararLote(A, [
       { payload: payloadOk('100.00') },
       { payload: payloadOk('250.50') },
-      { payload: payloadOk('33.3333') },
+      { payload: payloadOk('33.33') },
     ]);
 
     const check = await checkBatch(ctx, batchId, A.userId);
@@ -165,7 +165,7 @@ describe('idempotencia del post', () => {
     expect(post.status).toBe('posted');
     expect(post.posteadas).toHaveLength(3);
     // El dinero viaja como cadena con la escala de la columna, sin flotantes.
-    expect(post.total_debe).toBe('383.8333');
+    expect(post.total_debe).toBe('383.8300');
 
     await expect(postBatch(ctx, batchId, A.userId)).rejects.toThrow(ConflictError);
     await expect(postBatch(ctx, batchId, A.userId, { partial: true })).rejects.toThrow(ConflictError);
@@ -173,6 +173,18 @@ describe('idempotencia del post', () => {
     const polizas = await polizasDelLote(A, batchId);
     expect(polizas).toHaveLength(3);
     expect(polizas.every((p) => p.status === 'posted')).toBe(true);
+  });
+
+  it('MNE-001-862 · a row with a fraction of a cent does not pass the check, and names its line', async () => {
+    const ctx = { tenantId: A.tenantId, entityId: A.entityId };
+    const { batchId } = await prepararLote(A, [{ payload: payloadOk('100.00') }, { payload: payloadOk('33.3333') }]);
+
+    const check = await checkBatch(ctx, batchId, A.userId);
+    expect(check.status).toBe('staged');
+    expect(check.invalidas).toBe(1);
+    const row = check.filas.find((r) => r.row_number === 2);
+    expect(row?.categoria).toBe('forma');
+    expect(row?.errores.join(' ')).toMatch(/^Line 1: "33\.3333" is finer than the minor unit of MXN \(2 decimals\)/);
   });
 
   it('el ensayo recorre el camino real y no deja NADA escrito', async () => {

@@ -7,6 +7,7 @@ import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 import { queryIssuedInvoiceVatTaken } from '../reporting/report-service.js';
+import { convertirImporte } from '../fx/conversion.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
@@ -367,7 +368,7 @@ export function discountVatShare(input: DiscountVatInput): string {
   const remainder = Decimal.max(new Decimal(input.remainder), 0);
   if (discount.lessThanOrEqualTo(0) || total.lessThanOrEqualTo(0)) return new Decimal(0).toFixed(SCALE);
   let share = discount.times(input.taxAmount).dividedBy(total).toDecimalPlaces(SCALE);
-  if (input.rate !== undefined) share = share.times(input.rate).toDecimalPlaces(SCALE);
+  if (input.rate !== undefined) share = new Decimal(convertirImporte(share.toFixed(SCALE), new Decimal(input.rate).toFixed()));
   if (input.closes && remainder.minus(share).abs().lessThanOrEqualTo(ROUNDING_AT_CLOSE)) {
     return remainder.toFixed(SCALE);
   }
@@ -949,9 +950,9 @@ export async function ivaReclassificationsFor(
     // del mayor) ya vive en funcional desde que postBillEntry convierte.
     //
     // Y SE CONVIERTEN LOS ACUMULADOS, NO EL TRAMO: la liberación funcional
-    // del tramo es q4(acumulado_con_este × tasa) − q4(acumulado_previo ×
+    // del tramo es q(acumulado_con_este × tasa) − q(acumulado_previo ×
     // tasa), que TELESCOPA — la suma de todos los tramos reproduce exacto
-    // lo aparcado q4(iva × tasa). Convertir el pro-rata del tramo y
+    // lo aparcado q(iva × tasa). Convertir el pro-rata del tramo y
     // redondearlo por separado sumaba medio diezmilésimo de más por pago y
     // dejaba la 1135 del documento en NEGATIVO, porque el tope de abajo no
     // ve las liberaciones de pagos anteriores (su consulta no alcanza los
@@ -960,16 +961,19 @@ export async function ivaReclassificationsFor(
     let enFuncional: Decimal;
     if (tasa) {
       const acumulado = (aplicado: Decimal): Decimal =>
+        // MNE-001-862: the posting's own conversion, at the minor unit, so the
+        // tranches add up to what the document parked.
         new Decimal(
-          ivaToReclassify({
-            ivaTotal: row.tax_amount,
-            documentTotal: row.total_amount,
-            priorApplied: '0',
-            appliedNow: aplicado.toFixed(SCALE),
-          })
-        )
-          .times(tasa)
-          .toDecimalPlaces(SCALE);
+          convertirImporte(
+            ivaToReclassify({
+              ivaTotal: row.tax_amount,
+              documentTotal: row.total_amount,
+              priorApplied: '0',
+              appliedNow: aplicado.toFixed(SCALE),
+            }),
+            tasa
+          )
+        );
       enFuncional = acumulado(priorApplied.plus(appliedNow)).minus(acumulado(priorApplied));
     } else {
       enFuncional = new Decimal(
@@ -991,14 +995,14 @@ export async function ivaReclassificationsFor(
       metodo,
       amount: releasable.toFixed(SCALE),
       // Las columnas FX sólo cuando dicen la verdad: si lo liberado ES el
-      // pro-rata del tramo × tasa (half-up, 4 decimales), el origen viaja
+      // pro-rata del tramo × tasa (half-up, al centavo), el origen viaja
       // completo. Cuando el telescopio o el tope lo movieron un
       // diezmilésimo, NINGÚN importe original honesto reproduce la cifra
       // (re-derivarlo dividiendo y redondeando daba un «origen» cuyo
       // producto no casaba, y el motor —con razón— tumbaba el pago entero
       // con FX_CONVERSION_NO_CASA). Esa línea va sin columnas FX: funcional
       // por declaración, y cuadra.
-      ...(tasa && releasable.equals(new Decimal(amount).times(tasa).toDecimalPlaces(SCALE))
+      ...(tasa && releasable.equals(convertirImporte(amount, tasa))
         ? { importeOriginal: amount, tasa }
         : {}),
       ...(tasa && releasable.equals(enFuncional) ? { documentAmount: amount } : {}),

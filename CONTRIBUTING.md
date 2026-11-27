@@ -44,6 +44,13 @@ npm test                   # vitest run (unitarias)
 npm run plan:status        # el estado del plan no se escribe: se pregunta
 ```
 
+`scripts/verify.sh` corre además la puerta `build` (`scripts/smoke-dist.sh`):
+construye `dist` en limpio y arranca el binario que instala un despacho contra
+una base propia, que crea y borra. Ningún otro paso ejecuta lo construido: todo
+lo demás corre el fuente con `tsx`. Si añades a `src/` un archivo que no es
+TypeScript y el programa lo lee, esa puerta falla hasta que `build:api` lo
+copie a `dist`.
+
 El estado de un paquete de trabajo **nunca se afirma a mano en prosa**. Se
 consulta con `npm run plan:status`, que lo deriva de criterios comprobables. La
 CI corre además `npm run plan:status -- --exigir=...` sobre la lista de

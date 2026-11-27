@@ -593,3 +593,31 @@ export function calcularProvisionMensual(entrada: EntradaProvisionMensual): Prov
 export function esProvisionCero(p: ProvisionMensual): boolean {
   return new Decimal(p.total).isZero();
 }
+
+/**
+ * WHAT THE PAY RUNS OF THE MONTH ALREADY EXPENSED, TAKEN OFF ITS ACCRUAL
+ * (MNE-001-878). A run paid before the month's close sends to wages what the
+ * provision could not take; accruing the same days at the close would count
+ * them twice. `excess` is taken off the month's accrual of that benefit,
+ * never below zero, and spread over the workers in proportion to what each
+ * accrues: the provision is one pool, so no worker owns the excess.
+ *
+ * Returns what to take off each amount, in the order given. Each is the
+ * difference of two rounded cumulative figures, as the accrual itself is, so
+ * they add up to exactly the lesser of the excess and the month's accrual,
+ * and none exceeds its own amount.
+ */
+export function spreadPaidExcess(amounts: readonly string[], excess: Decimal.Value): string[] {
+  const whole = amounts.reduce((sum, a) => sum.plus(a), new Decimal(0));
+  const taken = Decimal.min(whole, Decimal.max(0, excess));
+  if (taken.isZero()) return amounts.map(() => new Decimal(0).toFixed(DECIMALES));
+  let before = new Decimal(0);
+  let running = new Decimal(0);
+  return amounts.map((a) => {
+    running = running.plus(a);
+    const upTo = running.times(taken).div(whole).toDecimalPlaces(DECIMALES, Decimal.ROUND_HALF_UP);
+    const cut = upTo.minus(before);
+    before = upTo;
+    return cut.toFixed(DECIMALES);
+  });
+}

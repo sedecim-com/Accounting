@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 
 # Copy source (tsconfig.web.json builds the browser program into dist/gateway/public)
 COPY tsconfig.json tsconfig.web.json ./
@@ -24,7 +24,7 @@ WORKDIR /app
 RUN apk add --no-cache libxml2-utils
 
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 

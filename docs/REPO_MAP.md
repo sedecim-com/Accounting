@@ -104,6 +104,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/services/accounting/opening-balance.ts`
 - `src/services/accounting/period-close.ts`
 - `src/services/accounting/sat-agrupadores-catalogo.ts`
+- `src/services/accruals/provisions-run.ts`
 - `src/services/ar/invoice-service.ts`
 - `src/services/banking/bank-account-service.ts`
 - `src/services/banking/bank-statement-service.ts`

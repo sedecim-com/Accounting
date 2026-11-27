@@ -33,8 +33,8 @@ describe('convertirAFuncional', () => {
   });
 
   it('respeta los diez decimales de la tasa sin perder precisión', () => {
-    // 1000 × 17.1234567891 = 17123.4567891 → a 4 decimales del mayor.
-    expect(convertirAFuncional('1000', '17.1234567891')).toBe('17123.4568');
+    // 1000 × 17.1234567891 = 17123.4567891 → 17123.46, al centavo (MNE-001-862).
+    expect(convertirAFuncional('1000', '17.1234567891')).toBe('17123.4600');
   });
 });
 
@@ -70,8 +70,8 @@ describe('diferenciaCambiariaRealizada', () => {
   });
 
   it('la diferencia es la resta de los importes YA redondeados, no la teórica', () => {
-    // 123.45 × 17.1234567891 = 2113.8907337... → 2113.8907
-    // 123.45 × 17.1234567892 = 2113.8907338... → 2113.8907
+    // 123.45 × 17.1234567891 = 2113.8907337... → 2113.89
+    // 123.45 × 17.1234567892 = 2113.8907338... → 2113.89
     // La teoría da una brecha de 0.0000000123; el mayor asienta dos líneas
     // idénticas, así que la diferencia realizada tiene que ser CERO.
     const dif = diferenciaCambiariaRealizada({
