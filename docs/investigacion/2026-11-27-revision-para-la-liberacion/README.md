@@ -6,6 +6,8 @@
 
 **Lo que pasó después de las revisiones.** El mismo día, cuando los informes ya estaban escritos, el dueño desaparcó todo para la 1.0 («Para el 1.0 desaparca lo aparcado»). Por eso una frase de estos informes o de los cuerpos de las issues que diga que una tarea de Estados Unidos «está aparcada por D-03», o que algo «se queda en la ola 4», es historia: los informes son evidencia fechada y se dejan como se escribieron. El estado de hoy se pregunta a `docs/backlog/PRD-001.md`.
 
+**Las dos revisiones de Estados Unidos.** Corrieron después del tercer mensaje del dueño, «Para el 1.0 desaparca lo aparcado», que metió a Estados Unidos en la liberación: dos revisores más leyeron el mismo árbol, `develop` en `e9a327d0`, uno la nómina de Estados Unidos y sus impuestos (informe 08) y otro la contabilidad, los informes y los impuestos de Estados Unidos fuera de la nómina, con el interruptor de jurisdicción (informe 09). Sus 22 tareas son las MNE-001-976 a MNE-001-997, que el backlog registró en el PR de historial siguiente al de la armonización, con una issue nueva, #1084, y tres adendas a issues que ya existían (#124, #123 y #131). El informe 09 leyó el backlog antes de la armonización, cuando tenía 854 tareas. Donde un informe abrevia una propuesta (U4, P12), el número es el de la tabla «Del hallazgo a la tarea».
+
 **Idioma.** Los informes y los cuerpos de las issues están en inglés, como las issues del repositorio; este índice y el párrafo «Para el dueño» de cada issue están en español. Son registro fechado (D1 de `docs/language.md`, enmendada el 2026-11-16) y entran sin gemela española a la línea base de `language:status`, como pide su regla 8 mientras la MNE-001-213 no los saque de esa cuenta.
 
 ## Los siete informes
@@ -19,6 +21,13 @@
 | [`05-nomina.md`](05-nomina.md) | La nómina mexicana, la seguridad social y sus obligaciones |
 | [`06-subledgers-controls.md`](06-subledgers-controls.md) | Los auxiliares y los controles internos |
 | [`07-backlog-release.md`](07-backlog-release.md) | El backlog y la mecánica de la liberación |
+
+## Los dos informes de Estados Unidos
+
+| Informe | Dominio |
+|---|---|
+| [`08-us-payroll.md`](08-us-payroll.md) | La nómina de Estados Unidos y sus impuestos |
+| [`09-us-accounting.md`](09-us-accounting.md) | La contabilidad, los informes y los impuestos de Estados Unidos fuera de la nómina, y el interruptor de jurisdicción |
 
 ## Cómo leer las clases
 
@@ -56,9 +65,20 @@ El cuerpo completo de cada una está en [`issues/`](issues/); la issue de GitHub
 | #1079 | [`issues/j-payables-and-payments.md`](issues/j-payables-and-payments.md) | Payables and payments: void an approved bill, the duplicate guard, the reversal guard on a document's entry, and a REP whose form moves no bank |
 | #1080 | [`issues/k-first-release.md`](issues/k-first-release.md) | [REL] The first release: promotion, version, install, upgrade, evidence |
 
+### La issue y las adendas de Estados Unidos
+
+El informe 08 propuso una issue nueva y el 09 ninguna: sus tareas cuelgan de tres issues que ya existían, y cada una lleva una adenda en la plantilla de la casa.
+
+| Issue | Cuerpo | Título |
+|---|---|---|
+| #1084 | [`issues/us08-us-payroll-forms.md`](issues/us08-us-payroll-forms.md) | US payroll: forms 941, 940, W-2/W-3 and EFW2 follow their instructions, and the employer liability is recorded |
+| #124 (adenda) | [`issues/addendum-124.md`](issues/addendum-124.md) | United States outside payroll: four wrong figures to stop, and the pieces the J1 index did not name |
+| #123 (adenda) | [`issues/addendum-123.md`](issues/addendum-123.md) | What the switch still does not reach for a United States entity |
+| #131 (adenda) | [`issues/addendum-131.md`](issues/addendum-131.md) | Until the US GAAP corpus exists, the agent says so |
+
 ## Del hallazgo a la tarea
 
-Las 116 entradas que este trabajo registró en `docs/backlog/PRD-001.json`, en el orden de sus ids. «Número» es el que la propuesta lleva en la sección de tareas propuestas de su informe (P, N, T o R según el informe; DEC es una decisión del dueño); el hallazgo que la origina (G01, V-11, I-7…) lo nombra la aceptación de cada tarea.
+Las 116 entradas que este trabajo registró en `docs/backlog/PRD-001.json`, en el orden de sus ids. «Número» es el que la propuesta lleva en la sección de tareas propuestas de su informe (P, N, T o R según el informe; DEC es una decisión del dueño); el hallazgo que la origina (G01, V-11, I-7…) lo nombra la aceptación de cada tarea. Las 22 últimas filas, de los informes 08 y 09 (número U), son las tareas de Estados Unidos, MNE-001-976 a MNE-001-997, que se registraron después, con las dos revisiones de Estados Unidos. La última fila, MNE-001-999, no sale de un informe: es lo que el constructor de la MNE-001-895 (informe 03, issue #1073) encontró y dejó ese mismo día, y cierra los ids de tres dígitos.
 
 | Informe | Número | Tarea | Título |
 |---|---|---|---|
@@ -178,3 +198,26 @@ Las 116 entradas que este trabajo registró en `docs/backlog/PRD-001.json`, en e
 | 07 | R11 | MNE-001-973 | El candidato a liberación deja su evidencia en un solo lugar: el mes, el tablero, la restauración, el aislamiento y el binario sobre el commit que se etiqueta |
 | 07 | R12 | MNE-001-974 | E3.2 entra a --exigir: está en verde y la CI todavía no lo protege |
 | 07 | R13 | MNE-001-975 | Antes del tag hay una pasada de seguridad sobre el candidato y un dictamen del dueño por cada issue reservada |
+| 08 | U1 | MNE-001-976 | El impuesto federal de un recibo de EE. UU. sigue la hoja 1A de la Pub 15-T: línea 1g, casilla del paso 2 y W-4 validado |
+| 08 | U2 | MNE-001-977 | Un pago suplementario de EE. UU. retiene por el método que el panel eligió |
+| 08 | U3 | MNE-001-978 | Los topes anuales de EE. UU. cuentan todo lo pagado hasta la fecha de pago, también la otra corrida del mismo día |
+| 08 | U4 | MNE-001-979 | Al aprobar una corrida de EE. UU. se apunta el pasivo federal, FUTA y estatal con su fecha de depósito, y el depósito se registra |
+| 08 | U5 | MNE-001-980 | La forma 941 cuadra renglón por renglón con sus instrucciones |
+| 08 | U6 | MNE-001-981 | La forma 940 separa lo exento y lo que pasa de 7,000, y el FUTA conoce la reducción de crédito |
+| 08 | U7 | MNE-001-982 | El W-2 llena sus casillas 12 a 20 como dicen sus instrucciones y el W-3 se niega si no cuadra |
+| 08 | U8 | MNE-001-983 | El archivo EFW2 se niega hasta seguir la especificación de la SSA, y el corpus dice lo que la nómina de EE. UU. hace hoy |
+| 08 | U9 | MNE-001-984 | Un acreedor ordinario no cobra por encima de la pensión alimenticia, y una orden se detiene en lo que se debe |
+| 08 | U10 | MNE-001-985 | California y Nueva York retienen por el método de su agencia, con su certificado, y el SDI de Nueva York respeta su tope |
+| 08 | U11 | MNE-001-986 | La tasa de SUTA es la que el estado asignó al patrón, por entidad, estado y año |
+| 08 | U12 | MNE-001-987 | Las elecciones de prestaciones llegan al recibo con su límite anual, y la aportación del patrón llega a la póliza |
+| 09 | U1 | MNE-001-988 | En una entidad de Estados Unidos el impuesto sobre ventas pagado en una compra entra al costo del renglón, no a una cuenta acreditable |
+| 09 | U2 | MNE-001-989 | MACRS deprecia por ejercicio fiscal con la clase del activo escrita, y se niega sin ella |
+| 09 | U3 | MNE-001-990 | Una entidad de Estados Unidos nace con sus clases de activo, y asset category seed se niega a sembrarle las de la LISR |
+| 09 | U4 | MNE-001-991 | El 1099-NEC tiene puerta: el proveedor guarda su W-9 con el TIN de una persona física, y vendor 1099 genera, lista y marca presentado |
+| 09 | U5 | MNE-001-992 | Cada pago a un proveedor 1099 lleva su casilla: el NEC sólo suma servicios, el 1099-MISC sale con rentas y otros ingresos, y el pago sin TIN avisa |
+| 09 | U6 | MNE-001-993 | El agente dice la verdad sobre una entidad con libros US GAAP mientras su corpus no exista |
+| 09 | U7 | MNE-001-994 | La puerta de la entidad de Estados Unidos: tipo, clasificación fiscal federal y estados, en entity create y entity edit |
+| 09 | U8 | MNE-001-995 | El checklist del cierre y los comandos de ley mexicana preguntan la jurisdicción de la entidad |
+| 09 | U9 | MNE-001-996 | Sales tax 2/2: las cifras de la declaración por estado, el cliente exento y el use tax devengado |
+| 09 | U10 | MNE-001-997 | closing fx revalue remide los saldos en moneda extranjera de una entidad con moneda funcional USD |
+| — | — | MNE-001-999 | Un CFDI recibido de ingreso que sustituye a otro (TipoRelacion 04) o aplica un anticipo (07) no contabiliza la compra dos veces |

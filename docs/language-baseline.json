@@ -1463,7 +1463,12 @@
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/05-nomina.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/06-subledgers-controls.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/07-backlog-release.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/08-us-payroll.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/09-us-accounting.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/a-ledger-cents-and-foreign-currency.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/addendum-123.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/addendum-124.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/addendum-131.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/b-statements.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/c-period-controls.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/d-fixed-assets.md": 1,
@@ -1477,7 +1482,8 @@
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/i2-payroll-real-payroll.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/j-payables-and-payments.md": 1,
       "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/k-first-release.md": 1,
-      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/m-migration-opening.md": 1
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/m-migration-opening.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/us08-us-payroll-forms.md": 1
     },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
