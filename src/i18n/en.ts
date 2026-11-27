@@ -8308,7 +8308,8 @@ export const EN = {
     'build it and show the verdict; archive nothing and write no file',
   'help.e_accounting.balance.generate.option.yes': 'skip the overwrite prompt when -o names an existing file',
   'help.e_accounting.balance.check.description':
-    'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, and every account in the catalog',
+    'Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring Natur, every account in the catalog, ' +
+    'and the SAT XSD over the file balance generate would build',
   'help.e_accounting.balance.check.option.period': 'period to check: 2026-02, its name, or the fiscal period id',
   'help.e_accounting.balance.check.option.closing': 'check the year-end balance (month 13) instead of a month',
   'help.e_accounting.balance.check.option.check':
@@ -9245,6 +9246,10 @@ export const EN = {
     'This file was not validated against the SAT XSD ({schema}) because xmllint did not run ({cause}), so it is ' +
     'not deliverable. Install libxml2-utils (apt, apk) or libxml2 (Homebrew), confirm it with `mnemosine doctor` ' +
     'and generate again.',
+  // --- balance check · the xsd check (MNE-001-774, #608) -----------------
+  'anexo24.xsd.not_built':
+    'No file was built to check against the SAT XSD ({schema}), so `balance generate` refuses it as well: {cause}',
+  // --- end of MNE-001-774 ---
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

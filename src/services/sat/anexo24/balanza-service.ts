@@ -15,6 +15,8 @@ import {
   BALANZA_CHECK_NAMES,
   contarHallazgos,
   correrVerificaciones,
+  xsdFindings,
+  xsdFindingWithoutFile,
   naturDe,
   type BalanzaCheckName,
   type CatalogoDeReferencia,
@@ -675,20 +677,42 @@ function balanceXml(meta: MetaDeBalanza, accounts: CuentaDeBalanza[]): string {
  * No escribe, no genera y no se detiene en el primer hallazgo: la lista
  * completa es el producto. Quien la llama traduce `conteo` con `checkExitCode`
  * —bloqueante → 4—; el código no se inventa aquí.
+ *
+ * Since MNE-001-774 the `xsd` check runs the SAT's official XSD over the bytes
+ * `balance generate` would build (one xmllint process, no query), so a balance
+ * generate refuses for a schema reason is never reported clean here.
  */
 export async function verificarBalanza(
   entityId: string,
   opts: OpcionesDeBalanza & { checks?: readonly BalanzaCheckName[] } = {}
 ): Promise<ResultadoDeVerificacion> {
   const { meta, cuentas: accounts, contexto, inicial } = await prepararBalanza(entityId, opts);
+  const checks = [...(opts.checks ?? BALANZA_CHECK_NAMES)];
+  const sealable = meta.criterio_sellado !== 'nunca_sellar_en_el_sistema';
+  const xsd = checks.includes('xsd');
+  // The bytes `balance generate` would build, built once for both readers
+  // below. A builder refusal is generate's refusal too: under `xsd` it is a
+  // finding, because the whole list is this command's product (MNE-001-774).
+  let xml: string | null = null;
+  let notBuilt: ValidationError | null = null;
+  if (sealable || xsd) {
+    try {
+      xml = balanceXml(meta, accounts);
+    } catch (err) {
+      if (!(xsd && err instanceof ValidationError)) throw err;
+      notBuilt = err;
+    }
+  }
   // A balance counts as sealed when the bytes it would be generated with today
   // have a sealed copy: sealing an older version does not seal this one.
-  if (meta.criterio_sellado !== 'nunca_sellar_en_el_sistema') {
-    const hash = hashDelXml(balanceXml(meta, accounts));
-    meta.sellada = contexto.sellada = await hasSealedCopy(meta.tenant_id, entityId, 'balanza', hash);
+  if (sealable && xml !== null) {
+    meta.sellada = contexto.sellada = await hasSealedCopy(meta.tenant_id, entityId, 'balanza', hashDelXml(xml));
   }
-  const checks = [...(opts.checks ?? BALANZA_CHECK_NAMES)];
   const hallazgos = correrVerificaciones(contexto, checks);
+  // CONTRACT: `xsd` is last in the published order, so its finding follows
+  // the ones that name the account; never in their place (#608).
+  if (xml !== null && xsd) hallazgos.push(...xsdFindings(xml));
+  if (notBuilt !== null) hallazgos.push(xsdFindingWithoutFile(notBuilt.message));
   return {
     checks,
     meta,

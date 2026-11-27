@@ -396,6 +396,12 @@ describe('la batería', () => {
     expect(correrVerificaciones(ctx())).toEqual([]);
   });
 
+  it('xsd is published last and is never run by the battery: it judges bytes, not data (MNE-001-774)', () => {
+    expect(BALANZA_CHECK_NAMES.at(-1)).toBe('xsd');
+    // A context with no bytes at all: asking the battery for xsd runs nothing.
+    expect(correrVerificaciones(ctx({ catalogo: null }), ['xsd'])).toEqual([]);
+  });
+
   it('mayor-sin-agregar is retired (#323): the balanza arrives rolled up, a zero parent IS zero', () => {
     expect(BALANZA_CHECK_NAMES as readonly string[]).not.toContain('mayor-sin-agregar');
   });

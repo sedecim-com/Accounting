@@ -6,6 +6,7 @@ import {
 import { construirBalanzaXml, type DatosDeBalanza } from '../../../src/services/sat/anexo24/balanza-xml.js';
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { officialXsdRefusal } from '../../../src/services/sat/anexo24/official-xsd.js';
+import { xsdFindings } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 
 // ============================================================
 // MNE-001-666 (#608) · A generated Anexo 24 file is deliverable only when the
@@ -152,5 +153,26 @@ describe('the chart of accounts', () => {
       ['CAT-XSD-NOT-VALIDATED', 'bloquea', 'anexo24.xsd.not_validated'],
     ]);
     expect(built.hallazgos[0].mensaje).toContain('was not validated');
+  });
+});
+
+describe('balance check · the xsd check (MNE-001-774)', () => {
+  it('says nothing about a balance the official XSD accepts', () => {
+    expect(xsdFindings(balance())).toEqual([]);
+  });
+
+  it('a balance the XSD rejects is one blocking finding of the whole file, by key', () => {
+    const found = xsdFindings(balance({ rfc: 'AAA019901AAA' }));
+    expect(found.map((h) => [h.check, h.severity, h.referencia, h.messageKey?.key])).toEqual([
+      ['xsd', 'blocking', '', 'anexo24.xsd.rejected'],
+    ]);
+    expect(found[0].detalle).toMatch(/not deliverable: line 2: .*attribute 'RFC'/);
+  });
+
+  it('without xmllint the check blocks too and says the file was not validated', () => {
+    const found = withoutXmllint(() => xsdFindings(balance()));
+    expect(found.map((h) => [h.check, h.severity, h.messageKey?.key])).toEqual([
+      ['xsd', 'blocking', 'anexo24.xsd.not_validated'],
+    ]);
   });
 });

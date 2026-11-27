@@ -48,6 +48,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
+import type { ErrorMessageKey } from '../utils/errors.js';
 import { registerRequestFileLeaves, type RequestFileEngine } from './e-accounting-request-command.js';
 
 // ============================================================
@@ -58,6 +59,7 @@ import { registerRequestFileLeaves, type RequestFileEngine } from './e-accountin
 //   catalog generate · catalogo generar — el CtaCatalogo 1.3, con su hash
 //   balance generate · balanza generar  — la balanza del periodo (N, C o cierre)
 //   balance check    · balanza verificar— las invariantes que el SAT rehace
+//                      and the official XSD over the same bytes (MNE-001-774)
 //   catalog seal · balance seal · sellar — the archived file, sealed with the
 //     vault e.firma, ONLY under sellar_con_custodia (EFIRMA-4, #442)
 //
@@ -292,14 +294,14 @@ export function filaDeHallazgoDeCatalogo(h: Hallazgo): Row {
 }
 
 /**
- * What a chart finding reads as on screen: by key, in the reader's language,
- * when it has one (#608); its prose otherwise. The receipt row above keeps the
- * text the finding was built with, English for a keyed one like the rest of
- * the receipt.
+ * What a chart or balance finding reads as on screen: by key, in the reader's
+ * language, when it has one (#608, MNE-001-774); its prose otherwise. The rows
+ * keep the text the finding was built with, English for a keyed one like the
+ * rest of the receipt.
  */
-function chartFindingText(h: Hallazgo): string {
-  if (h.messageKey === undefined) return h.mensaje;
-  const { key, params } = h.messageKey;
+function findingText(prose: string, messageKey: ErrorMessageKey | undefined): string {
+  if (messageKey === undefined) return prose;
+  const { key, params } = messageKey;
   return t(key, params ?? {});
 }
 
@@ -669,7 +671,7 @@ Examples:
             severity: h.severidad === 'bloquea' ? 'blocking' : 'warning',
             nombre: h.regla,
             referencia: h.numCta ?? '',
-            detalle: chartFindingText(h),
+            detalle: findingText(h.mensaje, h.messageKey),
           })),
           c
         );
@@ -959,7 +961,7 @@ Examples:
               severity: h.severity,
               nombre: h.check,
               referencia: h.referencia,
-              detalle: h.detalle,
+              detalle: findingText(h.detalle, h.messageKey),
             })),
             c
           );

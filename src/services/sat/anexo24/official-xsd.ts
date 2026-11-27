@@ -89,13 +89,20 @@ const SHOWN_CHARACTERS = 300;
  * Why a generated file cannot be handed over, by catalogue key.
  * `rejected`: the schema judged the bytes and refused them (a document that is
  * not well formed included). `not_validated`: xmllint did not run.
+ * `not_built`: there were no bytes, the builder refused them (`balance check`,
+ * MNE-001-774); the gate below never returns it.
  */
 export class OfficialXsdRefusal extends AppError {
   constructor(
-    readonly reason: 'rejected' | 'not_validated',
+    readonly reason: 'rejected' | 'not_validated' | 'not_built',
     params: Record<string, string | number>
   ) {
-    const key = reason === 'rejected' ? 'anexo24.xsd.rejected' : 'anexo24.xsd.not_validated';
+    const key =
+      reason === 'rejected'
+        ? 'anexo24.xsd.rejected'
+        : reason === 'not_validated'
+          ? 'anexo24.xsd.not_validated'
+          : 'anexo24.xsd.not_built';
     super(422, 'VALIDATION_ERROR', { key, params });
     this.name = 'OfficialXsdRefusal';
   }
