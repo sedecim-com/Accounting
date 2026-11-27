@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
+import { registerBillCommand } from '../../src/cli/bill-command.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { VAT_OVERCREDIT_CORRECTION_SOURCE } from '../../src/services/accounting/iva-cash-basis.js';
@@ -38,7 +40,7 @@ let vendorId: string;
 const rows = async <T extends Row = Row>(sql: string, params: unknown[]) => (await query<T>(sql, params)).rows;
 
 /** The approved bill of 10,000.00 + 1,600.00 dated `date`, parked in 1135; in dollars when a rate is given. */
-async function bill(date = '2026-08-15', usdRate?: string): Promise<{ id: string; entryId: string }> {
+async function bill(date = '2026-08-15', usdRate?: string, draftOnly = false): Promise<{ id: string; number: string; entryId: string }> {
   const draft = await createBill({
     entity_id: f.entityId, vendor_id: vendorId, created_by: f.userId, bill_date: date, due_date: date,
     currency_code: usdRate ? 'USD' : 'MXN', vendor_invoice_number: `F-${uuidv4().slice(0, 8)}`,
@@ -47,8 +49,9 @@ async function bill(date = '2026-08-15', usdRate?: string): Promise<{ id: string
   if (usdRate) {
     await query(`UPDATE bills SET exchange_rate = $3 WHERE id = $1 AND entity_id = $2 AND status = 'draft'`, [draft.id, f.entityId, usdRate]);
   }
+  if (draftOnly) return { id: draft.id, number: draft.bill_number, entryId: '' };
   const { entry } = await approveBill(draft.id, f.userId, { entityId: f.entityId });
-  return { id: draft.id, entryId: entry!.id };
+  return { id: draft.id, number: draft.bill_number, entryId: entry!.id };
 }
 
 /** An account of the whole entity over posted entries, debit minus credit. */
@@ -72,6 +75,28 @@ const voided = (id: string, opts: { dryRun?: boolean } = {}) =>
 const refusedBy = (key: string): Row => ({ messageKey: expect.objectContaining({ key }) as unknown });
 const flat = (lines: Array<{ account_code: string; debit_amount: string | null; credit_amount: string | null }>) =>
   lines.map((l) => `${l.account_code} ${l.debit_amount ?? '-'} ${l.credit_amount ?? '-'}`);
+
+/** The real leaf `bill void`, answering yes to its question: what it printed, its exit code and its refusals. */
+async function cli(...argv: string[]): Promise<{ out: string; exitCode?: number; errors: string[]; asked: string[] }> {
+  const program = new Command('mnemosine').exitOverride();
+  const seen = { out: '', exitCode: undefined as number | undefined, errors: [] as string[], asked: [] as string[] };
+  const id = (text: string) => text;
+  registerBillCommand(program, {
+    palette: { dim: id, bold: id, cyan: id, red: id, green: id, yellow: id } as never,
+    shutdown: (code: number) => { seen.exitCode = code; },
+    reportError: (e: unknown) => { seen.errors.push(String((e as Error)?.message ?? e)); },
+    confirm: (question: string) => { seen.asked.push(question); return Promise.resolve(true); },
+  });
+  const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => { seen.out += String(chunk); return true; });
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  try {
+    await program.parseAsync(['node', 'mnemosine', 'bill', 'void', ...argv, '--entity', f.entityId, '--tenant', f.tenantId]);
+  } finally {
+    stdout.mockRestore();
+    stderr.mockRestore();
+  }
+  return seen;
+}
 
 /** The fixture PPD bill of 9,280.00 under a fresh UUID, posted from the inbox: status posted, 1,280.00 in 1135. */
 async function inboxBill(): Promise<{ id: string; uuid: string }> {
@@ -135,7 +160,7 @@ describe('void_date, the default: the mirror, the bill at void and the audit row
 
     const r = await voided(b.id);
     expect(flat(r.mirrorLines)).toEqual(mirror);
-    expect(r.mirror).toMatchObject({ date: await todayFor(ctx), posted: true });
+    expect(r.mirror).toMatchObject({ date: await todayFor(ctx), posted: true, datedBy: 'void_date' });
     expect(r.attestation).toEqual({ entityId: f.entityId, entryId: r.mirror!.id });
     expect(await entries()).toBe(before + 1);
     expect(await billRow(b.id)).toEqual({ status: 'void', due: '0.0000' });
@@ -158,6 +183,64 @@ describe('void_date, the default: the mirror, the bill at void and the audit row
     await voided(b.id);
     expect(await billRow(b.id)).toEqual({ status: 'void', due: '0.0000' });
     expect([await net('2110'), await net('1135')]).toEqual(['0.0000', '0.0000']);
+
+    // What the inbox keeps of its CFDI: registered against the void bill, and offered by no door again.
+    const [pre] = await rows<{ status: string; bill_id: string; xml_document_id: string; xml_content: string }>(
+      `SELECT p.status, p.bill_id, p.xml_document_id, x.xml_content FROM pre_registrations p
+         JOIN xml_documents x ON x.id = p.xml_document_id WHERE p.entity_id = $1 AND upper(x.cfdi_uuid) = $2`,
+      [f.entityId, b.uuid]
+    );
+    expect({ status: pre.status, bill: pre.bill_id }).toEqual({ status: 'completed', bill: b.id });
+    await expect(svc.processXMLUpload(f.entityId, pre.xml_content, 'manual_upload', f.userId)).rejects.toThrow(/CFDI already exists/);
+    expect(await svc.reprocessXmlDocument(f.entityId, pre.xml_document_id, f.userId)).toBeNull();
+  }, 90_000);
+});
+
+describe('the leaf `bill void`, against the real service', () => {
+  it('without --reason it is a usage error (exit 2) and nothing is written', async () => {
+    const b = await bill();
+    const r = await cli(b.number, '--yes');
+    expect(r.exitCode).toBe(2);
+    expect(await billRow(b.id)).toEqual({ status: 'approved', due: '11600.0000' });
+    await voided(b.id); // the entity's accounts go back to zero for the cases that follow
+  }, 90_000);
+
+  it('--dry-run writes nothing; then it asks, voids, and the receipt names the mirror, its date and the key that dated it', async () => {
+    const b = await bill();
+    const before = await entries();
+    const dry = await cli(b.number, '--reason', REASON, '--dry-run');
+    expect(dry.exitCode).toBe(0);
+    expect(dry.out).toMatch(/2110 .*11,600\.00\n6100 .*10,000\.00\n1135 .*1,600\.00\n/);
+    expect(dry.out).toMatch(new RegExp(`Would void ${b.number} · mirror JE-\\S+ dated `));
+    expect(dry.asked).toEqual([]);
+    expect(await entries()).toBe(before);
+    expect((await billRow(b.id)).status).toBe('approved');
+
+    const today = await todayFor(ctx);
+    const done = await cli(b.number, '--reason', REASON);
+    expect(done.exitCode).toBe(0);
+    expect(done.asked).toHaveLength(1);
+    expect(done.asked[0]).toContain(`Void ${b.number} (11600.0000 MXN)`);
+    expect(done.asked[0]).toContain(`The mirror of its entry is posted on ${today}. This cannot be undone.`);
+    const [mirror] = await rows<{ entry_number: string }>(
+      `SELECT entry_number FROM journal_entries WHERE entity_id = $1 AND reverses_entry_id = $2`, [f.entityId, b.entryId]);
+    expect(done.out).toContain(`${b.number} voided · mirror ${mirror.entry_number} dated ${today} by bill_void_mirror_date = void_date`);
+    expect(await billRow(b.id)).toEqual({ status: 'void', due: '0.0000' });
+  }, 90_000);
+
+  it('a draft goes to void with no mirror: nothing is posted, and the audit row keeps the reason', async () => {
+    const b = await bill('2026-08-15', undefined, true);
+    const before = await entries();
+    const r = await cli(b.number, '--reason', 'Captured twice', '--yes', '--json');
+    expect(r.exitCode).toBe(0);
+    expect((JSON.parse(r.out) as { rows: unknown[] }).rows).toEqual([
+      { bill: b.number, status: 'void', dry_run: false, mirror_entry: null, mirror_date: null, mirror_posted: false, dated_by: null, mirror_lines: [] },
+    ]);
+    expect(await entries()).toBe(before);
+    expect(await billRow(b.id)).toEqual({ status: 'void', due: '0.0000' });
+    expect(await rows(
+      `SELECT reason, old_values->>'status' AS was FROM audit_log WHERE entity_type = 'bills' AND entity_id = $1 AND action = 'void'`, [b.id]
+    )).toEqual([{ reason: 'Captured twice', was: 'draft' }]);
   }, 90_000);
 });
 
@@ -192,7 +275,7 @@ describe('what is refused, and nothing is written', () => {
     const before = await entries();
     const refusal = await voided(b.id).catch((e: Error) => e);
     expect(refusal).toMatchObject({ statusCode: 409, ...refusedBy('bill.void.settled') });
-    expect((refusal as Error).message).toMatch(/1 payment application and no received credit note or VAT correction .*`payment unapply <payment> --bill BILL-/);
+    expect((refusal as Error).message).toMatch(/1 payment application and no VAT over-credit correction .*`payment unapply <payment> --bill BILL-/);
     expect(await entries()).toBe(before);
     expect((await billRow(b.id)).status).toBe('paid');
 
@@ -228,8 +311,8 @@ describe('what is refused, and nothing is written', () => {
     await svc.processToAccounting(note.preRegistration, f.userId);
     const before = await entries();
     const refusal = await voided(b.id).catch((e: Error) => e);
-    expect(refusal).toMatchObject(refusedBy('bill.void.settled'));
-    expect((refusal as Error).message).toMatch(/no payment application and 1 received credit note or VAT correction/);
+    expect(refusal).toMatchObject(refusedBy('bill.void.credit_note'));
+    expect((refusal as Error).message).toContain(`a received credit note that still stands (${noteUuid}). Undoing a received credit note is not built yet`);
     expect(await entries()).toBe(before);
     expect(await billRow(b.id)).toEqual({ status: 'posted', due: '6960.0000' });
   }, 90_000);
@@ -265,7 +348,7 @@ describe('bill_date: the mirror takes the day of the bill\'s entry, and a period
   it('open period: dated 2026-08-15. Closed period: `preguntar` writes nothing; `periodo_actual` dates it today', async () => {
     await resolvePolicy(ctx, 'bill_void_mirror_date', 'bill_date', email);
     const open = await bill();
-    expect((await voided(open.id)).mirror).toMatchObject({ date: '2026-08-15', posted: true });
+    expect((await voided(open.id)).mirror).toMatchObject({ date: '2026-08-15', posted: true, datedBy: 'bill_date' });
 
     const march = await bill('2026-03-10');
     const closed = await query(
@@ -281,7 +364,7 @@ describe('bill_date: the mirror takes the day of the bill\'s entry, and a period
     expect(await billRow(march.id)).toEqual({ status: 'approved', due: '11600.0000' });
 
     await resolvePolicy(ctx, 'cfdi_periodo_cerrado', 'periodo_actual', email);
-    expect((await voided(march.id)).mirror).toMatchObject({ date: await todayFor(ctx), posted: true });
+    expect((await voided(march.id)).mirror).toMatchObject({ date: await todayFor(ctx), posted: true, datedBy: 'closed_period' });
     expect(await billRow(march.id)).toEqual({ status: 'void', due: '0.0000' });
   }, 90_000);
 });

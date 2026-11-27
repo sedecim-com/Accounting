@@ -41,7 +41,7 @@ const risks = new Map<string, ReturnType<typeof riskOf>>();
 
 const LEAVES = [
   'vendor list', 'vendor show', 'vendor create', 'vendor edit', 'vendor terms set', 'vendor tax set',
-  'bill list', 'bill show', 'bill create', 'bill line set', 'bill approve',
+  'bill list', 'bill show', 'bill create', 'bill line set', 'bill approve', 'bill void',
   // F04: la bandeja de CFDI —por donde entra el mes— y el cuadre del subdiario
   // contra la cuenta de control, que es con lo que se cierra CxP.
   'bill inbox list', 'bill inbox edit', 'bill inbox run',
@@ -121,6 +121,7 @@ describe('the bilingual surface', () => {
     'bill line': 'linea',
     'bill line set': 'fijar',
     'bill approve': 'aprobar',
+    'bill void': 'anular',
     'bill inbox': 'bandeja',
     'bill inbox list': 'listar',
     'bill inbox edit': 'editar',
@@ -167,7 +168,7 @@ describe('safety declarations', () => {
     }
     for (const path of [
       'vendor create', 'vendor edit', 'vendor terms set', 'vendor tax set',
-      'bill create', 'bill line set', 'bill approve',
+      'bill create', 'bill line set', 'bill approve', 'bill void',
       // `bill inbox run` contabiliza y puede dar de alta al emisor del CFDI:
       // es la fila que el catálogo marca IA ✗ por el hueco de control.
       'bill inbox run',
@@ -178,6 +179,15 @@ describe('safety declarations', () => {
 
   it('declares approval irreversible: it posts to the ledger', () => {
     expect(risks.get('bill approve')?.risk).toBe('irreversible');
+  });
+
+  it('declares the void irreversible, with the three flags, a required reason and a key it does not need', () => {
+    expect(risks.get('bill void')?.risk).toBe('irreversible');
+    const options = find('bill void').options;
+    expect(options.map((o) => o.long)).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key', '--reason', '--json']));
+    const key = riskOf(find('bill void'))?.llave;
+    expect(key !== undefined && 'innecesaria' in key).toBe(true);
+    expect(DEUDA_DE_LLAVES).not.toContain('bill void');
   });
 
   it('says the truth about the key it accepts, and R11 does NOT accuse it', () => {

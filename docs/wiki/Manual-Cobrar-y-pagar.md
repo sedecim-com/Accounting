@@ -292,7 +292,7 @@ El `PPD` dentro de `--terms` es, otra vez, la única forma de declarar el métod
 mnemosine bill line set A-1234 --line 1 --account 5110
 ```
 
-Sólo funciona mientras la factura no esté aprobada. Después, no hay `bill edit` ni `bill void`: la única corrección es reversar el asiento.
+Sólo funciona mientras la factura no esté aprobada. Después no se edita: se anula con `bill void <factura> --reason "..."`, que contabiliza la póliza espejo, y se captura de nuevo. `bill void` se niega si la factura ya tiene pagos aplicados (se desaplican primero), si la bajó una nota de crédito recibida o si entró con los saldos de apertura.
 
 ### 4. Aprobar: reconocer el pasivo
 
@@ -410,7 +410,7 @@ Sin terminal (dentro de un `cron`, por ejemplo) el comando no asume tu consentim
 | Cancelar un CFDI ante el SAT | ❌ No existe | Cancelar en el PAC, después `entry reverse --reason` con el acuse |
 | Emitir el REP de un cobro | ❌ No existe | Emitirlo en el PAC; llevar la cuenta con `rep missing list --direction issued` |
 | Contabilizar la nota de crédito que te manda un proveedor | ❌ El CFDI tipo `E` recibido se registra sin asiento | Póliza manual con `entry create` |
-| Corregir una factura de proveedor ya aprobada | ❌ No hay `bill edit` ni `bill void` | `entry reverse` del asiento y volver a capturar |
+| Corregir una factura de proveedor ya aprobada | ❌ No se edita. Se anula con `bill void` mientras se deba entera y no la haya bajado una nota de crédito recibida | `bill void <factura> --reason "..."` y volver a capturar |
 | Programar un pago | ❌ No existe, y el sistema lo dice: no tiene programador de pagos ni conexión con ningún banco | Pagar en el banco y registrar el hecho con `payment create` |
 | Alta masiva de clientes o proveedores | ❌ No hay `customer import` ni `vendor import` | Capturar uno a uno |
 | Declarar PUE/PPD con una bandera | ❌ No hay `--metodo-pago` | Escribir el literal `PUE` o `PPD` dentro de `--terms` |

@@ -8460,11 +8460,14 @@ export const EN = {
   'help.bill.inbox.run.option.note': 'annotation stored with the approval',
   'help.bill.inbox.run.option.dry_run': 'compute and show the full effect; write nothing',
   'help.bill.inbox.run.option.json': 'JSON output',
-  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
-  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  // ---- MNE-001-947 · bill void: its refusals, its panel key and its leaf (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `corrections` count what still stands on the bill. */
   'bill.void.settled':
-    '{bill} is not owed whole: {applications, plural, =0 {no payment application} one {# payment application} other {# payment applications}} and {notes, plural, =0 {no received credit note or VAT correction} one {# received credit note or VAT correction} other {# received credit notes or VAT corrections}} still stand on it. Undo each application first with `payment unapply <payment> --bill {bill} --reason "<why>"`; a bill that a received credit note lowered, or whose VAT a correction moved, is not voided while that entry stands. Nothing was written.',
-  'bill.void.not_voidable': '{bill} is {status}: only a bill that is approved and owed whole is voided. Nothing was written.',
+    '{bill} is not owed whole: {applications, plural, =0 {no payment application} one {# payment application} other {# payment applications}} and {corrections, plural, =0 {no VAT over-credit correction} one {# VAT over-credit correction} other {# VAT over-credit corrections}} still stand on it. Undo each application first with `payment unapply <payment> --bill {bill} --reason "<why>"`; a correction is undone by reversing its entry. Nothing was written.',
+  /** `notes`: the UUID of each received credit note whose entry stands. */
+  'bill.void.credit_note':
+    '{bill} was lowered by a received credit note that still stands ({notes}). Undoing a received credit note is not built yet, so this bill cannot be voided. Nothing was written.',
+  'bill.void.not_voidable': '{bill} is {status}: what can be voided is a draft, or an approved bill that is owed whole. Nothing was written.',
   'bill.void.opening':
     '{bill} came in with the opening balance and shares its entry: voiding it would reverse the whole opening. Reverse the opening and load it again without this document. Nothing was written.',
   'bill.void.closed_period':
@@ -8482,6 +8485,26 @@ export const EN = {
   'policy.bill_void_mirror_date.if_skipped': 'I date the mirror the day of the void.',
   'policy.bill_void_mirror_date.option.void_date': 'The day of the void, as `invoice void` does',
   'policy.bill_void_mirror_date.option.bill_date': 'The day of the bill\'s entry, as if the bill had never been',
+  /** `bill void`: the question, the receipt and the notice. `mirror` says what the ledger gets; `by`, what dated a posted mirror. */
+  'ap.bill.void.confirm':
+    'Void {bill} ({total} {currency}) of {entity}? {mirror, select, posted {The mirror of its entry is posted on {date}.} by_hand {Its entry already has the mirror {entry}: none is posted.} other {It never reached the ledger: nothing is posted.}} This cannot be undone.',
+  'ap.bill.void.no_terminal':
+    'This voids a bill and there is no terminal to confirm at. Re-run with --yes when you mean it, or with --dry-run to see the mirror.',
+  'ap.bill.void.result':
+    '{mode, select, dry_run {Would void {bill}} other {{bill} voided}} · {mirror, select, posted {mirror {entry} dated {date} by {by, select, void_date {bill_void_mirror_date = void_date} bill_date {bill_void_mirror_date = bill_date} other {bill_void_mirror_date = bill_date and cfdi_periodo_cerrado = periodo_actual, its period not being open}}} by_hand {its entry already had the mirror {entry} of {date}; none was posted} other {it had never reached the ledger}}',
+  'ap.bill.void.key_not_needed': '--idempotency-key was not needed: a bill that is already void is not voided again.',
+  'help.bill.void.description':
+    'Void a bill: a draft just goes to void; an approved one that is owed whole also gets the mirror of its entry. Refused with a payment or a credit note applied',
+  'help.bill.void.argument.bill': 'bill number, vendor invoice number or id',
+  'help.bill.void.option.json': 'JSON output',
+  'help.bill.void.footer':
+    'A draft never reached the ledger: it only goes to void. An approved bill that is owed whole also gets the mirror of its entry, dated by the panel key bill_void_mirror_date.\n' +
+    'It is refused with a payment applied (undo it first with `payment unapply`), with a received credit note applied, and for a bill that came in with the opening balance. It cancels nothing before the SAT.\n' +
+    '\nExamples:\n' +
+    '  The vendor cancelled the CFDI: show the mirror it would post, writing nothing:\n' +
+    '    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelled by the vendor" --dry-run\n' +
+    '  Void it: the mirror, the bill at void with nothing due, and the audit row:\n' +
+    '    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelled by the vendor"',
   // ---- end of MNE-001-947 ----
   'help.vendor.description': 'Vendor master: who we owe money to, on what terms, under which tax id',
   'help.vendor.list.description': 'List vendors, filtered by state, 1099 flag or a missing tax id',

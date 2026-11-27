@@ -74,6 +74,9 @@ describe('the payables families, help by key, family by family (#314, MNE-001-23
     ['bill line set', 'help.bill.line.set.option.account'],
     ['bill approve', 'help.bill.approve.argument.bill'],
     ['bill approve', 'help.bill.approve.option.json'],
+    ['bill', 'help.bill.void.description'],
+    ['bill void', 'help.bill.void.argument.bill'],
+    ['bill void', 'help.bill.void.option.json'],
     ['bill inbox', 'help.bill.inbox.description'],
     ['bill inbox', 'help.bill.inbox.run.description'],
     ['bill inbox list', 'help.bill.inbox.list.description'],
@@ -114,6 +117,7 @@ describe('the payables families, help by key, family by family (#314, MNE-001-23
       // «JSON output», not cli.flag.json («shorthand for --format json»): these leaves have no --format.
       'bill create': ['--json'],
       'bill approve': ['--json'],
+      'bill void': ['--json'],
       // The reason is the rejection's, the note the approval's, and the dry run stops at «write nothing».
       'bill inbox run': ['--reason', '--note', '--dry-run', '--json'],
       'vendor create': ['--json'],

@@ -49,9 +49,9 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **299 comandos** repartidos en **81 familias** de primer nivel. De las **1652** filas del catálogo, **283** (17.1 %) ya se pueden invocar.
+El binario ejecuta hoy **300 comandos** repartidos en **81 familias** de primer nivel. De las **1652** filas del catálogo, **284** (17.2 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **318** filas lo declaran completo, **380** a medias y **954** inexistente.
+Del motor que cada comando necesita, **319** filas lo declaran completo, **380** a medias y **953** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **398** filas, de las que **227** ya se teclean.
 
@@ -64,8 +64,8 @@ Contadas por COMANDO, las 1652 filas son **1630 rutas únicas**: **17 rutas** es
 | `bank` | 123 | 34 |
 | `account` | 21 | 16 |
 | `entry` | 35 | 13 |
+| `bill` | 41 | 11 |
 | `sat` | 23 | 11 |
-| `bill` | 41 | 10 |
 | `receipt` | 15 | 10 |
 | `customer` | 26 | 9 |
 | `invoice` | 19 | 9 |
@@ -945,8 +945,8 @@ Cuentas por pagar es el subdiario que *debe dinero*: cada objeto crea una obliga
 | `mnemosine bill reject <id>` · `factura-proveedor rechazar` | Rechaza la factura antes de aprobarla y notifica el motivo tipificado | `--reason`, `--notify-vendor` | ❌ el estado `pending_approval` existe en el CHECK (002_ap_ar_schema.sql:63-68) pero **nada lo escribe** (sólo `approveBill` lo abandona hacia `approved`, bill-service.ts:506) y el rechazo no existe | escritura | ✗ | 2 |
 | `mnemosine bill lock <id>` · `factura-proveedor bloquear` | Pone la factura en disputa: la excluye de las corridas de pago pero la deja visible en antigüedad | `--reason`, `-u/--user`, `--follow-up`, `--dry-run` | ❌ requiere tabla `bill_holds` | escritura | ✗ | 2 |
 | `mnemosine bill unlock [id]` · `factura-proveedor desbloquear` | Libera bloqueos de pago, en masa por motivo, proveedor o vencimiento (equivalente de MRBR) | `--reason price-variance`, `--vendor`, `--due-before`, `--dry-run` | ❌ | escritura | ✗ | 2 |
-| `mnemosine bill void <id>` · `factura-proveedor anular` | Anula una factura **no posteada**; se niega si ya tiene pagos aplicados o asiento | `--reason`, `-y/--yes`, `--dry-run`, `--idempotency-key` | ❌ el estado `void` está en el CHECK (002_ap_ar_schema.sql:63-68) pero es inalcanzable: ninguna ruta lo escribe | irreversible | ✗ | 2 |
-| `mnemosine bill reverse <id>` · `factura-proveedor reversar` | Reversa una factura **ya posteada** con asiento espejo; en periodo cerrado postea en el actual | `--reason`, `--reversal-date`, `--dry-run`, `-y/--yes`, `--idempotency-key` | 🟡 `reverseJournalEntry` existe (src/services/accounting/posting.ts:497) pero sin envoltura de documento que reabra el pasivo y cambie el estado de la factura | irreversible | ✗ | 2 |
+| `mnemosine bill void <id>` · `factura-proveedor anular` | Anula un gasto: un borrador sólo pasa a `void`; uno aprobado que se debe entero recibe además la póliza espejo de la suya; se niega si tiene pagos, una nota de crédito recibida o una corrección de IVA vivos | `--reason`, `-y/--yes`, `--dry-run`, `--idempotency-key`, `--json` | ✅ **invocable desde MNE-001-947 (#1079)**: `voidBill` (src/services/ap/bill-service.ts), el gemelo de `voidInvoice`, en una transacción: el espejo NIF B-1 por `reverseWithinTransaction`, el gasto en `void` con saldo 0.00 bajo un UPDATE guardado, y su fila de auditoría con el motivo. El espejo regresa cada renglón de la póliza del gasto: el gasto, el pasivo, el IVA aparcado en la 1135 y los renglones de IEPS o de retenciones que traiga. La fecha del espejo es de la clave del panel `bill_void_mirror_date` (`void_date` por omisión: el día de la anulación; `bill_date`: el día de la póliza del gasto, y en periodo no abierto decide `cfdi_periodo_cerrado`), y el recibo dice cuál la fechó. `--dry-run` corre el acto real y lo deshace. Una póliza ya reversada a mano no recibe segundo espejo. Se niega con una aplicación de pago viva (nombra `payment unapply`), con una nota de crédito recibida viva (la nombra por UUID: deshacerla no está construido), con un gasto nacido de la apertura y con el de otra entidad (responde como inexistente). No cancela nada ante el SAT. El CFDI de un gasto de la bandeja queda `completed` contra el gasto anulado y ninguna puerta lo vuelve a ofrecer | irreversible | ✗ | 2 |
+| `mnemosine bill reverse <id>` · `factura-proveedor reversar` | Reversa una factura **ya posteada** con asiento espejo; en periodo cerrado postea en el actual | `--reason`, `--reversal-date`, `--dry-run`, `-y/--yes`, `--idempotency-key` | 🟡 lo que esta fila pide para un gasto ya posteado lo hace `bill void` desde MNE-001-947 (espejo, estado y saldo en una transacción), con la fecha por la clave `bill_void_mirror_date` en vez de `--reversal-date`. No se construyó un segundo verbo para el mismo acto; si esta fila se retira o se conserva para una reversa con fecha libre es decisión del dueño | irreversible | ✗ | 2 |
 | `mnemosine bill attachment add <id>` · `factura-proveedor adjunto agregar` | Adjunta XML, PDF, contrato o evidencia de materialidad (art. 69-B) a la factura | `--file`, `--type xml\|pdf\|contract\|evidence` | 🟡 `bills.attachments JSONB` existe (002_ap_ar_schema.sql:78) y se escribe sólo al crear (`createBill`, src/services/ap/bill-service.ts:358); no hay adaptador de almacenamiento (el stub de S3 se retiró en #370) | escritura | ✓ | 2 |
 | `mnemosine bill template create` · `factura-proveedor plantilla crear` | Define una factura recurrente (renta, SaaS, seguros) con periodicidad y codificación fija | `--vendor`, `--schedule`, `--line`, `--amount`, `--auto draft\|post` | ❌ | escritura | ✗ | 2 |
 | `mnemosine bill template list` · `factura-proveedor plantilla listar` | Lista plantillas recurrentes y su próxima generación | `--json` | ❌ | lectura | ✓ | 2 |

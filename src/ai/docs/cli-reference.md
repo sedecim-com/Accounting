@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 261 of 417 subcommands
+  spelling is `-T` at the root and `-t` on the 262 of 418 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -3621,6 +3621,10 @@ Commands:
   approve|aprobar [options] <bill>  Approve a bill and recognize the liability
                                     in the ledger (DR expense + IVA / CR
                                     payables)
+  void|anular [options] <bill>      Void a bill: a draft just goes to void; an
+                                    approved one that is owed whole also gets
+                                    the mirror of its entry. Refused with a
+                                    payment or a credit note applied
   inbox|bandeja                     CFDI inbox: pre-registrations waiting to
                                     become vendor bills
   rule|regla                        Firm processing rules: what codes an
@@ -3830,6 +3834,41 @@ Examples:
   mnemosine bill approve BILL-2026-00007
   # Show the entry it would post, writing nothing.
   mnemosine bill approve BILL-2026-00007 --dry-run
+```
+
+### `mnemosine bill void` (alias: anular)
+
+```
+Usage: mnemosine bill void|anular [options] <bill>
+
+Void a bill: a draft just goes to void; an approved one that is owed whole also
+gets the mirror of its entry. Refused with a payment or a credit note applied
+
+Arguments:
+  bill                     bill number, vendor invoice number or id
+
+Options:
+  --json                   JSON output
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
+
+A draft never reached the ledger: it only goes to void. An approved bill that is owed whole also gets the mirror of its entry, dated by the panel key bill_void_mirror_date.
+It is refused with a payment applied (undo it first with `payment unapply`), with a received credit note applied, and for a bill that came in with the opening balance. It cancels nothing before the SAT.
+
+Examples:
+  The vendor cancelled the CFDI: show the mirror it would post, writing nothing:
+    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelled by the vendor" --dry-run
+  Void it: the mirror, the bill at void with nothing due, and the audit row:
+    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelled by the vendor"
 ```
 
 ### `mnemosine bill inbox` (alias: bandeja)
