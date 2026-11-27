@@ -443,6 +443,38 @@ export const EN = {
     'Unknown reconciling item type in item {item}: "{value}". The accepted ones are: {known}.',
   // ---- end of MNE-001-825 ----
 
+  // ---- MNE-001-857 · I9 by folder, part 2c, part 2: the refusals of the reconciling items, reconciling-items.ts in src/services/banking (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes unchanged: VALIDATION_ERROR for a
+  // ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The Spanish
+  // twin is the text each site printed. The closing date of a session is a
+  // select, so its clause goes with its sentence. Types, sides, escalation
+  // values and field names are parameters or literals, never translated.
+  // classify (and the --type of bank reconciling-item list)
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable': 'Unreadable amount when classifying the item: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite': 'Non-finite amount when classifying the item: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown': 'Unknown reconciling item type "{value}". The accepted ones are: {known}.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open':
+    'Session {session} is in status "{status}"{closedAt, select, none {} other { and closed on {closedAt}}}: it takes no new items. Its figures are the summary frozen at close; to classify again it has to be reopened.',
+  // bank reconciling-item correct and assign
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open':
+    'Session {session} is in status "{status}"{closedAt, select, none {} other { and closed on {closedAt}}}: its items are no longer touched. Its figures are the summary frozen at close, and moving an item afterwards would contradict them without anyone having reopened anything.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved':
+    'Item {item} is already resolved: it stopped explaining a difference, and reclassifying it would change a closed history.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount':
+    'Moving item {item} from "{type}" (side {side}) to "{newType}" (side {newSide}) changes which of the two balances it corrects, and its contribution of {amount} would stop meaning the same. Give the new amount, SIGNED by its contribution to the {newSide} side.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable': 'Unreadable amount when reclassifying: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero':
+    'The amount of an item cannot be zero or unreadable; got "{value}". An item that contributes zero explains no difference: resolve it instead of leaving it at zero.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race':
+    'Item {item} was not reclassified: either its session is no longer in progress, or the item was resolved meanwhile. Nothing was changed.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format': '`fechaEsperada` must come as YYYY-MM-DD; got "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand':
+    '"vencido" is not set by hand: the expected date against today decides it. If the item is already overdue, adjust its `fechaEsperada`; if it was only chased, mark it "avisado".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown': 'Unknown escalation "{value}". Accepted here: {known}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign':
+    'Nothing to assign was given: responsable, fechaEsperada, escalamiento or notas.',
+  // ---- end of MNE-001-857 ----
+
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The
   // Spanish twin is the text each site printed. Policy keys and their values,

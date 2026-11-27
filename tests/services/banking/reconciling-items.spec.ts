@@ -552,7 +552,7 @@ describe('reclasificarPartida', () => {
     const f = bajoTransaccion([filaCruda({ tipo: 'cargo-del-banco', importe: '-50.0000' })]);
     await expect(
       reclasificarPartida('ent-1', 'ses-1', 'ri-1', { tipo: 'error-del-banco' })
-    ).rejects.toThrow(/aportación/);
+    ).rejects.toThrow(/contribution/);
     expect(enTx(f, /UPDATE reconciling_items/)).toBeUndefined();
   });
 
@@ -618,7 +618,7 @@ describe('asignarPartida', () => {
   it('NO deja marcar "vencido" a mano: lo dice el calendario', async () => {
     await expect(
       asignarPartida('ent-1', 'ses-1', 'ri-1', { escalamiento: 'vencido' })
-    ).rejects.toThrow(/no se marca a mano/);
+    ).rejects.toThrow(/is not set by hand/);
   });
 
   it('acepta "avisado", que es el hecho humano que ninguna fecha sabe', async () => {
