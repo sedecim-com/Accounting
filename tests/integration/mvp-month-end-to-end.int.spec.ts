@@ -2522,24 +2522,31 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     // charge, which is its payment (LIVA arts. 1-B and 5 fr. III; MNE-001-041,
     // `treasury-posting.ts`). Its adjustment was posted on 12-31, mirrored by
     // the reopening and posted again, so it counts once. Withheld and still to
-    // remit: 1,066.67 of the fees, shown and not netted. In cents and in pesos
-    // (`cada_renglon`):
+    // remit: 1,066.67 of the fees, shown and not netted. That 1,066.67 is part
+    // of the 4,208 the ledger debited to 1130, and December does not credit it
+    // (MNE-001-909; LIVA art. 5o. fr. IV, `withheld_vat_credit_month =
+    // after_remittance`, the default): it is credited in the return after the
+    // one that remits it, so December credits 4,208.00 − 1,066.67 = 3,141.33,
+    // shows the 1,066.67 that waits, and its tie-out names it. In cents and in
+    // pesos (`cada_renglon`):
     //   charged.tasa16.base     22,000.00 / 22,000   charged.tasa16.iva     3,520.00 / 3,520
     //   charged.tasa8, tasa0, exento (base and iva) and no_objeto.base: 0.00 / 0
-    //   creditable.tasa16.base  26,300.00 / 26,300   creditable.tasa16.iva  4,208.00 / 4,208
+    //   creditable.tasa16.base  26,300.00 / 26,300   creditable.tasa16.iva  3,141.33 / 3,141
     //   creditable.tasa8.base and .iva: 0.00 / 0
     //   creditable.tasa0.base    1,200.00 / 1,200    creditable.tasa0.iva       0.00 / 0
     //   creditable.exento.base     450.00 / 450      creditable.exento.iva      0.00 / 0
+    //   creditable.withheld_awaiting_remittance  1,066.67 / 1,067, shown only
     //   withheld_by_customers 0.00 / 0 · prior_balance_in_favor 0.00 / 0
     //   withheld_to_remit        1,066.67 / 1,067
-    //   result  3,520 − 4,208 = −688.00 / −688, a balance in favor
+    //   result  3,520.00 − 3,141.33 = 378.67 in cents, 3,520 − 3,141 = 379 in pesos, payable
     // Traced by the day of each cash event: charged 1,600 on 12-05, 800 on
     // 12-22, 1,280 on 12-11; creditable 1,280 on 12-22, 160 on 12-09, 12-12
     // and 12-19, 1,600 on 12-16, 800 on 12-20, 48 on 12-31 (the bank fee);
-    // 0 % on 12-03; exempt on 12-04; the withholding on 12-16. Both tie-outs
-    // are silent: 2120 moved 3,520 and 1130 4,208. The fee's credit still
-    // needs the bank's CFDI in hand (art. 5 fr. II), which the paper reminds.
-    it('the IVA paper takes the credit note of 12-18 out of December, credits the bank fee at its charge, and settles −688.00 / −688 — MNE-001-565, MNE-001-566, #799', () => {
+    // 0 % on 12-03; exempt on 12-04; the withholding on 12-16. The charged
+    // tie-out is silent: 2120 moved 3,520. The creditable one names its whole
+    // gap, 3,141.33 − 4,208.00 = −1,066.67: the IVA withheld. The fee's credit
+    // still needs the bank's CFDI in hand (art. 5 fr. II), which the paper reminds.
+    it('the IVA paper takes the credit note of 12-18 out of December, credits the bank fee at its charge, holds the withheld IVA back, and settles 378.67 / 379 — MNE-001-565, MNE-001-566, MNE-001-909, #799', () => {
       const run = ok(['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'iva', '--json']);
       const iva = sectionOf<IvaPaper>(run);
       expect(iva.blockedBy).toEqual([]);
@@ -2548,14 +2555,15 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ['charged.tasa16.base', '22000.00', '22000'], ['charged.tasa16.iva', '3520.00', '3520'],
         zero('charged.tasa8.base'), zero('charged.tasa8.iva'), zero('charged.tasa0.base'), zero('charged.tasa0.iva'),
         zero('charged.exento.base'), zero('charged.exento.iva'), zero('charged.no_objeto.base'),
-        ['creditable.tasa16.base', '26300.00', '26300'], ['creditable.tasa16.iva', '4208.00', '4208'],
+        ['creditable.tasa16.base', '26300.00', '26300'], ['creditable.tasa16.iva', '3141.33', '3141'],
         zero('creditable.tasa8.base'), zero('creditable.tasa8.iva'),
         ['creditable.tasa0.base', '1200.00', '1200'], zero('creditable.tasa0.iva'),
         ['creditable.exento.base', '450.00', '450'], zero('creditable.exento.iva'),
+        ['creditable.withheld_awaiting_remittance', '1066.67', '1067'],
         zero('withheld_by_customers'), zero('prior_balance_in_favor'),
         ['withheld_to_remit', '1066.67', '1067'],
       ]);
-      expect([iva.resultCents, iva.resultWhole]).toEqual(['-688.00', '-688']);
+      expect([iva.resultCents, iva.resultWhole]).toEqual(['378.67', '379']);
 
       const charged = iva.lines.find((l) => l.key === 'charged.tasa16.iva')?.source.documents ?? [];
       const note = charged.find((d) => d.documentNumber === 'CN-2025-00001');
@@ -2569,8 +2577,47 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       const codes = iva.findings.map((h) => h.codigo);
       expect(codes).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
-      expect(codes).not.toContain('IVA-WP-CREDITABLE-VS-LEDGER');
+      expect(iva.findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje)
+        .toContain('De la diferencia de -1066.6700, estos documentos explican -1066.6700: IVA withheld to vendors');
+      expect(iva.findings.find((h) => h.codigo === 'IVA-WP-WITHHELD-VAT-AWAITS-REMITTANCE')?.mensaje).toContain('--withheld-vat-remitted 2025-12:<acuse>');
       expect(iva.findings.find((h) => h.codigo === 'IVA-WP-BANK-FEE-CFDI')?.mensaje).toContain('48.0000');
+    }, STEP_TIMEOUT_MS);
+
+    // THE FULL CYCLE OF THE WITHHELD IVA, BY HAND (MNE-001-909). December's
+    // 1,066.67 is remitted with December's return (LIVA art. 1o.-A) and
+    // credited in the return that follows it (art. 5o. fr. IV): on January's
+    // paper and on no other, when a person states the remittance with its
+    // acuse. January 2026 collected and paid nothing with IVA (its only
+    // entry is the fortnight's payroll), so:
+    //   creditable.tasa16.base  0.00 / 0   creditable.tasa16.iva  1,066.67 / 1,067
+    //   creditable.withheld_remitted  1,066.67 / 1,067, shown only: it is inside the line above
+    //   every other line 0.00 / 0
+    //   result  0 − 1,066.67 = −1,066.67 / −1,067, a balance in favor
+    // 1130 did not move in January, so the tie-out names its whole gap, the
+    // 1,066.67, with the acuse as typed. Without the statement January's paper
+    // credits nothing and names the 1,066.67 as not credited.
+    it('January\'s paper credits the 1,066.67 withheld in December once its remittance is stated, and settles −1,066.67 / −1,067 — MNE-001-909', () => {
+      const paper = ['filing', 'workpaper', 'generate', '--period', '2026-01', '--form', 'iva', '--json'];
+      const unstated = sectionOf<IvaPaper>(ok(paper));
+      expect(unstated.lines.find((l) => l.key === 'creditable.tasa16.iva')).toMatchObject({ cents: '0.00', whole: '0' });
+      expect(unstated.findings.find((h) => h.codigo === 'IVA-WP-WITHHELD-VAT-NOT-CREDITED')?.mensaje)
+        .toContain('--withheld-vat-remitted 2025-12:<acuse>');
+
+      const iva = sectionOf<IvaPaper>(ok([...paper, '--withheld-vat-remitted', '2025-12:ACUSE-DIC-0001']));
+      expect(iva.blockedBy).toEqual([]);
+      const zero = (key: string): [string, string, string] => [key, '0.00', '0'];
+      const boxes = (side: string, rates: string[]): [string, string, string][] => rates.flatMap((r) => [zero(`${side}.${r}.base`), zero(`${side}.${r}.iva`)]);
+      expect(iva.lines.map((l) => [l.key, l.cents, l.whole])).toEqual([
+        ...boxes('charged', ['tasa16', 'tasa8', 'tasa0', 'exento']), zero('charged.no_objeto.base'),
+        zero('creditable.tasa16.base'), ['creditable.tasa16.iva', '1066.67', '1067'],
+        ...boxes('creditable', ['tasa8', 'tasa0', 'exento']),
+        ['creditable.withheld_remitted', '1066.67', '1067'],
+        zero('withheld_by_customers'), zero('prior_balance_in_favor'), zero('withheld_to_remit'),
+      ]);
+      expect([iva.resultCents, iva.resultWhole]).toEqual(['-1066.67', '-1067']);
+      expect(iva.inputs.withheld_vat).toMatchObject({ credited: '2025-12:ACUSE-DIC-0001=1066.6700', checkedBySystem: false });
+      expect(iva.findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje)
+        .toContain('De la diferencia de 1066.6700, estos documentos explican 1066.6700: IVA withheld to vendors in 2025-12, remitted with acuse ACUSE-DIC-0001');
     }, STEP_TIMEOUT_MS);
 
     it('the ISR working paper blocks until the 2024 return is captured, and then has the exact hand figures — MNE-001-420', () => {

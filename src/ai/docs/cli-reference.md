@@ -9143,6 +9143,7 @@ Options:
   --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
   --prior-balance <amount>                 prior balance in favour (IVA) instead of the one the returns recorded with `filing record` give; needs --prior-balance-reason
   --prior-balance-reason <text>            why the prior balance is overridden, shown on its line
+  --withheld-vat-remitted <YYYY-MM:acuse>  IVA withheld to vendors in the month before, which this return credits (IVA): that month and the acuse of the return that remitted it
   -h, --help                               display help for command
 
 This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
@@ -9156,6 +9157,8 @@ Examples:
     mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
   The IVA with a prior balance a person gives instead of the one the filed returns give:
     mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"
+  The IVA of May crediting what was withheld to vendors in April, remitted with the return of that acuse:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --withheld-vat-remitted 2026-04:100200300
 ```
 
 ### `mnemosine filing record` (alias: registrar)

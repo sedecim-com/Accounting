@@ -407,3 +407,37 @@ describe('bill_void_mirror_date — the text names its reader and cites only wha
     expect(norms(t('policy.bill_void_mirror_date.rationale', {}, 'es'))).toEqual(['CFF art. 29-A', 'CFF art. 32', 'NIF B-1']);
   });
 });
+
+// MNE-001-909 (#1075). The month the IVA withheld to a vendor is credited.
+// The text names its reader and cites LIVA art. 5o. fr. IV for what the
+// payables manual carries of it, from the official text and with its source.
+describe('withheld_vat_credit_month — the text names its reader and cites the law the corpus carries', () => {
+  const s = spec('withheld_vat_credit_month');
+
+  it('names withheld-vat-credit.ts as its reader, which the IVA workpaper calls once, and the default is the conservative answer', () => {
+    expect(s.impact).toMatch(/withheld-vat-credit\.ts reads it once for each month the paper builds/);
+    const [reader] = sourcesNamed('withheld-vat-credit.ts').map((p) => fs.readFileSync(p, 'utf8'));
+    expect(reader).toMatch(/WITHHELD_VAT_CREDIT_MONTH_KEY = 'withheld_vat_credit_month'/);
+    expect(reader).toMatch(/getPolicy\(ctx, WITHHELD_VAT_CREDIT_MONTH_KEY, client\)/);
+    const [paper] = sourcesNamed('iva-workpaper.ts').map((p) => fs.readFileSync(p, 'utf8'));
+    expect(paper.match(/await readWithheldVatCreditMonth\(ctx, client\)/g)).toHaveLength(1);
+    expect(s.impact).toMatch(/The DIOT does not read this key/);
+    expect(sourcesNamed('diot-service.ts').map((p) => fs.readFileSync(p, 'utf8')).join('')).not.toMatch(/WithheldVatCreditMonth/);
+    expect([s.defaultValue, s.options.map((o) => o.value)]).toEqual(['after_remittance', ['after_remittance', 'payment_month']]);
+  });
+
+  it('cites LIVA art. 5o. fr. IV, whose text the payables manual quotes with its source and the day it was read', () => {
+    expect(s.defaultRationale).toBe(t('policy.withheld_vat_credit_month.rationale', {}, 'en'));
+    expect(s.defaultRationale).toMatch(/LIVA art\. 5o\. fr\. IV, as the payables manual of this system carries it from the official text/);
+    const manual = fs.readFileSync(path.join(ROOT, 'src/ai/docs/payables.md'), 'utf8');
+    expect(manual).toContain(
+      '«Que tratándose del impuesto al valor agregado trasladado que se hubiese retenido conforme a los artículos 1o.-A y 18-J, fracción II, ' +
+      'inciso a) de esta Ley, dicha retención se entere en los términos y plazos establecidos en la misma. El impuesto retenido y enterado, ' +
+      'podrá ser acreditado en la declaración de pago mensual siguiente a la declaración en la que se haya efectuado el entero de la retención;»'
+    );
+    expect(manual).toContain('https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf, «Última reforma publicada DOF 12-11-2021», read on 2026-11-27');
+    const norms = (text: string): string[] => [...new Set([...text.matchAll(/\b(LIVA art\. \d+o?\.(?:-A)?(?: fr\. [IVX]+)?|ADR-\d+)/g)].map((m) => m[1]))].sort();
+    expect(norms(s.defaultRationale)).toEqual(['ADR-0006', 'LIVA art. 5o. fr. IV']);
+    expect(norms(t('policy.withheld_vat_credit_month.rationale', {}, 'es'))).toEqual(['ADR-0006', 'LIVA art. 5o. fr. IV']);
+  });
+});

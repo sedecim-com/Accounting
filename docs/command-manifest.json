@@ -3846,7 +3846,8 @@
         {"name":"ptuPaid","flags":"--ptu-paid <amount>","type":"string","required":false},
         {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
         {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
-        {"name":"user","flags":"-u, --user <email>","type":"string","required":false}
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"withheldVatRemitted","flags":"--withheld-vat-remitted <YYYY-MM:acuse>","type":"string","required":false}
       ],
       "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
     },

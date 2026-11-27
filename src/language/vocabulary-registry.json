@@ -6273,6 +6273,30 @@
     },
     {
       "class": "policy-key",
+      "where": "withheld_vat_credit_month",
+      "es": "withheld_vat_credit_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-909): in which month the IVA workpaper credits the IVA withheld to a vendor."
+    },
+    {
+      "class": "policy-value",
+      "where": "withheld_vat_credit_month/after_remittance",
+      "es": "after_remittance",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: credited in the return after the one that remitted it, when a person captures the remittance."
+    },
+    {
+      "class": "policy-value",
+      "where": "withheld_vat_credit_month/payment_month",
+      "es": "payment_month",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: credited with the rest of the bill's IVA, in the month of its payment."
+    },
+    {
+      "class": "policy-key",
       "where": "year_seal_with_unsealed_months",
       "es": "year_seal_with_unsealed_months",
       "en": null,

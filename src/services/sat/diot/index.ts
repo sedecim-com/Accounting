@@ -65,6 +65,7 @@ export { linesToSplit, vatLinesOfCfdi, type CfdiTaxSummary } from './cfdi-split.
 
 export {
   hechosDelMes, rangoDelMes, readVendorUndoIvaMonth, APPLIED_ON, UNDONE_ON, type HechoPagado, type RangoDelMes,
+  type VendorUndoIvaMonth,
 } from './hechos.js';
 
 export {
