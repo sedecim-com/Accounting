@@ -104,7 +104,8 @@ export function requirementIds(prdMarkdown: string): Set<string> {
 export function validate(backlog: Backlog, requirements: Set<string>, prdNumber: string): string[] {
   const errors: string[] = [];
   const byId = new Map<string, Task>();
-  const idPattern = new RegExp(`^MNE-${prdNumber}-\\d{3}$`);
+  // Three digits up to 999 and four from 1000 on, never padded to four: a number has one spelling.
+  const idPattern = new RegExp(`^MNE-${prdNumber}-(\\d{3}|[1-9]\\d{3})$`);
 
   // A missing or zero capacity would not fail later: it would silently turn a
   // limit off or stall the scheduler. So the schedule block is checked first.
@@ -134,7 +135,7 @@ export function validate(backlog: Backlog, requirements: Set<string>, prdNumber:
   }
 
   for (const t of backlog.tasks) {
-    if (!idPattern.test(t.id)) errors.push(`${t.id}: the id must look like MNE-${prdNumber}-nnn`);
+    if (!idPattern.test(t.id)) errors.push(`${t.id}: the id must look like MNE-${prdNumber}-nnn (four digits from 1000 on)`);
     if (byId.has(t.id)) errors.push(`${t.id}: duplicated id`);
     byId.set(t.id, t);
   }
@@ -486,7 +487,7 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
   for (const r of reqs) {
     const ts = backlog.tasks.filter((t) => t.requirement === r);
     const must = ts.filter((t) => t.priority === 'Must');
-    lines.push(`| ${r} | ${ts.map((t) => t.id.slice(-3)).join(', ')} | ${must.length ? lastOf(must) : '—'} | ${lastOf(ts)} |`);
+    lines.push(`| ${r} | ${ts.map((t) => t.id.slice(t.id.lastIndexOf('-') + 1)).join(', ')} | ${must.length ? lastOf(must) : '—'} | ${lastOf(ts)} |`);
   }
 
   lines.push(
