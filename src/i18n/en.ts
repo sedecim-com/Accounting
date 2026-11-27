@@ -9362,7 +9362,7 @@ export const EN = {
   'e_accounting.voucher.summary':
     '{vouchers, plural, one {# voucher} other {# vouchers}}, {traced} with payment trace · debit {debit} · credit {credit}',
   'e_accounting.voucher.blocked':
-    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above, each with its voucher number. Fix them and generate again.',
+    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above, each with its voucher number or, for `xsd`, the line of the file. Fix them and generate again.',
   'e_accounting.subledger.title_folios': 'Voucher-folio auxiliary {month}/{year}',
   'e_accounting.subledger.title_accounts': 'Account auxiliary {month}/{year}',
   'e_accounting.subledger.summary':
@@ -9452,6 +9452,10 @@ export const EN = {
     'Account {account} declares {column} {amount}, outside what the SAT XSD accepts for an amount (t_Importe: ' +
     'more than -9999999999999999999999.99 and at most 9999999999999999999999.99): it rejects the whole file.',
   // --- end of MNE-001-775 ---
+  // --- e-accounting voucher|subledger generate · the official XSD (MNE-001-667, #608) ---
+  'e_accounting.subledger.blocked':
+    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above. Fix what they name and generate again.',
+  // --- end of MNE-001-667 ---
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

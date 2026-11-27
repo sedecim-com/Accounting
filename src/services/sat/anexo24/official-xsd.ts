@@ -21,9 +21,9 @@ import { xsdVerdictOf, type XsdVerdict } from '../xsd-verdict.js';
 // document validates, so the same check the tests run guards what is handed
 // to the taxpayer. `npm run build:api` copies `xsd/` next to this module.
 //
-// Since #608 the generators pass their finished file through
-// `officialXsdRefusal` too: a file this schema does not accept, or one that
-// could not be validated, is never reported as deliverable.
+// Since #608 the generators of the five documents pass their finished file
+// through `officialXsdRefusal` too: a file its schema does not accept, or one
+// that could not be validated, is never reported as deliverable.
 // ============================================================
 
 export const XSD_ROOT = path.join(__dirname, 'xsd');
@@ -82,8 +82,17 @@ export function xmllintVersion(): string | null {
 
 // One enumeration error of the chart's schema lists the whole c_CodAgrup: 15 KB
 // in one line. A finding shows this much, and says how many lines it left out.
+// A longer line loses its MIDDLE, not its end (MNE-001-667): xmllint quotes the
+// value first and says what is wrong with it last («has a length of '320';
+// this exceeds the allowed maximum length of '300'»), so the head keeps the
+// element, the attribute and how the value begins, and the tail the reason.
 const SHOWN_LINES = 5;
 const SHOWN_CHARACTERS = 300;
+const SHOWN_TAIL = 79;
+const shownLine = (line: string): string =>
+  line.length > SHOWN_CHARACTERS
+    ? `${line.slice(0, SHOWN_CHARACTERS - SHOWN_TAIL - 1)}…${line.slice(-SHOWN_TAIL)}`
+    : line;
 
 /**
  * Why a generated file cannot be handed over, by catalogue key.
@@ -126,9 +135,7 @@ export function officialXsdRefusal(xml: string, schema: OfficialSchema): Officia
     throw err;
   }
   if (verdict.valid) return null;
-  const shown = verdict.errors
-    .slice(0, SHOWN_LINES)
-    .map((line) => (line.length > SHOWN_CHARACTERS ? `${line.slice(0, SHOWN_CHARACTERS - 1)}…` : line));
+  const shown = verdict.errors.slice(0, SHOWN_LINES).map(shownLine);
   return new OfficialXsdRefusal('rejected', {
     schema: file,
     errors: shown.join('; '),

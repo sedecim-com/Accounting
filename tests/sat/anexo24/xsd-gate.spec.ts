@@ -7,6 +7,12 @@ import { construirBalanzaXml, type DatosDeBalanza } from '../../../src/services/
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { officialXsdRefusal } from '../../../src/services/sat/anexo24/official-xsd.js';
 import { xsdFindings, xsdFindingWithoutFile } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
+import { xsdFindings as requestFileXsdFindings } from '../../../src/services/sat/anexo24/polizas-invariantes.js';
+import { construirPolizasXml } from '../../../src/services/sat/anexo24/polizas-xml.js';
+import {
+  construirAuxiliarCuentasXml,
+  construirAuxiliarFoliosXml,
+} from '../../../src/services/sat/anexo24/polizas-auxiliar-xml.js';
 import { textIn, ValidationError } from '../../../src/utils/errors.js';
 
 // ============================================================
@@ -114,7 +120,7 @@ describe('the gate a generator passes its finished file through', () => {
     expect(refusal?.message).toMatch(/was not validated .*ENOENT.*not deliverable.*mnemosine doctor/);
   });
 
-  it('shows the first five lines, each cut at 300 characters, and counts the rest', () => {
+  it('shows the first five lines, each cut to 300 characters by its middle, and counts the rest', () => {
     // Eight accounts whose NumCta has 101 characters: eight maxLength errors.
     const digits = ['1', '2', '3', '4', '5', '6', '7', '8'];
     const long = digits.reduce(
@@ -128,7 +134,12 @@ describe('the gate a generator passes its finished file through', () => {
     // xmllint quotes the 101 characters, so every line runs past the limit:
     // 5 lines of 300 and 4 separators of 2.
     expect(params.errors).toHaveLength(1508);
-    expect(params.errors).toMatch(/^line 3: .*attribute 'NumCta'.*…; line 4: /);
+    // The cut keeps both ends (MNE-001-667): the attribute and how the value
+    // begins, and the reason, which xmllint says last in 74 characters: the
+    // tail of 79 holds it and the last five 1s.
+    expect(params.errors).toMatch(
+      /^line 3: .*attribute 'NumCta'.* The value '1+…11111' has a length of '101'; this exceeds the allowed maximum length of '100'\.; line 4: /
+    );
     expect(refusal?.message).toContain('and 3 more lines');
   });
 });
@@ -210,5 +221,50 @@ describe('balance check · the xsd check (MNE-001-774)', () => {
     expect(textIn(key, 'es')).toMatch(/^No se construyó ningún archivo .*: El RFC de la entidad «AAA019901AAA» no es/);
     // A prose cause (the serializer's) still travels as written.
     expect(xsdFindingWithoutFile('texto tal cual').detalle).toMatch(/: texto tal cual$/);
+  });
+});
+
+describe('the vouchers file and both auxiliaries · the xsd finding (MNE-001-667)', () => {
+  const header = { rfc: 'AAA010101AAA', anio: 2026, mes: '01', solicitud: { tipo: 'AF', numOrden: 'ABC1234567/26' } } as const;
+  const line = { fecha: '2026-01-10', numUnIdenPol: 'JE-0001', concepto: 'Compra', debe: '7000.00', haber: '0.00' };
+  const UUID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const lines = [
+    { numCta: '1140', desCta: 'Inventarios', concepto: 'Compra', debe: '7000.00', haber: '0.00' },
+    { numCta: '4100', desCta: 'Ventas', concepto: 'Compra', debe: '0.00', haber: '7000.00' },
+  ];
+  // Each builder with the one value its schema bounds: 300 and 100 characters, and the RFC pattern.
+  const FILES = {
+    journal: (concept: string) =>
+      construirPolizasXml({ ...header, polizas: [{ numUnIdenPol: 'JE-0001', fecha: '2026-01-10', concepto: concept, transacciones: lines }] }),
+    accountAuxiliary: (name: string) =>
+      construirAuxiliarCuentasXml({
+        ...header,
+        cuentas: [{ numCta: '1140', desCta: name, saldoIni: '0.00', saldoFin: '7000.00', movimientos: [line] }],
+      }),
+    voucherAuxiliary: (rfc: string) =>
+      construirAuxiliarFoliosXml({
+        ...header,
+        detalles: [{ numUnIdenPol: 'JE-0001', fecha: '2026-01-10', comprobantes: [{ clase: 'nacional', uuid: UUID, rfc, montoTotal: '1160.00' }] }],
+      }),
+  };
+
+  it.each([
+    ['journal', 'C'.repeat(300), 'C'.repeat(301), 'PolizasPeriodo_1_3.xsd', /Poliza', attribute 'Concepto'.*'301'.*'300'/],
+    ['accountAuxiliary', 'N'.repeat(100), 'N'.repeat(101), 'AuxiliarCtas_1_3.xsd', /Cuenta', attribute 'DesCta'.*'101'.*'100'/],
+    ['voucherAuxiliary', 'CCC031203CC3', 'CCC039903CC3', 'AuxiliarFolios_1_3.xsd', /ComprNal', attribute 'RFC'/],
+  ] as const)('%s: nothing at the bound of its own schema, one blocking finding of the whole file past it', (schema, at, past, file, said) => {
+    expect(requestFileXsdFindings(FILES[schema](at), schema)).toEqual([]);
+    const found = requestFileXsdFindings(FILES[schema](past), schema);
+    expect(found.map((h) => [h.check, h.severity, h.referencia, h.messageKey?.key])).toEqual([
+      ['xsd', 'blocking', '', 'anexo24.xsd.rejected'],
+    ]);
+    expect(found[0].messageKey?.params?.schema).toBe(file);
+    expect(found[0].detalle).toMatch(said);
+  });
+
+  it('judges by the schema it is given, and without xmllint blocks and says the file was not validated', () => {
+    expect(requestFileXsdFindings(FILES.journal('Compra'), 'accountAuxiliary')[0]?.messageKey?.key).toBe('anexo24.xsd.rejected');
+    const found = withoutXmllint(() => requestFileXsdFindings(FILES.journal('Compra'), 'journal'));
+    expect(found.map((h) => [h.check, h.severity, h.messageKey?.key])).toEqual([['xsd', 'blocking', 'anexo24.xsd.not_validated']]);
   });
 });

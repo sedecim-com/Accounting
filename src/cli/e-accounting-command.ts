@@ -294,8 +294,8 @@ export function filaDeHallazgoDeCatalogo(h: Hallazgo): Row {
 }
 
 /**
- * What a chart or balance finding reads as on screen: by key, in the reader's
- * language, when it has one (#608, MNE-001-774); its prose otherwise. The rows
+ * What a chart, balance or request-file finding reads as on screen: by key,
+ * in the reader's language, when it has one (#608); its prose otherwise. The rows
  * keep the text the finding was built with, English for a keyed one like the
  * rest of the receipt. A keyed cause inside one renders in the same language
  * (MNE-001-775).
@@ -1086,6 +1086,7 @@ Examples:
     readable: (opts) => legible(opts, true),
     unsealedNotice: bloqueSinSello,
     findingLines: renderHallazgos,
+    findingText,
     stepsToFile: PASOS_PARA_PRESENTAR,
     helpNotice: avisoDeAyuda,
     ...(deps.requestFileEngine !== undefined ? { engine: deps.requestFileEngine } : {}),

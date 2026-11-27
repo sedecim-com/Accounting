@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll, afterEach } from 'vitest';
 import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -14,7 +14,7 @@ import {
 import { avisarRastroIncompleto } from '../../src/cli/payment-command.js';
 import { warnUntracedPayment } from '../../src/cli/trace-completion-output.js';
 import { untracedPaymentFinding } from '../../src/services/sat/anexo24/untraced-payment-finding.js';
-import { t } from '../../src/i18n/index.js';
+import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode, exitCodeFor } from '../../src/cli/kernel/index.js';
 import { commandCitations } from '../../src/plan/criteria/e5-1.js';
@@ -128,6 +128,7 @@ function subledger(over: Record<string, unknown> = {}) {
     nombre: 'AAA010101AAA202607XF.XML',
     meta: META,
     findings: [],
+    deliverable: true,
     artefacto: null,
     notaDeSellado: 'SIN SELLAR',
     ...over,
@@ -427,12 +428,63 @@ describe('subledger generate', () => {
     expect(row.findings).toEqual([
       { check: 'comprobante-sin-rfc-usable', severity: 'warning', voucher: 'JE-0077', detail: 'RFC «XAXX»' },
     ]);
+    // A warning does not block: the receipt says the file is deliverable (MNE-001-667).
+    expect(row.deliverable).toBe(true);
   });
 
   it('refuses before the database without --kind (2)', async () => {
     const r = await run(['subledger', 'generate', '--period', '2026-07', ...AUDIT]);
     expect(r.exitCode).toBe(ExitCode.USAGE);
     expect(world.calls).toBe(0);
+  });
+});
+
+// ---- not deliverable by the official XSD (MNE-001-667, #608) ---------
+
+describe('a file the official XSD does not accept', () => {
+  const english = 'The SAT XSD (AuxiliarFolios_1_3.xsd) does not accept this file, so it is not deliverable: line 2: x';
+  const xsd = {
+    check: 'xsd',
+    severity: 'blocking',
+    referencia: '',
+    detalle: english,
+    messageKey: { key: 'anexo24.xsd.rejected', params: { schema: 'AuxiliarFolios_1_3.xsd', errors: 'line 2: x', more: 0 } },
+  };
+  const left = { check: 'comprobante-sin-rfc-usable', severity: 'warning', referencia: 'JE-0077', detalle: 'RFC «XAXX»' };
+  const spanish = /✘ xsd\s+\[blocking\]\s+El XSD del SAT \(AuxiliarFolios_1_3\.xsd\) no acepta este archivo/;
+
+  afterEach(() => resetLanguage());
+
+  it('subledger generate exits 4, writes no file and says why: Spanish on screen, English in the receipt', async () => {
+    setLanguage('es');
+    world.subledger = subledger({ deliverable: false, findings: [left, xsd] });
+    const target = path.join(tmpRoot, 'aux-xsd.xml');
+    const argv = ['subledger', 'generate', '--kind', 'folios', '--period', '2026-07', ...AUDIT, '-o', target];
+    const screen = await run(argv);
+    expect(screen.exitCode).toBe(ExitCode.VALIDATION);
+    expect(screen.err).toMatch(/comprobante-sin-rfc-usable\s+JE-0077/);
+    expect(screen.err).toMatch(spanish);
+    expect(screen.err).toContain('No se generó ningún archivo entregable: 1 hallazgo bloqueante arriba. ');
+    expect(fs.existsSync(target)).toBe(false);
+
+    const json = await run([...argv, '--json']);
+    expect(json.exitCode).toBe(ExitCode.VALIDATION);
+    const row = (JSON.parse(json.out) as { rows: Record<string, unknown>[] }).rows[0];
+    expect(row.deliverable).toBe(false);
+    expect(row.target).not.toBe(target);
+    expect((row.findings as Record<string, unknown>[])[1]).toEqual({ check: 'xsd', severity: 'blocking', voucher: '', detail: english });
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it('voucher generate shows the finding by key and keeps its English text in the receipt', async () => {
+    world.vouchers = vouchers({ puedeEntregarse: false, conteo: { blocking: 1, warning: 0 }, artefacto: null, hallazgos: [xsd] });
+    setLanguage('es');
+    const screen = await run(['voucher', 'generate', '--period', '2026-07', ...AUDIT]);
+    expect(screen.exitCode).toBe(ExitCode.VALIDATION);
+    expect(screen.err).toMatch(spanish);
+    const json = await run(['voucher', 'generate', '--period', '2026-07', ...AUDIT, '--json']);
+    const row = (JSON.parse(json.out) as { rows: Record<string, unknown>[] }).rows[0];
+    expect(row.findings).toEqual([{ check: 'xsd', severity: 'blocking', voucher: '', detail: english }]);
   });
 });
 

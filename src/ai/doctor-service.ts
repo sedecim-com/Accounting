@@ -888,9 +888,9 @@ export function checkXsdValidator(version: string | null = xmllintVersion()): Ch
     ...CHECK_IDENTITIES.xsdValidator,
     level: 'warn',
     detail:
-      'xmllint is not on the PATH: the Anexo 24 chart and trial balance cannot be checked against the ' +
-      'SAT XSD, so `e-accounting catalog generate` and `balance generate` report nothing as deliverable ' +
-      'and the seal commands refuse',
+      'xmllint is not on the PATH: no Anexo 24 file can be checked against the SAT XSD, so ' +
+      '`e-accounting catalog generate`, `balance generate`, `voucher generate` and `subledger generate` ' +
+      'report nothing as deliverable and the seal commands refuse',
     fix: 'install libxml2-utils (apt, apk) or libxml2 (Homebrew), then run mnemosine doctor again',
   };
 }
