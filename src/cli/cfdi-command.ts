@@ -352,8 +352,11 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
           status: rastro.status,
         }) + (rastro.journal_entry_id ? ` · ${t('fiscal_mx.cfdi.explain.entry', { entry: rastro.journal_entry_id })}` : '')
       );
+      // MNE-001-906: the options a person may answer with `bill inbox answer`, and what was answered.
       const decisiones = (rastro.decisions as Array<Record<string, unknown>>).map((d) => ({
         id: d.id, severity: d.severity, question: d.question,
+        options: ((d.options ?? []) as Array<{ value: string }>).map((o) => o.value).join(' | '),
+        answer: d.answer ?? '', answered_at: d.answered_at ?? '',
       }));
       if (decisiones.length > 0) {
         render(decisiones, { ...opts, idField: 'id' });

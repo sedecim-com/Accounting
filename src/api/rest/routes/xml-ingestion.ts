@@ -10,6 +10,7 @@ import { AppError, NotFoundError, ValidationError, ConflictError, ForbiddenError
 import { responseLanguage } from '../middleware/locale.js';
 import { t } from '../../../i18n/index.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
+import { answerHeldDecision } from '../../../services/xml-ingestion/decision-answers.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { declararRiesgoRuta } from '../risk.js';
 import { arregloAcotado } from '../topes.js';
@@ -83,6 +84,11 @@ const rejectPreRegSchema = z.object({
 
 const approvePreRegSchema = z.object({
   notes: z.string().optional(),
+});
+
+const answerPreRegSchema = z.object({
+  decision: boundedString({ min: 1 }),
+  answer: boundedString({ min: 1 }),
 });
 
 export const bulkPreRegSchema = z.object({
@@ -451,6 +457,28 @@ router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irre
         payment_id: result.paymentId,
         journal_entry_id: result.journalEntry?.id ?? null,
       },
+    },
+    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
+  });
+}));
+
+// POST /v1/pre-registrations/:id/answer
+// MNE-001-906: a person's answer to a decision this CFDI is held on, kept in its trail. It posts
+// nothing: /process does, with the answer. The permission is /process's, whose act it completes.
+router.post('/pre-registrations/:id/answer', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'cfdi_classifications.decisions' }), requirePermission('bills:create'), requireEntityAccess, validateBody(answerPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { decision, answer } = req.body as { decision: string; answer: string };
+  if (!uuidString().safeParse(req.params.id).success) throw new NotFoundError('Pre-Registration', req.params.id);
+  const kept = await answerHeldDecision(req.entityId!, req.params.id, { decision, answer }, req.user!.user_id);
+
+  res.json({
+    data: {
+      pre_registration_id: kept.preRegistrationId,
+      cfdi_uuid: kept.cfdiUuid,
+      decision: kept.decision,
+      answer: kept.answer,
+      answered_by: kept.answeredBy,
+      answered_at: kept.answeredAt,
+      entry_pending: kept.entryPending,
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
