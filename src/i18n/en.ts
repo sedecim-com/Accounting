@@ -8392,6 +8392,29 @@ export const EN = {
   'help.bill.inbox.run.option.note': 'annotation stored with the approval',
   'help.bill.inbox.run.option.dry_run': 'compute and show the full effect; write nothing',
   'help.bill.inbox.run.option.json': 'JSON output',
+  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  'bill.void.settled':
+    '{bill} is not owed whole: {applications, plural, =0 {no payment application} one {# payment application} other {# payment applications}} and {notes, plural, =0 {no received credit note or VAT correction} one {# received credit note or VAT correction} other {# received credit notes or VAT corrections}} still stand on it. Undo each application first with `payment unapply <payment> --bill {bill} --reason "<why>"`; a bill that a received credit note lowered, or whose VAT a correction moved, is not voided while that entry stands. Nothing was written.',
+  'bill.void.not_voidable': '{bill} is {status}: only a bill that is approved and owed whole is voided. Nothing was written.',
+  'bill.void.opening':
+    '{bill} came in with the opening balance and shares its entry: voiding it would reverse the whole opening. Reverse the opening and load it again without this document. Nothing was written.',
+  'bill.void.closed_period':
+    'The entry of {bill} is dated {date}, in a period that is not open, and bill_void_mirror_date says its mirror takes that date. Answer the closed-period policy to date it today (`mnemosine pending define cfdi_periodo_cerrado periodo_actual`), or reopen the period. Nothing was written.',
+  'bill.void.race': '{bill} changed while it was being voided; nothing was written.',
+  'policy.bill_void_mirror_date.question': 'An approved vendor bill is voided: which date does the mirror of its entry carry?',
+  'policy.bill_void_mirror_date.impact':
+    'Governs `bill void`; bill-service.ts reads it once for each void. Under either answer the mirror takes back every line of the bill\'s entry: the expense, the payable and the IVA parked in 1135. With "void_date" the mirror is dated the day of the void in the entity\'s time zone, as `invoice void` dates its own, so no month already closed or declared moves. With "bill_date" the mirror is dated the day of the bill\'s entry, so the bill\'s month reads as if the bill had never been; when no open period holds that day, the key cfdi_periodo_cerrado decides, and only its answer "periodo_actual" dates the mirror the day of the void: under any other answer the void is refused and nothing is written.',
+  'policy.bill_void_mirror_date.rationale':
+    'A posted entry is corrected by a reversal and never edited (NIF B-1, as migration 041 and the accounting manual of this system carry it), and the reversal is an act of the day it is made. Dating the mirror that day changes no month already closed or declared, the conservative option of ADR-0006. A CFDI can be cancelled until the month the annual return of its year is due (CFF art. 29-A, as the payables manual of this system quotes it), so a cancellation can arrive after the bill\'s month was declared. Reading the cancelled CFDI as never issued and dating the mirror with the bill is also accepted; in a month already declared it takes an amended return (CFF art. 32).',
+  'policy.bill_void_mirror_date.why':
+    'When a vendor cancels a CFDI you already approved, some firms take the expense out on the day they learn of it; others take it out of the month it was booked in and amend that month. The entry is the same either way.',
+  'policy.bill_void_mirror_date.what':
+    'With "void_date" I date the mirror the day you void the bill. With "bill_date" I date it the day of the bill\'s entry, and when that period is not open I follow cfdi_periodo_cerrado.',
+  'policy.bill_void_mirror_date.if_skipped': 'I date the mirror the day of the void.',
+  'policy.bill_void_mirror_date.option.void_date': 'The day of the void, as `invoice void` does',
+  'policy.bill_void_mirror_date.option.bill_date': 'The day of the bill\'s entry, as if the bill had never been',
+  // ---- end of MNE-001-947 ----
   'help.vendor.description': 'Vendor master: who we owe money to, on what terms, under which tax id',
   'help.vendor.list.description': 'List vendors, filtered by state, 1099 flag or a missing tax id',
   'help.vendor.list.argument.search': 'match against company name or vendor number',

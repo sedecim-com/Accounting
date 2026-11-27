@@ -376,3 +376,34 @@ describe('benefit_payment_against_provision — the text names its reader, its e
       .toMatch(/## D-3 — Beneficios a los empleados[\s\S]*se devengan DURANTE el año/);
   });
 });
+
+// MNE-001-947 (#1079). The date of the mirror `bill void` posts. The text
+// names its reader and cites only what this system carries.
+describe('bill_void_mirror_date — the text names its reader and cites only what the corpus carries', () => {
+  const s = spec('bill_void_mirror_date');
+  const read = (...file: string[]): string => fs.readFileSync(path.join(ROOT, ...file), 'utf8');
+
+  it('names bill-service.ts as its reader, which declares the key and reads it, and the default is void_date', () => {
+    expect(s.impact).toMatch(/bill-service\.ts reads it once for each void/);
+    const reader = read('src/services/ap/bill-service.ts');
+    expect(reader).toMatch(/BILL_VOID_MIRROR_DATE_KEY = 'bill_void_mirror_date'/);
+    expect(reader.match(/getPolicy\(ctx, BILL_VOID_MIRROR_DATE_KEY, client\)/g)).toHaveLength(1);
+    expect(reader).toMatch(/getPolicy\(ctx, 'cfdi_periodo_cerrado', client\)\)\.value === 'periodo_actual'/);
+    expect(s.defaultValue).toBe('void_date');
+    expect(s.options.map((o) => o.value)).toEqual(['void_date', 'bill_date']);
+  });
+
+  it('cites NIF B-1 and CFF art. 29-A where this system carries them, the same norms in both languages', () => {
+    expect(read('src/database/migrations/041_el_mayor_inviolable.sql')).toMatch(/se corrige por reversa \(NIF B-1\)/);
+    expect(read('src/ai/docs/accounting.md')).toMatch(/NIF B-1/);
+    expect(read('src/ai/docs/payables.md')).toMatch(
+      /CFF art\. 29-A; source: Cámara de Diputados.*«Los comprobantes fiscales digitales por Internet se podrán cancelar a más tardar en el mes/
+    );
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(LIVA art\. \d+|CFF art\. \d+(?:-[A-Z])?|LISR|RMF|NIF [A-E]-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.bill_void_mirror_date.rationale', {}, 'en'));
+    expect(s.impact).toBe(t('policy.bill_void_mirror_date.impact', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['CFF art. 29-A', 'CFF art. 32', 'NIF B-1']);
+    expect(norms(t('policy.bill_void_mirror_date.rationale', {}, 'es'))).toEqual(['CFF art. 29-A', 'CFF art. 32', 'NIF B-1']);
+  });
+});

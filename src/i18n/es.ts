@@ -7496,6 +7496,29 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.inbox.run.option.note': 'anotación que se guarda con la aprobación',
   'help.bill.inbox.run.option.dry_run': 'calcula y muestra el efecto completo; no escribe nada',
   'help.bill.inbox.run.option.json': 'salida en JSON',
+  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  'bill.void.settled':
+    '{bill} no se debe entero: {applications, plural, =0 {ninguna aplicación de pago} one {# aplicación de pago} other {# aplicaciones de pago}} y {notes, plural, =0 {ninguna nota de crédito recibida ni corrección de IVA} one {# nota de crédito recibida o corrección de IVA} other {# notas de crédito recibidas o correcciones de IVA}} siguen vivas sobre él. Deshaz primero cada aplicación con `payment unapply <pago> --bill {bill} --reason "<por qué>"`; un gasto que una nota de crédito recibida ya bajó, o cuyo IVA movió una corrección, no se anula mientras esa póliza siga viva. No se escribió nada.',
+  'bill.void.not_voidable': '{bill} está en {status}: sólo se anula un gasto aprobado que se debe entero. No se escribió nada.',
+  'bill.void.opening':
+    '{bill} entró con el saldo de apertura y comparte su póliza: anularlo revertiría toda la apertura. Revierte la apertura y cárgala otra vez sin este documento. No se escribió nada.',
+  'bill.void.closed_period':
+    'La póliza de {bill} tiene fecha {date}, en un periodo que no está abierto, y bill_void_mirror_date dice que su espejo lleva esa fecha. Contesta la política del periodo cerrado para fecharlo hoy (`mnemosine pending define cfdi_periodo_cerrado periodo_actual`), o reabre el periodo. No se escribió nada.',
+  'bill.void.race': '{bill} cambió mientras se anulaba; no se escribió nada.',
+  'policy.bill_void_mirror_date.question': 'Se anula un gasto de proveedor ya aprobado: ¿qué fecha lleva el espejo de su póliza?',
+  'policy.bill_void_mirror_date.impact':
+    'Gobierna `bill void`; bill-service.ts la lee una vez por cada anulación. Con cualquiera de las dos respuestas el espejo regresa cada renglón de la póliza del gasto: el gasto, el pasivo y el IVA aparcado en la 1135. Con "void_date" el espejo lleva la fecha del día de la anulación en la zona horaria de la entidad, como fecha el suyo `invoice void`, así que no se mueve ningún mes ya cerrado o declarado. Con "bill_date" el espejo lleva la fecha de la póliza del gasto, así que el mes del gasto se lee como si el gasto nunca hubiera existido; cuando ningún periodo abierto contiene ese día decide la clave cfdi_periodo_cerrado, y sólo su respuesta "periodo_actual" fecha el espejo el día de la anulación: con cualquier otra respuesta la anulación se niega y no se escribe nada.',
+  'policy.bill_void_mirror_date.rationale':
+    'Una póliza posteada se corrige con una reversa y nunca se edita (NIF B-1, como la traen la migración 041 y el manual de contabilidad de este sistema), y la reversa es un acto del día en que se hace. Fechar el espejo ese día no cambia ningún mes ya cerrado o declarado, la opción conservadora de ADR-0006. Un CFDI se puede cancelar hasta el mes en que se debe presentar la declaración anual de su ejercicio (CFF art. 29-A, como lo cita el manual de cuentas por pagar de este sistema), así que una cancelación puede llegar después de declarado el mes del gasto. También se acepta leer el CFDI cancelado como nunca emitido y fechar el espejo con el gasto; en un mes ya declarado eso pide una complementaria (CFF art. 32).',
+  'policy.bill_void_mirror_date.why':
+    'Cuando un proveedor cancela un CFDI que ya aprobaste, algunos despachos sacan el gasto el día en que se enteran; otros lo sacan del mes en que se registró y corrigen ese mes. La póliza es la misma en los dos casos.',
+  'policy.bill_void_mirror_date.what':
+    'Con "void_date" fecho el espejo el día en que anulas el gasto. Con "bill_date" lo fecho el día de la póliza del gasto, y cuando ese periodo no está abierto sigo cfdi_periodo_cerrado.',
+  'policy.bill_void_mirror_date.if_skipped': 'Fecho el espejo el día de la anulación.',
+  'policy.bill_void_mirror_date.option.void_date': 'El día de la anulación, como `invoice void`',
+  'policy.bill_void_mirror_date.option.bill_date': 'El día de la póliza del gasto, como si el gasto nunca hubiera existido',
+  // ---- end of MNE-001-947 ----
   'help.vendor.description':
     'Catálogo de proveedores: a quién le debemos, en qué condiciones de pago y con qué identificador fiscal',
   'help.vendor.list.description':
