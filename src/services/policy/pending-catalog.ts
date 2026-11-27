@@ -2893,7 +2893,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question:
       'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
     impact:
-      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto or vacaciones (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, in a line of its own that the accrual of that month takes off (`payroll accrue`), and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto or vacaciones. Entries already posted are not changed.',
     options: [
       { value: 'consume_provision', label: 'Against the provision: the payment settles what the close accrued, and only the excess is expense' },
       { value: 'expense_on_payment', label: 'Expense when paid: only for a firm that does not accrue these benefits' },
@@ -2904,7 +2904,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
     whatIDo:
-      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds at the end of the pay date\'s month less what pay-run drafts awaiting review will take, and the rest to wages expense in a line of its own, which the accrual of that month takes off. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
     ifSkipped: 'The payment consumes the provision first, and only the excess is expense.',
     priority: 45,
   },

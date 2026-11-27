@@ -152,6 +152,7 @@ export function requirePeriod(periodo: string | undefined): string {
 const SKIP_REASON: Readonly<Record<ProvisionPlanSkip['reason'], TranslationKey>> = {
   'already-accrued': 'payroll.accrue.skip_already_accrued',
   'zero-month': 'payroll.accrue.skip_zero_month',
+  'paid-over-provision': 'payroll.accrue.skip_paid_over_provision',
 };
 
 /** The table's label of a stored reason: its key in the user's language; any other value passes through. */
@@ -432,6 +433,18 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
         );
       }
 
+      // What the month's pay runs paid over a provision, and what of it this
+      // accrual takes off (MNE-001-878): said before posting, with the part
+      // that stays expense because it is more than the month accrues.
+      for (const p of plan.paidOverProvision) {
+        const hasLeft = new Decimal(p.left).isZero() ? 'no' : 'yes';
+        err.write(deps.palette.yellow(`  ⚠ ${t('payroll.accrue.paid_over_provision', { ...p, hasLeft })}\n`));
+      }
+      if (plan.pendingPayRuns.length > 0) {
+        const runs = plan.pendingPayRuns.join(', ');
+        err.write(deps.palette.yellow(`  ⚠ ${t('payroll.accrue.pay_runs_in_review', { count: plan.pendingPayRuns.length, runs })}\n`));
+      }
+
       // LA PTU, DECLARADA ANTES DE POSTEAR Y NO DESPUÉS.
       //
       // Un cero silencioso y una ausencia declarada no son lo mismo: la 2205 no
@@ -460,6 +473,8 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
               dry_run: dryRun === true,
               criterios: criteriosParaLeer(plan.criterios),
               ptu,
+              paid_over_provision: plan.paidOverProvision,
+              pay_runs_in_review: plan.pendingPayRuns,
               cedula: filasDeLaCedula(plan),
               asiento,
               errores: plan.errors,

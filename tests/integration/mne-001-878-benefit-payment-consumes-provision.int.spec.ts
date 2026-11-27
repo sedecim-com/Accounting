@@ -51,7 +51,9 @@ type Earning = { earning_type: string; amount: number; cfdi_clave_sat: string };
 const salary = (amount: number): Earning => ({ earning_type: 'salary', amount, cfdi_clave_sat: '001' });
 const yearEndBonus = (amount: number): Earning => ({ earning_type: 'aguinaldo', amount, cfdi_clave_sat: '002' });
 const premium = (amount: number): Earning => ({ earning_type: 'prima_vacacional', amount, cfdi_clave_sat: '021' });
-const vacationDays = (amount: number): Earning => ({ earning_type: 'pto', amount, cfdi_clave_sat: '001' });
+// Vacation days are itemized under either name: `pto` or `vacaciones`.
+const vacationDays = (amount: number, type: 'pto' | 'vacaciones' = 'pto'): Earning =>
+  ({ earning_type: type, amount, cfdi_clave_sat: '001' });
 
 interface Company {
   f: Fixture;
@@ -132,7 +134,7 @@ async function owed(c: Company, role: string): Promise<string> {
 const expensed = async (c: Company, role: string): Promise<string> =>
   new Decimal(await owed(c, role)).negated().toFixed(4);
 
-/** What an entry debits to the wages account and to each provision, by role. */
+/** What an entry debits to the wages account (in one or more lines) and to each provision, by role. */
 function charged(c: Company, entry: PayRunEntry): Record<string, string> {
   const roleOf = new Map(
     ['sueldos_gasto', 'provision_aguinaldo', 'provision_vacaciones', 'provision_prima_vacacional']
@@ -141,7 +143,7 @@ function charged(c: Company, entry: PayRunEntry): Record<string, string> {
   const out: Record<string, string> = {};
   for (const l of entry.lines) {
     const role = roleOf.get(l.account_id);
-    if (role && l.debit_amount !== null) out[role] = new Decimal(l.debit_amount).toFixed(4);
+    if (role && l.debit_amount !== null) out[role] = new Decimal(out[role] ?? 0).plus(l.debit_amount).toFixed(4);
   }
   return out;
 }
@@ -221,7 +223,8 @@ describe('eleven closes, then runs paid on 15 December', () => {
   beforeAll(async () => {
     const period = await eleven.period('2026-12-01', '2026-12-15');
     // Aguinaldo over its provision, vacation days under theirs.
-    main = await approvedRun(eleven, period, 'regular', [salary(15000), yearEndBonus(15000), vacationDays(2000)]);
+    main = await approvedRun(eleven, period, 'regular',
+      [salary(15000), yearEndBonus(15000), vacationDays(2000), vacationDays(500, 'vacaciones')]);
     firstPremium = await approvedRun(eleven, period, 'bonus', [premium(3000)]);
     secondPremium = await approvedRun(eleven, period, 'off_cycle', [premium(1000)]);
     salaryOnly = await approvedRun(eleven, await eleven.period('2026-12-16', '2026-12-31'), 'regular', [salary(15000)]);
@@ -256,17 +259,17 @@ describe('eleven closes, then runs paid on 15 December', () => {
 
   it('the excess over the provision goes to expense, and what is not paid stays in the provision', async () => {
     const { entry } = await postPayRunEntry(main, eleven.f.userId, eleven.f.tenantId, eleven.f.entityId);
-    // Gross 32,000.00. Aguinaldo 15,000.00 against 13,726.03: 1,273.97 over.
-    // Vacation days 2,000.00 against 14,641.0959. Expense: 15,000 + 1,273.97.
+    // Gross 32,500.00. Aguinaldo 15,000.00 against 13,726.03: 1,273.97 over.
+    // Vacation days 2,000.00 + 500.00 against 14,641.0959. Expense: 15,000 + 1,273.97.
     expect(charged(eleven, entry)).toEqual({
       provision_aguinaldo: '13726.0300',
-      provision_vacaciones: '2000.0000',
+      provision_vacaciones: '2500.0000',
       sueldos_gasto: '16273.9700',
     });
     expect(entry.totalDebits).toBe(entry.totalCredits);
     // 13,726.0274 − 13,726.03: the fraction of a cent joins the next accrual.
     expect(await owed(eleven, 'provision_aguinaldo')).toBe('-0.0026');
-    expect(await owed(eleven, 'provision_vacaciones')).toBe('12641.0959'); // 14,641.0959 − 2,000
+    expect(await owed(eleven, 'provision_vacaciones')).toBe('12141.0959'); // 14,641.0959 − 2,500
   });
 
   it('the draft approved in review posts its debit to 2204', async () => {
@@ -282,7 +285,8 @@ describe('eleven closes, then runs paid on 15 December', () => {
     const plain = await statementsOf(() => preview(eleven, salaryOnly));
     const paying = await statementsOf(() => preview(eleven, secondPremium));
     // The panel key, the provision accounts under lock, the two balances
-    // (everything posted, and to the pay date) and what pending drafts hold.
+    // (everything posted, and to the end of the pay date's period) and what
+    // pending drafts hold.
     expect(paying - plain).toBe(5);
     expect(charged(eleven, await preview(eleven, salaryOnly))).toEqual({ sueldos_gasto: '15000.0000' });
   });

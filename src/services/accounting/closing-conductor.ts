@@ -887,7 +887,15 @@ async function takeStep(
         detail:
           r.errors.length > 0
             ? `${r.errors.length} employee(s) could not be accrued: ${r.errors.join('; ')}`
-            : `${r.processed} accrued, ${r.skipped} skipped, ${r.total} provisioned`,
+            : `${r.processed} accrued, ${r.skipped} skipped, ${r.total} provisioned` +
+              // What the month's pay runs had already expensed over a provision (MNE-001-878).
+              r.paidOverProvision
+                .map((p) => `; ${p.benefit}: ${p.subtracted} taken off, paid over its provision` +
+                  (Number(p.left) === 0 ? '' : ` (${p.left} not taken off)`))
+                .join('') +
+              (r.pendingPayRuns.length === 0
+                ? ''
+                : `; ${r.pendingPayRuns.length} pay run(s) of the month still in review, not taken off: ${r.pendingPayRuns.join(', ')}`),
       };
     }
     case 'amortize-prepaids': {

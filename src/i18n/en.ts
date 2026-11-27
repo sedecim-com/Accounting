@@ -2699,13 +2699,13 @@ export const EN = {
   'policy.benefit_payment_against_provision.question':
     'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
   'policy.benefit_payment_against_provision.impact':
-    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto or vacaciones (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, in a line of its own that the accrual of that month takes off (`payroll accrue`), and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto or vacaciones. Entries already posted are not changed.',
   'policy.benefit_payment_against_provision.rationale':
     'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
   'policy.benefit_payment_against_provision.why':
     'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
   'policy.benefit_payment_against_provision.what':
-    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds at the end of the pay date\'s month less what pay-run drafts awaiting review will take, and the rest to wages expense in a line of its own, which the accrual of that month takes off. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
   'policy.benefit_payment_against_provision.if_skipped':
     'The payment consumes the provision first, and only the excess is expense.',
   'policy.benefit_payment_against_provision.option.consume_provision':
@@ -2714,6 +2714,12 @@ export const EN = {
     'Expense when paid: only for a firm that does not accrue these benefits',
   'payroll.benefit_payment.expensed_while_accrued':
     'The policy {key} says a benefit is expense when paid, and this run pays one whose provision (account {account}) carries {balance} accrued: expensing the payment would count the benefit twice. Nothing was written. Answer {key} with consume_provision in mnemosine pending, or reverse the accrual first if the firm does not accrue.',
+  'payroll.accrue.skip_paid_over_provision':
+    'the pay runs of the month already expensed its accrual',
+  'payroll.accrue.paid_over_provision':
+    '{benefit}: the pay runs of the month paid {excess} that their entries did not debit to its provision; {subtracted} is taken off this accrual{hasLeft, select, yes {, and {left} is not: this accrual has no more to give, or the provision still holds a balance those runs did not consume} other {}}.',
+  'payroll.accrue.pay_runs_in_review':
+    '{count, plural, one {# pay run of the month pays} other {# pay runs of the month pay}} an accrued benefit and {count, plural, one {its entry is} other {their entries are}} still a draft in review ({runs}): what {count, plural, one {it pays} other {they pay}} over a provision is not taken off this accrual. Settle the draft in mnemosine review first, or reverse this accrual and run it again afterwards.',
   // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':
