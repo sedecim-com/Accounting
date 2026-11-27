@@ -8266,6 +8266,14 @@ export const EN = {
   'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': '3-letter ISO code',
   'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
+  // ==== MNE-001-664 · the tax id of a vendor is corrected (issue #607) ====
+  'error.VALIDATION_ERROR.vendor.tax_id_reason_required':
+    "Correcting a vendor's tax id requires a reason: it is written to the audit trail with the old and the new value. Nothing was written.",
+  'error.VALIDATION_ERROR.vendor.tax_id_unchanged':
+    'Vendor {number} already has the tax id {taxId} under that type: there is nothing to correct. Nothing was written.',
+  'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
+    'The tax id {taxId} already belongs to vendor {number} of this entity. Two vendors with one tax id are one taxpayer twice: correct the right record. Nothing was written.',
+  // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   //
   // The second payables task: the three families whole, roots included,

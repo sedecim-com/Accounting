@@ -7395,6 +7395,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.vendor.terms.set.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
   'help.vendor.terms.set.option.currency': 'código ISO de 3 letras',
   'help.vendor.terms.set.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
+  // ==== MNE-001-664 · the tax id of a vendor is corrected (issue #607) ====
+  'error.VALIDATION_ERROR.vendor.tax_id_reason_required':
+    'Corregir el identificador fiscal de un proveedor requiere un motivo: queda en el rastro de auditoría junto con el valor anterior y el nuevo. No se escribió nada.',
+  'error.VALIDATION_ERROR.vendor.tax_id_unchanged':
+    'El proveedor {number} ya tiene el identificador fiscal {taxId} con ese tipo: no hay nada que corregir. No se escribió nada.',
+  'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
+    'El identificador fiscal {taxId} ya es del proveedor {number} de esta entidad. Dos proveedores con un mismo identificador son un contribuyente dado de alta dos veces: corrige el registro que corresponde. No se escribió nada.',
+  // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   'help.payment.description':
     'Pagos a proveedores: registra el dinero que ya salió del banco y liquida la factura que paga',

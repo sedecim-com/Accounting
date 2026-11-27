@@ -1,13 +1,14 @@
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
-import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/scope.js';
+import { findByIdInScope, requireByIdInScope, type EntityScope, type Scope } from '../../database/scope.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { encrypt } from '../../utils/encryption.js';
 import { nextVendorNumber } from '../../utils/sequence.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { Vendor } from '../../types/index.js';
 import { bookAmountDueSql, LEDGER_SCALE, PAYABLE_OPEN_STATUSES } from '../reporting/report-service.js';
+import { RFC_GENERICO_EXTRANJERO, RFC_GENERICO_NACIONAL } from '../sat/diot/rfc.js';
 
 // ============================================================
 // VENDOR MASTER — domain service
@@ -594,7 +595,8 @@ export async function createVendor(
 /**
  * The only columns a caller may change here. Bank columns are absent on
  * purpose: changing them is `vendor bank set`, a two-person irreversible
- * flow whose table does not exist yet.
+ * flow whose table does not exist yet. The tax id is absent too: its only
+ * writer after the create is `setVendorTaxId`, which demands a reason.
  */
 export const VENDOR_UPDATABLE_FIELDS = [
   'company_name', 'contact_name', 'email', 'phone', 'payment_terms', 'is_active', 'notes',
@@ -741,4 +743,108 @@ export async function setVendorTerms(
   });
 
   return { vendor: redactBankSecrets(vendor), terms: parsed };
+}
+
+/** What `setVendorTaxId` did, for the receipt. */
+export interface VendorTaxIdChange {
+  /** The vendor after the change, bank secrets redacted. */
+  vendor: Record<string, unknown>;
+  previous: { tax_id: string | null; tax_id_type: string | null };
+  /** Which country's rule accepted the new id (`normalizeTaxId`). */
+  rule: string;
+  /** Documents of this vendor already in the ledger. None is rewritten: they carry `vendor_id`, not the tax id. */
+  posted: { bills: number; payments: number };
+}
+
+/**
+ * MNE-001-664 (#607) · Corrects the tax id of a vendor: its only writer after
+ * the create. The reason is mandatory and the audit row keeps old and new,
+ * because the DIOT and the Anexo 24 payment nodes read this column when they
+ * are generated: a month generated again declares the new id.
+ *
+ * An id another vendor of the entity carries is refused. `vendors` has no
+ * unique index on it, so the advisory lock keeps two corrections from both
+ * passing the check. The two SAT generic RFCs identify nobody and several
+ * vendors legitimately carry them.
+ *
+ * SECURITY: an RFC is personal data. It goes to `audit_log`, because the
+ * correction has to be traceable, and nowhere else.
+ */
+export async function setVendorTaxId(
+  id: string,
+  scope: EntityScope,
+  input: { taxId: string; taxIdType: TaxIdType },
+  ctx: { userId: string; reason: string }
+): Promise<VendorTaxIdChange> {
+  const reason = (ctx.reason ?? '').trim();
+  if (!reason) {
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.vendor.tax_id_reason_required' }, 'reason');
+  }
+  const checked = normalizeTaxId(input.taxId, input.taxIdType);
+  const generic = checked.taxId === RFC_GENERICO_NACIONAL || checked.taxId === RFC_GENERICO_EXTRANJERO;
+  // How the id is compared with what other vendors store: no spaces, hyphens or case.
+  const comparable = generic ? null : checked.taxId.replace(/-/g, '');
+
+  return withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+      `vendor-tax-id:${scope.entityId}:${checked.taxId}`,
+    ]);
+    const before = await requireByIdInScope<Vendor>('vendors', id, scope, { forUpdate: true, client });
+
+    const facts = await client.query<{ taken_by: string | null; bills: number; payments: number }>(
+      `SELECT (SELECT o.vendor_number FROM vendors o
+                WHERE o.entity_id = $2 AND o.id <> $1
+                  AND upper(regexp_replace(o.tax_id, '[[:space:]-]', '', 'g')) = $3::text
+                ORDER BY o.vendor_number COLLATE "C" LIMIT 1) AS taken_by,
+              (SELECT COUNT(*) FROM bills b
+                WHERE b.vendor_id = $1 AND b.entity_id = $2 AND b.journal_entry_id IS NOT NULL)::int AS bills,
+              (SELECT COUNT(*) FROM vendor_payments p
+                WHERE p.vendor_id = $1 AND p.entity_id = $2 AND p.journal_entry_id IS NOT NULL)::int AS payments`,
+      [id, scope.entityId, comparable]
+    );
+    const { taken_by: takenBy, bills, payments } = facts.rows[0];
+    if (takenBy) {
+      throw new ConflictError({
+        key: 'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken',
+        params: { taxId: checked.taxId, number: takenBy },
+      });
+    }
+    if (before.tax_id === checked.taxId && before.tax_id_type === checked.taxIdType) {
+      throw new ValidationError(
+        { key: 'error.VALIDATION_ERROR.vendor.tax_id_unchanged', params: { taxId: checked.taxId, number: before.vendor_number } },
+        'tax_id'
+      );
+    }
+
+    // Invariants 3 and 4: entity, tenant and the state read under the lock, in the statement itself.
+    const updated = await client.query<Vendor>(
+      `UPDATE vendors SET tax_id = $4, tax_id_type = $5, updated_at = NOW()
+        WHERE id = $1 AND entity_id = $2
+          AND entity_id IN (SELECT id FROM legal_entities WHERE tenant_id = $3)
+          AND tax_id IS NOT DISTINCT FROM $6 AND tax_id_type IS NOT DISTINCT FROM $7
+        RETURNING *`,
+      [id, scope.entityId, scope.tenantId, checked.taxId, checked.taxIdType, before.tax_id, before.tax_id_type]
+    );
+    if (updated.rowCount !== 1) throw new NotFoundError('Vendor', id);
+
+    const previous = { tax_id: before.tax_id, tax_id_type: before.tax_id_type };
+    await registrarAuditoria(client, {
+      tenantId: scope.tenantId,
+      legalEntityId: scope.entityId,
+      userId: ctx.userId,
+      action: 'update',
+      entityType: 'vendor',
+      entityId: id,
+      oldValues: previous,
+      newValues: { tax_id: checked.taxId, tax_id_type: checked.taxIdType },
+      reason,
+    });
+
+    return {
+      vendor: redactBankSecrets(updated.rows[0] as unknown as Record<string, unknown>),
+      previous,
+      rule: checked.rule,
+      posted: { bills, payments },
+    };
+  });
 }
