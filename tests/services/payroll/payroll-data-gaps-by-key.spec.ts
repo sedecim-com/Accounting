@@ -147,7 +147,9 @@ async function thrown(act: () => unknown): Promise<AppError> {
 /** A run whose cash subsidy (100.00) has no account: only the three mandatory buckets are mapped. */
 function cashSubsidyWithoutAccount(): Promise<unknown> {
   const rows = (sql: string): unknown[] => {
-    if (/FROM pay_runs pr/.test(sql)) return [{ status: 'approved', journal_entry_id: null, entity_id: 'n-1' }];
+    if (/FROM pay_runs pr/.test(sql)) {
+      return [{ status: 'approved', journal_entry_id: null, entity_id: 'n-1', pay_date: '2026-01-15', totals_gross: '0.00' }];
+    }
     if (/FROM paychecks/.test(sql)) return [{ isr: '-100.00' }];
     if (!/FROM payroll_account_mapping/.test(sql)) return [];
     return ['wages_expense', 'payroll_tax_expense', 'cash_payroll'].map((bucket, i) => ({ bucket, account_id: `a-${i}`, code: `60${i}` }));

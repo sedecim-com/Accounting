@@ -9,6 +9,7 @@ import { createDraft, type DraftPayload } from '../../../ai/draft-service.js';
 import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
 import { payrollDataGap } from '../tax-engine/tax-tables.js';
 import { PAYROLL_DRAFT_PRODUCER, linkPayRunEntry, payRunReference } from './pay-run-entry-link.js';
+import { provisionChargesOfRun } from './benefit-payment.js';
 
 export { payRunReference };
 
@@ -235,12 +236,26 @@ async function buildPayRunEntry(
   };
 
   const n = (s: string): number => parseFloat(s);
-  const totalGross = parseFloat(pr.totals_gross);
   const totalNet = parseFloat(pr.totals_net);
   const totalErTaxes = parseFloat(pr.totals_er_taxes);
 
-  // DR: Wages expense (gross)
-  debit(accounts.wages_expense, totalGross.toFixed(2), `Gross wages for pay run ${payRunId.slice(0, 8)}`);
+  // DR: Wages expense (gross), less what the run pays of a benefit its
+  // provision already carries (MNE-001-878): that part is debited to the
+  // provision, or the benefit would be expensed at the close and again here.
+  const provisionCharges = await provisionChargesOfRun(client, {
+    payRunId,
+    tenantId,
+    entityId: pr.entity_id,
+    payDate: toCalendarDate(pr.pay_date),
+  });
+  const wages = provisionCharges.reduce((left, c) => left.minus(c.amount), new Decimal(pr.totals_gross));
+  const wagesLine = `Gross wages for pay run ${payRunId.slice(0, 8)}`;
+  if (wages.greaterThan(0)) debit(accounts.wages_expense, wages.toFixed(2), wagesLine);
+  // Negative earnings left the gross under the benefits paid: they reduce the expense.
+  else if (wages.lessThan(0)) credit(accounts.wages_expense, wages.abs().toFixed(2), wagesLine);
+  for (const c of provisionCharges) {
+    debit({ id: c.accountId, code: c.accountCode }, c.amount.toFixed(2), c.description);
+  }
 
   // DR: Payroll tax expense (employer-only taxes)
   if (totalErTaxes > 0) {
