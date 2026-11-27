@@ -4,7 +4,6 @@
   "seeded": "2026-09-14",
   "lanes": {
     "spanish-user-strings-cli": 0,
-    "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0
   },
   "perFile": {
@@ -1014,6 +1013,7 @@
       "docs/investigacion/2026-09-06-normas-y-motores/normas/gaap-asc.md": 3,
       "docs/investigacion/2026-09-06-normas-y-motores/practicas/arquitectura.md": 1,
       "docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md": 2,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/k-first-release.md": 3,
       "docs/jurisdicciones.md": 2,
       "docs/language.es.md": 4,
       "docs/language.md": 4,
@@ -1454,6 +1454,30 @@
       "src/utils/strip-comments.ts": 35,
       "src/utils/xml-reader.ts": 4,
       "src/utils/zod-client-errors.ts": 1
+    },
+    "docs-english-pages-untwinned": {
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/01-ledger-statements.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/02-measurement-engines.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/03-cfdi-econtabilidad.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/04-impuestos.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/05-nomina.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/06-subledgers-controls.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/07-backlog-release.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/a-ledger-cents-and-foreign-currency.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/b-statements.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/c-period-controls.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/d-fixed-assets.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/f1-receivables-write-off-and-allowance.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/f2-inventories.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/f3-leases.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/g-received-cfdi-currency-and-relations.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/g2-credit-notes-by-ingestion.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/h-iva-not-creditable.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/i1-payroll-wrong-figures.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/i2-payroll-real-payroll.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/j-payables-and-payments.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/k-first-release.md": 1,
+      "docs/investigacion/2026-11-27-revision-para-la-liberacion/issues/m-migration-opening.md": 1
     },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
