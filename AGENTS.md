@@ -26,7 +26,8 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
   - La integración necesita Postgres (`docs/MVP.md` §7). Sin él, el script **la salta y lo dice**; un salto nunca se presenta como verde.
   - Un `ORDER BY` sobre texto cuyo orden se afirma en una prueba o se imprime a una persona **dice su colación**: `COLLATE "C"` sobre la expresión cuando el orden es de bytes. La base local puede no ordenar como la de la CI (`en_US.utf8`), aunque la de pruebas nazca con ese orden (`docs/MVP.md` §7).
 - **Mientras iteras:** sólo las pruebas de lo que tocas, `npx vitest run <ruta>`. La suite completa, una vez, antes del PR.
-- **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|typecheck-tests|lint|icu|unit|plan|catalog|corpus|history|openapi|ux|language|integration|restore>`. Un nombre desconocido sale con código 2 sin correr nada.
+- **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|typecheck-tests|lint|icu|unit|plan|catalog|corpus|history|openapi|ux|language|repo-map|manifest|build|integration|restore>`. Un nombre desconocido sale con código 2 sin correr nada.
+- **El programa construido:** la compuerta `build` corre `scripts/smoke-dist.sh` (MNE-001-970). Construye `dist` en limpio y arranca el binario que instala un despacho: `--version`, `--help`, y `doctor` y `account list` contra una base propia que crea y borra. Necesita Postgres, como la integración; tarda cerca de un minuto.
 - **Lo que no corre en local** (aislamiento con el rol `mnemosine_app`, eval con llave de proveedor, el lint de asuntos que lee el evento del PR) sale como `SKIP` con su motivo; el resumen nunca dice que pasó todo.
 - **Mutantes de un criterio:** `npm run mutantes`.
 
