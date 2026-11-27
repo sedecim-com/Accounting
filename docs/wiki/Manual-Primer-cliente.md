@@ -327,23 +327,24 @@ npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml --cha
 | `rfc` | no | RFC de la contraparte. Con él se encuentra al cliente o proveedor que ya exista; sin él, se busca por nombre exacto y, si no hay, se da de alta. |
 | `uuid` | no | UUID del CFDI que respalda el documento. |
 | `currency` | no | Moneda ISO 4217. Si se omite, la funcional de la entidad; otra moneda detiene la carga. |
-| `ivaRate` | proveedores | La tasa de IVA dentro del saldo pendiente, como la `TasaOCuota` del CFDI: `"0.16"`, `"0.08"`, `"0"` o `"exento"`. Con ella el gasto guarda su base y su IVA pendiente de acreditar: al pagarlo, el IVA pasa a acreditable y la DIOT de ese mes lo declara por tasa. Sin ella decide la política `opening_payable_iva`: por omisión la carga se detiene (`require_rate`, LIVA art. 5 fr. III); con `assume_zero_rate` entra al 0 % y avisa. |
+| `ivaRate` | clientes y proveedores | La tasa de IVA dentro del saldo pendiente, como la `TasaOCuota` del CFDI: `"0.16"`, `"0.08"`, `"0"` o `"exento"`. **De un proveedor:** con ella el gasto guarda su base y su IVA pendiente de acreditar: al pagarlo, el IVA pasa a acreditable y la DIOT de ese mes lo declara por tasa. Sin ella decide la política `opening_payable_iva`: por omisión la carga se detiene (`require_rate`, LIVA art. 5 fr. III); con `assume_zero_rate` entra al 0 % y avisa. **De un cliente:** con ella la factura guarda su base, su IVA no cobrado y un renglón con esa tasa (LIVA art. 1-B: ese IVA se causa al cobrarla). Sin ella decide la política `opening_receivable_iva`, con las mismas dos respuestas y la misma por omisión: la carga se detiene y nombra los documentos (`APE-CXC-SIN-TASA`). |
 
 ```json
 [
   { "cuenta": "105-001", "documento": "A-123", "contraparte": "Aceros del Norte SA", "rfc": "AND010101AB1",
-    "fecha": "2025-11-02", "vencimiento": "2025-12-02", "importe": "4000.00" },
+    "fecha": "2025-11-02", "vencimiento": "2025-12-02", "importe": "4000.00", "ivaRate": "0.16" },
   { "cuenta": "201-001", "documento": "F-77", "contraparte": "Papelera del Centro",
     "fecha": "2025-12-01", "vencimiento": "2026-01-15", "importe": "9000.00", "ivaRate": "0.16" }
 ]
 ```
 
-Con la apertura contabilizada, cada documento de clientes entra como factura por cobrar y cada documento de proveedores como factura de proveedor aprobada, ligadas a la póliza de apertura: el saldo no se cuenta dos veces, y se cobran y se pagan igual que las que nazcan aquí. Antes de cargar, apunta los roles `cxc` y `cxp` a las cuentas de control migradas, y `iva_pendiente_acreditar` a la cuenta de la balanza donde vive el IVA de las compras no pagadas (el IVA que traen los documentos tiene que estar ahí, o la carga se detiene con `APE-CXP-IVA-SIN-SALDO`). Si el rol `cxc` apunta a otra cuenta, la carga se detiene y te dice cuál. De proveedores, sólo la cuenta del rol `cxp` entra como gastos: los documentos de otra cuenta de pasivo (por ejemplo `205` Acreedores diversos junto a `201` Proveedores) quedan como renglones de la apertura, la carga lo avisa (`APE-CXP-FUERA-DEL-ROL`), y `ap reconcile` concilia sólo la cuenta del rol.
+Con la apertura contabilizada, cada documento de clientes entra como factura por cobrar y cada documento de proveedores como factura de proveedor aprobada, ligadas a la póliza de apertura: el saldo no se cuenta dos veces, y se cobran y se pagan igual que las que nazcan aquí. Antes de cargar, apunta los roles `cxc` y `cxp` a las cuentas de control migradas, y `iva_pendiente_acreditar` a la cuenta de la balanza donde vive el IVA de las compras no pagadas (el IVA que traen los documentos tiene que estar ahí, o la carga se detiene con `APE-CXP-IVA-SIN-SALDO`). Lo mismo del lado de clientes: apunta `iva_trasladado_no_cobrado` a la cuenta de la balanza donde vive el IVA de las ventas no cobradas, o la carga se detiene con `APE-CXC-IVA-SIN-SALDO` y dice cuánto traen los documentos y cuánto trae la cuenta. Aviso: el cobro de una factura migrada todavía no pasa ese IVA de no cobrado a causado; es la segunda parte de MNE-001-946, pendiente. Si el rol `cxc` apunta a otra cuenta, la carga se detiene y te dice cuál. De proveedores, sólo la cuenta del rol `cxp` entra como gastos: los documentos de otra cuenta de pasivo (por ejemplo `205` Acreedores diversos junto a `201` Proveedores) quedan como renglones de la apertura, la carga lo avisa (`APE-CXP-FUERA-DEL-ROL`), y `ap reconcile` concilia sólo la cuenta del rol.
 
 ```bash
 npm run mnemosine -- account role set cxc 105-001
 npm run mnemosine -- account role set cxp 201-001
 npm run mnemosine -- account role set iva_pendiente_acreditar 119-001
+npm run mnemosine -- account role set iva_trasladado_no_cobrado 209-001
 ```
 
 Un RFC genérico (`XAXX010101000`, `XEXX010101000`) no identifica a nadie: esos proveedores y clientes se distinguen por nombre exacto. Si anulas la apertura y la vuelves a cargar (por ejemplo, con el nombre de un proveedor corregido), los gastos sin pagar de la apertura anulada que el archivo nuevo ya no trae se anulan en el mismo acto (`APE-CXP-ANULA-HUERFANAS`).
