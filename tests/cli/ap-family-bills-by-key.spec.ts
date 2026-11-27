@@ -38,6 +38,7 @@ vi.mock('../../src/services/ap/bill-service.js', async (original) => ({
   createBill: vi.fn(),
   setBillLine: vi.fn(),
   approveBill: vi.fn(),
+  voidBill: vi.fn(),
 }));
 vi.mock('../../src/services/ap/vendor-service.js', async (original) => ({
   ...(await original<Record<string, unknown>>()),
@@ -84,7 +85,7 @@ import { legacyTaxKeyWarning, registerBillCommand } from '../../src/cli/bill-com
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { AccountingError } from '../../src/utils/errors.js';
-import { approveBill, createBill, getBillById, resolveBill, setBillLine } from '../../src/services/ap/bill-service.js';
+import { approveBill, createBill, getBillById, resolveBill, setBillLine, voidBill } from '../../src/services/ap/bill-service.js';
 import { uncodedLines } from '../../src/services/xml-ingestion/expense-line-account.js';
 import { codePreRegistration } from '../../src/services/xml-ingestion/pre-registration-coding.js';
 
@@ -172,6 +173,12 @@ async function run(c: Pick<Case, 'argv' | 'setup' | 'confirm'>, lang: 'en' | 'es
 }
 
 const RUN = ['bill', 'inbox', 'run'];
+const VOID = ['bill', 'void', 'BILL-9', '--reason', 'CFDI cancelled by the vendor'];
+const MIRROR = { id: 'm1', entryNumber: 'JE-2026-00043', date: '2026-07-31', posted: true, datedBy: 'void_date' as string | null };
+const voiding = (mirror: typeof MIRROR | null) => () => {
+  vi.mocked(resolveBill).mockResolvedValue({ ...BILL, status: 'approved' } as never);
+  vi.mocked(voidBill).mockResolvedValue({ bill: { ...BILL, status: 'void' }, mirror, mirrorLines: [], attestation: null, dryRun: false } as never);
+};
 const withBill = (over: Record<string, unknown> = {}) => () => { vi.mocked(resolveBill).mockResolvedValue({ ...BILL, ...over } as never); };
 const approving = (value: unknown, over: Record<string, unknown> = {}) => () => {
   withBill(over)();
@@ -289,6 +296,42 @@ const CASES: Case[] = [
   })),
   { key: 'ap.bill.approve.done', argv: ['bill', 'approve', 'BILL-9', '--yes'], where: 'out', setup: approving({ ...ENTRY, entry: null }),
     en: '✔ BILL-2026-00007 approved · no entry: it was already posted\n', es: '✔ BILL-2026-00007 aprobada · sin asiento: ya estaba contabilizada\n' },
+
+  // ---- bill void (MNE-001-947) ----
+  { key: 'ap.bill.void.no_terminal', argv: [...VOID], where: 'error', setup: voiding(MIRROR),
+    en: 'This voids a bill and there is no terminal to confirm at. Re-run with --yes when you mean it, or with --dry-run to see the mirror.',
+    es: 'Esto anula un gasto y no hay terminal donde confirmar. Re-ejecuta con --yes cuando lo tengas decidido, o con --dry-run para ver el espejo.' },
+  ...(['ap.bill.void.confirm', 'ap.bill.void.result', 'ap.bill.void.key_not_needed'] as const).map((key, i): Case => ({
+    key, argv: [...VOID, '--idempotency-key', 'k1'], confirm: true, setup: voiding(MIRROR),
+    where: (['asked', 'out', 'err'] as const)[i],
+    en: [
+      'Void BILL-2026-00007 (1160.00 MXN) of Entidad Sintetica SA? The mirror of its entry is posted on 2026-07-31. This cannot be undone.',
+      '✔ BILL-2026-00007 voided · mirror JE-2026-00043 dated 2026-07-31 by bill_void_mirror_date = void_date\n',
+      '  --idempotency-key was not needed: a bill that is already void is not voided again.\n',
+    ][i],
+    es: [
+      '¿Anular BILL-2026-00007 (1160.00 MXN) de Entidad Sintetica SA? El espejo de su póliza se postea con fecha 2026-07-31. Esto no se deshace.',
+      '✔ BILL-2026-00007 anulado · espejo JE-2026-00043 con fecha 2026-07-31 por bill_void_mirror_date = void_date\n',
+      '  No hacía falta --idempotency-key: un gasto que ya está anulado no se anula otra vez.\n',
+    ][i],
+  })),
+  { key: 'ap.bill.void.result', argv: [...VOID, '--dry-run'], where: 'out', setup: voiding({ ...MIRROR, datedBy: 'closed_period' }),
+    en: 'Would void BILL-2026-00007 · mirror JE-2026-00043 dated 2026-07-31 by bill_void_mirror_date = bill_date and cfdi_periodo_cerrado = periodo_actual, its period not being open\n',
+    es: 'Se anularía BILL-2026-00007 · espejo JE-2026-00043 con fecha 2026-07-31 por bill_void_mirror_date = bill_date y cfdi_periodo_cerrado = periodo_actual, porque su periodo no está abierto\n' },
+  { key: 'ap.bill.void.result', argv: [...VOID, '--yes'], where: 'out', setup: voiding({ ...MIRROR, datedBy: 'bill_date' }),
+    en: 'by bill_void_mirror_date = bill_date\n', es: 'por bill_void_mirror_date = bill_date\n' },
+  ...(['ap.bill.void.confirm', 'ap.bill.void.result'] as const).map((key, i): Case => ({
+    key, argv: [...VOID], confirm: true, setup: voiding({ ...MIRROR, posted: false, datedBy: null }), where: (['asked', 'out'] as const)[i],
+    en: ['Its entry already has the mirror JE-2026-00043: none is posted. This cannot be undone.',
+      '✔ BILL-2026-00007 voided · its entry already had the mirror JE-2026-00043 of 2026-07-31; none was posted\n'][i],
+    es: ['Su póliza ya tiene el espejo JE-2026-00043: no se postea ninguno. Esto no se deshace.',
+      '✔ BILL-2026-00007 anulado · su póliza ya tenía el espejo JE-2026-00043 del 2026-07-31; no se posteó ninguno\n'][i],
+  })),
+  ...(['ap.bill.void.confirm', 'ap.bill.void.result'] as const).map((key, i): Case => ({
+    key, argv: [...VOID], confirm: true, setup: voiding(null), where: (['asked', 'out'] as const)[i],
+    en: ['It never reached the ledger: nothing is posted. This cannot be undone.', '✔ BILL-2026-00007 voided · it had never reached the ledger\n'][i],
+    es: ['Nunca llegó al mayor: no se postea nada. Esto no se deshace.', '✔ BILL-2026-00007 anulado · nunca había llegado al mayor\n'][i],
+  })),
 
   // ---- bill inbox list / edit ----
   ...(['ap.bill.inbox.list.new_vendors', 'ap.bill.inbox.list.new_vendors_note', 'ap.bill.inbox.unnamed_issuer'] as const).map((key, i): Case => ({
@@ -509,6 +552,22 @@ describe('I8.8 · bill speaks by key', () => {
     const { EN } = await import('../../src/i18n/en.js');
     const keys = Object.keys(EN).filter((k) => k.startsWith('ap.bill.'));
     expect(new Set(CASES.map((c) => c.key))).toEqual(new Set(keys));
+  });
+
+  it('bill void: no --reason is a usage error before anything is read; --json carries the receipt and no table', async () => {
+    const bare = await run({ argv: ['bill', 'void', 'BILL-9', '--yes'], setup: voiding(MIRROR) }, 'en');
+    expect(bare.code).toBe(2);
+    expect(vi.mocked(resolveBill)).not.toHaveBeenCalled();
+    const json = await run({ argv: [...VOID, '--yes', '--json'], setup: voiding(MIRROR) }, 'en');
+    expect((JSON.parse(json.out) as { rows: unknown[] }).rows).toEqual([
+      { bill: 'BILL-2026-00007', status: 'void', dry_run: false, mirror_entry: 'JE-2026-00043', mirror_date: '2026-07-31',
+        mirror_posted: true, dated_by: 'void_date', mirror_lines: [] },
+    ]);
+    // The rehearsal first, then the act: the same service call, twice.
+    expect(vi.mocked(voidBill).mock.calls.map((c) => c[2])).toEqual([
+      { entityId: 'e1', reason: 'CFDI cancelled by the vendor', dryRun: true },
+      { entityId: 'e1', reason: 'CFDI cancelled by the vendor', dryRun: false },
+    ]);
   });
 
   it('the legacy tax= warning is resolved when called, in the active language', () => {

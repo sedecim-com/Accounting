@@ -634,8 +634,13 @@ export async function approveBill(
 // VOID — the way back across the ledger boundary (MNE-001-947, #1079)
 // ---------------------------------------------------------------
 
-/** Approved by hand or posted from the inbox, and owed whole: what `voidBill` accepts. */
-export const VOIDABLE_STATUSES = ['approved', 'posted'] as const;
+/**
+ * What `voidBill` accepts: a bill never posted (no entry, so no mirror), and
+ * one approved by hand or posted from the inbox that is owed whole.
+ */
+export const VOIDABLE_STATUSES = [...APPROVABLE_STATUSES, 'approved', 'posted'] as const;
+/** What dated a mirror `voidBill` posted: an answer of the key, or the closed-period key sending it to today. */
+export type MirrorDatedBy = 'void_date' | 'bill_date' | 'closed_period';
 /** Panel key: the date of the mirror. Its only reader is `voidBill`. */
 export const BILL_VOID_MIRROR_DATE_KEY = 'bill_void_mirror_date';
 
@@ -650,8 +655,11 @@ export interface VoidBillOptions {
 
 export interface VoidBillResult {
   bill: Bill;
-  /** Null when the bill never posted (a zero total). `posted` is false when the entry had been reversed by hand. */
-  mirror: { id: string; entryNumber: string; date: string; posted: boolean } | null;
+  /**
+   * Null when the bill never posted (a draft, a zero total). `posted` is false, and `datedBy` null,
+   * when the entry had been reversed by hand.
+   */
+  mirror: { id: string; entryNumber: string; date: string; posted: boolean; datedBy: MirrorDatedBy | null } | null;
   mirrorLines: Array<{ account_code: string; account_name: string; debit_amount: string | null; credit_amount: string | null }>;
   /** Fire attestEntryAsync with this AFTER the transaction commits. */
   attestation: { entityId: string; entryId: string } | null;
@@ -669,16 +677,18 @@ class VoidDryRunRollback extends Error {
  * Voids an approved bill that is owed whole, in one transaction: the mirror of
  * its entry (NIF B-1, a correction by reversal), the bill at `void` with 0.00
  * due, and its audit row. The twin of `voidInvoice`. It cancels nothing before
- * the SAT.
+ * the SAT. A draft has no entry: it goes to `void` with no mirror, under the
+ * same guarded UPDATE and the same audit row.
  *
  * The mirror takes back every line the bill's own entry posted: the expense,
  * the payable, the VAT parked in 1135 (PUE or PPD, MNE-001-492) and any IEPS
  * or withholding line that entry carries, in the mirror's month. Nothing a
  * payment posted is touched: a bill with a live application is refused, and
  * `payment unapply`, which the refusal names, puts back in 1135 the VAT that
- * payment released. A bill with another entry standing on it (a received
- * credit note, a VAT over-credit correction) is refused too, and so is one
- * born from the opening balance, whose entry is the whole opening's.
+ * payment released. A bill a received credit note lowered is refused by the
+ * note's UUID, since that note has no undo yet; so is one with a VAT
+ * over-credit correction standing, and one born from the opening balance,
+ * whose entry is the whole opening's.
  * An entry somebody already reversed by hand gets no second mirror: the bill
  * is closed against the one that stands, which is what unblocks the close.
  *
@@ -707,16 +717,23 @@ export async function voidBill(id: string, userId: string, opts: VoidBillOptions
       );
       if (!found) throw new NotFoundError('Bill', id);
       const bill = found.bill_number;
-      const { rows: [live] } = await client.query<{ applications: number; notes: number }>(
+      const { rows: [live] } = await client.query<{ applications: number; corrections: number; notes: string | null }>(
         `SELECT (SELECT count(*) FROM payment_applications pa
                   WHERE pa.bill_id = $1 AND pa.unapplied_at IS NULL)::int AS applications,
-                (SELECT count(*) FROM journal_entries n
-                  WHERE n.source_type = ANY($3::text[]) AND n.source_id = $1 AND n.entity_id = $2
-                    AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL)::int AS notes`,
-        [id, opts.entityId, [VENDOR_CREDIT_NOTE_SOURCE, VAT_OVERCREDIT_CORRECTION_SOURCE]]
+                count(*) FILTER (WHERE n.source_type = $4)::int AS corrections,
+                string_agg(n.reference, ', ' ORDER BY n.entry_date, n.entry_number COLLATE "C")
+                  FILTER (WHERE n.source_type = $3) AS notes
+           FROM journal_entries n
+          WHERE n.source_type IN ($3, $4) AND n.source_id = $1 AND n.entity_id = $2
+            AND n.status = 'posted' AND n.reversed_by_entry_id IS NULL`,
+        [id, opts.entityId, VENDOR_CREDIT_NOTE_SOURCE, VAT_OVERCREDIT_CORRECTION_SOURCE]
       );
-      if (live.applications > 0 || live.notes > 0) {
-        throw new ConflictError({ key: 'bill.void.settled', params: { bill, ...live } });
+      // The note first: it has no undo, so unapplying payments would not open the way.
+      if (live.notes) throw new ConflictError({ key: 'bill.void.credit_note', params: { bill, notes: live.notes } });
+      if (live.applications > 0 || live.corrections > 0) {
+        throw new ConflictError({
+          key: 'bill.void.settled', params: { bill, applications: live.applications, corrections: live.corrections },
+        });
       }
       if (!(VOIDABLE_STATUSES as readonly string[]).includes(found.status)) {
         throw new ConflictError({ key: 'bill.void.not_voidable', params: { bill, status: found.status } });
@@ -743,21 +760,21 @@ export async function voidBill(id: string, userId: string, opts: VoidBillOptions
             )
           : { rows: [] };
         if (byHand) {
-          mirror = { id: byHand.id, entryNumber: byHand.entry_number, date: byHand.day, posted: false };
+          mirror = { id: byHand.id, entryNumber: byHand.entry_number, date: byHand.day, posted: false, datedBy: null };
         } else {
-          const date = await mirrorDay(client, ctx, bill, toCalendarDate(entry.entry_date));
+          const { day, by } = await mirrorDay(client, ctx, bill, toCalendarDate(entry.entry_date));
           const posted = await reverseWithinTransaction(
-            client, entry, userId, `Bill ${bill} voided: ${opts.reason}`, date
+            client, entry, userId, `Bill ${bill} voided: ${opts.reason}`, day
           );
-          mirror = { id: posted.id, entryNumber: posted.entry_number, date, posted: true };
+          mirror = { id: posted.id, entryNumber: posted.entry_number, date: day, posted: true, datedBy: by };
         }
       }
 
       const voided = await client.query<Bill>(
         `UPDATE bills SET status = 'void', amount_due = 0, updated_at = NOW()
-          WHERE id = $1 AND entity_id = $2 AND status = ANY($3::text[]) AND amount_paid = 0
+          WHERE id = $1 AND entity_id = $2 AND status = $3 AND amount_paid = 0
           RETURNING *`,
-        [id, opts.entityId, [...VOIDABLE_STATUSES]]
+        [id, opts.entityId, found.status]
       );
       if (voided.rowCount !== 1) throw new ConflictError({ key: 'bill.void.race', params: { bill } });
 
@@ -793,21 +810,21 @@ export async function voidBill(id: string, userId: string, opts: VoidBillOptions
   }
 }
 
-/** The day `voidBill` dates its mirror, by the panel; `entryDay` is the day of the entry it mirrors. */
+/** The day `voidBill` dates its mirror and what decided it, by the panel; `entryDay` is the day of the entry it mirrors. */
 async function mirrorDay(
   client: PoolClient, ctx: { tenantId: string; entityId: string }, bill: string, entryDay: string
-): Promise<string> {
+): Promise<{ day: string; by: MirrorDatedBy }> {
   const today = await todayFor(ctx, { client });
   const actDay = today < entryDay ? entryDay : today;
-  if ((await getPolicy(ctx, BILL_VOID_MIRROR_DATE_KEY, client)).value !== 'bill_date') return actDay;
+  if ((await getPolicy(ctx, BILL_VOID_MIRROR_DATE_KEY, client)).value !== 'bill_date') return { day: actDay, by: 'void_date' };
   // The engine's own predicate (createJournalEntry): a period that still takes postings.
   const open = await client.query(
     `SELECT 1 FROM fiscal_periods
       WHERE entity_id = $1 AND start_date <= $2::date AND end_date >= $2::date AND status NOT IN ('hard_close', 'locked')`,
     [ctx.entityId, entryDay]
   );
-  if (open.rows.length > 0) return entryDay;
-  if ((await getPolicy(ctx, 'cfdi_periodo_cerrado', client)).value === 'periodo_actual') return actDay;
+  if (open.rows.length > 0) return { day: entryDay, by: 'bill_date' };
+  if ((await getPolicy(ctx, 'cfdi_periodo_cerrado', client)).value === 'periodo_actual') return { day: actDay, by: 'closed_period' };
   throw new AccountingError(ErrorCodes.PERIOD_CLOSED, { key: 'bill.void.closed_period', params: { bill, date: entryDay } });
 }
 

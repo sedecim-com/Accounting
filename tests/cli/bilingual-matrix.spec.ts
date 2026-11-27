@@ -260,7 +260,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   year: { list: 'listar', show: 'ver', create: 'crear' },
   // MNE-001-664: `vendor tax set`, under the alias of `customer tax`.
   vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos', tax: 'fiscal' },
-  bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
+  // MNE-001-947: `bill void`.
+  bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar', void: 'anular' },
   customer: {
     list: 'listar', show: 'ver', create: 'crear', edit: 'editar',
     archive: 'archivar', restore: 'restaurar', tax: 'fiscal',

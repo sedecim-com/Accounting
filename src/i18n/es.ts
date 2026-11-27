@@ -7536,11 +7536,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.inbox.run.option.note': 'anotación que se guarda con la aprobación',
   'help.bill.inbox.run.option.dry_run': 'calcula y muestra el efecto completo; no escribe nada',
   'help.bill.inbox.run.option.json': 'salida en JSON',
-  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
-  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  // ---- MNE-001-947 · bill void: its refusals, its panel key and its leaf (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `corrections` count what still stands on the bill. */
   'bill.void.settled':
-    '{bill} no se debe entero: {applications, plural, =0 {ninguna aplicación de pago} one {# aplicación de pago} other {# aplicaciones de pago}} y {notes, plural, =0 {ninguna nota de crédito recibida ni corrección de IVA} one {# nota de crédito recibida o corrección de IVA} other {# notas de crédito recibidas o correcciones de IVA}} siguen vivas sobre él. Deshaz primero cada aplicación con `payment unapply <pago> --bill {bill} --reason "<por qué>"`; un gasto que una nota de crédito recibida ya bajó, o cuyo IVA movió una corrección, no se anula mientras esa póliza siga viva. No se escribió nada.',
-  'bill.void.not_voidable': '{bill} está en {status}: sólo se anula un gasto aprobado que se debe entero. No se escribió nada.',
+    '{bill} no se debe entero: {applications, plural, =0 {ninguna aplicación de pago} one {# aplicación de pago} other {# aplicaciones de pago}} y {corrections, plural, =0 {ninguna corrección de IVA acreditado de más} one {# corrección de IVA acreditado de más} other {# correcciones de IVA acreditado de más}} siguen vivas sobre él. Deshaz primero cada aplicación con `payment unapply <pago> --bill {bill} --reason "<por qué>"`; una corrección se deshace revirtiendo su póliza. No se escribió nada.',
+  /** `notes`: the UUID of each received credit note whose entry stands. */
+  'bill.void.credit_note':
+    '{bill} fue bajado por una nota de crédito recibida que sigue viva ({notes}). Deshacer una nota de crédito recibida todavía no está construido, así que este gasto no se puede anular. No se escribió nada.',
+  'bill.void.not_voidable': '{bill} está en {status}: lo que se puede anular es un borrador, o un gasto aprobado que se debe entero. No se escribió nada.',
   'bill.void.opening':
     '{bill} entró con el saldo de apertura y comparte su póliza: anularlo revertiría toda la apertura. Revierte la apertura y cárgala otra vez sin este documento. No se escribió nada.',
   'bill.void.closed_period':
@@ -7558,6 +7561,26 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.bill_void_mirror_date.if_skipped': 'Fecho el espejo el día de la anulación.',
   'policy.bill_void_mirror_date.option.void_date': 'El día de la anulación, como `invoice void`',
   'policy.bill_void_mirror_date.option.bill_date': 'El día de la póliza del gasto, como si el gasto nunca hubiera existido',
+  /** `bill void`: the question, the receipt and the notice. `mirror` says what the ledger gets; `by`, what dated a posted mirror. */
+  'ap.bill.void.confirm':
+    '¿Anular {bill} ({total} {currency}) de {entity}? {mirror, select, posted {El espejo de su póliza se postea con fecha {date}.} by_hand {Su póliza ya tiene el espejo {entry}: no se postea ninguno.} other {Nunca llegó al mayor: no se postea nada.}} Esto no se deshace.',
+  'ap.bill.void.no_terminal':
+    'Esto anula un gasto y no hay terminal donde confirmar. Re-ejecuta con --yes cuando lo tengas decidido, o con --dry-run para ver el espejo.',
+  'ap.bill.void.result':
+    '{mode, select, dry_run {Se anularía {bill}} other {{bill} anulado}} · {mirror, select, posted {espejo {entry} con fecha {date} por {by, select, void_date {bill_void_mirror_date = void_date} bill_date {bill_void_mirror_date = bill_date} other {bill_void_mirror_date = bill_date y cfdi_periodo_cerrado = periodo_actual, porque su periodo no está abierto}}} by_hand {su póliza ya tenía el espejo {entry} del {date}; no se posteó ninguno} other {nunca había llegado al mayor}}',
+  'ap.bill.void.key_not_needed': 'No hacía falta --idempotency-key: un gasto que ya está anulado no se anula otra vez.',
+  'help.bill.void.description':
+    'Anula un gasto: un borrador sólo pasa a anulado; uno aprobado que se debe entero recibe además el espejo de su póliza. Se niega con un pago o una nota de crédito aplicados',
+  'help.bill.void.argument.bill': 'número propio, folio del proveedor o id',
+  'help.bill.void.option.json': 'salida en JSON',
+  'help.bill.void.footer':
+    'Un borrador nunca llegó al mayor: sólo pasa a anulado. Un gasto aprobado que se debe entero recibe además el espejo de su póliza, con la fecha que decide la clave del panel bill_void_mirror_date.\n' +
+    'Se niega con un pago aplicado (deshazlo primero con `payment unapply`), con una nota de crédito recibida aplicada y con un gasto que entró con el saldo de apertura. No cancela nada ante el SAT.\n' +
+    '\nEjemplos:\n' +
+    '  El proveedor canceló el CFDI: ver el espejo que se postearía, sin escribir nada:\n' +
+    '    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelado por el proveedor" --dry-run\n' +
+    '  Anularlo: el espejo, el gasto anulado con saldo cero y su registro de auditoría:\n' +
+    '    mnemosine bill void BILL-2026-00007 --reason "CFDI cancelado por el proveedor"',
   // ---- end of MNE-001-947 ----
   'help.vendor.description':
     'Catálogo de proveedores: a quién le debemos, en qué condiciones de pago y con qué identificador fiscal',

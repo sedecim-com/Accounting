@@ -23,6 +23,7 @@ import {
   createBill,
   setBillLine,
   approveBill,
+  voidBill,
   computeBill,
   APPROVABLE_STATUSES,
   type BillLineInput,
@@ -816,7 +817,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         });
         printEntry(preview, deps.palette, target.bill_number);
         // The signal comes BEFORE the question: once posted, the entry cannot be
-        // reclassified from here (`bill reverse` has no backend yet).
+        // reclassified from here (`bill void` takes the whole bill back, never one line).
         for (const w of preview.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w, getLanguage())}\n`));
 
         if (opts.dryRun) {
@@ -871,6 +872,85 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           process.stderr.write(deps.palette.dim(`  ${t('ap.bill.approve.key_not_needed')}\n`));
         }
       })
+  );
+
+  // ---- bill void (MNE-001-947) ------------------------------------
+  const voidCmd = describeCommand(bill.command('void').alias('anular'), 'help.bill.void.description');
+  argumentByKey(voidCmd, '<bill>', 'help.bill.void.argument.bill');
+  optionByKey(voidCmd, '--json', 'help.bill.void.option.json');
+  withContext(voidCmd);
+  // An undo verb: the kernel adds --reason and gateMutation requires it.
+  declareRisk(voidCmd, {
+    risk: 'irreversible',
+    agent: false,
+    llave: { innecesaria: t('ap.bill.void.key_not_needed') },
+    writes: 'bills.status and amount_due, a reversing journal_entry, audit_log',
+  });
+  voidCmd.addHelpText('after', () => `\n${t('help.bill.void.footer')}\n`);
+  voidCmd.action((ref: string, opts: CommonOpts & { yes?: boolean; idempotencyKey?: string }) =>
+    run(async () => {
+      const { dryRun, reason } = gateMutation(voidCmd, opts as Record<string, unknown>);
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      const target = await resolveBill(ctx.entityId, ref);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const act = (rehearse: boolean) =>
+        voidBill(target.id, reviewer.userId, { entityId: ctx.entityId, reason: reason ?? '', dryRun: rehearse });
+      const mirrorOf = (r: Awaited<ReturnType<typeof act>>) => ({
+        mirror: !r.mirror ? 'none' : r.mirror.posted ? 'posted' : 'by_hand',
+        entry: r.mirror?.entryNumber ?? '',
+        date: r.mirror?.date ?? '',
+        by: r.mirror?.datedBy ?? '',
+      });
+
+      // The rehearsal is the real act, rolled back: whatever the service
+      // refuses is refused here, before anyone is asked to confirm.
+      const preview = await act(true);
+      if (preview.mirror?.posted && !opts.json) {
+        process.stderr.write(
+          deps.palette.dim(`\n${t('ap.bill.approve.entry_title', { entry: preview.mirror.entryNumber, date: preview.mirror.date })}\n`)
+        );
+        render(
+          preview.mirrorLines.map((l) => ({ account: l.account_code, name: l.account_name, debit: l.debit_amount ?? '', credit: l.credit_amount ?? '' })),
+          { format: 'table', numeric: ['debit', 'credit'] }
+        );
+      }
+      if (!dryRun && !opts.yes) {
+        if (!stdin.isTTY && !deps.confirm) throw abortedByUser({ key: 'ap.bill.void.no_terminal' });
+        const question = t('ap.bill.void.confirm', {
+          bill: target.bill_number, total: target.total_amount, currency: target.currency_code, entity: ctx.entityName,
+          ...mirrorOf(preview),
+        });
+        if (!(await ask(question))) throw abortedByUser();
+      }
+
+      const result = dryRun ? preview : await act(false);
+      if (result.attestation && !dryRun) {
+        attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
+      }
+      if (opts.json) {
+        render(
+          [{
+            bill: target.bill_number,
+            status: result.bill.status,
+            dry_run: dryRun,
+            mirror_entry: result.mirror?.entryNumber ?? null,
+            mirror_date: result.mirror?.date ?? null,
+            mirror_posted: result.mirror?.posted ?? false,
+            dated_by: result.mirror?.datedBy ?? null,
+            mirror_lines: result.mirrorLines,
+          }],
+          { json: true }
+        );
+      } else {
+        const line = t('ap.bill.void.result', {
+          mode: dryRun ? 'dry_run' : 'done', bill: deps.palette.bold(target.bill_number), ...mirrorOf(result),
+        });
+        process.stdout.write(`${dryRun ? '' : `${deps.palette.green('✔')} `}${line}\n`);
+      }
+      if (dryRun) process.stderr.write(deps.palette.dim(`${t('ap.bill.dry_run')}\n`));
+      if (opts.idempotencyKey) process.stderr.write(deps.palette.dim(`  ${t('ap.bill.void.key_not_needed')}\n`));
+    })
   );
 
   // ============================================================
