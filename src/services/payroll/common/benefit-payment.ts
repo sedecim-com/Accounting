@@ -245,6 +245,89 @@ export async function provisionChargesOfRun(
   return charges;
 }
 
+/** What one live pay-run entry paid of a benefit, and what it debited to that benefit's provision. */
+export interface BenefitFactsOfRun {
+  runId: string;
+  entryId: string;
+  entryNumber: string;
+  /** YYYY-MM-DD. */
+  entryDate: string;
+  /** The last day of the entry's fiscal period, YYYY-MM-DD. */
+  periodEnd: string;
+  benefit: AccruedBenefit;
+  paid: Decimal;
+  debited: Decimal;
+}
+
+/**
+ * THE FACTS OF EACH PAY RUN ABOUT THE BENEFITS IT PAID, one row per run and
+ * benefit: what it paid in earning lines of the benefit's types
+ * (`paycheck_earnings`) and what its entry debited to the account of the
+ * benefit's provision, net of any credit. A run counts through
+ * `pay_runs.journal_entry_id`, the link both roads of `pay-run post` write,
+ * and only while its entry is posted and not reversed. Never from the text
+ * of a line. The accrual of a period and the census of past payments read
+ * the same rows, so they cannot disagree on what a run did.
+ *
+ * One statement, bounded by tenant and entity (`pay_runs` has no entity of
+ * its own and no index on its entry: the tenant is what bounds it), and by
+ * the window when one is given. The amounts of the ledger lines are read,
+ * not summed in SQL: at most three per run. Oldest entry first.
+ */
+export async function benefitFactsOfRuns(
+  scope: { tenantId: string; entityId: string },
+  window?: { from: Date | string; to: Date | string }
+): Promise<BenefitFactsOfRun[]> {
+  const rows = await query<{
+    run_id: string; entry_id: string; entry_number: string; entry_date: string; period_end: string;
+    kind: 'paid' | 'debited'; key: string; amount: string;
+  }>(
+    `WITH runs AS (
+       SELECT pr.id AS run_id, pr.tenant_id, je.id AS entry_id, je.entry_number,
+              je.entry_date::text AS entry_date, fp.end_date::text AS period_end
+         FROM journal_entries je
+         JOIN pay_runs pr ON pr.journal_entry_id = je.id AND pr.tenant_id = $2
+         JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+          AND ($5::date IS NULL OR je.entry_date BETWEEN $5::date AND $6::date)
+     )
+     SELECT runs.run_id, runs.entry_id, runs.entry_number, runs.entry_date, runs.period_end,
+            'paid' AS kind, pe.earning_type AS key, SUM(pe.amount)::text AS amount
+       FROM runs
+       JOIN paychecks p ON p.pay_run_id = runs.run_id AND p.tenant_id = runs.tenant_id
+       JOIN paycheck_earnings pe ON pe.paycheck_id = p.id AND pe.earning_type = ANY($3)
+      GROUP BY runs.run_id, runs.entry_id, runs.entry_number, runs.entry_date, runs.period_end, pe.earning_type
+     UNION ALL
+     SELECT runs.run_id, runs.entry_id, runs.entry_number, runs.entry_date, runs.period_end,
+            'debited', r.role, (COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text
+       FROM runs
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = runs.entry_id
+       JOIN account_roles r ON r.account_id = jel.account_id AND r.entity_id = $1
+                           AND r.role = ANY($4) AND r.qualifier IS NULL`,
+    [
+      scope.entityId, scope.tenantId, ACCRUED_BENEFITS.flatMap((b) => b.earningTypes),
+      ACCRUED_BENEFITS.map((b) => b.role), window?.from ?? null, window?.to ?? null,
+    ]
+  );
+  const facts = new Map<string, BenefitFactsOfRun>();
+  for (const r of rows.rows) {
+    const b = ACCRUED_BENEFITS.find((x) => (r.kind === 'paid' ? x.earningTypes.includes(r.key) : x.role === r.key));
+    if (!b) continue;
+    const key = `${r.entry_id}:${b.benefit}`;
+    const fact = facts.get(key) ?? {
+      runId: r.run_id, entryId: r.entry_id, entryNumber: r.entry_number, entryDate: r.entry_date,
+      periodEnd: r.period_end, benefit: b.benefit, paid: new Decimal(0), debited: new Decimal(0),
+    };
+    if (r.kind === 'paid') fact.paid = fact.paid.plus(r.amount);
+    else fact.debited = fact.debited.plus(r.amount);
+    facts.set(key, fact);
+  }
+  // By date, then by number: plain code-unit order, the same on every database.
+  return [...facts.values()].sort((a, b) =>
+    a.entryDate === b.entryDate ? (a.entryNumber < b.entryNumber ? -1 : 1) : a.entryDate < b.entryDate ? -1 : 1
+  );
+}
+
 /** What the pay runs of a period paid over each provision, and the runs it could not measure. */
 export interface PaidOverProvisions {
   over: Map<AccruedBenefit, Decimal>;
@@ -281,35 +364,11 @@ export async function paidOverProvisionsIn(
 ): Promise<PaidOverProvisions> {
   const { tenantId, entityId } = scope;
   const earningTypes = ACCRUED_BENEFITS.flatMap((b) => b.earningTypes);
-  const facts = await query<{ kind: 'paid' | 'debited'; key: string; amount: string }>(
-    `WITH runs AS (
-       SELECT pr.id AS run_id, pr.tenant_id, je.id AS entry_id
-         FROM journal_entries je
-         JOIN pay_runs pr ON pr.journal_entry_id = je.id AND pr.tenant_id = $6
-        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
-          AND je.entry_date BETWEEN $2 AND $3
-     )
-     SELECT 'paid' AS kind, pe.earning_type AS key, SUM(pe.amount)::text AS amount
-       FROM runs
-       JOIN paychecks p ON p.pay_run_id = runs.run_id AND p.tenant_id = runs.tenant_id
-       JOIN paycheck_earnings pe ON pe.paycheck_id = p.id AND pe.earning_type = ANY($4)
-      GROUP BY pe.earning_type
-     UNION ALL
-     SELECT 'debited', r.role, (COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text
-       FROM runs
-       JOIN journal_entry_lines jel ON jel.journal_entry_id = runs.entry_id
-       JOIN account_roles r ON r.account_id = jel.account_id AND r.entity_id = $1
-                           AND r.role = ANY($5) AND r.qualifier IS NULL`,
-    [entityId, from, to, earningTypes, ACCRUED_BENEFITS.map((b) => b.role), tenantId]
-  );
   const over = new Map<AccruedBenefit, Decimal>();
-  for (const b of ACCRUED_BENEFITS) {
-    const net = facts.rows.reduce((sum, f) => {
-      if (f.kind === 'paid' && b.earningTypes.includes(f.key)) return sum.plus(f.amount);
-      return f.kind === 'debited' && f.key === b.role ? sum.minus(f.amount) : sum;
-    }, new Decimal(0));
-    if (net.greaterThan(0)) over.set(b.benefit, net);
+  for (const f of await benefitFactsOfRuns(scope, { from, to })) {
+    over.set(f.benefit, (over.get(f.benefit) ?? new Decimal(0)).plus(f.paid).minus(f.debited));
   }
+  for (const [benefit, net] of over) if (!net.greaterThan(0)) over.delete(benefit);
 
   // The draft of a run is the payroll engine's own, named by its producer and
   // by the run's reference, as `pay-run post` finds it: never by a line's text.

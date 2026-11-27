@@ -34,6 +34,7 @@
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "correct:vat-overcredit": "tsx scripts/correct-vat-overcredit.ts",
     "correct:discount-vat": "tsx scripts/correct-discount-vat.ts",
+    "census:benefit-payments": "tsx scripts/benefit-payment-census.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
     "backfill:straddling-liabilities": "tsx scripts/resplit-straddling-liabilities.ts",
     "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
