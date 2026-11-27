@@ -131,6 +131,21 @@ describe('the Deducciones node of the payroll CFDI', () => {
     expectTotalIdentity(xml);
   });
 
+  // MNE-001-923 (#1076). Standard of the complement (revision C, 29 Dec 2021, read 2026-11-27),
+  // TotalImpuestosRetenidos: «Si no existen deducciones con clave "002", este atributo no debe
+  // existir.» It was written as 0.00, which is every receipt of a worker with no ISR withheld.
+  it('with no Deduccion 002 the receipt carries no TotalImpuestosRetenidos, and TotalDeducciones is the other deductions', async () => {
+    // The subsidy (180.00) above the ISR (120.00), and no ISR at all (LISR art. 96, first paragraph).
+    for (const over of [{ isr_withheld: '120.00', net_pay: '2578.75' }, { isr_withheld: '0.00', net_pay: '2578.75' }]) {
+      const xml = await xmlFor(over);
+      expect(deductionNodes(xml).map(([type]) => type)).toEqual(['001', '010', '004']);
+      expect(xml).not.toContain('TotalImpuestosRetenidos');
+      expect(xml).toContain('<nomina12:Deducciones TotalOtrasDeducciones="421.25">');
+      expect(attr(xml, 'TotalDeducciones')).toBe('421.25');
+      expectTotalIdentity(xml);
+    }
+  });
+
   it('a stored deduction keyed 002 counts as tax withheld, not as another deduction', async () => {
     const xml = await xmlFor({ net_pay: '2478.75' }, [
       { cfdi_clave_sat: '002', amount: '80.00', description: 'ISR de ajuste', deduction_type: 'isr_adjust' },
@@ -203,6 +218,14 @@ describe('the nodes against the SAT nomina12.xsd', () => {
 
   it('Deducciones with 001, 002, 004 and 010 and the OtroPago 002 of the ordinary band pass the schema', async () => {
     const verdict = validateAgainstPayrollComplementXsd(minimalComplementWith(await xmlFor({})));
+    expect(verdict.errors).toEqual([]);
+    expect(verdict.valid).toBe(true);
+  }, XSD_TIMEOUT);
+
+  it('Deducciones with no ISR node and no TotalImpuestosRetenidos passes the schema too', async () => {
+    const verdict = validateAgainstPayrollComplementXsd(
+      minimalComplementWith(await xmlFor({ isr_withheld: '0.00', net_pay: '2578.75' }))
+    );
     expect(verdict.errors).toEqual([]);
     expect(verdict.valid).toBe(true);
   }, XSD_TIMEOUT);

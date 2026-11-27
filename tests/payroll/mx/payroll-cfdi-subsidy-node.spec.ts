@@ -110,7 +110,8 @@ describe('the employment subsidy node of the payroll CFDI', () => {
     expect(xml).toContain('<nomina12:SubsidioAlEmpleo SubsidioCausado="100.00"/>');
     expect(xml).toContain('TotalOtrosPagos="0.00"');
     expect(xml).not.toMatch(/TipoDeduccion="002"/);
-    expect(xml).toContain('TotalImpuestosRetenidos="0.00"');
+    // With no Deduccion 002 the attribute must not exist (standard, revision C; MNE-001-923).
+    expect(xml).not.toContain('TotalImpuestosRetenidos');
     expectTotalIdentity(xml);
   });
 

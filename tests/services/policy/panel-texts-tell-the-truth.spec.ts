@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
+import Decimal from 'decimal.js';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 
@@ -280,6 +281,61 @@ describe('separate_payment_isr — the text says what the reader does, and cites
     expect(s.defaultRationale).toBe(t('policy.separate_payment_isr.rationale', {}, 'en'));
     expect(norms(s.defaultRationale)).toEqual(['LISR', 'RLISR']);
     expect(norms(t('policy.separate_payment_isr.rationale', {}, 'es'))).toEqual(['LISR', 'RLISR']);
+  });
+});
+
+// MNE-001-923 (#1076). The ISR of a minimum-wage worker who also gets another
+// taxed earning. The text names its reader, quotes only the paragraph the
+// corpus carries, and its example is the hand figure of both answers.
+describe('minimum_wage_isr_exemption — the text says what the reader does, and the corpus carries the paragraph it cites', () => {
+  const s = spec('minimum_wage_isr_exemption');
+
+  it('names minimum-wage-worker.ts as its reader, and that file reads the key only over the minimum', () => {
+    expect(s.impact).toMatch(/Read by minimum-wage-worker\.ts, only in that case/);
+    const file = sourcesNamed('minimum-wage-worker.ts');
+    expect(file).toHaveLength(1);
+    const src = fs.readFileSync(file[0], 'utf8');
+    expect(src).toMatch(/MINIMUM_WAGE_ISR_POLICY = 'minimum_wage_isr_exemption'/);
+    expect(src).toMatch(/if \(taxableOfPeriod\.lte\(minimum\)\) return [^;]+;\n\s+const answer = await getPolicy\(/);
+  });
+
+  it('the default withholds on the whole base, and the example gives the figure of each answer', async () => {
+    const { baseForTariff, MINIMUM_WAGE_ISR_POLICIES } = await import('../../../src/services/payroll/mx/minimum-wage-worker.js');
+    expect(s.defaultValue).toBe('only_minimum_wage_paid');
+    expect(s.options.map((o) => o.value)).toEqual([...MINIMUM_WAGE_ISR_POLICIES]);
+    expect(s.defaultRationale).toMatch(/the one that can only withhold more/);
+    // Quincenal tariff of 2026: bracket 3 on 5 825.60, bracket 2 on the 1 100.00 over the minimum of 4 725.60.
+    expect(s.whyAsking).toMatch(/withholds 456\.73 on the whole base and 51\.68 on the excess/);
+    expect((207.75 + (5825.6 - 3537.16) * 0.1088).toFixed(2)).toBe('456.73');
+    const excess = baseForTariff(
+      {
+        treatment: 'tariff_on_excess', policy: 'minimum_wage_part_never_taxed', days: new Decimal(15),
+        earned: { zone: 'general', declaredBy: null, daily: '315.04' }, minimum: new Decimal('4725.60'),
+        taxableOfPeriod: new Decimal('5825.60'),
+      },
+      '5825.60'
+    );
+    expect((7.95 + (excess - 416.71) * 0.064).toFixed(2)).toBe('51.68');
+  });
+
+  it('the paragraph it reads is in the corpus, with its source and the day it was read', () => {
+    const manual = fs.readFileSync(path.join(ROOT, 'src/ai/docs/payroll.md'), 'utf8');
+    expect(manual).toContain(
+      '«Quienes hagan pagos por los conceptos a que se refiere este Capítulo están obligados a efectuar retenciones y ' +
+        'enteros mensuales que tendrán el carácter de pagos provisionales a cuenta del impuesto anual. No se efectuará ' +
+        'retención a las personas que en el mes únicamente perciban un salario mínimo general correspondiente al área ' +
+        'geográfica del contribuyente.»'
+    );
+    expect(manual).toMatch(/LISR art\. 96, first paragraph; source: Cámara de Diputados, [^)]*LISR\.pdf, read 2026-11-27\)/);
+    expect(s.defaultRationale).toMatch(/provisional payment on account of the annual tax/);
+  });
+
+  it('cites the same norm in English and in Spanish, and no other', () => {
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(LISR|RLISR|CFF|LFT|LSS|RMF|NIF [A-E]-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.minimum_wage_isr_exemption.rationale', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['LISR']);
+    expect(norms(t('policy.minimum_wage_isr_exemption.rationale', {}, 'es'))).toEqual(['LISR']);
   });
 });
 

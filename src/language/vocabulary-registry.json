@@ -6671,6 +6671,30 @@
     },
     {
       "class": "policy-key",
+      "where": "minimum_wage_isr_exemption",
+      "es": "minimum_wage_isr_exemption",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-923): how ISR is withheld from a minimum-wage worker who also gets another taxed earning in the pay period."
+    },
+    {
+      "class": "policy-value",
+      "where": "minimum_wage_isr_exemption/only_minimum_wage_paid",
+      "es": "only_minimum_wage_paid",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: only who is paid the minimum wage and nothing else taxed is spared; otherwise the tariff applies to the whole base."
+    },
+    {
+      "class": "policy-value",
+      "where": "minimum_wage_isr_exemption/minimum_wage_part_never_taxed",
+      "es": "minimum_wage_part_never_taxed",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the minimum wage of the period is never taxed, and the tariff applies to the excess alone."
+    },
+    {
+      "class": "policy-key",
       "where": "benefit_payment_against_provision",
       "es": "benefit_payment_against_provision",
       "en": null,
