@@ -697,6 +697,33 @@
       "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
     },
     {
+      "path": "asset retire",
+      "aliases": ["retirar"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [
+        {"name":"asset","type":"string","required":true}
+      ],
+      "options": [
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"effective","flags":"--effective <date>","type":"string","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"fields","flags":"--fields [names]","type":"boolean|string","required":false},
+        {"name":"format","flags":"--format <table|json|ndjson|csv|tsv|md>","type":"string","required":false,"choices":["table","json","ndjson","csv","tsv","md"],"default":"table"},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"output","flags":"-o, --output <path>","type":"string","required":false},
+        {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
+        {"name":"reason","flags":"--reason <text>","type":"string","required":true},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"undo","flags":"--undo","type":"boolean","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
+    },
+    {
       "path": "audit list",
       "aliases": ["listar"],
       "risk": "lectura",
@@ -4758,7 +4785,7 @@
     },
     {
       "path": "memory retire",
-      "aliases": ["retira"],
+      "aliases": ["retira","retirar"],
       "risk": "escritura",
       "agent": false,
       "draft_only": false,

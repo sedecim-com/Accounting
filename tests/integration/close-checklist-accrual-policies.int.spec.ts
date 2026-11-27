@@ -105,11 +105,18 @@ describe('depreciation-posted takes its severity from depreciacion_faltante_al_c
       expect(st.warnings).not.toContain('1 assets without depreciation posted');
       expect(st.can_close).toBe(false);
 
-      // An empty register is "could not check", not pending depreciation:
-      // the policy speaks of assets whose run is missing, so it still warns.
+      // A register with no asset in use has no pending depreciation: the
+      // policy speaks of assets whose run is missing, so nothing blocks. Since
+      // MNE-001-880 the box says so, names the asset and is complete: it was
+      // checked, and no asset owes the month (it used to say that no asset
+      // was registered).
       await query(`UPDATE fixed_assets SET status = 'fully_depreciated' WHERE entity_id = $1`, [f.entityId]);
       try {
-        expect((await januaryStatus()).depreciation).toMatchObject({ is_complete: false, severity: 'warning' });
+        const spent = (await januaryStatus()).depreciation;
+        expect(spent).toMatchObject({ is_complete: true, severity: 'warning' });
+        expect(spent.details).toMatch(
+          /^0 fixed assets in use: nothing to depreciate; 1 asset\(s\) fully depreciated: AF-2026-\d{5}$/
+        );
       } finally {
         await query(`UPDATE fixed_assets SET status = 'active' WHERE entity_id = $1`, [f.entityId]);
       }

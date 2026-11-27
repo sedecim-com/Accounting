@@ -503,7 +503,7 @@ Sólo revisa; nunca cierra. Recorre la lista de verificación del cierre —pól
 **Dos partidas dicen «no se pudo comprobar» cuando no hay nada que contar**, en vez de salir en verde:
 
 - **Conciliaciones bancarias.** Sin cuentas dadas de alta con `bank account create`, no hay nada que revisar. Con cuentas, la partida pide una sesión cerrada con `bank reconciliation close` que cubra el mes.
-- **Depreciación.** Sin activos registrados con `asset create` y sin saldo en las cuentas de activo fijo, igual. Si esas cuentas **sí** traen saldo y el registro está vacío, ya no es «no se pudo comprobar»: es un hallazgo que te pide registrarlos. Con activos, pide la corrida del mes contabilizada con `depreciation post`, y la severidad la fija la política `depreciacion_faltante_al_cierre`.
+- **Depreciación.** Sin activos registrados con `asset create` y sin saldo en las cuentas de activo fijo, igual. Si esas cuentas **sí** traen saldo y el registro está vacío, ya no es «no se pudo comprobar»: es un hallazgo que te pide registrarlos. Con activos, pide la corrida del mes contabilizada con `depreciation post`, y la severidad la fija la política `depreciacion_faltante_al_cierre`. Un activo retirado con `asset retire` o totalmente depreciado no debe nada: la partida lo nombra, y si ninguno de los registrados está en uso sale completa, porque ya no queda nada que depreciar.
 
 Y antes de cerrar, dos comprobaciones que sí valen:
 

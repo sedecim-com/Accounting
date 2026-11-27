@@ -717,6 +717,38 @@ export const ES: Record<keyof typeof EN, string> = {
     '  Un activo dado de alta por unidades de producción, que la corrida mensual omite:\n' +
     '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "Sin captura de producción; línea recta sobre su vida"',
   // ---- end of MNE-001-880 ----
+  // ---- MNE-001-880, part 2 · asset retire; see en.ts ----
+  'error.VALIDATION_ERROR.asset.retire_not_active':
+    '{asset} está en estado {status}, no activo: no hay nada que retirar.{status, select, inactive { Para devolverlo al uso: mnemosine asset retire {asset} --undo --reason "...".} other {}} No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.retire_effective_future':
+    'El retiro no puede surtir efecto el {effective}: hoy es {today} en la zona horaria de la entidad, y un activo retirado deja de depreciarse de inmediato. Corre este comando ese día. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.retire_effective_before_service':
+    '{asset} no se puede retirar con fecha {effective}: su depreciación empieza el {start}. Un activo que nunca estuvo en servicio se corrige con `asset edit`. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.retire_undo_not_retired':
+    '{asset} está en estado {status} y el último cambio de su estado no es un `asset retire`: no hay nada que deshacer. No se cambió nada.',
+  'assets.asset.retire.effective_or_undo':
+    'Di cuál: --effective <fecha> retira el activo, --undo devuelve al uso uno que fue retirado. No los dos, y no ninguno.',
+  'assets.asset.retire.done':
+    '{asset} queda retirado desde el {effective}: la corrida mensual ya no lo toma, y su ficha conserva lo contabilizado. Para devolverlo al uso: mnemosine asset retire {asset} --undo --reason "...".',
+  'assets.asset.retire.standing':
+    '{count, plural, one {# mes ya contabilizado} other {# meses ya contabilizados}} en esa fecha o después {count, plural, one {se queda} other {se quedan}} como {count, plural, one {está} other {están}}: {months}. Lo ya contabilizado no se cambia: reversa a mano lo que no debió contabilizarse (mnemosine entry reverse <numero> --reason "...").',
+  'assets.asset.retire.undone':
+    '{asset} vuelve al uso (estaba retirado desde el {effective}): la corrida mensual lo toma desde el siguiente mes que corra. No se contabilizó nada por los meses que se saltó.',
+  'assets.asset.retire.unposted':
+    '{count, plural, one {# mes no tiene} other {# meses no tienen}} depreciación de este activo: {months}. Ponerlos al día te toca a ti: corre cada uno (mnemosine depreciation post --period <mes>).',
+  'help.asset.retire.description':
+    'Retira un activo que ya no debe depreciarse: la corrida mensual deja de tomarlo; --undo lo devuelve al uso; no registra ninguna póliza',
+  'help.asset.retire.option.effective':
+    'el día en que deja de depreciarse (AAAA-MM-DD): no posterior a hoy ni anterior a su entrada en servicio; queda en la fila de auditoría',
+  'help.asset.retire.option.undo': 'devuelve al uso un activo que este comando retiró; los meses que se saltó no se contabilizan',
+  'help.asset.retire.footer':
+    'Los meses ya contabilizados se quedan: un retiro nunca los cambia ni los reversa. Para vender o desechar el activo con su utilidad o pérdida, `asset dispose` está por llegar.\n' +
+    '\nEjemplos:\n' +
+    '  Un camión fuera de servicio desde el día 20; ver primero el efecto, sin escribir nada:\n' +
+    '    mnemosine asset retire AF-2026-00007 --effective 2026-08-20 --reason "Motor desbielado; se conserva para refacciones" --dry-run\n' +
+    '  De vuelta en servicio: la corrida lo toma otra vez, y los meses saltados se nombran, no se contabilizan:\n' +
+    '    mnemosine asset retire AF-2026-00007 --undo --reason "Motor reconstruido"',
+  // ---- end of MNE-001-880, part 2 ----
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC{reason, select, applies_advance {} other { a mano}}: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',

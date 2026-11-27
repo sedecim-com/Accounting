@@ -55,6 +55,7 @@ vi.mock('../../src/services/assets/asset-service.js', () => ({
   sembrarCategoriasDeActivo: vi.fn(),
 }));
 vi.mock('../../src/services/assets/asset-edit.js', () => ({ editAsset: vi.fn() }));
+vi.mock('../../src/services/assets/asset-retire.js', () => ({ retireAsset: vi.fn(), undoAssetRetirement: vi.fn() }));
 vi.mock('node:readline/promises', () => ({
   createInterface: vi.fn(() => ({ question: vi.fn(async () => 'quizá'), close: vi.fn() })),
 }));
@@ -67,6 +68,7 @@ import * as planModule from '../../src/services/assets/depreciation-plan.js';
 import * as engine from '../../src/services/assets/depreciation.js';
 import * as store from '../../src/services/idempotency/idempotency-store.js';
 import { editAsset } from '../../src/services/assets/asset-edit.js';
+import { retireAsset, undoAssetRetirement } from '../../src/services/assets/asset-retire.js';
 import { t } from '../../src/i18n/index.js';
 import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import type { PlanDeDepreciacion } from '../../src/services/assets/depreciation-plan.js';
@@ -470,6 +472,100 @@ describe('MNE-001-880 · asset edit speaks by key', () => {
     expect(riskOf(edit)).toMatchObject({ risk: 'escritura', agentAllowed: false });
     expect(riskOf(edit)!.writes).toBe(
       'fixed_assets (the columns given, only while no depreciation row is live) + audit_log; no journal entry'
+    );
+  });
+});
+
+// MNE-001-880 (#1069), part 2. Texts written by hand, before the code.
+describe('MNE-001-880 · asset retire speaks by key', () => {
+  const RETIRE = ['asset', 'retire', 'AF-2026-00007', '--entity', 'ent-1', '--reason', 'Engine seized'];
+  const retired = (months: string[]) =>
+    ({ id: 'fa-7', asset_number: 'AF-2026-00007', asset_name: 'Camioneta', from: 'active', to: 'inactive', effective: '2026-08-20', months }) as never;
+  const back = (months: string[]) =>
+    ({ id: 'fa-7', asset_number: 'AF-2026-00007', asset_name: 'Camioneta', from: 'inactive', to: 'active', effective: '2026-08-20', months }) as never;
+
+  it('retires as of the day given, and names the months already posted, which stand, in both languages', async () => {
+    vi.mocked(retireAsset).mockResolvedValue(retired(['Periodo 8/2026 (JE-000031)', 'Periodo 9/2026 (JE-000044)']));
+    const args = [...RETIRE, '--effective', '2026-08-20'];
+    const r = await cli(args);
+    expect(r.errs).toEqual([]);
+    expect(vi.mocked(retireAsset).mock.calls.at(-1)).toEqual(['ent-1', 'AF-2026-00007', '2026-08-20', 'Engine seized', 'u-1', { client: undefined }]);
+    expect(r.err).toBe(
+      'AF-2026-00007 is retired as of 2026-08-20: the monthly run no longer takes it, and its card keeps what was posted. ' +
+        'To bring it back: mnemosine asset retire AF-2026-00007 --undo --reason "...".\n' +
+        '  ⚠ 2 months already posted on or after that date stand: Periodo 8/2026 (JE-000031), Periodo 9/2026 (JE-000044). ' +
+        'Nothing already posted is changed: reverse by hand what should not have been posted ' +
+        '(mnemosine entry reverse <number> --reason "...").\n'
+    );
+    setLanguage('es');
+    vi.mocked(retireAsset).mockResolvedValue(retired(['Periodo 8/2026 (JE-000031)']));
+    expect((await cli(args)).err).toBe(
+      'AF-2026-00007 queda retirado desde el 2026-08-20: la corrida mensual ya no lo toma, y su ficha conserva lo ' +
+        'contabilizado. Para devolverlo al uso: mnemosine asset retire AF-2026-00007 --undo --reason "...".\n' +
+        '  ⚠ 1 mes ya contabilizado en esa fecha o después se queda como está: Periodo 8/2026 (JE-000031). ' +
+        'Lo ya contabilizado no se cambia: reversa a mano lo que no debió contabilizarse ' +
+        '(mnemosine entry reverse <numero> --reason "...").\n'
+    );
+  });
+
+  it('--undo brings it back on the real path, posts nothing for the months skipped and names them, in both languages', async () => {
+    vi.mocked(undoAssetRetirement).mockResolvedValue(back(['Periodo 9/2026', 'Periodo 10/2026']));
+    const args = [...RETIRE, '--undo', '--dry-run'];
+    const r = await cli(args);
+    expect(r.errs).toEqual([]);
+    expect(vi.mocked(undoAssetRetirement).mock.calls.at(-1)).toEqual(['ent-1', 'AF-2026-00007', 'Engine seized', 'u-1', { client: {} }]);
+    expect(r.err).toBe(
+      'AF-2026-00007 is in use again (it was retired as of 2026-08-20): the monthly run takes it from the next month it ' +
+        'runs. Nothing was posted for the months it skipped.\n' +
+        '  ⚠ 2 months have no depreciation for it: Periodo 9/2026, Periodo 10/2026. Catching them up is yours: run each one ' +
+        '(mnemosine depreciation post --period <month>).\n' +
+        'Dry run: it really was written, and then rolled back.\n'
+    );
+    setLanguage('es');
+    vi.mocked(undoAssetRetirement).mockResolvedValue(back([]));
+    expect((await cli([...RETIRE, '--undo'])).err).toBe(
+      'AF-2026-00007 vuelve al uso (estaba retirado desde el 2026-08-20): la corrida mensual lo toma desde el siguiente ' +
+        'mes que corra. No se contabilizó nada por los meses que se saltó.\n'
+    );
+  });
+
+  it('asks for one of --effective or --undo, a real day and a reason, before any connection', async () => {
+    const before = [vi.mocked(retireAsset).mock.calls.length, vi.mocked(undoAssetRetirement).mock.calls.length];
+    for (const args of [RETIRE, [...RETIRE, '--effective', '2026-08-20', '--undo']]) {
+      const e = (await cli(args)).errs[0] as CliError;
+      expect(e.message).toBe(
+        'Say which: --effective <date> retires the asset, --undo brings back one that was retired. Not both, and not neither.'
+      );
+      expect(e.localized('es')).toBe(
+        'Di cuál: --effective <fecha> retira el activo, --undo devuelve al uso uno que fue retirado. No los dos, y no ninguno.'
+      );
+    }
+    expect(((await cli([...RETIRE, '--effective', '2026-02-30'])).errs[0] as CliError).message).toContain('--effective');
+    await expect(cli(['asset', 'retire', 'AF-2026-00007', '--entity', 'ent-1', '--undo'])).rejects.toThrow(/--reason <text>/);
+    expect([vi.mocked(retireAsset).mock.calls.length, vi.mocked(undoAssetRetirement).mock.calls.length]).toEqual(before);
+  });
+
+  it('the refusals read as written, in both languages', () => {
+    expect(t('error.VALIDATION_ERROR.asset.retire_effective_future', { effective: '2026-09-01', today: '2026-08-20' }, 'en')).toBe(
+      "The retirement cannot take effect on 2026-09-01: today is 2026-08-20 in the entity's time zone, and a retired asset " +
+        'stops depreciating at once. Run this command on that day. Nothing was changed.'
+    );
+    expect(t('error.VALIDATION_ERROR.asset.retire_not_active', { asset: 'AF-2026-00007', status: 'inactive' }, 'es')).toBe(
+      'AF-2026-00007 está en estado inactive, no activo: no hay nada que retirar. Para devolverlo al uso: mnemosine asset ' +
+        'retire AF-2026-00007 --undo --reason "...". No se cambió nada.'
+    );
+    expect(t('error.VALIDATION_ERROR.asset.retire_not_active', { asset: 'AF-2026-00007', status: 'disposed' }, 'en')).toBe(
+      'AF-2026-00007 is disposed, not active: there is nothing to retire. Nothing was changed.'
+    );
+    expect(t('error.VALIDATION_ERROR.asset.retire_undo_not_retired', { asset: 'AF-2026-00007', status: 'inactive' }, 'en')).toBe(
+      'AF-2026-00007 is inactive and the last change of its state is not an `asset retire`: there is nothing to undo. ' +
+        'Nothing was changed.'
+    );
+    expect(
+      t('error.VALIDATION_ERROR.asset.retire_effective_before_service', { asset: 'AF-2026-00007', effective: '2025-12-31', start: '2026-01-01' }, 'es')
+    ).toBe(
+      'AF-2026-00007 no se puede retirar con fecha 2025-12-31: su depreciación empieza el 2026-01-01. Un activo que nunca ' +
+        'estuvo en servicio se corrige con `asset edit`. No se cambió nada.'
     );
   });
 });

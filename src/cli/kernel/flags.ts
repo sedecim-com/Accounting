@@ -306,6 +306,10 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   '--serial': null,
   '--location': null,
   '--description': null,
+  // MNE-001-880 · `asset retire`: the day the asset stops depreciating, and
+  // the way back for one this command retired.
+  '--effective': null,
+  '--undo': null,
 
   // ── F06c · la familia `batch` ─────────────────────────────────────────
   //

@@ -58,7 +58,7 @@ let violations: ReturnType<typeof auditProgram>;
  */
 const risks = new Map<string, ReturnType<typeof riskOf>>();
 
-const LEAVES = ['asset create', 'asset edit', 'asset category seed', 'depreciation run', 'depreciation post'];
+const LEAVES = ['asset create', 'asset edit', 'asset retire', 'asset category seed', 'depreciation run', 'depreciation post'];
 
 beforeAll(() => {
   program = new Command('mnemosine');
@@ -91,7 +91,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the declared leaves (three of phase 1, category seed of #322, asset edit of MNE-001-880) and no invented surface', () => {
+  it('ships exactly the declared leaves (three of phase 1, category seed of #322, asset edit and asset retire of MNE-001-880) and no invented surface', () => {
     const hojas: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];
@@ -234,10 +234,21 @@ describe('the flags the catalog names', () => {
       '--in-service', '--cost', '--salvage', '--life-years', '--life-months',
       '--asset-account', '--accum-account', '--expense-account', '--capitalized',
       '--source-entry', '--number', '--serial', '--location', '--description',
+      '--effective', '--undo',
     ]) {
       expect(Object.prototype.hasOwnProperty.call(FLAG_DICTIONARY, flag), flag).toBe(true);
       expect(FLAG_DICTIONARY[flag], flag).toBeNull();
     }
+  });
+
+  it('`retire` joined the closed verb list on purpose (MNE-001-880), with its one Spanish word', () => {
+    expect(VERBS.retire).toBe('retirar');
+    expect(find('asset retire').aliases()).toEqual(['retirar']);
+    expect(longs('asset retire')).toEqual(expect.arrayContaining(['--effective', '--undo', '--reason', '--dry-run']));
+    expect(risks.get('asset retire')).toMatchObject({ risk: 'escritura', agentAllowed: false });
+    expect(risks.get('asset retire')?.writes).toBe(
+      'fixed_assets.status (active ↔ inactive) + audit_log (close / reopen, with the effective date); no journal entry'
+    );
   });
 
   it('never claims -m for the asset model: that letter is the AI model', () => {

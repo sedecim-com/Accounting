@@ -13,6 +13,7 @@ import {
   type ResultadoDeAlta,
 } from '../services/assets/asset-service.js';
 import { editAsset, type AssetChanges } from '../services/assets/asset-edit.js';
+import { retireAsset, undoAssetRetirement } from '../services/assets/asset-retire.js';
 import {
   exigirLibroDelPanel,
   libroQueRige,
@@ -46,7 +47,8 @@ import { t } from '../i18n/index.js';
 // `INSERT INTO fixed_assets` in the repository. `asset category seed` (#322)
 // is the second leaf, for entities born before `entity create` seeded the
 // classes. `asset edit` (MNE-001-880) corrects an asset that has no live
-// depreciation row. The rest of the family —`list`, `show`, the other
+// depreciation row, and `asset retire` stops one that must not depreciate
+// any more. The rest of the family —`list`, `show`, the other
 // `category` verbs, `disposal`— is phase 2 and is not registered here:
 // surface the catalog puts in another phase is worse than none.
 //
@@ -141,6 +143,13 @@ interface EditOpts extends CommonOpts {
   assetAccount?: string;
   accumAccount?: string;
   expenseAccount?: string;
+  reason: string;
+  dryRun?: boolean;
+}
+
+interface RetireOpts extends CommonOpts {
+  effective?: string;
+  undo?: boolean;
   reason: string;
   dryRun?: boolean;
 }
@@ -508,6 +517,58 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
       const start = r.changes.find((c) => c.field === 'depreciation_start_date');
       if (r.startRederived && start) {
         err.write(deps.palette.yellow(`  ⚠ ${t('assets.asset.edit_start_rederived', { before: start.before, after: start.after })}\n`));
+      }
+      if (dryRun) err.write(deps.palette.dim(`${t('dry_run_rolled_back')}\n`));
+      return ExitCode.OK;
+    })
+  );
+
+  // ---- asset retire (MNE-001-880, part 2) ------------------------------
+  // The asset is left `inactive`, which is what the run reads; `--undo`
+  // brings back one this command retired. Neither posts. Human-only, as the
+  // rest of the register.
+  const retire = describeCommand(asset.command('retire').alias('retirar'), 'help.asset.retire.description');
+  argumentByKey(retire, '<asset>', 'help.asset.edit.argument.asset');
+  withContext(retire);
+  withOutput(retire);
+  optionByKey(retire, '--effective <date>', 'help.asset.retire.option.effective');
+  optionByKey(retire, '--undo', 'help.asset.retire.option.undo');
+  optionByKey(retire, '--reason <text>', 'cli.flag.reason', { mandatory: true });
+  optionByKey(retire, '--dry-run', 'cli.flag.dry_run');
+  declareRisk(retire, {
+    risk: 'escritura',
+    agent: false,
+    writes: 'fixed_assets.status (active ↔ inactive) + audit_log (close / reopen, with the effective date); no journal entry',
+  });
+  retire.addHelpText('after', () => `\n${t('help.asset.retire.footer')}\n`);
+  retire.action((reference: string, opts: RetireOpts, cmd: Command) =>
+    run(async () => {
+      const { dryRun } = gateMutation(cmd, opts as unknown as Record<string, unknown>);
+      if (opts.reason.trim() === '') {
+        throw usageError({ key: 'cli.error.missing_mandatory_option', params: { flags: '--reason <text>' } });
+      }
+      if ((opts.effective === undefined) === (opts.undo !== true)) {
+        throw usageError({ key: 'assets.asset.retire.effective_or_undo' });
+      }
+      const effective = opts.effective === undefined ? undefined : exigirFecha('--effective', opts.effective);
+
+      const ctx = await entityForWrite(opts);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const act = (client?: PoolClient) =>
+        effective === undefined
+          ? undoAssetRetirement(ctx.entityId, reference, opts.reason, reviewer.userId, { client })
+          : retireAsset(ctx.entityId, reference, effective, opts.reason, reviewer.userId, { client });
+      const r = dryRun ? await rehearse(act) : await act();
+
+      render(
+        [{ asset_number: r.asset_number, asset_name: r.asset_name, from: r.from, to: r.to, effective: r.effective, months: r.months.join(', ') }],
+        { ...opts }
+      );
+      const err = process.stderr;
+      const said = { asset: r.asset_number, effective: r.effective, count: r.months.length, months: r.months.join(', ') };
+      err.write(`${t(r.to === 'inactive' ? 'assets.asset.retire.done' : 'assets.asset.retire.undone', said)}\n`);
+      if (r.months.length > 0) {
+        err.write(deps.palette.yellow(`  ⚠ ${t(r.to === 'inactive' ? 'assets.asset.retire.standing' : 'assets.asset.retire.unposted', said)}\n`));
       }
       if (dryRun) err.write(deps.palette.dim(`${t('dry_run_rolled_back')}\n`));
       return ExitCode.OK;

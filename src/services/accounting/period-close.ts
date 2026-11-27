@@ -17,7 +17,7 @@ import {
   type DeferredRevenueBacking,
   type RevisionDeCierre,
 } from '../accruals/prepaid-service.js';
-import { LIVE_ROW, metodoDeLaBase, unitsOfProductionNote, type BaseDepreciacion } from '../assets/depreciation.js';
+import { LIVE_ROW, assetsOutOfUseNote, metodoDeLaBase, unitsOfProductionNote, type BaseDepreciacion } from '../assets/depreciation.js';
 import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -988,6 +988,7 @@ export async function getPeriodCloseStatus(
     registered: string;
     sin_depreciar: string;
     por_unidades: UnitsCandidate[];
+    out_of_use: Array<{ asset_number: string; status: string }>;
   }>(
     `SELECT COUNT(*) FILTER (WHERE a.active) as total,
             COUNT(*) as registered,
@@ -998,11 +999,14 @@ export async function getPeriodCloseStatus(
               'book_depreciation_method', a.book_depreciation_method,
               'tax_depreciation_method', a.tax_depreciation_method
             ) ORDER BY a.asset_number COLLATE "C") FILTER (WHERE a.owes AND 'units_of_production' IN
-              (a.depreciation_method, a.book_depreciation_method, a.tax_depreciation_method)), '[]') as por_unidades
+              (a.depreciation_method, a.book_depreciation_method, a.tax_depreciation_method)), '[]') as por_unidades,
+            COALESCE(json_agg(json_build_object('asset_number', a.asset_number, 'status', a.status)
+              ORDER BY a.asset_number COLLATE "C") FILTER (WHERE NOT a.active), '[]') as out_of_use
      FROM (
        SELECT fa.asset_number, fa.asset_name, fa.depreciation_method,
               fa.book_depreciation_method, fa.tax_depreciation_method,
               fa.status = 'active' AS active,
+              fa.status,
               fa.status = 'active' AND NOT EXISTS (
                 SELECT 1 FROM depreciation_schedules ds
                 WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW}
@@ -1023,6 +1027,21 @@ export async function getPeriodCloseStatus(
     byUnits = byUnits.filter((a) => metodoDeLaBase(a, basis) === DepreciationMethod.UNITS_OF_PRODUCTION);
   }
   const unitsNote = byUnits.length > 0 ? unitsOfProductionNote(byUnits) : null;
+  // MNE-001-880 · A REGISTER WITH ASSETS AND NONE IN USE HAS NOTHING TO
+  // DEPRECIATE. With every asset retired (or fully depreciated) the box said
+  // that no asset was registered and that it could not check, and it stayed
+  // open: false twice. It was checked, and no asset owes the month. The
+  // assets out of use are named by state, from the same read. An EMPTY
+  // register is another fact and stays as it was: open, could not check.
+  const noneInUse = totalActivos === 0 && registeredAssets > 0;
+  const depreciationDetail = [
+    undepCount > 0
+      ? `${undepCount} assets without depreciation${unitsNote ? `; ${unitsNote}` : ''}`
+      : noneInUse
+        ? '0 fixed assets in use: nothing to depreciate'
+        : null,
+    assetsOutOfUseNote(undepreciatedAssets.rows[0].out_of_use),
+  ].filter((part) => part !== null);
   // ACT-2 (#322): an empty register is only "nothing to check" when the
   // ledger agrees. Fixed assets on the balance sheet with no asset registered
   // means the month was never depreciated, and that is a finding, not a pass.
@@ -1045,16 +1064,14 @@ export async function getPeriodCloseStatus(
     // `totalActivos > 0` no es adorno: sin él, cero activos fijos firmaba
     // «completo» por vacuidad. Revisado-y-bien y nada-que-revisar no son
     // lo mismo, y en un checklist de cierre esa diferencia es el punto.
-    is_complete: totalActivos > 0 && undepCount === 0,
+    is_complete: (totalActivos > 0 && undepCount === 0) || noneInUse,
     severity: depreciationSeverity,
     details: unregistered
       ? `0 fixed assets registered, but the fixed-asset accounts carry ${unregistered} at ${finDelPeriodo}: ` +
         'register them (asset create) so the month can be depreciated'
-      : totalActivos === 0
+      : registeredAssets === 0
         ? '0 activos fijos registrados: no se pudo comprobar'
-        : undepCount > 0
-          ? `${undepCount} assets without depreciation${unitsNote ? `; ${unitsNote}` : ''}`
-          : undefined,
+        : depreciationDetail.join('; ') || undefined,
   });
   if (undepCount > 0) {
     const findings = depreciationSeverity === 'blocking' ? blocking_issues : warnings;

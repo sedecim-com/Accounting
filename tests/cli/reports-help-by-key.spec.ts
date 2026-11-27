@@ -125,6 +125,10 @@ describe('the report and asset families, help by key (#314, MNE-001-427)', () =>
     ['asset edit', 'help.asset.edit.option.asset_account'],
     ['asset edit', 'help.asset.edit.option.accum_account'],
     ['asset edit', 'help.asset.edit.option.expense_account'],
+    ['asset', 'help.asset.retire.description'],
+    ['asset retire', 'help.asset.edit.argument.asset'],
+    ['asset retire', 'help.asset.retire.option.effective'],
+    ['asset retire', 'help.asset.retire.option.undo'],
     ['asset category', 'help.asset.category.seed.description'],
   ])('`%s --help` in es-MX shows %s in Spanish', (path, key, params) => {
     expectSpanishHelp(path, key, params);

@@ -359,7 +359,6 @@ export const LINEA_BASE: readonly string[] = [
   'pending dismiss|R6 short flag|--note should use no short form, found -n',
   'memory|R6 short flag|--all should use -a, found none',
   'memory teach|R3 closed verb list|"teach" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
-  'memory retire|R3 closed verb list|"retire" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'prompt-size|R1 objectless allowlist|"prompt-size" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'compact|R1 objectless allowlist|"compact" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'approvals list|R6 short flag|--all should use -a, found none',

@@ -76,6 +76,8 @@ export interface AssetEdit {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The column an asset is named by: its id, or its number in the register. */
+export const assetKey = (ref: string): 'id' | 'asset_number' => (UUID_RE.test(ref) ? 'id' : 'asset_number');
 /** How many entries the refusal names before it counts the rest. */
 const NAMED_ENTRIES = 6;
 
@@ -106,7 +108,7 @@ export async function editAsset(
               acquisition_date::text, depreciation_start_date::text,
               asset_account_id, accumulated_depreciation_account_id, depreciation_expense_account_id
          FROM fixed_assets
-        WHERE entity_id = $1 AND ${UUID_RE.test(ref) ? 'id' : 'asset_number'} = $2
+        WHERE entity_id = $1 AND ${assetKey(ref)} = $2
           FOR UPDATE`,
       [entityId, ref]
     );
