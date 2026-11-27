@@ -15,6 +15,10 @@ import { receivedCreditNotesOfRange } from './received-credit-notes.js';
 import { bankFeesOfRange } from './bank-fee-iva.js';
 import { balancesInFavorBefore } from './filed-returns.js';
 import { overrideFindings, proposePriorCredit, type PriorBalance } from './prior-balance.js';
+import {
+  awaitingFinding, checkedRemittance, readWithheldVatCreditMonth, splitWithheld, withheldOfMonthBefore,
+  type WithheldOfBill, type WithheldVatCredit, type WithheldVatRemittance,
+} from './withheld-vat-credit.js';
 import { backAsAdvance, HELD_RESTITUTION_TAG, keptCashOf, KEPT_RESTITUTION_TAG, restitutedCash, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
@@ -129,7 +133,13 @@ import {
 //                  counted in (MNE-001-682, `UNDONE_ON`). Plus the bank fees
 //                  (MNE-001-566, `bank-fee-iva.ts`), which no bill carries: the
 //                  charge is their payment (MNE-001-041), so their IVA counts
-//                  in the month its entry moved 1130.
+//                  in the month its entry moved 1130. The IVA WITHHELD to a
+//                  vendor is not paid to it: under the panel key
+//                  `withheld_vat_credit_month` (MNE-001-909) it leaves the
+//                  month of the payment and is credited in the paper of the
+//                  month after, when a person states its remittance there
+//                  (LIVA art. 5o. fr. IV; `withheld-vat-credit.ts`), and the
+//                  tie-out names both.
 //
 // The ledger holds ONE IVA line per document, so the split by rate comes from
 // the document lines, through the DIOT's `desglosarDocumento`: the total is
@@ -261,6 +271,12 @@ export interface IvaWorkpaperFigures {
   priorBalanceInFavor: string;
   /** LIVA art. 5 fr. V. Null when the reference period collected no exempt or no objeto act. */
   proration: Proration | null;
+  /**
+   * MNE-001-909 · Under `withheld_vat_credit_month = after_remittance`, and only when not zero: the IVA withheld
+   * on this month's payments, which `creditable` leaves out, and the month before's it includes as remitted.
+   */
+  withheldAwaitingRemittance?: string;
+  withheldRemitted?: string;
 }
 
 export interface Proration {
@@ -379,6 +395,9 @@ export function settleIva(f: IvaWorkpaperFigures, rounding: FilingRounding): Iva
     // Prorated, the IVA paid by rate is shown and only the credited share subtracts.
     ...rateLines('creditable', f.creditable, f.proration ? 0 : -1),
     ...(f.proration ? [['creditable.prorated', f.proration.creditable, -1] as [string, string, -1]] : []),
+    // MNE-001-909 · Shown only: the first is outside the rate lines above, the second inside them.
+    ...(f.withheldAwaitingRemittance ? [['creditable.withheld_awaiting_remittance', f.withheldAwaitingRemittance, 0] as [string, string, 0]] : []),
+    ...(f.withheldRemitted ? [['creditable.withheld_remitted', f.withheldRemitted, 0] as [string, string, 0]] : []),
     ['withheld_by_customers', f.withheldByCustomers, -1],
     ['prior_balance_in_favor', f.priorBalanceInFavor, -1],
     ['withheld_to_remit', f.withheldToRemit, 0],
@@ -2509,6 +2528,8 @@ export interface IvaWorkpaper {
   };
   /** The month's net movement of each IVA role account, debit positive. */
   ledger: Record<IvaRole, string>;
+  /** MNE-001-909 · The answer to `withheld_vat_credit_month` and what the paper did with the IVA withheld to vendors. */
+  withheldVat: WithheldVatCredit;
   findings: Hallazgo[];
 }
 
@@ -2523,6 +2544,12 @@ export interface IvaWorkpaperOptions {
    */
   priorBalanceInFavor?: string;
   priorBalanceReason?: string;
+  /**
+   * MNE-001-909 · The remittance of the IVA withheld in the month before, which this month's return credits, stated
+   * by a person with the acknowledgement of the return that remitted it: that month and no other, and repeated it is one
+   * statement. Refused under `withheld_vat_credit_month = payment_month`.
+   */
+  withheldVatRemittances?: readonly WithheldVatRemittance[];
   client?: pg.PoolClient;
 }
 
@@ -2599,6 +2626,10 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const undoMonth = await readVendorUndoIvaMonth(ctx, client);
     const { hechos: facts, hallazgos: factFindings, apartFromLedger } = await hechosDelMes(client, entityId, year, month, undoMonth.value);
     findings.push(...factFindings);
+    // MNE-001-909: read once a month; under payment_month nothing below holds anything back.
+    const withheldPolicy = await readWithheldVatCreditMonth(ctx, client);
+    const remitted = checkedRemittance(opts.withheldVatRemittances, { year, month }, withheldPolicy.value);
+    const heldBack: WithheldOfBill[] = [];
     let creditable = desgloseCero();
     const billEntries = await billEntryIds(client, entityId, facts, range);
     const creditableContributions: DocumentContribution[] = [];
@@ -2612,17 +2643,43 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
         porcion: h.porcion,
         politicaBaseExenta: exemptBase,
       });
-      creditable = sumarDesgloses(creditable, r.desglose);
+      const split = withheldPolicy.value === 'after_remittance' ? splitWithheld(h, r.desglose) : null;
+      const paid = split?.paid ?? r.desglose;
+      if (split && paid !== r.desglose) heldBack.push({ documentId: h.billId, documentNumber: h.billNumber, breakdown: split.withheld });
+      creditable = sumarDesgloses(creditable, paid);
       findings.push(...r.hallazgos);
       creditableContributions.push({
         documentId: h.billId,
         documentNumber: h.billNumber,
         documentKind: 'bill',
         entryIds: billEntries.get(h.billId) ?? [],
-        breakdown: r.desglose,
+        breakdown: paid,
         notSubject: q4(0),
         withheld: { amount: q4(0), entryId: null },
       });
+    }
+    const awaiting = q4(heldBack.reduce((sum, b) => sum.plus(ivaDelDesglose(b.breakdown)), new Decimal(0)));
+    const withheldVat: WithheldVatCredit = { ...withheldPolicy, awaitingRemittance: awaiting, credited: [], notCredited: [] };
+    const withheldCauses: GapCause[] = [];
+    if (withheldPolicy.value === 'after_remittance') {
+      const earlier = await withheldOfMonthBefore(client, entityId, { year, month }, remitted, undoMonth.value, exemptBase);
+      creditable = sumarDesgloses(creditable, earlier.breakdown);
+      creditableContributions.push(...earlier.contributions.map((b): DocumentContribution => ({
+        ...b, documentKind: 'bill', entryIds: [], notSubject: q4(0), withheld: { amount: q4(0), entryId: null },
+      })));
+      Object.assign(withheldVat, { credited: earlier.credited, notCredited: earlier.notCredited });
+      if (heldBack.length > 0) {
+        findings.push(awaitingFinding({ year, month }, heldBack));
+        withheldCauses.push({
+          amount: new Decimal(awaiting).negated(),
+          text: `IVA withheld to vendors on this month's payments (${withheldPolicy.key} = after_remittance: the ledger credited it on payment, and the paper credits it after its remittance)`,
+        });
+      }
+      findings.push(...earlier.findings);
+      withheldCauses.push(...earlier.credited.map((c) => ({
+        amount: new Decimal(c.amount),
+        text: `IVA withheld to vendors in ${c.period}, remitted with acuse ${c.acknowledgement} (the ledger credited it on payment, and the paper credits it this month)`,
+      })));
     }
     const fees = await bankFeesOfRange(client, entityId, range);
     creditable = sumarDesgloses(creditable, fees.breakdown);
@@ -2648,7 +2705,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     );
     tieOut(
       findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'),
-      [...fees.causes, ...receivedNotes.causes, ...apartFromLedger.map((a) => ({ amount: new Decimal(a.iva), text: a.text }))]
+      [...fees.causes, ...receivedNotes.causes, ...apartFromLedger.map((a) => ({ amount: new Decimal(a.iva), text: a.text })), ...withheldCauses]
     );
     // Debits only: the month's settlement or offset entry credits the account,
     // and a net movement would read as zero once it is posted.
@@ -2727,6 +2784,10 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       withheldToRemit: q4(ledger.iva_retenido_por_pagar.credit),
       priorBalanceInFavor: q4(0),
       proration,
+      ...(new Decimal(awaiting).isZero() ? {} : { withheldAwaitingRemittance: awaiting }),
+      ...(withheldVat.credited.length > 0
+        ? { withheldRemitted: q4(withheldVat.credited.reduce((sum, c) => sum.plus(c.amount), new Decimal(0))) }
+        : {}),
     };
     // MNE-001-386: the cap is the result with no prior balance, in the column it is declared in.
     const before = settleIva(noPrior, rounding);
@@ -2757,6 +2818,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
           : proposal.balances.map((x) => ({ ...x, creditedHere: '0.00', remnant: x.available })),
       },
       ledger: Object.fromEntries(ROLES.map((r) => [r, q4(net(r))])) as Record<IvaRole, string>,
+      withheldVat,
       findings,
     };
   };
