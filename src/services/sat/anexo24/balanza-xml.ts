@@ -1,5 +1,7 @@
+import Decimal from 'decimal.js';
+import { isRealCalendarDate } from '../../../utils/calendar-date.js';
 import { ValidationError } from '../../../utils/errors.js';
-import { importesDeclarados, type CuentaDeBalanza } from './balanza-invariantes.js';
+import { importesDeclarados, type CuentaDeBalanza, type ImportesDeclarados } from './balanza-invariantes.js';
 import { serializar, type Atributo, type NodoXml } from './xml.js';
 
 // ============================================================
@@ -42,9 +44,27 @@ export const UBICACION_XSD_BALANZA =
 const NS_XSI = 'http://www.w3.org/2001/XMLSchema-instance';
 export const VERSION_BALANZA = '1.3';
 
-/** El RFC de una persona moral son 12 caracteres y el de una física 13. */
-const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
-const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+// CONTRACT (MNE-001-775, #608): each rule below refuses what
+// BalanzaComprobacion_1_3.xsd refuses, so the refusal names the account or the
+// datum before the XSD gate of #982 names an XML line. Never laxer than the
+// schema; stricter only where the schema is laxer than the datum itself, and
+// each such place is said. The unit spec of this builder runs every boundary
+// through the schema.
+
+/**
+ * The RFC of a legal entity (12) or an individual (13). The date digits are
+ * the schema's, `[0-9]{2}[0-1][0-9][0-3][0-9]`. The homoclave is STRICTER: three
+ * characters, where the schema's optional ones also admit four letters with
+ * two, an RFC no taxpayer has. Spaces around it are refused, not collapsed.
+ */
+const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{2}[0-1][0-9][0-3][0-9][A-Z0-9]{3}$/;
+/** FechaModBal is an xs:date with minInclusive 2015-01-01 (no time zone here). */
+const MODIFIED_DATE_MIN = '2015-01-01';
+/** NumCta: minLength 1, maxLength 100, in characters as XML Schema counts them. */
+const ACCOUNT_NUMBER_MAX_LENGTH = 100;
+/** The schema's amount type: an xs:decimal with these two bounds. */
+const AMOUNT_MAX = new Decimal('9999999999999999999999.99');
+const AMOUNT_MIN_EXCLUSIVE = new Decimal('-9999999999999999999999.99');
 
 /**
  * Mes «13» es la BALANZA DE CIERRE del ejercicio, no un mes del calendario.
@@ -73,54 +93,74 @@ export interface DatosDeBalanza {
 
 function validar(d: DatosDeBalanza): void {
   if (!RFC_RE.test(d.rfc)) {
-    throw new ValidationError(
-      `«${d.rfc}» no tiene forma de RFC. La balanza del Anexo 24 la presenta un contribuyente ` +
-        `mexicano ante el SAT; una entidad identificada con EIN u otro número no puede presentarla.`
-    );
+    // An entity identified by an EIN or another number cannot file it either.
+    throw new ValidationError({ key: 'anexo24.balance.rfc', params: { rfc: d.rfc } });
   }
   if (!/^(0[1-9]|1[0-3])$/.test(d.mes)) {
-    throw new ValidationError(
-      `Mes «${d.mes}» no es válido: el Anexo 24 admite '01'..'12' y '13' para la balanza de cierre.`
-    );
+    throw new ValidationError({ key: 'anexo24.balance.month', params: { month: d.mes } });
   }
   if (!Number.isInteger(d.anio) || d.anio < ANIO_MINIMO || d.anio > ANIO_MAXIMO) {
-    throw new ValidationError(
-      `Anio ${d.anio} está fuera del rango que el esquema admite (${ANIO_MINIMO}..${ANIO_MAXIMO}).`
-    );
+    throw new ValidationError({
+      key: 'anexo24.balance.year',
+      params: { year: String(d.anio), min: ANIO_MINIMO, max: ANIO_MAXIMO },
+    });
   }
   // FechaModBal es la fecha en que se modificó la balanza. Sin ella, una
   // complementaria no dice QUÉ presentación corrige.
   if (d.tipoEnvio === 'C' && d.fechaModBal === undefined) {
-    throw new ValidationError(
-      `Una balanza complementaria (TipoEnvio 'C') necesita FechaModBal: es la fecha de la ` +
-        `modificación, y sin ella la autoridad no sabe qué presentación se está corrigiendo.`
-    );
+    throw new ValidationError({ key: 'anexo24.balance.amended_without_date' });
   }
   if (d.tipoEnvio === 'N' && d.fechaModBal !== undefined) {
-    throw new ValidationError(
-      `FechaModBal sólo va en una balanza complementaria; ésta es normal (TipoEnvio 'N'). ` +
-        `Presentar una normal con fecha de modificación declara dos cosas que se contradicen.`
-    );
+    throw new ValidationError({ key: 'anexo24.balance.normal_with_date' });
   }
-  if (d.fechaModBal !== undefined && !FECHA_RE.test(d.fechaModBal)) {
-    throw new ValidationError(`FechaModBal «${d.fechaModBal}» no tiene forma YYYY-MM-DD.`);
+  if (
+    d.fechaModBal !== undefined &&
+    !(isRealCalendarDate(d.fechaModBal) && d.fechaModBal >= MODIFIED_DATE_MIN)
+  ) {
+    throw new ValidationError({ key: 'anexo24.balance.modified_date', params: { date: d.fechaModBal } });
   }
   if (d.cuentas.length === 0) {
     // El esquema pide al menos un nodo Ctas. Y una balanza vacía que se
     // presenta es peor que un error: se acepta, y declara que no hubo nada.
-    throw new ValidationError(
-      `La balanza ${d.mes}/${d.anio} no tiene ninguna cuenta que declarar. Un archivo con cero ` +
-        `nodos Ctas afirma ante la autoridad que en ese periodo no hubo contabilidad.`
-    );
+    throw new ValidationError({
+      key: 'anexo24.balance.no_accounts',
+      params: { month: d.mes, year: String(d.anio) },
+    });
   }
-  const repetidas = [
-    ...new Set(d.cuentas.map((c) => c.num_cta).filter((n, i, todas) => todas.indexOf(n) !== i)),
-  ];
-  if (repetidas.length > 0) {
-    throw new ValidationError(
-      `NumCta repetido en la balanza: ${repetidas.join(', ')}. Dos nodos Ctas con el mismo número ` +
-        `declaran dos saldos para una sola cuenta, y la autoridad se queda con uno de los dos.`
-    );
+  // One pass: the length of each NumCta, and the ones that repeat.
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const c of d.cuentas) {
+    const account = c.num_cta;
+    const length = [...account].length;
+    if (length === 0 || length > ACCOUNT_NUMBER_MAX_LENGTH) {
+      throw new ValidationError({
+        key: 'anexo24.balance.account_number_length',
+        params: { account, length },
+      });
+    }
+    if (seen.has(account)) repeated.add(account);
+    seen.add(account);
+  }
+  if (repeated.size > 0) {
+    throw new ValidationError({
+      key: 'anexo24.balance.repeated_account',
+      params: { accounts: [...repeated].join(', ') },
+    });
+  }
+}
+
+/** Each declared amount within the schema's amount type, or the refusal naming the account and the column. */
+function requireAmountsInRange(account: string, amounts: ImportesDeclarados): void {
+  for (const column of ['SaldoIni', 'Debe', 'Haber', 'SaldoFin'] as const) {
+    const amount = amounts[column];
+    const v = new Decimal(amount);
+    if (v.gt(AMOUNT_MAX) || v.lte(AMOUNT_MIN_EXCLUSIVE)) {
+      throw new ValidationError({
+        key: 'anexo24.balance.amount_out_of_range',
+        params: { account, column, amount },
+      });
+    }
   }
 }
 
@@ -145,6 +185,7 @@ export function nodoDeBalanza(d: DatosDeBalanza): NodoXml {
     atributos: raiz,
     hijos: d.cuentas.map((c) => {
       const i = importesDeclarados(c);
+      requireAmountsInRange(c.num_cta, i);
       return {
         nombre: `${PREFIJO_BALANZA}:Ctas`,
         atributos: [

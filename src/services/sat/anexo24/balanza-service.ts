@@ -712,7 +712,7 @@ export async function verificarBalanza(
   // CONTRACT: `xsd` is last in the published order, so its finding follows
   // the ones that name the account; never in their place (#608).
   if (xml !== null && xsd) hallazgos.push(...xsdFindings(xml));
-  if (notBuilt !== null) hallazgos.push(xsdFindingWithoutFile(notBuilt.message));
+  if (notBuilt !== null) hallazgos.push(xsdFindingWithoutFile(notBuilt.messageKey ?? notBuilt.message));
   return {
     checks,
     meta,

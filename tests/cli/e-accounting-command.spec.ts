@@ -1303,6 +1303,30 @@ describe('I8.7 · the e-accounting leaves speak by key (MNE-001-225)', () => {
     );
   });
 
+  it('a builder refusal by key inside the xsd finding (MNE-001-775): the cause follows the screen language', async () => {
+    const cause = { key: 'anexo24.balance.modified_date', params: { date: '2014-12-31' } } as const;
+    mundo.verificacion = verificacion({
+      hallazgos: [
+        {
+          check: 'xsd',
+          severity: 'blocking',
+          referencia: '',
+          detalle: 'No file was built … FechaModBal «2014-12-31» is not a date the SAT XSD accepts…',
+          messageKey: {
+            key: 'anexo24.xsd.not_built',
+            params: { schema: 'BalanzaComprobacion_1_3.xsd', cause: 'English cause' },
+            lists: { cause: { join: '', items: [cause] } },
+          },
+        },
+      ],
+      conteo: { blocking: 1, warning: 0 },
+    });
+    setLanguage('es');
+    const screen = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
+    expect(screen.out).toMatch(/también lo rechaza: FechaModBal «2014-12-31» no es una fecha que el XSD del SAT acepte/);
+    expect(screen.out).not.toContain('English cause');
+  });
+
   it('balance check --json: the envelope line on stderr', async () => {
     const r = await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--json', ...E]);
     expect(r.err).toContain(

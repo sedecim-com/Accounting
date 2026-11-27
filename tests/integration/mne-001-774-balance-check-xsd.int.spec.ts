@@ -52,17 +52,21 @@ describe('balance check and the official XSD', () => {
   it('is not clean for an entity whose RFC the schema rejects, the balance generate refuses', async () => {
     await setRfc('AAA019901AAA');
     try {
+      // Since MNE-001-775 the builder refuses it first, naming the RFC.
       await expect(generarBalanza(f.entityId, { periodo: f.periodos[1], dryRun: true })).rejects.toMatchObject({
-        reason: 'rejected',
+        messageKey: { key: 'anexo24.balance.rfc' },
       });
       // The same verdict from check: the two surfaces agree.
       const r = await verificarBalanza(f.entityId, { periodo: f.periodos[1] });
       expect(r.conteo.blocking).toBe(1);
       expect(blocking(r).map((h) => [h.check, h.referencia, h.messageKey?.key])).toEqual([
-        ['xsd', '', 'anexo24.xsd.rejected'],
+        ['xsd', '', 'anexo24.xsd.not_built'],
       ]);
       expect(r.hallazgos.at(-1)?.check, 'after the hand-written findings').toBe('xsd');
-      expect(r.hallazgos.at(-1)?.detalle).toMatch(/BalanzaComprobacion_1_3\.xsd.*attribute 'RFC'.*AAA019901AAA/);
+      expect(r.hallazgos.at(-1)?.messageKey?.lists?.cause.items).toEqual([
+        { key: 'anexo24.balance.rfc', params: { rfc: 'AAA019901AAA' } },
+      ]);
+      expect(r.hallazgos.at(-1)?.detalle).toMatch(/BalanzaComprobacion_1_3\.xsd.*The entity RFC «AAA019901AAA»/);
 
       // Asking only for a data check runs no schema.
       const one = await verificarBalanza(f.entityId, { periodo: f.periodos[1], checks: ['saldos'] });
@@ -75,7 +79,7 @@ describe('balance check and the official XSD', () => {
   it('is not clean for an amended balance whose FechaModBal is before the schema minimum', async () => {
     const r = await verificarBalanza(f.entityId, { periodo: f.periodos[1], tipo: 'C', fechaModBal: '2014-12-31' });
     expect(blocking(r).map((h) => h.check)).toEqual(['xsd']);
-    expect(blocking(r)[0].detalle).toMatch(/attribute 'FechaModBal'/);
+    expect(blocking(r)[0].detalle).toMatch(/: FechaModBal «2014-12-31» is not a date the SAT XSD accepts/);
   });
 
   it('says why when no file can be built, instead of coming out clean', async () => {

@@ -9250,6 +9250,35 @@ export const EN = {
   'anexo24.xsd.not_built':
     'No file was built to check against the SAT XSD ({schema}), so `balance generate` refuses it as well: {cause}',
   // --- end of MNE-001-774 ---
+  // --- e-accounting balance · the builder's own rules (MNE-001-775, #608) ---
+  'anexo24.balance.rfc':
+    'The entity RFC «{rfc}» is not one the SAT XSD (BalanzaComprobacion_1_3.xsd) accepts: 3 or 4 letters, the ' +
+    'date as YYMMDD (a month digit 0-1, a day digit 0-3) and a homoclave of 3. The Anexo 24 trial balance is ' +
+    'filed by a Mexican taxpayer; an entity identified by an EIN or another number cannot file it.',
+  'anexo24.balance.month':
+    'Month «{month}» is not valid: the Anexo 24 takes 01..12, and 13 for the year-end balance (Mes).',
+  'anexo24.balance.year': 'Anio {year} is outside the range the schema accepts ({min}..{max}).',
+  'anexo24.balance.amended_without_date':
+    'An amended balance (TipoEnvio C) needs FechaModBal, the date it was modified: without it the authority ' +
+    'cannot tell which filing it corrects.',
+  'anexo24.balance.normal_with_date':
+    'FechaModBal only goes in an amended balance; this one is normal (TipoEnvio N). A normal balance with a ' +
+    'modification date declares two things that contradict each other.',
+  'anexo24.balance.modified_date':
+    'FechaModBal «{date}» is not a date the SAT XSD accepts: a real day, YYYY-MM-DD, on or after 2015-01-01.',
+  'anexo24.balance.no_accounts':
+    'The balance {month}/{year} has no account to declare. A file with no Ctas node tells the authority there ' +
+    'was no bookkeeping in that period.',
+  'anexo24.balance.account_number_length':
+    'Account «{account}» has a NumCta of {length, plural, one {# character} other {# characters}}; the SAT XSD ' +
+    'accepts 1 to 100, and rejects the whole file.',
+  'anexo24.balance.repeated_account':
+    'Repeated NumCta in the balance: {accounts}. Two Ctas nodes with the same number declare two balances for ' +
+    'one account, and the authority keeps one of them.',
+  'anexo24.balance.amount_out_of_range':
+    'Account {account} declares {column} {amount}, outside what the SAT XSD accepts for an amount (t_Importe: ' +
+    'more than -9999999999999999999999.99 and at most 9999999999999999999999.99): it rejects the whole file.',
+  // --- end of MNE-001-775 ---
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

@@ -54,25 +54,47 @@ afterAll(async () => {
   await closeDatabase();
 });
 
+/** Runs `fn` on a PATH with no xmllint, and puts the PATH back. */
+async function withoutXmllint<T>(fn: () => Promise<T>): Promise<T> {
+  const path = process.env.PATH;
+  process.env.PATH = '/mne-001-666-no-such-directory';
+  try {
+    return await fn();
+  } finally {
+    process.env.PATH = path;
+  }
+}
+
 describe('balance generate and the official XSD', () => {
-  it('refuses the balance of an entity whose RFC the schema rejects, and archives nothing', async () => {
+  // Since MNE-001-775 the builder's own rules refuse everything this schema
+  // refuses, naming the datum: no data reaches the gate and fails it. The gate
+  // stays wired, and the case that still reaches it is an xmllint that did not run.
+  it('refuses the balance of an entity whose RFC the schema rejects, naming the RFC, and archives nothing', async () => {
     await setRfc('AAA019901AAA');
     try {
       const refused = generarBalanza(f.entityId, { periodo: f.periodos[1], generadoPor: f.userId });
       await expect(refused).rejects.toMatchObject({
         statusCode: 422,
-        reason: 'rejected',
-        messageKey: { key: 'anexo24.xsd.rejected', params: { schema: 'BalanzaComprobacion_1_3.xsd' } },
+        messageKey: { key: 'anexo24.balance.rfc', params: { rfc: 'AAA019901AAA' } },
       });
-      await expect(refused).rejects.toThrow(/attribute 'RFC'.*AAA019901AAA/);
       expect(await archived()).toBe(0);
     } finally {
       await setRfc('XAXX010101000');
     }
   });
 
+  it('refuses a file it could not validate, and archives nothing', async () => {
+    const refused = withoutXmllint(() => generarBalanza(f.entityId, { periodo: f.periodos[1], generadoPor: f.userId }));
+    await expect(refused).rejects.toMatchObject({
+      statusCode: 422,
+      reason: 'not_validated',
+      messageKey: { key: 'anexo24.xsd.not_validated' },
+    });
+    expect(await archived()).toBe(0);
+  });
+
   it('refuses an amended balance whose FechaModBal the schema rejects, in a dry run too', async () => {
-    // The schema's minInclusive is 2015-01-01; the builder only checks the shape.
+    // The schema's minInclusive is 2015-01-01.
     const refused = generarBalanza(f.entityId, {
       periodo: f.periodos[1],
       tipo: 'C',
@@ -80,8 +102,9 @@ describe('balance generate and the official XSD', () => {
       generadoPor: f.userId,
       dryRun: true,
     });
-    await expect(refused).rejects.toMatchObject({ reason: 'rejected' });
-    await expect(refused).rejects.toThrow(/attribute 'FechaModBal'/);
+    await expect(refused).rejects.toMatchObject({
+      messageKey: { key: 'anexo24.balance.modified_date', params: { date: '2014-12-31' } },
+    });
   });
 
   it('generates and archives the balance the schema accepts', async () => {

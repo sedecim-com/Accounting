@@ -25,7 +25,7 @@ import {
 } from '../services/sat/anexo24/balanza-invariantes.js';
 import { sealArchivedDocument } from '../services/sat/anexo24/seal.js';
 import type { SealableDocument } from '../services/sat/anexo24/original-string.js';
-import { t, type TranslationKey } from '../i18n/index.js';
+import { getLanguage, t, type TranslationKey } from '../i18n/index.js';
 import { describeCommand, describeOption, optionByKey } from './kernel/help.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
@@ -48,7 +48,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
-import type { ErrorMessageKey } from '../utils/errors.js';
+import { textIn, type KeyedText } from '../utils/errors.js';
 import { registerRequestFileLeaves, type RequestFileEngine } from './e-accounting-request-command.js';
 
 // ============================================================
@@ -297,12 +297,11 @@ export function filaDeHallazgoDeCatalogo(h: Hallazgo): Row {
  * What a chart or balance finding reads as on screen: by key, in the reader's
  * language, when it has one (#608, MNE-001-774); its prose otherwise. The rows
  * keep the text the finding was built with, English for a keyed one like the
- * rest of the receipt.
+ * rest of the receipt. A keyed cause inside one renders in the same language
+ * (MNE-001-775).
  */
-function findingText(prose: string, messageKey: ErrorMessageKey | undefined): string {
-  if (messageKey === undefined) return prose;
-  const { key, params } = messageKey;
-  return t(key, params ?? {});
+function findingText(prose: string, messageKey: KeyedText | undefined): string {
+  return messageKey === undefined ? prose : textIn(messageKey, getLanguage());
 }
 
 /** Un hallazgo de la balanza, como fila. `referencia` es el NumCta. */
