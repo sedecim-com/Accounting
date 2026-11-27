@@ -4,9 +4,7 @@ import { AccountingError, ValidationError } from '../../../utils/errors.js';
 import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { getTaxParameters, requiredParameter } from '../tax-engine/tax-tables.js';
-import { MINIMUM_WAGE_ZONES } from '../../../database/enums.js';
-import { salarioDiarioDesdeSueldoAnual } from './finiquito-math.js';
-import { dailyMinimumWageFor, minimumWageZoneOf, type MinimumWageZone } from './minimum-wage-zone.js';
+import { earnsTheMinimumWage } from './minimum-wage-worker.js';
 
 // ============================================================
 // THE EXEMPT PART OF AN EARNING (LISR art. 93 · #297, MNE-001-062)
@@ -192,7 +190,8 @@ interface OvertimeLaw {
 // workers (migration 164); the worker who earns the minimum wage has the overtime
 // exempt in full (normas/fiscal-mx.md:97). The corpus does not hold the
 // verbatim first sentence, so the LFT limit and the triple-pay rule above
-// still bind it: the reading that can only tax more. See `earnsTheMinimumWage`.
+// still bind it: the reading that can only tax more. See `earnsTheMinimumWage`
+// (minimum-wage-worker.ts), which the ISR withholding of art. 96 reads too.
 //
 // FIXME(#125): work on a rest day with no substitute day, which shares this
 // same 50 % and this same 5 UMA cap, is NOT exempted: no earning type carries
@@ -232,29 +231,6 @@ async function overtimeLaw(mx: IsrExemptionContext): Promise<OvertimeLaw> {
     law.room = new Decimal(Infinity);
   }
   return law;
-}
-
-/**
- * Whether the worker earns the minimum wage of their zone on the payment date:
- * the contractual daily wage (`annual_salary` / 365, as the settlement reads it)
- * is at most the daily minimum of the employee's zone, else the entity's, else
- * the general one undeclared (MNE-001-376). Each unknown answers no, and no is
- * the 50 %, which over-withholds and never under-withholds: no annual salary,
- * or a zone whose minimum is not loaded for the year.
- *
- * The zone is read only when the wage is at most some zone's minimum, so a
- * worker above every minimum costs no statement.
- */
-async function earnsTheMinimumWage(mx: IsrExemptionContext, params: Record<string, unknown>): Promise<boolean> {
-  if (!mx.annualSalary) return false;
-  const daily = new Decimal(salarioDiarioDesdeSueldoAnual(mx.annualSalary));
-  const atMost = (zone: MinimumWageZone): boolean => {
-    const minimum = dailyMinimumWageFor(params, zone);
-    return minimum !== undefined && daily.lte(minimum);
-  };
-  if (!MINIMUM_WAGE_ZONES.some(atMost)) return false;
-  const { zone } = await minimumWageZoneOf({ tenantId: mx.tenantId, entityId: mx.entityId }, mx.employeeId);
-  return atMost(zone);
 }
 
 /**

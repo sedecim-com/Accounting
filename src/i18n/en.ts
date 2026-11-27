@@ -2750,6 +2750,30 @@ export const EN = {
   'payroll.accrue.pay_runs_in_review':
     '{count, plural, one {# pay run of the month pays} other {# pay runs of the month pay}} an accrued benefit and {count, plural, one {its entry is} other {their entries are}} still a draft in review ({runs}): what {count, plural, one {it pays} other {they pay}} over a provision is not taken off this accrual. Settle the draft in mnemosine review first, or reverse this accrual and run it again afterwards.',
   // ---- end of MNE-001-878 ----
+  // ---- MNE-001-923 (#1076): who only earns the minimum wage suffers no ISR withholding ----
+  'policy.minimum_wage_isr_exemption.question':
+    'When a worker who earns the minimum wage of their area also gets another taxed earning in the pay period, is ISR withheld on the whole base or only on the excess over the minimum wage?',
+  'policy.minimum_wage_isr_exemption.impact':
+    'It decides the ISR withheld, the net pay and the payroll CFDI of a worker whose contractual daily wage is at most the minimum wage of their zone, in a pay period whose ISR base is over the minimum wage of the period (the daily minimum times the days of the period). Read by minimum-wage-worker.ts, only in that case. With "only_minimum_wage_paid" the tariff is applied to the whole ISR base, as for any other worker. With "minimum_wage_part_never_taxed" the tariff is applied to the base less the minimum wage of the period. When the base is within the minimum wage of the period no ISR is withheld under either answer (LISR art. 96, first paragraph) and this key is not read. Paychecks already calculated are not changed.',
+  'policy.minimum_wage_isr_exemption.rationale':
+    'LISR art. 96, first paragraph, spares from withholding the persons who in the month earn only one general minimum wage of their area. A worker who earns anything else taxed no longer earns only the minimum wage, so the letter of the paragraph does not reach them and the tariff of the same article applies to all their income. Of the two readings it is the one that can only withhold more, the conservative option of ADR-0006, decision 1; and the same paragraph makes the withholding a provisional payment on account of the annual tax.',
+  'policy.minimum_wage_isr_exemption.why':
+    'The paragraph says who is spared (who earns only the minimum wage) and is silent on the worker who earns the minimum wage plus a taxed bonus, commission or premium. Some firms withhold on everything; others hold that the minimum wage itself never bears a withholding and tax only what exceeds it. In 2026 a fortnight of 4,725.60 in the general zone plus a taxed bonus of 1,100.00 withholds 456.73 on the whole base and 51.68 on the excess.',
+  'policy.minimum_wage_isr_exemption.what':
+    'For a worker whose contractual daily wage (annual salary / 365) is at most the minimum wage of their zone on the payment date, I compare the ISR base of their paychecks of the pay period with the minimum wage of the period: the daily minimum times the calendar days of the period, never fewer than the days of the tariff (7, 15, or 30.4 for a month). Within it I withhold no ISR and the paycheck says so. Over it, with "only_minimum_wage_paid" I apply the tariff to the whole base, and with "minimum_wage_part_never_taxed" to the excess. The paycheck records the measure and the treatment in its calculation details.',
+  'policy.minimum_wage_isr_exemption.if_skipped':
+    'With another taxed earning I withhold on the whole base.',
+  'policy.minimum_wage_isr_exemption.option.only_minimum_wage_paid':
+    'Only who is paid the minimum wage and nothing else taxed is spared: with another taxed earning, the tariff on the whole base',
+  'policy.minimum_wage_isr_exemption.option.minimum_wage_part_never_taxed':
+    'The minimum wage is never taxed: with another taxed earning, the tariff on the excess alone',
+  'payslip.minimum_wage_isr.not_withheld':
+    'No ISR is withheld: the worker earns only the minimum wage of the area (zone {zone}), LISR art. 96, first paragraph. ISR base of the period {taxable}; minimum wage of the period {minimum} ({days} days at {daily}).',
+  'payslip.minimum_wage_isr.tariff_on_whole_base':
+    'ISR is withheld on the whole base: the worker earns the minimum wage of the area (zone {zone}) and another taxed earning (LISR art. 96, first paragraph; panel key minimum_wage_isr_exemption = {policy}). ISR base of the period {taxable}; minimum wage of the period {minimum} ({days} days at {daily}).',
+  'payslip.minimum_wage_isr.tariff_on_excess':
+    'ISR is withheld only on the excess over the minimum wage of the area (zone {zone}): LISR art. 96, first paragraph; panel key minimum_wage_isr_exemption = {policy}. ISR base of the period {taxable}; minimum wage of the period {minimum} ({days} days at {daily}).',
+  // ---- end of MNE-001-923 ----
 
   'policy.archived_accounts_in_reports.question':
     'Once an account is archived, does it keep its row in a trial balance where it has nothing to show?',

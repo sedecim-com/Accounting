@@ -2493,6 +2493,30 @@ export const ES: Record<keyof typeof EN, string> = {
   'payroll.accrue.pay_runs_in_review':
     '{count, plural, one {# corrida de nómina del mes paga} other {# corridas de nómina del mes pagan}} una prestación devengada y su póliza sigue como borrador en revisión ({runs}): lo que {count, plural, one {paga} other {pagan}} por encima de una provisión no se descuenta de este devengo. Resuelve primero el borrador en mnemosine review, o revierte este devengo y córrelo de nuevo después.',
   // ---- end of MNE-001-878 ----
+  // ---- MNE-001-923 (#1076): who only earns the minimum wage suffers no ISR withholding ----
+  'policy.minimum_wage_isr_exemption.question':
+    'Cuando un trabajador que gana el salario mínimo de su área recibe además otra percepción gravada en el periodo de pago, ¿se retiene ISR sobre toda la base o sólo sobre el excedente del salario mínimo?',
+  'policy.minimum_wage_isr_exemption.impact':
+    'Decide el ISR retenido, el neto y el CFDI de nómina de un trabajador cuyo salario diario contractual no pasa del salario mínimo de su zona, en un periodo de pago cuya base de ISR excede el salario mínimo del periodo (el mínimo diario por los días del periodo). La lee minimum-wage-worker.ts, sólo en ese caso. Con "only_minimum_wage_paid" la tarifa se aplica a toda la base de ISR, como a cualquier otro trabajador. Con "minimum_wage_part_never_taxed" la tarifa se aplica a la base menos el salario mínimo del periodo. Cuando la base no excede el salario mínimo del periodo no se retiene ISR con ninguna de las dos respuestas (LISR art. 96, primer párrafo) y esta clave no se lee. Los recibos ya calculados no cambian.',
+  'policy.minimum_wage_isr_exemption.rationale':
+    'El primer párrafo del art. 96 de la LISR libera de la retención a las personas que en el mes únicamente perciban un salario mínimo general de su área. Quien percibe además otra cosa gravada ya no percibe únicamente el salario mínimo, así que la letra del párrafo no lo alcanza y la tarifa del mismo artículo se aplica a todo su ingreso. De las dos lecturas es la que sólo puede retener de más, la opción conservadora del ADR-0006, decisión 1; y el mismo párrafo da a la retención el carácter de pago provisional a cuenta del impuesto anual.',
+  'policy.minimum_wage_isr_exemption.why':
+    'El párrafo dice a quién se libera (a quien sólo gana el salario mínimo) y calla sobre el trabajador que gana el salario mínimo más un bono, una comisión o una prima gravados. Unos despachos retienen sobre todo; otros sostienen que el salario mínimo nunca soporta retención y gravan sólo lo que lo excede. En 2026, una quincena de 4,725.60 en la zona general más un bono gravado de 1,100.00 retiene 456.73 sobre toda la base y 51.68 sobre el excedente.',
+  'policy.minimum_wage_isr_exemption.what':
+    'A un trabajador cuyo salario diario contractual (sueldo anual / 365) no pasa del salario mínimo de su zona en la fecha de pago, le comparo la base de ISR de sus recibos del periodo de pago con el salario mínimo del periodo: el mínimo diario por los días naturales del periodo, nunca menos que los días de la tarifa (7, 15, o 30.4 en un mes). Si no lo excede, no se retiene ISR y el recibo lo dice. Si lo excede, con "only_minimum_wage_paid" aplico la tarifa a toda la base, y con "minimum_wage_part_never_taxed" al excedente. El recibo guarda la medida y el tratamiento en el detalle de su cálculo.',
+  'policy.minimum_wage_isr_exemption.if_skipped':
+    'Ante otra percepción gravada se retiene sobre toda la base.',
+  'policy.minimum_wage_isr_exemption.option.only_minimum_wage_paid':
+    'Sólo se libera a quien recibe el salario mínimo y nada más gravado: ante otra percepción gravada, la tarifa sobre toda la base',
+  'policy.minimum_wage_isr_exemption.option.minimum_wage_part_never_taxed':
+    'El salario mínimo nunca se grava: ante otra percepción gravada, la tarifa sólo sobre el excedente',
+  'payslip.minimum_wage_isr.not_withheld':
+    'No se retiene ISR: el trabajador sólo gana el salario mínimo del área (zona {zone}), artículo 96, primer párrafo, de la LISR. Base de ISR del periodo {taxable}; salario mínimo del periodo {minimum} ({days} días a {daily}).',
+  'payslip.minimum_wage_isr.tariff_on_whole_base':
+    'Se retiene ISR sobre toda la base: el trabajador gana el salario mínimo del área (zona {zone}) y otra percepción gravada (artículo 96, primer párrafo, de la LISR; clave del panel minimum_wage_isr_exemption = {policy}). Base de ISR del periodo {taxable}; salario mínimo del periodo {minimum} ({days} días a {daily}).',
+  'payslip.minimum_wage_isr.tariff_on_excess':
+    'Se retiene ISR sólo sobre el excedente del salario mínimo del área (zona {zone}): artículo 96, primer párrafo, de la LISR; clave del panel minimum_wage_isr_exemption = {policy}. Base de ISR del periodo {taxable}; salario mínimo del periodo {minimum} ({days} días a {daily}).',
+  // ---- end of MNE-001-923 ----
 
   'policy.archived_accounts_in_reports.question':
     'Una vez archivada una cuenta, ¿conserva su renglón en una balanza donde no tiene nada que mostrar?',

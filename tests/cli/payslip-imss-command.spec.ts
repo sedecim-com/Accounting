@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Command } from 'commander';
 import {
+  minimumWageIsrText,
   paycheckStatusFilter,
   payslipHeader,
   payslipLines,
@@ -85,6 +86,26 @@ describe('payslip show', () => {
       { kind: 'deduction', concept: 'loan_repayment', amount: '100.00', side: '', base: '' },
       { kind: 'tax', concept: 'isr', amount: '700.00', side: 'EE', base: '6000.00' },
     ]);
+  });
+
+  it('says why a minimum-wage worker has no ISR withheld (LISR art. 96), by key; any other paycheck says nothing', () => {
+    const measure = {
+      policy: 'minimum_wage_part_never_taxed', zone: 'general', zone_declared_by: null, daily_minimum: '315.04',
+      days: 15, minimum_of_period: '4725.60', taxable_of_period: '5825.60',
+    };
+    const with923 = (treatment: string): PaycheckDetail => ({
+      ...paycheck, calculation_details: { minimum_wage_isr_exemption: { ...measure, treatment } },
+    });
+    expect(minimumWageIsrText(with923('not_withheld'), 'es')).toBe(
+      'No se retiene ISR: el trabajador sólo gana el salario mínimo del área (zona general), artículo 96, primer ' +
+        'párrafo, de la LISR. Base de ISR del periodo 5825.60; salario mínimo del periodo 4725.60 (15 días a 315.04).'
+    );
+    expect(minimumWageIsrText(with923('tariff_on_whole_base'), 'en')).toMatch(/^ISR is withheld on the whole base: .*LISR art\. 96/);
+    expect(minimumWageIsrText(with923('tariff_on_excess'), 'en')).toMatch(
+      /^ISR is withheld only on the excess .* minimum_wage_isr_exemption = minimum_wage_part_never_taxed\./
+    );
+    expect(minimumWageIsrText(with923('a_later_treatment'), 'en')).toBeNull();
+    expect(minimumWageIsrText(paycheck, 'en')).toBeNull();
   });
 });
 

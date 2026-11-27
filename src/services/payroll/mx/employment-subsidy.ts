@@ -45,7 +45,7 @@ export type EmploymentSubsidyRounding = 'producto_al_centavo' | 'diario_al_centa
 const KNOWN_ROUNDINGS: readonly EmploymentSubsidyRounding[] = ['producto_al_centavo', 'diario_al_centavo'];
 
 /** The decree's divisor: a month is 30.4 days, the same one the Anexo 8 uses. */
-const DAYS_PER_MONTH = new Decimal('30.4');
+export const DAYS_PER_MONTH = new Decimal('30.4');
 
 function toCent(d: Decimal): Decimal {
   return d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);

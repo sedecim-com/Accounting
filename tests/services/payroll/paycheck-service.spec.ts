@@ -809,3 +809,58 @@ describe('the ISR of a paycheck that shares its period follows separate_payment_
     expect(detail()).toBeUndefined();
   });
 });
+
+// MNE-001-923 (#1076) · LISR art. 96, first paragraph. The figures against
+// Postgres are in tests/integration/mne-001-923-minimum-wage-no-isr.int.spec.ts;
+// here, what the paycheck writes when the tariff's ISR (158.57) is not
+// withheld, and what the subsidy (406.62) does under each rule of the excess,
+// the one before May 2024 included, which no migrated parameter reaches.
+describe('a worker who only earns the minimum wage has no ISR withheld (MNE-001-923)', () => {
+  beforeEach(() => {
+    // 440.87 a day by contract, in an entity of the border zone: 3 000.00 is within 15 × 440.87.
+    prepararLecturas({ ...EMPLEADO_MX, annual_salary: '160917.55' });
+    const reads = mockQuery.getMockImplementation() as (sql: string) => Promise<unknown>;
+    mockQuery.mockImplementation(async (sql: string) =>
+      /FROM tax_parameters/.test(sql)
+        ? { rows: [{ params: { salario_minimo_general_diario: 315.04, salario_minimo_frontera_diario: 440.87 } }] }
+        : reads(sql)
+    );
+  });
+  const written = (): { isr: unknown; net: unknown; cash: unknown; details: Record<string, unknown> } => {
+    const { params } = insercionDelRecibo();
+    return {
+      isr: params[23], net: params[29], cash: params[35],
+      details: JSON.parse(params[31] as string) as Record<string, unknown>,
+    };
+  };
+  const amountOf = (taxType: string): string | undefined =>
+    renglonesEscritos().find((r) => r.tax_type === taxType)?.tax_amount;
+
+  it('from May 2024: nothing withheld, nothing credited, nothing handed over, and the note names the article', async () => {
+    await calculatePaycheck(ENTRADA);
+    const w = written();
+    // 3 000.00 − 75.50 of IMSS − 60.00 of the INFONAVIT credit; the 158.57 are not withheld.
+    expect({ isr: w.isr, net: w.net, cash: w.cash }).toEqual({ isr: 0, net: 2864.5, cash: '0.0000' });
+    expect(w.details.minimum_wage_isr_exemption).toMatchObject({
+      treatment: 'not_withheld', zone: 'northern_border', zone_declared_by: 'entity', minimum_of_period: '6613.05',
+      taxable_of_period: '3000.00', tariff_isr_not_withheld: '158.57',
+    });
+    expect(w.details.employment_subsidy_excess_not_paid).toBe('406.6200');
+    expect({ isr: amountOf('isr'), subsidy: amountOf('subsidio_empleo') }).toEqual({ isr: '0.0000', subsidy: '0.0000' });
+    const note = renglonesEscritos().find((r) => r.tax_type === 'isr')?.notas;
+    expect(note).toMatch(/^Art\. 96 LISR quincenal · not withheld, LISR art\. 96, first paragraph: .* the tariff gives 158\.57 · /);
+    expect(mockGetPolicy).not.toHaveBeenCalledWith(expect.anything(), 'minimum_wage_isr_exemption', undefined);
+  });
+
+  it('before May 2024 the cash handed over is still the excess over the tariff, 406.62 − 158.57 = 248.05', async () => {
+    paidShare = 1;
+    await calculatePaycheck(ENTRADA);
+    const w = written();
+    expect({ isr: w.isr, net: w.net, cash: w.cash }).toEqual({ isr: 0, net: 3112.55, cash: '248.0500' });
+    // What the tariff would have absorbed is neither paid nor credited.
+    expect(w.details.employment_subsidy_excess_not_paid).toBe('158.5700');
+    expect({ credited: amountOf('subsidio_empleo'), cash: amountOf('subsidio_entregado_efectivo') }).toEqual({
+      credited: '0.0000', cash: '248.0500',
+    });
+  });
+});

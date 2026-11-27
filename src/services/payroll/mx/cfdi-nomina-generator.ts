@@ -452,10 +452,17 @@ export function employmentSubsidyOtherPayment(p: {
  *   deductions is the sum of the two (NOM39); the amount of a node must be
  *   above zero (NOM96), so an amount of zero writes no node.
  *
- * NOTE: the node is still written when it has no child, and with a total of
- * taxes withheld of 0.00 when no ISR is retained. The schema refuses the
- * first and NOM92 the second: both belong to the task that takes the whole
- * complement to the SAT's schema (#92).
+ * CONTRACT: with no node keyed 002 the total of taxes withheld is not written
+ * (#1076, MNE-001-923). The standard, revision C, as read on 2026-11-27, says
+ * that with no deduction keyed 002 the attribute must not exist, and the
+ * filling guide (last change 16 Jan 2026) says the same of the field; both
+ * are quoted in src/ai/docs/payroll.md. It was written as 0.00, which is the
+ * receipt of every worker with no ISR withheld: the one whose subsidy covers
+ * it and the one who only earns the minimum wage (LISR art. 96, first paragraph).
+ *
+ * NOTE: the node is still written when it has no child, which the schema
+ * refuses: it belongs to the task that takes the whole complement to the
+ * SAT's schema (#92).
  */
 export function payrollDeductionsNode(p: {
   /** paychecks.imss_employee: the worker's IMSS contribution. */
@@ -483,14 +490,17 @@ export function payrollDeductionsNode(p: {
     Decimal.sum(0, ...lines.filter((line) => (line.type === '002') === isTax).map((line) => line.amount));
   const taxesWithheld = sumOf(true);
   const otherDeductions = sumOf(false);
+  const taxesWithheldAttribute = lines.some((line) => line.type === '002')
+    ? ` TotalImpuestosRetenidos="${taxesWithheld.toFixed(2)}"`
+    : '';
   const nodes = lines.map(
     (line) =>
       `        <nomina12:Deduccion TipoDeduccion="${line.type}" Clave="${line.key}" ` +
       `Concepto="${escapeXml(line.concept)}" Importe="${line.amount.toFixed(2)}"/>\n`
   );
   const xml =
-    `      <nomina12:Deducciones TotalOtrasDeducciones="${otherDeductions.toFixed(2)}" ` +
-    `TotalImpuestosRetenidos="${taxesWithheld.toFixed(2)}">\n${nodes.join('')}      </nomina12:Deducciones>\n`;
+    `      <nomina12:Deducciones TotalOtrasDeducciones="${otherDeductions.toFixed(2)}"${taxesWithheldAttribute}>\n` +
+    `${nodes.join('')}      </nomina12:Deducciones>\n`;
   return { xml, total: taxesWithheld.plus(otherDeductions) };
 }
 

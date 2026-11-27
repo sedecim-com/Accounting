@@ -9,6 +9,8 @@ import {
   type PaycheckCfdiState,
   type PaycheckDetail,
 } from '../services/payroll/common/paycheck-read-service.js';
+import { MINIMUM_WAGE_ISR_DETAIL, MINIMUM_WAGE_ISR_TREATMENTS } from '../services/payroll/mx/minimum-wage-worker.js';
+import { getLanguage, t, type Language } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import { maskIdentifier } from './employee-show-command.js';
 import {
@@ -125,6 +127,26 @@ export function payslipHeader(pc: PaycheckDetail, e: Record<string, unknown>, re
   };
 }
 
+/**
+ * Why the ISR of a minimum-wage worker's paycheck is what it is (LISR art. 96,
+ * first paragraph · MNE-001-923), from what the calculation stored; null for
+ * any other paycheck, and for a treatment this reader does not know.
+ */
+export function minimumWageIsrText(pc: PaycheckDetail, language: Language): string | null {
+  const details = pc.calculation_details as Record<string, unknown> | null | undefined;
+  const d = details?.[MINIMUM_WAGE_ISR_DETAIL] as Record<string, string | number | null> | undefined;
+  const treatment = MINIMUM_WAGE_ISR_TREATMENTS.find((known) => known === d?.treatment);
+  if (!d || !treatment) return null;
+  return t(
+    `payslip.minimum_wage_isr.${treatment}`,
+    {
+      zone: String(d.zone), taxable: String(d.taxable_of_period), minimum: String(d.minimum_of_period),
+      days: String(d.days), daily: String(d.daily_minimum), policy: String(d.policy),
+    },
+    language
+  );
+}
+
 const LIST_EXAMPLES = `
 Examples:
   # The paychecks of a run, by employee number; no tax identifier is printed.
@@ -199,12 +221,14 @@ export function registerPayslipCommand(program: Command, deps: PayslipCommandDep
       const scope = await scopeFor(opts);
       const pc = await getPaycheck(id, scope);
       const header = payslipHeader(pc, await getEmployee(pc.employee_id, scope), opts.redacted === true);
+      const isrNote = minimumWageIsrText(pc, getLanguage());
       if (!legible(opts)) {
-        render([{ ...header, lines: payslipLines(pc) }], { ...opts, idField: 'id' });
+        render([{ ...header, lines: payslipLines(pc), ...(isrNote ? { isr_note: isrNote } : {}) }], { ...opts, idField: 'id' });
         return ExitCode.OK;
       }
       render([header], { ...opts, idField: 'id' });
       render(payslipLines(pc), { ...opts, idField: 'concept', numeric: ['amount', 'base'] });
+      if (isrNote) process.stdout.write(`${isrNote}\n`);
       return ExitCode.OK;
     })
   );

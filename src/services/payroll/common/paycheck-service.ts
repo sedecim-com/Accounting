@@ -18,6 +18,13 @@ import {
 } from '../mx/subsidio-entregado.js';
 import { isrPartsOf, type IsrExemptionContext } from '../mx/isr-exemption.js';
 import {
+  MINIMUM_WAGE_ISR_DETAIL,
+  baseForTariff,
+  minimumWageIsr,
+  minimumWageIsrDetail,
+  minimumWageIsrNote,
+} from '../mx/minimum-wage-worker.js';
+import {
   readEmploymentSubsidyRounding,
   isSeparatePaycheck,
   readEmploymentSubsidySeparateRun,
@@ -371,7 +378,8 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
   // year (LISR art. 93 fr. XIV), overtime by half up to 5 UMA a week (fr. I),
   // and only the rest is taxed. The parts are written on the earning row, and
   // the ISR base is the sum of the taxable ones.
-  const isrParts = await isrPartsOf(input.earnings, isrContextOf(input, scope));
+  const mx = isrContextOf(input, scope);
+  const isrParts = await isrPartsOf(input.earnings, mx);
   const taxableIsr = sum(isrParts.map((p) => p.taxable.toNumber())) - preTaxDeductions;
   // NOTE(#296): the IMSS base is the period's SBC (capped at 25 UMA), not the
   // ISR base: it was `taxableIsr`, so exempt earnings and pre-tax deductions
@@ -456,6 +464,8 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
   // Which treatment of the panel the ISR followed, when the paycheck shares
   // its period or is itself separate (MNE-001-739).
   let separatePaymentIsr: Record<string, string | number | boolean> | null = null;
+  // How LISR art. 96, first paragraph, was read for a minimum-wage worker (MNE-001-923).
+  let minimumWageIsrRecord: Record<string, string | number | null> | null = null;
 
   if (emp.country_code === 'US') {
     // FIT
@@ -563,20 +573,40 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     });
     const separate = isSeparatePaycheck(scope.run.run_type, input.earnings);
 
+    // WHO ONLY EARNS THE MINIMUM WAGE OF THEIR AREA SUFFERS NO WITHHOLDING
+    // (LISR art. 96, first paragraph · #1076, MNE-001-923). Measured on the
+    // ISR base of the worker's paychecks of the period; null for everyone
+    // else, who costs no statement. See ../mx/minimum-wage-worker.ts.
+    const minimumWage =
+      mx &&
+      (await minimumWageIsr({
+        who: mx,
+        frequency: period.frequency,
+        taxableOfPeriod: otherRuns.taxableIsr.plus(taxableIsr),
+        client: tx,
+      }));
+    const notWithheld = minimumWage?.treatment === 'not_withheld';
+
     const isrCalc = taxRegistry.getRequired('MX', 'isr');
-    const isrOnOwnBase = await isrCalc.calculate({ ...baseTaxInput, taxable_wages: taxableIsr });
+    const isrOnOwnBase = await isrCalc.calculate({
+      ...baseTaxInput,
+      taxable_wages: baseForTariff(minimumWage, taxableIsr, otherRuns.taxableIsr),
+    });
     let isr = isrOnOwnBase;
     // THE ISR OF A PAYMENT MADE APART (#601, MNE-001-739) is the panel's
     // answer: on the period's accumulated base (default), by the regulation's
     // optional procedure, or on this paycheck alone. A paycheck alone in its
     // period that is not separate asks nothing and keeps its figure.
-    if (otherRuns.paychecks > 0 || separate) {
+    if (!notWithheld && (otherRuns.paychecks > 0 || separate)) {
       // On the run's transaction when there is one: one round trip, not four.
       const isrPolicy = await readSeparatePaymentIsr({ tenantId: input.tenant_id, entityId: period.entity_id }, tx);
       // The tariff is cached after its first read, so this sends no statement.
       const ofPeriod =
         isrPolicy.treatment === 'period_accumulated_base' && otherRuns.paychecks > 0
-          ? await isrCalc.calculate({ ...baseTaxInput, taxable_wages: otherRuns.taxableIsr.plus(taxableIsr).toNumber() })
+          ? await isrCalc.calculate({
+              ...baseTaxInput,
+              taxable_wages: baseForTariff(minimumWage, otherRuns.taxableIsr.plus(taxableIsr)),
+            })
           : null;
       const amount = isrOfPaycheckInPeriod({
         treatment: isrPolicy.treatment,
@@ -606,7 +636,13 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
           `ISR caused ${otherRuns.isr.toFixed(2)}${separate ? ' · separate paycheck' : ''} [${isrPolicy.treatment}]`,
       };
     }
-    breakdown.isr = isr.tax_amount;
+    // `isr` stays what the tariff gives on this paycheck, also when art. 96
+    // withholds none of it: the employment subsidy is still measured against it.
+    if (minimumWage) {
+      minimumWageIsrRecord = minimumWageIsrDetail(minimumWage, isr.tax_amount);
+      isr = { ...isr, notes: `${isr.notes ?? 'ISR of the period'} · ${minimumWageIsrNote(minimumWage, isr.tax_amount)}` };
+    }
+    breakdown.isr = notWithheld ? 0 : isr.tax_amount;
 
     // The decree leaves the rounding open, so the entity's policy decides it
     // (#298); the engine refuses to compute without it.
@@ -667,14 +703,21 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // is refused. (The line was once `Math.max(0, isr - sub)` for every date,
     // which dropped the cash of the old rule too.)
     subsidyExcessRule = await readEmploymentSubsidyExcessRule(toCalendarDate(period.pay_date));
+    //
+    // With nothing withheld (art. 96, first paragraph) nothing is credited
+    // either: the cash of the rule before May 2024 is still the excess over
+    // the tariff, and what the tariff would have absorbed is neither paid
+    // nor credited.
     const applied = applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule);
-    employeeTaxes = employeeTaxes.plus(applied.isrWithheld);
+    const isrWithheld = notWithheld ? new Decimal(0).toFixed(4) : applied.isrWithheld;
+    employeeTaxes = employeeTaxes.plus(isrWithheld);
     subsidioEntregado = new Decimal(applied.paidInCash);
-    subsidyExcessNotPaid = new Decimal(applied.excessNotPaid);
+    subsidyExcessNotPaid = new Decimal(applied.excessNotPaid).plus(notWithheld ? applied.subsidyCredited : 0);
 
     apuntar(isr, 'EE', {
       taxable_wages: taxableIsr,
-      notas: `${isr.notes ?? 'ISR del periodo'} · retenido tras acreditar el subsidio: ${applied.isrWithheld}`,
+      ...(notWithheld ? { tax_amount: 0 } : {}),
+      notas: `${isr.notes ?? 'ISR del periodo'} · retenido tras acreditar el subsidio: ${isrWithheld}`,
     });
     // EL RENGLÓN LLEVA LO ACREDITADO, NO EL SUBSIDIO ENTERO.
     //
@@ -687,7 +730,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     //
     // Under the rule of 1 May 2024 there is no second row: the excess is not
     // money, so the note of this row names it and the row of the law.
-    const subsidioAcreditado = new Decimal(applied.subsidyCredited);
+    const subsidioAcreditado = new Decimal(notWithheld ? 0 : applied.subsidyCredited);
     apuntar(sub, 'EE', {
       tax_amount: subsidioAcreditado,
       taxable_wages: taxableIsr,
@@ -879,6 +922,7 @@ export async function calculatePaycheck(input: PaycheckInput, tx?: PoolClient): 
     // employer liability reads it to tell this zero from a missing SBC.
     ...(contributionsElsewhere ? { [CONTRIBUTIONS_ELSEWHERE_DETAIL]: contributionsElsewhere } : {}),
     ...(separatePaymentIsr ? { [SEPARATE_PAYMENT_ISR_DETAIL]: separatePaymentIsr } : {}),
+    ...(minimumWageIsrRecord ? { [MINIMUM_WAGE_ISR_DETAIL]: minimumWageIsrRecord } : {}),
   };
 
   // --- Persist ---

@@ -2572,6 +2572,32 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'I apply the period\'s tariff to the accumulated base of the period and withhold only the difference.',
     priority: 42,
   },
+  // #1076 · MNE-001-923. LISR art. 96, first paragraph, spares who earns only
+  // the minimum wage and is silent on that worker's other taxed earnings. Read
+  // by `minimumWageIsr` (payroll/mx/minimum-wage-worker.ts), through
+  // `calculatePaycheck`, only when the base is over the minimum of the period.
+  {
+    key: 'minimum_wage_isr_exemption',
+    textKey: 'minimum_wage_isr_exemption',
+    category: 'fiscal',
+    question:
+      'When a worker who earns the minimum wage of their area also gets another taxed earning in the pay period, is ISR withheld on the whole base or only on the excess over the minimum wage?',
+    impact:
+      'It decides the ISR withheld, the net pay and the payroll CFDI of a worker whose contractual daily wage is at most the minimum wage of their zone, in a pay period whose ISR base is over the minimum wage of the period (the daily minimum times the days of the period). Read by minimum-wage-worker.ts, only in that case. With "only_minimum_wage_paid" the tariff is applied to the whole ISR base, as for any other worker. With "minimum_wage_part_never_taxed" the tariff is applied to the base less the minimum wage of the period. When the base is within the minimum wage of the period no ISR is withheld under either answer (LISR art. 96, first paragraph) and this key is not read. Paychecks already calculated are not changed.',
+    options: [
+      { value: 'only_minimum_wage_paid', label: 'Only who is paid the minimum wage and nothing else taxed is spared: with another taxed earning, the tariff on the whole base' },
+      { value: 'minimum_wage_part_never_taxed', label: 'The minimum wage is never taxed: with another taxed earning, the tariff on the excess alone' },
+    ],
+    defaultValue: 'only_minimum_wage_paid',
+    defaultRationale:
+      'LISR art. 96, first paragraph, spares from withholding the persons who in the month earn only one general minimum wage of their area. A worker who earns anything else taxed no longer earns only the minimum wage, so the letter of the paragraph does not reach them and the tariff of the same article applies to all their income. Of the two readings it is the one that can only withhold more, the conservative option of ADR-0006, decision 1; and the same paragraph makes the withholding a provisional payment on account of the annual tax.',
+    whyAsking:
+      'The paragraph says who is spared (who earns only the minimum wage) and is silent on the worker who earns the minimum wage plus a taxed bonus, commission or premium. Some firms withhold on everything; others hold that the minimum wage itself never bears a withholding and tax only what exceeds it. In 2026 a fortnight of 4,725.60 in the general zone plus a taxed bonus of 1,100.00 withholds 456.73 on the whole base and 51.68 on the excess.',
+    whatIDo:
+      'For a worker whose contractual daily wage (annual salary / 365) is at most the minimum wage of their zone on the payment date, I compare the ISR base of their paychecks of the pay period with the minimum wage of the period: the daily minimum times the calendar days of the period, never fewer than the days of the tariff (7, 15, or 30.4 for a month). Within it I withhold no ISR and the paycheck says so. Over it, with "only_minimum_wage_paid" I apply the tariff to the whole base, and with "minimum_wage_part_never_taxed" to the excess. The paycheck records the measure and the treatment in its calculation details.',
+    ifSkipped: 'With another taxed earning I withhold on the whole base.',
+    priority: 42,
+  },
   // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
   // old-age quota to two decimals and gives no rounding rule. Read by
   // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer
