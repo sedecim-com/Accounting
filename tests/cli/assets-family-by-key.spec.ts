@@ -141,7 +141,7 @@ const POST = ['depreciation', 'post', '--entity', 'ent-1', '--period', '2026-08'
 beforeEach(() => {
   vi.mocked(planModule.planDeDepreciacion).mockResolvedValue(testPlan());
   vi.mocked(planModule.diferenciasContraPlan).mockReturnValue([]);
-  vi.mocked(engine.runMonthlyDepreciation).mockResolvedValue({ processed: 1, errors: [] });
+  vi.mocked(engine.runMonthlyDepreciation).mockResolvedValue({ processed: 1, errors: [], skipped: [] });
 });
 afterEach(() => resetLanguage());
 
@@ -320,7 +320,7 @@ describe('I8.5 · depreciation post speaks by key', () => {
   });
 
   it('a run that differs from its plan says so, and the done line counts the entries', async () => {
-    vi.mocked(engine.runMonthlyDepreciation).mockResolvedValue({ processed: 3, errors: [] });
+    vi.mocked(engine.runMonthlyDepreciation).mockResolvedValue({ processed: 3, errors: [], skipped: [] });
     const r = await cli([...POST, '--yes']);
     expect(r.err).toContain('  ⚠ The plan showed 1 entry and the run made 3. The plan and the engine did not agree');
     expect(r.err).toContain('✔ 3 entries posted in Periodo 8/2026 (book book).\n');
@@ -333,6 +333,27 @@ describe('I8.5 · depreciation post speaks by key', () => {
     const r = await cli([...POST, '--yes']);
     expect(r.err).toContain('✔ 1 entry posted in Periodo 8/2026 (book book).\n');
     expect(r.err).not.toContain('The plan showed');
+  });
+
+  // MNE-001-881 (#1069): an asset by units of production is skipped by the
+  // run, never in silence, and it is not an error: the leaf exits 0.
+  it('an asset the run skipped by units of production is named, in both languages', async () => {
+    const skipped = [{ asset_number: 'AF-2026-00009', asset_name: 'Torno', reason: 'unidades_de_produccion' as const }];
+    vi.mocked(engine.runMonthlyDepreciation).mockResolvedValue({ processed: 1, errors: [], skipped });
+    const r = await cli([...POST, '--yes']);
+    expect(r.err).toContain(
+      '  ⚠ AF-2026-00009 Torno was skipped and nothing was posted for it: it depreciates by units of production, ' +
+        'and the production of Periodo 8/2026 cannot be captured yet. Book its charge by hand (mnemosine entry ' +
+        'create); the close counts it under `depreciacion_faltante_al_cierre`.\n'
+    );
+    expect(r.code).toBe(0);
+    setLanguage('es');
+    const spanish = await cli([...POST, '--yes']);
+    expect(spanish.err).toContain(
+      '  ⚠ AF-2026-00009 Torno se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, ' +
+        'y la producción de Periodo 8/2026 todavía no se puede capturar. Registra su cargo a mano (mnemosine ' +
+        'entry create); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.\n'
+    );
   });
 
   it('a spent key returns the recorded result', async () => {
@@ -349,6 +370,16 @@ describe('I8.5 · depreciation post speaks by key', () => {
 });
 
 describe('I8.5 · asset create speaks by key', () => {
+  // MNE-001-881: the help offers the five methods a registration takes.
+  it('the help of --method and --tax-method does not offer units of production', async () => {
+    const { program } = await cli(RUN);
+    const create = program.commands.find((c) => c.name() === 'asset')!.commands.find((c) => c.name() === 'create')!;
+    const five = 'straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs';
+    const help = (flag: string) => create.options.find((o) => o.long === flag)!.description;
+    expect(help('--method')).toBe(`BOOK depreciation method: ${five}`);
+    expect(help('--tax-method')).toBe(`TAX depreciation method: ${five}`);
+  });
+
   it('the dry run says the transaction was rolled back, in both languages', async () => {
     const args = ['asset', 'create', 'Servidor', '--entity', 'ent-1', '--category', 'Equipo de Cómputo',
       '--cost', '100000', '--acquired', '2026-03-20', '--capitalized', 'yes', '--dry-run'];

@@ -5,7 +5,7 @@ import { ConflictError } from '../../utils/errors.js';
 import { nextEntityNumber, nextVendorNumber } from '../../utils/sequence.js';
 import type { OpeningFinding, OpeningPlan } from '../accounting/opening-balance.js';
 import { reclassRoles } from '../accounting/iva-cash-basis.js';
-import { controlDocuments, identityRfc } from '../ar/opening-invoices.js';
+import { controlDocuments, identityRfc, ivaInsideOpenBalance, parseIvaRate } from '../ar/opening-invoices.js';
 import { noteBillCfdiAlreadyCancelled } from './bill-cfdi-cancellation.js';
 
 // ============================================================
@@ -164,18 +164,6 @@ const vendorOf = (e: ExistingBill): VendorKey => ({
 const isStale = (e: ExistingBill): boolean =>
   e.from_reversed_opening && e.status === 'approved' && new Decimal(e.amount_paid).isZero();
 
-type ParsedRate = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'exempt' } | { kind: 'rate'; rate: Decimal };
-
-/** `ivaRate` is the CFDI's TasaOCuota ('0.16', '0.080000') or 'exento'. */
-function parseIvaRate(raw: string | undefined): ParsedRate {
-  if (raw === undefined || raw.trim() === '') return { kind: 'missing' };
-  const v = raw.trim().toLowerCase();
-  if (v === 'exento' || v === 'exempt') return { kind: 'exempt' };
-  if (!/^\d+(\.\d+)?$/.test(v)) return { kind: 'invalid' };
-  const rate = new Decimal(v);
-  return rate.greaterThanOrEqualTo(1) ? { kind: 'invalid' } : { kind: 'rate', rate };
-}
-
 /** Pure: which bills the opening would create, and what stops them. */
 export function planOpeningBills(
   plan: Pick<OpeningPlan, 'lines' | 'control'>,
@@ -309,7 +297,6 @@ export function planOpeningBills(
     seen.push({ ...vendor, invoiceNumber: d.documento });
     if (uuid !== null) seenUuids.add(uuid.toUpperCase());
 
-    const subtotal = rate.kind === 'rate' ? amount.dividedBy(rate.rate.plus(1)).toDecimalPlaces(2) : amount;
     drafts.push({
       accountCode: line.code,
       accountId: line.accountId,
@@ -320,10 +307,7 @@ export function planOpeningBills(
       // `due_date` is NOT NULL; the opening already warned (APE-SIN-VENCIMIENTO).
       dueDate: d.vencimiento === undefined || d.vencimiento === '' ? d.fecha : d.vencimiento,
       amount: amount.toFixed(4),
-      subtotal: subtotal.toFixed(4),
-      tax: amount.minus(subtotal).toFixed(4),
-      taxRatePct: rate.kind === 'rate' ? rate.rate.times(100).toFixed(2) : null,
-      factorType: rate.kind === 'rate' ? 'tasa' : 'exento',
+      ...ivaInsideOpenBalance(amount, rate),
       currency,
       cfdiUuid: uuid,
       replacesId: reusable ? taken.id : null,

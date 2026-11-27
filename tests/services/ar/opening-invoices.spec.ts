@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import Decimal from 'decimal.js';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 
 import {
+  ivaInsideOpenBalance,
+  openingReceivableIvaPolicy,
+  parseIvaRate,
   planOpeningInvoices,
   prepareOpeningInvoices,
   skippedUnderDraftMode,
@@ -26,6 +30,8 @@ const doc = (p: Partial<OpeningDocument> & Pick<OpeningDocument, 'documento'>): 
   fecha: '2025-11-02',
   vencimiento: '2025-12-02',
   importe: '4000.00',
+  // MNE-001-946: a receivable says its rate; the cases about a missing one take it off.
+  ivaRate: '0',
   ...p,
 });
 
@@ -41,7 +47,12 @@ function plan(docs: OpeningDocument[], kinds: Record<string, 'cxc' | 'cxp'> = { 
   } satisfies Pick<OpeningPlan, 'lines' | 'control'>;
 }
 
-const CTX: OpeningInvoicesContext = { receivableRoleCode: '105-001', functionalCurrency: 'MXN', existing: [] };
+const CTX: OpeningInvoicesContext = {
+  receivableRoleCode: '105-001', pendingIvaCode: '209-001', cashBasisIva: true, ivaPolicy: 'require_rate',
+  functionalCurrency: 'MXN', existing: [],
+};
+/** What a 4,000.00 balance at 0 % carries: all base, no IVA. */
+const ZERO_RATE = { subtotal: '4000.0000', tax: '0.0000', taxRatePct: '0.00', factorType: 'tasa' };
 const rules = (r: OpeningInvoicesPlan) => r.findings.map((f) => f.regla);
 
 describe('planOpeningInvoices', () => {
@@ -60,8 +71,9 @@ describe('planOpeningInvoices', () => {
     expect(r.findings).toEqual([]);
     expect(r.drafts).toEqual([
       {
-        accountCode: '105-001', number: 'A-123', customerName: 'Aceros del Norte SA', customerRfc: 'ANO010101AAA',
-        date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', currency: 'MXN', cfdiUuid: 'U-1', replacesId: null,
+        accountCode: '105-001', accountId: 'id-105-001', number: 'A-123', customerName: 'Aceros del Norte SA',
+        customerRfc: 'ANO010101AAA', date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', iva: ZERO_RATE,
+        currency: 'MXN', cfdiUuid: 'U-1', replacesId: null,
       },
       // Without a due date the document date stands in: `due_date` is NOT NULL.
       expect.objectContaining({ number: 'A-456', customerRfc: null, dueDate: '2025-11-02', cfdiUuid: null }),
@@ -157,16 +169,39 @@ describe('prepareOpeningInvoices', () => {
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it('reads the default cxc role, the functional currency and the folios already taken, scoped to the entity', async () => {
+  it('reads both role accounts in ONE query, the entity and the folios already taken, scoped to the entity', async () => {
     mockQuery
-      .mockResolvedValueOnce({ rows: [{ code: '1120' }] })
-      .mockResolvedValueOnce({ rows: [{ functional_currency: 'MXN' }] })
+      .mockResolvedValueOnce({ rows: [{ role: 'iva_trasladado_no_cobrado', code: '209-001' }, { role: 'cxc', code: '1120' }] })
+      .mockResolvedValueOnce({ rows: [{ functional_currency: 'MXN', incorporation_country: 'MX', accounting_standard: 'mx_nif' }] })
       .mockResolvedValueOnce({ rows: [] });
     const r = await prepareOpeningInvoices('ent-1', plan([doc({ documento: 'A-1' })]));
     expect(rules(r)).toEqual(['APE-CXC-OTRA-CUENTA']);
+    expect(mockQuery).toHaveBeenCalledTimes(3);
     expect(mockQuery.mock.calls[0][0]).toMatch(/qualifier IS NULL/);
+    expect(mockQuery.mock.calls[0][1]).toEqual(['ent-1', ['cxc', 'iva_trasladado_no_cobrado']]);
     expect(mockQuery.mock.calls[2][1]).toEqual(['ent-1', ['A-1']]);
     for (const call of mockQuery.mock.calls) expect((call[1] as unknown[])[0]).toBe('ent-1');
+  });
+
+  it('hands the answer of the key, the pending-IVA account and the books of the entity to the plan (MNE-001-946)', async () => {
+    const answers = (country: string, standard: string) => mockQuery
+      .mockResolvedValueOnce({ rows: [{ role: 'cxc', code: '105-001' }, { role: 'iva_trasladado_no_cobrado', code: '209-001' }] })
+      .mockResolvedValueOnce({ rows: [{ functional_currency: 'MXN', incorporation_country: country, accounting_standard: standard }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const noRate = plan([doc({ documento: 'A-1', ivaRate: undefined })]);
+    answers('MX', 'mx_nif');
+    expect(rules(await prepareOpeningInvoices('ent-1', noRate))).toEqual(['APE-CXC-SIN-TASA']);
+    answers('MX', 'mx_nif');
+    expect(rules(await prepareOpeningInvoices('ent-1', noRate, 'assume_zero_rate'))).toEqual(['APE-CXC-TASA-SUPUESTA']);
+    // Off Mexican books there is no cash-basis IVA: the rate is not asked for.
+    answers('US', 'us_gaap');
+    const foreign = await prepareOpeningInvoices('ent-1', noRate);
+    expect(foreign.findings).toEqual([]);
+    expect(foreign.drafts[0].iva).toBeNull();
+    // 116,000.00 at 16 % carries 16,000.00, and this opening parks none on 209-001.
+    answers('MX', 'mx_nif');
+    const short = await prepareOpeningInvoices('ent-1', plan([doc({ documento: 'A-1', importe: '116000.00', ivaRate: '0.16' })]));
+    expect(short.findings).toEqual([expect.objectContaining({ regla: 'APE-CXC-IVA-SIN-SALDO', numCta: '209-001' })]);
   });
 
   it('no role row and no entity row fall back to "no role" and pesos', async () => {
@@ -179,8 +214,9 @@ describe('prepareOpeningInvoices', () => {
 
 describe('writeOpeningInvoices', () => {
   const draft = (p: Partial<OpeningInvoiceDraft>): OpeningInvoiceDraft => ({
-    accountCode: '105-001', number: 'A-1', customerName: 'Aceros del Norte SA', customerRfc: null,
-    date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', currency: 'MXN', cfdiUuid: null, replacesId: null,
+    accountCode: '105-001', accountId: 'acc-105', number: 'A-1', customerName: 'Aceros del Norte SA', customerRfc: null,
+    date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', iva: ZERO_RATE as OpeningInvoiceDraft['iva'],
+    currency: 'MXN', cfdiUuid: null, replacesId: null,
     ...p,
   });
   const client = { query: vi.fn() };
@@ -193,7 +229,7 @@ describe('writeOpeningInvoices', () => {
       if (/^SELECT id FROM customers/.test(text)) return { rows: [] };
       if (/COUNT/.test(text)) return { rows: [{ n: '0' }] };
       if (/INSERT INTO customers/.test(text)) return { rows: [{ id: `cust-${++created}` }] };
-      return { rows: [], rowCount: 1 };
+      return { rows: [{ id: 'inv-new' }], rowCount: 1 };
     });
     await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [
       draft({ number: 'A-1', customerName: 'Mostrador Norte', customerRfc: 'XAXX010101000' }),
@@ -212,7 +248,7 @@ describe('writeOpeningInvoices', () => {
       if (/^SELECT id FROM customers/.test(text)) return { rows: [] };
       if (/COUNT/.test(text)) return { rows: [{ n: '3' }] };
       if (/INSERT INTO customers/.test(text)) return { rows: [{ id: 'cust-1' }] };
-      return { rows: [], rowCount: 1 };
+      return { rows: [{ id: 'inv-new' }], rowCount: 1 };
     });
     const n = await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [
       draft({ number: 'A-1', customerRfc: 'ANO010101AAA' }),
@@ -226,12 +262,12 @@ describe('writeOpeningInvoices', () => {
     const invoices = client.query.mock.calls.filter((c) => /INSERT INTO invoices/.test(String(c[0])));
     expect(invoices).toHaveLength(2);
     expect(invoices[0][0]).toMatch(/'sent'/);
-    expect(invoices[0][1]).toEqual(['cust-1', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-1', 'ent-1', 'A-1',
-      'Open at the opening balance · 105-001', 'user-1']);
+    expect(invoices[0][1]).toEqual(['cust-1', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-1', 'ent-1',
+      '4000.0000', '0.0000', 'A-1', 'Open at the opening balance · 105-001', 'user-1']);
   });
 
   it('an existing customer is found by name when there is no RFC', async () => {
-    client.query.mockResolvedValueOnce({ rows: [{ id: 'cust-9' }] }).mockResolvedValue({ rows: [], rowCount: 1 });
+    client.query.mockResolvedValueOnce({ rows: [{ id: 'cust-9' }] }).mockResolvedValue({ rows: [{ id: 'inv-new' }], rowCount: 1 });
     await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [draft({})]);
     expect(client.query.mock.calls[0][0]).toMatch(/LOWER\(company_name\)/);
     expect(client.query.mock.calls[0][1]).toEqual(['ent-1', 'Aceros del Norte SA']);
@@ -240,17 +276,193 @@ describe('writeOpeningInvoices', () => {
   });
 
   it('takes over the invoice of a reversed opening with a guarded UPDATE, and refuses if it changed', async () => {
-    client.query.mockResolvedValueOnce({ rows: [{ id: 'cust-9' }] }).mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    client.query.mockResolvedValueOnce({ rows: [{ id: 'cust-9' }] }).mockResolvedValue({ rows: [], rowCount: 1 });
     await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-2', [draft({ replacesId: 'inv-1' })]);
     const update = sqls()[1];
     expect(update).toMatch(/^UPDATE invoices/);
-    expect(update).toContain("WHERE id = $9 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0");
-    expect(client.query.mock.calls[1][1]).toEqual(['cust-9', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-2', 'ent-1', 'inv-1']);
+    expect(update).toContain('subtotal = $9, tax_amount = $10, total_amount = $2, amount_due = $2');
+    expect(update).toContain("WHERE id = $11 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0");
+    expect(client.query.mock.calls[1][1]).toEqual(['cust-9', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-2', 'ent-1',
+      '4000.0000', '0.0000', 'inv-1']);
+    // MNE-001-946: the line it had goes, scoped to the entity, before the new one is written.
+    expect(sqls()[2]).toMatch(/^DELETE FROM invoice_lines il USING invoices i WHERE i\.id = il\.invoice_id AND i\.entity_id = \$1/);
+    expect(client.query.mock.calls[2][1]).toEqual(['ent-1', ['inv-1']]);
+    expect(sqls()[3]).toMatch(/^INSERT INTO invoice_lines/);
 
     client.query.mockReset();
     client.query.mockResolvedValueOnce({ rows: [{ id: 'cust-9' }] }).mockResolvedValueOnce({ rows: [], rowCount: 0 });
     await expect(
       writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-2', [draft({ replacesId: 'inv-1' })])
     ).rejects.toThrow(expect.objectContaining({ name: 'ConflictError' }));
+  });
+
+  it('MNE-001-946: the header carries base and IVA, and ALL the lines go in one statement, scoped to the entity', async () => {
+    let n = 0;
+    client.query.mockImplementation(async (text: string) => {
+      if (/^SELECT id FROM customers/.test(text)) return { rows: [{ id: 'cust-1' }] };
+      return { rows: /INSERT INTO invoices/.test(text) ? [{ id: `inv-${++n}` }] : [], rowCount: 1 };
+    });
+    const calls = (pattern: RegExp) => client.query.mock.calls.filter((c) => pattern.test(String(c[0])));
+    await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [
+      draft({ number: 'A-123', amount: '116000.0000', iva: { subtotal: '100000.0000', tax: '16000.0000', taxRatePct: '16.00', factorType: 'tasa' } }),
+      draft({ number: 'A-456', iva: { subtotal: '4000.0000', tax: '0.0000', taxRatePct: null, factorType: 'exento' } }),
+      // Off Mexican books: the open balance with no tax, and no line.
+      draft({ number: 'A-789', iva: null }),
+    ]);
+    const invoices = calls(/INSERT INTO invoices/);
+    expect(String(invoices[0][0]).replace(/\s+/g, ' ')).toContain("VALUES ($1, $9, $10, $2, $2, $3, $4, $5, $6, $7, $8, $11, 'sent', $12, $13) RETURNING id");
+    expect(invoices.map((c) => (c[1] as unknown[]).slice(8, 10))).toEqual([
+      ['100000.0000', '16000.0000'], ['4000.0000', '0.0000'], ['4000.0000', '0.0000'],
+    ]);
+    const lines = calls(/INSERT INTO invoice_lines/);
+    expect(lines).toHaveLength(1);
+    expect(String(lines[0][0])).toMatch(/JOIN invoices i ON i\.id = t\.invoice_id AND i\.entity_id = \$1/);
+    expect(lines[0][1]).toEqual([
+      'ent-1',
+      ['inv-1', 'inv-2'],
+      ['Open at the opening balance · A-123', 'Open at the opening balance · A-456'],
+      ['acc-105', 'acc-105'],
+      [null, 'exento'],
+      ['16.00', null],
+      ['100000.0000', '4000.0000'],
+      ['16000.0000', '0.0000'],
+      ['116000.0000', '4000.0000'],
+    ]);
+    expect(calls(/DELETE FROM invoice_lines/)).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// MNE-001-946 · the IVA inside the open balance of a receivable
+// ============================================================
+
+describe('the IVA rate of an open document (one reader for receivables and payables)', () => {
+  it('reads the TasaOCuota or "exento", and refuses anything else', () => {
+    expect(parseIvaRate(undefined)).toEqual({ kind: 'missing' });
+    expect(parseIvaRate('  ')).toEqual({ kind: 'missing' });
+    expect(parseIvaRate(' Exento ')).toEqual({ kind: 'exempt' });
+    expect(parseIvaRate('0.160000')).toMatchObject({ kind: 'rate' });
+    // A percent is not a TasaOCuota: 16 would be 1,600 %.
+    for (const bad of ['16', '1', 'dieciseis', '-0.16', '0,16']) expect(parseIvaRate(bad)).toEqual({ kind: 'invalid' });
+  });
+
+  it('the base is the balance over (1 + rate) to the cent, and the IVA is the rest', () => {
+    const at = (amount: string, rate: string) => {
+      const parsed = parseIvaRate(rate);
+      if (parsed.kind === 'missing' || parsed.kind === 'invalid') throw new Error(`unexpected ${parsed.kind}`);
+      return ivaInsideOpenBalance(new Decimal(amount), parsed);
+    };
+    // 116,000 / 1.16 = 100,000.
+    expect(at('116000.00', '0.16')).toEqual({ subtotal: '100000.0000', tax: '16000.0000', taxRatePct: '16.00', factorType: 'tasa' });
+    // 108 / 1.08 = 100.
+    expect(at('108.00', '0.08')).toEqual({ subtotal: '100.0000', tax: '8.0000', taxRatePct: '8.00', factorType: 'tasa' });
+    // 4,000 / 1.16 = 3,448.2758…: the base rounds to 3,448.28 and the IVA takes the cent, 551.72.
+    expect(at('4000.00', '0.16')).toEqual({ subtotal: '3448.2800', tax: '551.7200', taxRatePct: '16.00', factorType: 'tasa' });
+    expect(at('4000.00', '0')).toEqual(ZERO_RATE);
+    expect(at('4000.00', 'exento')).toEqual({ subtotal: '4000.0000', tax: '0.0000', taxRatePct: null, factorType: 'exento' });
+  });
+
+  it('opening_receivable_iva: require_rate unless the key says exactly assume_zero_rate', () => {
+    expect(openingReceivableIvaPolicy('assume_zero_rate')).toBe('assume_zero_rate');
+    for (const v of ['require_rate', 'ASSUME_ZERO_RATE', '', null, undefined]) expect(openingReceivableIvaPolicy(v)).toBe('require_rate');
+  });
+});
+
+describe('planOpeningInvoices · the IVA of each receivable document (MNE-001-946)', () => {
+  /** The opening line of the pending-IVA account, credit-normal. */
+  const withPending = (docs: OpeningDocument[], credit: string | null, debit: string | null = null) => {
+    const p = plan(docs);
+    return { ...p, lines: [...p.lines, { code: '209-001', accountId: 'id-209', debit, credit, description: 'pending IVA' }] };
+  };
+  const A123 = doc({ documento: 'A-123', importe: '116000.00', ivaRate: '0.16' });
+
+  it('the case: 116,000.00 at 16 % with 16,000.00 parked is 100,000.00 + 16,000.00 and nothing stops it', () => {
+    const r = planOpeningInvoices(withPending([A123], '16000.0000'), CTX);
+    expect(r.findings).toEqual([]);
+    expect(r.drafts).toEqual([
+      expect.objectContaining({
+        number: 'A-123', accountId: 'id-105-001', amount: '116000.0000',
+        iva: { subtotal: '100000.0000', tax: '16000.0000', taxRatePct: '16.00', factorType: 'tasa' },
+      }),
+    ]);
+  });
+
+  it('without a rate, the key decides: require_rate blocks naming each document, assume_zero_rate loads at 0 % and warns', () => {
+    const docs = [doc({ documento: 'A-1', ivaRate: undefined }), doc({ documento: 'A-2', ivaRate: ' ' }), doc({ documento: 'A-3', ivaRate: 'exento' })];
+    const required = planOpeningInvoices(plan(docs), CTX);
+    expect(required.findings).toEqual([
+      expect.objectContaining({
+        regla: 'APE-CXC-SIN-TASA', severidad: 'bloquea', numCta: '105-001',
+        messageKey: { key: 'migration.opening.receivable_rate_missing', params: { document: 'A-1', counterparty: 'Aceros del Norte SA' } },
+      }),
+      expect.objectContaining({
+        regla: 'APE-CXC-SIN-TASA',
+        messageKey: { key: 'migration.opening.receivable_rate_missing', params: { document: 'A-2', counterparty: 'Aceros del Norte SA' } },
+      }),
+    ]);
+    expect(required.drafts.map((x) => x.number)).toEqual(['A-3']);
+
+    const assumed = planOpeningInvoices(plan(docs), { ...CTX, ivaPolicy: 'assume_zero_rate' });
+    expect(assumed.findings).toEqual([
+      expect.objectContaining({
+        regla: 'APE-CXC-TASA-SUPUESTA', severidad: 'aviso', numCta: '105-001',
+        messageKey: { key: 'migration.opening.receivable_rate_assumed', params: { count: 2, documents: 'A-1, A-2' } },
+      }),
+    ]);
+    expect(assumed.drafts.map((x) => x.iva)).toEqual([ZERO_RATE, ZERO_RATE, expect.objectContaining({ factorType: 'exento', taxRatePct: null })]);
+  });
+
+  it('a rate that is not a TasaOCuota blocks under either answer', () => {
+    for (const ivaPolicy of ['require_rate', 'assume_zero_rate'] as const) {
+      const r = planOpeningInvoices(plan([doc({ documento: 'A-1', ivaRate: '16' })]), { ...CTX, ivaPolicy });
+      expect(r.findings).toEqual([
+        expect.objectContaining({
+          regla: 'APE-CXC-TASA-INVALIDA', severidad: 'bloquea',
+          messageKey: { key: 'migration.opening.receivable_rate_invalid', params: { document: 'A-1', rate: '16' } },
+        }),
+      ]);
+      expect(r.drafts).toEqual([]);
+    }
+  });
+
+  it('IVA the opening does not park blocks, naming the account and both figures; a debit on it counts against', () => {
+    const parked = (credit: string | null, debit: string | null = null) =>
+      planOpeningInvoices(withPending([A123], credit, debit), CTX).findings;
+    expect(parked('15999.9900')).toEqual([
+      expect.objectContaining({
+        regla: 'APE-CXC-IVA-SIN-SALDO', severidad: 'bloquea', numCta: '209-001',
+        messageKey: {
+          key: 'migration.opening.receivable_iva_not_parked',
+          params: { tax: '16000.00', parked: '15999.99', account: '209-001', role: 'iva_trasladado_no_cobrado' },
+        },
+      }),
+    ]);
+    // The account against its nature holds nothing to release: -500.00.
+    expect(parked(null, '500.0000')[0].messageKey?.params).toMatchObject({ parked: '-500.00' });
+    expect(parked('16000.0000')).toEqual([]);
+    // More parked than the documents carry is the firm's other uncollected IVA: fine.
+    expect(parked('20000.0000')).toEqual([]);
+  });
+
+  it('with no account under the pending-IVA role, the block names the role instead', () => {
+    const r = planOpeningInvoices(withPending([A123], '16000.0000'), { ...CTX, pendingIvaCode: null });
+    expect(r.findings).toEqual([
+      expect.objectContaining({
+        regla: 'APE-CXC-IVA-SIN-SALDO', numCta: '105-001',
+        messageKey: { key: 'migration.opening.receivable_iva_no_role', params: { tax: '16000.00', role: 'iva_trasladado_no_cobrado' } },
+      }),
+    ]);
+    // Documents at 0 % or exempt carry no IVA, so nothing has to be parked anywhere.
+    const untaxed = plan([doc({ documento: 'A-1' }), doc({ documento: 'A-2', ivaRate: 'exento' })]);
+    expect(planOpeningInvoices(untaxed, { ...CTX, pendingIvaCode: null }).findings).toEqual([]);
+  });
+
+  it('off Mexican books nothing changes: no rate is asked for or read, and no line is planned', () => {
+    const r = planOpeningInvoices(
+      plan([doc({ documento: 'A-1', ivaRate: undefined }), doc({ documento: 'A-2', ivaRate: '0.16' }), doc({ documento: 'A-3', ivaRate: 'sixteen' })]),
+      { ...CTX, cashBasisIva: false, pendingIvaCode: null }
+    );
+    expect(r.findings).toEqual([]);
+    expect(r.drafts.map((x) => [x.amount, x.iva])).toEqual([['4000.0000', null], ['4000.0000', null], ['4000.0000', null]]);
   });
 });

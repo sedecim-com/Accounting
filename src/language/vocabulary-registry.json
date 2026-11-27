@@ -2398,6 +2398,14 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_receivable_iva",
+      "es": "opening_receivable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the twin of `opening_payable_iva` for the AR side (`receivable`). Read by `importOpeningBalance` and applied by `planOpeningInvoices` (ar/opening-invoices.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "vat_overcredit_correction_period",
       "es": "vat_overcredit_correction_period",
       "en": null,
@@ -3071,6 +3079,22 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_receivable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the literal `openingReceivableIvaPolicy` (ar/opening-invoices.ts) reads; the load stops until each customer document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_receivable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the literal `openingReceivableIvaPolicy` (ar/opening-invoices.ts) compares; a customer document without a rate loads at 0 % with a warning."
     },
     {
       "class": "policy-value",
@@ -6225,6 +6249,30 @@
     },
     {
       "class": "policy-key",
+      "where": "bill_void_mirror_date",
+      "es": "bill_void_mirror_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-947): which date the mirror of a voided vendor bill's entry carries."
+    },
+    {
+      "class": "policy-value",
+      "where": "bill_void_mirror_date/void_date",
+      "es": "void_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the mirror is dated the day of the void, as `invoice void` dates its own."
+    },
+    {
+      "class": "policy-value",
+      "where": "bill_void_mirror_date/bill_date",
+      "es": "bill_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the mirror is dated the day of the bill's entry, and a period that is not open follows cfdi_periodo_cerrado."
+    },
+    {
+      "class": "policy-key",
       "where": "year_seal_with_unsealed_months",
       "es": "year_seal_with_unsealed_months",
       "en": null,
@@ -6596,6 +6644,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: each paycheck taxed on its own base alone, as the engine did before."
+    },
+    {
+      "class": "policy-key",
+      "where": "benefit_payment_against_provision",
+      "es": "benefit_payment_against_provision",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-878): whether aguinaldo, vacation days and vacation premium paid in a pay run settle the provision the close accrued."
+    },
+    {
+      "class": "policy-value",
+      "where": "benefit_payment_against_provision/consume_provision",
+      "es": "consume_provision",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the payment is debited to the provision up to what it holds, and only the excess is expense."
+    },
+    {
+      "class": "policy-value",
+      "where": "benefit_payment_against_provision/expense_on_payment",
+      "es": "expense_on_payment",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the whole gross is expense when paid; refused while the provision of a benefit the run pays carries a balance."
     },
     {
       "class": "policy-key",

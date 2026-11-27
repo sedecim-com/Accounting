@@ -1626,6 +1626,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 41,
   },
   {
+    // MNE-001-946 · #1078: the twin of `opening_payable_iva`. The reader is
+    // `importOpeningBalance` (opening-balance.ts), and `planOpeningInvoices`
+    // (ar/opening-invoices.ts) applies it to each receivable document that
+    // does not carry `ivaRate`.
+    key: 'opening_receivable_iva',
+    textKey: 'opening_receivable_iva',
+    category: 'fiscal',
+    question:
+      'When a migrated customer invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+    impact:
+      'A migrated customer invoice becomes an invoice to collect. With its IVA rate, the invoice carries its ' +
+      'base and the IVA not yet collected, on one line with that rate: the IVA that is caused when it is ' +
+      'collected and the rate the monthly IVA workpaper reads. Without the rate, "require_rate" stops the load ' +
+      'and names the documents; "assume_zero_rate" loads them at 0 %: they carry no IVA to cause and count as ' +
+      '0 % acts. The IVA of the documents must also be in the uncollected-IVA account of the opening.',
+    options: [
+      { value: 'require_rate', label: 'Stop the load until each customer document says its IVA rate' },
+      { value: 'assume_zero_rate', label: 'Load them at 0 % and warn: they carry no IVA to cause when they are collected' },
+    ],
+    defaultValue: 'require_rate',
+    defaultRationale:
+      'Under cash-basis IVA the tax of a credit sale is caused when it is collected (LIVA art. 1-B). An ' +
+      'invoice loaded at 0 % carries no IVA to cause, so what the previous system left as not yet collected ' +
+      'would never become due; asking for the rate costs one column in the file.',
+    whyAsking:
+      'The old system gives me what each customer still owes, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+    whatIDo:
+      'By default I stop the load and list the customer documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+    ifSkipped: 'I stop the load until each customer document says its IVA rate.',
+    priority: 41,
+  },
+  {
     // MNE-001-553 · #684: read by `createBillFromPreReg`
     // (xml-ingestion/pre-registration-service.ts), only when a line is left
     // with no account of its own, none for the document and no eligible suggestion.
@@ -2850,6 +2882,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 45,
   },
   {
+    // MNE-001-878 (#111) · The close accrues the year-end bonus, vacations and
+    // the vacation premium against 2202-2204 and the pay-run entry debited the
+    // whole gross to wages: the benefit was expensed twice. Reader:
+    // `readBenefitPayment` (payroll/common/benefit-payment.ts), through the
+    // entry of `pay-run post`.
+    key: 'benefit_payment_against_provision',
+    textKey: 'benefit_payment_against_provision',
+    category: 'contable',
+    question:
+      'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
+    impact:
+      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+    options: [
+      { value: 'consume_provision', label: 'Against the provision: the payment settles what the close accrued, and only the excess is expense' },
+      { value: 'expense_on_payment', label: 'Expense when paid: only for a firm that does not accrue these benefits' },
+    ],
+    defaultValue: 'consume_provision',
+    defaultRationale:
+      'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
+    whyAsking:
+      'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
+    whatIDo:
+      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+    ifSkipped: 'The payment consumes the provision first, and only the excess is expense.',
+    priority: 45,
+  },
+  {
     // T13 · Se añade al final, que es donde crece el catálogo.
     //
     // LA MITAD QUE NO SE PREGUNTA. La balanza y el estado de resultados
@@ -3175,6 +3234,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'With "undo_month" I take the undone IVA out in the month of the undo. With "payment_month" I count it in no month, and name, in the notice and the tie-out of both months, the amended return the month of the payment needs.',
     ifSkipped: 'I take it out in the month of the undo.',
     priority: 61,
+  },
+  {
+    // MNE-001-947 (#1079) · The date of the mirror `bill void` posts. The
+    // entry is the same under either answer; the answer decides its month.
+    // Reader: `voidBill` (ap/bill-service.ts), once for each void.
+    key: 'bill_void_mirror_date',
+    textKey: 'bill_void_mirror_date',
+    category: 'contable',
+    question: 'An approved vendor bill is voided: which date does the mirror of its entry carry?',
+    impact:
+      'Governs `bill void`; bill-service.ts reads it once for each void. Under either answer the mirror takes back every line of the bill\'s entry: the expense, the payable and the IVA parked in 1135. ' +
+      'With "void_date" the mirror is dated the day of the void in the entity\'s time zone, as `invoice void` dates its own, so no month already closed or declared moves. ' +
+      'With "bill_date" the mirror is dated the day of the bill\'s entry, so the bill\'s month reads as if the bill had never been; when no open period holds that day, the key cfdi_periodo_cerrado decides, and only its answer "periodo_actual" dates the mirror the day of the void: under any other answer the void is refused and nothing is written.',
+    options: [
+      { value: 'void_date', label: 'The day of the void, as `invoice void` does' },
+      { value: 'bill_date', label: 'The day of the bill\'s entry, as if the bill had never been' },
+    ],
+    defaultValue: 'void_date',
+    defaultRationale:
+      'A posted entry is corrected by a reversal and never edited (NIF B-1, as migration 041 and the accounting manual of this system carry it), and the reversal is an act of the day it is made. ' +
+      'Dating the mirror that day changes no month already closed or declared, the conservative option of ADR-0006. ' +
+      'A CFDI can be cancelled until the month the annual return of its year is due (CFF art. 29-A, as the payables manual of this system quotes it), so a cancellation can arrive after the bill\'s month was declared. ' +
+      'Reading the cancelled CFDI as never issued and dating the mirror with the bill is also accepted; in a month already declared it takes an amended return (CFF art. 32).',
+    whyAsking:
+      'When a vendor cancels a CFDI you already approved, some firms take the expense out on the day they learn of it; others take it out of the month it was booked in and amend that month. The entry is the same either way.',
+    whatIDo:
+      'With "void_date" I date the mirror the day you void the bill. With "bill_date" I date it the day of the bill\'s entry, and when that period is not open I follow cfdi_periodo_cerrado.',
+    ifSkipped: 'I date the mirror the day of the void.',
+    priority: 62,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

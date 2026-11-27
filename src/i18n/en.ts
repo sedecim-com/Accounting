@@ -865,6 +865,14 @@ export const EN = {
   'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
     'The policy `convencion_primer_mes` is set to "{value}", which is neither of the two possible conventions ({known}). Correct it with `mnemosine pending reopen convencion_primer_mes` (if it was already defined) and then `mnemosine pending define convencion_primer_mes` before running the depreciation.',
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'The tenant of entity {entityId} could not be determined.',
+  // ---- MNE-001-881 · units of production: refused at registration, skipped by the run (issue #1069) ----
+  /** `asset create`: `book` says which of the two methods asked for it, `book` or `tax`. */
+  'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
+    'The {book, select, tax {tax} other {book}} depreciation method cannot be units_of_production yet: nothing captures the production of the period, so the monthly run could not compute a single row for this asset. Choose another method (straight_line when none is given). Nothing was registered.',
+  /** `depreciation post`: one line per asset the run skipped because it depreciates by units of production. */
+  'assets.depreciation.skipped_units_of_production':
+    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create); the close counts it under `depreciacion_faltante_al_cierre`.',
+  // ---- end of MNE-001-881 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */
@@ -1946,6 +1954,25 @@ export const EN = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
 
+  // ---- MNE-001-946 (#1078): the twin of opening_payable_iva for the receivable documents ----
+  'policy.opening_receivable_iva.question':
+    'When a migrated customer invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+  'policy.opening_receivable_iva.impact':
+    'A migrated customer invoice becomes an invoice to collect. With its IVA rate, the invoice carries its base and the IVA not yet collected, on one line with that rate: the IVA that is caused when it is collected and the rate the monthly IVA workpaper reads. Without the rate, "require_rate" stops the load and names the documents; "assume_zero_rate" loads them at 0 %: they carry no IVA to cause and count as 0 % acts. The IVA of the documents must also be in the uncollected-IVA account of the opening.',
+  'policy.opening_receivable_iva.rationale':
+    'Under cash-basis IVA the tax of a credit sale is caused when it is collected (LIVA art. 1-B). An invoice loaded at 0 % carries no IVA to cause, so what the previous system left as not yet collected would never become due; asking for the rate costs one column in the file.',
+  'policy.opening_receivable_iva.why':
+    'The old system gives me what each customer still owes, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+  'policy.opening_receivable_iva.what':
+    'By default I stop the load and list the customer documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+  'policy.opening_receivable_iva.if_skipped':
+    'I stop the load until each customer document says its IVA rate.',
+  'policy.opening_receivable_iva.option.require_rate':
+    'Stop the load until each customer document says its IVA rate',
+  'policy.opening_receivable_iva.option.assume_zero_rate':
+    'Load them at 0 % and warn: they carry no IVA to cause when they are collected',
+  // ---- end of MNE-001-946 ----
+
   'policy.received_line_without_account.question':
     'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
   'policy.received_line_without_account.impact':
@@ -2667,6 +2694,27 @@ export const EN = {
     'With every pay run, next to the payroll that caused it',
   'policy.employer_contribution_accrual.option.mensual_al_cierre':
     'Once a month, matching how they are actually paid',
+
+  // ---- MNE-001-878 (#111): a benefit paid in a pay run consumes its provision ----
+  'policy.benefit_payment_against_provision.question':
+    'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
+  'policy.benefit_payment_against_provision.impact':
+    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+  'policy.benefit_payment_against_provision.rationale':
+    'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
+  'policy.benefit_payment_against_provision.why':
+    'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
+  'policy.benefit_payment_against_provision.what':
+    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+  'policy.benefit_payment_against_provision.if_skipped':
+    'The payment consumes the provision first, and only the excess is expense.',
+  'policy.benefit_payment_against_provision.option.consume_provision':
+    'Against the provision: the payment settles what the close accrued, and only the excess is expense',
+  'policy.benefit_payment_against_provision.option.expense_on_payment':
+    'Expense when paid: only for a firm that does not accrue these benefits',
+  'payroll.benefit_payment.expensed_while_accrued':
+    'The policy {key} says a benefit is expense when paid, and this run pays one whose provision (account {account}) carries {balance} accrued: expensing the payment would count the benefit twice. Nothing was written. Answer {key} with consume_provision in mnemosine pending, or reverse the accrual first if the firm does not accrue.',
+  // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':
     'Once an account is archived, does it keep its row in a trial balance where it has nothing to show?',
@@ -6972,6 +7020,27 @@ export const EN = {
     'load leaves it out of the entry and names it ({doctrine}).',
   'migration.opening.memorandum_excluded_header':
     'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
+  // ---- MNE-001-946 (#1078): the IVA inside an open receivable of the opening ----
+  'migration.opening.receivable_rate_invalid':
+    '"{document}" carries ivaRate "{rate}". The TasaOCuota of the CFDI is expected (0.16, 0.08, 0) or "exento".',
+  'migration.opening.receivable_rate_missing':
+    '"{document}" of {counterparty} does not say its IVA rate (ivaRate). The IVA of a sale not yet collected is ' +
+    'caused when it is collected (LIVA art. 1-B): without the rate the invoice carries no IVA to cause, and what ' +
+    'the opening holds as not yet collected would stay there. Add ivaRate (0.16, 0.08, 0 or "exento"), or decide ' +
+    'otherwise in the policy opening_receivable_iva.',
+  'migration.opening.receivable_rate_assumed':
+    '{count} customer document(s) without ivaRate come in at 0 % (opening_receivable_iva = assume_zero_rate): ' +
+    'they carry no IVA to cause when they are collected: {documents}.',
+  'migration.opening.receivable_iva_no_role':
+    'The customer invoices carry {tax} of IVA not yet collected and no account has the role "{role}". Each ' +
+    'collection would release IVA the ledger never parked. Point the role at the uncollected-IVA account of the ' +
+    'trial balance (mnemosine account role set {role} <account>) or correct the rate of the documents.',
+  'migration.opening.receivable_iva_not_parked':
+    'The customer invoices carry {tax} of IVA not yet collected and the opening only puts {parked} on ' +
+    '"{account}", the account with the role "{role}". Each collection would release IVA the ledger never parked. ' +
+    'Point the role at the uncollected-IVA account of the trial balance (mnemosine account role set {role} ' +
+    '<account>) or correct the rate of the documents.',
+  // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -8385,6 +8454,29 @@ export const EN = {
   'help.bill.inbox.run.option.note': 'annotation stored with the approval',
   'help.bill.inbox.run.option.dry_run': 'compute and show the full effect; write nothing',
   'help.bill.inbox.run.option.json': 'JSON output',
+  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  'bill.void.settled':
+    '{bill} is not owed whole: {applications, plural, =0 {no payment application} one {# payment application} other {# payment applications}} and {notes, plural, =0 {no received credit note or VAT correction} one {# received credit note or VAT correction} other {# received credit notes or VAT corrections}} still stand on it. Undo each application first with `payment unapply <payment> --bill {bill} --reason "<why>"`; a bill that a received credit note lowered, or whose VAT a correction moved, is not voided while that entry stands. Nothing was written.',
+  'bill.void.not_voidable': '{bill} is {status}: only a bill that is approved and owed whole is voided. Nothing was written.',
+  'bill.void.opening':
+    '{bill} came in with the opening balance and shares its entry: voiding it would reverse the whole opening. Reverse the opening and load it again without this document. Nothing was written.',
+  'bill.void.closed_period':
+    'The entry of {bill} is dated {date}, in a period that is not open, and bill_void_mirror_date says its mirror takes that date. Answer the closed-period policy to date it today (`mnemosine pending define cfdi_periodo_cerrado periodo_actual`), or reopen the period. Nothing was written.',
+  'bill.void.race': '{bill} changed while it was being voided; nothing was written.',
+  'policy.bill_void_mirror_date.question': 'An approved vendor bill is voided: which date does the mirror of its entry carry?',
+  'policy.bill_void_mirror_date.impact':
+    'Governs `bill void`; bill-service.ts reads it once for each void. Under either answer the mirror takes back every line of the bill\'s entry: the expense, the payable and the IVA parked in 1135. With "void_date" the mirror is dated the day of the void in the entity\'s time zone, as `invoice void` dates its own, so no month already closed or declared moves. With "bill_date" the mirror is dated the day of the bill\'s entry, so the bill\'s month reads as if the bill had never been; when no open period holds that day, the key cfdi_periodo_cerrado decides, and only its answer "periodo_actual" dates the mirror the day of the void: under any other answer the void is refused and nothing is written.',
+  'policy.bill_void_mirror_date.rationale':
+    'A posted entry is corrected by a reversal and never edited (NIF B-1, as migration 041 and the accounting manual of this system carry it), and the reversal is an act of the day it is made. Dating the mirror that day changes no month already closed or declared, the conservative option of ADR-0006. A CFDI can be cancelled until the month the annual return of its year is due (CFF art. 29-A, as the payables manual of this system quotes it), so a cancellation can arrive after the bill\'s month was declared. Reading the cancelled CFDI as never issued and dating the mirror with the bill is also accepted; in a month already declared it takes an amended return (CFF art. 32).',
+  'policy.bill_void_mirror_date.why':
+    'When a vendor cancels a CFDI you already approved, some firms take the expense out on the day they learn of it; others take it out of the month it was booked in and amend that month. The entry is the same either way.',
+  'policy.bill_void_mirror_date.what':
+    'With "void_date" I date the mirror the day you void the bill. With "bill_date" I date it the day of the bill\'s entry, and when that period is not open I follow cfdi_periodo_cerrado.',
+  'policy.bill_void_mirror_date.if_skipped': 'I date the mirror the day of the void.',
+  'policy.bill_void_mirror_date.option.void_date': 'The day of the void, as `invoice void` does',
+  'policy.bill_void_mirror_date.option.bill_date': 'The day of the bill\'s entry, as if the bill had never been',
+  // ---- end of MNE-001-947 ----
   'help.vendor.description': 'Vendor master: who we owe money to, on what terms, under which tax id',
   'help.vendor.list.description': 'List vendors, filtered by state, 1099 flag or a missing tax id',
   'help.vendor.list.argument.search': 'match against company name or vendor number',
@@ -8429,6 +8521,28 @@ export const EN = {
     'Vendor {number} already has the tax id {taxId} under that type: there is nothing to correct. Nothing was written.',
   'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
     'The tax id {taxId} already belongs to vendor {number} of this entity. Two vendors with one tax id are one taxpayer twice: correct the right record. Nothing was written.',
+  // Part 2: the leaf `vendor tax set`, its help, its footer and its receipt.
+  'help.vendor.tax.description': 'The tax id a vendor is identified by',
+  'help.vendor.tax.set.description':
+    'Correct the tax id of a vendor, with the reason and an audit row that keeps the old and the new value; no posted document is rewritten',
+  'help.vendor.tax.set.argument.vendor': 'vendor number, name or id',
+  'help.vendor.tax.set.option.tax_id': 'the correct RFC (Mexico), EIN (USA) or VAT number; its shape is validated before anything is written (required)',
+  'help.vendor.tax.set.option.tax_id_type': "{types} (defaults to the type the vendor has, then to the entity's country)",
+  'help.vendor.tax.set.option.json': 'JSON output',
+  'help.vendor.tax.set.footer':
+    'This changes one row of the vendor master and writes its audit row: the old tax id, the new one, who and why.\n' +
+    'No bill, payment or entry is rewritten. The DIOT and the Anexo 24 vouchers file read the tax id when they are generated, so generate them again after the correction.\n' +
+    'It is refused when the tax id is malformed or when another vendor of the entity already carries it.\n' +
+    '\nExamples:\n' +
+    '  A vendor captured without RFC, which the DIOT reports as DIOT-SIN-RFC:\n' +
+    '    mnemosine vendor tax set "Papeleria del Centro" --tax-id PCE180412TF4 --reason "Tax status certificate of July"\n' +
+    '  A US vendor of a Mexican entity, saying which rule applies, as JSON:\n' +
+    '    mnemosine vendor tax set "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --reason "W-9 received" --json',
+  /** The receipt of `vendor tax set`. `had` is `none` when the vendor had no tax id. */
+  'ap.vendor.tax.set.done':
+    '{vendor}: the tax id is now {taxId} ({type}); {had, select, none {it had none} other {it was {previous}}}.',
+  'ap.vendor.tax.set.posted':
+    'This vendor has {bills, plural, one {# posted bill} other {# posted bills}} and {payments, plural, one {# posted payment} other {# posted payments}}: none was rewritten. What is generated from now on (the DIOT, the Anexo 24 vouchers file) reads the new tax id; a file already generated keeps the one it was generated with.',
   // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   //

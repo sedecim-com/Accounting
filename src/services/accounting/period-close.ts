@@ -17,12 +17,18 @@ import {
   type DeferredRevenueBacking,
   type RevisionDeCierre,
 } from '../accruals/prepaid-service.js';
-import { LIVE_ROW } from '../assets/depreciation.js';
+import { LIVE_ROW, metodoDeLaBase, unitsOfProductionNote, type BaseDepreciacion } from '../assets/depreciation.js';
 import { queryAccumulatedBalances } from '../reporting/report-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
-import { FiscalPeriodStatus } from '../../types/index.js';
-import type { FiscalPeriod, JournalEntry, JournalEntryType } from '../../types/index.js';
+import { DepreciationMethod, FiscalPeriodStatus } from '../../types/index.js';
+import type { FiscalPeriod, FixedAsset, JournalEntry, JournalEntryType } from '../../types/index.js';
+
+/** MNE-001-881 · An owing asset with units of production on either book, as the box reads it. */
+type UnitsCandidate = Pick<
+  FixedAsset,
+  'asset_number' | 'asset_name' | 'depreciation_method' | 'book_depreciation_method' | 'tax_depreciation_method'
+>;
 
 /**
  * EL ORIGEN QUE A LOS ASIENTOS DE CIERRE LES FALTABA.
@@ -973,20 +979,50 @@ export async function getPeriodCloseStatus(
   //
   // MNE-001-646 · A month is depreciated while the ledger backs its row
   // (`LIVE_ROW`): a reversed or voided entry leaves the asset owing it.
-  const undepreciatedAssets = await q<{ total: string; registered: string; sin_depreciar: string }>(
-    `SELECT COUNT(*) FILTER (WHERE fa.status = 'active') as total,
+  //
+  // MNE-001-881 · The same read brings the owing assets that carry units of
+  // production on either book, so the box can name them. `owes` is computed
+  // once per asset; the order is written into the SQL (COLLATE "C").
+  const undepreciatedAssets = await q<{
+    total: string;
+    registered: string;
+    sin_depreciar: string;
+    por_unidades: UnitsCandidate[];
+  }>(
+    `SELECT COUNT(*) FILTER (WHERE a.active) as total,
             COUNT(*) as registered,
-            COUNT(*) FILTER (WHERE fa.status = 'active' AND NOT EXISTS (
-              SELECT 1 FROM depreciation_schedules ds
-              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW}
-            )) as sin_depreciar
-     FROM fixed_assets fa
-     WHERE fa.entity_id = $1`,
+            COUNT(*) FILTER (WHERE a.owes) as sin_depreciar,
+            COALESCE(json_agg(json_build_object(
+              'asset_number', a.asset_number, 'asset_name', a.asset_name,
+              'depreciation_method', a.depreciation_method,
+              'book_depreciation_method', a.book_depreciation_method,
+              'tax_depreciation_method', a.tax_depreciation_method
+            ) ORDER BY a.asset_number COLLATE "C") FILTER (WHERE a.owes AND 'units_of_production' IN
+              (a.depreciation_method, a.book_depreciation_method, a.tax_depreciation_method)), '[]') as por_unidades
+     FROM (
+       SELECT fa.asset_number, fa.asset_name, fa.depreciation_method,
+              fa.book_depreciation_method, fa.tax_depreciation_method,
+              fa.status = 'active' AS active,
+              fa.status = 'active' AND NOT EXISTS (
+                SELECT 1 FROM depreciation_schedules ds
+                WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ${LIVE_ROW}
+              ) AS owes
+         FROM fixed_assets fa
+        WHERE fa.entity_id = $1
+     ) a`,
     [entityId, periodId]
   );
   const totalActivos = parseInt(undepreciatedAssets.rows[0].total, 10);
   const registeredAssets = parseInt(undepreciatedAssets.rows[0].registered, 10);
   const undepCount = parseInt(undepreciatedAssets.rows[0].sin_depreciar, 10);
+  // Which of the two methods governs is the panel's answer, read only when
+  // there is a candidate: a firm without such an asset pays no extra query.
+  let byUnits = undepreciatedAssets.rows[0].por_unidades;
+  if (byUnits.length > 0) {
+    const basis = (await getPolicy(ctxPanel, 'base_depreciacion')).value as BaseDepreciacion;
+    byUnits = byUnits.filter((a) => metodoDeLaBase(a, basis) === DepreciationMethod.UNITS_OF_PRODUCTION);
+  }
+  const unitsNote = byUnits.length > 0 ? unitsOfProductionNote(byUnits) : null;
   // ACT-2 (#322): an empty register is only "nothing to check" when the
   // ledger agrees. Fixed assets on the balance sheet with no asset registered
   // means the month was never depreciated, and that is a finding, not a pass.
@@ -1017,13 +1053,13 @@ export async function getPeriodCloseStatus(
       : totalActivos === 0
         ? '0 activos fijos registrados: no se pudo comprobar'
         : undepCount > 0
-          ? `${undepCount} assets without depreciation`
+          ? `${undepCount} assets without depreciation${unitsNote ? `; ${unitsNote}` : ''}`
           : undefined,
   });
   if (undepCount > 0) {
-    (depreciationSeverity === 'blocking' ? blocking_issues : warnings).push(
-      `${undepCount} assets without depreciation posted`
-    );
+    const findings = depreciationSeverity === 'blocking' ? blocking_issues : warnings;
+    findings.push(`${undepCount} assets without depreciation posted`);
+    if (unitsNote) findings.push(unitsNote);
   }
   if (unregistered) {
     warnings.push(

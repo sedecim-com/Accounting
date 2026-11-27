@@ -26,6 +26,7 @@ import {
   rollUpTrialBalanceRows,
 } from '../reporting/report-service.js';
 import {
+  openingReceivableIvaPolicy,
   prepareOpeningInvoices,
   skippedUnderDraftMode,
   writeOpeningInvoices,
@@ -183,9 +184,11 @@ export interface OpeningDocument {
   /** Counterparty RFC: finds the existing customer or vendor before one is created. */
   rfc?: string;
   /**
-   * Payables only (MNE-001-023): the IVA rate inside the open balance, as the
-   * CFDI's TasaOCuota ('0.16', '0.08', '0') or 'exento'. Without it the panel
-   * key `opening_payable_iva` decides (`opening-bills.ts`).
+   * The IVA rate inside the open balance of a payable (MNE-001-023) or a
+   * receivable (MNE-001-946), as the CFDI's TasaOCuota ('0.16', '0.08', '0')
+   * or 'exento'. Without it the panel key of its side decides:
+   * `opening_payable_iva` (`opening-bills.ts`) or `opening_receivable_iva`
+   * (`opening-invoices.ts`).
    */
   ivaRate?: string;
 }
@@ -1116,6 +1119,12 @@ export const OPENING_LOAD_MODE_POLICY_KEY = 'apertura_modo_de_carga';
  */
 export const OPENING_PAYABLE_IVA_POLICY_KEY = 'opening_payable_iva';
 
+/**
+ * Its twin for a receivable document (MNE-001-946);
+ * `openingReceivableIvaPolicy` (ar/opening-invoices.ts) reads its answer.
+ */
+export const OPENING_RECEIVABLE_IVA_POLICY_KEY = 'opening_receivable_iva';
+
 /** `post` unless the key says exactly `borrador`: an unknown value falls to the default. */
 export type OpeningLoadMode = 'post' | 'draft';
 
@@ -1239,7 +1248,14 @@ export async function importOpeningBalance(
   // before its balance is in the ledger.
   const arInvoicePlan =
     loadMode === 'post'
-      ? await prepareOpeningInvoices(opts.entityId, plan)
+      ? await prepareOpeningInvoices(
+          opts.entityId,
+          plan,
+          openingReceivableIvaPolicy(
+            (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_RECEIVABLE_IVA_POLICY_KEY))
+              .value
+          )
+        )
       : skippedUnderDraftMode(plan);
   // MNE-001-023: the mirror for the payable documents, under the same rule.
   const apBillPlan =

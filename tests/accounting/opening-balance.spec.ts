@@ -13,6 +13,7 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
   attestEntryAsync: vi.fn(),
 }));
 vi.mock('../../src/services/ar/opening-invoices.js', () => ({
+  openingReceivableIvaPolicy: (value: string) => (value === 'assume_zero_rate' ? value : 'require_rate'),
   prepareOpeningInvoices: vi.fn(),
   skippedUnderDraftMode: vi.fn(),
   writeOpeningInvoices: vi.fn(),
@@ -1594,11 +1595,25 @@ describe('importOpeningBalance · the AR invoices of the opening (MNE-001-022)',
     const r = await importOpeningBalance(CTX, OPTS);
     expect(r.escrito).toBe(true);
     expect(r.arInvoices).toBe(2);
-    expect(mockPrepareInvoices).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }));
+    expect(mockPrepareInvoices).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }), 'require_rate');
     expect(mockWriteInvoices).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', DRAFTS);
     const auditEntry = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
     expect(auditEntry.newValues.ar_invoices).toBe(2);
     expect(renderOpeningBalanceReport(r)).toContain('2 factura(s) de clientes entran al auxiliar de CxC');
+  });
+
+  it('reads opening_receivable_iva for THIS entity and hands its answer to the invoices plan (MNE-001-946)', async () => {
+    mockPolicy.mockImplementation(async (_scope: unknown, key: string) => ({
+      key,
+      value: key === 'opening_receivable_iva' ? 'assume_zero_rate' : 'contabilizar',
+      defined: true,
+    }));
+    mockPrepareInvoices.mockResolvedValue({ drafts: [], findings: [] });
+    await importOpeningBalance(CTX, OPTS);
+    expect(mockPolicy).toHaveBeenCalledWith({ tenantId: CTX.tenantId, entityId: 'ent-1' }, 'opening_receivable_iva');
+    expect(mockPrepareInvoices).toHaveBeenCalledWith('ent-1', expect.anything(), 'assume_zero_rate');
+    // The payable key keeps its own answer: one key per side.
+    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.anything(), 'require_rate');
   });
 
   it('a blocking finding of the invoices stops the whole load: no entry, no invoice', async () => {

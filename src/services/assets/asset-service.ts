@@ -513,6 +513,23 @@ interface FilaActivo {
 }
 
 /**
+ * MNE-001-881 (#1069) · UNITS OF PRODUCTION IS REFUSED AT REGISTRATION, on
+ * either book, whether typed or inherited from the class. Nothing captures
+ * the period's production yet, so the monthly run could never compute a row
+ * for such an asset. A declared limit of this release, not a criterion: it
+ * goes away with the capture.
+ */
+export function refuseUnitsOfProduction(book: DepreciationMethod, tax: DepreciationMethod): void {
+  const units = DepreciationMethod.UNITS_OF_PRODUCTION;
+  const side = book === units ? 'book' : tax === units ? 'tax' : null;
+  if (side === null) return;
+  throw new ValidationError(
+    { key: 'error.VALIDATION_ERROR.asset.units_of_production_unsupported', params: { book: side } },
+    `${side}_depreciation_method`
+  );
+}
+
+/**
  * Da de alta un activo fijo. NO postea: ver el bloque «LA COMPRA YA ESTÁ EN EL
  * MAYOR».
  */
@@ -585,6 +602,7 @@ export async function crearActivo(
     // de la inversión: eso es línea recta y no admite otra cosa. El campo
     // sigue siendo parametrizable porque el esquema es multipaís.
     const metodoFiscal = datos.tax_depreciation_method ?? DepreciationMethod.STRAIGHT_LINE;
+    refuseUnitsOfProduction(metodoContable, metodoFiscal);
     const metodoQueRige = base.value === 'tasa_lisr' ? metodoFiscal : metodoContable;
 
     // La convención decide desde qué día corre la primera cuota; ver

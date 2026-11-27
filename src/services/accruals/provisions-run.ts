@@ -105,9 +105,10 @@ function fechaISO(f: Date): string {
  * siembran en `account-roles-seed.ts` para toda entidad mexicana.
  */
 const ROL_GASTO = 'provision_prestaciones_gasto';
-const ROL_AGUINALDO = 'provision_aguinaldo';
-const ROL_VACACIONES = 'provision_vacaciones';
-const ROL_PRIMA = 'provision_prima_vacacional';
+// Exported for the pay-run entry, which debits what this run credits (MNE-001-878).
+export const ROL_AGUINALDO = 'provision_aguinaldo';
+export const ROL_VACACIONES = 'provision_vacaciones';
+export const ROL_PRIMA = 'provision_prima_vacacional';
 
 export interface CuentasDeProvision {
   gasto: string;

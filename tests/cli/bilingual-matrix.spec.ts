@@ -258,7 +258,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // F06b: la reapertura auditada del periodo cerrado gana su hoja.
   period: { list: 'listar', show: 'ver', open: 'abrir', reopen: 'reabrir' },
   year: { list: 'listar', show: 'ver', create: 'crear' },
-  vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos' },
+  // MNE-001-664: `vendor tax set`, under the alias of `customer tax`.
+  vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos', tax: 'fiscal' },
   bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
   customer: {
     list: 'listar', show: 'ver', create: 'crear', edit: 'editar',

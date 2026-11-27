@@ -666,6 +666,19 @@ export function registerDepreciationCommand(
         );
       }
       for (const e of resultado.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
+      // MNE-001-881 · An asset by units of production is skipped, never in
+      // silence. `?? []`: a result recorded under an idempotency key before
+      // this field existed is replayed as it was stored.
+      for (const s of resultado.skipped ?? []) {
+        err.write(
+          deps.palette.yellow(
+            `  ⚠ ${t('assets.depreciation.skipped_units_of_production', {
+              asset: `${s.asset_number} ${s.asset_name}`,
+              period: plan.periodo,
+            })}\n`
+          )
+        );
+      }
       err.write(
         deps.palette.green(
           `✔ ${t('assets.depreciation.done', {
