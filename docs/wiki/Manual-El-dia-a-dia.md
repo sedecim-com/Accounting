@@ -281,7 +281,7 @@ npm run mnemosine -- bill approve F-0001
 
 **Qué vas a ver.** Una confirmación con el número de la factura, su importe y su moneda. Contesta `y`.
 
-**Qué hacer si sale distinto.** Una factura ya aprobada **no se puede editar ni anular**: no existen `bill edit` ni `bill void`. Si la aprobaste con el importe mal, la única salida es reversar su asiento (`entry reverse`) y capturar otra factura. Quedan tres asientos y dos facturas para un solo documento; es feo, pero es el rastro correcto.
+**Qué hacer si sale distinto.** Una factura ya aprobada **no se puede editar**, pero sí anular mientras se deba entera: `bill void <factura> --reason "..."` enseña la póliza espejo, pregunta, y al contestar `y` la contabiliza y deja la factura anulada; después capturas otra. Si ya tiene pagos aplicados, primero se desaplican con `payment unapply`; si la bajó una nota de crédito recibida o entró con los saldos de apertura, el sistema se niega y dice por qué. Quedan tres asientos y dos facturas para un solo documento; es feo, pero es el rastro correcto.
 
 ### Una factura de cliente
 
@@ -537,7 +537,7 @@ La regla del sistema, que es la regla del oficio: **una póliza contabilizada no
 | Póliza **contabilizada** mal | `entry reverse <folio> --reason "..."` y captura la correcta |
 | Factura de cliente local, sin timbrar ni cobrar | `invoice void <folio> --reason "..."` |
 | Factura de cliente **ya timbrada** | Cancelar en el PAC, después `entry reverse` con el acuse en el motivo |
-| Factura de proveedor **ya aprobada** | No hay `bill void`: `entry reverse` de su asiento y captura otra factura |
+| Factura de proveedor **ya aprobada**, que se debe entera | `bill void <factura> --reason "..."` (contabiliza el espejo) y captura otra factura |
 | Renglón mal codificado en una factura **no aprobada** | `bill line set <factura> --line <n> --account <cuenta>` |
 
 ```bash
