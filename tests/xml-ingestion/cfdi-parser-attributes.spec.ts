@@ -50,7 +50,7 @@ describe('CFDIParser · SAT keys and identifiers keep their leading zeros (#299)
     ['Comprobante/Folio', cfdi.folio, '000123'],
     ['Comprobante/FormaPago', cfdi.formaPago, '03'],
     ['Comprobante/LugarExpedicion', cfdi.lugarExpedicion, '01000'],
-    ['CfdiRelacionados/TipoRelacion', cfdi.cfdiRelacionados?.tipoRelacion, '07'],
+    ['CfdiRelacionados/TipoRelacion', cfdi.cfdiRelacionados[0]?.tipoRelacion, '07'],
     ['Receptor/DomicilioFiscalReceptor', cfdi.receptor.domicilioFiscalReceptor, '01000'],
     ['Concepto/ClaveProdServ', item.claveProdServ, '01010101'],
     ['Concepto/NoIdentificacion', item.noIdentificacion, '000789'],

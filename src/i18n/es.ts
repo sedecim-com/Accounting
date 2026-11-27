@@ -682,7 +682,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'No se pudo determinar el inquilino de la entidad {entityId}.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC{reason, select, applies_advance {} other { a mano}}: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
   'error.ISSUED_CFDI_PPD_IEPS':
     'El CFDI {uuid} es una venta PPD que traslada IEPS ({ieps}): ese IEPS se causa al cobro (LIEPS art. 10) y espera en el rol {role} (2181), que no tiene cuenta en esta entidad. Añádela con: npm run backfill:account-roles -- --aplicar. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':

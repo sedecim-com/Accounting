@@ -7,7 +7,7 @@ import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
 import { entityUsesCashBasisIva, receivedVatStillParked, reclassRoles } from '../accounting/iva-cash-basis.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { CFDIParser } from './cfdi-parser.js';
-import { extractFacts } from './cfdi-facts.js';
+import { extractFacts, relatedUuids } from './cfdi-facts.js';
 import {
   PAYABLE, VENDOR_CREDIT_NOTE_SOURCE, noteVat, refusalOf, splitNoteVat, spreadCost,
   type ReceivedCreditNoteCost, type RelatedBill,
@@ -52,7 +52,7 @@ export async function postReceivedCreditNote(
                  FROM bill_lines bl WHERE bl.bill_id = b.id) AS lines
          FROM bills b JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
         WHERE b.entity_id = $1 AND upper(b.cfdi_uuid) = ANY($2::text[]) FOR UPDATE OF b`,
-      [entityId, note.uuidsRelacionados.map((uuid) => uuid.toUpperCase()), source.currency]
+      [entityId, relatedUuids(note).map((uuid) => uuid.toUpperCase()), source.currency]
     );
     const [bill] = bills;
     const already = bills.length !== 1 ? null : await client.query<JournalEntry>(

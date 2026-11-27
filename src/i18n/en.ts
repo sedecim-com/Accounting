@@ -862,9 +862,9 @@ export const EN = {
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'The tenant of entity {entityId} could not be determined.',
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
-  /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
+  /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+    'CFDI {uuid} is not posted to receivables{reason, select, applies_advance {} other { by hand}}: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
   /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection, and this entity has no account for the role it waits in (MNE-001-505, #699). */
   'error.ISSUED_CFDI_PPD_IEPS':
     'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS is caused on collection (LIEPS art. 10) and waits in the role {role} (2181), which has no account on this entity. Add it with: npm run backfill:account-roles -- --aplicar. Nothing was posted.',

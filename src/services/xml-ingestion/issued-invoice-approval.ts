@@ -9,7 +9,7 @@ import { IEPS_DUE_ROLE, IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-ba
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { identityRfc } from '../ar/opening-invoices.js';
 import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
-import { extractImpuestosLocales } from './cfdi-facts.js';
+import { TIPO_RELACION, extractImpuestosLocales, hasRelation, relatedUuids } from './cfdi-facts.js';
 import { money, sumTax } from './cfdi-amounts.js';
 import type { ApprovedLine } from './pre-registration-service.js';
 
@@ -144,6 +144,11 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     cancelled is refused, in any letter case, naming that invoice. It is a
  *     read, not a constraint: a writer that does not take this
  *     pre-registration's lock is not serialised by it;
+ *   - the CFDI is a new sale by its relations, read from every
+ *     CfdiRelacionados node of the stored XML (CFDI 4.0 admits several,
+ *     cfdv40.xsd:39): one that applies an advance (TipoRelacion 07) is refused,
+ *     and so is a substitute (04) of a CFDI that is still a live invoice of
+ *     the entity (MNE-001-895);
  *   - the entry matches the CFDI figure by figure within
  *     `cfdi_tolerancia_cuadre`. The VAT must sit in the role the MetodoPago
  *     selects: a PPD parks it in iva_trasladado_no_cobrado, which is the
@@ -205,6 +210,27 @@ export async function registerIssuedInvoice(
   }
   const uuid = String(preReg.x_cfdi_uuid);
   const receiverRfc = String(preReg.x_receptor_rfc);
+
+  // The sale cases do not read TipoRelacion: an invoice that applies an advance would post as a new sale.
+  const cfdi = new CFDIParser().parse(String(preReg.x_xml_content));
+  const related = { relations: cfdi.cfdiRelacionados };
+  if (hasRelation(related, TIPO_RELACION.APLICACION_ANTICIPO)) {
+    throw new ValidationError({ key: 'error.ISSUED_CFDI_NOT_SUPPORTED', params: { uuid, reason: 'applies_advance', detail: '' } });
+  }
+  // A substitute (TipoRelacion 04) of a CFDI that is still a live invoice would book the sale twice.
+  const substituted = relatedUuids(related, TIPO_RELACION.SUSTITUCION).map((u) => u.toLowerCase());
+  const replaced = substituted.length === 0 ? [] : (await client.query<{ invoice_number: string; status: string }>(
+    `SELECT invoice_number, status FROM invoices
+      WHERE entity_id = $1 AND lower(cfdi_uuid) = ANY($2::text[]) AND status NOT IN ('void', 'cancelled')
+      ORDER BY created_at LIMIT 1`,
+    [entityId, substituted]
+  )).rows;
+  if (replaced.length > 0) {
+    throw new AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE', {
+      key: 'error.ISSUED_CFDI_SUBSTITUTES_INVOICE',
+      params: { uuid, invoice: replaced[0].invoice_number, status: replaced[0].status },
+    });
+  }
 
   const receiverName = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
   const sameRfc = await client.query<CustomerCandidate>(
@@ -310,7 +336,7 @@ export async function registerIssuedInvoice(
   const ieps = sumTax(summary.traslados, '003');
   const iepsRoles = !mexicanBooks ? [IEPS_DUE_ROLE, IEPS_UNCOLLECTED_ROLE] : [pue ? IEPS_DUE_ROLE : IEPS_UNCOLLECTED_ROLE];
   if (mexicanBooks && !pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
-  const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
+  const localTaxes = extractImpuestosLocales(cfdi).trasladados;
   const figures = [
     {
       figure: paid ? 'total (debit to bank, collected PUE)' : 'total (debit to accounts receivable)',

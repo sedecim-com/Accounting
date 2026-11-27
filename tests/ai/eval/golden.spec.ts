@@ -65,7 +65,7 @@ describe('el corpus golden', () => {
       if (cfdi.tipoDeComprobante === 'P') continue;
       // #692: `ingest` leaves a received credit note to `bill inbox run`. The corpus's entity is the receiver of every case.
       expect(cfdi.tipoDeComprobante, caso.nombre).toBe('E');
-      expect(['01', '03'], caso.nombre).toContain(cfdi.cfdiRelacionados?.tipoRelacion);
+      expect(cfdi.cfdiRelacionados.map((r) => r.tipoRelacion).join() || 'none', caso.nombre).toMatch(/^0[13](,0[13])*$/);
       expect(cfdi.receptor.rfc, caso.nombre).toBe('XAXX010101000');
     }
     expect(deterministic.map((c) => c.nombre)).toEqual(expect.arrayContaining(['nota-credito-ppd', 'rep-recibido']));
