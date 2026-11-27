@@ -2,15 +2,31 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// I8b · the root speaks by key, slice 4 part 1 (MNE-001-800, #150). Under es-MX the provider failures, the agent's
-// question, the repair, broken-startup and rescue lines, the tenant of the invocation, `entities`, the banner, `web start`
-// and the trace's dry-run note are Spanish from the catalogue, written here by hand before the code. Commands, flags,
-// variables, ids and counts pass through untranslated. The English was compared by a dump, before and after.
+// I8b · the root speaks by key, slice 4 (part 1 MNE-001-800, part 2 MNE-001-859, #150). Under es-MX the provider
+// failures, the agent's question, the repair, broken-startup and rescue lines, the tenant of the invocation, `entities`,
+// `chat`, `sessions`, `drafts`, the review helpers above `review` (part 2), the banner, `web start` and the trace's
+// dry-run note are Spanish from the catalogue, written here by hand before the code. Commands, flags, variables, ids
+// and counts pass through untranslated. The English was compared by a dump, before and after.
 
-const world = vi.hoisted(() => ({ answers: [] as Array<string | null>, currentTenant: undefined as string | undefined, estado: 'activo' }));
+const world = vi.hoisted(() => ({ answers: [] as Array<string | null>, currentTenant: undefined as string | undefined, estado: 'activo',
+  sessionFails: 0, setup: { state: 'fresh', reasons: [] as string[] }, resumed: null as unknown, messages: [] as unknown[], compact: [] as unknown[], drafts: [] as unknown[] }));
 vi.mock('../../src/database/connection.js', async (o) => ({ ...(await o<Record<string, unknown>>()), initDatabase: vi.fn(async () => ({ tunneled: true })),
   closeDatabase: vi.fn(async () => undefined), currentTenant: () => world.currentTenant }));
-vi.mock('../../src/ai/context.js', async (o) => ({ ...(await o<Record<string, unknown>>()), listEntities: vi.fn(async () => []), estadoDelInquilino: vi.fn(async () => world.estado) }));
+vi.mock('../../src/ai/context.js', async (o) => ({ ...(await o<Record<string, unknown>>()), listEntities: vi.fn(async () => []), estadoDelInquilino: vi.fn(async () => world.estado),
+  resolveEntity: vi.fn(async () => ({ tenantId: 't1', entityId: 'e1', entityName: 'Entidad Sintetica SA', taxId: 'ESI010101AA1', currency: 'MXN' })) }));
+const session = { label: 'anthropic · m1', runTurn: vi.fn(async () => ''), reset: vi.fn(), compact: vi.fn(async () => world.compact.shift() ?? null) };
+vi.mock('../../src/ai/providers/index.js', async (o) => ({ ...(await o<Record<string, unknown>>()),
+  createLlmSessionWithFailover: vi.fn(async () => { if (world.sessionFails-- > 0) throw new Error('startup failed'); return session; }),
+  resolveProfile: () => ({ name: 'anthropic', model: 'm1' }), listProfiles: () => ({ profiles: { anthropic: {}, hermes: {} }, defaultName: 'anthropic' }) }));
+vi.mock('../../src/ai/providers/trial-endpoint.js', () => ({ acceptTrialTermsFor: vi.fn(async () => undefined) }));
+vi.mock('../../src/ai/session-store.js', async (o) => ({ ...(await o<Record<string, unknown>>()), createSession: vi.fn(async () => 's-new'), getSession: vi.fn(async () => world.resumed),
+  getSessionMessages: vi.fn(async () => world.messages), recordTurn: vi.fn(async () => undefined), updateSessionProvider: vi.fn(async () => undefined),
+  listSessions: vi.fn(async () => [{ id: 's1', title: null, provider: 'hermes', model: 'h', message_count: 1, last_active_at: '2026-11-21' }]) }));
+vi.mock('../../src/ai/draft-service.js', async (o) => ({ ...(await o<Record<string, unknown>>()), listDrafts: vi.fn(async () => world.drafts),
+  resolveReviewer: vi.fn(async () => ({ id: 'u1', email: 'revisor@example.test' })), rejectDraft: vi.fn(async () => undefined) }));
+vi.mock('../../src/ai/memory-service.js', () => ({ teachMemory: vi.fn(async () => 'q-1') }));
+vi.mock('../../src/services/policy/today.js', async (o) => ({ ...(await o<Record<string, unknown>>()), zoneFor: vi.fn(async () => 'America/Mexico_City') }));
+vi.mock('../../src/cli/first-run.js', async (o) => ({ ...(await o<Record<string, unknown>>()), detectSetupState: vi.fn(async () => world.setup) }));
 vi.mock('../../src/cli/rls-bypass-notice.js', () => ({ noticeRlsBypassOnce: vi.fn(async () => undefined) }));
 vi.mock('node:readline/promises', async (o) => ({ ...(await o<Record<string, unknown>>()), createInterface: () => ({
   question: async (p: string) => { process.stdout.write(p); return world.answers.length ? world.answers.shift()! : null; },
@@ -122,6 +138,62 @@ describe('under es-MX, the tenant of the invocation speaks Spanish', () => {
   });
 });
 
+describe('under es-MX, chat speaks Spanish', () => {
+  it('not configured without a terminal; the commands line, /provider, /new, /compact, /help and the goodbye', async () => {
+    world.sessionFails = 1;
+    expect(await es(run('chat'))).toContain('Sin configurar. Corre: mnemosine init\n[exit 1]');
+    world.answers = ['/provider', '/new', '/compact', '/compact', '/help', null];
+    world.compact = [{ droppedMessages: 1, dropTokens: 3400, keepTokens: 900 }, null];
+    const out = await es(run('chat'));
+    expect(out).toContain('Comandos: /exit  /new (reiniciar)  /provider [nombre] (cambiar de modelo)  /help');
+    expect(out).toContain('tú> Actual: anthropic · m1. Disponibles: anthropic, hermes (predeterminado: anthropic)');
+    expect(out).toContain('Conversación reiniciada.');
+    expect(out).toContain('Compactado: se resumió 1 mensaje antiguo (~3400 tokens); se conservaron ~900 tokens intactos.');
+    expect(out).toContain('No hay nada que compactar.');
+    expect(out).toContain('Pregunta sobre tu contabilidad en lenguaje natural. Ejemplos:\n  ¿Cómo va la balanza de comprobación?');
+    expect(out).toContain('  /compact           ← resume los turnos antiguos para liberar contexto\n  mnemosine usage · status · jobs   ← más herramientas fuera del chat\n');
+    expect(out).toContain('tú> Hasta luego.');
+  });
+
+  it('a resumed session, its tail and the reminder; a missing one is refused', async () => {
+    world.resumed = { id: 's1', title: null, provider: 'anthropic', model: 'm1', last_active_at: new Date('2026-11-20T15:00:00Z') };
+    world.messages = [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'saldo' }];
+    const out = await es(run('chat', '--resume', 's1'));
+    expect(out).toContain('Se reanuda la sesión s1\n  anthropic · m1 · última actividad 2026-11-20 09:00\ntú> hola\nIA> saldo\n(sólo un recordatorio: el modelo empieza con un contexto en blanco)');
+    world.resumed = null;
+    expect(await es(run('chat', '--resume', 'abc'))).toContain('La sesión abc no existe en esta entidad.\n[exit 3]');
+  });
+});
+
+describe('under es-MX, sessions, drafts and the review helpers speak Spanish', () => {
+  it('sessions and drafts: none, and their rows with plurals', async () => {
+    expect(await es(run('sessions'))).toContain('(sin título)  (2026-11-21 · hermes · h · 1 mensaje)');
+    world.drafts = [];
+    expect(await es(run('drafts'))).toContain('No hay borradores.');
+    expect(await es(run('drafts', '--status', 'approved'))).toContain('No hay borradores con estado approved.');
+  });
+
+  it('the draft card, the menu, the editor and the precedent offer', async () => {
+    const payload = { entry_date: '2026-11-03', description: 'Renta', lines: [{ account_code: '6100', debit: 100 }, { account_code: '1020', credit: 100 }] };
+    world.drafts = [{ id: 'd1', status: 'pending_review', ai_confidence: 0.8, ai_reasoning: 'renta', origin: null, payload }, { id: 'd2', status: 'pending_review', ai_confidence: 0.8, ai_reasoning: 'x', origin: null, payload }];
+    expect(await es(run('drafts'))).toContain('⏳ 2026-11-03  Renta  (2 líneas · confianza 0.8 · pending_review · d1)');
+    world.answers = ['sí', 'e', 'x', '1', '', 'abc', 'y', 'z', 'n', 'r', 'otra cuenta', 'y', null];
+    const out = await es(run('review', '--yes'));
+    expect(out).toContain('─── Borrador 1/2 ───\nid: d1\nfecha: 2026-11-03   confianza de la IA: 0.8\ndescripción: Renta\nrazonamiento: renta');
+    expect(out).toContain('  cuenta      descripción                                     cargo        abono');
+    expect(out).toContain('[a]probar y contabilizar  [e]ditar y aprobar  [r]echazar  ENTER siguiente  [q] salir > ');
+    expect(out).toContain('«sí» es un sí, y ésta no es una pregunta de sí o no: en español se lee como «sí» y en inglés como «skip» (saltar)');
+    expect(out).toContain('  1) 6100       cargo 100.00\n  2) 1020       abono 100.00\n¿Qué línea corriges? (1-2, «d» descripción, ENTER termina) > ');
+    expect(out).toContain('No entendí «x»: un número de línea 1-2, «d» o ENTER.');
+    expect(out).toContain('Código de cuenta de la línea 1 (ENTER conserva «6100») > Importe de cargo de la línea 1 (ENTER conserva 100.00) > ');
+    expect(out).toContain('«abc» no es un importe positivo; la línea 1 conserva lo que tenía.');
+    expect(out).toContain('Sigo sin entender; se sale del editor con lo corregido hasta ahora.');
+    expect(out).toContain('  Precedente que esto podría sembrar, para que la IA deje de repetirlo:\n    cuando: ');
+    expect(out).toContain('    entonces: otra cuenta\n  ¿Lo siembro como criterio firme, atribuido a ti? [s/N] ');
+    expect(out).toContain('  ✔ Criterio sembrado por revisor@example.test; revísalo con: mnemosine memory');
+  });
+});
+
 describe('under es-MX, the banner, web start and the trace speak Spanish', () => {
   it('the banner: tagline, hint, labels padded to the longest plus one, plural counts', () => {
     setLanguage('es');
@@ -159,11 +231,11 @@ describe('under es-MX, the banner, web start and the trace speak Spanish', () =>
 
 describe('the lane', () => {
   const lane = (rel: string) => englishUserStrings(fs.readFileSync(path.resolve(rel), 'utf8'), rel);
-  it('counts nothing in banner, web and trace, and above `chat` only the stored reason of a rejection', () => {
+  it('counts nothing in banner, web and trace, and above `review` only the stored reason of a rejection', () => {
     for (const f of ['banner', 'web-command', 'trace-completion-output']) expect(lane(`src/cli/${f}.ts`), f).toEqual([]);
     const code = fs.readFileSync(path.resolve('src/cli/mnemosine.ts'), 'utf8');
-    const chat = code.slice(0, code.indexOf("program.command('chat'")).split('\n').length;
+    const review = code.slice(0, code.indexOf("program.command('review')")).split('\n').length;
     // `rejectionReasonFrom` stores 'No reason' in ai_drafts.review_notes: data, not a message. Part 14 rules on it.
-    expect(lane('src/cli/mnemosine.ts').filter((s) => s.line < chat).map((s) => s.text)).toEqual(['No reason']);
+    expect(lane('src/cli/mnemosine.ts').filter((s) => s.line < review).map((s) => s.text)).toEqual(['No reason']);
   });
 });

@@ -1413,6 +1413,13 @@ askCommand
     }
   });
 
+/** The two speakers of the chat transcript, padded to the longer one (`ai> ` in English). */
+function speakers(): [string, string] {
+  const [you, ai] = [t('root.chat.you'), t('root.chat.ai')];
+  const width = Math.max(you.length, ai.length);
+  return [you.padEnd(width), ai.padEnd(width)];
+}
+
 const chatCommand = describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description');
 optionByKey(chatCommand, '-e, --entity <idOrName>', 'help.chat.option.entity');
 optionByKey(chatCommand, '-p, --provider <name>', 'help.chat.option.provider');
@@ -1440,7 +1447,7 @@ chatCommand
       let recordChain: Promise<void> = Promise.resolve();
       const transcriptOff = (err: unknown) => {
         sessionId = null;
-        stderr.write(ce.dim(`(transcript disabled: ${err instanceof Error ? err.message : String(err)})\n`));
+        stderr.write(ce.dim(`${t('root.chat.transcript_off', { reason: err instanceof Error ? err.message : String(err) })}\n`));
       };
       // A failover mid-session must show on the audit row: attribute the
       // provider actually producing turns, not the one that was merely asked
@@ -1498,14 +1505,14 @@ chatCommand
         // Fresh machine → inline rescue. A pipe cannot answer a wizard:
         // point at init and exit instead of hanging.
         if (!stdin.isTTY || !stdout.isTTY) {
-          stderr.write('Not configured. Run: mnemosine init\n');
+          stderr.write(`${t('root.chat.not_configured')}\n`);
           // Misma razón: la máquina está sin configurar, que es un fallo
           // genérico del entorno y no un error de uso del que invoca.
           return shutdown(ExitCode.FAILURE);
         }
         const rescue = await runFreshRescue(state);
         if (rescue === 'declined' || !rescue.completed) {
-          console.log(c.dim('You can set up anytime: mnemosine init'));
+          console.log(c.dim(t('root.chat.setup_anytime')));
           return shutdown(0);
         }
         if (!rescue.offerChat) return shutdown(0);
@@ -1541,7 +1548,7 @@ chatCommand
       } else {
         console.log(c.bold('\nmnemosine') + c.dim(` · ${ctx.entityName} (${ctx.taxId}) · ${ctx.currency} · ${session.label}`));
       }
-      console.log(c.dim('Commands: /exit  /new (restart)  /provider [name] (switch model)  /help\n'));
+      console.log(c.dim(`${t('root.chat.commands')}\n`));
 
       // Identifies THIS terminal so `--continue` prefers its conversation
       // when several terminals are open on the same entity.
@@ -1550,10 +1557,10 @@ chatCommand
         let resumed: SessionRow | null = null;
         if (opts.resume) {
           resumed = await getSession(ctx, opts.resume);
-          if (!resumed) throw notFound(`Session ${opts.resume} does not exist in this entity.`);
+          if (!resumed) throw notFound({ key: 'root.chat.session_missing', params: { id: opts.resume } });
         } else if (opts.continue) {
           resumed = await latestSession(ctx, terminalKey ?? undefined);
-          if (!resumed) console.log(c.dim('No previous session for this entity; starting a new one.\n'));
+          if (!resumed) console.log(c.dim(`${t('root.chat.no_previous')}\n`));
         }
         if (resumed) {
           sessionId = resumed.id;
@@ -1570,21 +1577,22 @@ chatCommand
           const when = resumed.last_active_at instanceof Date
             ? calendarDateTimeIn(await zoneFor(ctx), resumed.last_active_at)
             : String(resumed.last_active_at);
-          console.log(c.dim(`Resuming session ${resumed.id}`));
-          console.log(c.dim(`  ${resumed.title ?? `${resumed.provider} · ${resumed.model}`} · last active ${when}`));
+          console.log(c.dim(t('root.chat.resuming', { id: resumed.id })));
+          console.log(c.dim(`  ${t('root.chat.last_active', { title: resumed.title ?? `${resumed.provider} · ${resumed.model}`, when })}`));
           // Reminder for the HUMAN only — the transcript continues, but the
           // model context starts fresh (nothing is replayed into the model).
           const transcript = await getSessionMessages(resumed.id);
+          const [you, ai] = speakers();
           const tail = transcript
             .filter((m) => m.role === 'user' || m.role === 'assistant')
             .slice(-6); // last 3 exchanges
           for (const m of tail) {
-            const label = m.role === 'user' ? c.cyan('you>') : c.bold('ai> ');
+            const label = m.role === 'user' ? c.cyan(you) : c.bold(ai);
             const text = m.content.length > 200 ? m.content.slice(0, 200) + '…' : m.content;
             console.log(`${label} ${text}`);
           }
           if (tail.length > 0) {
-            console.log(c.dim('(reminder only — the model starts with a fresh context)\n'));
+            console.log(c.dim(`${t('root.chat.reminder')}\n`));
           }
         }
         if (!sessionId) {
@@ -1610,7 +1618,7 @@ chatCommand
       const ac = new AbortController();
       rl.on('SIGINT', () => {
         ac.abort();
-        stdout.write(c.dim('\nInterrupted.\n'));
+        stdout.write(c.dim(`\n${t('root.chat.interrupted')}\n`));
         rl?.close();
         // Flush the transcript chain (read at flush time, so the latest
         // chained promise is awaited) before closing the pool — otherwise
@@ -1629,8 +1637,8 @@ chatCommand
       // rendered like a typed line, and recorded in the transcript like any
       // other turn — the conversation starts moving without a blank prompt.
       if (seedMessage) {
-        console.log(c.dim(`Sending your first message: "${seedMessage}"`));
-        stdout.write(c.cyan('you> ') + seedMessage + '\n\n');
+        console.log(c.dim(t('root.chat.seed', { message: seedMessage })));
+        stdout.write(c.cyan(`${speakers()[0]} `) + seedMessage + '\n\n');
         try {
           await runChatTurn(session, seedMessage, ac.signal);
         } catch (err) {
@@ -1642,7 +1650,7 @@ chatCommand
       }
 
       for (;;) {
-        const answer = await ask(rl, c.cyan('you> '));
+        const answer = await ask(rl, c.cyan(`${speakers()[0]} `));
         if (answer === null) break; // stdin EOF or interface closed
         const line = answer.trim();
         if (!line) continue;
@@ -1650,7 +1658,7 @@ chatCommand
         if (line === '/exit' || line === '/quit' || line === '/salir') break;
         if (line === '/new' || line === '/nueva') {
           session.reset();
-          console.log(c.dim('Conversation restarted.\n'));
+          console.log(c.dim(`${t('root.chat.restarted')}\n`));
           continue;
         }
         if (
@@ -1662,7 +1670,7 @@ chatCommand
             .trim();
           if (!target) {
             const { profiles, defaultName } = listProfiles();
-            console.log(c.dim(`Current: ${session.label}. Available: ${Object.keys(profiles).join(', ')} (default: ${defaultName})`));
+            console.log(c.dim(t('root.chat.current_provider', { label: session.label, profiles: Object.keys(profiles).join(', '), default: defaultName })));
             continue;
           }
           try {
@@ -1717,23 +1725,17 @@ chatCommand
           // transcript keeps every message either way.
           try {
             const result = await session.compact?.();
-            console.log(c.dim(result
-              ? `Compacted: summarized ${result.droppedMessages} older messages (~${result.dropTokens} tokens); kept ~${result.keepTokens} tokens intact.\n`
-              : 'Nothing to compact.\n'));
+            console.log(c.dim(`${result
+              ? t('root.chat.compacted', { dropped: result.droppedMessages, dropTokens: result.dropTokens, keepTokens: result.keepTokens })
+              : t('root.chat.nothing_to_compact')}\n`));
           } catch (err) {
             reportError(err);
           }
           continue;
         }
         if (line === '/help' || line === '/ayuda') {
-          console.log(c.dim('Ask about your accounting in natural language. Examples:'));
-          console.log(c.dim('  How is the trial balance doing?'));
-          console.log(c.dim('  Which customers owe me and since when?'));
-          console.log(c.dim('  record the August rent: 10,000 from banks'));
-          console.log(c.dim('  /provider hermes   ← switch models mid-session'));
-          console.log(c.dim('  /pending [-v]      ← policy decisions awaiting definition'));
-          console.log(c.dim('  /compact           ← summarize older turns to free context'));
-          console.log(c.dim('  mnemosine usage · status · jobs   ← more tools outside the chat\n'));
+          const help = t('root.chat.help').split('\n');
+          help.forEach((l, i) => console.log(c.dim(i === help.length - 1 ? `${l}\n` : l)));
           continue;
         }
 
@@ -1753,10 +1755,10 @@ chatCommand
       rl.close();
       // Flush the transcript writes of the last turn before closing the pool.
       await recordChain.catch(() => undefined);
-      console.log(c.dim('Goodbye.'));
+      console.log(c.dim(t('root.chat.goodbye')));
       // Exit receipt: the conversation is resumable, say so on the way out.
       if (sessionId && stdout.isTTY) {
-        console.log(c.dim('Resume this conversation:  mnemosine --continue'));
+        console.log(c.dim(t('root.chat.resume_hint')));
       }
       await shutdown(0);
     } catch (err) {
@@ -1784,7 +1786,7 @@ sessionsCommand
       const ctx = await resolveEntity(opts.entity);
       const sessions = await listSessions(ctx, opts.limit);
       if (sessions.length === 0) {
-        console.log('No recorded sessions for this entity.');
+        console.log(t('root.sessions.none'));
       } else {
         const zone = await zoneFor(ctx);
         for (const s of sessions) {
@@ -1792,8 +1794,8 @@ sessionsCommand
             ? calendarDateTimeIn(zone, s.last_active_at)
             : String(s.last_active_at);
           console.log(
-            `${c.bold(s.title ?? '(untitled)')}  ` +
-              c.dim(`(${when} · ${s.provider} · ${s.model} · ${s.message_count} message${s.message_count === 1 ? '' : 's'})`)
+            `${c.bold(s.title ?? t('root.sessions.untitled'))}  ` +
+              c.dim(t('root.sessions.meta', { when, provider: s.provider, model: s.model, count: s.message_count }))
           );
           console.log(c.dim(`  id: ${s.id}`));
         }
@@ -1807,11 +1809,11 @@ sessionsCommand
 
 function renderDraft(draft: DraftRow, index: number, total: number): void {
   const p = draft.payload;
-  console.log(c.bold(`\n─── Draft ${index + 1}/${total} ───`));
+  console.log(c.bold(`\n─── ${t('root.review.card.heading', { index: index + 1, total })} ───`));
   console.log(`${c.dim('id:')} ${draft.id}`);
-  console.log(`${c.dim('date:')} ${p.entry_date}   ${c.dim('AI confidence:')} ${draft.ai_confidence}`);
-  console.log(`${c.dim('description:')} ${p.description}`);
-  if (p.reference) console.log(`${c.dim('reference:')} ${p.reference}`);
+  console.log(`${c.dim(t('root.review.card.date'))} ${p.entry_date}   ${c.dim(t('root.review.card.confidence'))} ${draft.ai_confidence}`);
+  console.log(`${c.dim(t('root.review.card.description'))} ${p.description}`);
+  if (p.reference) console.log(`${c.dim(t('root.review.card.reference'))} ${p.reference}`);
   const o = draft.origin;
   if (o?.document_type === 'invoice') {
     console.log(c.bold(t('review.draft.invoice_to_be_born', {
@@ -1824,9 +1826,10 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
       method: o.payment_method ?? '?', total: o.total ? formatMoney(o.total) : '?',
     })));
   }
-  console.log(`${c.dim('reasoning:')} ${c.dim(draft.ai_reasoning)}`);
+  console.log(`${c.dim(t('root.review.card.reasoning'))} ${c.dim(draft.ai_reasoning)}`);
   console.log('');
-  console.log(c.dim('  account     description                                     debit       credit'));
+  const [account, description, debit, credit] = (['account', 'description', 'debit', 'credit'] as const).map((k) => t(`root.review.column.${k}`));
+  console.log(c.dim(`  ${account.padEnd(10)}  ${description.padEnd(40)}  ${debit.padStart(11)}  ${credit.padStart(11)}`));
   let debits = 0;
   let credits = 0;
   // Defensive render: payload is JSONB — a malformed draft (missing code,
@@ -1853,13 +1856,13 @@ draftsCommand
       const ctx = await resolveEntity(opts.entity);
       const drafts = await listDrafts(ctx, opts.status);
       if (drafts.length === 0) {
-        console.log('No drafts' + (opts.status ? ` with status ${opts.status}` : '') + '.');
+        console.log(opts.status ? t('root.drafts.none_with_status', { status: opts.status }) : t('root.drafts.none'));
       } else {
         for (const d of drafts) {
           const tag = d.status === 'pending_review' ? '⏳' : d.status === 'approved' ? '✔' : '✘';
           console.log(
             `${tag} ${c.bold(d.payload.entry_date)}  ${d.payload.description}  ` +
-              c.dim(`(${d.payload.lines.length} lines · conf ${d.ai_confidence} · ${d.status} · ${d.id})`)
+              c.dim(t('root.drafts.meta', { lines: d.payload.lines.length, confidence: String(d.ai_confidence), status: d.status, id: d.id }))
           );
         }
       }
@@ -1906,29 +1909,18 @@ const REVIEW_KEYS: Array<{ kind: 'approve' | 'edit' | 'reject' | 'next' | 'quit'
   { kind: 'quit', words: ['q', 'quit', 'exit', 'salir'] },
 ];
 
-const REVIEW_MENU =
-  '\n[a]pprove and post  [e]dit then approve  [r]eject  ENTER next  [q]uit > ';
-
 function reviewMenuChoice(raw: string): ReviewChoice {
   const dicho = raw.trim();
-  const t = dicho
+  const pressed = dicho
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  if (t === '') return { kind: 'next' }; // ENTER: pasa al siguiente, sin tocar nada
+  if (pressed === '') return { kind: 'next' }; // ENTER: pasa al siguiente, sin tocar nada
   for (const { kind, words } of REVIEW_KEYS) {
-    if (words.includes(t)) return { kind };
+    if (words.includes(pressed)) return { kind };
   }
-  if (esAfirmativa(t)) {
-    return {
-      kind: 'unclear',
-      message:
-        `«${dicho}» is a yes, and this is not a yes/no question: in Spanish it reads as «sí» and ` +
-        'in English as «skip» — opposite outcomes. Type `a` to approve AND POST, or press ENTER ' +
-        'to move on without touching this draft.',
-    };
-  }
-  return { kind: 'unclear', message: `I did not understand «${dicho}»; the keys are above.` };
+  if (esAfirmativa(pressed)) return { kind: 'unclear', message: t('root.review.menu_yes', { said: dicho }) };
+  return { kind: 'unclear', message: t('root.review.menu_unclear', { said: dicho }) };
 }
 
 /**
@@ -1943,7 +1935,7 @@ async function askReviewMenu(
 ): Promise<ReviewChoice | null> {
   let ultimo: ReviewChoice = { kind: 'unclear', message: '' };
   for (let intento = 0; intento < 2; intento++) {
-    const raw = await preguntar(c.cyan(REVIEW_MENU));
+    const raw = await preguntar(c.cyan(`\n${t('root.review.menu')} > `));
     if (raw === null) return null;
     const choice = reviewMenuChoice(raw);
     if (choice.kind !== 'unclear') return choice;
@@ -1958,12 +1950,15 @@ const DESC_WORDS = ['d', 'desc', 'description', 'descripcion'];
 
 /** Cómo se lee una línea mientras se corrige. */
 function editorLine(l: { account_code?: string; debit?: number; credit?: number }): string {
+  // The side word padded to the longer of the two, plus one: `debit  ` and `credit ` in English.
+  const [debit, credit] = [t('root.review.column.debit'), t('root.review.column.credit')];
+  const width = Math.max(debit.length, credit.length) + 1;
   const side =
     typeof l.debit === 'number'
-      ? `debit  ${l.debit.toFixed(2)}`
+      ? `${debit.padEnd(width)}${l.debit.toFixed(2)}`
       : typeof l.credit === 'number'
-        ? `credit ${l.credit.toFixed(2)}`
-        : 'no amount';
+        ? `${credit.padEnd(width)}${l.credit.toFixed(2)}`
+        : t('root.review.editor.no_amount');
   return `${String(l.account_code ?? '??').padEnd(10)} ${side}`;
 }
 
@@ -1988,40 +1983,38 @@ async function editDraftPayload(
   };
   let sinEntender = 0;
   for (;;) {
-    console.log(c.dim(`  description: ${edited.description}`));
+    console.log(c.dim(`  ${t('root.review.card.description')} ${edited.description}`));
     edited.lines.forEach((l, i) => console.log(c.dim(`  ${i + 1}) ${editorLine(l)}`)));
 
     const raw = await preguntar(
-      c.cyan(`Correct which line? (1-${edited.lines.length}, «d» description, ENTER done) > `)
+      c.cyan(`${t('root.review.editor.which_line', { count: edited.lines.length })} > `)
     );
     if (raw === null) return { abort: true };
-    const t = raw.trim().toLowerCase();
-    if (t === '') return { abort: false, payload: edited };
+    const resp = raw.trim().toLowerCase();
+    if (resp === '') return { abort: false, payload: edited };
 
-    if (DESC_WORDS.includes(t)) {
-      const nueva = await preguntar(c.cyan(`New description (ENTER keeps «${edited.description}») > `));
+    if (DESC_WORDS.includes(resp)) {
+      const nueva = await preguntar(c.cyan(`${t('root.review.editor.new_description', { current: edited.description })} > `));
       if (nueva === null) return { abort: true };
       if (nueva.trim() !== '') edited.description = nueva.trim();
       sinEntender = 0;
       continue;
     }
 
-    const n = /^\d+$/.test(t) ? parseInt(t, 10) : NaN;
+    const n = /^\d+$/.test(resp) ? parseInt(resp, 10) : NaN;
     if (!Number.isInteger(n) || n < 1 || n > edited.lines.length) {
       if (++sinEntender >= 2) {
-        console.log(ce.dim('Still not understood; leaving the editor with what was corrected so far.'));
+        console.log(ce.dim(t('root.review.editor.gave_up')));
         return { abort: false, payload: edited };
       }
-      console.log(
-        ce.dim(`I did not understand «${raw.trim()}»: a line number 1-${edited.lines.length}, «d», or ENTER.`)
-      );
+      console.log(ce.dim(t('root.review.editor.unclear', { said: raw.trim(), count: edited.lines.length })));
       continue;
     }
     sinEntender = 0;
 
     const line = edited.lines[n - 1];
     const code = await preguntar(
-      c.cyan(`Line ${n} account code (ENTER keeps «${line.account_code ?? ''}») > `)
+      c.cyan(`${t('root.review.editor.account', { n, current: line.account_code ?? '' })} > `)
     );
     if (code === null) return { abort: true };
     if (code.trim() !== '') line.account_code = code.trim();
@@ -2029,10 +2022,10 @@ async function editDraftPayload(
     const esDebito = typeof line.debit === 'number';
     const actual = esDebito ? line.debit : line.credit;
     const monto = await preguntar(
-      c.cyan(
-        `Line ${n} ${esDebito ? 'debit' : 'credit'} amount ` +
-          `(ENTER keeps ${typeof actual === 'number' ? actual.toFixed(2) : '—'}) > `
-      )
+      c.cyan(`${t('root.review.editor.amount', {
+        n, side: t(esDebito ? 'root.review.column.debit' : 'root.review.column.credit'),
+        current: typeof actual === 'number' ? actual.toFixed(2) : '—',
+      })} > `)
     );
     if (monto === null) return { abort: true };
     if (monto.trim() !== '') {
@@ -2040,7 +2033,7 @@ async function editDraftPayload(
       if (!Number.isFinite(v) || v <= 0) {
         // No se inventa un importe: se dice y se conserva el que había. El
         // cuadre lo vuelve a juzgar el motor al aprobar, no este prompt.
-        console.log(ce.dim(`«${monto.trim()}» is not a positive amount; line ${n} keeps what it had.`));
+        console.log(ce.dim(t('root.review.editor.not_positive', { said: monto.trim(), n })));
       } else if (esDebito) {
         line.debit = v;
       } else {
@@ -2072,15 +2065,12 @@ async function offerToSeedPrecedent(
   reason: string
 ): Promise<boolean> {
   const propuesta = rejectionPrecedent(draft, reason);
-  console.log(c.dim('  Precedent this could seed, so the AI stops repeating it:'));
-  console.log(c.dim(`    when: ${propuesta.rule}`));
-  console.log(c.dim(`    then: ${propuesta.criterion}`));
-  const veredicto = await confirmarConReintento(
-    preguntar,
-    c.cyan(yesNoPrompt('  Seed it as a firm criterion, attributed to you?'))
-  );
+  console.log(c.dim(`  ${t('root.review.seed.offer')}`));
+  console.log(c.dim(`    ${t('root.review.seed.when', { rule: propuesta.rule })}`));
+  console.log(c.dim(`    ${t('root.review.seed.then', { criterion: propuesta.criterion })}`));
+  const veredicto = await confirmarConReintento(preguntar, c.cyan(yesNoPrompt(`  ${t('root.review.seed.ask')}`)));
   if (!veredicto.si) {
-    console.log(c.dim('  Not seeded: the rejection stands and nothing was taught.'));
+    console.log(c.dim(`  ${t('root.review.seed.declined')}`));
     return false;
   }
   try {
@@ -2089,12 +2079,12 @@ async function offerToSeedPrecedent(
       criterion: propuesta.criterion,
       taughtBy: reviewer.email,
     });
-    console.log(`  ✔ Criterion seeded by ${reviewer.email}; review it with: mnemosine memory`);
+    console.log(`  ✔ ${t('root.review.seed.done', { email: reviewer.email })}`);
     console.log(c.dim(`    id: ${id}`));
     return true;
   } catch (err) {
     reportError(err);
-    console.log(c.dim('  The rejection stands; the criterion was not seeded.'));
+    console.log(c.dim(`  ${t('root.review.seed.failed')}`));
     return false;
   }
 }

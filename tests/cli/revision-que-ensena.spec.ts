@@ -248,7 +248,7 @@ async function correrRevision(
 }
 
 /** Los prompts del menú, que es lo que se repregunta cuando no se entiende. */
-const prompsDeMenu = (prompts: string[]) => prompts.filter((p) => p.includes('[a]pprove'));
+const prompsDeMenu = (prompts: string[]) => prompts.filter((p) => p.includes('[a]probar'));
 
 beforeEach(() => {
   mockListDrafts.mockReset();
@@ -286,7 +286,7 @@ describe('un rechazo ofrece sembrar el precedente, y sólo el humano lo siembra'
     expect(rechazo()[3]).toBe('Telmex va a 6130, no a 5201');
 
     // LA SIEMBRA SE OFRECIÓ, y por el prompt que el humano vio.
-    expect(prompts.some((p) => p.includes('Seed it as a firm criterion'))).toBe(true);
+    expect(prompts.some((p) => p.includes('Lo siembro como criterio firme'))).toBe(true);
 
     // Y OCURRIÓ, por la vía humana que ya existía.
     expect(mockTeach).toHaveBeenCalledTimes(1);
@@ -302,7 +302,7 @@ describe('un rechazo ofrece sembrar el precedente, y sólo el humano lo siembra'
     // común colapsaría todos estos precedentes a la misma línea.
     expect(entrada.topic).toBeUndefined();
 
-    expect(salida).toContain('Criterion seeded by contador@despacho.mx');
+    expect(salida).toContain('Criterio sembrado por contador@despacho.mx');
   });
 
   it('un «no» deja el rechazo en pie y NO siembra nada', async () => {
@@ -312,7 +312,7 @@ describe('un rechazo ofrece sembrar el precedente, y sólo el humano lo siembra'
 
     expect(mockReject).toHaveBeenCalledTimes(1);
     expect(mockTeach).not.toHaveBeenCalled();
-    expect(salida).toContain('Not seeded');
+    expect(salida).toContain('No se sembró');
   });
 
   it('un EOF en la pregunta tampoco siembra: una stdin cerrada no consiente', async () => {
@@ -341,7 +341,7 @@ describe('un rechazo ofrece sembrar el precedente, y sólo el humano lo siembra'
     const { salida } = await correrRevision(['r', 'motivo', 'si', 'q']);
 
     expect(mockReject).toHaveBeenCalledTimes(1);
-    expect(salida).toContain('the criterion was not seeded');
+    expect(salida).toContain('el criterio no se sembró');
   });
 
   it('los CATORCE rechazos: la cola larga siembra catorce veces, una por rechazo', async () => {
@@ -390,7 +390,7 @@ describe('el menú no interpreta un «sí» ni decide por una tecla que no enten
 
     // Repreguntó: dos veces el menú para UN solo borrador.
     expect(prompsDeMenu(prompts)).toHaveLength(2);
-    expect(salida).toContain('«s» is a yes');
+    expect(salida).toContain('«s» es un sí');
     // Y la repregunta no es decorativa: la respuesta siguiente SÍ se honró
     // sobre ese mismo borrador.
     expect(mockApprove).toHaveBeenCalledTimes(1);
@@ -508,7 +508,7 @@ describe('corregir-y-aprobar: el diff viaja y el hash se ata a lo que el humano 
 
     const { salida } = await correrRevision(['e', '1', '', 'mil pesos', '', 'y']);
 
-    expect(salida).toContain('is not a positive amount');
+    expect(salida).toContain('no es un importe positivo');
     // Nada cambió → no hay corrección que entregar.
     expect(aprobacion()[5]).toBeUndefined();
   });
@@ -564,7 +564,7 @@ describe('corregir-y-aprobar: el diff viaja y el hash se ata a lo que el humano 
 
     const { salida } = await correrRevision(['e', '9', '', 'y']);
 
-    expect(salida).toContain('I did not understand «9»');
+    expect(salida).toContain('No entendí «9»');
     expect(aprobacion()[5]).toBeUndefined();
   });
 });
