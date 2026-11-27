@@ -169,9 +169,8 @@ describe('calcularAritmetica · la variación distinta de cero', () => {
     expect(a.cuadra).toBe(false);
     const reparo = a.reparos.find((r) => r.codigo === 'variacion-fuera-de-tolerancia');
     expect(reparo).toBeDefined();
-    expect(reparo?.detalle).toContain('10000.00');
-    expect(reparo?.detalle).toContain('9999.99');
-    expect(reparo?.detalle).toContain('0.01');
+    // The three numbers travel as the finding's params (MNE-001-858).
+    expect(reparo?.detalle.params).toMatchObject({ bank: '10000.00', books: '9999.99', variance: '0.01' });
   });
 
   it('con `cero_exacto` (tolerancia por omisión) un centavo NO pasa', () => {

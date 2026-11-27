@@ -523,6 +523,24 @@ export const EN = {
     'Nothing to assign was given: responsable, fechaEsperada, escalamiento or notas.',
   // ---- end of MNE-001-857 ----
 
+  // ---- MNE-001-858 · I9 by folder, part 2c, part 3: the findings of the reconciliation arithmetic, reconciliation-math.ts in src/services/banking (issue #151) ----
+  // A finding of the arithmetic is rendered by whoever prints it, in its reader's language
+  // (`textIn`, src/utils/errors.ts); the Spanish twin is the text each site wrote, with its
+  // hand-made plurals. The missing side and the tolerance are selects, so each fragment
+  // goes with its sentence. The policy key is a literal, never translated.
+  'bank.reconciliation.finding.balance_not_observed':
+    'There is no variance to report because {missing, select, bank {the bank balance is missing (no statement is tied to the session)} books {the book balance is missing (the ledger was not queried)} other {the bank balance (no statement is tied to the session) and the book balance (the ledger was not queried) are missing}}. A zero here would mean "nobody subtracted anything", which is the opposite of a reconciliation that balances.',
+  /** `tolerance` is `none` when the session closes at exactly zero. */
+  'bank.reconciliation.finding.variance_out_of_tolerance':
+    'The adjusted bank balance ({bank}) and the adjusted book balance ({books}) differ by {variance}{tolerance, select, none {.} other {, above the tolerance {tolerance}.}}',
+  'bank.reconciliation.finding.item_unclassified':
+    '{count} reconciling item(s) with no type. Until someone says what they are, they are not added to either side and the variance above is incomplete.',
+  'bank.reconciliation.finding.item_undated':
+    '{count} open item(s) with no expected date. An item with no date is not chased: it ages until someone notices it.',
+  'bank.reconciliation.finding.bank_line_unexplained':
+    '{count} statement movement(s) with no match and no item that explains them. What to do with them is decided by the policy `linea_banco_sin_partida_al_cierre`.',
+  // ---- end of MNE-001-858 ----
+
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The
   // Spanish twin is the text each site printed. Policy keys and their values,

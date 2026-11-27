@@ -418,6 +418,18 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign':
     'No se indicó nada que asignar: responsable, fechaEsperada, escalamiento o notas.',
   // ---- end of MNE-001-857 ----
+  // ---- MNE-001-858 · I9 by folder, part 2c, part 3: the findings of the reconciliation arithmetic; see en.ts ----
+  'bank.reconciliation.finding.balance_not_observed':
+    'No hay variación que reportar porque falta {missing, select, bank {el del banco (no hay extracto atado a la sesión)} books {el de libros (no se consultó el mayor)} other {el del banco (no hay extracto atado a la sesión) y el de libros (no se consultó el mayor)}}. Un cero aquí significaría "nadie restó nada", que es lo contrario de un cuadre.',
+  'bank.reconciliation.finding.variance_out_of_tolerance':
+    'El saldo de banco ajustado ({bank}) y el de libros ajustado ({books}) difieren en {variance}{tolerance, select, none {.} other {, por encima de la tolerancia {tolerance}.}}',
+  'bank.reconciliation.finding.item_unclassified':
+    '{count} partida(s) conciliatoria(s) sin tipo. Mientras no se diga qué son, no se suman a ningún lado y la variación de arriba está incompleta.',
+  'bank.reconciliation.finding.item_undated':
+    '{count} partida(s) abierta(s) sin fecha esperada. Una partida sin fecha no se persigue: envejece hasta que alguien la note.',
+  'bank.reconciliation.finding.bank_line_unexplained':
+    '{count} movimiento(s) del extracto sin cotejo y sin partida que los explique. Qué hacer con ellos lo decide la política `linea_banco_sin_partida_al_cierre`.',
+  // ---- end of MNE-001-858 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
