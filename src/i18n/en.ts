@@ -6021,6 +6021,74 @@ export const EN = {
   'web.start.refuses': 'the web gateway refuses to start:\n  - {problems}',
   'payment.trace.dry_run': 'Dry run: nothing was written.',
   // ==== end of I8b · root, part 1 ====
+  // ==== I8b · run-time strings by key, family root, part 2 (MNE-001-859, issue #150) ====
+  // `chat`, `sessions`, `drafts` and the review helpers above `review` (the draft card, the menu, the editor, the
+  // precedent offer). The English is byte for byte ("older messages", "draft(s)", "message{s}" included).
+  'root.chat.transcript_off': '(transcript disabled: {reason})',
+  'root.chat.not_configured': 'Not configured. Run: mnemosine init',
+  'root.chat.setup_anytime': 'You can set up anytime: mnemosine init',
+  'root.chat.commands': 'Commands: /exit  /new (restart)  /provider [name] (switch model)  /help',
+  'root.chat.session_missing': 'Session {id} does not exist in this entity.',
+  'root.chat.no_previous': 'No previous session for this entity; starting a new one.',
+  'root.chat.resuming': 'Resuming session {id}',
+  'root.chat.last_active': '{title} · last active {when}',
+  /** The two speakers of the transcript; the code pads them to the longer one. */
+  'root.chat.you': 'you>',
+  'root.chat.ai': 'ai>',
+  'root.chat.reminder': '(reminder only — the model starts with a fresh context)',
+  'root.chat.interrupted': 'Interrupted.',
+  'root.chat.seed': 'Sending your first message: "{message}"',
+  'root.chat.restarted': 'Conversation restarted.',
+  'root.chat.current_provider': 'Current: {label}. Available: {profiles} (default: {default})',
+  'root.chat.compacted': 'Compacted: summarized {dropped} older messages (~{dropTokens} tokens); kept ~{keepTokens} tokens intact.',
+  'root.chat.nothing_to_compact': 'Nothing to compact.',
+  'root.chat.help': 'Ask about your accounting in natural language. Examples:\n' +
+    '  How is the trial balance doing?\n' +
+    '  Which customers owe me and since when?\n' +
+    '  record the August rent: 10,000 from banks\n' +
+    '  /provider hermes   ← switch models mid-session\n' +
+    '  /pending [-v]      ← policy decisions awaiting definition\n' +
+    '  /compact           ← summarize older turns to free context\n' +
+    '  mnemosine usage · status · jobs   ← more tools outside the chat',
+  'root.chat.goodbye': 'Goodbye.',
+  'root.chat.resume_hint': 'Resume this conversation:  mnemosine --continue',
+  'root.sessions.none': 'No recorded sessions for this entity.',
+  'root.sessions.untitled': '(untitled)',
+  'root.sessions.meta': '({when} · {provider} · {model} · {count, plural, one {# message} other {# messages}})',
+  'root.drafts.none': 'No drafts.',
+  'root.drafts.none_with_status': 'No drafts with status {status}.',
+  'root.drafts.meta': '({lines} lines · conf {confidence} · {status} · {id})',
+  'root.review.card.heading': 'Draft {index}/{total}',
+  'root.review.card.date': 'date:',
+  'root.review.card.confidence': 'AI confidence:',
+  'root.review.card.description': 'description:',
+  'root.review.card.reference': 'reference:',
+  'root.review.card.reasoning': 'reasoning:',
+  /** The columns of the draft's lines, as wide as the English ones (10, 40, 11 and 11). */
+  'root.review.column.account': 'account',
+  'root.review.column.description': 'description',
+  'root.review.column.debit': 'debit',
+  'root.review.column.credit': 'credit',
+  /** The letters are the keys the menu reads: a, e, r, q. The code adds the line break before and " > " after. */
+  'root.review.menu': '[a]pprove and post  [e]dit then approve  [r]eject  ENTER next  [q]uit',
+  'root.review.menu_yes': '«{said}» is a yes, and this is not a yes/no question: in Spanish it reads as «sí» and in English as «skip» — opposite outcomes. Type `a` to approve AND POST, or press ENTER to move on without touching this draft.',
+  'root.review.menu_unclear': 'I did not understand «{said}»; the keys are above.',
+  'root.review.editor.no_amount': 'no amount',
+  'root.review.editor.which_line': 'Correct which line? (1-{count}, «d» description, ENTER done)',
+  'root.review.editor.new_description': 'New description (ENTER keeps «{current}»)',
+  'root.review.editor.gave_up': 'Still not understood; leaving the editor with what was corrected so far.',
+  'root.review.editor.unclear': 'I did not understand «{said}»: a line number 1-{count}, «d», or ENTER.',
+  'root.review.editor.account': 'Line {n} account code (ENTER keeps «{current}»)',
+  'root.review.editor.amount': 'Line {n} {side} amount (ENTER keeps {current})',
+  'root.review.editor.not_positive': '«{said}» is not a positive amount; line {n} keeps what it had.',
+  'root.review.seed.offer': 'Precedent this could seed, so the AI stops repeating it:',
+  'root.review.seed.when': 'when: {rule}',
+  'root.review.seed.then': 'then: {criterion}',
+  'root.review.seed.ask': 'Seed it as a firm criterion, attributed to you?',
+  'root.review.seed.declined': 'Not seeded: the rejection stands and nothing was taught.',
+  'root.review.seed.done': 'Criterion seeded by {email}; review it with: mnemosine memory',
+  'root.review.seed.failed': 'The rejection stands; the criterion was not seeded.',
+  // ==== end of I8b · root, part 2 ====
   // ==== I8b · run-time strings by key, family ar, part 1 (MNE-001-802, issue #150) ====
   // `src/cli/invoice-command.ts` and `src/cli/ar-command.ts`. The English is
   // what those files printed, byte for byte ("gap(s)" and "warning(s)"
