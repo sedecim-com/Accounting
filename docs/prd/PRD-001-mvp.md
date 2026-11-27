@@ -63,7 +63,7 @@ Las decisiones del dueño que bloquean tareas están en `docs/MVP.md` §4. En el
 
 ## 9. Aprobaciones
 
-Aprobado por el owner al fijar el MVP en `docs/MVP.md` (PR #291). Este PRD sólo lo indexa. La enmienda del 27 nov 2026 (§10) la aprueba el dueño al fusionar el PR que la trae.
+Aprobado por el owner al fijar el MVP en `docs/MVP.md` (PR #291). Este PRD sólo lo indexa. La enmienda del 27 nov 2026 (§10) registra la instrucción del dueño de ese día; el dueño la revisa en el PR que la trae y puede corregir cualquier línea.
 
 ## 10. Enmienda del 27 de noviembre de 2026
 
