@@ -2400,6 +2400,27 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employer_contribution_accrual.option.mensual_al_cierre':
     'Una vez al mes, igual que como de verdad se pagan',
 
+  // ---- MNE-001-878 (#111): a benefit paid in a pay run consumes its provision ----
+  'policy.benefit_payment_against_provision.question':
+    'Cuando una corrida de nómina paga aguinaldo, días de vacaciones o prima vacacional, ¿el pago cancela la provisión que devengó el cierre, o es gasto al pagarse?',
+  'policy.benefit_payment_against_provision.impact':
+    'Decide qué carga la póliza de `pay-run post` por los renglones de percepción de tipo aguinaldo, pto (días de vacaciones) y prima_vacacional; lo lee benefit-payment.ts cuando una corrida paga alguno. Con "consume_provision" cada uno se carga a su provisión (las cuentas de los roles provision_aguinaldo, provision_vacaciones y provision_prima_vacacional: 2202, 2203 y 2204 en el catálogo sembrado) hasta lo que la provisión tiene, sólo el excedente es gasto de sueldos, y lo que no se paga se queda en la provisión. Con "expense_on_payment" todo el bruto es gasto de sueldos: es para el despacho que no devenga estas prestaciones, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Los días de vacaciones pagados dentro del renglón de sueldo no se ven: hay que desglosarlos como pto. Las pólizas ya posteadas no cambian.',
+  'policy.benefit_payment_against_provision.rationale':
+    'Según la NIF D-3, un beneficio a corto plazo se lleva a gasto conforme el trabajador lo gana, contra un pasivo, y pagarlo cancela ese pasivo. El despacho que devenga en el cierre y además lleva el pago a gasto cuenta la prestación dos veces y conserva un pasivo que ya no debe; consumir primero la provisión evita las dos cosas, y es la opción conservadora del ADR-0006. El despacho que no devenga no tiene provisión que consumir, y las dos respuestas le dan la misma póliza.',
+  'policy.benefit_payment_against_provision.why':
+    'El cierre mensual devenga estas prestaciones a gasto (`payroll accrue`). Cuando una corrida las paga no puedo saber por mi cuenta si tu despacho lleva ese devengo: unos devengan cada mes, otros llevan la prestación a gasto en el mes en que se paga.',
+  'policy.benefit_payment_against_provision.what':
+    'Con "consume_provision" cargo cada prestación pagada a su provisión, hasta lo que tiene a la fecha de pago menos lo que tomarán los borradores de nómina en espera de revisión, y el resto a gasto de sueldos. Con "expense_on_payment" cargo todo el bruto a gasto de sueldos, y rechazo la póliza mientras la provisión de una prestación que la corrida paga tenga saldo.',
+  'policy.benefit_payment_against_provision.if_skipped':
+    'El pago consume primero la provisión, y sólo el excedente es gasto.',
+  'policy.benefit_payment_against_provision.option.consume_provision':
+    'Contra la provisión: el pago cancela lo que devengó el cierre, y sólo el excedente es gasto',
+  'policy.benefit_payment_against_provision.option.expense_on_payment':
+    'Gasto al pagarse: sólo para el despacho que no devenga estas prestaciones',
+  'payroll.benefit_payment.expensed_while_accrued':
+    'La política {key} dice que una prestación es gasto al pagarse, y esta corrida paga una cuya provisión (cuenta {account}) tiene {balance} devengados: llevar el pago a gasto contaría la prestación dos veces. No se escribió nada. Contesta {key} con consume_provision en mnemosine pending, o primero revierte el devengo si el despacho no devenga.',
+  // ---- end of MNE-001-878 ----
+
   'policy.archived_accounts_in_reports.question':
     'Una vez archivada una cuenta, ¿conserva su renglón en una balanza donde no tiene nada que mostrar?',
   'policy.archived_accounts_in_reports.impact':

@@ -324,3 +324,55 @@ describe('vendor_undo_iva_month — the text names its reader and cites only wha
     expect(norms(t('policy.vendor_undo_iva_month.rationale', {}, 'es'))).toEqual(['CFF art. 32', 'LIVA art. 5']);
   });
 });
+
+// MNE-001-878 (#111). A benefit paid in a pay run consumes its provision. The
+// text names its reader and the earning types that reader looks for, and
+// cites NIF D-3 as the corpus carries it.
+describe('benefit_payment_against_provision — the text names its reader, its earning types and its roles', () => {
+  const s = spec('benefit_payment_against_provision');
+  const reader = (): string => {
+    const files = sourcesNamed('benefit-payment.ts');
+    expect(files).toHaveLength(1);
+    return fs.readFileSync(files[0], 'utf8');
+  };
+
+  it('names benefit-payment.ts as its reader, which declares the key and reads it, and the default consumes', () => {
+    expect(s.impact).toMatch(/benefit-payment\.ts reads it when a run pays one of them/);
+    expect(reader()).toMatch(/BENEFIT_PAYMENT_POLICY = 'benefit_payment_against_provision'/);
+    expect(reader()).toMatch(/getPolicy\(ctx, BENEFIT_PAYMENT_POLICY, client\)/);
+    expect(s.defaultValue).toBe('consume_provision');
+    expect(s.options.map((o) => o.value)).toEqual(['consume_provision', 'expense_on_payment']);
+  });
+
+  it('the earning types and the roles the text names are the ones the reader pairs, and the roles are seeded', () => {
+    expect(s.impact).toMatch(/of type aguinaldo, pto \(vacation days\) and prima_vacacional/);
+    expect(s.impact).toMatch(/provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204/);
+    for (const [earning, constant, role, code] of [
+      ['aguinaldo', 'ROL_AGUINALDO', 'provision_aguinaldo', '2202'],
+      ['pto', 'ROL_VACACIONES', 'provision_vacaciones', '2203'],
+      ['prima_vacacional', 'ROL_PRIMA', 'provision_prima_vacacional', '2204'],
+    ] as const) {
+      expect(reader(), earning).toContain(`{ earningType: '${earning}', role: ${constant},`);
+      expect(ROLE_MAP[role], role).toBe(code);
+    }
+  });
+
+  it('says expense_on_payment is refused while a provision carries a balance, and the reader refuses by key', () => {
+    expect(s.impact).toMatch(/the entry is refused while the provision of a benefit the run pays carries a balance/);
+    expect(reader()).toMatch(/key: 'payroll\.benefit_payment\.expensed_while_accrued'/);
+    for (const language of ['en', 'es'] as const) {
+      expect(t('payroll.benefit_payment.expensed_while_accrued', { key: 'K', account: '2202', balance: '1.00' }, language))
+        .toMatch(/K.*2202.*1\.00.*consume_provision/);
+    }
+  });
+
+  it('cites NIF D-3, which the corpus carries, in English and in Spanish, and no other norm', () => {
+    const norms = (text: string): string[] =>
+      [...new Set([...text.matchAll(/\b(LISR|LFT|LSS|CFF|RMF|NIF [A-E]-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.benefit_payment_against_provision.rationale', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['NIF D-3']);
+    expect(norms(t('policy.benefit_payment_against_provision.rationale', {}, 'es'))).toEqual(['NIF D-3']);
+    expect(fs.readFileSync(path.join(ROOT, 'src/ai/docs/nif-registro.md'), 'utf8'))
+      .toMatch(/## D-3 — Beneficios a los empleados[\s\S]*se devengan DURANTE el año/);
+  });
+});
