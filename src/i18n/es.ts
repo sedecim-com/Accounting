@@ -149,6 +149,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'La póliza {entry} es de depreciación y su activo no está en esta entidad: la reversión no se aplicó',
   'error.ALREADY_VOID': 'La póliza ya está anulada',
   'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" no es un valor que este sistema conozca ({known}); no se aplicó nada.',
+  // ---- MNE-001-862 · a hand entry is stated at the minor unit of the functional currency; see en.ts ----
+  'error.VALIDATION_ERROR.entry_line_minor_unit':
+    'Renglón {line}: "{amount}" es más fino que la unidad mínima de {currency} ({decimals} decimales). El mayor registra {currency} a su unidad mínima: escribe el importe con no más decimales que ésos.',
+  // ---- end of MNE-001-862 ----
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
   'error.VALIDATION_ERROR.payment.destination_bank_both':
     'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
@@ -1695,6 +1699,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Cargarlos al 0 % y avisar: no se acredita IVA cuando se paguen',
 
+  // ---- MNE-001-946 (#1078): the twin of opening_payable_iva for the receivable documents ----
+  'policy.opening_receivable_iva.question':
+    'Cuando una factura de cliente migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
+  'policy.opening_receivable_iva.impact':
+    'Una factura de cliente migrada se vuelve una factura por cobrar. Con su tasa de IVA, la factura lleva su base y el IVA no cobrado, en un renglón con esa tasa: el IVA que se causa al cobrarla y la tasa que lee el papel de trabajo mensual del IVA. Sin la tasa, «require_rate» detiene la carga y nombra los documentos; «assume_zero_rate» los carga al 0 %: no llevan IVA que causar y cuentan como actos al 0 %. El IVA de los documentos también tiene que estar en la cuenta de IVA trasladado no cobrado de la apertura.',
+  'policy.opening_receivable_iva.rationale':
+    'Con el IVA en flujo de efectivo, el impuesto de una venta a crédito se causa cuando se cobra (LIVA art. 1-B). Una factura cargada al 0 % no lleva IVA que causar, así que lo que el sistema anterior dejó como no cobrado nunca pasaría a IVA por pagar; pedir la tasa cuesta una columna en el archivo.',
+  'policy.opening_receivable_iva.why':
+    'El sistema anterior me da lo que cada cliente sigue debiendo, no siempre cuánto de eso es IVA. O espero a que me lo digas, o lo cargo como si no tuviera IVA.',
+  'policy.opening_receivable_iva.what':
+    'Por omisión detengo la carga y listo los documentos de cliente sin tasa. Con «assume_zero_rate» los cargo al 0 % y te digo cuáles.',
+  'policy.opening_receivable_iva.if_skipped':
+    'Detengo la carga hasta que cada documento de cliente diga su tasa de IVA.',
+  'policy.opening_receivable_iva.option.require_rate':
+    'Detener la carga hasta que cada documento de cliente diga su tasa de IVA',
+  'policy.opening_receivable_iva.option.assume_zero_rate':
+    'Cargarlos al 0 % y avisar: no llevan IVA que causar cuando se cobren',
+  // ---- end of MNE-001-946 ----
+
   'policy.received_line_without_account.question':
     'Cuando un renglón de un CFDI de proveedor llega a contabilizarse sin cuenta de gasto, ¿qué hago con él?',
   'policy.received_line_without_account.impact':
@@ -1893,6 +1916,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revierto el día 1 del periodo siguiente.',
   'policy.fx_revaluation_reversal.option.reverse_on_day_one':
     'Revertirla el día 1 del periodo siguiente',
+
+  'policy.fx_conversion_cent_difference.question':
+    'Un documento en moneda extranjera se convierte renglón por renglón y sus renglones no suman su total convertido por un centavo: ¿a dónde va ese centavo?',
+  'policy.fx_conversion_cent_difference.impact':
+    'Gobierna la póliza de una factura o un gasto en moneda extranjera; ar-ap-posting.ts la lee sólo cuando hay un centavo. Cada renglón, el impuesto y el total se convierten al tipo de cambio del documento y se redondean al centavo, y la cuenta por cobrar o por pagar es siempre el total, con su importe en la moneda del documento. Con "exchange_difference_line" el centavo es un renglón más en la cuenta de utilidad o pérdida cambiaria, así que ningún renglón ni impuesto cambia. Con "largest_line" el centavo es un renglón más en la cuenta del renglón más grande del documento, y nada llega a las cuentas de diferencia cambiaria.',
+  'policy.fx_conversion_cent_difference.rationale':
+    'La NIF B-15, como la trae el manual contable de este sistema, reconoce una operación en moneda extranjera al tipo de cambio de su fecha y revalúa las cuentas por cobrar y por pagar al cierre, así que la cuenta de control debe guardar el total del documento en su moneda. El centavo es una diferencia de la conversión, no ingreso, gasto ni impuesto: en su propio renglón se ve y cada otra cifra es la del documento a su tipo de cambio, la opción conservadora del ADR-0006. Llevarlo al renglón más grande también es práctica aceptada y deja las cuentas de diferencia cambiaria para las diferencias de tipo de cambio.',
+  'policy.fx_conversion_cent_difference.why':
+    'Las dos son práctica aceptada: algunos despachos muestran el redondeo de una conversión como diferencia cambiaria, otros lo absorben en el renglón más grande.',
+  'policy.fx_conversion_cent_difference.what':
+    'Con "exchange_difference_line" registro el centavo en la cuenta de utilidad o pérdida cambiaria. Con "largest_line" lo registro en la cuenta del renglón más grande del documento.',
+  'policy.fx_conversion_cent_difference.if_skipped':
+    'Registro el centavo en la cuenta de utilidad o pérdida cambiaria.',
+  'policy.fx_conversion_cent_difference.option.exchange_difference_line':
+    'Un renglón en la cuenta de utilidad o pérdida cambiaria',
+  'policy.fx_conversion_cent_difference.option.largest_line':
+    'Un renglón en la cuenta del renglón más grande del documento',
 
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
@@ -2404,13 +2444,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.benefit_payment_against_provision.question':
     'Cuando una corrida de nómina paga aguinaldo, días de vacaciones o prima vacacional, ¿el pago cancela la provisión que devengó el cierre, o es gasto al pagarse?',
   'policy.benefit_payment_against_provision.impact':
-    'Decide qué carga la póliza de `pay-run post` por los renglones de percepción de tipo aguinaldo, pto (días de vacaciones) y prima_vacacional; lo lee benefit-payment.ts cuando una corrida paga alguno. Con "consume_provision" cada uno se carga a su provisión (las cuentas de los roles provision_aguinaldo, provision_vacaciones y provision_prima_vacacional: 2202, 2203 y 2204 en el catálogo sembrado) hasta lo que la provisión tiene, sólo el excedente es gasto de sueldos, y lo que no se paga se queda en la provisión. Con "expense_on_payment" todo el bruto es gasto de sueldos: es para el despacho que no devenga estas prestaciones, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Los días de vacaciones pagados dentro del renglón de sueldo no se ven: hay que desglosarlos como pto. Las pólizas ya posteadas no cambian.',
+    'Decide qué carga la póliza de `pay-run post` por los renglones de percepción de tipo aguinaldo, pto o vacaciones (días de vacaciones) y prima_vacacional; lo lee benefit-payment.ts cuando una corrida paga alguno. Con "consume_provision" cada uno se carga a su provisión (las cuentas de los roles provision_aguinaldo, provision_vacaciones y provision_prima_vacacional: 2202, 2203 y 2204 en el catálogo sembrado) hasta lo que la provisión tiene, sólo el excedente es gasto de sueldos, en un renglón propio que el devengo de ese mes descuenta (`payroll accrue`), y lo que no se paga se queda en la provisión. Con "expense_on_payment" todo el bruto es gasto de sueldos: es para el despacho que no devenga estas prestaciones, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Los días de vacaciones pagados dentro del renglón de sueldo no se ven: hay que desglosarlos como pto o vacaciones. Las pólizas ya posteadas no cambian.',
   'policy.benefit_payment_against_provision.rationale':
     'Según la NIF D-3, un beneficio a corto plazo se lleva a gasto conforme el trabajador lo gana, contra un pasivo, y pagarlo cancela ese pasivo. El despacho que devenga en el cierre y además lleva el pago a gasto cuenta la prestación dos veces y conserva un pasivo que ya no debe; consumir primero la provisión evita las dos cosas, y es la opción conservadora del ADR-0006. El despacho que no devenga no tiene provisión que consumir, y las dos respuestas le dan la misma póliza.',
   'policy.benefit_payment_against_provision.why':
     'El cierre mensual devenga estas prestaciones a gasto (`payroll accrue`). Cuando una corrida las paga no puedo saber por mi cuenta si tu despacho lleva ese devengo: unos devengan cada mes, otros llevan la prestación a gasto en el mes en que se paga.',
   'policy.benefit_payment_against_provision.what':
-    'Con "consume_provision" cargo cada prestación pagada a su provisión, hasta lo que tiene a la fecha de pago menos lo que tomarán los borradores de nómina en espera de revisión, y el resto a gasto de sueldos. Con "expense_on_payment" cargo todo el bruto a gasto de sueldos, y rechazo la póliza mientras la provisión de una prestación que la corrida paga tenga saldo.',
+    'Con "consume_provision" cargo cada prestación pagada a su provisión, hasta lo que tiene al fin del mes de la fecha de pago menos lo que tomarán los borradores de nómina en espera de revisión, y el resto a gasto de sueldos en un renglón propio, que el devengo de ese mes descuenta. Con "expense_on_payment" cargo todo el bruto a gasto de sueldos, y rechazo la póliza mientras la provisión de una prestación que la corrida paga tenga saldo.',
   'policy.benefit_payment_against_provision.if_skipped':
     'El pago consume primero la provisión, y sólo el excedente es gasto.',
   'policy.benefit_payment_against_provision.option.consume_provision':
@@ -2419,6 +2459,12 @@ export const ES: Record<keyof typeof EN, string> = {
     'Gasto al pagarse: sólo para el despacho que no devenga estas prestaciones',
   'payroll.benefit_payment.expensed_while_accrued':
     'La política {key} dice que una prestación es gasto al pagarse, y esta corrida paga una cuya provisión (cuenta {account}) tiene {balance} devengados: llevar el pago a gasto contaría la prestación dos veces. No se escribió nada. Contesta {key} con consume_provision en mnemosine pending, o primero revierte el devengo si el despacho no devenga.',
+  'payroll.accrue.skip_paid_over_provision':
+    'las corridas de nómina del mes ya llevaron a gasto su devengo',
+  'payroll.accrue.paid_over_provision':
+    '{benefit}: las corridas de nómina del mes pagaron {excess} que sus pólizas no cargaron a su provisión; {subtracted} se descuentan de este devengo{hasLeft, select, yes {, y {left} no: este devengo no tiene más de dónde descontar, o la provisión todavía tiene un saldo que esas corridas no consumieron} other {}}.',
+  'payroll.accrue.pay_runs_in_review':
+    '{count, plural, one {# corrida de nómina del mes paga} other {# corridas de nómina del mes pagan}} una prestación devengada y su póliza sigue como borrador en revisión ({runs}): lo que {count, plural, one {paga} other {pagan}} por encima de una provisión no se descuenta de este devengo. Resuelve primero el borrador en mnemosine review, o revierte este devengo y córrelo de nuevo después.',
   // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':
@@ -6098,6 +6144,27 @@ export const ES: Record<keyof typeof EN, string> = {
     'fuera del asiento y la nombra ({doctrine}).',
   'migration.opening.memorandum_excluded_header':
     'Cuentas de orden fuera del asiento, con el saldo que declara el origen ({doctrine}):',
+  // ---- MNE-001-946 (#1078): the IVA inside an open receivable of the opening ----
+  'migration.opening.receivable_rate_invalid':
+    '«{document}» trae ivaRate «{rate}». Se espera la TasaOCuota del CFDI (0.16, 0.08, 0) o «exento».',
+  'migration.opening.receivable_rate_missing':
+    '«{document}» de {counterparty} no dice su tasa de IVA (ivaRate). El IVA de una venta no cobrada se causa al ' +
+    'cobrarla (LIVA art. 1-B): sin la tasa, la factura no lleva IVA que causar y lo que la apertura trae como no ' +
+    'cobrado se quedaría ahí. Agrega ivaRate (0.16, 0.08, 0 o «exento»), o decide otra cosa en la política ' +
+    'opening_receivable_iva.',
+  'migration.opening.receivable_rate_assumed':
+    '{count} documento(s) de clientes sin ivaRate entran a tasa 0 % (opening_receivable_iva = assume_zero_rate): ' +
+    'no llevan IVA que causar al cobrarlos: {documents}.',
+  'migration.opening.receivable_iva_no_role':
+    'Las facturas de clientes traen {tax} de IVA no cobrado y ninguna cuenta tiene el rol «{role}». Cada cobro ' +
+    'liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta de IVA trasladado no cobrado de la ' +
+    'balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa de los documentos.',
+  'migration.opening.receivable_iva_not_parked':
+    'Las facturas de clientes traen {tax} de IVA no cobrado y la apertura sólo pone {parked} en «{account}», la ' +
+    'cuenta con el rol «{role}». Cada cobro liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta ' +
+    'de IVA trasladado no cobrado de la balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa ' +
+    'de los documentos.',
+  // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -7526,6 +7593,29 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.inbox.run.option.note': 'anotación que se guarda con la aprobación',
   'help.bill.inbox.run.option.dry_run': 'calcula y muestra el efecto completo; no escribe nada',
   'help.bill.inbox.run.option.json': 'salida en JSON',
+  // ---- MNE-001-947 · bill void, part 1: its refusals and its panel key (issue #1079) ----
+  /** The refusals of `voidBill`. `applications` and `notes` count what still stands on the bill; a VAT over-credit correction counts with the notes. */
+  'bill.void.settled':
+    '{bill} no se debe entero: {applications, plural, =0 {ninguna aplicación de pago} one {# aplicación de pago} other {# aplicaciones de pago}} y {notes, plural, =0 {ninguna nota de crédito recibida ni corrección de IVA} one {# nota de crédito recibida o corrección de IVA} other {# notas de crédito recibidas o correcciones de IVA}} siguen vivas sobre él. Deshaz primero cada aplicación con `payment unapply <pago> --bill {bill} --reason "<por qué>"`; un gasto que una nota de crédito recibida ya bajó, o cuyo IVA movió una corrección, no se anula mientras esa póliza siga viva. No se escribió nada.',
+  'bill.void.not_voidable': '{bill} está en {status}: sólo se anula un gasto aprobado que se debe entero. No se escribió nada.',
+  'bill.void.opening':
+    '{bill} entró con el saldo de apertura y comparte su póliza: anularlo revertiría toda la apertura. Revierte la apertura y cárgala otra vez sin este documento. No se escribió nada.',
+  'bill.void.closed_period':
+    'La póliza de {bill} tiene fecha {date}, en un periodo que no está abierto, y bill_void_mirror_date dice que su espejo lleva esa fecha. Contesta la política del periodo cerrado para fecharlo hoy (`mnemosine pending define cfdi_periodo_cerrado periodo_actual`), o reabre el periodo. No se escribió nada.',
+  'bill.void.race': '{bill} cambió mientras se anulaba; no se escribió nada.',
+  'policy.bill_void_mirror_date.question': 'Se anula un gasto de proveedor ya aprobado: ¿qué fecha lleva el espejo de su póliza?',
+  'policy.bill_void_mirror_date.impact':
+    'Gobierna `bill void`; bill-service.ts la lee una vez por cada anulación. Con cualquiera de las dos respuestas el espejo regresa cada renglón de la póliza del gasto: el gasto, el pasivo y el IVA aparcado en la 1135. Con "void_date" el espejo lleva la fecha del día de la anulación en la zona horaria de la entidad, como fecha el suyo `invoice void`, así que no se mueve ningún mes ya cerrado o declarado. Con "bill_date" el espejo lleva la fecha de la póliza del gasto, así que el mes del gasto se lee como si el gasto nunca hubiera existido; cuando ningún periodo abierto contiene ese día decide la clave cfdi_periodo_cerrado, y sólo su respuesta "periodo_actual" fecha el espejo el día de la anulación: con cualquier otra respuesta la anulación se niega y no se escribe nada.',
+  'policy.bill_void_mirror_date.rationale':
+    'Una póliza posteada se corrige con una reversa y nunca se edita (NIF B-1, como la traen la migración 041 y el manual de contabilidad de este sistema), y la reversa es un acto del día en que se hace. Fechar el espejo ese día no cambia ningún mes ya cerrado o declarado, la opción conservadora de ADR-0006. Un CFDI se puede cancelar hasta el mes en que se debe presentar la declaración anual de su ejercicio (CFF art. 29-A, como lo cita el manual de cuentas por pagar de este sistema), así que una cancelación puede llegar después de declarado el mes del gasto. También se acepta leer el CFDI cancelado como nunca emitido y fechar el espejo con el gasto; en un mes ya declarado eso pide una complementaria (CFF art. 32).',
+  'policy.bill_void_mirror_date.why':
+    'Cuando un proveedor cancela un CFDI que ya aprobaste, algunos despachos sacan el gasto el día en que se enteran; otros lo sacan del mes en que se registró y corrigen ese mes. La póliza es la misma en los dos casos.',
+  'policy.bill_void_mirror_date.what':
+    'Con "void_date" fecho el espejo el día en que anulas el gasto. Con "bill_date" lo fecho el día de la póliza del gasto, y cuando ese periodo no está abierto sigo cfdi_periodo_cerrado.',
+  'policy.bill_void_mirror_date.if_skipped': 'Fecho el espejo el día de la anulación.',
+  'policy.bill_void_mirror_date.option.void_date': 'El día de la anulación, como `invoice void`',
+  'policy.bill_void_mirror_date.option.bill_date': 'El día de la póliza del gasto, como si el gasto nunca hubiera existido',
+  // ---- end of MNE-001-947 ----
   'help.vendor.description':
     'Catálogo de proveedores: a quién le debemos, en qué condiciones de pago y con qué identificador fiscal',
   'help.vendor.list.description':
@@ -7576,6 +7666,27 @@ export const ES: Record<keyof typeof EN, string> = {
     'El proveedor {number} ya tiene el identificador fiscal {taxId} con ese tipo: no hay nada que corregir. No se escribió nada.',
   'error.RESOURCE_ALREADY_EXISTS.vendor.tax_id_taken':
     'El identificador fiscal {taxId} ya es del proveedor {number} de esta entidad. Dos proveedores con un mismo identificador son un contribuyente dado de alta dos veces: corrige el registro que corresponde. No se escribió nada.',
+  // Part 2: the leaf `vendor tax set`, its help, its footer and its receipt.
+  'help.vendor.tax.description': 'El identificador fiscal con el que se identifica a un proveedor',
+  'help.vendor.tax.set.description':
+    'Corrige el identificador fiscal de un proveedor, con el motivo y un registro de auditoría que guarda el valor anterior y el nuevo; no se reescribe ningún documento contabilizado',
+  'help.vendor.tax.set.argument.vendor': 'número, nombre o id del proveedor',
+  'help.vendor.tax.set.option.tax_id': 'el RFC (México), EIN (EE. UU.) o número de IVA (VAT) correcto; su forma se valida antes de escribir nada (obligatorio)',
+  'help.vendor.tax.set.option.tax_id_type': '{types} (por omisión, el tipo que ya tiene el proveedor y, si no tiene, según el país de la entidad)',
+  'help.vendor.tax.set.option.json': 'salida en JSON',
+  'help.vendor.tax.set.footer':
+    'Cambia un renglón del catálogo de proveedores y escribe su registro de auditoría: el identificador anterior, el nuevo, quién y por qué.\n' +
+    'No se reescribe ninguna factura, pago ni póliza. La DIOT y el archivo de pólizas del Anexo 24 leen el identificador al generarse, así que genéralos de nuevo después de corregirlo.\n' +
+    'Se rechaza cuando el identificador está mal formado o cuando ya lo tiene otro proveedor de la entidad.\n' +
+    '\nEjemplos:\n' +
+    '  Un proveedor dado de alta sin RFC, que la DIOT reporta como DIOT-SIN-RFC:\n' +
+    '    mnemosine vendor tax set "Papeleria del Centro" --tax-id PCE180412TF4 --reason "Constancia de situación fiscal de julio"\n' +
+    '  Un proveedor estadounidense de una entidad mexicana, diciendo qué regla aplica, en JSON:\n' +
+    '    mnemosine vendor tax set "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --reason "W-9 recibido" --json',
+  'ap.vendor.tax.set.done':
+    '{vendor}: el identificador fiscal es ahora {taxId} ({type}); {had, select, none {no tenía ninguno} other {era {previous}}}.',
+  'ap.vendor.tax.set.posted':
+    'Este proveedor tiene {bills, plural, one {# factura contabilizada} other {# facturas contabilizadas}} y {payments, plural, one {# pago contabilizado} other {# pagos contabilizados}}: ninguno se reescribió. Lo que se genere de ahora en adelante (la DIOT, el archivo de pólizas del Anexo 24) lee el identificador nuevo; un archivo ya generado conserva el que tenía cuando se generó.',
   // ==== end of MNE-001-664 ====
   // ==== MNE-001-239 · help by key, payment, prepaid and tax-deposit (issue #314) ====
   'help.payment.description':

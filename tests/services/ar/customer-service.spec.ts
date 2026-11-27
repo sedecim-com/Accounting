@@ -188,7 +188,7 @@ describe('MNE-001-741 · the balance per customer never adds currencies', () => 
       expect(sql(call)).toMatch(/GROUP BY i\.currency_code/);
       // The book value of the report layer, with the functional currency of the entity ($1) read once.
       expect(sql(call)).toMatch(
-        /CASE WHEN i\.currency_code IS NULL OR i\.currency_code = \(SELECT functional_currency FROM legal_entities WHERE id = \$1\) THEN a\.amount ELSE ROUND\(a\.amount \* i\.exchange_rate, 4\) END/
+        /CASE WHEN i\.currency_code IS NULL OR i\.currency_code = \(SELECT functional_currency FROM legal_entities WHERE id = \$1\) THEN a\.amount ELSE ROUND\(a\.amount \* i\.exchange_rate, CASE \(SELECT functional_currency [^)]+\) WHEN [^)]+ ELSE 2 END\)::numeric\(19,4\) END/
       );
       expect(sql(call)).toMatch(/ORDER BY cur\.currency_code COLLATE "C"/);
       // --balance-gt compares the book value, never a sum of raw amounts.
@@ -209,7 +209,7 @@ describe('MNE-001-741 · the balance per customer never adds currencies', () => 
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await listCustomerOpenInvoices(CUSTOMER);
     expect(sql(0)).toMatch(/i\.currency_code/);
-    expect(sql(0)).toMatch(/ROUND\(d\.amount \* i\.exchange_rate, 4\) END AS book_amount_due/);
+    expect(sql(0)).toMatch(/ROUND\(d\.amount \* i\.exchange_rate, CASE [^;]+ ELSE 2 END\)::numeric\(19,4\) END AS book_amount_due/);
   });
 
   it('prints the balance per currency, and the book value only when a foreign currency is in it', () => {

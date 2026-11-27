@@ -290,7 +290,7 @@ export async function calculateFiniquito(
   if (e.annual_salary) {
     // El divisor ya no vive aquí: lo fija `salarioDiarioDesdeSueldoAnual` en el
     // módulo puro, y lo comparte con el motor de provisiones de D1. Dos
-    // divisores para la misma columna dejarían la 2196 con un residuo que el
+    // divisores para la misma columna dejarían las 2202 a 2204 con un residuo que el
     // finiquito nunca extingue — la razón completa está en la cabecera de esa
     // función.
     salarioDiario = salarioDiarioDesdeSueldoAnual(e.annual_salary);

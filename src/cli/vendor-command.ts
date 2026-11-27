@@ -7,6 +7,7 @@ import {
   createVendor,
   updateVendor,
   setVendorTerms,
+  setVendorTaxId,
   normalizeTaxId,
   taxIdTypeForCountry,
   parsePaymentTerms,
@@ -49,6 +50,10 @@ import {
 // where money is aimed: the name, the tax id and the bank details
 // decide who gets paid, and none of that may be changed by
 // something that cannot be asked why.
+//
+// The tax id is not a field of `vendor edit`: correcting it is
+// `vendor tax set` (MNE-001-664, #607), which demands a reason
+// and keeps the old and the new value in the audit row.
 //
 // There is no bank flag anywhere in this family. Changing a
 // vendor's bank details is one of the three gates a human never
@@ -430,6 +435,74 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
           });
           process.stderr.write(deps.palette.dim(`  ${readAs}\n`));
         }
+      })
+  );
+  // ---- vendor tax set ----------------------------------------------
+  // MNE-001-664 (#607): the remedy the DIOT finding and the vouchers file name,
+  // under the aliases of its customer twin (`customer tax set`).
+  const tax = describeCommand(vendor.command('tax').alias('fiscal'), 'help.vendor.tax.description');
+  const taxSet = describeCommand(tax.command('set').alias('fijar'), 'help.vendor.tax.set.description');
+  argumentByKey(taxSet, '<vendor>', 'help.vendor.tax.set.argument.vendor');
+  withContext(taxSet);
+  optionByKey(taxSet, '--tax-id <id>', 'help.vendor.tax.set.option.tax_id', { mandatory: true });
+  optionByKey(taxSet, '--tax-id-type <type>', 'help.vendor.tax.set.option.tax_id_type', {
+    params: { types: TAX_ID_TYPES.join(' | ') },
+  });
+  optionByKey(taxSet, '--reason <text>', 'cli.flag.reason', { mandatory: true });
+  optionByKey(taxSet, '--json', 'help.vendor.tax.set.option.json');
+  declareRisk(taxSet, { risk: 'escritura', agent: false, writes: 'vendors.tax_id/tax_id_type' });
+  taxSet.addHelpText('after', () => `\n${t('help.vendor.tax.set.footer')}\n`);
+  taxSet.action(
+    (ref: string, opts: CommonOpts & { taxId: string; taxIdType?: string; reason: string }) =>
+      run(async () => {
+        bootstrapTenant(opts.tenant);
+        const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+        const target = await resolveVendor(ctx.entityId, ref);
+        // The vendor's own type first: a US vendor of a Mexican entity keeps its EIN.
+        const declared = opts.taxIdType ?? target.tax_id_type ?? taxIdTypeForCountry(ctx.country);
+        if (!declared) {
+          throw usageError({
+            key: 'ap.vendor.create.no_default_tax_id_type',
+            params: { country: ctx.country, types: TAX_ID_TYPES.join('|') },
+          });
+        }
+        if (!(TAX_ID_TYPES as readonly string[]).includes(declared)) {
+          throw usageError({
+            key: 'ap.vendor.create.tax_id_type_unknown',
+            params: { value: declared, types: TAX_ID_TYPES.join(', ') },
+          });
+        }
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const { vendor: updated, previous, rule, posted } = await setVendorTaxId(
+          target.id,
+          entityScope(ctx.tenantId, ctx.entityId),
+          { taxId: opts.taxId, taxIdType: declared as TaxIdType },
+          { userId: reviewer.userId, reason: opts.reason }
+        );
+
+        if (opts.json) {
+          render([{
+            vendor_number: updated.vendor_number, company_name: updated.company_name,
+            tax_id: updated.tax_id, tax_id_type: updated.tax_id_type,
+            previous_tax_id: previous.tax_id, previous_tax_id_type: previous.tax_id_type,
+            posted_bills: posted.bills, posted_payments: posted.payments, id: updated.id,
+          }], { json: true });
+          return;
+        }
+        const taxId = String(updated.tax_id);
+        process.stdout.write(
+          `${deps.palette.green('✔')} ${t('ap.vendor.tax.set.done', {
+            vendor: deps.palette.bold(`${String(updated.vendor_number)} ${String(updated.company_name)}`),
+            taxId,
+            type: String(updated.tax_id_type),
+            had: previous.tax_id ? 'some' : 'none',
+            previous: previous.tax_id ?? '',
+          })}\n`
+        );
+        if (posted.bills + posted.payments > 0) {
+          process.stdout.write(`  ${t('ap.vendor.tax.set.posted', { bills: posted.bills, payments: posted.payments })}\n`);
+        }
+        process.stderr.write(deps.palette.dim(`  ${t('ap.vendor.create.tax_id_accepted', { taxId, rule })}\n`));
       })
   );
 }

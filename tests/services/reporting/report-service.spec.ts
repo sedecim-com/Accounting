@@ -123,6 +123,7 @@ import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { criterioDeCierreEnInformes, predicadoSinCierre } from '../../../src/services/reporting/criterio-cierre.js';
 import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
 import { ValidationError } from '../../../src/utils/errors.js';
+import { minorUnitDecimalsSql } from '../../../src/services/fx/conversion.js';
 
 const mockQuery = query as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -1874,7 +1875,7 @@ describe('ageing', () => {
     const flat = (text: string) => text.replace(/\s+/g, ' ');
     expect(sql(0)).toContain(flat(`CROSS JOIN LATERAL (SELECT ${amountDueAsOfSql('$2')} AS amount_due OFFSET 0) d`));
     expect(sql(0)).toContain(flat(`${bookAmountDueSql('i', '$1', 'd.amount_due')} as book_amount_due`));
-    expect(sql(0)).toMatch(/ROUND\(d\.amount_due \* i\.exchange_rate, 4\)/);
+    expect(sql(0)).toMatch(/ROUND\(d\.amount_due \* i\.exchange_rate, CASE \(SELECT functional_currency /);
     expect(sql(0)).toMatch(/\(\$2::date - i\.due_date\) as days_overdue/);
     expect(sql(0)).toMatch(/WHERE i\.entity_id = \$1 AND i\.invoice_date <= \$2::date/);
     expect(sql(0)).toContain(flat(`(i.status <> ALL($3::text[]) OR (i.status = 'void' AND ${voidedAfterSql('$2')}))`));
@@ -1917,7 +1918,9 @@ describe('ageing', () => {
     expect(bookAmountDueSql('i', '$1')).toBe(
       'CASE WHEN i.currency_code IS NULL OR i.currency_code = ' +
         '(SELECT functional_currency FROM legal_entities WHERE id = $1) ' +
-        'THEN i.amount_due ELSE ROUND(i.amount_due * i.exchange_rate, 4) END'
+        // MNE-001-862: rounded to the minor unit of the functional currency, as the posting is.
+        'THEN i.amount_due ELSE ROUND(i.amount_due * i.exchange_rate, ' +
+        `${minorUnitDecimalsSql('(SELECT functional_currency FROM legal_entities WHERE id = $1)')})::numeric(19,4) END`
     );
   });
 

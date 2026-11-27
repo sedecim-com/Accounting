@@ -236,7 +236,7 @@ const TRIAL_BALANCE_XML =
 // 'Proveedor Sintetico' still name one each.
 const OPEN_DOCUMENTS = [
   { cuenta: '1120', documento: 'A-2024-117', contraparte: 'Distribuidora del Bajio SA de CV', rfc: 'DBA060101AB1',
-    fecha: '2024-12-10', vencimiento: '2025-01-09', importe: '3480.00' },
+    fecha: '2024-12-10', vencimiento: '2025-01-09', importe: '3480.00', ivaRate: '0.16' },
   { cuenta: '2110', documento: 'F-2024-881', contraparte: 'Servicios Logisticos del Norte SA de CV', rfc: 'SLN060101AB1',
     fecha: '2024-12-12', vencimiento: '2025-01-11', importe: '2320.00', ivaRate: '0.16' },
 ];

@@ -40,7 +40,7 @@ let violations: ReturnType<typeof auditProgram>;
 const risks = new Map<string, ReturnType<typeof riskOf>>();
 
 const LEAVES = [
-  'vendor list', 'vendor show', 'vendor create', 'vendor edit', 'vendor terms set',
+  'vendor list', 'vendor show', 'vendor create', 'vendor edit', 'vendor terms set', 'vendor tax set',
   'bill list', 'bill show', 'bill create', 'bill line set', 'bill approve',
   // F04: la bandeja de CFDI —por donde entra el mes— y el cuadre del subdiario
   // contra la cuenta de control, que es con lo que se cierra CxP.
@@ -114,6 +114,8 @@ describe('the bilingual surface', () => {
     'vendor edit': 'editar',
     'vendor terms': 'terminos',
     'vendor terms set': 'fijar',
+    'vendor tax': 'fiscal',
+    'vendor tax set': 'fijar',
     bill: 'factura-proveedor',
     'bill list': 'listar',
     'bill show': 'ver',
@@ -167,7 +169,7 @@ describe('safety declarations', () => {
       expect(risks.get(path)?.agentAllowed, path).toBe(true);
     }
     for (const path of [
-      'vendor create', 'vendor edit', 'vendor terms set',
+      'vendor create', 'vendor edit', 'vendor terms set', 'vendor tax set',
       'bill create', 'bill line set', 'bill approve',
       // `bill inbox run` contabiliza y puede dar de alta al emisor del CFDI:
       // es la fila que el catálogo marca IA ✗ por el hueco de control.
@@ -218,7 +220,7 @@ describe('safety declarations', () => {
     // a second approver. Until those exist, a flag that looks like the gate is
     // worse than no flag at all.
     const banky = /clabe|routing|bank/i;
-    for (const cmd of [find('vendor create'), find('vendor edit'), find('vendor terms set')]) {
+    for (const cmd of [find('vendor create'), find('vendor edit'), find('vendor terms set'), find('vendor tax set')]) {
       expect(cmd.options.filter((o) => banky.test(o.long ?? '')), cmd.name()).toEqual([]);
     }
   });

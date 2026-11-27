@@ -96,6 +96,10 @@ describe('the payables families, help by key, family by family (#314, MNE-001-23
     ['vendor edit', 'help.vendor.edit.option.reason'],
     ['vendor terms', 'help.vendor.terms.set.description'],
     ['vendor terms set', 'help.vendor.terms.set.option.currency'],
+    // MNE-001-664: `vendor tax set`.
+    ['vendor', 'help.vendor.tax.description'],
+    ['vendor tax', 'help.vendor.tax.set.description'],
+    ['vendor tax set', 'help.vendor.tax.set.option.tax_id'],
   ])('`%s --help` in es-MX shows %s in Spanish', (path, key) => {
     expectSpanishHelp(path, key);
   });

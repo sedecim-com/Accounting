@@ -69,7 +69,8 @@ async function cuadra(entryId: string): Promise<void> {
 
 /**
  * Y ADEMÁS cada línea FX del mayor se re-verifica AQUÍ, con aritmética
- * independiente del motor: funcional = foreign × rate, half-up, 4 decimales.
+ * independiente del motor: funcional = foreign × rate, half-up, al centavo
+ * (MNE-001-862), con los cuatro decimales de la columna.
  */
 async function origenVerificado(entryId: string): Promise<void> {
   for (const l of await lineasDe(entryId)) {
@@ -80,7 +81,8 @@ async function origenVerificado(entryId: string): Promise<void> {
     expect(l.exchange_rate, `línea "${l.description}" con moneda y sin tipo`).not.toBeNull();
     const esperado = new Decimal(extranjero as string)
       .times(l.exchange_rate as string)
-      .toFixed(4, Decimal.ROUND_HALF_UP);
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toFixed(4);
     expect(
       new Decimal(funcional as string).equals(esperado),
       `línea "${l.description}": ${extranjero} × ${l.exchange_rate} = ${esperado}, el mayor dice ${funcional}`
@@ -175,31 +177,31 @@ describe('la conversión no se afirma: se verifica', () => {
     ).rejects.toThrow(/100\.00[\s\S]*17\.1234[\s\S]*1712\.3400[\s\S]*1712\.3500/);
   });
 
-  it('half-up y truncar difieren en 0.03 × 18.3350 y el motor exige el DOCUMENTADO (half-up)', async () => {
-    // 0.03 × 18.3350 = 0.550050: truncado da 0.5500, half-up da 0.5501.
+  it('half-up y truncar difieren en 0.03 × 18.5000 y el motor exige el DOCUMENTADO (half-up)', async () => {
+    // 0.03 × 18.5000 = 0.555: truncado al centavo da 0.55, half-up da 0.56.
     // El valor truncado se rechaza…
     await expect(
       asiento([
         {
           account_id: f.roles.banco, debit_amount: '0.5500', credit_amount: null,
-          description: 'truncado', currency_code: 'USD', foreign_debit: '0.03', exchange_rate: '18.3350',
+          description: 'truncado', currency_code: 'USD', foreign_debit: '0.03', exchange_rate: '18.5000',
         },
         {
           account_id: f.roles.cxc, debit_amount: null, credit_amount: '0.5500',
-          description: 'truncado', currency_code: 'USD', foreign_credit: '0.03', exchange_rate: '18.3350',
+          description: 'truncado', currency_code: 'USD', foreign_credit: '0.03', exchange_rate: '18.5000',
         },
       ])
-    ).rejects.toThrow(/0\.5501/);
+    ).rejects.toThrow(/0\.5600/);
 
     // …y el half-up entra y se guarda tal cual.
     const e = await asiento([
       {
-        account_id: f.roles.banco, debit_amount: '0.5501', credit_amount: null,
-        description: 'half-up', currency_code: 'USD', foreign_debit: '0.03', exchange_rate: '18.3350',
+        account_id: f.roles.banco, debit_amount: '0.5600', credit_amount: null,
+        description: 'half-up', currency_code: 'USD', foreign_debit: '0.03', exchange_rate: '18.5000',
       },
       {
-        account_id: f.roles.cxc, debit_amount: null, credit_amount: '0.5501',
-        description: 'half-up', currency_code: 'USD', foreign_credit: '0.03', exchange_rate: '18.3350',
+        account_id: f.roles.cxc, debit_amount: null, credit_amount: '0.5600',
+        description: 'half-up', currency_code: 'USD', foreign_credit: '0.03', exchange_rate: '18.5000',
       },
     ]);
     await origenVerificado(e.id);
@@ -268,10 +270,10 @@ describe('la conversión no se afirma: se verifica', () => {
 // ============================================================
 
 describe('el bill en USD posteado conserva su origen', () => {
-  it('cada línea lleva las cuatro columnas, el importe original sobrevive EXACTO y el cxp es la suma de lo asentado', async () => {
+  it('cada línea lleva las cuatro columnas, el importe original sobrevive EXACTO y el cxp es el total del documento', async () => {
     // Tasa de DIEZ decimales: si alguien la pasara por float o por
     // DECIMAL(19,4) el producto se movería. 1000.00 × 17.0987654321 =
-    // 17098.7654321 → 17098.7654; 160.00 × tasa = 2735.802469136 → 2735.8025.
+    // 17098.7654321 → 17098.77; 160.00 × tasa = 2735.802469136 → 2735.80.
     const g = await gastoUsd(f, { subtotal: '1000.00', iva: '160.00', tasa: '17.0987654321' });
     const lineas = await lineasDe(g.entryId);
     await cuadra(g.entryId);
@@ -284,15 +286,17 @@ describe('el bill en USD posteado conserva su origen', () => {
 
     // El importe ORIGINAL, como texto del mayor, sin pasar por float.
     expect(new Decimal(gasto!.foreign_debit as string).equals('1000.00')).toBe(true);
-    expect(new Decimal(gasto!.debit_amount as string).equals('17098.7654')).toBe(true);
+    expect(new Decimal(gasto!.debit_amount as string).equals('17098.77')).toBe(true);
     expect(new Decimal(iva!.foreign_debit as string).equals('160.00')).toBe(true);
-    expect(new Decimal(iva!.debit_amount as string).equals('2735.8025')).toBe(true);
+    expect(new Decimal(iva!.debit_amount as string).equals('2735.80')).toBe(true);
     // La tasa conserva sus DIEZ decimales en el viaje de ida y vuelta.
     expect(new Decimal(cxp!.exchange_rate as string).equals('17.0987654321')).toBe(true);
     expect(new Decimal(cxp!.foreign_credit as string).equals('1160.00')).toBe(true);
-    // El abono a cxp es la SUMA de los cargos ya redondeados, no total × tasa
-    // recalculado aparte: así el asiento cuadra por construcción.
-    expect(new Decimal(cxp!.credit_amount as string).equals('19834.5679')).toBe(true);
+    // El abono a cxp es el total del documento a su tasa (MNE-001-862):
+    // 1160.00 × tasa = 19834.567901236 → 19834.57, que aquí es también la
+    // suma de los cargos (17098.77 + 2735.80): no hay centavo que repartir.
+    expect(new Decimal(cxp!.credit_amount as string).equals('19834.57')).toBe(true);
+    expect(lineas).toHaveLength(3);
   });
 
   it('un bill USD con exchange_rate 1.0 (el default de captura) NO se postea: se acusa', async () => {
@@ -678,32 +682,36 @@ describe('la diferencia cambiaria realizada', () => {
   });
 
   it('EL TOPE DEL IVA RECORTADO POR REDONDEO no tumba el pago ni inventa un origen falso', async () => {
-    // Construido para que half-up sume de más: IVA 0.0270 USD a 18.2345
-    // aparca 0.4923 (0.4923315 ↓), pero cada mitad pro-rata (0.0135) libera
-    // 0.2462 (0.24616575 ↑). El segundo pago topa en 0.2461: NINGÚN importe
-    // original reproduce ese remanente, así que la línea va SIN columnas FX
-    // — con ellas, el propio motor tumbaba el pago con FX_CONVERSION_NO_CASA.
-    const g = await gastoUsd(f, { subtotal: '0.0270', iva: '0.0270', tasa: '18.2345' });
+    // Construido para que half-up sume de más, al centavo (MNE-001-862): IVA
+    // 2.70 USD a 18.2345 aparca 49.23 (49.23315 ↓), pero cada mitad pro-rata
+    // (1.35) libera 24.62 (24.616575 ↑). El segundo pago topa en 24.61: NINGÚN
+    // importe original reproduce ese remanente, así que la línea va SIN columnas
+    // FX — con ellas, el propio motor tumbaba el pago con FX_CONVERSION_NO_CASA.
+    const g = await gastoUsd(f, { subtotal: '2.70', iva: '2.70', tasa: '18.2345' });
 
     // El propio NACIMIENTO de este bill es el otro caso raro: los cargos
-    // suman 0.4923 + 0.4923 = 0.9846 pero 0.0540 × 18.2345 = 0.9847. El
-    // abono a cxp nace por la suma (cuadra contra lo asentado) y SIN
-    // columnas FX, porque ningún origen honesto reproduce la suma — con
-    // ellas, el motor rechazaba el posteo entero del gasto legítimo.
+    // suman 49.23 + 49.23 = 98.46 pero 5.40 × 18.2345 = 98.4663 → 98.47. El
+    // abono a cxp es el documento, CON su origen, y el centavo es un renglón
+    // aparte en la pérdida cambiaria (fx_conversion_cent_difference).
     await cuadra(g.entryId);
-    const cxpNace = (await lineasDe(g.entryId)).find((l) => l.credit_amount !== null);
-    expect(new Decimal(cxpNace!.credit_amount as string).equals('0.9846')).toBe(true);
-    expect(cxpNace!.currency_code).toBeNull();
+    await origenVerificado(g.entryId);
+    const born = await lineasDe(g.entryId);
+    const cxpNace = born.find((l) => l.credit_amount !== null);
+    expect(new Decimal(cxpNace!.credit_amount as string).equals('98.47')).toBe(true);
+    expect(cxpNace!.currency_code).toBe('USD');
+    const cent = born.find((l) => l.account_id === f.roles.perdida_cambiaria);
+    expect(new Decimal(cent!.debit_amount as string).equals('0.01')).toBe(true);
+    expect(cent!.currency_code).toBeNull();
 
     const pagar = () =>
       recordVendorPayment(
         {
           entityId: f.entityId,
-          paymentAmount: '0.0270',
+          paymentAmount: '2.70',
           paymentDate: fechaEnPeriodo(),
           paymentMethod: 'spei',
           exchangeRate: '18.2345',
-          applications: [{ documentId: g.billId, amountApplied: '0.0270' }],
+          applications: [{ documentId: g.billId, amountApplied: '2.70' }],
         },
         f.userId
       );
@@ -715,7 +723,7 @@ describe('la diferencia cambiaria realizada', () => {
       (l) => l.debit_amount !== null && /IVA/.test(l.description)
     );
     // Primer pago: sin recorte, el origen viaja completo.
-    expect(new Decimal(iva1!.debit_amount as string).equals('0.2462')).toBe(true);
+    expect(new Decimal(iva1!.debit_amount as string).equals('24.62')).toBe(true);
     expect(iva1!.currency_code).toBe('USD');
 
     const p2 = await pagar(); // antes del arreglo: reventaba aquí
@@ -723,18 +731,18 @@ describe('la diferencia cambiaria realizada', () => {
     await origenVerificado(p2.journalEntry!.id);
     const lines2 = await lineasDe(p2.journalEntry!.id);
     const iva2 = lines2.find((l) => l.account_id === f.roles.iva_pendiente_acreditar);
-    // Segundo pago: el telescopio dice 0.4923 − 0.2462 = 0.2461, y como
+    // Segundo pago: el telescopio dice 49.23 − 24.62 = 24.61, y como
     // ningún origen honesto reproduce esa cifra, la línea va sin columnas FX.
-    expect(new Decimal(iva2!.credit_amount as string).equals('0.2461')).toBe(true);
+    expect(new Decimal(iva2!.credit_amount as string).equals('24.61')).toBe(true);
     expect(iva2!.currency_code).toBeNull();
-    // The creditable side is this payment's own tax figure, 0.0135 × 18.2345,
-    // with its origin; the ten-thousandth between them is realised difference.
+    // The creditable side is this payment's own tax figure, 1.35 × 18.2345,
+    // with its origin; the cent between them is realised difference.
     const creditable2 = lines2.find((l) => l.account_id === f.roles.iva_acreditable);
-    expect(new Decimal(creditable2!.debit_amount as string).equals('0.2462')).toBe(true);
+    expect(new Decimal(creditable2!.debit_amount as string).equals('24.62')).toBe(true);
     expect(creditable2!.currency_code).toBe('USD');
 
-    // Y el aparcado del documento queda EXACTAMENTE en cero: 0.2462 + 0.2461
-    // = 0.4923 — ni un diezmilésimo varado en la 1135, ni la 1135 en negativo
+    // Y el aparcado del documento queda EXACTAMENTE en cero: 24.62 + 24.61
+    // = 49.23 — ni un centavo varado en la 1135, ni la 1135 en negativo
     // (que es lo que dejaba convertir cada tramo por separado).
     const r1135 = await query<{ saldo: string }>(
       `SELECT COALESCE(SUM(COALESCE(debit_amount,0) - COALESCE(credit_amount,0)),0)::text AS saldo
@@ -743,6 +751,17 @@ describe('la diferencia cambiaria realizada', () => {
       [f.roles.iva_pendiente_acreditar, [g.entryId, p1.journalEntry!.id, p2.journalEntry!.id]]
     );
     expect(new Decimal(r1135.rows[0].saldo).isZero(), `la 1135 quedó en ${r1135.rows[0].saldo}`).toBe(true);
+
+    // MNE-001-862 · Y el PASIVO también: nació en 98.47 y cada mitad
+    // convierte a 49.23, así que el segundo pago carga 49.24 (el centavo, en
+    // un renglón sin origen) y la cuenta por pagar del gasto queda en cero.
+    const payable = await query<{ balance: string }>(
+      `SELECT COALESCE(SUM(COALESCE(credit_amount,0) - COALESCE(debit_amount,0)),0)::text AS balance
+         FROM journal_entry_lines
+        WHERE account_id = $1 AND journal_entry_id = ANY($2::uuid[])`,
+      [f.roles.cxp, [g.entryId, p1.journalEntry!.id, p2.journalEntry!.id]]
+    );
+    expect(new Decimal(payable.rows[0].balance).isZero(), `cxp is left at ${payable.rows[0].balance}`).toBe(true);
   });
 
   it('un gasto USD viejo asentado con tasa 1.0 NO se paga por aquí: la «diferencia» sería la conversión que nunca ocurrió', async () => {
