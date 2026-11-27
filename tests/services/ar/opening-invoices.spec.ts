@@ -73,7 +73,7 @@ describe('planOpeningInvoices', () => {
       {
         accountCode: '105-001', accountId: 'id-105-001', number: 'A-123', customerName: 'Aceros del Norte SA',
         customerRfc: 'ANO010101AAA', date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', iva: ZERO_RATE,
-        currency: 'MXN', cfdiUuid: 'U-1', replacesId: null,
+        ivaPending: true, currency: 'MXN', cfdiUuid: 'U-1', replacesId: null,
       },
       // Without a due date the document date stands in: `due_date` is NOT NULL.
       expect.objectContaining({ number: 'A-456', customerRfc: null, dueDate: '2025-11-02', cfdiUuid: null }),
@@ -216,7 +216,7 @@ describe('writeOpeningInvoices', () => {
   const draft = (p: Partial<OpeningInvoiceDraft>): OpeningInvoiceDraft => ({
     accountCode: '105-001', accountId: 'acc-105', number: 'A-1', customerName: 'Aceros del Norte SA', customerRfc: null,
     date: '2025-11-02', dueDate: '2025-12-02', amount: '4000.0000', iva: ZERO_RATE as OpeningInvoiceDraft['iva'],
-    currency: 'MXN', cfdiUuid: null, replacesId: null,
+    ivaPending: true, currency: 'MXN', cfdiUuid: null, replacesId: null,
     ...p,
   });
   const client = { query: vi.fn() };
@@ -263,7 +263,7 @@ describe('writeOpeningInvoices', () => {
     expect(invoices).toHaveLength(2);
     expect(invoices[0][0]).toMatch(/'sent'/);
     expect(invoices[0][1]).toEqual(['cust-1', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-1', 'ent-1',
-      '4000.0000', '0.0000', 'A-1', 'Open at the opening balance · 105-001', 'user-1']);
+      '4000.0000', '0.0000', true, 'A-1', 'Open at the opening balance · 105-001', 'user-1']);
   });
 
   it('an existing customer is found by name when there is no RFC', async () => {
@@ -281,9 +281,11 @@ describe('writeOpeningInvoices', () => {
     const update = sqls()[1];
     expect(update).toMatch(/^UPDATE invoices/);
     expect(update).toContain('subtotal = $9, tax_amount = $10, total_amount = $2, amount_due = $2');
-    expect(update).toContain("WHERE id = $11 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0");
+    expect(update).toContain("opening_iva_pending = $11, updated_at = NOW() WHERE id = $12 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0");
+    // The payment terms of the invoice are not the load's to write.
+    expect(update).not.toContain('terms');
     expect(client.query.mock.calls[1][1]).toEqual(['cust-9', '4000.0000', 'MXN', '2025-11-02', '2025-12-02', null, 'je-2', 'ent-1',
-      '4000.0000', '0.0000', 'inv-1']);
+      '4000.0000', '0.0000', true, 'inv-1']);
     // MNE-001-946: the line it had goes, scoped to the entity, before the new one is written.
     expect(sqls()[2]).toMatch(/^DELETE FROM invoice_lines il USING invoices i WHERE i\.id = il\.invoice_id AND i\.entity_id = \$1/);
     expect(client.query.mock.calls[2][1]).toEqual(['ent-1', ['inv-1']]);
@@ -305,14 +307,16 @@ describe('writeOpeningInvoices', () => {
     const calls = (pattern: RegExp) => client.query.mock.calls.filter((c) => pattern.test(String(c[0])));
     await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [
       draft({ number: 'A-123', amount: '116000.0000', iva: { subtotal: '100000.0000', tax: '16000.0000', taxRatePct: '16.00', factorType: 'tasa' } }),
-      draft({ number: 'A-456', iva: { subtotal: '4000.0000', tax: '0.0000', taxRatePct: null, factorType: 'exento' } }),
-      // Off Mexican books: the open balance with no tax, and no line.
+      // Part 2: its IVA was caused before the opening, and `opening_iva_pending` says so.
+      draft({ number: 'A-456', ivaPending: false, iva: { subtotal: '4000.0000', tax: '0.0000', taxRatePct: null, factorType: 'exento' } }),
+      // Off Mexican books: the open balance with no tax, no line and NULL in the column.
       draft({ number: 'A-789', iva: null }),
     ]);
     const invoices = calls(/INSERT INTO invoices/);
-    expect(String(invoices[0][0]).replace(/\s+/g, ' ')).toContain("VALUES ($1, $9, $10, $2, $2, $3, $4, $5, $6, $7, $8, $11, 'sent', $12, $13) RETURNING id");
-    expect(invoices.map((c) => (c[1] as unknown[]).slice(8, 10))).toEqual([
-      ['100000.0000', '16000.0000'], ['4000.0000', '0.0000'], ['4000.0000', '0.0000'],
+    expect(String(invoices[0][0]).replace(/\s+/g, ' ')).toContain("VALUES ($1, $9, $10, $2, $2, $3, $4, $5, $6, $7, $8, $11, $12, 'sent', $13, $14) RETURNING id");
+    expect(String(invoices[0][0]).replace(/\s+/g, ' ')).toContain('entity_id, opening_iva_pending, invoice_number');
+    expect(invoices.map((c) => (c[1] as unknown[]).slice(8, 11))).toEqual([
+      ['100000.0000', '16000.0000', true], ['4000.0000', '0.0000', false], ['4000.0000', '0.0000', null],
     ]);
     const lines = calls(/INSERT INTO invoice_lines/);
     expect(lines).toHaveLength(1);
@@ -442,6 +446,25 @@ describe('planOpeningInvoices · the IVA of each receivable document (MNE-001-94
     expect(parked('16000.0000')).toEqual([]);
     // More parked than the documents carry is the firm's other uncollected IVA: fine.
     expect(parked('20000.0000')).toEqual([]);
+  });
+
+  it('`ivaPending: false` keeps the true rate and is left out of what the opening must park (part 2)', () => {
+    // A-123 parks 16,000.00; A-9, 58,000.00 at 16 %, carries 8,000.00 the previous system already caused.
+    const settled = doc({ documento: 'A-9', importe: '58000.00', ivaRate: '0.16', ivaPending: false });
+    const r = planOpeningInvoices(withPending([A123, settled], '16000.0000'), CTX);
+    // It does not stop the load, and the load names it: no collection will cause those 8,000.00.
+    expect(r.findings).toEqual([
+      expect.objectContaining({
+        regla: 'APE-CXC-IVA-YA-CAUSADO', severidad: 'aviso', numCta: '105-001',
+        messageKey: { key: 'migration.opening.receivable_iva_settled', params: { count: 1, tax: '8000.00', documents: 'A-9' } },
+      }),
+    ]);
+    expect(r.drafts.map((x) => [x.number, x.ivaPending, x.iva?.tax])).toEqual([
+      ['A-123', true, '16000.0000'], ['A-9', false, '8000.0000'],
+    ]);
+    // Only `false` says so: anything else is pending, and then the 24,000.00 are not all there.
+    const said = planOpeningInvoices(withPending([A123, { ...settled, ivaPending: 'false' as never }], '16000.0000'), CTX);
+    expect(said.findings.map((f) => [f.regla, f.messageKey?.params.tax])).toEqual([['APE-CXC-IVA-SIN-SALDO', '24000.00']]);
   });
 
   it('with no account under the pending-IVA role, the block names the role instead', () => {

@@ -6128,12 +6128,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'migration.opening.receivable_iva_no_role':
     'Las facturas de clientes traen {tax} de IVA no cobrado y ninguna cuenta tiene el rol «{role}». Cada cobro ' +
     'liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta de IVA trasladado no cobrado de la ' +
-    'balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa de los documentos.',
+    'balanza (mnemosine account role set {role} <cuenta>). Un documento cuyo IVA ya había causado el sistema ' +
+    'anterior dice "ivaPending": false: conserva su tasa, y no se aparca ni se libera nada por él.',
   'migration.opening.receivable_iva_not_parked':
     'Las facturas de clientes traen {tax} de IVA no cobrado y la apertura sólo pone {parked} en «{account}», la ' +
     'cuenta con el rol «{role}». Cada cobro liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta ' +
-    'de IVA trasladado no cobrado de la balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa ' +
-    'de los documentos.',
+    'de IVA trasladado no cobrado de la balanza (mnemosine account role set {role} <cuenta>). Un documento ' +
+    'cuyo IVA ya había causado el sistema anterior dice "ivaPending": false: conserva su tasa, y no se aparca ' +
+    'ni se libera nada por él.',
+  'migration.opening.receivable_iva_settled':
+    '{count} documento(s) de clientes dicen "ivaPending": false, {tax} de IVA que el sistema anterior ya había ' +
+    'causado: conservan su tasa, la apertura no aparca ese IVA, y cobrarlos no causa nada: {documents}.',
   // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',

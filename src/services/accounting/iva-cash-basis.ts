@@ -39,6 +39,8 @@ export type DocumentSide = 'issued' | 'received';
 
 /** Where the MetodoPago came from, most authoritative first. */
 export type MetodoPagoOrigin =
+  /** MNE-001-946 · The opening load said whether the IVA of a migrated invoice is pending (`invoices.opening_iva_pending`). */
+  | 'opening'
   /** A MetodoPago carried by the document row itself. */
   | 'document'
   /** The stamped CFDI behind the document (xml_documents.metodo_pago). */
@@ -422,24 +424,45 @@ export async function entityUsesCashBasisIva(
 }
 
 /**
- * metodo_pago of the stamped CFDI behind an issued invoice, if it is ingested.
+ * What decides the method of an issued invoice, read in ONE statement.
  *
- * Scoped to the entity on purpose: one CFDI can be ingested twice inside the
- * same tenant when both parties are entities of the group (the emisor files
- * it as 'emitido', the receptor as 'recibido'), and an unqualified LIMIT 1
- * would read whichever row the planner reached first — another entity's.
+ * `metodo_pago`: of the stamped CFDI behind it, if it is ingested. Scoped to
+ * the entity on purpose: one CFDI can be ingested twice inside the same
+ * tenant when both parties are entities of the group (the emisor files it as
+ * 'emitido', the receptor as 'recibido'), and an unqualified LIMIT 1 would
+ * read whichever row the planner reached first — another entity's. An invoice
+ * with no UUID asks nothing of the mirror.
+ *
+ * `opening` (MNE-001-946, migration 348): what the opening load said of an
+ * invoice it created, `invoices.opening_iva_pending`. Pending collects as a
+ * PPD invoice does: its IVA waits in the pending account of the opening and
+ * is caused when collected (LIVA art. 1-B). Not pending, the previous system
+ * had already caused it, which is what this engine calls PUE. An invoice
+ * loaded before the column was written says nothing: the one that carries
+ * IVA and hangs from a standing opening is read as pending, the default the
+ * file has; every other invoice gets no word here.
  */
-async function cfdiMetodoPagoByUuid(
+async function invoiceMethodFacts(
   client: pg.PoolClient,
-  entityId: string,
-  cfdiUuid: string | null | undefined
-): Promise<string | null> {
-  if (!cfdiUuid) return null;
-  const { rows } = await client.query<{ metodo_pago: string | null }>(
-    'SELECT metodo_pago FROM xml_documents WHERE cfdi_uuid = $1 AND entity_id = $2 LIMIT 1',
-    [cfdiUuid, entityId]
+  invoice: InvoiceMetodoSource
+): Promise<{ cfdi: string | null; opening: MetodoPago | null }> {
+  const cfdi = invoice.cfdi_uuid
+    ? '(SELECT metodo_pago FROM xml_documents WHERE cfdi_uuid = $1 AND entity_id = $2 LIMIT 1)'
+    : '$1::text';
+  const { rows } = await client.query<{ metodo_pago: string | null; opening: MetodoPago | null }>(
+    `SELECT ${cfdi} AS metodo_pago,
+            (SELECT CASE WHEN i.opening_iva_pending THEN 'PPD'
+                         WHEN i.opening_iva_pending IS FALSE THEN 'PUE'
+                         WHEN i.tax_amount > 0 AND EXISTS (
+                                SELECT 1 FROM journal_entries jo
+                                 WHERE jo.id = i.journal_entry_id AND jo.entity_id = i.entity_id
+                                   AND jo.source_type = 'opening_balance'
+                                   AND jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL) THEN 'PPD'
+                    END
+               FROM invoices i WHERE i.id = $3 AND i.entity_id = $2) AS opening`,
+    [invoice.cfdi_uuid ?? null, invoice.entity_id, invoice.id]
   );
-  return rows[0]?.metodo_pago ?? null;
+  return { cfdi: rows[0]?.metodo_pago ?? null, opening: rows[0]?.opening ?? null };
 }
 
 /**
@@ -494,12 +517,18 @@ export async function resolveInvoiceMetodoPago(
   client: pg.PoolClient,
   invoice: InvoiceMetodoSource
 ): Promise<MetodoPagoDecision> {
-  const decision = decideMetodoPago('issued', {
-    documentMetodoPago: (invoice as { cfdi_metodo_pago?: unknown }).cfdi_metodo_pago,
-    cfdiMetodoPago: await cfdiMetodoPagoByUuid(client, invoice.entity_id, invoice.cfdi_uuid),
-    terms: invoice.terms,
-    memo: invoice.memo,
-  });
+  const facts = await invoiceMethodFacts(client, invoice);
+  // The opening's word goes ahead of the CFDI's own MetodoPago: where the
+  // ledger holds the IVA decides, as on the received side (MNE-001-491), and
+  // a CFDI may be ingested after the load.
+  const decision: MetodoPagoDecision = facts.opening !== null
+    ? { metodo: facts.opening, origin: 'opening', assumed: false }
+    : decideMetodoPago('issued', {
+        documentMetodoPago: (invoice as { cfdi_metodo_pago?: unknown }).cfdi_metodo_pago,
+        cfdiMetodoPago: facts.cfdi,
+        terms: invoice.terms,
+        memo: invoice.memo,
+      });
   warnIfAssumed('invoice', invoice.invoice_number ?? invoice.id, decision);
   return decision;
 }
@@ -669,13 +698,17 @@ export async function ivaStillParked(
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all
   // documents; `bills.tax_amount` is its share. Only while that opening stands.
+  // MNE-001-946: the same for an invoice, unless the load said the previous
+  // system had already caused its IVA (`opening_iva_pending` false, migration
+  // 348): that one parked none. NULL is an invoice loaded before the column.
+  const migrated = side === 'received'
+    ? { table: 'bills', pending: '' }
+    : { table: 'invoices', pending: ' AND b.opening_iva_pending IS NOT FALSE' };
   const fromOpening =
-    side === 'received'
-      ? ` + COALESCE((SELECT SUM(b.tax_amount) FROM bills b
-                        JOIN journal_entries jo ON jo.id = b.journal_entry_id AND jo.entity_id = b.entity_id
-                       WHERE b.id = $3 AND b.entity_id = $1 AND jo.source_type = 'opening_balance'
-                         AND jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL), 0)`
-      : '';
+    ` + COALESCE((SELECT SUM(b.tax_amount) FROM ${migrated.table} b
+                    JOIN journal_entries jo ON jo.id = b.journal_entry_id AND jo.entity_id = b.entity_id
+                   WHERE b.id = $3 AND b.entity_id = $1 AND jo.source_type = 'opening_balance'
+                     AND jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL${migrated.pending}), 0)`;
   const { rows } = await client.query<{ parked: string }>(
     `SELECT (COALESCE(SUM(
               CASE WHEN a.normal_balance = 'debit'

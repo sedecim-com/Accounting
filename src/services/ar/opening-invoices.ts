@@ -51,8 +51,11 @@ import type {
 // carry must be in the opening's pending-IVA account, or a collection would
 // release IVA the ledger never parked: the load blocks. An entity off Mexican
 // books has no such regime: its documents enter with no tax and no line.
-// NOTE: releasing that IVA at collection is part 2 of MNE-001-946; until it
-// lands a collection moves none of it, as before.
+// The load writes on the invoice whether that IVA is pending
+// (`invoices.opening_iva_pending`, migration 348): a collection then releases
+// it as a native PPD invoice's (iva-cash-basis.ts). A document whose IVA the
+// previous system had already caused says `ivaPending: false`: it keeps its
+// true rate, needs nothing parked and releases nothing.
 //
 // Because the invoice shares the opening entry, `voidInvoice` refuses it (a
 // credit note cancels it), and a reload after voiding the opening takes over
@@ -127,6 +130,8 @@ export interface OpeningInvoiceDraft {
   amount: string;
   /** Base, IVA and rate of the single line; null off Mexican books, where no line is written. */
   iva: OpenBalanceIva | null;
+  /** false when the document says its IVA was caused before the opening (`ivaPending: false`). */
+  ivaPending: boolean;
   currency: string;
   cfdiUuid: string | null;
   /** The invoice of a REVERSED opening that this load takes over (087 reload). */
@@ -333,6 +338,7 @@ export function planOpeningInvoices(
       dueDate: d.vencimiento === undefined || d.vencimiento === '' ? d.fecha : d.vencimiento,
       amount: amount.toFixed(4),
       iva: rate === null ? null : ivaInsideOpenBalance(amount, rate),
+      ivaPending: d.ivaPending !== false,
       currency,
       cfdiUuid: d.uuid === undefined || d.uuid === '' ? null : d.uuid,
       replacesId: reusable ? taken.id : null,
@@ -348,10 +354,22 @@ export function planOpeningInvoices(
     );
   }
 
+  // What the file states as caused before the opening is named: no collection will cause it.
+  const settled = drafts.filter((x) => !x.ivaPending && x.iva !== null);
+  if (settled.length > 0) {
+    findings.push(
+      keyed('APE-CXC-IVA-YA-CAUSADO', 'aviso', docs[0].code, 'migration.opening.receivable_iva_settled', {
+        count: settled.length,
+        tax: settled.reduce((acc, x) => acc.plus(x.iva?.tax ?? 0), new Decimal(0)).toFixed(2),
+        documents: settled.map((x) => x.number).join(', '),
+      })
+    );
+  }
+
   // The IVA the invoices release when collected has to be parked in the
   // opening: otherwise each collection debits the pending-IVA account below zero.
   const role = reclassRoles('issued').from;
-  const tax = drafts.reduce((acc, x) => acc.plus(x.iva?.tax ?? 0), new Decimal(0));
+  const tax = drafts.reduce((acc, x) => acc.plus(x.ivaPending ? (x.iva?.tax ?? 0) : 0), new Decimal(0));
   const parked = plan.lines
     .filter((l) => l.code === ctx.pendingIvaCode)
     .reduce((acc, l) => acc.plus(l.credit ?? 0).minus(l.debit ?? 0), new Decimal(0));
@@ -489,7 +507,9 @@ export async function writeOpeningInvoices(
     }
 
     const values = [customerId, d.amount, d.currency, d.date, d.dueDate, d.cfdiUuid,
-      openingEntryId, entityId, d.iva?.subtotal ?? d.amount, d.iva?.tax ?? '0.0000'];
+      openingEntryId, entityId, d.iva?.subtotal ?? d.amount, d.iva?.tax ?? '0.0000',
+      // Whether its IVA is pending: what a collection, a credit note and the IVA paper read.
+      d.iva === null ? null : d.ivaPending];
     let invoiceId: string;
     if (d.replacesId !== null) {
       // Guarded: only the untouched invoice of a reversed opening is taken over.
@@ -497,8 +517,8 @@ export async function writeOpeningInvoices(
         `UPDATE invoices
             SET customer_id = $1, subtotal = $9, tax_amount = $10, total_amount = $2, amount_due = $2,
                 currency_code = $3, invoice_date = $4, due_date = $5, cfdi_uuid = $6,
-                journal_entry_id = $7, updated_at = NOW()
-          WHERE id = $11 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0`,
+                journal_entry_id = $7, opening_iva_pending = $11, updated_at = NOW()
+          WHERE id = $12 AND entity_id = $8 AND status = 'sent' AND amount_paid = 0`,
         [...values, d.replacesId]
       );
       if (r.rowCount !== 1) {
@@ -511,8 +531,8 @@ export async function writeOpeningInvoices(
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO invoices (customer_id, subtotal, tax_amount, total_amount, amount_due, currency_code,
                                invoice_date, due_date, cfdi_uuid, journal_entry_id, entity_id,
-                               invoice_number, status, description, created_by)
-         VALUES ($1, $9, $10, $2, $2, $3, $4, $5, $6, $7, $8, $11, 'sent', $12, $13)
+                               opening_iva_pending, invoice_number, status, description, created_by)
+         VALUES ($1, $9, $10, $2, $2, $3, $4, $5, $6, $7, $8, $11, $12, 'sent', $13, $14)
          RETURNING id`,
         [...values, d.number, `Open at the opening balance · ${d.accountCode}`, userId]
       );

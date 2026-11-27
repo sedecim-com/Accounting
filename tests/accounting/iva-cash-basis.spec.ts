@@ -27,6 +27,7 @@ import {
   issuedVatStillParked,
   entityUsesCashBasisIva,
   discountVatShare,
+  resolveInvoiceMetodoPago,
 } from '../../src/services/accounting/iva-cash-basis.js';
 import { queryIssuedInvoiceVatTaken } from '../../src/services/reporting/report-service.js';
 
@@ -154,6 +155,49 @@ describe('the assumption is legible', () => {
       .toMatch(/conservative PPD assumed/);
     expect(ivaTreatmentNote('received', { metodo: 'PUE', origin: 'cfdi', assumed: false }))
       .toBe('IVA not yet creditable — moves to IVA acreditable on payment');
+  });
+});
+
+describe('resolveInvoiceMetodoPago: the opening says whether a migrated invoice still owes its IVA (MNE-001-946)', () => {
+  const INVOICE = { id: 'inv-1', entity_id: 'ent-1', invoice_number: 'A-123', cfdi_uuid: 'UUID-1', terms: null, memo: null };
+  /** One row: what the CFDI mirror says and what the opening says of the invoice. */
+  const reader = (opening: 'PPD' | 'PUE' | null, cfdi: string | null = null) => ({
+    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>(
+      async () => ({ rows: [{ metodo_pago: cfdi, opening }] })
+    ),
+  });
+  const sqlOf = (c: ReturnType<typeof reader>) => String(c.query.mock.calls[0][0]).replace(/\s+/g, ' ');
+
+  it('pending collects as PPD and caused reads PUE, ahead of the CFDI, in the ONE statement that reads both', async () => {
+    const pending = reader('PPD', 'PUE');
+    expect(await resolveInvoiceMetodoPago(pending as never, INVOICE)).toEqual({ metodo: 'PPD', origin: 'opening', assumed: false });
+    expect(pending.query).toHaveBeenCalledTimes(1);
+    expect(pending.query.mock.calls[0][1]).toEqual(['UUID-1', 'ent-1', 'inv-1']);
+    expect(await resolveInvoiceMetodoPago(reader('PUE', 'PPD') as never, INVOICE))
+      .toEqual({ metodo: 'PUE', origin: 'opening', assumed: false });
+  });
+
+  it('the column decides; NULL is pending only with IVA and a standing opening; the invoice is bound to its entity', async () => {
+    const c = reader(null);
+    await resolveInvoiceMetodoPago(c as never, INVOICE);
+    const sql = sqlOf(c);
+    expect(sql).toContain("CASE WHEN i.opening_iva_pending THEN 'PPD' WHEN i.opening_iva_pending IS FALSE THEN 'PUE'");
+    expect(sql).toContain('WHEN i.tax_amount > 0 AND EXISTS ( SELECT 1 FROM journal_entries jo');
+    expect(sql).toContain("jo.source_type = 'opening_balance' AND jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL) THEN 'PPD'");
+    expect(sql).toContain('FROM invoices i WHERE i.id = $3 AND i.entity_id = $2');
+    // The payment terms are not read for it.
+    expect(sql).not.toContain('terms');
+  });
+
+  it('an invoice the opening says nothing of is decided as before: CFDI, then terms, then the conservative PUE', async () => {
+    expect(await resolveInvoiceMetodoPago(reader(null, 'PPD') as never, INVOICE)).toEqual({ metodo: 'PPD', origin: 'cfdi', assumed: false });
+    // With no UUID the mirror is not asked, and the statement is still one.
+    const typed = reader(null);
+    expect(await resolveInvoiceMetodoPago(typed as never, { ...INVOICE, cfdi_uuid: null, terms: 'PPD' }))
+      .toEqual({ metodo: 'PPD', origin: 'terms', assumed: false });
+    expect(typed.query).toHaveBeenCalledTimes(1);
+    expect(sqlOf(typed)).not.toContain('xml_documents');
+    expect((await resolveInvoiceMetodoPago(reader(null) as never, { ...INVOICE, cfdi_uuid: null })).assumed).toBe(true);
   });
 });
 
@@ -297,6 +341,20 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
     const c2 = client('0');
     await ivaStillParked(c2 as never, 'issued', ENTITY, DOC);
     expect(String(c2.query.mock.calls[0][0])).not.toContain('FROM bills');
+  });
+
+  it('an invoice migrated with the opening counts its tax_amount too, unless the load said its IVA was already caused (MNE-001-946)', async () => {
+    const c = client('16000.0000');
+    expect(await ivaStillParked(c as never, 'issued', ENTITY, DOC)).toBe('16000.0000');
+    const sql = String(c.query.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('SELECT SUM(b.tax_amount) FROM invoices b');
+    expect(sql).toContain("WHERE b.id = $3 AND b.entity_id = $1 AND jo.source_type = 'opening_balance'");
+    // false parked none; NULL, an invoice loaded before migration 348, counts like true.
+    expect(sql).toContain("jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL AND b.opening_iva_pending IS NOT FALSE");
+    // The received side keeps its statement: a bill has no such column.
+    const c2 = client('0');
+    await ivaStillParked(c2 as never, 'received', ENTITY, DOC);
+    expect(String(c2.query.mock.calls[0][0])).not.toContain('opening_iva_pending');
   });
 
   it('scopes every leg to the entity', async () => {
