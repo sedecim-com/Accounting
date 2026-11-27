@@ -342,7 +342,7 @@ export interface ResultadoDeAlta {
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Fecha en 'YYYY-MM-DD' o error que nombra el campo. */
-function exigirFecha(valor: string, campo: string): string {
+export function exigirFecha(valor: string, campo: string): string {
   const texto = valor.trim();
   if (!FECHA_ISO.test(texto)) {
     throw new ValidationError({ key: 'error.VALIDATION_ERROR.asset.date_format', params: { field: campo, value: valor } }, campo);
@@ -519,7 +519,7 @@ interface FilaActivo {
  * for such an asset. A declared limit of this release, not a criterion: it
  * goes away with the capture.
  */
-export function refuseUnitsOfProduction(book: DepreciationMethod, tax: DepreciationMethod): void {
+export function refuseUnitsOfProduction(book?: DepreciationMethod, tax?: DepreciationMethod): void {
   const units = DepreciationMethod.UNITS_OF_PRODUCTION;
   const side = book === units ? 'book' : tax === units ? 'tax' : null;
   if (side === null) return;
@@ -527,6 +527,47 @@ export function refuseUnitsOfProduction(book: DepreciationMethod, tax: Depreciat
     { key: 'error.VALIDATION_ERROR.asset.units_of_production_unsupported', params: { book: side } },
     `${side}_depreciation_method`
   );
+}
+
+/**
+ * A TYPED start of depreciation never precedes the acquisition. The derived
+ * one may (20 March becomes 1 March under the full-month convention): that is
+ * the convention, not an error. Registration and `asset edit` both ask here.
+ */
+export function startNotBeforeAcquisition(start: string, acquired: string): void {
+  if (start < acquired) {
+    throw new ValidationError(
+      { key: 'error.VALIDATION_ERROR.asset.start_before_acquisition', params: { start, acquired } },
+      'depreciation_start_date'
+    );
+  }
+}
+
+/**
+ * The accounts of an asset, scoped by entity IN THE SQL and in one trip: the
+ * foreign key to `accounts(id)` does not look at the chart, so without this
+ * an asset could depreciate against another entity's ledger every month.
+ * Header accounts are excluded by the same SELECT: the CHECK of 001 forbids
+ * them postings. Registration and `asset edit` both ask here.
+ */
+export async function accountsOfThisEntity(
+  client: pg.PoolClient,
+  entityId: string,
+  accounts: Record<string, string>
+): Promise<void> {
+  const found = await client.query<{ id: string }>(
+    `SELECT id FROM accounts
+      WHERE entity_id = $1 AND is_header = false AND id = ANY($2::uuid[])`,
+    [entityId, [...new Set(Object.values(accounts))]]
+  );
+  const valid = new Set(found.rows.map((r) => r.id));
+  const rejected = Object.keys(accounts).filter((field) => !valid.has(accounts[field]));
+  if (rejected.length > 0) {
+    throw new ValidationError(
+      { key: 'error.VALIDATION_ERROR.asset.accounts_rejected', params: { fields: rejected.join(', ') } },
+      rejected[0]
+    );
+  }
 }
 
 /**
@@ -617,12 +658,7 @@ export async function crearActivo(
     // antes de la compra —del 20 de marzo se va al 1 de marzo— y eso no es un
     // error: es la convención de mes completo. Lo que no se admite es que el
     // usuario fije a mano un arranque anterior al día en que el bien existió.
-    if (datos.depreciation_start_date !== undefined && inicio < adquisicion) {
-      throw new ValidationError(
-        { key: 'error.VALIDATION_ERROR.asset.start_before_acquisition', params: { start: inicio, acquired: adquisicion } },
-        'depreciation_start_date'
-      );
-    }
+    if (datos.depreciation_start_date !== undefined) startNotBeforeAcquisition(inicio, adquisicion);
 
     // ── LAS TRES CUENTAS ───────────────────────────────────────────────
     const cuentaActivo = datos.asset_account_id ?? categoria.default_asset_account_id;
@@ -647,30 +683,11 @@ export async function crearActivo(
       );
     }
 
-    // Las tres, acotadas por entidad EN EL SQL y en un solo viaje. La foránea
-    // `accounts(id)` no mira el catálogo: sin esto, un activo puede quedar
-    // apuntando a la cuenta de gasto de otra entidad y depreciar contra su
-    // mayor todos los meses. Los encabezados se excluyen por el mismo SELECT:
-    // el CHECK de la 001 les prohíbe movimientos, así que un activo colgado de
-    // uno no se puede depreciar nunca.
-    const pedidas = [cuentaActivo, cuentaAcumulada, cuentaGasto] as string[];
-    const halladas = await client.query<{ id: string }>(
-      `SELECT id FROM accounts
-        WHERE entity_id = $1 AND is_header = false AND id = ANY($2::uuid[])`,
-      [entityId, [...new Set(pedidas)]]
-    );
-    const validas = new Set(halladas.rows.map((r) => r.id));
-    const rechazadas = [
-      validas.has(cuentaActivo as string) ? null : 'asset_account_id',
-      validas.has(cuentaAcumulada as string) ? null : 'accumulated_depreciation_account_id',
-      validas.has(cuentaGasto as string) ? null : 'depreciation_expense_account_id',
-    ].filter((c): c is string => c !== null);
-    if (rechazadas.length > 0) {
-      throw new ValidationError(
-        { key: 'error.VALIDATION_ERROR.asset.accounts_rejected', params: { fields: rechazadas.join(', ') } },
-        rechazadas[0]
-      );
-    }
+    await accountsOfThisEntity(client, entityId, {
+      asset_account_id: cuentaActivo as string,
+      accumulated_depreciation_account_id: cuentaAcumulada as string,
+      depreciation_expense_account_id: cuentaGasto as string,
+    });
 
     // El proveedor también: `vendors(id)` es otra foránea sin frontera.
     if (datos.vendor_id !== undefined && datos.vendor_id !== null) {

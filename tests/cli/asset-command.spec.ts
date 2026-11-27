@@ -58,7 +58,7 @@ let violations: ReturnType<typeof auditProgram>;
  */
 const risks = new Map<string, ReturnType<typeof riskOf>>();
 
-const LEAVES = ['asset create', 'asset category seed', 'depreciation run', 'depreciation post'];
+const LEAVES = ['asset create', 'asset edit', 'asset category seed', 'depreciation run', 'depreciation post'];
 
 beforeAll(() => {
   program = new Command('mnemosine');
@@ -91,7 +91,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the declared leaves (three of phase 1 plus category seed, #322) and no invented surface', () => {
+  it('ships exactly the declared leaves (three of phase 1, category seed of #322, asset edit of MNE-001-880) and no invented surface', () => {
     const hojas: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];

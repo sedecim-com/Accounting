@@ -140,6 +140,14 @@ mnemosine depreciation post --period 2026-08
 
 Una póliza de depreciación reversada o anulada (`entry reverse`, `entry void`) deja de contar: la ficha del activo baja en ese momento, esta partida vuelve a señalar al activo y `depreciation post` contabiliza otra vez el mes de ese activo, una sola vez. La reversa lleva la fecha que tú le des (`--date`) y la anulación la de hoy: si cae en otro mes, el espejo queda en ese mes y el cargo nuevo en el mes original.
 
+Un activo mal capturado se corrige con `asset edit` mientras no tenga depreciación contabilizada: costo, desecho, vida, métodos, fechas y cuentas, siempre con `--reason`, y la bitácora guarda el valor anterior, el nuevo y el motivo.
+
+```bash
+mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Costo mal tecleado; la factura dice 489,000.00" --dry-run
+```
+
+Si ya tiene meses contabilizados se niega y nombra sus pólizas: reversa esas pólizas, corrige el activo y vuelve a contabilizar esos meses con `depreciation post`. Lo ya contabilizado nunca se cambia. Si corriges la fecha de adquisición, el inicio de la depreciación la sigue, salvo que des `--in-service`. Un activo por unidades de producción, que la corrida omite, sale de ahí con `asset edit <activo> --method straight_line --reason "..."`.
+
 Un aviso que todavía no se entera: cuando la ingesta capitaliza un CFDI como activo fijo, el aviso que viaja con el documento dice que el sistema no registra el activo ni calcula su depreciación. La segunda mitad ya no es cierta —el camino es `asset create` y `depreciation post`, arriba—; la primera sí: la ingesta no da de alta el activo en el registro, eso lo haces tú.
 
 ### 5. `Trial balance balanced` — **BLOQUEA**

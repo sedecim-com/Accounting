@@ -73,7 +73,7 @@ async function period(month: number): Promise<ClosablePeriod> {
 const note = (): string =>
   `1 asset(s) skipped by units of production (unidades_de_produccion), nothing posted for them: ` +
   `${press.asset_number} Synthetic press. The period's production cannot be captured yet: ` +
-  "book the month's charge by hand (entry create)";
+  "book the month's charge by hand (entry create), or give the asset another method (asset edit --method)";
 
 async function rowsOf(assetId: string, month: number): Promise<string[]> {
   const r = await query<{ expense: string }>(

@@ -684,8 +684,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
     'El método de depreciación {book, select, tax {fiscal} other {contable}} todavía no puede ser units_of_production: nada captura la producción del periodo, así que la corrida mensual no podría calcular un solo renglón de este activo. Elige otro método (straight_line cuando no se indica ninguno). No se registró nada.',
   'assets.depreciation.skipped_units_of_production':
-    '{asset} se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, y la producción de {period} todavía no se puede capturar. Registra su cargo a mano (mnemosine entry create); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.',
+    '{asset} se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, y la producción de {period} todavía no se puede capturar. Registra su cargo a mano (mnemosine entry create), o dale otro método (mnemosine asset edit --method); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.',
   // ---- end of MNE-001-881 ----
+  // ---- MNE-001-880 · asset edit; see en.ts ----
+  'error.VALIDATION_ERROR.asset.edit_has_posted_months':
+    '{asset} no se puede editar: tiene depreciación contabilizada en {months, plural, one {# mes} other {# meses}} ({entries}{more, plural, =0 {} other { y # más}}), calculada con los valores que quieres cambiar. Reversa primero esas pólizas (mnemosine entry reverse <numero> --reason "..."): un mes reversado vuelve a deberse, y la siguiente corrida lo contabiliza con los valores corregidos. Para sacar el activo del registro, `asset dispose` está por llegar. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.edit_not_in_register':
+    '{asset} está en estado {status}: un activo que ya salió del registro no se edita. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.edit_no_change':
+    'No cambia nada en {asset}: da al menos un valor distinto del que ya tiene (--cost, --salvage, --life-months, --method, --acquired, una cuenta...).',
+  'assets.asset.edit_start_rederived':
+    'El inicio de la depreciación pasó de {before} a {after}: sigue a la fecha de adquisición, según `convencion_primer_mes` del panel, salvo que se dé --in-service.',
+  'help.asset.edit.description':
+    'Corrige un activo que aún no tiene depreciación contabilizada: costo, desecho, vida, métodos, fechas y cuentas, con su fila de auditoría; no registra ninguna póliza',
+  'help.asset.edit.argument.asset': 'el activo: su número en el registro, o su id',
+  'help.asset.edit.option.salvage': 'valor de desecho al final de su vida útil',
+  'help.asset.edit.option.acquired':
+    'fecha de adquisición (AAAA-MM-DD); el inicio de la depreciación la sigue, según la convención del panel, salvo que se dé --in-service',
+  'help.asset.edit.option.in_service': 'fecha en que empieza la depreciación (AAAA-MM-DD); nunca antes de la adquisición',
+  'help.asset.edit.option.asset_account': 'cuenta del mayor en la que está el costo: su id',
+  'help.asset.edit.option.accum_account': 'cuenta de depreciación acumulada: su id',
+  'help.asset.edit.option.expense_account': 'cuenta de gasto por depreciación: su id',
+  'help.asset.edit.footer':
+    'Se niega en cuanto el activo tiene un mes de depreciación contabilizado: reversa esas pólizas, edita y vuelve a contabilizar esos meses. Nunca cambia un mes ya contabilizado.\n' +
+    '\nEjemplos:\n' +
+    '  Un costo tecleado con un cero de más; ver primero el cambio, sin escribir nada:\n' +
+    '    mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Costo mal tecleado; la factura dice 489,000.00" --dry-run\n' +
+    '  Un activo dado de alta por unidades de producción, que la corrida mensual omite:\n' +
+    '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "Sin captura de producción; línea recta sobre su vida"',
+  // ---- end of MNE-001-880 ----
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC{reason, select, applies_advance {} other { a mano}}: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
