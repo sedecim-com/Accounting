@@ -309,7 +309,7 @@ describe('getVendorById', () => {
     expect(sql(1)).toMatch(/WHERE le\.id = \$2/);
     // Open is what ap reconcile weighs: a draft is not owed.
     expect(mockQuery.mock.calls[1][1]).toEqual(['v1', ENTITY, ['approved', 'posted', 'partially_paid']]);
-    expect(sql(2)).toMatch(/ROUND\(p\.payment_amount \* p\.exchange_rate, 4\)/);
+    expect(sql(2)).toMatch(/ROUND\(p\.payment_amount \* p\.exchange_rate, CASE \(SELECT functional_currency /);
     expect(sql(2)).toMatch(/p\.vendor_id = \$1 AND p\.entity_id = \$2/);
   });
 

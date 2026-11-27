@@ -21,6 +21,7 @@ import { IEPS_DUE_ROLE, IEPS_MOVE_TAG, IEPS_UNCOLLECTED_ROLE } from '../accounti
 import { NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql, voidedAfterSql } from '../ar/customer-service.js';
 import { HELD_RESTITUTION_TAG } from '../payments/customer-advance.js';
 import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
+import { minorUnitDecimalsSql } from '../fx/conversion.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -2582,10 +2583,12 @@ export async function getGeneralLedger(
  * read the balance of a past day (MNE-001-648), which keeps the same rate.
  */
 export function bookAmountDueSql(alias: string, entityParam: string, amountSql = `${alias}.amount_due`): string {
+  // MNE-001-862: rounded as the posting is, to the minor unit of the functional
+  // currency, and kept at the ledger's scale so the figure prints as before.
+  const functional = `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam})`;
   return (
-    `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ` +
-    `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) ` +
-    `THEN ${amountSql} ELSE ROUND(${amountSql} * ${alias}.exchange_rate, 4) END`
+    `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ${functional} ` +
+    `THEN ${amountSql} ELSE ROUND(${amountSql} * ${alias}.exchange_rate, ${minorUnitDecimalsSql(functional)})::numeric(19,4) END`
   );
 }
 

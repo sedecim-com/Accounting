@@ -7,6 +7,7 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry } from './posting.js';
 import { validateJournalEntry } from './validation.js';
 import { resolveAccount } from './account-service.js';
+import { minorUnitDecimals, DEFAULT_FUNCTIONAL_CURRENCY } from '../fx/conversion.js';
 import type {
   JournalEntry,
   JournalEntryLine,
@@ -326,8 +327,31 @@ export function validateDraftShape(input: DraftEntryInput): void {
     const amount = String(hasDebit ? line.debit : line.credit);
     if (!AMOUNT_RE.test(amount) || Number(amount) <= 0) {
       throw new ValidationError(
-        `Line ${n}: "${amount}" is not a positive amount. Write it as digits with up to four decimals, e.g. 1500.00.`
+        `Line ${n}: "${amount}" is not a positive amount. Write it as digits with the decimals of the currency, e.g. 1500.00.`
       );
+    }
+  });
+}
+
+/**
+ * MNE-001-862 · A hand entry states each amount at the minor unit of the
+ * entity's functional currency: a peso has cents, and half a cent on an
+ * account leaves an Anexo 24 trial balance that does not add up once rounded.
+ * Pure, like the shape check; the caller reads the currency (the peso when
+ * the entity cannot be read: the account lookup that follows refuses it).
+ */
+export function assertMinorUnit(
+  lines: DraftLineInput[],
+  functionalCurrency: string = DEFAULT_FUNCTIONAL_CURRENCY
+): void {
+  const decimals = minorUnitDecimals(functionalCurrency);
+  lines.forEach((line, index) => {
+    const amount = String(line.debit || line.credit);
+    if (new Decimal(amount).decimalPlaces() > decimals) {
+      throw new ValidationError({
+        key: 'error.VALIDATION_ERROR.entry_line_minor_unit',
+        params: { line: index + 1, amount, currency: functionalCurrency, decimals },
+      });
     }
   });
 }
@@ -375,6 +399,11 @@ export async function resolveDraftLines(
  */
 export async function createDraftEntry(input: DraftEntryInput): Promise<JournalEntry> {
   validateDraftShape(input);
+  const entity = await query<{ functional_currency: string }>(
+    'SELECT functional_currency FROM legal_entities WHERE id = $1',
+    [input.entityId]
+  );
+  assertMinorUnit(input.lines, entity.rows[0]?.functional_currency);
   const lines = await resolveDraftLines(input.entityId, input.lines);
 
   return createJournalEntry(
@@ -440,8 +469,10 @@ export async function checkDraftDocument(
 ): Promise<EntryCheckResult> {
   validateDraftShape(input);
 
-  const period = await query<{ id: string; period_name: string; status: string }>(
-    `SELECT id, period_name, status FROM fiscal_periods
+  const period = await query<{ id: string; period_name: string; status: string; functional_currency: string | null }>(
+    `SELECT id, period_name, status,
+            (SELECT functional_currency FROM legal_entities WHERE id = $1) AS functional_currency
+     FROM fiscal_periods
      WHERE entity_id = $1
      AND start_date <= $2 AND end_date >= $2
      AND status NOT IN ('hard_close', 'locked')
@@ -454,6 +485,7 @@ export async function checkDraftDocument(
         'or create the fiscal year with `mnemosine year create`.'
     );
   }
+  assertMinorUnit(input.lines, period.rows[0].functional_currency ?? undefined);
 
   const lines = await resolveDraftLines(input.entityId, input.lines);
   const syntheticEntry = {
@@ -799,7 +831,15 @@ export async function updateDraftEntry(
       await client.query(`UPDATE journal_entries SET ${sets.join(', ')} WHERE id = $${i}`, params);
     }
 
+    // journal_entries carries no tenant_id: the tenant is resolved by the
+    // entity, inside the SAME transaction (the mould of posting.ts). The same
+    // read brings the functional currency the new lines are judged by.
+    const tenantRow = await client.query<{ tenant_id: string; functional_currency: string }>(
+      'SELECT tenant_id, functional_currency FROM legal_entities WHERE id = $1', [entityId]
+    );
+
     if (patch.lines !== undefined) {
+      assertMinorUnit(patch.lines, tenantRow.rows[0].functional_currency);
       const resueltas = await resolveDraftLines(entityId, patch.lines);
       await client.query('DELETE FROM journal_entry_lines WHERE journal_entry_id = $1', [entry.id]);
       for (const [idx, linea] of resueltas.entries()) {
@@ -823,11 +863,6 @@ export async function updateDraftEntry(
       }
     }
 
-    // journal_entries no lleva tenant_id: el inquilino se resuelve por la
-    // entidad, dentro de la MISMA transacción (el molde de posting.ts).
-    const tenantRow = await client.query<{ tenant_id: string }>(
-      'SELECT tenant_id FROM legal_entities WHERE id = $1', [entityId]
-    );
     await registrarAuditoria(client, {
       tenantId: tenantRow.rows[0].tenant_id,
       legalEntityId: entityId,

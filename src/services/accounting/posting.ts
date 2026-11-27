@@ -262,7 +262,7 @@ export async function createJournalEntry(
     // dólares perdía su origen al nacer. Ahora las escribe — pero antes las
     // VERIFICA, porque el CHECK de la 001 solo exige que viajen juntas, no
     // que digan la verdad: el importe funcional debe SER foreign × rate
-    // redondeado half-up a 4 decimales, y una moneda declarada sin su origen
+    // redondeado half-up al centavo (MNE-001-862), y una moneda declarada sin su origen
     // completo se rechaza aquí con un error legible en vez de dejar salir el
     // error crudo del CHECK. La moneda funcional se lee una sola vez y solo
     // si alguna línea trae campos FX: el asiento 100% en moneda funcional no
@@ -276,7 +276,7 @@ export async function createJournalEntry(
         throw new AccountingError('ENTITY_NOT_FOUND', { key: 'error.ENTITY_NOT_FOUND.posting', params: { entity: entityId } });
       }
       const monedaFuncional = monedaR.rows[0].functional_currency;
-      lines.forEach((line, i) => verificarOrigenFx(line, monedaFuncional, i + 1));
+      lines.forEach((line, i) => verificarOrigenFx(line, monedaFuncional, i + 1, options?.isReversal));
     }
 
     // Generate entry number (atomic per-entity counter; the row lock it

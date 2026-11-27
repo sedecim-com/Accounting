@@ -4,6 +4,7 @@ import { AccountingError } from '../../utils/errors.js';
 import type { TranslationKey } from '../../i18n/index.js';
 import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
 import { cashOnAccountSql } from '../payments/cash-on-account.js';
+import { minorUnitDecimalsSql } from '../fx/conversion.js';
 import {
   FX_REVALUATION_SOURCE,
   bookAmountDueSql,
@@ -108,7 +109,8 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
             SUM(cn.total_amount - cn.amount_applied)::text AS foreign,
             SUM(CASE WHEN cn.currency_code = le.functional_currency OR i.id IS NULL
                      THEN cn.total_amount - cn.amount_applied
-                     ELSE ROUND((cn.total_amount - cn.amount_applied) * i.exchange_rate, 4) END)::text AS book
+                     ELSE ROUND((cn.total_amount - cn.amount_applied) * i.exchange_rate,
+                                ${minorUnitDecimalsSql('le.functional_currency')}) END)::text AS book
        FROM credit_notes cn
        JOIN legal_entities le ON le.id = cn.entity_id
        LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = cn.entity_id

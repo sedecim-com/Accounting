@@ -156,7 +156,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
 
     const r = await arReconcile(ENTITY);
 
-    expect(sql(2)).toMatch(/ROUND\(i\.amount_due \* i\.exchange_rate, 4\)/);
+    expect(sql(2)).toMatch(/ROUND\(i\.amount_due \* i\.exchange_rate, CASE \(SELECT functional_currency /);
     expect(r).toMatchObject({
       open_invoices: '19700.00',
       fx_revaluation: '700.00',
@@ -179,7 +179,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
 
     const r = await arReconcile(ENTITY);
 
-    expect(sql(3)).toMatch(/ROUND\(\(cn\.total_amount - cn\.amount_applied\) \* i\.exchange_rate, 4\)/);
+    expect(sql(3)).toMatch(/ROUND\(\(cn\.total_amount - cn\.amount_applied\) \* i\.exchange_rate, CASE le\.functional_currency WHEN /);
     expect(r).toMatchObject({
       unapplied_credit_notes: '1750.00',
       subledger_net: '15750.00',

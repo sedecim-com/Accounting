@@ -567,10 +567,10 @@ export async function recordVendorPayment(
     // sin el candado, dos pagos simultáneos leerían el mismo saldo.
     for (const app of entrada.applications) {
       const r = await client.query<{
-        id: string; bill_number: string; amount_due: string; vendor_id: string;
+        id: string; bill_number: string; amount_due: string; total_amount: string; vendor_id: string;
         status: string; currency_code: string; exchange_rate: string;
       }>(
-        `SELECT id, bill_number, amount_due, vendor_id, status, currency_code,
+        `SELECT id, bill_number, amount_due, total_amount, vendor_id, status, currency_code,
                 exchange_rate::text AS exchange_rate
            FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entrada.entityId]
@@ -625,6 +625,8 @@ export async function recordVendorPayment(
         aplicado: aplicado.toFixed(4),
         descuento: descuento.toFixed(4),
         tasaHistorica: bill.exchange_rate,
+        // MNE-001-862: what was settled before, for the telescoped settlement of the payable.
+        priorApplied: new Decimal(bill.total_amount).minus(saldo).toFixed(4),
       });
     }
 

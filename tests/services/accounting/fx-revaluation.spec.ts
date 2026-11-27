@@ -44,8 +44,8 @@ describe('MNE-001-083 · the closing revaluation arithmetic (NIF B-15)', () => {
     expect(revalue('-500', '-8750', '18.2')).toEqual({ revalued: '-9100.0000', difference: '-350.0000' });
   });
 
-  it('rounds the revalued balance half-up to 4 places, as every ledger line', () => {
-    expect(revalue('0.00005', '0', '1').revalued).toBe('0.0001');
+  it('rounds the revalued balance half-up to the cent, as every converted ledger line (MNE-001-862)', () => {
+    expect(revalue('0.005', '0', '1').revalued).toBe('0.0100');
   });
 
   it('a book residue with no foreign balance left is revalued to zero', () => {
