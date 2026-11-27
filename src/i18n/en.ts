@@ -5972,6 +5972,55 @@ export const EN = {
   'provider.tick.missing': 'provider {name} does not exist ({command} says more)',
   'provider.tick.line': 'provider {name} · {credential} · the credential of the user running this tick',
   // ==== end of I8b · init, part 3 ====
+  // ==== I8b · run-time strings by key, family root, part 1 (MNE-001-800, issue #150) ====
+  // `mnemosine.ts` above `chat` (the provider failures, the agent's question, the repair, broken-startup and rescue
+  // lines, the tenant of the invocation, `entities`), `banner.ts`, `web-command.ts` and `trace-completion-output.ts`.
+  // The English is what they printed, byte for byte. Commands, flags, variables, ids and counts are parameters or fixed text.
+  'root.provider.anthropic_auth': 'Authentication error with the Anthropic API.',
+  'root.provider.rejected': 'The provider rejected the credential (401).',
+  'root.provider.rejected_remedy': 'Check the environment variable named by api_key_env in the profile (mnemosine providers).',
+  'root.provider.unreachable': 'Could not connect to the provider endpoint.',
+  'root.provider.unreachable_remedy': 'If it is a local model (ollama, hermes-agent), check that the server is running.',
+  'root.provider.api_error': 'Provider API error ({status}): {message}',
+  'root.ask.heading': '❓ The agent asks:',
+  'root.ask.hint': '(option number or free text; empty = leave pending for `mnemosine questions`)',
+  /** The prompt of the agent's question; the code adds the space after it. */
+  'root.ask.prompt': 'answer>',
+  'root.ask.left_pending': 'Left pending: nothing was recorded as a precedent.',
+  'root.broken.heading': 'Something needs attention before we can chat:',
+  'root.rescue.welcome': 'Welcome. Mnemosine is an AI accountant that keeps your books auditable: it drafts, you approve.',
+  'root.tenant.flags_disagree': '--tenant says {root} and -t says {leaf}. Pick one: they are the same flag and two different tenants.',
+  'root.tenant.from_config': 'the `tenant` key in mnemosine.config.json',
+  'root.tenant.not_uuid': 'The tenant must be a UUID; {source} carries "{tenant}".',
+  'root.tenant.not_uuid_remedy': 'mnemosine entity list --tenant <uuid>   (the id `mnemosine init` printed)',
+  'root.tenant.flag_over_env': 'tenant {tenant} (--tenant); MNEMOSINE_TENANT={ignored} ignored',
+  /** `origin` is the internal word of where the tenant came from, passed through. */
+  'root.tenant.in_use': 'tenant {tenant} ({origin})',
+  'root.tenant.no_context': 'no tenant context: every RLS-scoped query will return zero rows',
+  'root.tunnel_established': 'SSH tunnel established',
+  'root.tenant.missing': 'No tenant with id {tenant}. Nothing would be visible under it, and an empty report is not the same as an empty ledger.',
+  'root.tenant.missing_remedy': 'check the id `mnemosine init` printed, or MNEMOSINE_TENANT in .env',
+  'root.tenant.inherited_from': 'from {source}',
+  'root.tenant.inactive': 'Tenant {tenant} exists but is not active. Its data stays where it is; reactivate it before operating on it.',
+  'root.entities.renamed': '`mnemosine entities` is now `mnemosine entity list`; the old name still works.',
+  'root.entities.none_active': 'No active entities in this tenant.',
+  'root.entities.none_visible': 'No entities visible. If the database enforces tenant isolation, specify one with --tenant <uuid> or MNEMOSINE_TENANT.',
+  'banner.tagline': 'Your books, remembered.',
+  'banner.hint': 'chat: just type · /help for commands · mnemosine status for a checkup',
+  /** The labels of the banner's right column, padded to the longest of the language plus one. */
+  'banner.label.entity': 'entity',
+  'banner.label.provider': 'provider',
+  'banner.label.language': 'language',
+  'banner.label.pending': 'pending',
+  'banner.pending.drafts': '{count, plural, one {# draft} other {# drafts}}',
+  'banner.pending.questions': '{count, plural, one {# question} other {# questions}}',
+  'banner.pending.writes': '{count, plural, one {# queued write} other {# queued writes}}',
+  'web.start.flag_against': '{flag} {value} against {origin}',
+  'web.start.origin_mismatch': 'the browser reaches the gateway at {origin}, which this run does not listen on ({problems}). Pass --public-origin with the address the browser opens, set GATEWAY_PUBLIC_ORIGIN, or drop the flag.',
+  /** `problems` are the gateway's own lines, joined by the code. */
+  'web.start.refuses': 'the web gateway refuses to start:\n  - {problems}',
+  'payment.trace.dry_run': 'Dry run: nothing was written.',
+  // ==== end of I8b · root, part 1 ====
   // ==== I8b · run-time strings by key, family ar, part 1 (MNE-001-802, issue #150) ====
   // `src/cli/invoice-command.ts` and `src/cli/ar-command.ts`. The English is
   // what those files printed, byte for byte ("gap(s)" and "warning(s)"

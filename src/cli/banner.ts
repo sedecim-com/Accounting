@@ -1,4 +1,5 @@
 import type { Palette } from './palette.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // BANNER
@@ -34,9 +35,6 @@ const WORDMARK: readonly string[] = [
 const WORDMARK_WIDTH = 38;
 const LEFT_COLUMN_WIDTH = WORDMARK_WIDTH + 3; // wordmark + gap to the right column
 
-const TAGLINE = 'Your books, remembered.';
-const HINT = 'chat: just type · /help for commands · mnemosine status for a checkup';
-
 /** Clip plain text to `max` visible columns, ellipsized. */
 function clip(s: string, max: number): string {
   if (max <= 0) return '';
@@ -50,29 +48,28 @@ function displayVersion(version: string): string {
 /** '3 drafts · 1 question · 2 queued writes' — zeros omitted; '' when all zero. */
 function pendingSummary(p: NonNullable<BannerInfo['pending']>): string {
   const parts: string[] = [];
-  if (p.drafts > 0) parts.push(`${p.drafts} ${p.drafts === 1 ? 'draft' : 'drafts'}`);
-  if (p.questions > 0) parts.push(`${p.questions} ${p.questions === 1 ? 'question' : 'questions'}`);
-  if (p.ops > 0) parts.push(`${p.ops} queued ${p.ops === 1 ? 'write' : 'writes'}`);
+  if (p.drafts > 0) parts.push(t('banner.pending.drafts', { count: p.drafts }));
+  if (p.questions > 0) parts.push(t('banner.pending.questions', { count: p.questions }));
+  if (p.ops > 0) parts.push(t('banner.pending.writes', { count: p.ops }));
   return parts.join(' · ');
 }
 
+/** 'Name (RFC)', or '' when neither is known. */
+function entityText(info: BannerInfo): string {
+  return [info.entityName, info.taxId ? `(${info.taxId})` : ''].filter(Boolean).join(' ');
+}
+
+const LABELS = ['entity', 'provider', 'language', 'pending'] as const;
+
 /** Right-column rows as label/value pairs, only for fields actually present. */
 function rightRows(info: BannerInfo): Array<{ label: string; value: string }> {
-  const rows: Array<{ label: string; value: string }> = [];
-  const entity = [info.entityName, info.taxId ? `(${info.taxId})` : '']
-    .filter(Boolean)
-    .join(' ');
-  if (entity) rows.push({ label: 'entity', value: entity });
-  if (info.providerLabel) rows.push({ label: 'provider', value: info.providerLabel });
-  if (info.language) rows.push({ label: 'language', value: info.language });
-  const pending = info.pending ? pendingSummary(info.pending) : '';
-  if (pending) rows.push({ label: 'pending', value: pending });
-  return rows;
+  const values = [entityText(info), info.providerLabel, info.language, info.pending ? pendingSummary(info.pending) : ''];
+  return LABELS.map((k, i) => ({ label: t(`banner.label.${k}`), value: values[i] ?? '' })).filter((r) => r.value);
 }
 
 function renderWide(info: BannerInfo, columns: number, c: Palette): string[] {
   const meander = '┌┘'.repeat(WORDMARK_WIDTH / 2);
-  const byline = clip(`${displayVersion(info.version)} · ${TAGLINE}`, WORDMARK_WIDTH);
+  const byline = clip(`${displayVersion(info.version)} · ${t('banner.tagline')}`, WORDMARK_WIDTH);
 
   // Left column: {colored text, plain width} so padding stays correct
   // whether or not the palette is emitting escapes.
@@ -83,7 +80,8 @@ function renderWide(info: BannerInfo, columns: number, c: Palette): string[] {
     { text: c.dim(byline), width: byline.length },
   ];
 
-  const labelWidth = 9; // longest label ('provider'/'language') + 1
+  // The longest label of the language plus one: 9 in English ('provider'/'language').
+  const labelWidth = Math.max(...LABELS.map((k) => t(`banner.label.${k}`).length)) + 1;
   const valueMax = columns - LEFT_COLUMN_WIDTH - labelWidth;
   const right = rightRows(info).map(({ label, value }) => {
     const paddedLabel = label.padEnd(labelWidth);
@@ -99,20 +97,21 @@ function renderWide(info: BannerInfo, columns: number, c: Palette): string[] {
     lines.push(line);
   }
   lines.push('');
-  lines.push(c.dim(clip(HINT, columns)));
+  lines.push(c.dim(clip(t('banner.hint'), columns)));
   return lines;
 }
 
 function renderCompact(info: BannerInfo, columns: number, c: Palette): string[] {
   const head = `mnemosine ${displayVersion(info.version)}`;
-  const withTagline = `${head} — ${TAGLINE}`;
+  const tagline = t('banner.tagline');
+  const withTagline = `${head} — ${tagline}`;
   const first =
     withTagline.length <= columns
-      ? `${c.bold('mnemosine')} ${displayVersion(info.version)} — ${c.dim(TAGLINE)}`
+      ? `${c.bold('mnemosine')} ${displayVersion(info.version)} — ${c.dim(tagline)}`
       : `${c.bold('mnemosine')} ${clip(displayVersion(info.version), columns - 10)}`;
 
   const lines = [first];
-  const detail = [rightRows(info).find((r) => r.label === 'entity')?.value, info.providerLabel]
+  const detail = [entityText(info), info.providerLabel]
     .filter(Boolean)
     .join(' · ');
   if (detail) lines.push(c.dim(clip(detail, columns)));
