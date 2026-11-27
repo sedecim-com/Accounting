@@ -1695,6 +1695,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Cargarlos al 0 % y avisar: no se acredita IVA cuando se paguen',
 
+  // ---- MNE-001-946 (#1078): the twin of opening_payable_iva for the receivable documents ----
+  'policy.opening_receivable_iva.question':
+    'Cuando una factura de cliente migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
+  'policy.opening_receivable_iva.impact':
+    'Una factura de cliente migrada se vuelve una factura por cobrar. Con su tasa de IVA, la factura lleva su base y el IVA no cobrado, en un renglón con esa tasa: el IVA que se causa al cobrarla y la tasa que lee el papel de trabajo mensual del IVA. Sin la tasa, «require_rate» detiene la carga y nombra los documentos; «assume_zero_rate» los carga al 0 %: no llevan IVA que causar y cuentan como actos al 0 %. El IVA de los documentos también tiene que estar en la cuenta de IVA trasladado no cobrado de la apertura.',
+  'policy.opening_receivable_iva.rationale':
+    'Con el IVA en flujo de efectivo, el impuesto de una venta a crédito se causa cuando se cobra (LIVA art. 1-B). Una factura cargada al 0 % no lleva IVA que causar, así que lo que el sistema anterior dejó como no cobrado nunca pasaría a IVA por pagar; pedir la tasa cuesta una columna en el archivo.',
+  'policy.opening_receivable_iva.why':
+    'El sistema anterior me da lo que cada cliente sigue debiendo, no siempre cuánto de eso es IVA. O espero a que me lo digas, o lo cargo como si no tuviera IVA.',
+  'policy.opening_receivable_iva.what':
+    'Por omisión detengo la carga y listo los documentos de cliente sin tasa. Con «assume_zero_rate» los cargo al 0 % y te digo cuáles.',
+  'policy.opening_receivable_iva.if_skipped':
+    'Detengo la carga hasta que cada documento de cliente diga su tasa de IVA.',
+  'policy.opening_receivable_iva.option.require_rate':
+    'Detener la carga hasta que cada documento de cliente diga su tasa de IVA',
+  'policy.opening_receivable_iva.option.assume_zero_rate':
+    'Cargarlos al 0 % y avisar: no llevan IVA que causar cuando se cobren',
+  // ---- end of MNE-001-946 ----
+
   'policy.received_line_without_account.question':
     'Cuando un renglón de un CFDI de proveedor llega a contabilizarse sin cuenta de gasto, ¿qué hago con él?',
   'policy.received_line_without_account.impact':
@@ -6068,6 +6087,27 @@ export const ES: Record<keyof typeof EN, string> = {
     'fuera del asiento y la nombra ({doctrine}).',
   'migration.opening.memorandum_excluded_header':
     'Cuentas de orden fuera del asiento, con el saldo que declara el origen ({doctrine}):',
+  // ---- MNE-001-946 (#1078): the IVA inside an open receivable of the opening ----
+  'migration.opening.receivable_rate_invalid':
+    '«{document}» trae ivaRate «{rate}». Se espera la TasaOCuota del CFDI (0.16, 0.08, 0) o «exento».',
+  'migration.opening.receivable_rate_missing':
+    '«{document}» de {counterparty} no dice su tasa de IVA (ivaRate). El IVA de una venta no cobrada se causa al ' +
+    'cobrarla (LIVA art. 1-B): sin la tasa, la factura no lleva IVA que causar y lo que la apertura trae como no ' +
+    'cobrado se quedaría ahí. Agrega ivaRate (0.16, 0.08, 0 o «exento»), o decide otra cosa en la política ' +
+    'opening_receivable_iva.',
+  'migration.opening.receivable_rate_assumed':
+    '{count} documento(s) de clientes sin ivaRate entran a tasa 0 % (opening_receivable_iva = assume_zero_rate): ' +
+    'no llevan IVA que causar al cobrarlos: {documents}.',
+  'migration.opening.receivable_iva_no_role':
+    'Las facturas de clientes traen {tax} de IVA no cobrado y ninguna cuenta tiene el rol «{role}». Cada cobro ' +
+    'liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta de IVA trasladado no cobrado de la ' +
+    'balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa de los documentos.',
+  'migration.opening.receivable_iva_not_parked':
+    'Las facturas de clientes traen {tax} de IVA no cobrado y la apertura sólo pone {parked} en «{account}», la ' +
+    'cuenta con el rol «{role}». Cada cobro liberaría IVA que el mayor nunca aparcó. Apunta el rol a la cuenta ' +
+    'de IVA trasladado no cobrado de la balanza (mnemosine account role set {role} <cuenta>) o corrige la tasa ' +
+    'de los documentos.',
+  // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',

@@ -1949,6 +1949,25 @@ export const EN = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
 
+  // ---- MNE-001-946 (#1078): the twin of opening_payable_iva for the receivable documents ----
+  'policy.opening_receivable_iva.question':
+    'When a migrated customer invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+  'policy.opening_receivable_iva.impact':
+    'A migrated customer invoice becomes an invoice to collect. With its IVA rate, the invoice carries its base and the IVA not yet collected, on one line with that rate: the IVA that is caused when it is collected and the rate the monthly IVA workpaper reads. Without the rate, "require_rate" stops the load and names the documents; "assume_zero_rate" loads them at 0 %: they carry no IVA to cause and count as 0 % acts. The IVA of the documents must also be in the uncollected-IVA account of the opening.',
+  'policy.opening_receivable_iva.rationale':
+    'Under cash-basis IVA the tax of a credit sale is caused when it is collected (LIVA art. 1-B). An invoice loaded at 0 % carries no IVA to cause, so what the previous system left as not yet collected would never become due; asking for the rate costs one column in the file.',
+  'policy.opening_receivable_iva.why':
+    'The old system gives me what each customer still owes, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+  'policy.opening_receivable_iva.what':
+    'By default I stop the load and list the customer documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+  'policy.opening_receivable_iva.if_skipped':
+    'I stop the load until each customer document says its IVA rate.',
+  'policy.opening_receivable_iva.option.require_rate':
+    'Stop the load until each customer document says its IVA rate',
+  'policy.opening_receivable_iva.option.assume_zero_rate':
+    'Load them at 0 % and warn: they carry no IVA to cause when they are collected',
+  // ---- end of MNE-001-946 ----
+
   'policy.received_line_without_account.question':
     'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
   'policy.received_line_without_account.impact':
@@ -6979,6 +6998,27 @@ export const EN = {
     'load leaves it out of the entry and names it ({doctrine}).',
   'migration.opening.memorandum_excluded_header':
     'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
+  // ---- MNE-001-946 (#1078): the IVA inside an open receivable of the opening ----
+  'migration.opening.receivable_rate_invalid':
+    '"{document}" carries ivaRate "{rate}". The TasaOCuota of the CFDI is expected (0.16, 0.08, 0) or "exento".',
+  'migration.opening.receivable_rate_missing':
+    '"{document}" of {counterparty} does not say its IVA rate (ivaRate). The IVA of a sale not yet collected is ' +
+    'caused when it is collected (LIVA art. 1-B): without the rate the invoice carries no IVA to cause, and what ' +
+    'the opening holds as not yet collected would stay there. Add ivaRate (0.16, 0.08, 0 or "exento"), or decide ' +
+    'otherwise in the policy opening_receivable_iva.',
+  'migration.opening.receivable_rate_assumed':
+    '{count} customer document(s) without ivaRate come in at 0 % (opening_receivable_iva = assume_zero_rate): ' +
+    'they carry no IVA to cause when they are collected: {documents}.',
+  'migration.opening.receivable_iva_no_role':
+    'The customer invoices carry {tax} of IVA not yet collected and no account has the role "{role}". Each ' +
+    'collection would release IVA the ledger never parked. Point the role at the uncollected-IVA account of the ' +
+    'trial balance (mnemosine account role set {role} <account>) or correct the rate of the documents.',
+  'migration.opening.receivable_iva_not_parked':
+    'The customer invoices carry {tax} of IVA not yet collected and the opening only puts {parked} on ' +
+    '"{account}", the account with the role "{role}". Each collection would release IVA the ledger never parked. ' +
+    'Point the role at the uncollected-IVA account of the trial balance (mnemosine account role set {role} ' +
+    '<account>) or correct the rate of the documents.',
+  // ---- end of MNE-001-946 ----
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,

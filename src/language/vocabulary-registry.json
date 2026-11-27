@@ -2398,6 +2398,14 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_receivable_iva",
+      "es": "opening_receivable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the twin of `opening_payable_iva` for the AR side (`receivable`). Read by `importOpeningBalance` and applied by `planOpeningInvoices` (ar/opening-invoices.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "vat_overcredit_correction_period",
       "es": "vat_overcredit_correction_period",
       "en": null,
@@ -3071,6 +3079,22 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_receivable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the literal `openingReceivableIvaPolicy` (ar/opening-invoices.ts) reads; the load stops until each customer document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_receivable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-946): the literal `openingReceivableIvaPolicy` (ar/opening-invoices.ts) compares; a customer document without a rate loads at 0 % with a warning."
     },
     {
       "class": "policy-value",

@@ -1626,6 +1626,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 41,
   },
   {
+    // MNE-001-946 · #1078: the twin of `opening_payable_iva`. The reader is
+    // `importOpeningBalance` (opening-balance.ts), and `planOpeningInvoices`
+    // (ar/opening-invoices.ts) applies it to each receivable document that
+    // does not carry `ivaRate`.
+    key: 'opening_receivable_iva',
+    textKey: 'opening_receivable_iva',
+    category: 'fiscal',
+    question:
+      'When a migrated customer invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+    impact:
+      'A migrated customer invoice becomes an invoice to collect. With its IVA rate, the invoice carries its ' +
+      'base and the IVA not yet collected, on one line with that rate: the IVA that is caused when it is ' +
+      'collected and the rate the monthly IVA workpaper reads. Without the rate, "require_rate" stops the load ' +
+      'and names the documents; "assume_zero_rate" loads them at 0 %: they carry no IVA to cause and count as ' +
+      '0 % acts. The IVA of the documents must also be in the uncollected-IVA account of the opening.',
+    options: [
+      { value: 'require_rate', label: 'Stop the load until each customer document says its IVA rate' },
+      { value: 'assume_zero_rate', label: 'Load them at 0 % and warn: they carry no IVA to cause when they are collected' },
+    ],
+    defaultValue: 'require_rate',
+    defaultRationale:
+      'Under cash-basis IVA the tax of a credit sale is caused when it is collected (LIVA art. 1-B). An ' +
+      'invoice loaded at 0 % carries no IVA to cause, so what the previous system left as not yet collected ' +
+      'would never become due; asking for the rate costs one column in the file.',
+    whyAsking:
+      'The old system gives me what each customer still owes, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+    whatIDo:
+      'By default I stop the load and list the customer documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+    ifSkipped: 'I stop the load until each customer document says its IVA rate.',
+    priority: 41,
+  },
+  {
     // MNE-001-553 · #684: read by `createBillFromPreReg`
     // (xml-ingestion/pre-registration-service.ts), only when a line is left
     // with no account of its own, none for the document and no eligible suggestion.
