@@ -447,7 +447,9 @@ describe('runDoctor — xmllint, the Anexo 24 XSD validator (#608)', () => {
     const c = checkXsdValidator(null);
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/xmllint is not on the PATH/);
-    expect(c.detail).toMatch(/`e-accounting catalog generate` and `balance generate` report nothing as deliverable/);
+    expect(c.detail).toMatch(
+      /`e-accounting catalog generate`, `balance generate`, `voucher generate` and `subledger generate` report nothing as deliverable/
+    );
     expect(c.fix).toMatch(/libxml2-utils \(apt, apk\) or libxml2 \(Homebrew\)/);
   });
 

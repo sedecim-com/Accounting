@@ -8531,7 +8531,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'e_accounting.voucher.summary':
     '{vouchers, plural, one {# póliza} other {# pólizas}}, {traced} con rastro de pago · cargos {debit} · abonos {credit}',
   'e_accounting.voucher.blocked':
-    'No se generó ningún archivo entregable: {blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}} arriba, cada uno con su número de póliza. Corrígelos y vuelve a generar.',
+    'No se generó ningún archivo entregable: {blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}} arriba, cada uno con su número de póliza o, para `xsd`, la línea del archivo. Corrígelos y vuelve a generar.',
   'e_accounting.subledger.title_folios': 'Auxiliar de folios {month}/{year}',
   'e_accounting.subledger.title_accounts': 'Auxiliar de cuentas {month}/{year}',
   'e_accounting.subledger.summary':
@@ -8623,6 +8623,10 @@ export const ES: Record<keyof typeof EN, string> = {
     '(t_Importe: mayor que -9999999999999999999999.99 y hasta 9999999999999999999999.99): rechaza el archivo ' +
     'entero.',
   // --- end of MNE-001-775 ---
+  // --- e-accounting voucher|subledger generate · the official XSD (MNE-001-667, #608) ---
+  'e_accounting.subledger.blocked':
+    'No se generó ningún archivo entregable: {blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}} arriba. Corrige lo que señalan y vuelve a generar.',
+  // --- end of MNE-001-667 ---
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',

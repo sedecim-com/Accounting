@@ -1,6 +1,8 @@
 import Decimal from 'decimal.js';
+import type { KeyedText } from '../../../utils/errors.js';
 import { DECIMALES_IMPORTE_ANEXO24 } from './xml.js';
 import { FOREIGN_BANK_CODE } from './official-enumerations.js';
+import { officialXsdRefusal, type OfficialSchema } from './official-xsd.js';
 import {
   COMPROBANTES_DE_POLIZA,
   describeOffListValue,
@@ -70,7 +72,14 @@ export const POLIZA_CHECK_NAMES = [
   'comprobante-sin-rfc-usable',
   'renglon-con-un-solo-lado',
   'texto-normalizado',
+  'xsd',
 ] as const;
+// NOTE: 'xsd' (MNE-001-667, #608) is the SAT's own schema over the finished
+// bytes of the vouchers file or of an auxiliary. It is the one check that is
+// not a function of the data: it runs xmllint, so `correrVerificaciones`
+// leaves it to the generator that holds the bytes (`xsdFindings`, below), and
+// a generator always runs it. Last, so its finding comes after the ones that
+// name the voucher.
 
 export type PolizaCheckName = (typeof POLIZA_CHECK_NAMES)[number];
 
@@ -81,6 +90,8 @@ export interface HallazgoPoliza {
   referencia: string;
   /** El porqué, en español y CON LA CIFRA o el dato que falla dentro. */
   detalle: string;
+  /** The catalogue key of `detalle`, when it has one: today, the `xsd` finding. */
+  messageKey?: KeyedText;
 }
 
 /** Veredicto de una clave de banco contra el c_Banco. Los tres casos separados. */
@@ -563,7 +574,30 @@ export function textoNormalizado(
   );
 }
 
-/** Corre las verificaciones pedidas, o todas. Ninguna se detiene en la primera. */
+/**
+ * `xsd` · CONTRACT: the SAT's official XSD has the last word on the finished
+ * bytes (#608, MNE-001-667). A rejection, or an xmllint that did not run, is
+ * the one blocking finding of the whole file: the same verdict the chart and
+ * the trial balance get. It never corrects or cuts a value.
+ */
+export function xsdFindings(
+  xml: string,
+  schema: Extract<OfficialSchema, 'journal' | 'accountAuxiliary' | 'voucherAuxiliary'>
+): HallazgoPoliza[] {
+  const refusal = officialXsdRefusal(xml, schema);
+  if (refusal === null) return [];
+  return [
+    {
+      ...hallazgo('xsd', 'blocking', '', refusal.message),
+      ...(refusal.messageKey ? { messageKey: refusal.messageKey } : {}),
+    },
+  ];
+}
+
+/**
+ * Runs the checks asked for, or all of them. None stops at the first finding.
+ * Never `xsd`: that one judges bytes, and the generator runs `xsdFindings`.
+ */
 export function correrVerificaciones(
   ctx: ContextoDePolizas,
   checks: readonly PolizaCheckName[] = POLIZA_CHECK_NAMES

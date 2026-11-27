@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { t } from '../i18n/index.js';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, type KeyedText } from '../utils/errors.js';
 import {
   generarAuxiliar,
   generarPolizas,
@@ -56,6 +56,12 @@ import {
 // number (`comprobante-sin-rfc-usable`) by both leaves: `voucher generate`
 // and `subledger generate --kind folios` print it as a warning.
 //
+// Since MNE-001-667 (#608) the engine passes each finished file through the
+// SAT's official XSD. A file it does not accept, or one xmllint could not
+// judge, carries the blocking finding `xsd`: both leaves then exit 4, write
+// no file and archive nothing. The finding reads by key on screen; the rows
+// keep its English text.
+//
 // Money moved with no registered payment behind it (a bank fee, a pay run, a
 // transfer between own accounts) blocks or only warns by the firm's answer to
 // the policy key `anexo24_voucher_money_without_trace`, whose default blocks.
@@ -98,6 +104,8 @@ export interface RequestFileHelpers {
   readable: (opts: RequestFileOpts) => boolean;
   unsealedNotice: (c: Palette) => string;
   findingLines: typeof renderHallazgos;
+  /** A finding's text on screen: by its key in the reader's language, or its prose. */
+  findingText: (prose: string, messageKey: KeyedText | undefined) => string;
   stepsToFile: readonly string[];
   /** The help text that says, before anyone runs it, that nothing is sealed or filed. */
   helpNotice: (cmd: Command) => void;
@@ -243,6 +251,7 @@ export function subledgerReceipt(
     kind: a.clase,
     vouchers: a.meta.polizas,
     lines: a.meta.transacciones,
+    deliverable: a.deliverable,
     findings: a.findings.map(findingRow),
   };
 }
@@ -305,6 +314,13 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
       : !deliverable
         ? t('e_accounting.target.not_written')
         : (opts.output ?? t('e_accounting.target.store'));
+
+  const onScreen = (x: HallazgoPoliza) => ({
+    severity: x.severity,
+    nombre: x.check,
+    referencia: x.referencia,
+    detalle: h.findingText(x.detalle, x.messageKey),
+  });
 
   /** What every generate leaf says at the end: unsealed, and what the dry run did. */
   const closing = (dryRun: boolean, alreadyThere: boolean, policy: string): void => {
@@ -383,7 +399,7 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
       }
 
       const lines = h.findingLines(
-        p.hallazgos.map((x) => ({ severity: x.severity, nombre: x.check, referencia: x.referencia, detalle: x.detalle })),
+        p.hallazgos.map(onScreen),
         c
       );
       if (lines.length > 0) process.stderr.write(`\n${lines.join('\n')}\n`);
@@ -432,8 +448,9 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
         dryRun,
       });
 
-      const target = targetOf(opts, dryRun);
-      if (opts.output !== undefined && !dryRun) await h.writeXml(opts.output, a.xml, opts);
+      const target = targetOf(opts, dryRun, a.deliverable);
+      // As with the vouchers: only a deliverable file reaches the disk.
+      if (opts.output !== undefined && !dryRun && a.deliverable) await h.writeXml(opts.output, a.xml, opts);
 
       if (!h.readable(opts)) {
         h.emitReceipt(subledgerReceipt(a, request, target, h.stepsToFile), opts);
@@ -452,12 +469,15 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
           c.dim(`  ${t('e_accounting.subledger.summary', { vouchers: a.meta.polizas, lines: a.meta.transacciones })}\n`)
         );
       }
-      // Warnings only: a CFDI the folio auxiliary left out is named, never dropped in silence.
-      const lines = h.findingLines(
-        a.findings.map((x) => ({ severity: x.severity, nombre: x.check, referencia: x.referencia, detalle: x.detalle })),
-        c
-      );
+      // A CFDI the folio auxiliary left out is named, never dropped in silence;
+      // the official XSD's verdict is the one finding that blocks (#608).
+      const lines = h.findingLines(a.findings.map(onScreen), c);
       if (lines.length > 0) process.stderr.write(`\n${lines.join('\n')}\n`);
+      if (!a.deliverable) {
+        const blocking = a.findings.filter((x) => x.severity === 'blocking').length;
+        process.stderr.write(`\n${c.red(`  ${t('e_accounting.subledger.blocked', { blocking })}`)}\n\n`);
+        return ExitCode.VALIDATION;
+      }
       closing(dryRun, a.artefacto?.yaExistia === true, a.meta.criterio_sellado);
       return ExitCode.OK;
     })

@@ -35,6 +35,7 @@ import {
   contarHallazgos,
   correrVerificaciones,
   totalesDePolizas,
+  xsdFindings,
   POLIZA_CHECK_NAMES,
   UNTRACED_MONEY_TREATMENTS,
   type UntracedMoney,
@@ -928,7 +929,10 @@ export interface PolizasGeneradas {
   meta: MetaDePolizas;
   hallazgos: HallazgoPoliza[];
   conteo: { blocking: number; warning: number };
-  /** false si hay un hallazgo que bloquea. El XML se construye igual. */
+  /**
+   * false si hay un hallazgo que bloquea. El XML se construye igual.
+   * CONTRACT: true only when the official XSD accepted these bytes (#608).
+   */
   puedeEntregarse: boolean;
   totales: { debe: string; haber: string };
   /** null en ensayo, sin autor, o cuando no se puede entregar. */
@@ -1302,12 +1306,10 @@ export async function generarPolizas(
     },
     opts.checks ?? POLIZA_CHECK_NAMES
   );
-  const conteo = contarHallazgos(hallazgos);
-  const puedeEntregarse = conteo.blocking === 0;
 
   // A blocked file is still built, off-list codes included, because looking
-  // at it is how the accountant fixes it (f07d). A deliverable one keeps the
-  // builder's last-resort assertion: it cannot fire once the checks ran.
+  // at it is how the accountant fixes it (f07d). One the checks let through
+  // keeps the builder's last-resort assertion: it cannot fire once they ran.
   const xml = construirPolizasXml(
     {
       rfc: L.e.rfc,
@@ -1316,8 +1318,14 @@ export async function generarPolizas(
       solicitud: opts.solicitud,
       polizas,
     },
-    { allowOffList: !puedeEntregarse }
+    { allowOffList: contarHallazgos(hallazgos).blocking > 0 }
   );
+
+  // The schema's verdict comes AFTER the findings above, which name the
+  // voucher, and never replaces them (#608). Whatever `opts.checks` asked for.
+  hallazgos.push(...xsdFindings(xml, 'journal'));
+  const conteo = contarHallazgos(hallazgos);
+  const puedeEntregarse = conteo.blocking === 0;
 
   const meta: MetaDePolizas = {
     tenant_id: L.e.tenant_id,
@@ -1371,12 +1379,14 @@ export interface AuxiliarGenerado {
   nombre: string;
   meta: MetaDePolizas;
   /**
-   * Warnings only, never blocking. For `folios`: every CFDI left out because
-   * its counterparty RFC is unusable (`comprobante-sin-rfc-usable`), named by
-   * voucher, so the auxiliary never drops a CFDI in silence. Empty for
-   * `accounts`, which declares no CFDI.
+   * For `folios`, a warning for every CFDI left out because its counterparty
+   * RFC is unusable (`comprobante-sin-rfc-usable`), named by voucher, so the
+   * auxiliary never drops a CFDI in silence. For both, last, the one finding
+   * that blocks: the official XSD's verdict on the bytes (`xsd`, #608).
    */
   findings: HallazgoPoliza[];
+  /** CONTRACT: true only when the official XSD accepted these bytes (#608). */
+  deliverable: boolean;
   artefacto: ArtefactoArchivado | null;
   notaDeSellado: string;
 }
@@ -1441,6 +1451,8 @@ export async function generarAuxiliar(
     transacciones = cuentas.reduce((a, c) => a + c.movimientos.length, 0);
     xml = construirAuxiliarCuentasXml({ ...base, cuentas });
   }
+  findings.push(...xsdFindings(xml, clase === 'folios' ? 'voucherAuxiliary' : 'accountAuxiliary'));
+  const deliverable = contarHallazgos(findings).blocking === 0;
 
   const meta: MetaDePolizas = {
     tenant_id: L.e.tenant_id,
@@ -1460,7 +1472,7 @@ export async function generarAuxiliar(
   };
 
   const artefacto = await archivarSiProcede(
-    { entityId, meta, xml, hallazgos: findings, puedeEntregarse: true, opts },
+    { entityId, meta, xml, hallazgos: findings, puedeEntregarse: deliverable, opts },
     clase === 'folios' ? 'auxiliar_folios' : 'auxiliar_cuentas',
     clase === 'folios' ? VERSION_AUX_FOLIOS : VERSION_AUX_CTAS
   );
@@ -1473,6 +1485,7 @@ export async function generarAuxiliar(
     nombre: nombreDelArchivoAuxiliar(base, clase),
     meta,
     findings,
+    deliverable,
     artefacto,
     notaDeSellado: NOTA_SIN_SELLAR,
   };

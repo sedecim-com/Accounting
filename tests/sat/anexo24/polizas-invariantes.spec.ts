@@ -5,6 +5,7 @@ import {
   contarHallazgos,
   correrVerificaciones,
   estadoDeBanco,
+  POLIZA_CHECK_NAMES,
   textoNormalizado,
   polizaConDineroSinRastro,
   polizaCuadra,
@@ -458,6 +459,13 @@ describe('el orquestador', () => {
     };
     const hs = correrVerificaciones(ctx);
     expect(contarHallazgos(hs).blocking).toBeGreaterThanOrEqual(3);
+  });
+
+  it('xsd (MNE-001-667) is published last and the battery never runs it: it judges bytes, not data', () => {
+    expect(POLIZA_CHECK_NAMES[POLIZA_CHECK_NAMES.length - 1]).toBe('xsd');
+    const clean = { polizas: [p()], sinRastro: [], sinComprobante: [], bancos: CON_CATALOGO, validarUuids: false, normalizados: [] };
+    expect(correrVerificaciones(clean)).toEqual([]);
+    expect(correrVerificaciones(clean, ['xsd'])).toEqual([]);
   });
 
   it('los totales suman las dos columnas del archivo', () => {
