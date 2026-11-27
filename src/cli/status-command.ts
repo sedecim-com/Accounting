@@ -19,6 +19,7 @@ import { credentialState } from '../ai/providers/credential-state.js';
 import { FLOOR_MAX_AUTO_POST, floorMaxAutoAmount } from '../ai/floor.js';
 import type { ResolvedProfile } from '../ai/providers/types.js';
 import { describeCommand, exitCodeFor, optionByKey } from './kernel/index.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine status [--all] [--json]
@@ -74,6 +75,14 @@ export interface StatusReport {
   rls: { active: boolean; detail: string };
   providers: ProviderStatusRow[];
 }
+
+/** The fixed details the report carries in English (--json keeps them); the table reads them back by key. */
+const DETAILS = ['reachable', 'key_cmd_failed', 'no_tenant', 'db_unreachable'] as const;
+const english = (k: (typeof DETAILS)[number]): string => t(`platform.status.detail.${k}`, {}, 'en');
+const spoken = (v: string): string => {
+  const k = DETAILS.find((d) => english(d) === v);
+  return k ? t(`platform.status.detail.${k}`) : v;
+};
 
 /** Cómo se nombra en la salida cada escalón de la precedencia publicada. */
 const FUENTE_DEL_INQUILINO: Record<OrigenDeInquilino, string | null> = {
@@ -223,7 +232,7 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
       } catch {
         // Fixed string on purpose: helper errors can echo the command line
         // or paths, and every detail here must stay shareable.
-        row.skipped = 'api_key_cmd failed to produce a credential';
+        row.skipped = english('key_cmd_failed');
         continue;
       }
     }
@@ -246,7 +255,7 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
   let rls: StatusReport['rls'];
   try {
     await query('SELECT 1 AS ok');
-    database = { ok: true, detail: 'reachable' };
+    database = { ok: true, detail: english('reachable') };
     try {
       const r = await query<{ tenant: string | null }>(
         "SELECT current_setting('app.current_tenant', true) AS tenant"
@@ -266,14 +275,14 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
             }
           : {
               active: false,
-              detail: 'no tenant context (set --tenant or MNEMOSINE_TENANT to scope by RLS)',
+              detail: english('no_tenant'),
             };
     } catch (err) {
       rls = { active: false, detail: sanitizeDbError(err) };
     }
   } catch (err) {
     database = { ok: false, detail: sanitizeDbError(err) };
-    rls = { active: false, detail: 'skipped: database unreachable' };
+    rls = { active: false, detail: english('db_unreachable') };
   }
 
   return {
@@ -323,43 +332,46 @@ export interface StatusDeps {
   reportError: (err: unknown) => void;
 }
 
-const mark = (ok: boolean): string => (ok ? 'ok' : 'FAIL');
+const LABELS = ['config_file', 'provider', 'model', 'language', 'auto_post', 'connection', 'rls'] as const;
 
 /** Renders the report as plain lines. Pure formatting — no I/O. */
 export function formatStatus(report: StatusReport, c: StatusDeps['palette']): string[] {
   const out: string[] = ['', c.bold('mnemosine status'), ''];
 
-  out.push(c.bold('Configuration'));
-  out.push(`  config file        ${report.config.source ?? c.dim('(none — built-in defaults)')}`);
-  out.push(`  provider           ${c.cyan(report.config.provider)}`);
-  out.push(`  model              ${report.config.model}`);
-  out.push(`  language           ${report.config.language}`);
-  const t = report.config.thresholds;
+  // The label column pads to the longest label of the language, plus three (19 in English).
+  const width = Math.max(...LABELS.map((k) => t(`platform.status.label.${k}`).length)) + 3;
+  const label = (k: (typeof LABELS)[number]): string => `  ${t(`platform.status.label.${k}`).padEnd(width)}`;
+  out.push(c.bold(t('platform.status.section.configuration')));
+  out.push(`${label('config_file')}${report.config.source ?? c.dim(t('platform.status.no_config'))}`);
+  out.push(`${label('provider')}${c.cyan(report.config.provider)}`);
+  out.push(`${label('model')}${report.config.model}`);
+  out.push(`${label('language')}${report.config.language}`);
+  const th = report.config.thresholds;
   out.push(
-    `  auto-post          ${t.autoPost ? 'on' : 'off'}  min confidence ${t.minConfidence}  ` +
-      `max amount ${t.maxAmount} ${c.dim(`(floor cap ${t.floorCap})`)}`
+    `${label('auto_post')}${t('platform.status.thresholds', { on: String(th.autoPost), confidence: th.minConfidence, max: th.maxAmount })} ` +
+      c.dim(t('platform.status.floor_cap', { cap: th.floorCap }))
   );
 
   out.push('');
-  out.push(c.bold('Database'));
-  out.push(`  connection         ${mark(report.database.ok)}  ${c.dim(report.database.detail)}`);
-  out.push(`  RLS tenant scope   ${report.rls.active ? 'active' : 'inactive'}  ${c.dim(report.rls.detail)}`);
+  out.push(c.bold(t('platform.status.section.database')));
+  out.push(`${label('connection')}${t('platform.status.mark', { ok: String(report.database.ok) })}  ${c.dim(spoken(report.database.detail))}`);
+  out.push(`${label('rls')}${t('platform.status.rls_state', { active: String(report.rls.active) })}  ${c.dim(spoken(report.rls.detail))}`);
 
   out.push('');
-  out.push(c.bold('Providers'));
+  out.push(c.bold(t('platform.status.section.providers')));
   for (const p of report.providers) {
     const key = p.credential;
     let probeText: string;
-    if (p.skipped) probeText = `probe skipped (${p.skipped})`;
-    else if (p.probe && p.probe.ok) probeText = `probe ok ${p.probe.latencyMs}ms`;
-    else if (p.probe) probeText = `probe FAIL [${p.probe.category}] ${p.probe.detail}`;
-    else probeText = c.dim('not probed');
+    if (p.skipped) probeText = t('platform.status.probe.skipped', { reason: spoken(p.skipped) });
+    else if (p.probe && p.probe.ok) probeText = t('platform.status.probe.ok', { ms: p.probe.latencyMs });
+    else if (p.probe) probeText = t('platform.status.probe.failed', { category: String(p.probe.category), detail: p.probe.detail });
+    else probeText = c.dim(t('platform.status.probe.none'));
     out.push(`  ${c.cyan(p.name.padEnd(14))} ${p.model.padEnd(24)} ${key}`);
     out.push(`  ${''.padEnd(14)} ${probeText}`);
     if (p.failover?.length) out.push(`  ${''.padEnd(14)} ${c.dim(`failover: ${p.failover.join(' -> ')}`)}`);
   }
   out.push('');
-  out.push(c.dim('Redacted output: no keys, tokens or home paths. Safe to share in support tickets.'));
+  out.push(c.dim(t('platform.status.redacted')));
   out.push('');
   return out;
 }
