@@ -871,8 +871,37 @@ export const EN = {
     'The {book, select, tax {tax} other {book}} depreciation method cannot be units_of_production yet: nothing captures the production of the period, so the monthly run could not compute a single row for this asset. Choose another method (straight_line when none is given). Nothing was registered.',
   /** `depreciation post`: one line per asset the run skipped because it depreciates by units of production. */
   'assets.depreciation.skipped_units_of_production':
-    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create); the close counts it under `depreciacion_faltante_al_cierre`.',
+    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create), or give it another method (mnemosine asset edit --method); the close counts it under `depreciacion_faltante_al_cierre`.',
   // ---- end of MNE-001-881 ----
+  // ---- MNE-001-880 · asset edit: an asset with no live depreciation row is corrected (issue #1069) ----
+  /** `asset edit`: a live row exists. `entries` names up to six of its entries, `more` counts the rest. */
+  'error.VALIDATION_ERROR.asset.edit_has_posted_months':
+    '{asset} cannot be edited: it has depreciation posted in {months, plural, one {# month} other {# months}} ({entries}{more, plural, =0 {} other {, and # more}}), computed from the values you want to change. Reverse those entries first (mnemosine entry reverse <number> --reason "..."): a reversed month is owed again, and the next run posts it from the corrected values. To take the asset out of the register instead, `asset dispose` is coming. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.edit_not_in_register':
+    '{asset} is {status}: an asset that left the register is not edited. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.edit_no_change':
+    'Nothing changes in {asset}: give at least one value different from the one it has (--cost, --salvage, --life-months, --method, --acquired, an account...).',
+  /** `asset edit`, after the table of changes: the start was derived again from a corrected acquisition date. */
+  'assets.asset.edit_start_rederived':
+    'The start of depreciation moved from {before} to {after}: it follows the acquisition date, by `convencion_primer_mes` on the panel, unless --in-service is given.',
+  'help.asset.edit.description':
+    'Correct an asset that has no depreciation posted yet: cost, salvage, life, methods, dates and accounts, with an audit row — writes no journal entry',
+  'help.asset.edit.argument.asset': 'the asset: its number in the register, or its id',
+  'help.asset.edit.option.salvage': 'residual value at the end of its life',
+  'help.asset.edit.option.acquired':
+    'acquisition date (YYYY-MM-DD); the start of depreciation follows it, by the panel convention, unless --in-service is given',
+  'help.asset.edit.option.in_service': 'date depreciation starts (YYYY-MM-DD); never before the acquisition',
+  'help.asset.edit.option.asset_account': 'GL account the cost sits in: its id',
+  'help.asset.edit.option.accum_account': 'accumulated depreciation account: its id',
+  'help.asset.edit.option.expense_account': 'depreciation expense account: its id',
+  'help.asset.edit.footer':
+    'It is refused once a month of depreciation is posted for the asset: reverse those entries, edit, and post those months again. It never changes a posted month.\n' +
+    '\nExamples:\n' +
+    '  A cost typed with one zero too many; see the change first, writing nothing:\n' +
+    '    mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Cost mistyped; the invoice says 489,000.00" --dry-run\n' +
+    '  An asset registered by units of production, which the monthly run skips:\n' +
+    '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "No production capture; straight line over its life"',
+  // ---- end of MNE-001-880 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */

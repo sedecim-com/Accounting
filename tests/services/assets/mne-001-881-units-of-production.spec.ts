@@ -66,7 +66,7 @@ describe('what the close says about assets already registered by units of produc
     expect(unitsOfProductionNote([press(1)])).toBe(
       '1 asset(s) skipped by units of production (unidades_de_produccion), nothing posted for them: ' +
         "AF-2026-00001 Synthetic press 1. The period's production cannot be captured yet: " +
-        "book the month's charge by hand (entry create)"
+        "book the month's charge by hand (entry create), or give the asset another method (asset edit --method)"
     );
   });
 

@@ -661,6 +661,42 @@
       "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
     },
     {
+      "path": "asset edit",
+      "aliases": ["editar"],
+      "risk": "escritura",
+      "agent": false,
+      "draft_only": false,
+      "idempotency_key": {"behaviour":"not-offered"},
+      "arguments": [
+        {"name":"asset","type":"string","required":true}
+      ],
+      "options": [
+        {"name":"accumAccount","flags":"--accum-account <id>","type":"string","required":false},
+        {"name":"acquired","flags":"--acquired <date>","type":"string","required":false},
+        {"name":"assetAccount","flags":"--asset-account <id>","type":"string","required":false},
+        {"name":"cost","flags":"--cost <amount>","type":"string","required":false},
+        {"name":"dryRun","flags":"--dry-run","type":"boolean","required":false},
+        {"name":"entity","flags":"-e, --entity <idOrName>","type":"string","required":false},
+        {"name":"expenseAccount","flags":"--expense-account <id>","type":"string","required":false},
+        {"name":"fields","flags":"--fields [names]","type":"boolean|string","required":false},
+        {"name":"format","flags":"--format <table|json|ndjson|csv|tsv|md>","type":"string","required":false,"choices":["table","json","ndjson","csv","tsv","md"],"default":"table"},
+        {"name":"inService","flags":"--in-service <date>","type":"string","required":false},
+        {"name":"json","flags":"--json","type":"boolean","required":false},
+        {"name":"lifeMonths","flags":"--life-months <n>","type":"string","required":false},
+        {"name":"lifeYears","flags":"--life-years <n>","type":"string","required":false},
+        {"name":"method","flags":"--method <method>","type":"string","required":false},
+        {"name":"output","flags":"-o, --output <path>","type":"string","required":false},
+        {"name":"quiet","flags":"-q, --quiet","type":"boolean","required":false},
+        {"name":"reason","flags":"--reason <text>","type":"string","required":true},
+        {"name":"salvage","flags":"--salvage <amount>","type":"string","required":false},
+        {"name":"taxMethod","flags":"--tax-method <method>","type":"string","required":false},
+        {"name":"tenant","flags":"-t, --tenant <id>","type":"string","required":false},
+        {"name":"user","flags":"-u, --user <email>","type":"string","required":false},
+        {"name":"yes","flags":"-y, --yes","type":"boolean","required":false}
+      ],
+      "output": {"formats":["table","json","ndjson","csv","tsv","md"],"file":true}
+    },
+    {
       "path": "audit list",
       "aliases": ["listar"],
       "risk": "lectura",

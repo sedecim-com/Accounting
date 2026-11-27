@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 261 of 417 subcommands
+  spelling is `-T` at the root and `-t` on the 262 of 418 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -7131,6 +7131,10 @@ Options:
 Commands:
   create|crear [options] <name>  Register a fixed asset with its class, dates,
                                  cost and accounts — writes no journal entry
+  edit|editar [options] <asset>  Correct an asset that has no depreciation
+                                 posted yet: cost, salvage, life, methods, dates
+                                 and accounts, with an audit row — writes no
+                                 journal entry
   category|categoria             Asset classes: useful life, LISR rate and the
                                  three default accounts
   help [command]                 display help for command
@@ -7194,6 +7198,51 @@ Examples:
   # exact amount still to be posted, because the credit side (bank, payables or
   # capital) is not something the register can guess.
   mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
+```
+
+### `mnemosine asset edit` (alias: editar)
+
+```
+Usage: mnemosine asset edit|editar [options] <asset>
+
+Correct an asset that has no depreciation posted yet: cost, salvage, life,
+methods, dates and accounts, with an audit row — writes no journal entry
+
+Arguments:
+  asset                                    the asset: its number in the register, or its id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --cost <amount>                          original cost of the investment (MOI), as a decimal
+  --salvage <amount>                       residual value at the end of its life
+  --life-years <n>                         useful life in years
+  --life-months <n>                        useful life in months; years are the ceiling of months over twelve
+  --method <method>                        BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs
+  --tax-method <method>                    TAX depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs
+  --acquired <date>                        acquisition date (YYYY-MM-DD); the start of depreciation follows it, by the panel convention, unless --in-service is given
+  --in-service <date>                      date depreciation starts (YYYY-MM-DD); never before the acquisition
+  --asset-account <id>                     GL account the cost sits in: its id
+  --accum-account <id>                     accumulated depreciation account: its id
+  --expense-account <id>                   depreciation expense account: its id
+  --reason <text>                          justification recorded in the audit trail (required)
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+It is refused once a month of depreciation is posted for the asset: reverse those entries, edit, and post those months again. It never changes a posted month.
+
+Examples:
+  A cost typed with one zero too many; see the change first, writing nothing:
+    mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Cost mistyped; the invoice says 489,000.00" --dry-run
+  An asset registered by units of production, which the monthly run skips:
+    mnemosine asset edit AF-2025-00003 --method straight_line --reason "No production capture; straight line over its life"
 ```
 
 ### `mnemosine asset category` (alias: categoria)

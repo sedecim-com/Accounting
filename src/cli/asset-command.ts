@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { InvalidArgumentError, type Command } from 'commander';
+import type { PoolClient } from 'pg';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { withTransaction } from '../database/connection.js';
@@ -11,6 +12,7 @@ import {
   type DatosDeAlta,
   type ResultadoDeAlta,
 } from '../services/assets/asset-service.js';
+import { editAsset, type AssetChanges } from '../services/assets/asset-edit.js';
 import {
   exigirLibroDelPanel,
   libroQueRige,
@@ -43,7 +45,8 @@ import { t } from '../i18n/index.js';
 // `asset create` opens the module: before it there was not a single
 // `INSERT INTO fixed_assets` in the repository. `asset category seed` (#322)
 // is the second leaf, for entities born before `entity create` seeded the
-// classes. The rest of the family —`list`, `show`, `edit`, the other
+// classes. `asset edit` (MNE-001-880) corrects an asset that has no live
+// depreciation row. The rest of the family —`list`, `show`, the other
 // `category` verbs, `disposal`— is phase 2 and is not registered here:
 // surface the catalog puts in another phase is worse than none.
 //
@@ -126,6 +129,22 @@ interface CreateOpts extends CommonOpts {
   dryRun?: boolean;
 }
 
+interface EditOpts extends CommonOpts {
+  cost?: string;
+  salvage?: string;
+  lifeYears?: number;
+  lifeMonths?: number;
+  method?: string;
+  taxMethod?: string;
+  acquired?: string;
+  inService?: string;
+  assetAccount?: string;
+  accumAccount?: string;
+  expenseAccount?: string;
+  reason: string;
+  dryRun?: boolean;
+}
+
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IMPORTE_RE = /^\d+(\.\d+)?$/;
 
@@ -199,11 +218,27 @@ export function exigirContabilizacion(valor: string): ContabilizacionDelAlta {
   throw usageError({ key: 'assets.asset.capitalized_unknown', params: { value: valor } });
 }
 
-/** El acto ensayado: se lanza para abortar la transacción del ensayo. */
-class EnsayoDeAlta extends Error {
-  constructor(readonly resultado: ResultadoDeAlta) {
-    super('asset creation rehearsal finished');
-    this.name = 'EnsayoDeAlta';
+/** The rehearsed act: thrown to abort the transaction of the rehearsal. */
+class Rehearsal<T> extends Error {
+  constructor(readonly result: T) {
+    super('asset rehearsal finished');
+    this.name = 'Rehearsal';
+  }
+}
+
+/**
+ * THE REAL PATH, UNDONE. What is printed comes from the same code that would
+ * write; the transaction is aborted with a sentinel so nothing stays: not
+ * the row, not the folio, not the audit trail.
+ */
+async function rehearse<T>(act: (client: PoolClient) => Promise<T>): Promise<T> {
+  try {
+    return await withTransaction(async (client) => {
+      throw new Rehearsal(await act(client));
+    });
+  } catch (err) {
+    if (!(err instanceof Rehearsal)) throw err;
+    return (err as Rehearsal<T>).result;
   }
 }
 
@@ -373,24 +408,9 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
         asiento_de_origen_id: opts.sourceEntry ?? null,
       };
 
-      let alta: ResultadoDeAlta;
-      if (dryRun) {
-        // EL CAMINO REAL, DESHECHO. Lo que se imprime sale del mismo código
-        // que escribiría, con sus comprobaciones de cuenta, de folio y de
-        // panel; la transacción se aborta con un centinela para que nada
-        // quede — ni la fila, ni el folio, ni la bitácora.
-        try {
-          alta = await withTransaction(async (client) => {
-            const r = await crearActivo(ctx.entityId, datos, reviewer.userId, { client });
-            throw new EnsayoDeAlta(r);
-          });
-        } catch (err) {
-          if (!(err instanceof EnsayoDeAlta)) throw err;
-          alta = err.resultado;
-        }
-      } else {
-        alta = await crearActivo(ctx.entityId, datos, reviewer.userId);
-      }
+      const alta: ResultadoDeAlta = dryRun
+        ? await rehearse((client) => crearActivo(ctx.entityId, datos, reviewer.userId, { client }))
+        : await crearActivo(ctx.entityId, datos, reviewer.userId);
 
       const fila: Row = {
         id: alta.id,
@@ -419,6 +439,77 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
       for (const aviso of alta.avisos) {
         err.write(deps.palette.yellow(`  ⚠ ${aviso}\n`));
       }
+      return ExitCode.OK;
+    })
+  );
+
+  // ---- asset edit (MNE-001-880) ---------------------------------------
+  // The values registration takes, on an asset with no live depreciation
+  // row; `editAsset` refuses the rest by key. Human-only, as `asset
+  // create`: master data, not a review queue. The five help texts that say
+  // the same in both leaves are registration's keys.
+  const edit = describeCommand(asset.command('edit').alias('editar'), 'help.asset.edit.description');
+  argumentByKey(edit, '<asset>', 'help.asset.edit.argument.asset');
+  withContext(edit);
+  withOutput(edit);
+  optionByKey(edit, '--cost <amount>', 'help.asset.create.option.cost');
+  optionByKey(edit, '--salvage <amount>', 'help.asset.edit.option.salvage');
+  optionByKey(edit, '--life-years <n>', 'help.asset.create.option.life_years', { parser: enteroPositivo('--life-years') });
+  optionByKey(edit, '--life-months <n>', 'help.asset.create.option.life_months', { parser: enteroPositivo('--life-months') });
+  optionByKey(edit, '--method <method>', 'help.asset.create.option.method', { params: methods });
+  optionByKey(edit, '--tax-method <method>', 'help.asset.create.option.tax_method', { params: methods });
+  optionByKey(edit, '--acquired <date>', 'help.asset.edit.option.acquired');
+  optionByKey(edit, '--in-service <date>', 'help.asset.edit.option.in_service');
+  optionByKey(edit, '--asset-account <id>', 'help.asset.edit.option.asset_account');
+  optionByKey(edit, '--accum-account <id>', 'help.asset.edit.option.accum_account');
+  optionByKey(edit, '--expense-account <id>', 'help.asset.edit.option.expense_account');
+  optionByKey(edit, '--reason <text>', 'cli.flag.reason', { mandatory: true });
+  optionByKey(edit, '--dry-run', 'cli.flag.dry_run');
+  declareRisk(edit, {
+    risk: 'escritura',
+    agent: false,
+    writes: 'fixed_assets (the columns given, only while no depreciation row is live) + audit_log; no journal entry',
+  });
+  edit.addHelpText('after', () => `\n${t('help.asset.edit.footer')}\n`);
+  edit.action((reference: string, opts: EditOpts, cmd: Command) =>
+    run(async () => {
+      const { dryRun } = gateMutation(cmd, opts as unknown as Record<string, unknown>);
+      if (opts.reason.trim() === '') {
+        throw usageError({ key: 'cli.error.missing_mandatory_option', params: { flags: '--reason <text>' } });
+      }
+      // The shape here, as usage; the rules are registration's, in the service.
+      const given = <T>(value: string | undefined, read: (v: string) => T): T | undefined =>
+        value === undefined ? undefined : read(value);
+      const changes: AssetChanges = {
+        acquisition_cost: given(opts.cost, (v) => exigirImporte('--cost', v)),
+        salvage_value: given(opts.salvage, (v) => exigirImporte('--salvage', v)),
+        useful_life_years: opts.lifeYears,
+        useful_life_months: opts.lifeMonths,
+        book_depreciation_method: given(opts.method, (v) => exigirMetodo('--method', v)),
+        tax_depreciation_method: given(opts.taxMethod, (v) => exigirMetodo('--tax-method', v)),
+        acquisition_date: given(opts.acquired, (v) => exigirFecha('--acquired', v)),
+        depreciation_start_date: given(opts.inService, (v) => exigirFecha('--in-service', v)),
+        asset_account_id: opts.assetAccount,
+        accumulated_depreciation_account_id: opts.accumAccount,
+        depreciation_expense_account_id: opts.expenseAccount,
+      };
+
+      const ctx = await entityForWrite(opts);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const act = (client?: PoolClient) =>
+        editAsset(ctx.entityId, reference, changes, opts.reason, reviewer.userId, { client });
+      const r = dryRun ? await rehearse(act) : await act();
+
+      render(
+        r.changes.map((c) => ({ asset_number: r.asset_number, asset_name: r.asset_name, ...c })),
+        { ...opts }
+      );
+      const err = process.stderr;
+      const start = r.changes.find((c) => c.field === 'depreciation_start_date');
+      if (r.startRederived && start) {
+        err.write(deps.palette.yellow(`  ⚠ ${t('assets.asset.edit_start_rederived', { before: start.before, after: start.after })}\n`));
+      }
+      if (dryRun) err.write(deps.palette.dim(`${t('dry_run_rolled_back')}\n`));
       return ExitCode.OK;
     })
   );
