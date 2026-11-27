@@ -273,7 +273,12 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
   withContext(create);
   withOutput(create);
   withNote(create);
-  const methods = { methods: METODOS.join(', ') };
+  // MNE-001-881: the help offers what a registration takes. Units of
+  // production stays in the vocabulary (assets already registered carry it)
+  // and `crearActivo` refuses it by key, saying why.
+  const methods = {
+    methods: METODOS.filter((m) => m !== DepreciationMethod.UNITS_OF_PRODUCTION).join(', '),
+  };
   optionByKey(create, '--category <idOrName>', 'help.asset.create.option.category');
   optionByKey(create, '--cost <amount>', 'help.asset.create.option.cost');
   optionByKey(create, '--acquired <date>', 'help.asset.create.option.acquired');

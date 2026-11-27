@@ -106,7 +106,7 @@ beforeAll(async () => {
   b = await register(f, 'Synthetic server rack', '24000.0000');
   for (const month of [1, 2]) {
     const run = await runMonthlyDepreciation(f.entityId, f.periodos[month], f.userId);
-    expect(run).toEqual({ processed: 2, errors: [] });
+    expect(run).toEqual({ processed: 2, errors: [], skipped: [] });
   }
 }, 180_000);
 
@@ -156,7 +156,7 @@ describe('a reversed depreciation entry no longer counts', () => {
     expect(dead.reversed).toBe(true);
 
     const run = await runMonthlyDepreciation(f.entityId, f.periodos[1], f.userId);
-    expect(run).toEqual({ processed: 1, errors: [] });
+    expect(run).toEqual({ processed: 1, errors: [], skipped: [] });
 
     const rows = await rowsOf(f, a, 1);
     expect(rows).toEqual([{ entry: expect.any(String), book: 'book', expense: '900.0000', reversed: false }]);
@@ -169,7 +169,7 @@ describe('a reversed depreciation entry no longer counts', () => {
 
   it('a third run of January posts nothing: the month is charged once', async () => {
     const run = await runMonthlyDepreciation(f.entityId, f.periodos[1], f.userId);
-    expect(run).toEqual({ processed: 0, errors: [] });
+    expect(run).toEqual({ processed: 0, errors: [], skipped: [] });
     expect(await accumulatedInLedger(f, a)).toBe('3000.0000');
   });
 
@@ -181,7 +181,7 @@ describe('a reversed depreciation entry no longer counts', () => {
     expect((await box(f, 2)).is_complete).toBe(false);
 
     const run = await runMonthlyDepreciation(f.entityId, f.periodos[2], f.userId);
-    expect(run).toEqual({ processed: 1, errors: [] });
+    expect(run).toEqual({ processed: 1, errors: [], skipped: [] });
     expect(await card(f, a)).toEqual({ accumulated: '1800.0000', book_value: '34200.0000', last: '2026-02-28' });
     expect(await accumulatedInLedger(f, a)).toBe('3000.0000');
     expect((await box(f, 2)).is_complete).toBe(true);
@@ -195,7 +195,7 @@ describe('the basis lock follows the ledger too', () => {
     await seedPolicies(ctx);
     const c = await register(g, 'Synthetic plotter', '36000.0000', '6000.0000');
 
-    expect(await runMonthlyDepreciation(g.entityId, g.periodos[1], g.userId)).toEqual({ processed: 1, errors: [] });
+    expect(await runMonthlyDepreciation(g.entityId, g.periodos[1], g.userId)).toEqual({ processed: 1, errors: [], skipped: [] });
     const [onBook] = await rowsOf(g, c, 1);
     expect(onBook).toMatchObject({ book: 'book', expense: '750.0000' });
 
@@ -208,7 +208,7 @@ describe('the basis lock follows the ledger too', () => {
     const plan = await planDeDepreciacion(g.entityId, g.periodos[1]);
     expect(plan.renglones.map((r) => [r.asset_id, r.depreciacion])).toEqual([[c, '900.0000']]);
 
-    expect(await runMonthlyDepreciation(g.entityId, g.periodos[1], g.userId)).toEqual({ processed: 1, errors: [] });
+    expect(await runMonthlyDepreciation(g.entityId, g.periodos[1], g.userId)).toEqual({ processed: 1, errors: [], skipped: [] });
     expect(await rowsOf(g, c, 1)).toEqual([
       { entry: expect.any(String), book: 'tax', expense: '900.0000', reversed: false },
     ]);

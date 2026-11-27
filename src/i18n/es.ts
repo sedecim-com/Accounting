@@ -668,6 +668,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
     'La política `convencion_primer_mes` vale "{value}", que no es ninguna de las dos convenciones posibles ({known}). Corrígela con `mnemosine pending reopen convencion_primer_mes` (si ya estaba definida) y luego `mnemosine pending define convencion_primer_mes` antes de correr la depreciación.',
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'No se pudo determinar el inquilino de la entidad {entityId}.',
+  // ---- MNE-001-881 · units of production: refused at registration, skipped by the run; see en.ts ----
+  'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
+    'El método de depreciación {book, select, tax {fiscal} other {contable}} todavía no puede ser units_of_production: nada captura la producción del periodo, así que la corrida mensual no podría calcular un solo renglón de este activo. Elige otro método (straight_line cuando no se indica ninguno). No se registró nada.',
+  'assets.depreciation.skipped_units_of_production':
+    '{asset} se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, y la producción de {period} todavía no se puede capturar. Registra su cargo a mano (mnemosine entry create); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.',
+  // ---- end of MNE-001-881 ----
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
