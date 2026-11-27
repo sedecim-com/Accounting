@@ -1,8 +1,10 @@
 /**
- * MNE-001-825 (#151), I9 by folder, part 2c, part 1: the refusals of the
- * reconciliation adjustments (`reconciliation-adjustments.ts`) and of the
- * arithmetic (`reconciliation-math.ts`) that reached the requester in Spanish
- * prose are catalogue keys now. Each site is driven here with synthetic ids: it
+ * MNE-001-825 and MNE-001-857 (#151), I9 by folder, part 2c, parts 1 and 2: the
+ * refusals of the reconciliation adjustments (`reconciliation-adjustments.ts`),
+ * of the arithmetic (`reconciliation-math.ts`) and, in part 2 (MNE-001-857), of
+ * the reconciling items (`reconciling-items.ts`) that reached the requester in
+ * Spanish prose are catalogue keys now; the `overDays` and `limite` guards of
+ * the items are for a developer, in English. Each site is driven here with synthetic ids: it
  * throws its class, its code, its key and params, and the English `message`;
  * `localized('es')` is, byte for byte, what the site printed before, written by
  * hand from it. The draft's description and reasoning are book data and keep
@@ -10,19 +12,28 @@
  */
 import { describe, expect, it, vi, beforeEach, type Mock } from 'vitest';
 
-vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../../../src/ai/draft-service.js', () => ({ createDraft: vi.fn() }));
 vi.mock('../../../src/ai/context.js', () => ({ resolveEntity: vi.fn() }));
 
-import { query } from '../../../src/database/connection.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
 import { createDraft } from '../../../src/ai/draft-service.js';
 import { resolveEntity } from '../../../src/ai/context.js';
 import type { MessageParams, TranslationKey } from '../../../src/i18n/index.js';
 import { AppError, ConflictError, ValidationError } from '../../../src/utils/errors.js';
 import { crearAjuste, direccionDeAjuste, lineasDelAjuste } from '../../../src/services/banking/reconciliation-adjustments.js';
+import {
+  asignarPartida,
+  clasificarPartidas,
+  listarPartidas,
+  proponerPartida,
+  reclasificarPartida,
+} from '../../../src/services/banking/reconciling-items.js';
 import { calcularAritmetica } from '../../../src/services/banking/reconciliation-math.js';
+import { clienteFalso } from '../../helpers/fake-pg.js';
 
 const mockQuery = query as unknown as Mock;
+const mockTx = withTransaction as unknown as Mock;
 const ADJUSTMENT_TYPES = 'comision, iva-comision, interes, isr-retenido, error';
 const ITEM_TYPES =
   'cheque-en-circulacion, deposito-en-transito, cargo-del-banco, abono-del-banco, error-del-banco, error-de-libros';
@@ -208,6 +219,123 @@ describe('reconciliation-adjustments.ts: bank adjustment create', () => {
     const draft = (createDraft as unknown as Mock).mock.calls[0][1] as { payload: { description: string }; reasoning: string };
     expect(draft.payload.description).toBe('Conciliación bancaria 2026-03-31 · Operating 0001 · iva-comision');
     expect(draft.reasoning).toMatch(/^Ajuste de conciliación bancaria \(iva-comision\) detectado en la sesión/);
+  });
+});
+
+describe('reconciling-items.ts (MNE-001-857): classify, reclassify, assign', () => {
+  const item = {
+    id: ITEM, tipo: 'cargo-del-banco', importe: '-50.0000', fecha: '2026-03-01', antiguedad_dias: 30,
+    responsable: null, fecha_esperada: null, escalamiento: 'ninguno', bank_transaction_id: 'bt-1',
+    journal_entry_line_id: null, notas: null, resuelta_at: null, hoy: '2026-03-31',
+  };
+  /** The session lock, the item read and the UPDATE, under one fake transaction. */
+  function underTx(row: Record<string, unknown> = item, session = { status: 'in_progress', closed_at: null }, updated = 1) {
+    const f = clienteFalso([
+      { cuando: /SELECT status, to_char\(closed_at/, responde: { rows: [session] } },
+      { cuando: /FROM reconciling_items ri/, responde: { rows: [row] } },
+      { cuando: /UPDATE reconciling_items/, responde: { rowCount: updated } },
+    ]);
+    mockTx.mockReset().mockImplementation((fn: (c: unknown) => unknown) => Promise.resolve(fn(f.client)));
+  }
+  const closed = { status: 'balanced', closed_at: '2026-04-02' };
+  const reclassify = (type: string, amount?: string) =>
+    () => reclasificarPartida('E1', SES, ITEM, { tipo: type, ...(amount !== undefined ? { importe: amount } : {}) });
+
+  it('the amount and the type of a proposed item', async () => {
+    await expectKeyed(() => proponerPartida('extracto', 'x1'), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable', { value: 'x1' },
+      'Unreadable amount when classifying the item: "x1".', 'Importe ilegible al clasificar la partida: "x1".');
+    await expectKeyed(() => proponerPartida('libros', 'NaN'), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite', { value: 'NaN' },
+      'Non-finite amount when classifying the item: "NaN".', 'Importe no finito al clasificar la partida: "NaN".');
+    await expectKeyed(() => listarPartidas('E1', SES, { tipo: 'cheque' }), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown', { value: 'cheque', known: ITEM_TYPES },
+      `Unknown reconciling item type "cheque". The accepted ones are: ${ITEM_TYPES}.`,
+      `Tipo de partida conciliatoria desconocido "cheque". Los admitidos son: ${ITEM_TYPES}.`);
+  });
+
+  it('the overDays and limite guards speak to a developer, in English', async () => {
+    await expect(listarPartidas('E1', SES, { overDays: -1 })).rejects.toThrow(
+      '`overDays` must be a non-negative whole number of days; got -1.');
+    await expect(clasificarPartidas(clienteFalso([]).client, 'E1', SES, 'u1', { limite: 0 })).rejects.toThrow(
+      '`limite` must be a positive integer; got 0.');
+  });
+
+  it('a session that is no longer open, with and without its closing date', async () => {
+    const f = clienteFalso([{ cuando: /FROM reconciliation_sessions/, responde: { rows: [{ id: SES, ...closed }] } }]);
+    await expectKeyed(() => clasificarPartidas(f.client, 'E1', SES, 'u1'), ConflictError,
+      'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open',
+      { session: SES, status: 'balanced', closedAt: '2026-04-02' },
+      `Session ${SES} is in status "balanced" and closed on 2026-04-02: it takes no new items. Its figures are the ` +
+        'summary frozen at close; to classify again it has to be reopened.',
+      `La sesión ${SES} está en estado "balanced" y cerrada el 2026-04-02: no admite partidas nuevas. Sus cifras ` +
+        'son el resumen congelado al cerrar; para volver a clasificar hay que reabrirla.');
+    underTx(item, { status: 'approved', closed_at: null });
+    await expectKeyed(reclassify('error-de-libros'), ConflictError,
+      'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open',
+      { session: SES, status: 'approved', closedAt: 'none' },
+      `Session ${SES} is in status "approved": its items are no longer touched. Its figures are the summary frozen ` +
+        'at close, and moving an item afterwards would contradict them without anyone having reopened anything.',
+      `La sesión ${SES} está en estado "approved": sus partidas ya no se tocan. Sus cifras son el resumen congelado ` +
+        'al cerrar, y mover una partida después las contradiría sin que nadie haya reabierto nada.');
+  });
+
+  it('bank reconciling-item correct', async () => {
+    underTx({ ...item, resuelta_at: '2026-03-20' });
+    await expectKeyed(reclassify('error-de-libros'), ConflictError,
+      'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved', { item: ITEM },
+      `Item ${ITEM} is already resolved: it stopped explaining a difference, and reclassifying it would change a ` +
+        'closed history.',
+      `La partida ${ITEM} ya está resuelta: dejó de explicar una diferencia y reclasificarla cambiaría una historia ` +
+        'cerrada.');
+    underTx();
+    await expectKeyed(reclassify('error-del-banco'), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount',
+      { item: ITEM, type: 'cargo-del-banco', side: 'libros', newType: 'error-del-banco', newSide: 'banco', amount: '-50.00' },
+      `Moving item ${ITEM} from "cargo-del-banco" (side libros) to "error-del-banco" (side banco) changes which of ` +
+        'the two balances it corrects, and its contribution of -50.00 would stop meaning the same. Give the new ' +
+        'amount, SIGNED by its contribution to the banco side.',
+      `Pasar la partida ${ITEM} de "cargo-del-banco" (lado libros) a "error-del-banco" (lado banco) cambia a cuál ` +
+        'de los dos saldos corrige, y su aportación de -50.00 dejaría de significar lo mismo. Indica el importe ' +
+        'nuevo, FIRMADO por su aportación al lado de banco.');
+    await expectKeyed(reclassify('error-de-libros', 'abc'), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable', { value: 'abc' },
+      'Unreadable amount when reclassifying: "abc".', 'Importe ilegible al reclasificar: "abc".');
+    await expectKeyed(reclassify('error-de-libros', '0'), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero', { value: '0' },
+      'The amount of an item cannot be zero or unreadable; got "0". An item that contributes zero explains no ' +
+        'difference: resolve it instead of leaving it at zero.',
+      'El importe de una partida no puede ser cero ni ilegible; llegó "0". Una partida que aporta cero no explica ' +
+        'ninguna diferencia: resuélvela en vez de dejarla en cero.');
+    underTx(item, undefined, 0);
+    await expectKeyed(reclassify('error-de-libros'), ConflictError,
+      'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race', { item: ITEM },
+      `Item ${ITEM} was not reclassified: either its session is no longer in progress, or the item was resolved ` +
+        'meanwhile. Nothing was changed.',
+      `No se reclasificó la partida ${ITEM}: o su sesión ya no está en curso, o la partida se resolvió mientras ` +
+        'tanto. Nada se cambió.');
+  });
+
+  it('bank reconciling-item assign refuses before its transaction', async () => {
+    const assign = (s: Record<string, unknown>) => () => asignarPartida('E1', SES, ITEM, s);
+    await expectKeyed(assign({ fechaEsperada: '31/03/2026' }), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format', { value: '31/03/2026' },
+      '`fechaEsperada` must come as YYYY-MM-DD; got "31/03/2026".',
+      '`fechaEsperada` tiene que venir como YYYY-MM-DD; llegó "31/03/2026".');
+    await expectKeyed(assign({ escalamiento: 'vencido' }), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand', {},
+      '"vencido" is not set by hand: the expected date against today decides it. If the item is already overdue, ' +
+        'adjust its `fechaEsperada`; if it was only chased, mark it "avisado".',
+      '"vencido" no se marca a mano: lo decide la fecha esperada contra el día de hoy. Si la partida ya venció, ' +
+        'ajusta su `fechaEsperada`; si sólo se persiguió, márcala "avisado".');
+    await expectKeyed(assign({ escalamiento: 'urgente' }), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown', { value: 'urgente', known: 'ninguno, avisado' },
+      'Unknown escalation "urgente". Accepted here: ninguno, avisado.',
+      'Escalamiento desconocido "urgente". Admitidos aquí: ninguno, avisado.');
+    await expectKeyed(assign({}), ValidationError,
+      'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign', {},
+      'Nothing to assign was given: responsable, fechaEsperada, escalamiento or notas.',
+      'No se indicó nada que asignar: responsable, fechaEsperada, escalamiento o notas.');
   });
 });
 

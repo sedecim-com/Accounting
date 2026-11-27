@@ -366,22 +366,16 @@ function isInterrupt(err: unknown): boolean {
 /** What a model provider's failure says: its headline and, when there is one, the next step. */
 function providerFailure(err: unknown): { message: string; remedy: string | null } | null {
   if (err instanceof Anthropic.AuthenticationError) {
-    return { message: 'Authentication error with the Anthropic API.', remedy: t('provider.credential.anthropic_rejected') };
+    return { message: t('root.provider.anthropic_auth'), remedy: t('provider.credential.anthropic_rejected') };
   }
   if (err instanceof OpenAI.AuthenticationError) {
-    return {
-      message: 'The provider rejected the credential (401).',
-      remedy: 'Check the environment variable named by api_key_env in the profile (mnemosine providers).',
-    };
+    return { message: t('root.provider.rejected'), remedy: t('root.provider.rejected_remedy') };
   }
   if (err instanceof OpenAI.APIConnectionError) {
-    return {
-      message: 'Could not connect to the provider endpoint.',
-      remedy: 'If it is a local model (ollama, hermes-agent), check that the server is running.',
-    };
+    return { message: t('root.provider.unreachable'), remedy: t('root.provider.unreachable_remedy') };
   }
   if (err instanceof Anthropic.APIError || err instanceof OpenAI.APIError) {
-    return { message: `Provider API error (${err.status}): ${err.message}`, remedy: null };
+    return { message: t('root.provider.api_error', { status: String(err.status), message: err.message }), remedy: null };
   }
   return null;
 }
@@ -589,19 +583,19 @@ export function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn
     const run = async (): Promise<string | null> => {
       const iface = rl();
       if (!iface) return null;
-      stdout.write('\n' + c.bold('❓ The agent asks:') + `\n${prompt.question}\n`);
+      stdout.write('\n' + c.bold(t('root.ask.heading')) + `\n${prompt.question}\n`);
       if (prompt.context) console.log(c.dim(prompt.context));
       if (prompt.options?.length) {
         prompt.options.forEach((o, i) => console.log(`  ${i + 1}) ${o}`));
       }
-      console.log(c.dim('  (option number or free text; empty = leave pending for `mnemosine questions`)'));
+      console.log(c.dim(`  ${t('root.ask.hint')}`));
       // EL MISMO CRITERIO QUE LA COLA, porque es la misma escritura: lo que
       // se teclee aquí lo graba recordAnsweredQuestion ya como precedente
       // firme. Un sí/no desnudo se repregunta en vez de convertirse en el
       // criterio; agotada la repregunta la duda queda PENDIENTE, que es lo
       // que ya significaba una respuesta en blanco en este prompt.
       for (let intento = 0; intento < 2; intento++) {
-        const raw = await ask(iface, c.cyan('answer> '));
+        const raw = await ask(iface, c.cyan(`${t('root.ask.prompt')} `));
         if (raw === null) return null;
         const answer = raw.trim();
         if (!answer) return null;
@@ -612,7 +606,7 @@ export function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn
         if (!consentimientoDesnudo(answer)) return answer;
         console.log(ce.dim(criterioDesnudo(answer, prompt.options, false)));
       }
-      console.log(ce.dim('Left pending: nothing was recorded as a precedent.'));
+      console.log(ce.dim(t('root.ask.left_pending')));
       return null;
     };
     const p = chain.then(run, run);
@@ -658,14 +652,17 @@ export function isAffirmative(raw: string | null, defaultYes = true): boolean {
  * un «No active entity matches "Demmo"» es un dedazo, y mandarlo a
  * `init --section identity` sería aconsejar reconfigurar por un typo.
  */
-const REMEDIOS: ReadonlyArray<{ patron: RegExp; comando: string; enReporteDeError: boolean }> = [
+const REMEDIOS: ReadonlyArray<{ patron: RegExp; readonly comando: string; enReporteDeError: boolean }> = [
   {
     // Además de las palabras del arranque (databas/tunnel/migrat…), las
     // firmas crudas de pg y de la red: es lo que un error de conexión trae
     // en el mensaje cuando ninguna capa lo ha redactado todavía.
     patron:
       /databas|\bdb\b|connect|conexi|econn|tunnel|postgres|migrat|ssl|etimedout|enotfound|timed out|terminat|role "?[^"\s]+"? does not exist|password authentication/,
-    comando: 'mnemosine doctor   (and check DATABASE_URL in .env)',
+    // The same sentence as the active entity's database remedy, read when it is printed.
+    get comando() {
+      return t('cli.entity.database_unreachable_remedy');
+    },
     enReporteDeError: true,
   },
   // The stems after `entit` and `provider` read the reasons of detectSetupState in the other language (MNE-001-799).
@@ -739,13 +736,13 @@ async function fetchPendingCounts(entityId: string): Promise<BannerInfo['pending
  * Every reason prints with the exact command that fixes it. Chrome goes to
  * stderr — a broken startup must leave stdout clean.
  */
-function renderBrokenFlow(state: SetupState): void {
+export function renderBrokenFlow(state: SetupState): void {
   if (stderr.isTTY) {
     for (const line of renderBanner({ version: CLI_VERSION }, Math.min(stderr.columns || 80, 80), ce)) {
       stderr.write(line + '\n');
     }
   }
-  stderr.write('Something needs attention before we can chat:\n');
+  stderr.write(`${t('root.broken.heading')}\n`);
   if (state.reasons.length === 0) {
     stderr.write(`      → ${repairCommandFor('')}\n`);
   }
@@ -781,7 +778,7 @@ export function autoPostIgnoredWarning(p: { yellow: (s: string) => string; dim: 
  */
 export function freshRescueIntro(reasons: readonly string[], p: { dim: (s: string) => string } = c): string[] {
   return [
-    'Welcome. Mnemosine is an AI accountant that keeps your books auditable: it drafts, you approve.',
+    t('root.rescue.welcome'),
     ...reasons.map((reason) => p.dim(`  · ${reason}`)),
     otherLanguageOffer(),
   ];
@@ -1190,10 +1187,7 @@ export function inquilinoPedido(actionCommand: Command): string | undefined {
   // dentro: se dice. Elegir en silencio entre dos órdenes contrarias del
   // operador es exactamente lo que hacía el defecto.
   if (deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz) {
-    throw usageError(
-      `--tenant says ${deLaRaiz} and -t says ${deLaHoja}. Pick one: they are the same flag ` +
-        'and two different tenants.'
-    );
+    throw usageError({ key: 'root.tenant.flags_disagree', params: { root: deLaRaiz, leaf: deLaHoja } });
   }
   return deLaHoja ?? deLaRaiz;
 }
@@ -1243,16 +1237,17 @@ export function fijarInquilinoDeLaOrden(actionCommand: Command): InquilinoDeLaSe
   // que se lee como «este despacho no tiene movimientos» (medido:
   // `entity list -t basura` devolvía `"rows": []` y código 0).
   if (inquilino.tenantId && !UUID_DE_INQUILINO.test(inquilino.tenantId)) {
-    const de =
+    const source =
       inquilino.origen === 'bandera'
         ? '--tenant'
         : inquilino.origen === 'entorno'
           ? 'MNEMOSINE_TENANT'
-          : 'the `tenant` key in mnemosine.config.json';
-    throw usageError(
-      `The tenant must be a UUID; ${de} carries "${inquilino.tenantId}".\n` +
-        '  → mnemosine entity list --tenant <uuid>   (the id `mnemosine init` printed)'
-    );
+          : { key: 'root.tenant.from_config' };
+    throw usageError({
+      key: 'root.tenant.not_uuid',
+      params: { source, tenant: inquilino.tenantId },
+      lines: [{ prefix: '  → ', key: 'root.tenant.not_uuid_remedy' }],
+    });
   }
   return inquilino;
 }
@@ -1269,16 +1264,14 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   // la bandera y se DICE, para que quien lea la cifra sepa de quién es.
   if (inquilino.entornoIgnorado) {
     stderr.write(
-      ce.dim(
-        `  tenant ${inquilino.tenantId} (--tenant); MNEMOSINE_TENANT=${inquilino.entornoIgnorado} ignored\n`
-      )
+      ce.dim(`  ${t('root.tenant.flag_over_env', { tenant: inquilino.tenantId ?? '', ignored: inquilino.entornoIgnorado })}\n`)
     );
   } else if (actionCommand.optsWithGlobals<{ verbose?: boolean }>().verbose) {
     stderr.write(
       ce.dim(
         inquilino.tenantId
-          ? `  tenant ${inquilino.tenantId} (${inquilino.origen})\n`
-          : '  no tenant context: every RLS-scoped query will return zero rows\n'
+          ? `  ${t('root.tenant.in_use', { tenant: inquilino.tenantId, origin: String(inquilino.origen) })}\n`
+          : `  ${t('root.tenant.no_context')}\n`
       )
     );
   }
@@ -1288,7 +1281,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   // bringing it up here is enough.
   try {
     const { tunneled, warning } = await initDatabase();
-    if (tunneled) stderr.write(ce.dim('  SSH tunnel established\n'));
+    if (tunneled) stderr.write(ce.dim(`  ${t('root.tunnel_established')}\n`));
     if (warning) stderr.write(ce.dim(`  ⚠ ${warning}\n`));
   } catch (err) {
     if (actionCommand.name() !== 'chat') throw err;
@@ -1320,23 +1313,16 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     // informe saldrá vacío, pero saldrá con la razón escrita al lado.
     const duro = inquilino.origen === 'bandera';
     if (estado === 'inexistente') {
-      const texto =
-        `No tenant with id ${inquilino.tenantId}. Nothing would be visible under it, ` +
-        'and an empty report is not the same as an empty ledger.';
+      const missing = { key: 'root.tenant.missing', params: { tenant: inquilino.tenantId } } as const;
       if (duro) {
-        throw notFound(`${texto}\n  → check the id \`mnemosine init\` printed, or MNEMOSINE_TENANT in .env`);
+        throw notFound({ ...missing, lines: [{ prefix: '  → ', key: 'root.tenant.missing_remedy' }] });
       }
-      console.error(
-        ce.yellow(
-          `${texto} (from ${inquilino.origen === 'entorno' ? 'MNEMOSINE_TENANT' : 'mnemosine.config.json'})`
-        )
-      );
+      const source = inquilino.origen === 'entorno' ? 'MNEMOSINE_TENANT' : 'mnemosine.config.json';
+      console.error(ce.yellow(`${t(missing.key, missing.params)} (${t('root.tenant.inherited_from', { source })})`));
     } else if (estado === 'inactivo') {
-      const texto =
-        `Tenant ${inquilino.tenantId} exists but is not active. Its data stays where it is; ` +
-        'reactivate it before operating on it.';
-      if (duro) throw notFound(texto);
-      console.error(ce.yellow(texto));
+      const inactive = { key: 'root.tenant.inactive', params: { tenant: inquilino.tenantId } } as const;
+      if (duro) throw notFound(inactive);
+      console.error(ce.yellow(t(inactive.key, inactive.params)));
     }
   }
 
@@ -1352,16 +1338,10 @@ describeCommand(program.command('entities').alias('entidades'), 'help.entities.d
     try {
       // R9 deprecation protocol: the old name keeps working and says so on
       // stderr, so stdout stays byte-clean for anything already piping this.
-      stderr.write(
-        c.dim('`mnemosine entities` is now `mnemosine entity list`; the old name still works.\n')
-      );
+      stderr.write(c.dim(`${t('root.entities.renamed')}\n`));
       const entities = await listEntities();
       if (entities.length === 0) {
-        console.log(
-          currentTenant()
-            ? 'No active entities in this tenant.'
-            : 'No entities visible. If the database enforces tenant isolation, specify one with --tenant <uuid> or MNEMOSINE_TENANT.'
-        );
+        console.log(t(currentTenant() ? 'root.entities.none_active' : 'root.entities.none_visible'));
       } else {
         for (const e of entities) {
           console.log(`${c.bold(e.name)}  ${c.dim(`(${e.tax_id}, ${e.incorporation_country}, ${e.functional_currency})`)}`);

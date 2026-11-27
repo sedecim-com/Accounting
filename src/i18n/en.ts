@@ -491,6 +491,38 @@ export const EN = {
     'Remapped over {lines} posted {lines, plural, one {line} other {lines}} of {code} (balance {balance}): that balance is left with no bank account to reconcile it.',
   // ---- end of MNE-001-856 ----
 
+  // ---- MNE-001-857 · I9 by folder, part 2c, part 2: the refusals of the reconciling items, reconciling-items.ts in src/services/banking (issue #151) ----
+  // `error.<CODE>.<area>.<case>`, codes unchanged: VALIDATION_ERROR for a
+  // ValidationError, RESOURCE_ALREADY_EXISTS for a ConflictError. The Spanish
+  // twin is the text each site printed. The closing date of a session is a
+  // select, so its clause goes with its sentence. Types, sides, escalation
+  // values and field names are parameters or literals, never translated.
+  // classify (and the --type of bank reconciling-item list)
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_unreadable': 'Unreadable amount when classifying the item: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.classify_amount_not_finite': 'Non-finite amount when classifying the item: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.type_unknown': 'Unknown reconciling item type "{value}". The accepted ones are: {known}.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.classify_session_not_open':
+    'Session {session} is in status "{status}"{closedAt, select, none {} other { and closed on {closedAt}}}: it takes no new items. Its figures are the summary frozen at close; to classify again it has to be reopened.',
+  // bank reconciling-item correct and assign
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.session_not_open':
+    'Session {session} is in status "{status}"{closedAt, select, none {} other { and closed on {closedAt}}}: its items are no longer touched. Its figures are the summary frozen at close, and moving an item afterwards would contradict them without anyone having reopened anything.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.already_resolved':
+    'Item {item} is already resolved: it stopped explaining a difference, and reclassifying it would change a closed history.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.side_change_needs_amount':
+    'Moving item {item} from "{type}" (side {side}) to "{newType}" (side {newSide}) changes which of the two balances it corrects, and its contribution of {amount} would stop meaning the same. Give the new amount, SIGNED by its contribution to the {newSide} side.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_unreadable': 'Unreadable amount when reclassifying: "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.reclassify_amount_zero':
+    'The amount of an item cannot be zero or unreadable; got "{value}". An item that contributes zero explains no difference: resolve it instead of leaving it at zero.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_reconciling_item.reclassify_race':
+    'Item {item} was not reclassified: either its session is no longer in progress, or the item was resolved meanwhile. Nothing was changed.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.expected_date_format': '`fechaEsperada` must come as YYYY-MM-DD; got "{value}".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.overdue_by_hand':
+    '"vencido" is not set by hand: the expected date against today decides it. If the item is already overdue, adjust its `fechaEsperada`; if it was only chased, mark it "avisado".',
+  'error.VALIDATION_ERROR.bank_reconciling_item.escalation_unknown': 'Unknown escalation "{value}". Accepted here: {known}.',
+  'error.VALIDATION_ERROR.bank_reconciling_item.nothing_to_assign':
+    'Nothing to assign was given: responsable, fechaEsperada, escalamiento or notas.',
+  // ---- end of MNE-001-857 ----
+
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal that were Spanish prose (issue #151) ----
   // `error.<CODE>.<area>.<case>`, codes, statuses and fields unchanged. The
   // Spanish twin is the text each site printed. Policy keys and their values,
@@ -6020,6 +6052,55 @@ export const EN = {
   'provider.tick.missing': 'provider {name} does not exist ({command} says more)',
   'provider.tick.line': 'provider {name} · {credential} · the credential of the user running this tick',
   // ==== end of I8b · init, part 3 ====
+  // ==== I8b · run-time strings by key, family root, part 1 (MNE-001-800, issue #150) ====
+  // `mnemosine.ts` above `chat` (the provider failures, the agent's question, the repair, broken-startup and rescue
+  // lines, the tenant of the invocation, `entities`), `banner.ts`, `web-command.ts` and `trace-completion-output.ts`.
+  // The English is what they printed, byte for byte. Commands, flags, variables, ids and counts are parameters or fixed text.
+  'root.provider.anthropic_auth': 'Authentication error with the Anthropic API.',
+  'root.provider.rejected': 'The provider rejected the credential (401).',
+  'root.provider.rejected_remedy': 'Check the environment variable named by api_key_env in the profile (mnemosine providers).',
+  'root.provider.unreachable': 'Could not connect to the provider endpoint.',
+  'root.provider.unreachable_remedy': 'If it is a local model (ollama, hermes-agent), check that the server is running.',
+  'root.provider.api_error': 'Provider API error ({status}): {message}',
+  'root.ask.heading': '❓ The agent asks:',
+  'root.ask.hint': '(option number or free text; empty = leave pending for `mnemosine questions`)',
+  /** The prompt of the agent's question; the code adds the space after it. */
+  'root.ask.prompt': 'answer>',
+  'root.ask.left_pending': 'Left pending: nothing was recorded as a precedent.',
+  'root.broken.heading': 'Something needs attention before we can chat:',
+  'root.rescue.welcome': 'Welcome. Mnemosine is an AI accountant that keeps your books auditable: it drafts, you approve.',
+  'root.tenant.flags_disagree': '--tenant says {root} and -t says {leaf}. Pick one: they are the same flag and two different tenants.',
+  'root.tenant.from_config': 'the `tenant` key in mnemosine.config.json',
+  'root.tenant.not_uuid': 'The tenant must be a UUID; {source} carries "{tenant}".',
+  'root.tenant.not_uuid_remedy': 'mnemosine entity list --tenant <uuid>   (the id `mnemosine init` printed)',
+  'root.tenant.flag_over_env': 'tenant {tenant} (--tenant); MNEMOSINE_TENANT={ignored} ignored',
+  /** `origin` is the internal word of where the tenant came from, passed through. */
+  'root.tenant.in_use': 'tenant {tenant} ({origin})',
+  'root.tenant.no_context': 'no tenant context: every RLS-scoped query will return zero rows',
+  'root.tunnel_established': 'SSH tunnel established',
+  'root.tenant.missing': 'No tenant with id {tenant}. Nothing would be visible under it, and an empty report is not the same as an empty ledger.',
+  'root.tenant.missing_remedy': 'check the id `mnemosine init` printed, or MNEMOSINE_TENANT in .env',
+  'root.tenant.inherited_from': 'from {source}',
+  'root.tenant.inactive': 'Tenant {tenant} exists but is not active. Its data stays where it is; reactivate it before operating on it.',
+  'root.entities.renamed': '`mnemosine entities` is now `mnemosine entity list`; the old name still works.',
+  'root.entities.none_active': 'No active entities in this tenant.',
+  'root.entities.none_visible': 'No entities visible. If the database enforces tenant isolation, specify one with --tenant <uuid> or MNEMOSINE_TENANT.',
+  'banner.tagline': 'Your books, remembered.',
+  'banner.hint': 'chat: just type · /help for commands · mnemosine status for a checkup',
+  /** The labels of the banner's right column, padded to the longest of the language plus one. */
+  'banner.label.entity': 'entity',
+  'banner.label.provider': 'provider',
+  'banner.label.language': 'language',
+  'banner.label.pending': 'pending',
+  'banner.pending.drafts': '{count, plural, one {# draft} other {# drafts}}',
+  'banner.pending.questions': '{count, plural, one {# question} other {# questions}}',
+  'banner.pending.writes': '{count, plural, one {# queued write} other {# queued writes}}',
+  'web.start.flag_against': '{flag} {value} against {origin}',
+  'web.start.origin_mismatch': 'the browser reaches the gateway at {origin}, which this run does not listen on ({problems}). Pass --public-origin with the address the browser opens, set GATEWAY_PUBLIC_ORIGIN, or drop the flag.',
+  /** `problems` are the gateway's own lines, joined by the code. */
+  'web.start.refuses': 'the web gateway refuses to start:\n  - {problems}',
+  'payment.trace.dry_run': 'Dry run: nothing was written.',
+  // ==== end of I8b · root, part 1 ====
   // ==== I8b · run-time strings by key, family ar, part 1 (MNE-001-802, issue #150) ====
   // `src/cli/invoice-command.ts` and `src/cli/ar-command.ts`. The English is
   // what those files printed, byte for byte ("gap(s)" and "warning(s)"

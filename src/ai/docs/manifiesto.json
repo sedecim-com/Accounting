@@ -130,7 +130,7 @@
     "src/services/banking/match-service.ts": "4795f9f88950aea4adf5853527577a56a6adda3a",
     "src/services/banking/book-items.ts": "6dc230ec7e816af92bf3f1b3869d256da096abd2",
     "src/services/banking/reconciliation-service.ts": "0055329c283015797b3f8ac2dfc95ef32c93c06c",
-    "src/services/banking/reconciling-items.ts": "7d552b4396a1518c3cd3ec98f4922e222d80c57b",
+    "src/services/banking/reconciling-items.ts": "43a61496590d92a7419f4af265ea7a2ecab65fd8",
     "src/services/banking/reconciliation-adjustments.ts": "df4f46a4a129e9d993e3cd48f3bf68a034cf1905",
     "src/cli/bank-command.ts": "d00a3762bd0e6e3f6fc60885a6f55197637ec4ef",
     "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
