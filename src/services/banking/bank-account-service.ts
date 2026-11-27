@@ -406,23 +406,20 @@ function aRenglon(fila: FilaCuenta): RenglonCuentaBancaria {
 function aFicha(fila: FilaCuenta): FichaCuentaBancaria {
   const advertencias: BankAccountWarning[] = [];
   if (!fila.gl_id) {
-    advertencias.push(
-      'La cuenta de mayor mapeada no pertenece a esta entidad: el saldo de libros se lee como cero ' +
-        'y la conciliación no tiene contra qué correr. Corrígelo con `bank account set`.'
-    );
+    advertencias.push({ key: 'bank.account.warning.gl_outside_entity' });
   } else {
     if (fila.gl_moneda && fila.gl_moneda !== fila.currency_code) {
-      advertencias.push(
-        `La cuenta está en ${fila.currency_code} y su cuenta de mayor ${fila.gl_code} en ` +
-          `${fila.gl_moneda}: el saldo de libros mezcla dos monedas.`
-      );
+      advertencias.push({
+        key: 'bank.account.warning.gl_currency',
+        params: { currency: fila.currency_code, code: fila.gl_code ?? '', glCurrency: fila.gl_moneda },
+      });
     }
     const esperado = fila.account_type === 'credit-card' ? 'liability' : 'asset';
     if (fila.gl_tipo && fila.gl_tipo !== esperado) {
-      advertencias.push(
-        `Una cuenta de tipo ${fila.account_type} debería mapear a una cuenta de mayor ` +
-          `${esperado} y ${fila.gl_code} es ${fila.gl_tipo}.`
-      );
+      advertencias.push({
+        key: 'bank.account.warning.gl_class',
+        params: { type: fila.account_type, expected: esperado, code: fila.gl_code ?? '', glType: fila.gl_tipo },
+      });
     }
   }
 
@@ -487,10 +484,7 @@ function exigirUna<T>(filas: T[], ref: string): T {
     throw new NotFoundError('Bank account', ref);
   }
   if (filas.length > 1) {
-    throw new ConflictError(
-      `"${ref}" nombra a ${filas.length} cuentas bancarias dentro de este alcance. ` +
-        'Acota a una entidad o usa el identificador.'
-    );
+    throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_account.ambiguous_ref', params: { ref, count: filas.length } });
   }
   return filas[0];
 }
@@ -558,17 +552,13 @@ async function exigirCuentaDeMayor(
   if (!cuenta) throw new NotFoundError('Account', texto);
 
   if (!cuenta.is_active) {
-    throw new ValidationError(
-      `La cuenta de mayor ${cuenta.code} está inactiva: una cuenta bancaria mapeada a ella no podría contabilizar nada.`,
-      'gl_account'
-    );
+    throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.gl_inactive', params: { code: cuenta.code } }, 'gl_account');
   }
   if (cuenta.is_header || !cuenta.allow_manual_entries) {
-    throw new ValidationError(
-      `${cuenta.code} ${cuenta.is_header ? 'es una cuenta de agrupación' : 'no admite pólizas'}: ` +
-        'el mapeo bancario tiene que apuntar a una cuenta de movimiento.',
-      'gl_account'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_account.gl_not_postable',
+      params: { code: cuenta.code, reason: cuenta.is_header ? 'header' : 'no_entries' },
+    }, 'gl_account');
   }
 
   // El signo. La 051 lo dice en el comentario de `account_type`: una tarjeta de
@@ -576,12 +566,10 @@ async function exigirCuentaDeMayor(
   // informe que la lea, sin que nada se queje.
   const esperado = tipo === 'credit-card' ? 'liability' : 'asset';
   if (cuenta.account_type !== esperado) {
-    throw new ValidationError(
-      `Una cuenta de tipo ${tipo} es ${esperado === 'liability' ? 'un PASIVO' : 'un ACTIVO'} ` +
-        `y ${cuenta.code} está clasificada como ${cuenta.account_type}. ` +
-        'Con el tipo cruzado, el saldo se presenta con el signo invertido.',
-      'gl_account'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_account.gl_wrong_class',
+      params: { type: tipo, expected: esperado, code: cuenta.code, glType: cuenta.account_type },
+    }, 'gl_account');
   }
 
   // La moneda. `accounts.currency_code` es nulable y un nulo significa «la
@@ -589,12 +577,10 @@ async function exigirCuentaDeMayor(
   // se resolviera así, toda cuenta de un catálogo sin monedas explícitas
   // pasaría esta puerta sin que nadie la mirara.
   if (cuenta.moneda !== moneda) {
-    throw new ValidationError(
-      `La cuenta bancaria está en ${moneda} y la cuenta de mayor ${cuenta.code} en ${cuenta.moneda}. ` +
-        'Un saldo de libros que suma dos monedas no se puede conciliar contra ningún extracto: ' +
-        'usa una cuenta de mayor en ' + moneda + ', o da de alta la cuenta bancaria en ' + cuenta.moneda + '.',
-      'currency_code'
-    );
+    throw new ValidationError({
+      key: 'error.VALIDATION_ERROR.bank_account.gl_currency',
+      params: { currency: moneda, code: cuenta.code, glCurrency: cuenta.moneda },
+    }, 'currency_code');
   }
 
   return { id: cuenta.id, code: cuenta.code, name: cuenta.name, moneda: cuenta.moneda };
@@ -623,10 +609,7 @@ async function exigirNombreLibre(
     [nombre, entityId, exceptoId]
   );
   if (r.rows.length > 0) {
-    throw new ConflictError(
-      `Esta entidad ya tiene una cuenta bancaria llamada "${nombre}" (${r.rows[0].id}). ` +
-        'El nombre es con lo que se la nombra en la terminal: repetirlo deja a las dos sin manija.'
-    );
+    throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_account.name_taken', params: { name: nombre, id: r.rows[0].id } });
   }
 }
 
@@ -647,10 +630,8 @@ async function conflictoDeMapeo(
   const fila = otra.rows[0];
   return new ConflictError(
     fila
-      ? `La cuenta de mayor ${mayor.code} ya está tomada por la cuenta bancaria "${fila.account_name}" (${fila.id}). ` +
-        'El mapeo es 1:1: dos cuentas bancarias sobre el mismo mayor comparten saldo de libros y cada conciliación ve los movimientos de la otra.'
-      : `La cuenta de mayor ${mayor.code} ya está tomada por una cuenta bancaria que este alcance no alcanza a ver. ` +
-        'El mapeo es 1:1.'
+      ? { key: 'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken', params: { code: mayor.code, name: fila.account_name, id: fila.id } }
+      : { key: 'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken_unseen', params: { code: mayor.code } }
   );
 }
 
@@ -1147,10 +1128,7 @@ export async function updateBankAccount(
       const moneda = patch.currencyCode ? exigirMoneda(patch.currencyCode) : previa.currency_code;
       if (patch.accountType !== undefined || patch.currencyCode !== undefined) {
         if (!previa.gl_id) {
-          throw new ValidationError(
-            'La cuenta apunta a un mayor fuera de esta entidad: arregla el mapeo con `bank account set` antes de mover tipo o moneda.',
-            'gl_account'
-          );
+          throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.gl_outside_entity' }, 'gl_account');
         }
         await exigirCuentaDeMayor(client, entityId, previa.gl_id, tipo, moneda);
         if (patch.accountType !== undefined && tipo !== previa.account_type) {
@@ -1175,18 +1153,14 @@ export async function updateBankAccount(
       if (tocaSensible) {
         if (!ctx.reason || ctx.reason.trim().length === 0) {
           throw new ValidationError(
-            `Cambiar ${CAMPOS_SENSIBLES.join(', ')} exige un motivo: es el dato con el que sale el dinero, ` +
-              'y un cambio sin motivo en la bitácora es indistinguible de un desvío.',
+            { key: 'error.VALIDATION_ERROR.bank_account.sensitive_needs_reason', params: { fields: CAMPOS_SENSIBLES.join(', ') } },
             'reason'
           );
         }
         // Dicho en voz alta porque no se puede cumplir: el catálogo pide una
         // segunda aprobación de otro usuario y no hay tabla donde vivan las
         // aprobaciones pendientes de una cuenta bancaria (ver informe F05a).
-        advertencias.push(
-          'Cambio de identificador aplicado con UNA sola firma. El catálogo exige una segunda aprobación ' +
-            'de otro usuario y no existe todavía la tabla que la sostenga; queda el motivo y el actor en la bitácora.'
-        );
+        advertencias.push({ key: 'bank.account.warning.single_signature' });
       }
 
       if (patch.clabe !== undefined) {
@@ -1197,8 +1171,7 @@ export async function updateBankAccount(
             : previa.sat_bank_code;
         if (nueva && claveSat && claveSat !== nueva.bancoSat) {
           throw new ValidationError(
-            `La CLABE nueva es del banco ${nueva.bancoSat} y la cuenta queda con la clave SAT ${claveSat}. ` +
-              'Cambiar de banco es dar de alta otra cuenta, no editar ésta.',
+            { key: 'error.VALIDATION_ERROR.bank_account.clabe_other_bank', params: { bank: nueva.bancoSat, code: claveSat } },
             'clabe'
           );
         }
@@ -1234,9 +1207,7 @@ export async function updateBankAccount(
       refuseNationalIdentifierOnForeignBank(previa, patch);
 
       if (sets.length === 0) {
-        throw new ValidationError(
-          'No se pidió ningún cambio. Campos editables: nombre, banco, sucursal, SWIFT, IBAN, clave SAT, tipo, moneda, CLABE, número de cuenta, routing y la marca de banco extranjero.'
-        );
+        throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.nothing_to_change' });
       }
 
       sets.push('updated_at = NOW()');
@@ -1305,7 +1276,7 @@ export interface ResultadoMapeo {
   /** Falso cuando ya estaba mapeada ahí y no había nada que escribir. */
   cambio: boolean;
   dryRun: boolean;
-  advertencias: string[];
+  advertencias: BankAccountWarning[];
 }
 
 export async function setBankGlMapping(
@@ -1319,7 +1290,7 @@ export async function setBankGlMapping(
 
   try {
     const payload = await withTransaction(async (client) => {
-      const advertencias: string[] = [];
+      const advertencias: BankAccountWarning[] = [];
       const previa = await filaPorRef(scope, ref, { client, forUpdate: true });
       const nueva = await exigirCuentaDeMayor(
         client,
@@ -1342,7 +1313,7 @@ export async function setBankGlMapping(
           forzado: false,
           cambio: false,
           dryRun: false,
-          advertencias: [`La cuenta ya estaba mapeada a ${nueva.code}: no había nada que escribir.`],
+          advertencias: [{ key: 'bank.account.warning.already_mapped', params: { code: nueva.code } }],
         };
         if (dryRun) throw new DryRunRollback(out);
         return out;
@@ -1355,25 +1326,17 @@ export async function setBankGlMapping(
         ? await movimientosPosteados(client, entityId, anterior.id)
         : { lineas: 0, saldo: '0' };
 
+      // The previous mapping is set whenever there are lines: they are read from its GL account.
+      const history = { code: anterior?.code ?? '', lines: historia.lineas, balance: pesos(dec(historia.saldo)) };
       if (historia.lineas > 0 && ctx.force !== true) {
-        throw new ConflictError(
-          `${anterior?.code} ya tiene ${historia.lineas} línea${historia.lineas === 1 ? '' : 's'} contabilizada${historia.lineas === 1 ? '' : 's'} ` +
-            `(saldo ${pesos(dec(historia.saldo))}). Remapear dejaría ese saldo huérfano: sin cuenta bancaria que lo concilie ` +
-            'y fuera del alcance de la nueva. Si de verdad es lo que quieres, repite con --force y un motivo.'
-        );
+        throw new ConflictError({ key: 'error.RESOURCE_ALREADY_EXISTS.bank_account.remap_has_history', params: history });
       }
       if (historia.lineas > 0) {
         // Forzado no es gratis: queda dicho en la respuesta y en la bitácora.
         if (!ctx.reason || ctx.reason.trim().length === 0) {
-          throw new ValidationError(
-            'Forzar el remapeo de una cuenta con historia contabilizada exige un motivo.',
-            'reason'
-          );
+          throw new ValidationError({ key: 'error.VALIDATION_ERROR.bank_account.forced_remap_needs_reason' }, 'reason');
         }
-        advertencias.push(
-          `Se remapeó sobre ${historia.lineas} línea${historia.lineas === 1 ? '' : 's'} contabilizada${historia.lineas === 1 ? '' : 's'} ` +
-            `de ${anterior?.code} (saldo ${pesos(dec(historia.saldo))}): ese saldo queda sin cuenta bancaria que lo concilie.`
-        );
+        advertencias.push({ key: 'bank.account.warning.remapped_over_history', params: history });
       }
 
       // La comprobación de que la nueva no está tomada la hace el índice

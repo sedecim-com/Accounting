@@ -378,7 +378,7 @@ describe('the book balance and the remap guard read through report-service (MNE-
     vi.mocked(withTransaction).mockImplementation(async (fn) => fn(c) as never);
     const e = await setBankGlMapping(scope, BANK, '1112', { userId: 'user-1' }).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ConflictError);
-    expect((e as Error).message).toContain('1111 ya tiene 2 líneas contabilizadas (saldo 750.00)');
+    expect((e as Error).message).toContain('1111 already has 2 posted lines (balance 750.00)');
     expect(postedLines.mock.calls).toEqual([[ENTITY, 'acc-1111', c]]);
     expect(q.mock.calls.filter(([s]) => String(s).includes('AS lines'))).toHaveLength(1);
     expect(pool).not.toHaveBeenCalled();
@@ -390,7 +390,9 @@ describe('the book balance and the remap guard read through report-service (MNE-
     vi.mocked(withTransaction).mockImplementation(async (fn) => fn(c) as never);
     const r = await setBankGlMapping(scope, BANK, '1112', { userId: 'user-1', force: true, reason: 'Prueba', dryRun: true });
     expect([r.dryRun, r.movimientosPosteados, r.forzado]).toEqual([true, 2, true]);
-    expect(r.advertencias.join(' ')).toContain('2 líneas contabilizadas de 1111 (saldo 750.00)');
+    expect(r.advertencias).toEqual([
+      { key: 'bank.account.warning.remapped_over_history', params: { code: '1111', lines: 2, balance: '750.00' } },
+    ]);
     expect(r.cuenta.saldoLibro).toBe('0.00');
     expect(postedLines).toHaveBeenCalledTimes(1);
   });

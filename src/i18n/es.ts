@@ -353,6 +353,46 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.bank_reconciliation_math.item_type_unknown':
     'Tipo de partida conciliatoria desconocido en partida {item}: "{value}". Los admitidos son: {known}.',
   // ---- end of MNE-001-825 ----
+  // ---- MNE-001-856 · I9 by folder, part 2b, part 2: the GL mapping gate, the conflicts, edit, set and the warnings of a bank account; see en.ts ----
+  'error.VALIDATION_ERROR.bank_account.gl_inactive':
+    'La cuenta de mayor {code} está inactiva: una cuenta bancaria mapeada a ella no podría contabilizar nada.',
+  'error.VALIDATION_ERROR.bank_account.gl_not_postable':
+    '{code} {reason, select, header {es una cuenta de agrupación} other {no admite pólizas}}: el mapeo bancario tiene que apuntar a una cuenta de movimiento.',
+  'error.VALIDATION_ERROR.bank_account.gl_wrong_class':
+    'Una cuenta de tipo {type} es {expected, select, liability {un PASIVO} other {un ACTIVO}} y {code} está clasificada como {glType}. Con el tipo cruzado, el saldo se presenta con el signo invertido.',
+  'error.VALIDATION_ERROR.bank_account.gl_currency':
+    'La cuenta bancaria está en {currency} y la cuenta de mayor {code} en {glCurrency}. Un saldo de libros que suma dos monedas no se puede conciliar contra ningún extracto: usa una cuenta de mayor en {currency}, o da de alta la cuenta bancaria en {glCurrency}.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.ambiguous_ref':
+    '"{ref}" nombra a {count} cuentas bancarias dentro de este alcance. Acota a una entidad o usa el identificador.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.name_taken':
+    'Esta entidad ya tiene una cuenta bancaria llamada "{name}" ({id}). El nombre es con lo que se la nombra en la terminal: repetirlo deja a las dos sin manija.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken':
+    'La cuenta de mayor {code} ya está tomada por la cuenta bancaria "{name}" ({id}). El mapeo es 1:1: dos cuentas bancarias sobre el mismo mayor comparten saldo de libros y cada conciliación ve los movimientos de la otra.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.gl_taken_unseen':
+    'La cuenta de mayor {code} ya está tomada por una cuenta bancaria que este alcance no alcanza a ver. El mapeo es 1:1.',
+  'error.VALIDATION_ERROR.bank_account.gl_outside_entity':
+    'La cuenta apunta a un mayor fuera de esta entidad: arregla el mapeo con `bank account set` antes de mover tipo o moneda.',
+  'error.VALIDATION_ERROR.bank_account.sensitive_needs_reason':
+    'Cambiar {fields} exige un motivo: es el dato con el que sale el dinero, y un cambio sin motivo en la bitácora es indistinguible de un desvío.',
+  'error.VALIDATION_ERROR.bank_account.clabe_other_bank':
+    'La CLABE nueva es del banco {bank} y la cuenta queda con la clave SAT {code}. Cambiar de banco es dar de alta otra cuenta, no editar ésta.',
+  'error.VALIDATION_ERROR.bank_account.nothing_to_change':
+    'No se pidió ningún cambio. Campos editables: nombre, banco, sucursal, SWIFT, IBAN, clave SAT, tipo, moneda, CLABE, número de cuenta, routing y la marca de banco extranjero.',
+  'error.RESOURCE_ALREADY_EXISTS.bank_account.remap_has_history':
+    '{code} ya tiene {lines} {lines, plural, one {línea contabilizada} other {líneas contabilizadas}} (saldo {balance}). Remapear dejaría ese saldo huérfano: sin cuenta bancaria que lo concilie y fuera del alcance de la nueva. Si de verdad es lo que quieres, repite con --force y un motivo.',
+  'error.VALIDATION_ERROR.bank_account.forced_remap_needs_reason':
+    'Forzar el remapeo de una cuenta con historia contabilizada exige un motivo.',
+  'bank.account.warning.gl_outside_entity':
+    'La cuenta de mayor mapeada no pertenece a esta entidad: el saldo de libros se lee como cero y la conciliación no tiene contra qué correr. Corrígelo con `bank account set`.',
+  'bank.account.warning.gl_currency':
+    'La cuenta está en {currency} y su cuenta de mayor {code} en {glCurrency}: el saldo de libros mezcla dos monedas.',
+  'bank.account.warning.gl_class': 'Una cuenta de tipo {type} debería mapear a una cuenta de mayor {expected} y {code} es {glType}.',
+  'bank.account.warning.single_signature':
+    'Cambio de identificador aplicado con UNA sola firma. El catálogo exige una segunda aprobación de otro usuario y no existe todavía la tabla que la sostenga; queda el motivo y el actor en la bitácora.',
+  'bank.account.warning.already_mapped': 'La cuenta ya estaba mapeada a {code}: no había nada que escribir.',
+  'bank.account.warning.remapped_over_history':
+    'Se remapeó sobre {lines} {lines, plural, one {línea contabilizada} other {líneas contabilizadas}} de {code} (saldo {balance}): ese saldo queda sin cuenta bancaria que lo concilie.',
+  // ---- end of MNE-001-856 ----
   // ---- MNE-001-727 · I9 by folder, part 4: the refusals of src/services/fiscal; see en.ts ----
   'error.POLICY_VALUE_UNKNOWN.fiscal_reader':
     'La política {policy} vale "{value}" y este lector sólo entiende {known}. Corrígela en mnemosine pending.',
