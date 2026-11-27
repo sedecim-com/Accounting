@@ -84,6 +84,23 @@
       "src/ai/external-service.ts",
       "src/ai/tools/external-tools.ts",
       "src/services/integrations/accounting/contalink-adapter.ts"
+    ],
+    "nif-registro.md": [
+      "src/services/accruals/ptu.ts",
+      "src/services/accruals/provisions-run.ts",
+      "src/services/accruals/amortization-run.ts",
+      "src/services/accruals/prepaid-service.ts",
+      "src/services/assets/depreciation.ts",
+      "src/services/assets/asset-service.ts",
+      "src/services/accounting/closing-conductor.ts",
+      "src/services/payroll/common/gl-posting-service.ts",
+      "src/services/payroll/common/benefit-payment.ts"
+    ],
+    "nif-validaciones.md": [
+      "src/services/accounting/validation.ts",
+      "src/services/accruals/ptu.ts",
+      "src/services/accruals/provisions-run.ts",
+      "src/services/accruals/prepaid-service.ts"
     ]
   },
   "sin_revisar": [
@@ -94,8 +111,6 @@
     "cli-reference.md": "se GENERA del binario (scripts/generate-cli-reference.ts) y ya tiene una prueba más fuerte que un hash: tests/docs/generador-de-referencia.spec.ts compara contra el `program` real",
     "niif-indice.md": "su bloque enumerable se genera de ifrs-registry.json, con su propia prueba de «regenerar no cambia nada» (tests/ai/niif-registry.spec.ts)",
     "nif-marco.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
-    "nif-registro.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
-    "nif-validaciones.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
     "niif-marco-presentacion.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
     "niif-activos.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
     "niif-instrumentos-financieros.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
@@ -158,6 +173,15 @@
     "src/index.ts": "b7f65cb6d1623903134aabd493416384fdc7f3bb",
     "src/ai/tools/report-tools.ts": "f878deb3aafc9521f2d55e5fb19a668622cf4c30",
     "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
-    "src/ai/memory-service.ts": "51ffab1e042294ece8d9976beadedbe694d60dfc"
+    "src/ai/memory-service.ts": "51ffab1e042294ece8d9976beadedbe694d60dfc",
+    "src/services/accruals/ptu.ts": "7f091b21c7115e8f03447915f3fc7a3f651eb181",
+    "src/services/accruals/provisions-run.ts": "d5dd35c7fffbe84ff1668eb43e113b0ecd7ed408",
+    "src/services/accruals/amortization-run.ts": "8d307abae2ba5a42b340a86325abcb0ba51fb873",
+    "src/services/accruals/prepaid-service.ts": "8e405f1e13ee5385a16dd1e6ba31261ac8aef422",
+    "src/services/assets/depreciation.ts": "c9699abf967626a19eb1e9b6f87511d637596292",
+    "src/services/assets/asset-service.ts": "c78d67931a370813d8dcb9c02d41c68b700e89f3",
+    "src/services/accounting/closing-conductor.ts": "9d11b30a00ddfdb02f805e8f1b1ad272ff9b8fe7",
+    "src/services/payroll/common/gl-posting-service.ts": "1ed668061f7b7c8a5fc4de5aeea2f1e8bdb90dac",
+    "src/services/payroll/common/benefit-payment.ts": "93ee2f155312b0ae89f8f84eb78a1661de30e5cd"
   }
 }

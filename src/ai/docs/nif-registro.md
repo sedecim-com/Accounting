@@ -66,6 +66,10 @@ realización, el menor. Registro:
 - Venta: además del ingreso, Cargo Costo de ventas · Abono Inventarios
   (postulado de asociación de costos con ingresos, NIF A-1, cap. 20).
 
+**Este sistema no postea ese costo de ventas** ni lleva existencias: lo de
+arriba es la norma. Qué hace y qué no, en la tabla «Lo que este sistema
+devenga».
+
 ## C-5 — Pagos anticipados
 
 Erogaciones por bienes/servicios AÚN no recibidos (seguros, rentas, licencias
@@ -131,7 +135,8 @@ manual al capital, pide el documento que la soporta.
 - **PTU**: 10% de la renta gravable; la causada del ejercicio se provisiona
   contra resultados del mismo ejercicio. La base es de la ENTIDAD, no del
   salario de cada trabajador, así que NO cae en la corrida mensual de
-  prestaciones — ver la tabla de abajo.
+  prestaciones: la propone `ptu close` al cierre del ejercicio, y hoy se
+  niega — ver la tabla de abajo.
 - Beneficios post-empleo / prima de antigüedad: cálculo actuarial — fuera del
   registro automático; refiere al actuario.
 
@@ -169,11 +174,30 @@ la ausencia sea medible: lo que no se nombra no se echa de menos.
 La sección de cada NIF describe la NORMA. Ésta describe el MOTOR, que es otra
 cosa y conviene no confundir.
 
+**«Sin motor» quiere decir siempre lo mismo:** no hay registro, corrida ni
+comando. El contador lo registra a mano; tú lo propones como borrador, nombras
+la norma y dices qué parte es estimación. Nunca digas que el sistema lo
+calcula, lo devenga o lo hará.
+
+Los comandos de esta tabla que escriben los corre una persona: el catálogo de
+comandos los declara no invocables por el agente. Los de consulta sí puedes
+correrlos: `prepaid list`, `prepaid show`, `depreciation run` y
+`report aged-receivable show`.
+
 | Concepto | NIF | El sistema |
 |---|---|---|
-| Anticipos y pagos anticipados (1160) | NIF A-1 cap. 20, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo |
-| Aguinaldo, vacaciones, prima vacacional | D-3 | **Devenga**, corrida mensual idempotente por entidad-periodo (`provisions-run.ts`): un asiento por corrida con cargo a 6116 y abono a 2202/2203/2204, cuentas resueltas por rol. El mes del aniversario se parte en dos tramos del art. 76. La base salarial (`provision_base_salarial`) y el momento del reconocimiento de vacaciones (`devengo_vacaciones`) los fija el panel |
-| PTU | D-3, LFT 117 | **Cuenta sembrada** (2205) y SIN motor, también con el panel encendido: la PTU es el 10 % de la renta gravable de la ENTIDAD (LFT 120), no una proporción del salario de cada persona, así que no se prorratea por trabajador. La corrida mensual declara la ausencia en su resultado en vez de dejar un cero mudo; el reconocimiento es al cierre |
+| Anticipos y pagos anticipados (1160) | NIF A-1 cap. 20, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo. `prepaid create` registra el calendario de un cargo que ya está en la 1160 (no postea); `prepaid run --period` o el paso `amortize-prepaids` de `closing run` postean el mes; `prepaid list` y `prepaid show` lo consultan. Ningún comando cancela ni acorta un calendario |
+| Ingreso cobrado por anticipado (2158) | D-1 | **Devenga** por calendario. `deferred-revenue create` adopta un abono que ya está en la 2158 y registra su calendario (no postea); `deferred-revenue run --period` o el paso `recognize-deferred-revenue` de `closing run` postean el mes: Cargo 2158 · Abono Ingresos. El corte del primer mes lo fija `deferred_revenue_recognition_convention`. Ningún comando lista, cancela ni acorta un calendario. Asignar el precio entre obligaciones, la contraprestación variable y el grado de avance: **sin motor** |
+| Depreciación de propiedades, planta y equipo | C-6 | **Devenga.** `asset create` da de alta el activo (no postea); `depreciation run --period` calcula la corrida y la muestra sin escribir; `depreciation post --period` o el paso `depreciate-assets` de `closing run` postean una póliza por activo. La base (`base_depreciacion`: vida útil o tasa de la LISR) y el primer mes (`convencion_primer_mes`) los fija el panel; se calcula y se postea UN solo calendario, no uno contable y otro fiscal. **Sin componentes:** cada activo es una ficha, sin padre ni partes. **Unidades de producción:** `asset create` rechaza ese método, contable o fiscal, porque nada captura la producción del periodo. A un activo que ya estaba registrado así la corrida no le calcula ni le postea nada: lo omite y lo nombra, en `depreciation post` y en el paso `depreciate-assets`, que ya no falla por eso. Su cargo del mes se registra a mano, y la casilla de depreciación del cierre lo cuenta según `depreciacion_faltante_al_cierre`. Capturar la producción: **sin motor** |
+| Baja, venta o retiro de un activo | C-6 | **Sin motor.** La familia `asset` sólo tiene `asset create` y `asset category seed`: ningún comando da de baja, vende, edita ni corrige un activo, y la corrida sigue depreciando todo activo `active`. Dilo al contador antes de proponer la póliza de la baja: el activo seguirá en el registro (editar y retirar: tarea abierta MNE-001-880) |
+| Inventarios y costo de ventas | C-4 | **Sin motor.** No hay catálogo de artículos, fórmula de costeo, costo de ventas al facturar ni comparación contra el valor neto de realización; las tablas `inventory_*` existen sin lector ni escritor. Sólo existe la política `lleva_inventarios` (por omisión `directo`): con `perpetuos`, el clasificador de CFDI ofrece cargar la compra a Inventarios (1140). La salida a Costo de ventas al vender no la postea nadie |
+| Intangibles | C-8 | **Sin motor.** `asset category seed` siembra seis clases, todas tangibles (LISR arts. 34 y 35), ningún comando crea otra, y el catálogo base no trae cuenta de intangibles |
+| Provisiones, contingencias y compromisos (garantías, litigios) | C-9 | **Sin motor.** No hay registro de provisiones ni revisión al cierre |
+| Deterioro de activos de larga duración | C-15 | **Sin motor.** No hay prueba de deterioro ni cuenta de deterioro acumulado en el catálogo base; y como ningún comando edita un activo, la corrida de depreciación no recalcula después de un deterioro registrado a mano |
+| Estimación para incobrables y cancelación de cuentas incobrables | C-3, C-16 | **Cuenta sembrada** (1129) y **sin motor.** `report aged-receivable show` da la antigüedad de saldos; nada calcula la estimación, y ningún comando cancela una factura por incobrable |
+| Préstamos y otros pasivos financieros | C-19 | **Sin motor.** No hay registro de préstamos, tabla de pagos ni devengo de intereses. Un préstamo en moneda extranjera tampoco se revalúa: `closing fx revalue` sólo toma las cuentas de los roles `cxc`, `cxp` y `banco` y las cuentas de mayor de las cuentas bancarias |
+| Aguinaldo, vacaciones, prima vacacional | D-3 | **Devenga**, corrida mensual idempotente por entidad-periodo (`provisions-run.ts`): un asiento por corrida con cargo a 6116 y abono a 2202/2203/2204, cuentas resueltas por rol. El mes del aniversario se parte en dos tramos del art. 76. La base salarial (`provision_base_salarial`) y el momento del reconocimiento de vacaciones (`devengo_vacaciones`) los fija el panel. Se pide con `payroll accrue --period`, o corre en el paso `accrue-benefits` de `closing run`. **El pago en nómina consume primero la provisión**, según la política `benefit_payment_against_provision`. Con `consume_provision` (por omisión), la póliza de `pay-run post` carga a cada provisión lo que la corrida paga en renglones de tipo `aguinaldo`, `pto` o `vacaciones` (días de vacaciones) y `prima_vacacional`, hasta lo que la provisión tiene; el excedente va al gasto de sueldos en un renglón aparte. **El mes es la unidad:** el devengo del mes descuenta, prestación por prestación y nunca por debajo de cero, lo que las corridas fechadas en ese mes pagaron por encima de la provisión, así que un aguinaldo pagado el día 15 y devengado al cierre de ese mes queda una sola vez en resultados; su resultado dice cuánto descontó y cuánto no. Una corrida cuya póliza sigue como borrador en revisión no se cuenta y se nombra: el mes se devenga completo por ella, así que pide resolver el borrador antes del cierre, o reversar el devengo y correrlo otra vez. Con `expense_on_payment` todo el bruto va a sueldos, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Las vacaciones pagadas dentro del renglón `salary` no se distinguen del sueldo y quedan en gasto: pide que se desglosen como `pto` o `vacaciones`. **Lo que todavía no hace** (MNE-001-878 sigue abierta): las pólizas posteadas antes de esta regla no se corrigen ni se censan; adviértelo |
+| PTU causada | D-3, LFT 117 y 120, LISR 9 | **Motor al cierre, que hoy se niega en toda instalación.** `ptu close --year` propone la PTU del ejercicio como póliza BORRADOR en el periodo 13 y no postea nada. La base son tres cifras que captura el contador con su fuente (ingresos acumulables, deducciones autorizadas y la parte no deducible de los pagos exentos), sin restar la PTU pagada ni las pérdidas; el porcentaje se lee de `legal_parameters` (`ptu.rate`) al 31 de diciembre; el borrador es la PTU menos lo que el ejercicio ya abonó a la provisión (2205, rol `provision_ptu`), contra el gasto (6117, rol `ptu_gasto`). **La fila `ptu.rate` no está sembrada** y ningún comando la carga: el comando rechaza con «El porcentaje de la PTU (ptu.rate) no está vigente» (tarea abierta: MNE-001-854), y mientras tanto la PTU se registra a mano. Sólo para el régimen 601; con otro régimen declarado se niega. La provisión es bruta: no aplica los topes por trabajador de la LFT art. 127 fr. VIII. La corrida mensual de prestaciones no toca la 2205, tampoco con `provision_ptu_mensual` encendida, y lo declara en su resultado en vez de dejar un cero mudo. PTU diferida y reparto por trabajador: **sin motor** |
 | Prima de antigüedad | D-3, LFT 162 | **Fuera de alcance, declarado.** Exige valuación actuarial —rotación, mortalidad, descuento—; una cuenta sin motor que la alimente es peor que ninguna, porque parece cobertura |
 | Impuestos diferidos | D-4 | **Cuentas sembradas** (1310, 2300); el cálculo es de cierre anual y con juicio, se propone como borrador |
 | Arrendamientos | D-5 | **Sin motor.** No hay activo por derecho de uso ni pasivo por arrendamiento; la renta se registra como gasto, que sólo es correcto bajo las excepciones de corto plazo y bajo valor |

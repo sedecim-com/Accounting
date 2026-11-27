@@ -77,9 +77,17 @@ Las tres razones que hoy admite:
   `program` real.
 - `niif-indice.md` — su bloque enumerable se genera de `ifrs-registry.json` con
   su prueba de «regenerar no cambia nada».
-- Los manuales `nif-*` / `niif-*` — describen NORMAS EXTERNAS (IFRS, NIF
-  mexicanas), no este código. Su fuente de verdad es el registro normativo, no
-  `src/`. Un hash de código no dice nada sobre ellos.
+- `nif-marco.md` y los manuales `niif-*` — describen NORMAS EXTERNAS (IFRS,
+  NIF mexicanas), no este código. Su fuente de verdad es el registro normativo,
+  no `src/`. Un hash de código no dice nada sobre ellos.
+
+`nif-registro.md` y `nif-validaciones.md` estuvieron en esa lista y salieron
+(MNE-001-891): además de la norma dicen qué hace ESTE sistema —la tabla de
+motores, las reglas de `validation.ts`—, y exentos dejaron entrar un motor
+nuevo (`ptu close`) sin que nadie los releyera: el manual siguió diciendo «sin
+motor». Están en `manuales`, sellados contra los motores que nombran. El sello
+vigila lo que dicen del sistema, no su resumen de la norma; y avisa cuando
+cambia una fuente declarada, no cuando nace un motor en un archivo nuevo.
 
 Exento **no** es «fuera del corpus»: el agente los lee igual. Quiere decir que
 su frescura no se puede comprobar con el hash de un archivo de `src/`.
