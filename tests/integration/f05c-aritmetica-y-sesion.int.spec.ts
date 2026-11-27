@@ -183,7 +183,8 @@ describe('sonda: la aritmética de dos lados contra Postgres', () => {
   it('close se NIEGA mientras haya partidas sin fechar', async () => {
     await expect(
       cerrarSesion(entityScope(f.tenantId, f.entityId), sesionId, {}, { userId: f.userId })
-    ).rejects.toThrow(/partida-sin-fechar/);
+      // MNE-001-858: the finding goes into the Spanish refusal in Spanish.
+    ).rejects.toThrow(/· \[partida-sin-fechar\] 3 partida\(s\) abierta\(s\) sin fecha esperada\. Una partida sin fecha no se persigue/);
     const bd = await query<{ status: string; arithmetic_computed_at: string | null }>(
       `SELECT status, arithmetic_computed_at FROM reconciliation_sessions WHERE id = $1`,
       [sesionId]
@@ -329,6 +330,11 @@ describe('sonda: el pase guiado se detiene antes de aprobar', () => {
     expect(r.detenidaAntesDeAprobar).toBe(true);
     expect(r.loQueFalta.at(-1)).toMatch(/approve/);
     expect(r.loQueFalta.at(-1)).toMatch(/post/);
+    // MNE-001-858: what is missing names the finding in Spanish, as the rest of the list.
+    expect(r.loQueFalta).toContain(
+      '[partida-sin-fechar] 1 partida(s) abierta(s) sin fecha esperada. Una partida sin fecha no se persigue: ' +
+        'envejece hasta que alguien la note.'
+    );
 
     // La comisión de −450 se levanta como cargo-del-banco y cuadra los dos
     // lados: banco −450, libros 0 − 450 = −450.

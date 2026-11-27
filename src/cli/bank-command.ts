@@ -148,9 +148,9 @@ import {
   type Row,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
-import { t } from '../i18n/index.js';
+import { getLanguage, t } from '../i18n/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
-import { AppError } from '../utils/errors.js';
+import { AppError, textIn } from '../utils/errors.js';
 
 // ============================================================
 // mnemosine bank · banco
@@ -941,8 +941,9 @@ function estadoComoDocumento(e: EstadoDeSesion): Row {
     policy_unexplained_line: e.criterios.lineaSinPartida.valor,
     items: e.partidas.map(partidaConciliatoriaComoFila),
     adjustments: e.ajustes.map(ajusteComoFila),
-    findings: a.reparos.map((r) => ({ code: r.codigo, detail: r.detalle })),
-    blockers: e.bloqueantes.map((r) => ({ code: r.codigo, detail: r.detalle })),
+    // MNE-001-858: a finding arrives by key and is rendered here, for its reader.
+    findings: a.reparos.map((r) => ({ code: r.codigo, detail: textIn(r.detalle, getLanguage()) })),
+    blockers: e.bloqueantes.map((r) => ({ code: r.codigo, detail: textIn(r.detalle, getLanguage()) })),
     ready_to_close: e.listaParaCerrar,
     // EL RESUMEN CONGELADO, aparte y etiquetado. Nunca es la respuesta: es la
     // aseveración que se hizo, y contrastarla con la aritmética de arriba es lo
@@ -4021,7 +4022,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     }
     out.write(`\n  ${p.bold(t('bank.reconciliation.whats_missing'))}\n`);
     for (const r of e.bloqueantes) {
-      out.write(`    ${p.red('✘')} ${p.dim(`[${r.codigo}]`)} ${r.detalle}\n`);
+      out.write(`    ${p.red('✘')} ${p.dim(`[${r.codigo}]`)} ${textIn(r.detalle, getLanguage())}\n`);
     }
   };
 

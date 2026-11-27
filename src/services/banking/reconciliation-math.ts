@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { ValidationError } from '../../utils/errors.js';
+import { ValidationError, type KeyedText } from '../../utils/errors.js';
 
 // ============================================================
 // LA ARITMÉTICA DE DOS LADOS, SIN BASE DE DATOS (F05c)
@@ -157,8 +157,12 @@ export type CodigoDeReparo = (typeof CODIGOS_DE_REPARO)[number];
 
 export interface Reparo {
   codigo: CodigoDeReparo;
-  /** En español y con los números dentro: un reparo que sólo se nombra se ignora. */
-  detalle: string;
+  /**
+   * With the numbers inside: a finding that is only named gets ignored. By
+   * catalogue key (MNE-001-858): whoever prints it chooses the language with
+   * `textIn`, and this module reads nobody's.
+   */
+  detalle: KeyedText;
 }
 
 export interface Aritmetica {
@@ -339,48 +343,46 @@ export function calcularAritmetica(entrada: EntradaAritmetica): Aritmetica {
 
   const reparos: Reparo[] = [];
   if (saldoBanco === null || saldoLibros === null) {
-    const faltan = [
-      saldoBanco === null ? 'el del banco (no hay extracto atado a la sesión)' : null,
-      saldoLibros === null ? 'el de libros (no se consultó el mayor)' : null,
-    ].filter((x): x is string => x !== null);
     reparos.push({
       codigo: 'saldo-no-observado',
-      detalle:
-        `No hay variación que reportar porque falta ${faltan.join(' y ')}. ` +
-        `Un cero aquí significaría "nadie restó nada", que es lo contrario de un cuadre.`,
+      detalle: {
+        key: 'bank.reconciliation.finding.balance_not_observed',
+        params: { missing: saldoLibros !== null ? 'bank' : saldoBanco !== null ? 'books' : 'both' },
+      },
     });
   } else if (variacionDec !== null && variacionDec.abs().greaterThan(tolerancia)) {
     reparos.push({
       codigo: 'variacion-fuera-de-tolerancia',
-      detalle:
-        `El saldo de banco ajustado (${banco.ajustado ?? '—'}) y el de libros ajustado ` +
-        `(${libros.ajustado ?? '—'}) difieren en ${monto(variacionDec)}` +
-        (tolerancia.isZero() ? '.' : `, por encima de la tolerancia ${monto(tolerancia)}.`),
+      detalle: {
+        key: 'bank.reconciliation.finding.variance_out_of_tolerance',
+        params: {
+          bank: banco.ajustado ?? '—',
+          books: libros.ajustado ?? '—',
+          variance: monto(variacionDec),
+          tolerance: tolerancia.isZero() ? 'none' : monto(tolerancia),
+        },
+      },
     });
   }
   if (sinTipo > 0) {
     reparos.push({
       codigo: 'partida-sin-clasificar',
-      detalle:
-        `${sinTipo} partida(s) conciliatoria(s) sin tipo. Mientras no se diga qué son, ` +
-        `no se suman a ningún lado y la variación de arriba está incompleta.`,
+      detalle: { key: 'bank.reconciliation.finding.item_unclassified', params: { count: sinTipo } },
     });
   }
   if (sinFechar > 0) {
     reparos.push({
       codigo: 'partida-sin-fechar',
-      detalle:
-        `${sinFechar} partida(s) abierta(s) sin fecha esperada. Una partida sin fecha no se ` +
-        `persigue: envejece hasta que alguien la note.`,
+      detalle: { key: 'bank.reconciliation.finding.item_undated', params: { count: sinFechar } },
     });
   }
   if ((entrada.movimientosSinExplicar ?? 0) > 0) {
     reparos.push({
       codigo: 'linea-de-banco-sin-explicar',
-      detalle:
-        `${entrada.movimientosSinExplicar ?? 0} movimiento(s) del extracto sin cotejo y sin ` +
-        `partida que los explique. Qué hacer con ellos lo decide la política ` +
-        `\`linea_banco_sin_partida_al_cierre\`.`,
+      detalle: {
+        key: 'bank.reconciliation.finding.bank_line_unexplained',
+        params: { count: entrada.movimientosSinExplicar ?? 0 },
+      },
     });
   }
 

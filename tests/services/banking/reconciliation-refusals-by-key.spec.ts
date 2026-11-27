@@ -9,6 +9,10 @@
  * `localized('es')` is, byte for byte, what the site printed before, written by
  * hand from it. The draft's description and reasoning are book data and keep
  * their Spanish.
+ *
+ * Part 3 (MNE-001-858): the findings of the arithmetic (`Reparo.detalle`) are
+ * not refusals. Each carries its key and params, and whoever prints it chooses
+ * the language with `textIn`.
  */
 import { describe, expect, it, vi, beforeEach, type Mock } from 'vitest';
 
@@ -20,7 +24,7 @@ import { query, withTransaction } from '../../../src/database/connection.js';
 import { createDraft } from '../../../src/ai/draft-service.js';
 import { resolveEntity } from '../../../src/ai/context.js';
 import type { MessageParams, TranslationKey } from '../../../src/i18n/index.js';
-import { AppError, ConflictError, ValidationError } from '../../../src/utils/errors.js';
+import { AppError, ConflictError, ValidationError, textIn } from '../../../src/utils/errors.js';
 import { crearAjuste, direccionDeAjuste, lineasDelAjuste } from '../../../src/services/banking/reconciliation-adjustments.js';
 import {
   asignarPartida,
@@ -29,7 +33,7 @@ import {
   proponerPartida,
   reclasificarPartida,
 } from '../../../src/services/banking/reconciling-items.js';
-import { calcularAritmetica } from '../../../src/services/banking/reconciliation-math.js';
+import { calcularAritmetica, type CodigoDeReparo, type EntradaAritmetica } from '../../../src/services/banking/reconciliation-math.js';
 import { clienteFalso } from '../../helpers/fake-pg.js';
 
 const mockQuery = query as unknown as Mock;
@@ -366,5 +370,66 @@ describe('reconciliation-math.ts: the arithmetic refuses what it cannot add', ()
       { item: ITEM, value: 'cheque', known: ITEM_TYPES },
       `Unknown reconciling item type in item ${ITEM}: "cheque". The accepted ones are: ${ITEM_TYPES}.`,
       `Tipo de partida conciliatoria desconocido en partida ${ITEM}: "cheque". Los admitidos son: ${ITEM_TYPES}.`);
+  });
+});
+
+describe('reconciliation-math.ts (MNE-001-858): the findings of the arithmetic are keyed text', () => {
+  /** The finding `code` of this arithmetic carries `key` and `params`, and reads `english` and `spanish`. */
+  function expectFinding(
+    input: Partial<EntradaAritmetica>, code: CodigoDeReparo,
+    key: TranslationKey, params: MessageParams, english: string, spanish: string
+  ): void {
+    const finding = calcularAritmetica({ saldoBanco: '100', saldoLibros: '100', partidas: [], ...input })
+      .reparos.find((r) => r.codigo === code);
+    expect(finding?.detalle).toEqual({ key, params });
+    expect(textIn(finding!.detalle, 'en')).toBe(english);
+    expect(textIn(finding!.detalle, 'es')).toBe(spanish);
+  }
+
+  it('a balance nobody observed names the side that is missing, or both', () => {
+    const key = 'bank.reconciliation.finding.balance_not_observed';
+    const closing = ['A zero here would mean "nobody subtracted anything", which is the opposite of a reconciliation that balances.',
+      'Un cero aquí significaría "nadie restó nada", que es lo contrario de un cuadre.'];
+    expectFinding({ saldoBanco: null }, 'saldo-no-observado', key, { missing: 'bank' },
+      `There is no variance to report because the bank balance is missing (no statement is tied to the session). ${closing[0]}`,
+      `No hay variación que reportar porque falta el del banco (no hay extracto atado a la sesión). ${closing[1]}`);
+    expectFinding({ saldoLibros: null }, 'saldo-no-observado', key, { missing: 'books' },
+      `There is no variance to report because the book balance is missing (the ledger was not queried). ${closing[0]}`,
+      `No hay variación que reportar porque falta el de libros (no se consultó el mayor). ${closing[1]}`);
+    expectFinding({ saldoBanco: null, saldoLibros: null }, 'saldo-no-observado', key, { missing: 'both' },
+      'There is no variance to report because the bank balance (no statement is tied to the session) and the book balance ' +
+        `(the ledger was not queried) are missing. ${closing[0]}`,
+      'No hay variación que reportar porque falta el del banco (no hay extracto atado a la sesión) y el de libros ' +
+        `(no se consultó el mayor). ${closing[1]}`);
+  });
+
+  it('a variance over the tolerance, with a tolerance and with none', () => {
+    const key = 'bank.reconciliation.finding.variance_out_of_tolerance';
+    // 10000.00 - 9999.99 = 0.01, with no tolerance declared.
+    expectFinding({ saldoBanco: '10000.00', saldoLibros: '9999.99' }, 'variacion-fuera-de-tolerancia', key,
+      { bank: '10000.00', books: '9999.99', variance: '0.01', tolerance: 'none' },
+      'The adjusted bank balance (10000.00) and the adjusted book balance (9999.99) differ by 0.01.',
+      'El saldo de banco ajustado (10000.00) y el de libros ajustado (9999.99) difieren en 0.01.');
+    // 99.94 - 100.00 = -0.06, over a tolerance of 0.05 in either direction.
+    expectFinding({ saldoBanco: '99.94', saldoLibros: '100.00', tolerancia: '-0.05' }, 'variacion-fuera-de-tolerancia', key,
+      { bank: '99.94', books: '100.00', variance: '-0.06', tolerance: '0.05' },
+      'The adjusted bank balance (99.94) and the adjusted book balance (100.00) differ by -0.06, above the tolerance 0.05.',
+      'El saldo de banco ajustado (99.94) y el de libros ajustado (100.00) difieren en -0.06, por encima de la tolerancia 0.05.');
+  });
+
+  it('items with no type, items with no expected date, and statement movements nobody explains', () => {
+    const untyped = { tipo: null, importe: '5', fechaEsperada: '2026-03-15' };
+    expectFinding({ partidas: [untyped, untyped] }, 'partida-sin-clasificar',
+      'bank.reconciliation.finding.item_unclassified', { count: 2 },
+      '2 reconciling item(s) with no type. Until someone says what they are, they are not added to either side and the variance above is incomplete.',
+      '2 partida(s) conciliatoria(s) sin tipo. Mientras no se diga qué son, no se suman a ningún lado y la variación de arriba está incompleta.');
+    expectFinding({ partidas: [{ tipo: 'cargo-del-banco', importe: '-5' }] }, 'partida-sin-fechar',
+      'bank.reconciliation.finding.item_undated', { count: 1 },
+      '1 open item(s) with no expected date. An item with no date is not chased: it ages until someone notices it.',
+      '1 partida(s) abierta(s) sin fecha esperada. Una partida sin fecha no se persigue: envejece hasta que alguien la note.');
+    expectFinding({ movimientosSinExplicar: 3 }, 'linea-de-banco-sin-explicar',
+      'bank.reconciliation.finding.bank_line_unexplained', { count: 3 },
+      '3 statement movement(s) with no match and no item that explains them. What to do with them is decided by the policy `linea_banco_sin_partida_al_cierre`.',
+      '3 movimiento(s) del extracto sin cotejo y sin partida que los explique. Qué hacer con ellos lo decide la política `linea_banco_sin_partida_al_cierre`.');
   });
 });
