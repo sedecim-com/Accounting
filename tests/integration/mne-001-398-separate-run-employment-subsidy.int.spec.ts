@@ -182,9 +182,13 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
       expect(entry.lines.some((l) => /Subsidio al empleo entregado/.test(l.description))).toBe(false);
     });
 
-    it('the payroll CFDI declares no OtrosPagos 002 and still adds up', async () => {
+    // MNE-001-279 (#92) reversed «declares no OtrosPagos 002»: a TipoRegimen 02
+    // receipt always names the node (NOM105), here with nothing caused.
+    it('the payroll CFDI declares OtroPago 002 with no subsidy caused and still adds up', async () => {
       const xml = await stampedXml(bonus.paycheck.id);
-      expect(xml).not.toMatch(/TipoOtroPago="002"/);
+      expect(xml).toMatch(/TipoOtroPago="002"[^>]* Importe="0\.00"/);
+      expect(xml).toContain('SubsidioCausado="0.00"');
+      expect(xml).toContain('TotalOtrosPagos="0.00"');
       expect(attr(xml, 'Total').toFixed(2)).toBe(attr(xml, 'SubTotal').minus(attr(xml, 'Descuento')).toFixed(2));
     });
   });
