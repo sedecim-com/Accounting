@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 260 of 415 subcommands
+  spelling is `-T` at the root and `-t` on the 261 of 417 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -3365,6 +3365,7 @@ Commands:
   edit|editar [options] <vendor>  Change the non-banking, non-fiscal details of
                                   a vendor, leaving an audit row
   terms|terminos                  Payment terms
+  tax|fiscal                      The tax id a vendor is identified by
   help [command]                  display help for command
 ```
 
@@ -3543,6 +3544,60 @@ Examples:
   mnemosine vendor terms set "Papeleria del Centro" --terms "2/10 Net 30" --reason "Renegociacion de julio"
   # Settle in dollars from now on.
   mnemosine vendor terms set "Northwind Supplies LLC" --terms "Net 45" --currency USD --reason "Contrato 2026"
+```
+
+### `mnemosine vendor tax` (alias: fiscal)
+
+```
+Usage: mnemosine vendor tax|fiscal [options] [command]
+
+The tax id a vendor is identified by
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  set|fijar [options] <vendor>  Correct the tax id of a vendor, with the reason
+                                and an audit row that keeps the old and the new
+                                value; no posted document is rewritten
+  help [command]                display help for command
+```
+
+#### `mnemosine vendor tax set` (alias: fijar)
+
+```
+Usage: mnemosine vendor tax set|fijar [options] <vendor>
+
+Correct the tax id of a vendor, with the reason and an audit row that keeps the
+old and the new value; no posted document is rewritten
+
+Arguments:
+  vendor                   vendor number, name or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --tax-id <id>            the correct RFC (Mexico), EIN (USA) or VAT number;
+                           its shape is validated before anything is written
+                           (required)
+  --tax-id-type <type>     rfc | ein | vat (defaults to the type the vendor has,
+                           then to the entity's country)
+  --reason <text>          justification recorded in the audit trail (required)
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  -h, --help               display help for command
+
+This changes one row of the vendor master and writes its audit row: the old tax id, the new one, who and why.
+No bill, payment or entry is rewritten. The DIOT and the Anexo 24 vouchers file read the tax id when they are generated, so generate them again after the correction.
+It is refused when the tax id is malformed or when another vendor of the entity already carries it.
+
+Examples:
+  A vendor captured without RFC, which the DIOT reports as DIOT-SIN-RFC:
+    mnemosine vendor tax set "Papeleria del Centro" --tax-id PCE180412TF4 --reason "Tax status certificate of July"
+  A US vendor of a Mexican entity, saying which rule applies, as JSON:
+    mnemosine vendor tax set "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --reason "W-9 received" --json
 ```
 
 ## `mnemosine bill` (alias: factura-proveedor)
