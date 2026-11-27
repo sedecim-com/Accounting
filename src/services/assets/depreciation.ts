@@ -219,7 +219,10 @@ export async function criteriosDeLaCorrida(tenantId: string, entityId: string): 
  *
  * `tasa_lisr` also changes the SPEED: see `taxRateForBasis`.
  */
-export function metodoDeLaBase(asset: FixedAsset, base: BaseDepreciacion): DepreciationMethod {
+export function metodoDeLaBase(
+  asset: Pick<FixedAsset, 'depreciation_method' | 'book_depreciation_method' | 'tax_depreciation_method'>,
+  base: BaseDepreciacion
+): DepreciationMethod {
   const elegido = base === 'tasa_lisr' ? asset.tax_depreciation_method : asset.book_depreciation_method;
   return elegido ?? asset.depreciation_method;
 }
@@ -404,6 +407,38 @@ export async function inquilinoDeLaEntidad(entityId: string): Promise<string> {
 }
 
 /**
+ * MNE-001-881 · An asset the run leaves out ON PURPOSE, with its reason. It is
+ * not an error: nothing is broken in the asset, the run cannot depreciate it.
+ * Nothing is posted and no figure is computed for it; the month it owes is
+ * counted by the close box, with the weight the panel gives it.
+ */
+export interface SkippedAsset {
+  asset_number: string;
+  asset_name: string;
+  /** The same word the plan uses for this omission. */
+  reason: 'unidades_de_produccion';
+}
+
+/** How many skipped assets a note names before it says «+N more». */
+const NAMED_IN_NOTE = 5;
+
+/**
+ * What the close says about assets by units of production, in one place: the
+ * `depreciate-assets` step and the `depreciation-posted` box print the same
+ * sentence. It names the assets and what a person can do today.
+ */
+export function unitsOfProductionNote(
+  assets: ReadonlyArray<Pick<SkippedAsset, 'asset_number' | 'asset_name'>>
+): string {
+  const named = assets.slice(0, NAMED_IN_NOTE).map((a) => `${a.asset_number} ${a.asset_name}`).join(', ');
+  const more = assets.length > NAMED_IN_NOTE ? ` (+${assets.length - NAMED_IN_NOTE} more)` : '';
+  return (
+    `${assets.length} asset(s) skipped by units of production (unidades_de_produccion), nothing posted for them: ` +
+    `${named}${more}. The period's production cannot be captured yet: book the month's charge by hand (entry create)`
+  );
+}
+
+/**
  * La corrida mensual: un renglón de calendario y un asiento por activo activo.
  *
  * Devuelve lo procesado y los errores por activo en vez de abortar entera: un
@@ -414,9 +449,10 @@ export async function runMonthlyDepreciation(
   entityId: string,
   fiscalPeriodId: string,
   userId: string
-): Promise<{ processed: number; errors: string[] }> {
+): Promise<{ processed: number; errors: string[]; skipped: SkippedAsset[] }> {
   let processed = 0;
   const errors: string[] = [];
+  const skipped: SkippedAsset[] = [];
 
   const periodo = await periodoDeLaEntidad(entityId, fiscalPeriodId);
   const tenantId = await inquilinoDeLaEntidad(entityId);
@@ -476,10 +512,14 @@ export async function runMonthlyDepreciation(
 
       const metodo = metodoDeLaBase(asset, criterios.base);
       if (metodo === DepreciationMethod.UNITS_OF_PRODUCTION) {
-        errors.push(
-          `Activo ${asset.asset_number}: se deprecia por unidades de producción y la corrida ` +
-            'mensual no tiene de dónde leer la producción del periodo. Su renglón se captura aparte.'
-        );
+        // MNE-001-881 · SKIPPED, NOT AN ERROR. Nothing captures the period's
+        // production, so the run cannot compute this row; reporting it as an
+        // error made the step `failed` and ended `closing run` every month.
+        skipped.push({
+          asset_number: asset.asset_number,
+          asset_name: asset.asset_name,
+          reason: 'unidades_de_produccion',
+        });
         continue;
       }
 
@@ -635,5 +675,5 @@ export async function runMonthlyDepreciation(
     }
   }
 
-  return { processed, errors };
+  return { processed, errors, skipped };
 }

@@ -4,7 +4,7 @@ import type { AgentContext } from '../../ai/context.js';
 import { getCloseReadiness, type ClosablePeriod } from '../../ai/close-service.js';
 import { runMonthlyProvisions } from '../accruals/provisions-run.js';
 import { runMonthlyAmortization, runMonthlyDeferredRevenue } from '../accruals/amortization-run.js';
-import { runMonthlyDepreciation } from '../assets/depreciation.js';
+import { runMonthlyDepreciation, unitsOfProductionNote } from '../assets/depreciation.js';
 import { hardClosePeriod, softClosePeriod } from './period-close.js';
 import { FX_REVALUATION_SOURCE, revalueForeignBalances, revaluationEntriesOf } from './fx-revaluation.js';
 import { AccountingError, AppError } from '../../utils/errors.js';
@@ -925,10 +925,13 @@ async function takeStep(
         // The engine reports a count, not a total: see the column's comment in
         // migration 083. A zero here would be a figure nobody computed.
         amount: null,
+        // MNE-001-881: an asset by units of production is skipped, not an
+        // error. The step ends, and its record names what was left out.
         detail:
-          r.errors.length > 0
+          (r.errors.length > 0
             ? `${r.errors.length} asset(s) could not be depreciated: ${r.errors.join('; ')}`
-            : `${r.processed} asset(s) depreciated`,
+            : `${r.processed} asset(s) depreciated`) +
+          (r.skipped.length > 0 ? `; ${unitsOfProductionNote(r.skipped)}` : ''),
       };
     }
     case 'revalue-fx': {

@@ -1625,7 +1625,7 @@
       "src/services/assets/asset-service.ts": 7,
       "src/services/assets/depreciation-math.ts": 3,
       "src/services/assets/depreciation-plan.ts": 20,
-      "src/services/assets/depreciation.ts": 3,
+      "src/services/assets/depreciation.ts": 2,
       "src/services/audit/audit-log.ts": 1,
       "src/services/backup/backup-service.ts": 22,
       "src/services/backup/exportacion-inquilino.ts": 21,

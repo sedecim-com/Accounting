@@ -860,6 +860,14 @@ export const EN = {
   'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
     'The policy `convencion_primer_mes` is set to "{value}", which is neither of the two possible conventions ({known}). Correct it with `mnemosine pending reopen convencion_primer_mes` (if it was already defined) and then `mnemosine pending define convencion_primer_mes` before running the depreciation.',
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'The tenant of entity {entityId} could not be determined.',
+  // ---- MNE-001-881 · units of production: refused at registration, skipped by the run (issue #1069) ----
+  /** `asset create`: `book` says which of the two methods asked for it, `book` or `tax`. */
+  'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
+    'The {book, select, tax {tax} other {book}} depreciation method cannot be units_of_production yet: nothing captures the production of the period, so the monthly run could not compute a single row for this asset. Choose another method (straight_line when none is given). Nothing was registered.',
+  /** `depreciation post`: one line per asset the run skipped because it depreciates by units of production. */
+  'assets.depreciation.skipped_units_of_production':
+    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create); the close counts it under `depreciacion_faltante_al_cierre`.',
+  // ---- end of MNE-001-881 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */

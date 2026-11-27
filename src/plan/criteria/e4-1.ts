@@ -996,7 +996,7 @@ export const E4_1: Criterio[] = [
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
         de: '      const r = await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId);',
-        a: '      const r = { processed: 0, errors: [] as string[] };',
+        a: '      const r = { processed: 0, errors: [] as string[], skipped: [] };',
         porque:
           'el conductor deja de delegar y se inventa el resultado del paso: el mes sale «conducido» ' +
           'con la depreciación sin correr',
