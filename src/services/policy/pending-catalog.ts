@@ -1956,6 +1956,31 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 57,
   },
   {
+    // MNE-001-862 (#1066) · The cent between a foreign document's converted
+    // lines and its converted total. Reader: `conversionCentLine`
+    // (ar-ap-posting.ts), only when there is a cent; any other value fails closed.
+    key: 'fx_conversion_cent_difference',
+    textKey: 'fx_conversion_cent_difference',
+    category: 'contable',
+    question:
+      'A foreign-currency document is converted line by line and its lines miss its converted total by a cent: where does that cent go?',
+    impact:
+      'Governs the entry of a foreign-currency invoice or bill; ar-ap-posting.ts reads it only when there is a cent. Each line, the tax and the total are converted at the document\'s rate and rounded to the cent, and the receivable or payable is always the total, with its amount in the document\'s currency. With "exchange_difference_line" the cent is one more line on the exchange gain or loss account, so no line and no tax changes. With "largest_line" the cent is one more line on the account of the document\'s largest line, and nothing reaches the exchange difference accounts.',
+    options: [
+      { value: 'exchange_difference_line', label: 'A line on the exchange gain or loss account' },
+      { value: 'largest_line', label: 'A line on the account of the document\'s largest line' },
+    ],
+    defaultValue: 'exchange_difference_line',
+    defaultRationale:
+      'NIF B-15, as the accounting manual of this system carries it, recognises a foreign-currency transaction at the rate of its date and revalues receivables and payables at the close, so the control account must hold the document\'s total in its currency. The cent is a difference of the conversion, not revenue, expense or tax: on its own line it is visible and every other figure is the document\'s figure at its rate, the conservative option of ADR-0006. Carrying it to the largest line is also accepted practice and leaves the exchange difference accounts for differences of rate.',
+    whyAsking:
+      'Both are accepted practice: some firms show the rounding of a conversion as an exchange difference, others absorb it in the largest line.',
+    whatIDo:
+      'With "exchange_difference_line" I post the cent on the exchange gain or loss account. With "largest_line" I post it on the account of the document\'s largest line.',
+    ifSkipped: 'I post the cent on the exchange gain or loss account.',
+    priority: 57,
+  },
+  {
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',
@@ -2868,7 +2893,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question:
       'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
     impact:
-      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto or vacaciones (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, in a line of its own that the accrual of that month takes off (`payroll accrue`), and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto or vacaciones. Entries already posted are not changed.',
     options: [
       { value: 'consume_provision', label: 'Against the provision: the payment settles what the close accrued, and only the excess is expense' },
       { value: 'expense_on_payment', label: 'Expense when paid: only for a firm that does not accrue these benefits' },
@@ -2879,7 +2904,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
     whatIDo:
-      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds at the end of the pay date\'s month less what pay-run drafts awaiting review will take, and the rest to wages expense in a line of its own, which the accrual of that month takes off. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
     ifSkipped: 'The payment consumes the provision first, and only the excess is expense.',
     priority: 45,
   },

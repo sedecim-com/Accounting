@@ -65,6 +65,8 @@ function fakeClient(
     /** MNE-001-597 · what the bill's entries parked in 1135, and what its live rows stored. */
     parked?: string;
     released?: string;
+    /** MNE-001-862 · the firm's answer to fx_conversion_cent_difference (none: the catalogue default). */
+    centPolicy?: string;
   } = {}
 ): pg.PoolClient {
   const query = async (
@@ -83,7 +85,13 @@ function fakeClient(
       return { rows: [{ tenant_id: 't0000000-0000-0000-0000-000000000001' }] };
     }
     // No policy row: `fuente_tipo_cambio` answers with its catalog default (dof).
-    if (sql.includes('FROM policy_decisions')) return { rows: [] };
+    if (sql.includes('FROM policy_decisions')) {
+      return {
+        rows: opts.centPolicy && p[1] === 'fx_conversion_cent_difference'
+          ? [{ key: p[1], status: 'resolved', resolved_value: opts.centPolicy, question: '', resolution_notes: null, jurisdiction: null }]
+          : [],
+      };
+    }
     if (sql.includes('FROM exchange_rates')) {
       const published = opts.publishedRate === undefined ? '17.5000000000' : opts.publishedRate;
       // Only the direct pair is published; the inverse lookup finds nothing.
@@ -288,6 +296,47 @@ describe('postVendorPaymentEntry · la mitad realizada de NIF B-15', () => {
     cuadre();
   });
 
+  it('MNE-001-862 · the tranche that finishes a bill debits what the payable still holds, the cent on a line without origin', async () => {
+    // USD 5.40 at 18.2345 was born at 98.47; the first half took 49.23, so
+    // this one takes 49.24: 49.23 with its dollars and 0.01 in pesos only.
+    await postVendorPaymentEntry(
+      fakeClient(),
+      pago({ payment_amount: '2.7000' }),
+      USER,
+      contexto({
+        tasaPago: '18.2345000000',
+        aplicaciones: [
+          { billId: 'b1', numero: 'B-1', aplicado: '2.70', descuento: '0', tasaHistorica: '18.2345000000', priorApplied: '2.70' },
+        ],
+      })
+    );
+    const payable = lines().filter((l) => l.account_id === 'acct:cxp');
+    expect(payable.map((l) => [l.debit_amount, l.foreign_debit])).toEqual([['49.2300', '2.7000'], ['0.0100', undefined]]);
+    expect(de('acct:utilidad_cambiaria')?.credit_amount).toBe('0.0100');
+    cuadre();
+  });
+
+  it('MNE-001-862 · a tranche whose own product rounds up gives the cent back to the payable', async () => {
+    // At 18.2345, 0.03 → 0.547035 → 0.55 and 0.06 → 1.09407 → 1.09: after a
+    // first 0.03 the second one takes 0.54, so 0.01 is credited back, in pesos only.
+    await postVendorPaymentEntry(
+      fakeClient(),
+      pago({ payment_amount: '0.0300' }),
+      USER,
+      contexto({
+        tasaPago: '18.2345000000',
+        aplicaciones: [
+          { billId: 'b1', numero: 'B-1', aplicado: '0.03', descuento: '0', tasaHistorica: '18.2345000000', priorApplied: '0.03' },
+        ],
+      })
+    );
+    const payable = lines().filter((l) => l.account_id === 'acct:cxp');
+    expect(payable.map((l) => [l.debit_amount, l.credit_amount, l.foreign_debit]))
+      .toEqual([['0.5500', null, '0.0300'], [null, '0.0100', undefined]]);
+    expect(de('acct:perdida_cambiaria')?.debit_amount).toBe('0.0100');
+    cuadre();
+  });
+
   it('sin brecha de tasas no se pide NINGÚN rol cambiario: los roles se piden solo si la diferencia existe', async () => {
     await postVendorPaymentEntry(
       fakeClient(),
@@ -424,15 +473,16 @@ describe('postCustomerPaymentEntry · MNE-001-082: the realised difference of a 
   });
 
   it('a partial tranche is credited telescopically, so the tranches add up to the whole', async () => {
-    // At 18.2345, 0.01 converts to 0.1823 and 0.02 to 0.3647: the second
-    // cent takes 0.1824 off the receivable, not its own rounded 0.1823.
+    // At 18.2345, 0.03 converts to 0.547035 → 0.55 and 0.06 to 1.09407 →
+    // 1.09: the second three cents take 0.54 off the receivable, not their
+    // own rounded 0.55 (MNE-001-862: the conversion rounds to the cent).
     await postCustomerPaymentEntry(
       fakeClient(),
-      pago({ payment_amount: '0.0100' }),
+      pago({ payment_amount: '0.0300' }),
       USER,
-      tranche({ aplicado: '0.01', priorApplied: '0.0100', tasaHistorica: '18.2345000000' })
+      tranche({ aplicado: '0.03', priorApplied: '0.0300', tasaHistorica: '18.2345000000' })
     );
-    expect(receivableNet().toFixed(4)).toBe('0.1824');
+    expect(receivableNet().toFixed(4)).toBe('0.5400');
     cuadre();
   });
 
@@ -550,22 +600,43 @@ describe('postBillEntry · R4: el pasivo nace al tipo del documento', () => {
     cuadre();
   });
 
-  it('cuando el redondeo por línea difiere de total × tasa, el abono nace funcional: declarar un origen que no casa tumbaba el asiento entero', async () => {
-    // subtotal 0.0270 + IVA 0.0270 @ 18.2345: cada producto redondea a
-    // 0.4923 y la suma da 0.9846, pero q4(0.0540 × 18.2345) = 0.9847.
-    // NINGÚN par (importe, tasa) honesto reproduce 0.9846 — el defecto
-    // gravedad 1 que el adversarial cazó con el gasto imposteable.
-    await postBillEntry(
-      fakeClient(),
-      billUsd({ subtotal: '0.0270', tax_amount: '0.0270', total_amount: '0.0540', exchange_rate: '18.2345000000' }),
-      [lineaBill({ line_amount: '0.0270' })],
-      USER
-    );
-    const cxp = de('acct:cxp');
-    expect(cxp?.credit_amount).toBe('0.9846');
-    expect(cxp?.foreign_credit).toBeUndefined();
-    expect(cxp?.currency_code).toBeUndefined();
+  // MNE-001-862 · USD 46.66 + 20.00 at 17.1141, by hand: 798.543906 → 798.54
+  // and 342.282 → 342.28 add up to 1 140.82; 66.66 × 17.1141 = 1 140.825906
+  // → 1 140.83. The payable is the document, and the cent is its own line.
+  const twoLines = (): BillLine[] => [
+    lineaBill({ line_amount: '46.66', account_id: 'acct:big' }),
+    lineaBill({ id: 'bl-2', line_number: 2, line_amount: '20.00', account_id: 'acct:small' }),
+  ];
+  const centBill = (): Bill =>
+    billUsd({ subtotal: '66.66', tax_amount: '0', total_amount: '66.66', exchange_rate: '17.1141000000' });
+
+  it('the payable is total × rate to the cent and keeps its origin; the cent is a loss line by default', async () => {
+    await postBillEntry(fakeClient(), centBill(), twoLines(), USER);
+    expect(de('acct:big')).toMatchObject({ debit_amount: '798.5400', foreign_debit: '46.66' });
+    expect(de('acct:small')).toMatchObject({ debit_amount: '342.2800', foreign_debit: '20.00' });
+    expect(de('acct:cxp')).toMatchObject({
+      credit_amount: '1140.8300', currency_code: 'USD', foreign_credit: '66.66', exchange_rate: '17.1141000000',
+    });
+    const cent = de('acct:perdida_cambiaria');
+    expect(cent).toMatchObject({ debit_amount: '0.0100', credit_amount: null });
+    expect(cent?.currency_code).toBeUndefined();
+    expect(lines()).toHaveLength(4);
     cuadre();
+  });
+
+  it('under largest_line the cent goes to the account of the largest line, as its own line without origin', async () => {
+    await postBillEntry(fakeClient({ centPolicy: 'largest_line' }), centBill(), twoLines(), USER);
+    const onBig = lines().filter((l) => l.account_id === 'acct:big');
+    expect(onBig.map((l) => [l.debit_amount, l.foreign_debit])).toEqual([['798.5400', '46.66'], ['0.0100', undefined]]);
+    expect(de('acct:perdida_cambiaria')).toBeUndefined();
+    expect(de('acct:cxp')?.foreign_credit).toBe('66.66');
+    cuadre();
+  });
+
+  it('a value of the key this reader does not know fails closed', async () => {
+    await expect(postBillEntry(fakeClient({ centPolicy: 'somewhere' }), centBill(), twoLines(), USER))
+      .rejects.toThrow(/fx_conversion_cent_difference.*somewhere/);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('la tasa 1.0 exacta es el default de captura, no una tasa: el bill USD se acusa en vez de asentarse sin convertir', async () => {
@@ -638,21 +709,64 @@ describe('postInvoiceEntry · MNE-001-081: a foreign-currency invoice converts a
     expect(de('acct:ingreso')?.credit_amount).toBe('17500.0000');
   });
 
-  it('when per-line rounding differs from total × rate, the receivable debit is the sum of the credits and carries no FX columns', async () => {
-    // 0.0270 + 0.0270 @ 18.2345: each product rounds to 0.4923 (sum 0.9846)
-    // but q4(0.0540 × 18.2345) = 0.9847 — no honest (amount, rate) pair
-    // reproduces the posted sum, the same case postBillEntry pins.
+  // MNE-001-862 · the issue's case, by hand at 17.1141: 33.33 → 570.412953 →
+  // 570.41, 5.33 → 91.218153 → 91.22, and 38.66 → 661.631106 → 661.63. At
+  // four decimals the sum (661.6312) missed the total (661.6311) and the
+  // receivable was posted in pesos only.
+  const centFx = (policy?: string): pg.PoolClient => fakeClient({ publishedRate: '17.1141000000', centPolicy: policy });
+  const centPolicyReads = (): number =>
+    sqlLog.filter((q) => q.sql.includes('FROM policy_decisions') && q.params[1] === 'fx_conversion_cent_difference').length;
+
+  it('USD 33.33 + VAT 5.33 at 17.1141: the receivable is 661.63 with its dollars, and no key is read', async () => {
     await postInvoiceEntry(
-      fakeClient({ publishedRate: '18.2345000000' }),
-      usdInvoice({ subtotal: '0.0270', tax_amount: '0.0270', total_amount: '0.0540' }),
-      usdLines('0.0270'),
-      USER
+      centFx(), usdInvoice({ subtotal: '33.33', tax_amount: '5.33', total_amount: '38.66' }), usdLines('33.33'), USER
     );
-    const receivable = de('acct:cxc');
-    expect(receivable?.debit_amount).toBe('0.9846');
-    expect(receivable?.foreign_debit).toBeUndefined();
-    expect(receivable?.currency_code).toBeUndefined();
+    expect(de('acct:ingreso')?.credit_amount).toBe('570.4100');
+    expect(de('acct:iva_trasladado')?.credit_amount).toBe('91.2200');
+    expect(de('acct:cxc')).toMatchObject({
+      debit_amount: '661.6300', currency_code: 'USD', foreign_debit: '38.66', exchange_rate: '17.1141000000',
+    });
+    expect(lines()).toHaveLength(3);
+    expect(centPolicyReads()).toBe(0);
     cuadre();
+  });
+
+  // USD 46.66 + 20.00, no tax: 798.54 + 342.28 = 1 140.82 against 1 140.83.
+  const twoLines = (): InvoiceLine[] =>
+    [
+      { id: 'il-1', invoice_id: 'inv-1', line_number: 1, revenue_account_id: 'acct:big', description: 'A', line_amount: '46.66' },
+      { id: 'il-2', invoice_id: 'inv-1', line_number: 2, revenue_account_id: 'acct:small', description: 'B', line_amount: '20.00' },
+    ] as unknown as InvoiceLine[];
+  const centInvoice = (over: Record<string, unknown> = {}): Invoice =>
+    usdInvoice({ subtotal: '66.66', tax_amount: '0', total_amount: '66.66', ...over });
+
+  it('the cent between the lines and the total is a gain line by default: no line and no tax changes', async () => {
+    await postInvoiceEntry(centFx(), centInvoice(), twoLines(), USER);
+    expect(de('acct:cxc')).toMatchObject({ debit_amount: '1140.8300', foreign_debit: '66.66' });
+    expect(de('acct:big')).toMatchObject({ credit_amount: '798.5400', foreign_credit: '46.66' });
+    expect(de('acct:small')).toMatchObject({ credit_amount: '342.2800', foreign_credit: '20.00' });
+    const cent = de('acct:utilidad_cambiaria');
+    expect(cent).toMatchObject({ debit_amount: null, credit_amount: '0.0100' });
+    expect(cent?.currency_code).toBeUndefined();
+    expect(centPolicyReads()).toBe(1);
+    cuadre();
+  });
+
+  it('under largest_line the cent is credited to the account of the largest line', async () => {
+    await postInvoiceEntry(centFx('largest_line'), centInvoice(), twoLines(), USER);
+    const onBig = lines().filter((l) => l.account_id === 'acct:big');
+    expect(onBig.map((l) => [l.credit_amount, l.foreign_credit])).toEqual([['798.5400', '46.66'], ['0.0100', undefined]]);
+    expect(de('acct:utilidad_cambiaria')).toBeUndefined();
+    cuadre();
+  });
+
+  it('a document that does not foot in its own currency gets no cent line: the engine refuses what does not balance', async () => {
+    await postInvoiceEntry(centFx(), centInvoice({ total_amount: '70.00' }), twoLines(), USER);
+    expect(lines()).toHaveLength(3);
+    expect(centPolicyReads()).toBe(0);
+    const net = lines().reduce((s, l) => s.plus(l.debit_amount ?? '0').minus(l.credit_amount ?? '0'), new Decimal(0));
+    // 70.00 × 17.1141 = 1 197.987 → 1 197.99, against 1 140.82 of credits.
+    expect(net.toFixed(2)).toBe('57.17');
   });
 
   it('refuses to link a second entry when the guarded update touches no row', async () => {

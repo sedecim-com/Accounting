@@ -2882,7 +2882,9 @@ export const E1_2: Criterio[] = [
       //    verificarOrigenFx (funcional = extranjero × tasa, half-up a 4) y el
       //    rechazo trae los tres números. Sin esto, un llamador puede declarar
       //    un origen que no casa y el mayor archiva la mentira con CHECK verde.
-      if (!/verificarOrigenFx\(line, monedaFuncional, i \+ 1\)/.test(post)) {
+      //    MNE-001-862: half-up at the minor unit of the functional currency;
+      //    the fourth argument lets a reversal mirror what was posted before.
+      if (!/verificarOrigenFx\(line, monedaFuncional, i \+ 1, options\?\.isReversal\)/.test(post)) {
         return falla('createJournalEntry dejó de verificar el origen contra la conversión: una línea podría declarar un extranjero que no casa con su funcional');
       }
       // 3. La reversa CRUZA los lados extranjeros igual que los funcionales.

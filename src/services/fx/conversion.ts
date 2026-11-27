@@ -21,6 +21,7 @@ import { AccountingError } from '../../utils/errors.js';
 // EL REDONDEO ES HALF-UP Y ESTÁ ESCRITO A PROPÓSITO. El importe funcional
 // vive en DECIMAL(19,4); el producto foreign × rate casi nunca cabe en cuatro
 // decimales y hay que cortar. Se corta con half-up —0.00005 sube a 0.0001—
+// (since MNE-001-862 the cut is at the currency's minor unit: half a cent goes up)
 // porque es el redondeo comercial que usa el SAT en el Anexo 20 para los
 // importes del CFDI, y usar otro (half-even, truncado) produciría centavos
 // que no cuadran contra el comprobante. Decimal.js por omisión redondea
@@ -70,16 +71,56 @@ export function traeCamposFx(linea: LineaConOrigen): boolean {
   );
 }
 
+// MNE-001-862 (#1066) · THE FUNCTIONAL AMOUNT IS BOOKED AT ITS CURRENCY'S MINOR UNIT.
+// The columns hold four decimals, but a peso has cents and the Anexo 24
+// declares two (`t_Importe`): two products kept at four decimals on one
+// account left a trial balance that did not add up once rounded (570.7552 +
+// 100.0058 declared as 570.76 + 100.01 = 670.77 against 670.76). The decimals
+// are the currency's own, read from ICU as `i18n/format.ts` reads them.
+
+/** The peso: the functional currency a caller that holds none converts to. */
+export const DEFAULT_FUNCTIONAL_CURRENCY = 'MXN';
+
+const minorUnitByCurrency = new Map<string, number>();
+
+/** Decimals of a currency's minor unit (MXN and USD 2, JPY 0, KWD 3), never above the ledger's four. */
+export function minorUnitDecimals(currency: string): number {
+  let decimals = minorUnitByCurrency.get(currency);
+  if (decimals === undefined) {
+    const own = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions();
+    decimals = Math.min(own.minimumFractionDigits ?? 2, DECIMALES_IMPORTE);
+    minorUnitByCurrency.set(currency, decimals);
+  }
+  return decimals;
+}
+
+let whenNotTwo: string | undefined;
+
+/** `minorUnitDecimals` as SQL over a currency expression, built once from the same table. */
+export function minorUnitDecimalsSql(currencySql: string): string {
+  whenNotTwo ??= Intl.supportedValuesOf('currency')
+    .filter((currency) => minorUnitDecimals(currency) !== 2)
+    .map((currency) => `WHEN '${currency}' THEN ${minorUnitDecimals(currency)}`)
+    .join(' ');
+  return `CASE ${currencySql} ${whenNotTwo} ELSE 2 END`;
+}
+
 /**
- * Convierte un importe de origen al funcional: foreign × rate, redondeado a
- * cuatro decimales con half-up. Es LA definición de la conversión del módulo:
- * el motor, la verificación y las pruebas llaman a esta misma función para
- * que no existan dos aritméticas que puedan discrepar.
+ * Converts an origin amount to the functional currency: foreign × rate,
+ * half-up at the minor unit of the functional currency, written with the
+ * column's four decimals. It is THE definition of the conversion: the engine,
+ * the check, `convertirAFuncional` and the tests call this one function, so
+ * no two arithmetics can disagree.
  */
-export function convertirImporte(importeExtranjero: string, tipoDeCambio: string): string {
+export function convertirImporte(
+  importeExtranjero: string,
+  tipoDeCambio: string,
+  functionalCurrency: string = DEFAULT_FUNCTIONAL_CURRENCY
+): string {
   return new D(importeExtranjero)
     .times(new D(tipoDeCambio))
-    .toFixed(DECIMALES_IMPORTE, Decimal.ROUND_HALF_UP);
+    .toDecimalPlaces(minorUnitDecimals(functionalCurrency), Decimal.ROUND_HALF_UP)
+    .toFixed(DECIMALES_IMPORTE);
 }
 
 function esDecimalValido(v: string): boolean {
@@ -112,7 +153,14 @@ function falta(numeroDeLinea: number, mensaje: string, detalles?: Record<string,
 export function verificarOrigenFx(
   linea: LineaConOrigen,
   monedaFuncional: string,
-  numeroDeLinea: number
+  numeroDeLinea: number,
+  /**
+   * MNE-001-862 · The line is the mirror of a posted one (a reversal). An
+   * entry posted before the cent rule holds foreign × rate at four decimals,
+   * and its mirror is what was posted, not a new conversion: it passes at
+   * either figure. Without this no earlier foreign entry could be reversed.
+   */
+  mirror = false
 ): void {
   if (!traeCamposFx(linea)) return;
 
@@ -219,15 +267,22 @@ export function verificarOrigenFx(
     throw falta(numeroDeLinea, 'no trae importe funcional (debit_amount/credit_amount) que verificar.');
   }
 
-  // LA VERIFICACIÓN: el funcional debe SER foreign × rate a 4 decimales
-  // half-up — exacto, sin tolerancia. La tolerancia de 0.01 de validation.ts
-  // perdona lecturas viejas; una línea NUEVA no tiene excusa para no cuadrar.
-  const esperado = convertirImporte(importeExtranjero, exchange_rate);
-  if (!new Decimal(importeFuncional).equals(new Decimal(esperado))) {
+  // THE CHECK: the functional amount must BE foreign × rate, half-up at the
+  // minor unit of the functional currency (MNE-001-862): exact, no tolerance.
+  // The 0.01 tolerance of validation.ts forgives old readings; a NEW line has
+  // no excuse not to foot.
+  const esperado = convertirImporte(importeExtranjero, exchange_rate, monedaFuncional);
+  const asPostedBefore = (): string =>
+    new D(importeExtranjero).times(new D(exchange_rate)).toFixed(DECIMALES_IMPORTE, Decimal.ROUND_HALF_UP);
+  if (
+    !new Decimal(importeFuncional).equals(new Decimal(esperado)) &&
+    !(mirror && new Decimal(importeFuncional).equals(asPostedBefore()))
+  ) {
     throw new AccountingError(
       'FX_CONVERSION_NO_CASA',
       `Línea ${numeroDeLinea}: la conversión no casa. ${importeExtranjero} ${currency_code} × ` +
-        `${exchange_rate} = ${esperado} (redondeo half-up a 4 decimales), pero la línea dice ` +
+        `${exchange_rate} = ${esperado} (redondeo half-up a ${minorUnitDecimals(monedaFuncional)} decimales, ` +
+        `la unidad mínima de ${monedaFuncional}), pero la línea dice ` +
         `${new Decimal(importeFuncional).toFixed(DECIMALES_IMPORTE)}. El importe funcional se ` +
         'calcula del origen, no se afirma.',
       {

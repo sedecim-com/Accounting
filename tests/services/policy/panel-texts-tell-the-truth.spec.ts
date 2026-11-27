@@ -15,6 +15,7 @@ import { REQUIRED_ACCOUNTS, ROLE_MAP } from '../../../src/services/xml-ingestion
 import { CATALOGO_UNIVERSAL } from '../../../src/services/accounting/chart-seed.js';
 import { t } from '../../../src/i18n/index.js';
 import { yearMonthsSealedBox, yearSealNeedsSealedMonths } from '../../../src/services/accounting/period-close.js';
+import { ACCRUED_BENEFITS } from '../../../src/services/payroll/common/benefit-payment.js';
 
 // ============================================================
 // THE PANEL TEXT SAYS WHAT THE CODE DOES (T21b · #301, MNE-001-073)
@@ -345,14 +346,14 @@ describe('benefit_payment_against_provision — the text names its reader, its e
   });
 
   it('the earning types and the roles the text names are the ones the reader pairs, and the roles are seeded', () => {
-    expect(s.impact).toMatch(/of type aguinaldo, pto \(vacation days\) and prima_vacacional/);
+    expect(s.impact).toMatch(/of type aguinaldo, pto or vacaciones \(vacation days\) and prima_vacacional/);
     expect(s.impact).toMatch(/provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204/);
-    for (const [earning, constant, role, code] of [
-      ['aguinaldo', 'ROL_AGUINALDO', 'provision_aguinaldo', '2202'],
-      ['pto', 'ROL_VACACIONES', 'provision_vacaciones', '2203'],
-      ['prima_vacacional', 'ROL_PRIMA', 'provision_prima_vacacional', '2204'],
+    for (const [role, earningTypes, code] of [
+      ['provision_aguinaldo', ['aguinaldo'], '2202'],
+      ['provision_vacaciones', ['pto', 'vacaciones'], '2203'],
+      ['provision_prima_vacacional', ['prima_vacacional'], '2204'],
     ] as const) {
-      expect(reader(), earning).toContain(`{ earningType: '${earning}', role: ${constant},`);
+      expect(ACCRUED_BENEFITS.find((b) => b.role === role)?.earningTypes, role).toEqual(earningTypes);
       expect(ROLE_MAP[role], role).toBe(code);
     }
   });
@@ -405,5 +406,34 @@ describe('bill_void_mirror_date — the text names its reader and cites only wha
     expect(s.impact).toBe(t('policy.bill_void_mirror_date.impact', {}, 'en'));
     expect(norms(s.defaultRationale)).toEqual(['CFF art. 29-A', 'CFF art. 32', 'NIF B-1']);
     expect(norms(t('policy.bill_void_mirror_date.rationale', {}, 'es'))).toEqual(['CFF art. 29-A', 'CFF art. 32', 'NIF B-1']);
+  });
+});
+
+// MNE-001-862 (#1066). The cent between a foreign document's converted lines
+// and its converted total. The text names its reader and says it is read only
+// when there is a cent; the norm it cites is the one the corpus carries.
+describe('fx_conversion_cent_difference — the text names its reader and cites what the corpus carries', () => {
+  const s = spec('fx_conversion_cent_difference');
+
+  it('names ar-ap-posting.ts as its reader, which reads the key and knows its two values; the default is the line', () => {
+    expect(s.impact).toMatch(/ar-ap-posting\.ts reads it only when there is a cent/);
+    const files = sourcesNamed('ar-ap-posting.ts');
+    expect(files).toHaveLength(1);
+    const reader = fs.readFileSync(files[0], 'utf8');
+    expect(reader).toMatch(/CENT_DIFFERENCE_POLICY = 'fx_conversion_cent_difference'/);
+    expect(reader).toMatch(/CENT_DIFFERENCE_VALUES = \['exchange_difference_line', 'largest_line'\]/);
+    expect(reader.match(/CENT_DIFFERENCE_POLICY, client\)/g)).toHaveLength(1);
+    expect(s.defaultValue).toBe('exchange_difference_line');
+    expect(s.options.map((o) => o.value)).toEqual(['exchange_difference_line', 'largest_line']);
+  });
+
+  it('cites NIF B-15 as the accounting manual carries it, the same in English and in Spanish', () => {
+    const manual = fs.readFileSync(path.join(ROOT, 'src/ai/docs/nif-registro.md'), 'utf8');
+    expect(manual).toMatch(/## B-15 — Moneda extranjera\n\n- Reconocimiento inicial: tipo de cambio de la FECHA de la transacción/);
+    expect(manual).toMatch(/partidas monetarias \(bancos, clientes, proveedores en USD\) se\n {2}revalúan al tipo de cierre/);
+    const norms = (text: string): string[] => [...new Set([...text.matchAll(/\b(NIF [A-E]-\d+|ADR-\d+)\b/g)].map((m) => m[1]))].sort();
+    expect(s.defaultRationale).toBe(t('policy.fx_conversion_cent_difference.rationale', {}, 'en'));
+    expect(norms(s.defaultRationale)).toEqual(['ADR-0006', 'NIF B-15']);
+    expect(norms(t('policy.fx_conversion_cent_difference.rationale', {}, 'es'))).toEqual(['ADR-0006', 'NIF B-15']);
   });
 });

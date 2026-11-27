@@ -149,6 +149,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'La póliza {entry} es de depreciación y su activo no está en esta entidad: la reversión no se aplicó',
   'error.ALREADY_VOID': 'La póliza ya está anulada',
   'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" no es un valor que este sistema conozca ({known}); no se aplicó nada.',
+  // ---- MNE-001-862 · a hand entry is stated at the minor unit of the functional currency; see en.ts ----
+  'error.VALIDATION_ERROR.entry_line_minor_unit':
+    'Renglón {line}: "{amount}" es más fino que la unidad mínima de {currency} ({decimals} decimales). El mayor registra {currency} a su unidad mínima: escribe el importe con no más decimales que ésos.',
+  // ---- end of MNE-001-862 ----
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
   'error.VALIDATION_ERROR.payment.destination_bank_both':
     'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
@@ -1913,6 +1917,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.fx_revaluation_reversal.option.reverse_on_day_one':
     'Revertirla el día 1 del periodo siguiente',
 
+  'policy.fx_conversion_cent_difference.question':
+    'Un documento en moneda extranjera se convierte renglón por renglón y sus renglones no suman su total convertido por un centavo: ¿a dónde va ese centavo?',
+  'policy.fx_conversion_cent_difference.impact':
+    'Gobierna la póliza de una factura o un gasto en moneda extranjera; ar-ap-posting.ts la lee sólo cuando hay un centavo. Cada renglón, el impuesto y el total se convierten al tipo de cambio del documento y se redondean al centavo, y la cuenta por cobrar o por pagar es siempre el total, con su importe en la moneda del documento. Con "exchange_difference_line" el centavo es un renglón más en la cuenta de utilidad o pérdida cambiaria, así que ningún renglón ni impuesto cambia. Con "largest_line" el centavo es un renglón más en la cuenta del renglón más grande del documento, y nada llega a las cuentas de diferencia cambiaria.',
+  'policy.fx_conversion_cent_difference.rationale':
+    'La NIF B-15, como la trae el manual contable de este sistema, reconoce una operación en moneda extranjera al tipo de cambio de su fecha y revalúa las cuentas por cobrar y por pagar al cierre, así que la cuenta de control debe guardar el total del documento en su moneda. El centavo es una diferencia de la conversión, no ingreso, gasto ni impuesto: en su propio renglón se ve y cada otra cifra es la del documento a su tipo de cambio, la opción conservadora del ADR-0006. Llevarlo al renglón más grande también es práctica aceptada y deja las cuentas de diferencia cambiaria para las diferencias de tipo de cambio.',
+  'policy.fx_conversion_cent_difference.why':
+    'Las dos son práctica aceptada: algunos despachos muestran el redondeo de una conversión como diferencia cambiaria, otros lo absorben en el renglón más grande.',
+  'policy.fx_conversion_cent_difference.what':
+    'Con "exchange_difference_line" registro el centavo en la cuenta de utilidad o pérdida cambiaria. Con "largest_line" lo registro en la cuenta del renglón más grande del documento.',
+  'policy.fx_conversion_cent_difference.if_skipped':
+    'Registro el centavo en la cuenta de utilidad o pérdida cambiaria.',
+  'policy.fx_conversion_cent_difference.option.exchange_difference_line':
+    'Un renglón en la cuenta de utilidad o pérdida cambiaria',
+  'policy.fx_conversion_cent_difference.option.largest_line':
+    'Un renglón en la cuenta del renglón más grande del documento',
+
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
   'policy.rep_foreign_currency.impact':
@@ -2423,13 +2444,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.benefit_payment_against_provision.question':
     'Cuando una corrida de nómina paga aguinaldo, días de vacaciones o prima vacacional, ¿el pago cancela la provisión que devengó el cierre, o es gasto al pagarse?',
   'policy.benefit_payment_against_provision.impact':
-    'Decide qué carga la póliza de `pay-run post` por los renglones de percepción de tipo aguinaldo, pto (días de vacaciones) y prima_vacacional; lo lee benefit-payment.ts cuando una corrida paga alguno. Con "consume_provision" cada uno se carga a su provisión (las cuentas de los roles provision_aguinaldo, provision_vacaciones y provision_prima_vacacional: 2202, 2203 y 2204 en el catálogo sembrado) hasta lo que la provisión tiene, sólo el excedente es gasto de sueldos, y lo que no se paga se queda en la provisión. Con "expense_on_payment" todo el bruto es gasto de sueldos: es para el despacho que no devenga estas prestaciones, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Los días de vacaciones pagados dentro del renglón de sueldo no se ven: hay que desglosarlos como pto. Las pólizas ya posteadas no cambian.',
+    'Decide qué carga la póliza de `pay-run post` por los renglones de percepción de tipo aguinaldo, pto o vacaciones (días de vacaciones) y prima_vacacional; lo lee benefit-payment.ts cuando una corrida paga alguno. Con "consume_provision" cada uno se carga a su provisión (las cuentas de los roles provision_aguinaldo, provision_vacaciones y provision_prima_vacacional: 2202, 2203 y 2204 en el catálogo sembrado) hasta lo que la provisión tiene, sólo el excedente es gasto de sueldos, en un renglón propio que el devengo de ese mes descuenta (`payroll accrue`), y lo que no se paga se queda en la provisión. Con "expense_on_payment" todo el bruto es gasto de sueldos: es para el despacho que no devenga estas prestaciones, y la póliza se rechaza mientras la provisión de una prestación que la corrida paga tenga saldo. Los días de vacaciones pagados dentro del renglón de sueldo no se ven: hay que desglosarlos como pto o vacaciones. Las pólizas ya posteadas no cambian.',
   'policy.benefit_payment_against_provision.rationale':
     'Según la NIF D-3, un beneficio a corto plazo se lleva a gasto conforme el trabajador lo gana, contra un pasivo, y pagarlo cancela ese pasivo. El despacho que devenga en el cierre y además lleva el pago a gasto cuenta la prestación dos veces y conserva un pasivo que ya no debe; consumir primero la provisión evita las dos cosas, y es la opción conservadora del ADR-0006. El despacho que no devenga no tiene provisión que consumir, y las dos respuestas le dan la misma póliza.',
   'policy.benefit_payment_against_provision.why':
     'El cierre mensual devenga estas prestaciones a gasto (`payroll accrue`). Cuando una corrida las paga no puedo saber por mi cuenta si tu despacho lleva ese devengo: unos devengan cada mes, otros llevan la prestación a gasto en el mes en que se paga.',
   'policy.benefit_payment_against_provision.what':
-    'Con "consume_provision" cargo cada prestación pagada a su provisión, hasta lo que tiene a la fecha de pago menos lo que tomarán los borradores de nómina en espera de revisión, y el resto a gasto de sueldos. Con "expense_on_payment" cargo todo el bruto a gasto de sueldos, y rechazo la póliza mientras la provisión de una prestación que la corrida paga tenga saldo.',
+    'Con "consume_provision" cargo cada prestación pagada a su provisión, hasta lo que tiene al fin del mes de la fecha de pago menos lo que tomarán los borradores de nómina en espera de revisión, y el resto a gasto de sueldos en un renglón propio, que el devengo de ese mes descuenta. Con "expense_on_payment" cargo todo el bruto a gasto de sueldos, y rechazo la póliza mientras la provisión de una prestación que la corrida paga tenga saldo.',
   'policy.benefit_payment_against_provision.if_skipped':
     'El pago consume primero la provisión, y sólo el excedente es gasto.',
   'policy.benefit_payment_against_provision.option.consume_provision':
@@ -2438,6 +2459,12 @@ export const ES: Record<keyof typeof EN, string> = {
     'Gasto al pagarse: sólo para el despacho que no devenga estas prestaciones',
   'payroll.benefit_payment.expensed_while_accrued':
     'La política {key} dice que una prestación es gasto al pagarse, y esta corrida paga una cuya provisión (cuenta {account}) tiene {balance} devengados: llevar el pago a gasto contaría la prestación dos veces. No se escribió nada. Contesta {key} con consume_provision en mnemosine pending, o primero revierte el devengo si el despacho no devenga.',
+  'payroll.accrue.skip_paid_over_provision':
+    'las corridas de nómina del mes ya llevaron a gasto su devengo',
+  'payroll.accrue.paid_over_provision':
+    '{benefit}: las corridas de nómina del mes pagaron {excess} que sus pólizas no cargaron a su provisión; {subtracted} se descuentan de este devengo{hasLeft, select, yes {, y {left} no: este devengo no tiene más de dónde descontar, o la provisión todavía tiene un saldo que esas corridas no consumieron} other {}}.',
+  'payroll.accrue.pay_runs_in_review':
+    '{count, plural, one {# corrida de nómina del mes paga} other {# corridas de nómina del mes pagan}} una prestación devengada y su póliza sigue como borrador en revisión ({runs}): lo que {count, plural, one {paga} other {pagan}} por encima de una provisión no se descuenta de este devengo. Resuelve primero el borrador en mnemosine review, o revierte este devengo y córrelo de nuevo después.',
   // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':

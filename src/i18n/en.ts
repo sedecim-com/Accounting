@@ -198,6 +198,11 @@ export const EN = {
   // vat-overcredit.ts
   'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" is not a value this system knows ({known}); nothing was posted.',
 
+  // ---- MNE-001-862 · a hand entry is stated at the minor unit of the functional currency, journal-entry-service.ts (issue #1066) ----
+  'error.VALIDATION_ERROR.entry_line_minor_unit':
+    'Line {line}: "{amount}" is finer than the minor unit of {currency} ({decimals} decimals). The ledger books {currency} at its minor unit: write the amount with no more decimals than that.',
+  // ---- end of MNE-001-862 ----
+
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments that were Spanish prose (issue #151) ----
   // `error.VALIDATION_ERROR.payment.<case>` for a ValidationError, beside the
   // `schema.*` cases of MNE-001-152; `error.<CODE>[.<case>]` for an
@@ -2167,6 +2172,23 @@ export const EN = {
   'policy.fx_revaluation_reversal.option.reverse_on_day_one':
     'Reverse it on day 1 of the next period',
 
+  'policy.fx_conversion_cent_difference.question':
+    'A foreign-currency document is converted line by line and its lines miss its converted total by a cent: where does that cent go?',
+  'policy.fx_conversion_cent_difference.impact':
+    'Governs the entry of a foreign-currency invoice or bill; ar-ap-posting.ts reads it only when there is a cent. Each line, the tax and the total are converted at the document\'s rate and rounded to the cent, and the receivable or payable is always the total, with its amount in the document\'s currency. With "exchange_difference_line" the cent is one more line on the exchange gain or loss account, so no line and no tax changes. With "largest_line" the cent is one more line on the account of the document\'s largest line, and nothing reaches the exchange difference accounts.',
+  'policy.fx_conversion_cent_difference.rationale':
+    'NIF B-15, as the accounting manual of this system carries it, recognises a foreign-currency transaction at the rate of its date and revalues receivables and payables at the close, so the control account must hold the document\'s total in its currency. The cent is a difference of the conversion, not revenue, expense or tax: on its own line it is visible and every other figure is the document\'s figure at its rate, the conservative option of ADR-0006. Carrying it to the largest line is also accepted practice and leaves the exchange difference accounts for differences of rate.',
+  'policy.fx_conversion_cent_difference.why':
+    'Both are accepted practice: some firms show the rounding of a conversion as an exchange difference, others absorb it in the largest line.',
+  'policy.fx_conversion_cent_difference.what':
+    'With "exchange_difference_line" I post the cent on the exchange gain or loss account. With "largest_line" I post it on the account of the document\'s largest line.',
+  'policy.fx_conversion_cent_difference.if_skipped':
+    'I post the cent on the exchange gain or loss account.',
+  'policy.fx_conversion_cent_difference.option.exchange_difference_line':
+    'A line on the exchange gain or loss account',
+  'policy.fx_conversion_cent_difference.option.largest_line':
+    'A line on the account of the document\'s largest line',
+
   'policy.rep_foreign_currency.question':
     'A receipt in a currency other than the functional one: register it, or leave it for review?',
   'policy.rep_foreign_currency.impact':
@@ -2677,13 +2699,13 @@ export const EN = {
   'policy.benefit_payment_against_provision.question':
     'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
   'policy.benefit_payment_against_provision.impact':
-    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto or vacaciones (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, in a line of its own that the accrual of that month takes off (`payroll accrue`), and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto or vacaciones. Entries already posted are not changed.',
   'policy.benefit_payment_against_provision.rationale':
     'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
   'policy.benefit_payment_against_provision.why':
     'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
   'policy.benefit_payment_against_provision.what':
-    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds at the end of the pay date\'s month less what pay-run drafts awaiting review will take, and the rest to wages expense in a line of its own, which the accrual of that month takes off. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
   'policy.benefit_payment_against_provision.if_skipped':
     'The payment consumes the provision first, and only the excess is expense.',
   'policy.benefit_payment_against_provision.option.consume_provision':
@@ -2692,6 +2714,12 @@ export const EN = {
     'Expense when paid: only for a firm that does not accrue these benefits',
   'payroll.benefit_payment.expensed_while_accrued':
     'The policy {key} says a benefit is expense when paid, and this run pays one whose provision (account {account}) carries {balance} accrued: expensing the payment would count the benefit twice. Nothing was written. Answer {key} with consume_provision in mnemosine pending, or reverse the accrual first if the firm does not accrue.',
+  'payroll.accrue.skip_paid_over_provision':
+    'the pay runs of the month already expensed its accrual',
+  'payroll.accrue.paid_over_provision':
+    '{benefit}: the pay runs of the month paid {excess} that their entries did not debit to its provision; {subtracted} is taken off this accrual{hasLeft, select, yes {, and {left} is not: this accrual has no more to give, or the provision still holds a balance those runs did not consume} other {}}.',
+  'payroll.accrue.pay_runs_in_review':
+    '{count, plural, one {# pay run of the month pays} other {# pay runs of the month pay}} an accrued benefit and {count, plural, one {its entry is} other {their entries are}} still a draft in review ({runs}): what {count, plural, one {it pays} other {they pay}} over a provision is not taken off this accrual. Settle the draft in mnemosine review first, or reverse this accrual and run it again afterwards.',
   // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':

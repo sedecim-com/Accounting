@@ -242,7 +242,7 @@ export function factorDeIntegracion(p: PrestacionesAnuales): Decimal {
  * `employees.annual_salary` es la única columna donde este sistema guarda lo
  * que gana una persona, y de ella salen DOS números que tienen que coincidir al
  * centavo: lo que el finiquito paga el día de la baja y lo que la provisión
- * mensual (D1) acumuló durante el año en la 2196. Si los dos módulos dividen
+ * mensual (D1) acumuló durante el año en las 2202 a 2204. Si los dos módulos dividen
  * por su cuenta y uno elige otro divisor, la provisión de doce meses no
  * extingue lo que el finiquito liquida y la cuenta de pasivo queda con un
  * residuo que ningún cierre limpia — el defecto no se ve en ninguna prueba de

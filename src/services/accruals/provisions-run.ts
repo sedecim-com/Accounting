@@ -11,11 +11,19 @@ import { ValidationError } from '../../utils/errors.js';
 import { JournalEntryType, FiscalPeriodStatus } from '../../types/index.js';
 import { salarioDiarioDesdeSueldoAnual } from '../payroll/mx/finiquito-math.js';
 import { RENGLON_VIGENTE, inquilinoDeLaEntidad } from './prepaid-service.js';
+import { queryAccumulatedBalances } from '../reporting/report-service.js';
+import {
+  ACCRUED_BENEFITS,
+  paidOverProvisionsIn,
+  provisionRole,
+  type AccruedBenefit,
+} from '../payroll/common/benefit-payment.js';
 import {
   calcularProvisionMensual,
   esBaseSalarial,
   esConvencionDeVacaciones,
   esProvisionCero,
+  spreadPaidExcess,
   type BaseSalarial,
   type ConvencionVacaciones,
   type ProvisionMensual,
@@ -105,10 +113,11 @@ function fechaISO(f: Date): string {
  * siembran en `account-roles-seed.ts` para toda entidad mexicana.
  */
 const ROL_GASTO = 'provision_prestaciones_gasto';
-// Exported for the pay-run entry, which debits what this run credits (MNE-001-878).
-export const ROL_AGUINALDO = 'provision_aguinaldo';
-export const ROL_VACACIONES = 'provision_vacaciones';
-export const ROL_PRIMA = 'provision_prima_vacacional';
+// The three provisions are named once, with the pay-run lines that debit
+// what this run credits (MNE-001-878).
+const ROL_AGUINALDO = provisionRole('aguinaldo');
+const ROL_VACACIONES = provisionRole('vacaciones');
+const ROL_PRIMA = provisionRole('prima_vacacional');
 
 export interface CuentasDeProvision {
   gasto: string;
@@ -346,6 +355,25 @@ export interface ResultadoDeProvisiones {
   journalEntryId: string | null;
   ptu: DeclaracionDePtu;
   criterios: CriteriosDeProvision;
+  /** What the month's pay runs paid over a provision, and what of it this run took off. */
+  paidOverProvision: PaidOverProvision[];
+  /** Pay runs of the month still in review, whose excess was not taken off. */
+  pendingPayRuns: string[];
+}
+
+/**
+ * A benefit the pay runs of the period paid over its provision (MNE-001-878):
+ * `excess` is what they paid and did not debit to the provision, less what
+ * an earlier run of the period took off, `subtracted` what this run takes off its accrual, and `left` what
+ * is not taken off: more than the month accrues, paid over a provision that
+ * already held the month, or not over the provision at all (it still holds
+ * a balance the run did not consume).
+ */
+export interface PaidOverProvision {
+  benefit: AccruedBenefit;
+  excess: string;
+  subtracted: string;
+  left: string;
 }
 
 /**
@@ -391,8 +419,11 @@ export interface SalaryOfRecord {
 /** Un trabajador que SÍ devenga este mes, con su importe ya calculado. */
 export interface ProvisionPlanRow {
   worker: TrabajadorParaProvision;
+  /** What will be posted: the month's accrual, less `paidOverProvision`. */
   provision: ProvisionMensual;
   salary: SalaryOfRecord;
+  /** What was taken off each benefit of this row; absent when nothing was. */
+  paidOverProvision?: Partial<Record<AccruedBenefit, string>>;
 }
 
 /** Un trabajador que no entra, y por cuál de las dos razones legítimas. */
@@ -405,7 +436,7 @@ export interface ProvisionPlanSkip {
    * en salario cero—, y un renglón que documenta que no pasó nada no documenta
    * nada.
    */
-  reason: 'already-accrued' | 'zero-month';
+  reason: 'already-accrued' | 'zero-month' | 'paid-over-provision';
 }
 
 export interface ProvisionPlan {
@@ -421,6 +452,14 @@ export interface ProvisionPlan {
   vacaciones: string;
   prima_vacacional: string;
   total: string;
+  /** One entry per benefit the period's pay runs paid over its provision. */
+  paidOverProvision: PaidOverProvision[];
+  /**
+   * Pay runs of the period that pay an accrued benefit and whose entry is a
+   * draft awaiting review: what they pay over a provision is NOT taken off,
+   * so the month may be over-accrued until the draft is settled.
+   */
+  pendingPayRuns: string[];
 }
 
 /**
@@ -453,7 +492,10 @@ export async function planMonthlyProvisions(
 ): Promise<ProvisionPlan> {
   const errors: string[] = [];
   const skipped: ProvisionPlanSkip[] = [];
-  const rows: ProvisionPlanRow[] = [];
+  let rows: ProvisionPlanRow[] = [];
+  let paidOverProvision: PaidOverProvision[] = [];
+  let pendingPayRuns: string[] = [];
+  let over = new Map<AccruedBenefit, Decimal>();
   let aguinaldo = new Decimal(0);
   let vacaciones = new Decimal(0);
   let prima = new Decimal(0);
@@ -473,6 +515,8 @@ export async function planMonthlyProvisions(
     vacaciones: vacaciones.toFixed(4),
     prima_vacacional: prima.toFixed(4),
     total: aguinaldo.plus(vacaciones).plus(prima).toFixed(4),
+    paidOverProvision,
+    pendingPayRuns,
   });
 
   // EL PERIODO 13 NO ES UN MES DE OPERACIÓN.
@@ -535,7 +579,7 @@ export async function planMonthlyProvisions(
   for (const t of plantilla) {
     const etiqueta = `${t.employee_number} ${t.nombre}`.trim();
     try {
-      if (yaCorridos.has(t.id)) {
+      if (yaCorridos.workers.has(t.id)) {
         skipped.push({ worker: t, reason: 'already-accrued' });
         continue;
       }
@@ -575,6 +619,73 @@ export async function planMonthlyProvisions(
     } catch (err) {
       errors.push(`Trabajador ${etiqueta}: ${(err as Error).message}`);
     }
+  }
+
+  // WHAT THE MONTH'S PAY RUNS PAID OVER A PROVISION COMES OFF ITS ACCRUAL
+  // (MNE-001-878), in the plan, so the rehearsal and the run post the same.
+  if (rows.length > 0) {
+    const paid = await paidOverProvisionsIn({ tenantId, entityId }, fechaISO(periodo.inicio), fechaISO(periodo.fin));
+    pendingPayRuns = paid.pendingRuns;
+    over = paid.over;
+  }
+  if (over.size > 0) {
+    // THE PROVISION'S OWN BALANCE BOUNDS WHAT COMES OFF, ON BOTH SIDES. Read
+    // at the period's end, and only when a run paid over.
+    //  · What it still HOLDS was not paid over it. A run that debited nothing
+    //    to a provision that held a balance (an entry of before the rule, or
+    //    a reviewer's correction) did not exhaust it: only what it paid above
+    //    that balance comes off, and the rest waits for its correction.
+    //  · It is never left OVERDRAWN. A run booked after the month's close
+    //    consumed that close's accrual; if the accrual is then reversed and
+    //    run again, the provision is in debit by what the run took of it, and
+    //    the new accrual at least brings it back to zero: the month gets the
+    //    figure it had.
+    const accounts = await cuentasDeProvisiones(entityId);
+    const balances = await queryAccumulatedBalances(
+      entityId,
+      { date: fechaISO(periodo.fin), inclusive: true },
+      { ignoreClosingPolicy: true, accountIds: [accounts.aguinaldo, accounts.vacaciones, accounts.prima_vacacional] }
+    );
+    // Credit-positive: what the provision holds; negative when overdrawn.
+    const held = (benefit: AccruedBenefit): Decimal =>
+      new Decimal(balances.find((x) => x.account_id === accounts[benefit])?.balance ?? 0).negated();
+    for (const { benefit } of ACCRUED_BENEFITS) {
+      const excess = Decimal.max(0, (over.get(benefit) ?? new Decimal(0)).minus(yaCorridos.takenOff[benefit]));
+      if (excess.isZero()) continue;
+      const amounts = rows.map((r) => r.provision[benefit]);
+      const accrual = amounts.reduce((sum, a) => sum.plus(a), new Decimal(0));
+      const overTheProvision = Decimal.max(0, excess.minus(Decimal.max(0, held(benefit))));
+      const room = Decimal.max(0, accrual.plus(Decimal.min(0, held(benefit))));
+      const cuts = spreadPaidExcess(amounts, Decimal.min(overTheProvision, room));
+      rows = rows.map((r, i) =>
+        new Decimal(cuts[i]).isZero()
+          ? r
+          : {
+              ...r,
+              provision: {
+                ...r.provision,
+                [benefit]: new Decimal(r.provision[benefit]).minus(cuts[i]).toFixed(4),
+                total: new Decimal(r.provision.total).minus(cuts[i]).toFixed(4),
+              },
+              paidOverProvision: { ...r.paidOverProvision, [benefit]: cuts[i] },
+            }
+      );
+      const subtracted = cuts.reduce((sum, c) => sum.plus(c), new Decimal(0));
+      paidOverProvision = [
+        ...paidOverProvision,
+        { benefit, excess: excess.toFixed(4), subtracted: subtracted.toFixed(4), left: excess.minus(subtracted).toFixed(4) },
+      ];
+      if (benefit === 'aguinaldo') aguinaldo = aguinaldo.minus(subtracted);
+      else if (benefit === 'vacaciones') vacaciones = vacaciones.minus(subtracted);
+      else prima = prima.minus(subtracted);
+    }
+    // A row left at zero is not a row (the schedule's CHECK refuses it): the
+    // worker is skipped and named, and a later run finds the same excess and
+    // the same zero.
+    for (const r of rows.filter((x) => esProvisionCero(x.provision))) {
+      skipped.push({ worker: r.worker, reason: 'paid-over-provision' });
+    }
+    rows = rows.filter((x) => !esProvisionCero(x.provision));
   }
 
   return cerrar();
@@ -617,6 +728,8 @@ export async function runMonthlyProvisions(
     journalEntryId: null,
     ptu: declararPtu(criterios.ptu_mensual),
     criterios,
+    paidOverProvision: plan.paidOverProvision,
+    pendingPayRuns: plan.pendingPayRuns,
   };
 
   // SIN NÓMINA QUE DEVENGAR NO SE POSTEA. Sin plantilla, todos omitidos, todos
@@ -760,6 +873,7 @@ export async function runMonthlyProvisions(
               criterios,
               salario: r.salary,
               periodo,
+              paidOverProvision: r.paidOverProvision,
             })
           ),
         ]
@@ -791,6 +905,8 @@ export async function runMonthlyProvisions(
     journalEntryId: entryId,
     ptu: declararPtu(criterios.ptu_mensual),
     criterios,
+    paidOverProvision: plan.paidOverProvision,
+    pendingPayRuns: plan.pendingPayRuns,
   };
 }
 
@@ -808,14 +924,22 @@ export async function runMonthlyProvisions(
 async function trabajadoresYaProvisionados(
   entityId: string,
   fiscalPeriodId: string
-): Promise<Set<string>> {
-  const r = await query<{ employee_id: string }>(
-    `SELECT s.employee_id FROM benefit_provision_schedules s
+): Promise<{ workers: Set<string>; takenOff: Record<AccruedBenefit, Decimal> }> {
+  // The same rows say what earlier runs of the period already took off for
+  // what the pay runs paid over a provision (MNE-001-878): a second run of
+  // the month, for a worker added late, must not take it off again.
+  const r = await query<{ employee_id: string; over: Partial<Record<AccruedBenefit, string>> | null }>(
+    `SELECT s.employee_id, s.calculation_metadata->'paid_over_provision' AS over
+       FROM benefit_provision_schedules s
       WHERE s.entity_id = $1 AND s.fiscal_period_id = $2
         AND ${RENGLON_VIGENTE}`,
     [entityId, fiscalPeriodId]
   );
-  return new Set(r.rows.map((f) => f.employee_id));
+  const takenOff = { aguinaldo: new Decimal(0), vacaciones: new Decimal(0), prima_vacacional: new Decimal(0) };
+  for (const f of r.rows) {
+    for (const { benefit } of ACCRUED_BENEFITS) takenOff[benefit] = takenOff[benefit].plus(f.over?.[benefit] ?? 0);
+  }
+  return { workers: new Set(r.rows.map((f) => f.employee_id)), takenOff };
 }
 
 /**
@@ -875,8 +999,13 @@ export function metadatosDeProvision(a: {
   criterios: CriteriosDeProvision;
   salario: SalaryOfRecord;
   periodo: PeriodoDeCorrida;
+  paidOverProvision?: Partial<Record<AccruedBenefit, string>>;
 }): Record<string, unknown> {
   return {
+    // What was taken off this row because the month's pay runs had already
+    // expensed it (MNE-001-878). The segments below explain the accrual
+    // before it; a later run of the period reads this key. Never rename it.
+    ...(a.paidOverProvision ? { paid_over_provision: a.paidOverProvision } : {}),
     periodo: a.periodo.nombre,
     dias_devengados: a.provision.dias_devengados,
     base_salarial: a.provision.base_salarial,

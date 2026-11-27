@@ -134,6 +134,8 @@ function planDePrueba(parcial: Partial<ProvisionPlan> = {}): ProvisionPlan {
     vacaciones: '1819.1781',
     prima_vacacional: '454.7945',
     total: '3547.9452',
+    paidOverProvision: [],
+    pendingPayRuns: [],
     ...parcial,
   };
 }
@@ -347,6 +349,41 @@ describe('I8.4 · payroll accrue speaks by key', () => {
     const r = await accrue(['--dry-run', '--json']);
     expect(r.out).toContain('already has a live row for this month');
     expect(r.out).not.toContain('ya tiene renglón vigente');
+  });
+
+  // MNE-001-878 (#111), part 2. 6,273.97 paid over the provision in the month,
+  // 1,273.9726 of it taken off the accrual: the other 4,999.9974 stays expense.
+  it('names what the pay runs paid over a provision, what it takes off and what stays expense, in both languages', async () => {
+    const over = { benefit: 'aguinaldo' as const, excess: '6273.9700', subtracted: '1273.9726', left: '4999.9974' };
+    const covered = { benefit: 'prima_vacacional' as const, excess: '100.0000', subtracted: '100.0000', left: '0.0000' };
+    vi.mocked(provisions.planMonthlyProvisions).mockResolvedValue(
+      planDePrueba({ paidOverProvision: [over, covered], pendingPayRuns: ['run-7'] })
+    );
+    const en = await accrue(['--dry-run']);
+    expect(en.err).toContain(
+      '  ⚠ aguinaldo: the pay runs of the month paid 6273.9700 that their entries did not debit to its provision; ' +
+        '1273.9726 is taken off this accrual, and 4999.9974 is not: this accrual has no more to give, or the ' +
+        'provision still holds a balance those runs did not consume.'
+    );
+    expect(en.err).toContain(
+      '  ⚠ prima_vacacional: the pay runs of the month paid 100.0000 that their entries did not debit to its provision; 100.0000 is taken off this accrual.'
+    );
+    // A run whose entry is a draft in review is named, and not taken off.
+    expect(en.err).toContain(
+      '  ⚠ 1 pay run of the month pays an accrued benefit and its entry is still a draft in review (run-7): what it ' +
+        'pays over a provision is not taken off this accrual.'
+    );
+    setLanguage('es');
+    const es = await accrue(['--dry-run']);
+    expect(es.err).toContain(
+      '  ⚠ aguinaldo: las corridas de nómina del mes pagaron 6273.9700 que sus pólizas no cargaron a su provisión; ' +
+        '1273.9726 se descuentan de este devengo, y 4999.9974 no: este devengo no tiene más de dónde descontar'
+    );
+    expect(es.err).toContain('  ⚠ 1 corrida de nómina del mes paga una prestación devengada y su póliza sigue como borrador en revisión (run-7)');
+    const json = await accrue(['--dry-run', '--json']);
+    const row = (JSON.parse(json.out) as { rows: Array<{ paid_over_provision: unknown; pay_runs_in_review: unknown }> }).rows[0];
+    expect(row.paid_over_provision).toEqual([over, covered]);
+    expect(row.pay_runs_in_review).toEqual(['run-7']);
   });
 
   it('an empty plan has nothing to accrue', async () => {

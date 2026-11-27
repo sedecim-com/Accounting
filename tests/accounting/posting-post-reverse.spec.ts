@@ -280,6 +280,28 @@ describe('reverseJournalEntry · NIF B-1', () => {
     expect(espejo.map((l) => l.params[13])).toEqual([null, null]);
   });
 
+  it('MNE-001-862 · an entry posted at four decimals before the cent rule is still reversed, as it was posted', async () => {
+    // USD 33.35 × 17.1141 = 570.755235: posted as 570.7552 then, 570.76 now.
+    // The mirror is what was posted, not a new conversion: refusing it would
+    // leave every earlier foreign-currency entry impossible to reverse or void.
+    const posted = [
+      lineaFalsa({
+        line_number: 1, account_id: ID.cuentaA, debit_amount: '570.7552',
+        currency_code: 'USD', foreign_debit: '33.35', exchange_rate: '17.1141',
+      } as never),
+      lineaFalsa({
+        line_number: 2, account_id: ID.cuentaB, credit_amount: '570.7552',
+        currency_code: 'USD', foreign_credit: '33.35', exchange_rate: '17.1141',
+      } as never),
+    ];
+    const cf = (arnes.actual = reglasReversa(asientoFalso({ status: 'posted' } as Partial<JournalEntry>), posted));
+    await reverseJournalEntry(ID.asiento, ID.usuario);
+
+    const mirror = cf.coincidencias(/INSERT INTO journal_entry_lines/);
+    expect(mirror.map((l) => l.params.slice(4, 6))).toEqual([[null, '570.7552'], ['570.7552', null]]);
+    expect(mirror[0].params.slice(9, 13)).toEqual(['USD', null, '33.35', '17.1141']);
+  });
+
   it('enlaza el original con su espejo en la misma transacción', async () => {
     const cf = (arnes.actual = reglasReversa(asientoFalso({ status: 'posted' } as Partial<JournalEntry>)));
     await reverseJournalEntry(ID.asiento, ID.usuario);

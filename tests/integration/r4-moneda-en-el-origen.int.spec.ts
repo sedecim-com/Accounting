@@ -21,8 +21,8 @@ import { AccountingError, ConflictError } from '../../src/utils/errors.js';
 
 let f: Fixture;
 
-// 100.55 USD × 18.2345 = 1833.478975 → 1833.4790 half-up a 4 decimales.
-const FUNCIONAL = '1833.4790';
+// 100.55 USD × 18.2345 = 1833.478975 → 1833.48 half-up al centavo (MNE-001-862).
+const FUNCIONAL = '1833.4800';
 const linea = (over: Record<string, unknown>) => ({
   debit_amount: null,
   credit_amount: null,
@@ -120,20 +120,20 @@ describe('el asiento en moneda extranjera nace con su origen', () => {
       asientoUsd([
         linea({
           account_id: f.roles.banco,
-          debit_amount: '1833.4789', // half-up dice 1833.4790
+          debit_amount: '1833.4790', // half-up al centavo dice 1833.48
           currency_code: 'USD',
           foreign_debit: '100.55',
           exchange_rate: '18.2345',
         }),
         linea({
           account_id: f.roles.cxc,
-          credit_amount: '1833.4789',
+          credit_amount: '1833.4790',
           currency_code: 'USD',
           foreign_credit: '100.55',
           exchange_rate: '18.2345',
         }),
       ])
-    ).rejects.toThrow(/100\.55.*18\.2345.*1833\.4790/);
+    ).rejects.toThrow(/100\.55.*18\.2345.*1833\.4800/);
   });
 });
 
