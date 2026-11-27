@@ -60,6 +60,7 @@ interface Opts {
   priorProvisional?: string;
   priorBalance?: string;
   priorBalanceReason?: string;
+  withheldVatRemitted?: string[];
 }
 
 /** Entries a table cell lists before it says how many more there are. */
@@ -80,6 +81,12 @@ export function parseForms(expr: string | undefined): FilingForm[] {
   if (v === 'all') return ['iva', 'isr'];
   if (v === 'iva' || v === 'isr') return [v];
   throw usageError({ key: 'filing.workpaper.form_invalid', params: { value: expr ?? '' } });
+}
+
+/** `--withheld-vat-remitted`: the month and the acknowledgement, split on the first colon; the service names what it refuses. */
+export function parseRemittance(value: string): { period: string; acknowledgement: string } {
+  const at = value.indexOf(':');
+  return at < 0 ? { period: value, acknowledgement: '' } : { period: value.slice(0, at), acknowledgement: value.slice(at + 1) };
 }
 
 /** Entry numbers of a cell, capped in the TABLE only: `--json` keeps every entry. */
@@ -136,6 +143,9 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
   optionByKey(generate, '--prior-provisional <amount>', 'help.filing.workpaper.generate.option.prior_provisional');
   optionByKey(generate, '--prior-balance <amount>', 'help.filing.workpaper.generate.option.prior_balance');
   optionByKey(generate, '--prior-balance-reason <text>', 'help.filing.workpaper.generate.option.prior_balance_reason');
+  optionByKey(generate, '--withheld-vat-remitted <YYYY-MM:acuse>', 'help.filing.workpaper.generate.option.withheld_vat_remitted', {
+    parser: (value: string, previous: unknown) => [...((previous as string[] | undefined) ?? []), value],
+  });
   declareRisk(generate, { risk: 'lectura', agent: true });
   generate.addHelpText('after', helpFooter);
   generate.action(async (opts: Opts) => {
@@ -148,6 +158,7 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
         tenantId: ctx.tenantId, entityId: ctx.entityId, year, month, forms,
         ptuPaidInYear: opts.ptuPaid, priorProvisionalPayments: opts.priorProvisional,
         priorBalanceInFavor: opts.priorBalance, priorBalanceReason: opts.priorBalanceReason,
+        withheldVatRemittances: opts.withheldVatRemitted?.map(parseRemittance),
       });
       const language = getLanguage();
       if (opts.json || opts.format === 'json') {

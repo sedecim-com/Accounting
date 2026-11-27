@@ -871,8 +871,37 @@ export const EN = {
     'The {book, select, tax {tax} other {book}} depreciation method cannot be units_of_production yet: nothing captures the production of the period, so the monthly run could not compute a single row for this asset. Choose another method (straight_line when none is given). Nothing was registered.',
   /** `depreciation post`: one line per asset the run skipped because it depreciates by units of production. */
   'assets.depreciation.skipped_units_of_production':
-    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create); the close counts it under `depreciacion_faltante_al_cierre`.',
+    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create), or give it another method (mnemosine asset edit --method); the close counts it under `depreciacion_faltante_al_cierre`.',
   // ---- end of MNE-001-881 ----
+  // ---- MNE-001-880 · asset edit: an asset with no live depreciation row is corrected (issue #1069) ----
+  /** `asset edit`: a live row exists. `entries` names up to six of its entries, `more` counts the rest. */
+  'error.VALIDATION_ERROR.asset.edit_has_posted_months':
+    '{asset} cannot be edited: it has depreciation posted in {months, plural, one {# month} other {# months}} ({entries}{more, plural, =0 {} other {, and # more}}), computed from the values you want to change. Reverse those entries first (mnemosine entry reverse <number> --reason "..."): a reversed month is owed again, and the next run posts it from the corrected values. To take the asset out of the register instead, `asset dispose` is coming. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.edit_not_in_register':
+    '{asset} is {status}: an asset that left the register is not edited. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.edit_no_change':
+    'Nothing changes in {asset}: give at least one value different from the one it has (--cost, --salvage, --life-months, --method, --acquired, an account...).',
+  /** `asset edit`, after the table of changes: the start was derived again from a corrected acquisition date. */
+  'assets.asset.edit_start_rederived':
+    'The start of depreciation moved from {before} to {after}: it follows the acquisition date, by `convencion_primer_mes` on the panel, unless --in-service is given.',
+  'help.asset.edit.description':
+    'Correct an asset that has no depreciation posted yet: cost, salvage, life, methods, dates and accounts, with an audit row — writes no journal entry',
+  'help.asset.edit.argument.asset': 'the asset: its number in the register, or its id',
+  'help.asset.edit.option.salvage': 'residual value at the end of its life',
+  'help.asset.edit.option.acquired':
+    'acquisition date (YYYY-MM-DD); the start of depreciation follows it, by the panel convention, unless --in-service is given',
+  'help.asset.edit.option.in_service': 'date depreciation starts (YYYY-MM-DD); never before the acquisition',
+  'help.asset.edit.option.asset_account': 'GL account the cost sits in: its id',
+  'help.asset.edit.option.accum_account': 'accumulated depreciation account: its id',
+  'help.asset.edit.option.expense_account': 'depreciation expense account: its id',
+  'help.asset.edit.footer':
+    'It is refused once a month of depreciation is posted for the asset: reverse those entries, edit, and post those months again. It never changes a posted month.\n' +
+    '\nExamples:\n' +
+    '  A cost typed with one zero too many; see the change first, writing nothing:\n' +
+    '    mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Cost mistyped; the invoice says 489,000.00" --dry-run\n' +
+    '  An asset registered by units of production, which the monthly run skips:\n' +
+    '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "No production capture; straight line over its life"',
+  // ---- end of MNE-001-880 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */
@@ -2852,6 +2881,21 @@ export const EN = {
   'policy.vendor_undo_iva_month.if_skipped': 'I take it out in the month of the undo.',
   'policy.vendor_undo_iva_month.option.undo_month': 'Take it out in the month of the undo, as the ledger does',
   'policy.vendor_undo_iva_month.option.payment_month': 'Count it in no month, and amend the month of the payment',
+
+  'policy.withheld_vat_credit_month.question':
+    'A vendor\'s bill carries IVA the entity withholds and remits (LIVA art. 1o.-A): in which month does the IVA workpaper credit that withheld IVA?',
+  'policy.withheld_vat_credit_month.impact':
+    'Governs the creditable IVA of the IVA workpaper for a bill whose CFDI withholds IVA; withheld-vat-credit.ts reads it once for each month the paper builds. With "after_remittance" the month of the payment credits only the IVA paid to the vendor, and the withheld part is credited in the paper of the following month, and in no other, when a person states its remittance there (`--withheld-vat-remitted`, the month it was withheld in and the acuse of the return that remitted it); with no statement it is credited in no month, and that paper names it. With "payment_month" the whole IVA of the bill is credited in the month of its payment, as before this key. Under either answer the ledger debits the creditable IVA (1130) on payment, so under "after_remittance" the tie-out names the difference in both months. The DIOT does not read this key.',
+  'policy.withheld_vat_credit_month.rationale':
+    'LIVA art. 5o. fr. IV, as the payables manual of this system carries it from the official text: the IVA withheld and remitted may be credited in the monthly return following the one in which the withholding was remitted. Waiting for the remittance never credits before the law allows, the conservative option of ADR-0006. Crediting it with the payment is what this system did before the key, and stays for the firm that decides it.',
+  'policy.withheld_vat_credit_month.why':
+    'The law credits withheld IVA only after it is remitted, and I keep no record of that remittance: a person states it with its acuse. Before this key I credited it with the payment.',
+  'policy.withheld_vat_credit_month.what':
+    'With "after_remittance" I leave the withheld IVA out of the month of the payment and credit it in the paper of the following month, when you state its remittance there. With "payment_month" I credit the whole IVA of the bill in the month of its payment.',
+  'policy.withheld_vat_credit_month.if_skipped':
+    'I credit it only in the paper of the following month, when its remittance is stated there.',
+  'policy.withheld_vat_credit_month.option.after_remittance': 'Credit it in the return after the one that remitted it',
+  'policy.withheld_vat_credit_month.option.payment_month': 'Credit it with the rest of the bill\'s IVA, in the month of its payment',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
@@ -7446,7 +7490,9 @@ export const EN = {
     '  The ISR with the PTU paid in the year and the provisional payments already made:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
     '  The IVA with a prior balance a person gives instead of the one the filed returns give:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"',
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "return filed before the system"\n' +
+    '  The IVA of May crediting what was withheld to vendors in April, remitted with the return of that acuse:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --withheld-vat-remitted 2026-04:100200300',
   'filing.workpaper.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" is not known: use iva, isr or all.',
   'filing.workpaper.label_blocks': 'BLOCKS',
@@ -7455,6 +7501,24 @@ export const EN = {
   'filing.workpaper.more_entries': '+{count} more',
   'filing.workpaper.prior_balance_override_incomplete':
     'An override of the prior balance in favour gives the amount and the reason for it, both (--prior-balance and --prior-balance-reason).',
+  // ==== MNE-001-909 · the IVA withheld to a vendor is credited after its remittance (issue #1075) ====
+  'help.filing.workpaper.generate.option.withheld_vat_remitted':
+    'IVA withheld to vendors in the month before, which this return credits (IVA): that month and the acuse of the return that remitted it',
+  'filing.workpaper.withheld_vat.remittance_invalid':
+    '--withheld-vat-remitted "{value}" is not a remittance: give the month the IVA was withheld in and the acuse of the return that remitted it, as YYYY-MM:acuse, with one acuse for the month.',
+  'filing.workpaper.withheld_vat.remittance_other_month':
+    'The IVA withheld in {period} is credited on the paper of {belongs} and on no other: it is remitted with the return of {period} (LIVA art. 1o.-A) and credited in the monthly return that follows it (art. 5o. fr. IV). The paper of {month} takes --withheld-vat-remitted {before}:<acuse> only.',
+  'filing.workpaper.withheld_vat.remittance_not_asked':
+    'Under withheld_vat_credit_month = payment_month the paper credits withheld IVA in the month of its payment and takes no remittance: drop --withheld-vat-remitted, or answer after_remittance in the panel.',
+  'filing.workpaper.withheld_vat.finding_awaiting':
+    'This month\'s payments carry {amount} of IVA withheld to vendors ({bills}). The paper leaves it out of the creditable IVA: it is remitted with this month\'s return (LIVA art. 1o.-A) and credited in the one that follows (art. 5o. fr. IV; withheld_vat_credit_month = after_remittance). Credit it on the paper of {next}, and on no other, with --withheld-vat-remitted {period}:<acuse>.',
+  'filing.workpaper.withheld_vat.finding_not_credited':
+    '{amount} of IVA withheld to vendors in {period} ({bills}) is not credited: no remittance was stated for it. It is credited on this paper, the one of {month}, and on no other (LIVA art. 5o. fr. IV): once it is remitted, generate this paper again with --withheld-vat-remitted {period}:<acuse>. If the return of {month} is already filed, the credit goes in a complementary return of {month} (CFF art. 32).',
+  'filing.workpaper.withheld_vat.finding_credited':
+    '{amount} of IVA withheld to vendors in {period} ({bills}) is credited in this paper, stated as remitted with acuse {acknowledgement} (LIVA art. 5o. fr. IV). The acuse is printed as typed: the system checked neither it nor the amount remitted, so compare {amount} with what was paid.',
+  'filing.workpaper.withheld_vat.finding_nothing_withheld':
+    'No IVA withheld to vendors counts in {period}: --withheld-vat-remitted {period}:{acknowledgement} credits nothing.',
+  // ==== end of MNE-001-909 ====
   // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
   'help.filing.record.description':
     'Record a monthly IVA return already filed in the SAT portal: its acuse, what it left payable or in favour, its payment and the balances it credited',

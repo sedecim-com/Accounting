@@ -170,6 +170,8 @@ describe.each<Answer>(['undo_month', 'payment_month'])('vendor_undo_iva_month = 
     f = await crearInquilino(`MNE-001-682 vendor undo month, ${answer}`);
     await seedPolicies({ tenantId: f.tenantId });
     if (amend) await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, KEY, answer, 'it@example.test');
+    // MNE-001-909: U4's withheld IVA is credited with its payment here, as before `withheld_vat_credit_month`; that key has its own spec.
+    await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, 'withheld_vat_credit_month', 'payment_month', 'it@example.test');
     bank = uuidv4();
     await query(
       `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id, currency_code, account_type)

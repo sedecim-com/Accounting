@@ -115,6 +115,16 @@ describe('the report and asset families, help by key (#314, MNE-001-427)', () =>
     ['asset create', 'help.asset.create.option.serial'],
     ['asset create', 'help.asset.create.option.location'],
     ['asset create', 'help.asset.create.option.dry_run'],
+    ['asset', 'help.asset.edit.description'],
+    ['asset edit', 'help.asset.edit.argument.asset'],
+    ['asset edit', 'help.asset.create.option.cost'],
+    ['asset edit', 'help.asset.edit.option.salvage'],
+    ['asset edit', 'help.asset.create.option.method', METHODS],
+    ['asset edit', 'help.asset.edit.option.acquired'],
+    ['asset edit', 'help.asset.edit.option.in_service'],
+    ['asset edit', 'help.asset.edit.option.asset_account'],
+    ['asset edit', 'help.asset.edit.option.accum_account'],
+    ['asset edit', 'help.asset.edit.option.expense_account'],
     ['asset category', 'help.asset.category.seed.description'],
   ])('`%s --help` in es-MX shows %s in Spanish', (path, key, params) => {
     expectSpanishHelp(path, key, params);

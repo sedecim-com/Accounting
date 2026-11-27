@@ -688,8 +688,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
     'El método de depreciación {book, select, tax {fiscal} other {contable}} todavía no puede ser units_of_production: nada captura la producción del periodo, así que la corrida mensual no podría calcular un solo renglón de este activo. Elige otro método (straight_line cuando no se indica ninguno). No se registró nada.',
   'assets.depreciation.skipped_units_of_production':
-    '{asset} se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, y la producción de {period} todavía no se puede capturar. Registra su cargo a mano (mnemosine entry create); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.',
+    '{asset} se omitió y no se contabilizó nada por él: se deprecia por unidades de producción, y la producción de {period} todavía no se puede capturar. Registra su cargo a mano (mnemosine entry create), o dale otro método (mnemosine asset edit --method); el cierre lo cuenta según `depreciacion_faltante_al_cierre`.',
   // ---- end of MNE-001-881 ----
+  // ---- MNE-001-880 · asset edit; see en.ts ----
+  'error.VALIDATION_ERROR.asset.edit_has_posted_months':
+    '{asset} no se puede editar: tiene depreciación contabilizada en {months, plural, one {# mes} other {# meses}} ({entries}{more, plural, =0 {} other { y # más}}), calculada con los valores que quieres cambiar. Reversa primero esas pólizas (mnemosine entry reverse <numero> --reason "..."): un mes reversado vuelve a deberse, y la siguiente corrida lo contabiliza con los valores corregidos. Para sacar el activo del registro, `asset dispose` está por llegar. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.edit_not_in_register':
+    '{asset} está en estado {status}: un activo que ya salió del registro no se edita. No se cambió nada.',
+  'error.VALIDATION_ERROR.asset.edit_no_change':
+    'No cambia nada en {asset}: da al menos un valor distinto del que ya tiene (--cost, --salvage, --life-months, --method, --acquired, una cuenta...).',
+  'assets.asset.edit_start_rederived':
+    'El inicio de la depreciación pasó de {before} a {after}: sigue a la fecha de adquisición, según `convencion_primer_mes` del panel, salvo que se dé --in-service.',
+  'help.asset.edit.description':
+    'Corrige un activo que aún no tiene depreciación contabilizada: costo, desecho, vida, métodos, fechas y cuentas, con su fila de auditoría; no registra ninguna póliza',
+  'help.asset.edit.argument.asset': 'el activo: su número en el registro, o su id',
+  'help.asset.edit.option.salvage': 'valor de desecho al final de su vida útil',
+  'help.asset.edit.option.acquired':
+    'fecha de adquisición (AAAA-MM-DD); el inicio de la depreciación la sigue, según la convención del panel, salvo que se dé --in-service',
+  'help.asset.edit.option.in_service': 'fecha en que empieza la depreciación (AAAA-MM-DD); nunca antes de la adquisición',
+  'help.asset.edit.option.asset_account': 'cuenta del mayor en la que está el costo: su id',
+  'help.asset.edit.option.accum_account': 'cuenta de depreciación acumulada: su id',
+  'help.asset.edit.option.expense_account': 'cuenta de gasto por depreciación: su id',
+  'help.asset.edit.footer':
+    'Se niega en cuanto el activo tiene un mes de depreciación contabilizado: reversa esas pólizas, edita y vuelve a contabilizar esos meses. Nunca cambia un mes ya contabilizado.\n' +
+    '\nEjemplos:\n' +
+    '  Un costo tecleado con un cero de más; ver primero el cambio, sin escribir nada:\n' +
+    '    mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Costo mal tecleado; la factura dice 489,000.00" --dry-run\n' +
+    '  Un activo dado de alta por unidades de producción, que la corrida mensual omite:\n' +
+    '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "Sin captura de producción; línea recta sobre su vida"',
+  // ---- end of MNE-001-880 ----
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'El CFDI {uuid} no se contabiliza en CxC{reason, select, applies_advance {} other { a mano}}: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
@@ -2597,6 +2624,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.vendor_undo_iva_month.if_skipped': 'Lo saco en el mes del deshacer.',
   'policy.vendor_undo_iva_month.option.undo_month': 'Sacarlo en el mes del deshacer, como el mayor',
   'policy.vendor_undo_iva_month.option.payment_month': 'No contarlo en ningún mes, y corregir el mes del pago',
+
+  'policy.withheld_vat_credit_month.question':
+    'La factura de un proveedor trae IVA que la entidad retiene y entera (LIVA art. 1o.-A): ¿en qué mes acredita el papel de trabajo del IVA ese IVA retenido?',
+  'policy.withheld_vat_credit_month.impact':
+    'Gobierna el IVA acreditable del papel de trabajo del IVA para una factura cuyo CFDI retiene IVA; withheld-vat-credit.ts la lee una vez por cada mes que el papel arma. Con "after_remittance" el mes del pago acredita sólo el IVA pagado al proveedor, y la parte retenida se acredita en el papel del mes siguiente, y en ningún otro, cuando una persona declara ahí su entero (`--withheld-vat-remitted`, el mes en que se retuvo y el acuse de la declaración que lo enteró); sin esa declaración no se acredita en ningún mes, y ese papel lo nombra. Con "payment_month" todo el IVA de la factura se acredita en el mes de su pago, como antes de esta clave. Con cualquiera de las dos respuestas el mayor carga el IVA acreditable (1130) al pagar, así que con "after_remittance" el amarre nombra la diferencia en los dos meses. La DIOT no lee esta clave.',
+  'policy.withheld_vat_credit_month.rationale':
+    'LIVA art. 5o. fr. IV, como la trae el manual de cuentas por pagar de este sistema del texto oficial: el IVA retenido y enterado puede acreditarse en la declaración mensual siguiente a aquella en la que se enteró la retención. Esperar al entero nunca acredita antes de lo que la ley permite, la opción conservadora del ADR-0006. Acreditarlo con el pago es lo que este sistema hacía antes de la clave, y queda para el despacho que así lo decida.',
+  'policy.withheld_vat_credit_month.why':
+    'La ley acredita el IVA retenido sólo después de enterarlo, y yo no guardo registro de ese entero: una persona lo declara con su acuse. Antes de esta clave lo acreditaba con el pago.',
+  'policy.withheld_vat_credit_month.what':
+    'Con "after_remittance" dejo el IVA retenido fuera del mes del pago y lo acredito en el papel del mes siguiente, cuando declares ahí su entero. Con "payment_month" acredito todo el IVA de la factura en el mes de su pago.',
+  'policy.withheld_vat_credit_month.if_skipped':
+    'Lo acredito sólo en el papel del mes siguiente, cuando ahí se declara su entero.',
+  'policy.withheld_vat_credit_month.option.after_remittance': 'Acreditarlo en la declaración siguiente a la que lo enteró',
+  'policy.withheld_vat_credit_month.option.payment_month': 'Acreditarlo con el resto del IVA de la factura, en el mes de su pago',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
@@ -6531,7 +6573,9 @@ export const ES: Record<keyof typeof EN, string> = {
     '  El ISR con la PTU pagada en el ejercicio y los pagos provisionales ya hechos:\n' +
     '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40\n' +
     '  El IVA con un saldo a favor que da una persona en lugar del que dan las declaraciones presentadas:\n' +
-    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "declaración anterior al sistema"',
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --prior-balance 3000 --prior-balance-reason "declaración anterior al sistema"\n' +
+    '  El IVA de mayo acreditando lo retenido a proveedores en abril, enterado con la declaración de ese acuse:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --withheld-vat-remitted 2026-04:100200300',
   'filing.workpaper.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-05).',
   'filing.workpaper.form_invalid': '--form "{value}" no se conoce: usa iva, isr o all.',
   'filing.workpaper.label_blocks': 'BLOQUEA',
@@ -6540,6 +6584,24 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.workpaper.more_entries': '+{count} más',
   'filing.workpaper.prior_balance_override_incomplete':
     'Sobrescribir el saldo a favor de periodos anteriores pide el importe y su motivo, los dos (--prior-balance y --prior-balance-reason).',
+  // ==== MNE-001-909 · the IVA withheld to a vendor is credited after its remittance (issue #1075) ====
+  'help.filing.workpaper.generate.option.withheld_vat_remitted':
+    'IVA retenido a proveedores en el mes anterior, que esta declaración acredita (IVA): ese mes y el acuse de la declaración que lo enteró',
+  'filing.workpaper.withheld_vat.remittance_invalid':
+    '--withheld-vat-remitted "{value}" no es un entero: da el mes en que se retuvo el IVA y el acuse de la declaración que lo enteró, como AAAA-MM:acuse, con un solo acuse para el mes.',
+  'filing.workpaper.withheld_vat.remittance_other_month':
+    'El IVA retenido en {period} se acredita en el papel de {belongs} y en ningún otro: se entera con la declaración de {period} (LIVA art. 1o.-A) y se acredita en la declaración mensual que le sigue (art. 5o. fr. IV). El papel de {month} sólo recibe --withheld-vat-remitted {before}:<acuse>.',
+  'filing.workpaper.withheld_vat.remittance_not_asked':
+    'Con withheld_vat_credit_month = payment_month el papel acredita el IVA retenido en el mes de su pago y no recibe enteros: quita --withheld-vat-remitted, o contesta after_remittance en el panel.',
+  'filing.workpaper.withheld_vat.finding_awaiting':
+    'Los pagos de este mes traen {amount} de IVA retenido a proveedores ({bills}). El papel lo deja fuera del IVA acreditable: se entera con la declaración de este mes (LIVA art. 1o.-A) y se acredita en la siguiente (art. 5o. fr. IV; withheld_vat_credit_month = after_remittance). Acredítalo en el papel de {next}, y en ningún otro, con --withheld-vat-remitted {period}:<acuse>.',
+  'filing.workpaper.withheld_vat.finding_not_credited':
+    '{amount} de IVA retenido a proveedores en {period} ({bills}) no se acredita: no se declaró su entero. Se acredita en este papel, el de {month}, y en ningún otro (LIVA art. 5o. fr. IV): una vez enterado, genera este papel otra vez con --withheld-vat-remitted {period}:<acuse>. Si la declaración de {month} ya se presentó, el acreditamiento va en una complementaria de {month} (CFF art. 32).',
+  'filing.workpaper.withheld_vat.finding_credited':
+    '{amount} de IVA retenido a proveedores en {period} ({bills}) se acredita en este papel, declarado como enterado con el acuse {acknowledgement} (LIVA art. 5o. fr. IV). El acuse se imprime como se escribió: el sistema no lo comprobó, ni el importe enterado, así que compara {amount} con lo que se pagó.',
+  'filing.workpaper.withheld_vat.finding_nothing_withheld':
+    'Ningún IVA retenido a proveedores cuenta en {period}: --withheld-vat-remitted {period}:{acknowledgement} no acredita nada.',
+  // ==== end of MNE-001-909 ====
   // ==== MNE-001-577 · filing record (issue #308, part 3/3) ====
   'help.filing.record.description':
     'Registra una declaración mensual de IVA ya presentada en el portal del SAT: su acuse, lo que quedó a cargo o a favor, su pago y los saldos que acreditó',

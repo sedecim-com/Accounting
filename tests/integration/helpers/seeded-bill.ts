@@ -12,6 +12,8 @@ export interface SeededBill {
   date: string;
   subtotal?: string;
   vat?: string;
+  /** MNE-001-909 · What the entity withholds as payer (LISR 106, LIVA 1o.-A): off the total, credited to 2141 and 2142. */
+  withheld?: { isr: string; vat: string };
 }
 
 /**
@@ -27,13 +29,15 @@ export async function seedBill(f: Fixture, bill: SeededBill): Promise<{ id: stri
   const [id, xmlId, uuid] = [uuidv4(), uuidv4(), uuidv4().toUpperCase()];
   const subtotal = bill.subtotal ?? '1000.00';
   const vat = bill.vat ?? '160.00';
-  const total = (Number(subtotal) + Number(vat)).toFixed(2);
+  const { isr, vat: vatWithheld } = bill.withheld ?? { isr: '0.00', vat: '0.00' };
+  const total = (Number(subtotal) + Number(vat) - Number(isr) - Number(vatWithheld)).toFixed(2);
   const number = `BILL-${uuid.slice(0, 8)}`;
   await query(
     `INSERT INTO xml_documents (id, entity_id, document_type, cfdi_uuid, cfdi_version, cfdi_fecha, emisor_rfc, receptor_rfc,
-                                import_source, subtotal, total, metodo_pago, xml_content, xml_hash, processing_status)
-     VALUES ($1, $2, 'cfdi_ingreso', $3, '4.0', $4, 'SIN060101AB1', 'XAXX010101000', 'manual_upload', $5, $6, $7, '<xml/>', $8, 'completed')`,
-    [xmlId, f.entityId, uuid, bill.date, subtotal, total, bill.method, uuidv4().replace(/-/g, '')]
+                                import_source, subtotal, total, metodo_pago, xml_content, xml_hash, processing_status,
+                                total_isr_retenido, total_iva_retenido)
+     VALUES ($1, $2, 'cfdi_ingreso', $3, '4.0', $4, 'SIN060101AB1', 'XAXX010101000', 'manual_upload', $5, $6, $7, '<xml/>', $8, 'completed', $9, $10)`,
+    [xmlId, f.entityId, uuid, bill.date, subtotal, total, bill.method, uuidv4().replace(/-/g, ''), isr, vatWithheld]
   );
   await query(
     `INSERT INTO bills (id, entity_id, bill_number, vendor_id, vendor_invoice_number, cfdi_uuid, subtotal, tax_amount,
@@ -58,6 +62,12 @@ export async function seedBill(f: Fixture, bill: SeededBill): Promise<{ id: stri
     [
       { account_id: f.cuentas['6100'], debit_amount: subtotal, credit_amount: null, description: 'Expense' },
       { account_id: f.cuentas[bill.vatCode], debit_amount: vat, credit_amount: null, description: 'VAT' },
+      ...(bill.withheld
+        ? [
+            { account_id: f.cuentas['2141'], debit_amount: null, credit_amount: isr, description: 'ISR withheld' },
+            { account_id: f.cuentas['2142'], debit_amount: null, credit_amount: vatWithheld, description: 'VAT withheld' },
+          ]
+        : []),
       { account_id: f.cuentas['2110'], debit_amount: null, credit_amount: total, description: 'Vendors' },
     ],
     f.userId,
