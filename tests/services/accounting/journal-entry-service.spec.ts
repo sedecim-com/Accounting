@@ -13,6 +13,7 @@ import {
   checkExistingEntry,
   checkDraftDocument,
   validateDraftShape,
+  assertMinorUnit,
   parseEntryDocument,
   parseLineFlag,
 } from '../../../src/services/accounting/journal-entry-service.js';
@@ -214,6 +215,8 @@ describe('createDraftEntry — the entry the agent is allowed to write', () => {
       { account: '1110', credit: '1000.00' },
     ],
   };
+  // MNE-001-862: the first read is the entity's functional currency.
+  beforeEach(() => mockQuery.mockResolvedValueOnce({ rows: [{ functional_currency: 'MXN' }] }));
 
   it('NEVER asks the posting engine to post', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'acc-6100', code: '6100' }] });
@@ -281,6 +284,42 @@ describe('createDraftEntry — the entry the agent is allowed to write', () => {
   });
 });
 
+// MNE-001-862 (#1066). The peso has cents and the Anexo 24 declares two
+// decimals: half a cent typed by hand is refused where it is typed.
+describe('a hand entry is stated at the minor unit of the functional currency', () => {
+  const lines = [{ account: '6100', debit: '0.01' }, { account: '1110', credit: '0.005' }];
+  const draft = { entityId: ENTITY, createdBy: USER, date: '2026-01-15', lines };
+
+  it('refuses 0.005 on a peso entity, naming the line, the currency and its two decimals', () => {
+    expect(() => assertMinorUnit(lines, 'MXN')).toThrow(/^Line 2: "0\.005" .*MXN \(2 decimals\)/);
+    expect(() => assertMinorUnit(lines, 'MXN')).toThrow(ValidationError);
+  });
+
+  it('accepts cents, and trailing zeros are not a fraction of a cent', () => {
+    expect(() => assertMinorUnit([{ account: '6100', debit: '100.5000' }, { account: '1110', credit: '100.50' }], 'MXN')).not.toThrow();
+  });
+
+  it('judges by the currency: a yen has no decimals, a Kuwaiti dinar has three', () => {
+    expect(() => assertMinorUnit([{ account: '6100', debit: '0.5' }], 'JPY')).toThrow(/Line 1: "0\.5" .*JPY \(0 decimals\)/);
+    expect(() => assertMinorUnit(lines, 'KWD')).not.toThrow();
+  });
+
+  it('entry create reads the currency once and refuses before resolving any account', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ functional_currency: 'MXN' }] });
+    await expect(createDraftEntry(draft)).rejects.toThrow(/Line 2: "0\.005"/);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(params(0)).toEqual([ENTITY]);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('entry check and entry import read it inside the period query: not one query more', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', period_name: 'January 2026', status: 'open', functional_currency: 'MXN' }] });
+    await expect(checkDraftDocument(draft)).rejects.toThrow(/Line 2: "0\.005"/);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(sql(0)).toMatch(/\(SELECT functional_currency FROM legal_entities WHERE id = \$1\) AS functional_currency/);
+  });
+});
+
 describe('checking without writing', () => {
   it('runs the rules over an existing entry with its real lines', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'e1', entry_number: 'JE-1', fiscal_period_id: 'p1', entry_date: '2026-01-15' }] });
@@ -296,7 +335,7 @@ describe('checking without writing', () => {
   });
 
   it('resolves the period by date exactly as the posting engine does', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', period_name: 'January 2026', status: 'open' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', period_name: 'January 2026', status: 'open', functional_currency: 'MXN' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'acc-1', code: '6100' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'acc-2', code: '1110' }] });
 

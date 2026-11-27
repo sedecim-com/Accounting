@@ -6424,6 +6424,30 @@
       "why": "Born in English: the decision's revertir_al_inicio, the mirror on day 1 of the next period. no_reversal (sin_reversion) is not offered until payments read the book rate."
     },
     {
+      "class": "policy-key",
+      "where": "fx_conversion_cent_difference",
+      "es": "fx_conversion_cent_difference",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-862): where the cent between a foreign document's converted lines and its converted total goes."
+    },
+    {
+      "class": "policy-value",
+      "where": "fx_conversion_cent_difference/exchange_difference_line",
+      "es": "exchange_difference_line",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cent is a line on the exchange gain or loss account, and no line and no tax changes."
+    },
+    {
+      "class": "policy-value",
+      "where": "fx_conversion_cent_difference/largest_line",
+      "es": "largest_line",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cent is a line on the account of the document's largest line."
+    },
+    {
       "class": "policy-value",
       "where": "withholding_accounts_existing/warn",
       "es": "warn",

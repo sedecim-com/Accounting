@@ -198,6 +198,11 @@ export const EN = {
   // vat-overcredit.ts
   'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" is not a value this system knows ({known}); nothing was posted.',
 
+  // ---- MNE-001-862 · a hand entry is stated at the minor unit of the functional currency, journal-entry-service.ts (issue #1066) ----
+  'error.VALIDATION_ERROR.entry_line_minor_unit':
+    'Line {line}: "{amount}" is finer than the minor unit of {currency} ({decimals} decimals). The ledger books {currency} at its minor unit: write the amount with no more decimals than that.',
+  // ---- end of MNE-001-862 ----
+
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments that were Spanish prose (issue #151) ----
   // `error.VALIDATION_ERROR.payment.<case>` for a ValidationError, beside the
   // `schema.*` cases of MNE-001-152; `error.<CODE>[.<case>]` for an
@@ -2166,6 +2171,23 @@ export const EN = {
     'I reverse it on day 1 of the next period.',
   'policy.fx_revaluation_reversal.option.reverse_on_day_one':
     'Reverse it on day 1 of the next period',
+
+  'policy.fx_conversion_cent_difference.question':
+    'A foreign-currency document is converted line by line and its lines miss its converted total by a cent: where does that cent go?',
+  'policy.fx_conversion_cent_difference.impact':
+    'Governs the entry of a foreign-currency invoice or bill; ar-ap-posting.ts reads it only when there is a cent. Each line, the tax and the total are converted at the document\'s rate and rounded to the cent, and the receivable or payable is always the total, with its amount in the document\'s currency. With "exchange_difference_line" the cent is one more line on the exchange gain or loss account, so no line and no tax changes. With "largest_line" the cent is one more line on the account of the document\'s largest line, and nothing reaches the exchange difference accounts.',
+  'policy.fx_conversion_cent_difference.rationale':
+    'NIF B-15, as the accounting manual of this system carries it, recognises a foreign-currency transaction at the rate of its date and revalues receivables and payables at the close, so the control account must hold the document\'s total in its currency. The cent is a difference of the conversion, not revenue, expense or tax: on its own line it is visible and every other figure is the document\'s figure at its rate, the conservative option of ADR-0006. Carrying it to the largest line is also accepted practice and leaves the exchange difference accounts for differences of rate.',
+  'policy.fx_conversion_cent_difference.why':
+    'Both are accepted practice: some firms show the rounding of a conversion as an exchange difference, others absorb it in the largest line.',
+  'policy.fx_conversion_cent_difference.what':
+    'With "exchange_difference_line" I post the cent on the exchange gain or loss account. With "largest_line" I post it on the account of the document\'s largest line.',
+  'policy.fx_conversion_cent_difference.if_skipped':
+    'I post the cent on the exchange gain or loss account.',
+  'policy.fx_conversion_cent_difference.option.exchange_difference_line':
+    'A line on the exchange gain or loss account',
+  'policy.fx_conversion_cent_difference.option.largest_line':
+    'A line on the account of the document\'s largest line',
 
   'policy.rep_foreign_currency.question':
     'A receipt in a currency other than the functional one: register it, or leave it for review?',

@@ -149,6 +149,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'La póliza {entry} es de depreciación y su activo no está en esta entidad: la reversión no se aplicó',
   'error.ALREADY_VOID': 'La póliza ya está anulada',
   'error.POLICY_VALUE_UNKNOWN': '{policy} = "{value}" no es un valor que este sistema conozca ({known}); no se aplicó nada.',
+  // ---- MNE-001-862 · a hand entry is stated at the minor unit of the functional currency; see en.ts ----
+  'error.VALIDATION_ERROR.entry_line_minor_unit':
+    'Renglón {line}: "{amount}" es más fino que la unidad mínima de {currency} ({decimals} decimales). El mayor registra {currency} a su unidad mínima: escribe el importe con no más decimales que ésos.',
+  // ---- end of MNE-001-862 ----
   // ---- MNE-001-480 part 1 · the refusals of src/services/payments; see en.ts ----
   'error.VALIDATION_ERROR.payment.destination_bank_both':
     'El pago declara banco destino nacional («{national}») y extranjero («{foreign}») a la vez. El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo las lleva tal cual a la autoridad.{foreignCode, select, yes { Un banco extranjero se da sólo con su nombre: la póliza le pone la clave {code} al escribirlo.} other {}}',
@@ -1912,6 +1916,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revierto el día 1 del periodo siguiente.',
   'policy.fx_revaluation_reversal.option.reverse_on_day_one':
     'Revertirla el día 1 del periodo siguiente',
+
+  'policy.fx_conversion_cent_difference.question':
+    'Un documento en moneda extranjera se convierte renglón por renglón y sus renglones no suman su total convertido por un centavo: ¿a dónde va ese centavo?',
+  'policy.fx_conversion_cent_difference.impact':
+    'Gobierna la póliza de una factura o un gasto en moneda extranjera; ar-ap-posting.ts la lee sólo cuando hay un centavo. Cada renglón, el impuesto y el total se convierten al tipo de cambio del documento y se redondean al centavo, y la cuenta por cobrar o por pagar es siempre el total, con su importe en la moneda del documento. Con "exchange_difference_line" el centavo es un renglón más en la cuenta de utilidad o pérdida cambiaria, así que ningún renglón ni impuesto cambia. Con "largest_line" el centavo es un renglón más en la cuenta del renglón más grande del documento, y nada llega a las cuentas de diferencia cambiaria.',
+  'policy.fx_conversion_cent_difference.rationale':
+    'La NIF B-15, como la trae el manual contable de este sistema, reconoce una operación en moneda extranjera al tipo de cambio de su fecha y revalúa las cuentas por cobrar y por pagar al cierre, así que la cuenta de control debe guardar el total del documento en su moneda. El centavo es una diferencia de la conversión, no ingreso, gasto ni impuesto: en su propio renglón se ve y cada otra cifra es la del documento a su tipo de cambio, la opción conservadora del ADR-0006. Llevarlo al renglón más grande también es práctica aceptada y deja las cuentas de diferencia cambiaria para las diferencias de tipo de cambio.',
+  'policy.fx_conversion_cent_difference.why':
+    'Las dos son práctica aceptada: algunos despachos muestran el redondeo de una conversión como diferencia cambiaria, otros lo absorben en el renglón más grande.',
+  'policy.fx_conversion_cent_difference.what':
+    'Con "exchange_difference_line" registro el centavo en la cuenta de utilidad o pérdida cambiaria. Con "largest_line" lo registro en la cuenta del renglón más grande del documento.',
+  'policy.fx_conversion_cent_difference.if_skipped':
+    'Registro el centavo en la cuenta de utilidad o pérdida cambiaria.',
+  'policy.fx_conversion_cent_difference.option.exchange_difference_line':
+    'Un renglón en la cuenta de utilidad o pérdida cambiaria',
+  'policy.fx_conversion_cent_difference.option.largest_line':
+    'Un renglón en la cuenta del renglón más grande del documento',
 
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
