@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
-import { extractFacts, type CfdiFacts } from './cfdi-facts.js';
+import { extractFacts, relatedUuids, type CfdiFacts } from './cfdi-facts.js';
 import { matchCase, type AccountRole, type CfdiCase } from './cfdi-taxonomy.js';
 import {
   decisionsFor, getDecision, DEFAULT_THRESHOLDS,
@@ -394,7 +394,7 @@ export async function classifyParsed(
     linkage: matched.requiresLinkage
       ? facts.docsRelacionados.length > 0
         ? facts.docsRelacionados.map((d) => ({ uuid: d.uuid, amount: d.impPagado }))
-        : facts.uuidsRelacionados.map((u) => ({ uuid: u, amount: facts.total }))
+        : relatedUuids(facts).map((u) => ({ uuid: u, amount: facts.total }))
       : [],
     warnings,
   };

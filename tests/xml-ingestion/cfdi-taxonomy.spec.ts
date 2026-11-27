@@ -44,6 +44,8 @@ interface CfdiOpts {
   descripcion?: string;
   objetoImp?: string;
   relacion?: { tipo: string; uuid: string };
+  /** Further CfdiRelacionados nodes after `relacion`: CFDI 4.0 admits several (cfdv40.xsd:39). */
+  moreRelations?: Array<NonNullable<CfdiOpts['relacion']>>;
   pagos?: Array<{ uuid: string; pagado: number; saldoAnt: number; saldoInsoluto: number }>;
   uuid?: string;
   sinTimbre?: boolean;
@@ -81,9 +83,9 @@ function cfdi(o: CfdiOpts = {}): string {
   const timbre = o.sinTimbre ? '' :
     `<tfd:TimbreFiscalDigital Version="1.1" UUID="${uuid}" FechaTimbrado="2026-08-20T12:05:00" RfcProvCertif="SAT970701NN3" SelloCFD="s" NoCertificadoSAT="30001" SelloSAT="s"/>`;
 
-  const relacionados = o.relacion
-    ? `<cfdi:CfdiRelacionados TipoRelacion="${o.relacion.tipo}"><cfdi:CfdiRelacionado UUID="${o.relacion.uuid}"/></cfdi:CfdiRelacionados>`
-    : '';
+  const relacionados = [...(o.relacion ? [o.relacion] : []), ...(o.moreRelations ?? [])]
+    .map((r) => `<cfdi:CfdiRelacionados TipoRelacion="${r.tipo}"><cfdi:CfdiRelacionado UUID="${r.uuid}"/></cfdi:CfdiRelacionados>`)
+    .join('');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:pago20="http://www.sat.gob.mx/Pagos20"
@@ -228,6 +230,30 @@ describe('type E (egreso): the TipoRelacion changes everything', () => {
     expect(c.case!.id).toBe('egreso_recibido_sustitucion');
     expect(c.verdict).toBe('no_posting');
     expect(c.reason).toMatch(/replaces/);
+  });
+
+  // MNE-001-895 (#1073): with two nodes the parser read no relation at all, and each of these fell to the credit note.
+  it('an advance application (07) in a second node is still an advance application, and the linkage names every related CFDI', async () => {
+    const c = await classify({ tipo: 'E', relacion: { tipo: '01', uuid: 'F-1' }, moreRelations: [{ tipo: '07', uuid: 'ANT-1' }] });
+    expect(c.case!.id).toBe('egreso_recibido_aplicacion_anticipo');
+    expect(roleOf(c, 'devolucion_compras')).toBeUndefined();
+    expect(c.linkage).toEqual([{ uuid: 'F-1', amount: 1160 }, { uuid: 'ANT-1', amount: 1160 }]);
+  });
+
+  it('a substitution (04) in a second node still generates no journal entry', async () => {
+    const c = await classify({ tipo: 'E', relacion: { tipo: '01', uuid: 'F-1' }, moreRelations: [{ tipo: '04', uuid: 'F-CANCELADA' }] });
+    expect(c.case!.id).toBe('egreso_recibido_sustitucion');
+    expect(c.verdict).toBe('no_posting');
+  });
+
+  it('an issued egreso that applies an advance in a second node is not a return on sales', async () => {
+    const c = await classify({
+      tipo: 'E', emisor: ENTITY.entityRfc, receptor: 'CLI010101AAA',
+      relacion: { tipo: '01', uuid: 'F-9' }, moreRelations: [{ tipo: '07', uuid: 'ANT-9' }],
+    });
+    expect(c.case!.id).toBe('egreso_emitido_aplicacion_anticipo');
+    expect(roleOf(c, 'anticipo_clientes')!.debit).toBe(1000);
+    expect(roleOf(c, 'devolucion_ventas')).toBeUndefined();
   });
 
   it('an issued credit note is a return on SALES', async () => {

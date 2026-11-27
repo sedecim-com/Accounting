@@ -17,6 +17,10 @@ import { t } from '../../src/i18n/index.js';
 const VENDOR = 'SIN060101AB1';
 const NOTE_UUID = 'A1B2C3D4-0000-4000-8000-000000000489';
 
+/** One CfdiRelacionados node per type given, each naming the bill's CFDI. */
+const related = (...types: string[]): Pick<CfdiFacts, 'relations'> =>
+  ({ relations: types.map((type) => ({ tipoRelacion: type, uuids: ['F7C0E1A3'] })) });
+
 function note(over: Partial<CfdiFacts> = {}): CfdiFacts {
   return {
     uuid: NOTE_UUID, tipo: 'E', direction: 'recibido', emisorRfc: VENDOR, receptorRfc: 'EKU9003173C9',
@@ -25,7 +29,7 @@ function note(over: Partial<CfdiFacts> = {}): CfdiFacts {
     subtotal: 2000, descuento: 0, total: 2320,
     ivaTrasladado16: 320, ivaTrasladado8: 0, ivaTasaCero: 0, importeExento: 0, iepsTrasladado: 0,
     isrRetenido: 0, ivaRetenido: 0, impuestosLocalesTrasladados: 0, impuestosLocalesRetenidos: 0,
-    complementos: [], docsRelacionados: [], tipoRelacion: '01', uuidsRelacionados: ['F7C0E1A3'],
+    complementos: [], docsRelacionados: [], ...related('01'),
     esAnticipo: false, clavesProdServ: [], conceptosDescripcion: '',
     ...over,
   };
@@ -62,7 +66,10 @@ describe('refusalOf: each reason waits for a person and says why (U2)', () => {
   it.each<[string, CfdiFacts, RelatedBill[], string, RegExp]>([
     ['issued by the entity', note({ direction: 'emitido' }), [bill()], 'not_received', /the entity is not its receiver/],
     ['not type E', note({ tipo: 'I' }), [bill()], 'not_credit_note', /type I with TipoRelacion 01/],
-    ['TipoRelacion 07', note({ tipoRelacion: '07' }), [bill()], 'not_credit_note', /type E with TipoRelacion 07/],
+    ['TipoRelacion 07', note(related('07')), [bill()], 'not_credit_note', /type E with TipoRelacion 07/],
+    // MNE-001-895: CFDI 4.0 admits several relation nodes (cfdv40.xsd:39); one that is not 01 or 03 is enough to wait.
+    ['two nodes, 01 and 07', note(related('01', '07')), [bill()], 'not_credit_note', /type E with TipoRelacion 01, 07\./],
+    ['no relation node', note(related()), [bill()], 'not_credit_note', /type E with TipoRelacion -\./],
     ['the note in dollars', note({ moneda: 'USD', esMonedaExtranjera: true }), [bill()], 'note_foreign_currency', /is in USD/],
     ['the bill in dollars', note(), [bill({ currency: 'USD', foreignCurrency: true })], 'bill_foreign_currency', /Bill A-2001 is in USD/],
     ['IEPS transferred', note({ iepsTrasladado: 50 }), [bill()], 'other_taxes', /other than transferred VAT/],
@@ -88,7 +95,8 @@ describe('refusalOf: each reason waits for a person and says why (U2)', () => {
 
   it('accepts the note of the issue, a return (03), and a note equal to the balance', () => {
     expect(refusalOf(note(), [bill()])).toBeNull();
-    expect(refusalOf(note({ tipoRelacion: '03' }), [bill({ status: 'partially_paid' })])).toBeNull();
+    expect(refusalOf(note(related('03')), [bill({ status: 'partially_paid' })])).toBeNull();
+    expect(refusalOf(note(related('01', '03')), [bill()])).toBeNull();
     expect(refusalOf(note(), [bill({ amountDue: '2320.0000' })])).toBeNull();
   });
 

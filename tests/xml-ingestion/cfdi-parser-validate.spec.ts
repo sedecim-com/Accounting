@@ -40,6 +40,7 @@ function makeCfdi(overrides: Partial<CFDIParsed> = {}): CFDIParsed {
       noCertificadoSAT: 'z',
     },
     complementos: [],
+    cfdiRelacionados: [],
     ...overrides,
   };
 }

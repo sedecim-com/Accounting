@@ -233,7 +233,7 @@ function probeFacts(side: DocumentSide, metodo: MetodoPago): CfdiFacts {
     impuestosLocalesRetenidos: 0,
     complementos: [],
     docsRelacionados: [],
-    uuidsRelacionados: [],
+    relations: [],
     esAnticipo: false,
     clavesProdServ: [],
     conceptosDescripcion: '',

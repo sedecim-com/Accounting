@@ -1582,21 +1582,8 @@ export class PreRegistrationService {
     if (caseId !== 'ingreso_emitido_ppd' && caseId !== 'ingreso_emitido_pue') {
       throw facts.esAnticipo ? unsupported('advance') : unsupported('other', String(caseId));
     }
-    // The sale cases do not read TipoRelacion: an invoice that applies an advance would post as a new sale.
-    if (facts.tipoRelacion === '07') throw unsupported('applies_advance');
-    // A substitute (TipoRelacion 04) of a CFDI that is still a live invoice would book the sale twice.
-    const replaced = await client.query<{ invoice_number: string; status: string }>(
-      `SELECT invoice_number, status FROM invoices
-        WHERE entity_id = $1 AND lower(cfdi_uuid) = ANY($2::text[]) AND status NOT IN ('void', 'cancelled')
-        ORDER BY created_at LIMIT 1`,
-      [entityId, facts.tipoRelacion === '04' ? facts.uuidsRelacionados.map((u) => u.toLowerCase()) : []]
-    );
-    if (replaced.rows.length > 0) {
-      throw new AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE', {
-        key: 'error.ISSUED_CFDI_SUBSTITUTES_INVOICE',
-        params: { uuid, invoice: replaced.rows[0].invoice_number, status: replaced.rows[0].status },
-      });
-    }
+    // An applied advance (TipoRelacion 07) and a substitute (04) of a live invoice are refused by
+    // registerIssuedInvoice below, the core this door shares with the approval of a draft (MNE-001-895).
     if (plan.revenueLinesMismatch) {
       throw new ValidationError({
         key: 'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH',

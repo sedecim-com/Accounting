@@ -57,6 +57,14 @@ const method = (m: string | null) => swap(' MetodoPago="PPD"', m ? ` MetodoPago=
 const total = (attributes: string) => swap('SubTotal="8000.00" Total="9280.00"', attributes);
 const related = (type: string, uuid: string) =>
   swap('<cfdi:Emisor', `<cfdi:CfdiRelacionados TipoRelacion="${type}"><cfdi:CfdiRelacionado UUID="${uuid}"/></cfdi:CfdiRelacionados><cfdi:Emisor`);
+/** The sale of MNE-001-895: base 1,000.00, VAT 160.00 (16 %), total 1,160.00, PPD. */
+const SALE_1160: Edit[] = [
+  total('SubTotal="1000.00" Total="1160.00"'),
+  swap('ValorUnitario="8000.00" Importe="8000.00"', 'ValorUnitario="1000.00" Importe="1000.00"'),
+  swap(/<cfdi:Impuestos TotalImpuestosTrasladados[\s\S]*?<\/cfdi:Impuestos>/,
+    '<cfdi:Impuestos TotalImpuestosTrasladados="160.00"><cfdi:Traslados><cfdi:Traslado Base="1000.00" Impuesto="002" ' +
+      'TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/></cfdi:Traslados></cfdi:Impuestos>'),
+];
 const tax = (kind: 'Traslado' | 'Retencion', code: string, rate: string, amount: string) =>
   `<cfdi:${kind} Base="8000.00" Impuesto="${code}" TipoFactor="Tasa" TasaOCuota="${rate}" Importe="${amount}"/>`;
 /**
@@ -420,6 +428,81 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       .catch((e: unknown) => e);
     expect(refusal).toMatchObject({ code: 'CFDI_ALREADY_INVOICED' });
     expect(await ledger()).toEqual(after);
+  });
+
+  // MNE-001-895 (#1073): CFDI 4.0 admits several CfdiRelacionados nodes (cfdv40.xsd:39). Read as none, an
+  // invoice of 1,160.00 that substitutes a live one and applies an advance was booked as a second sale.
+  describe('several CfdiRelacionados nodes: both doors refuse an applied advance and a substitute of a live invoice', () => {
+    const SALE = ['DR 1120 1160.00', 'CR 4100 1000.00', 'CR 2125 160.00'];
+    /** The approval of an AI draft of the CFDI, with the entry the hand door would post. */
+    async function approve(id: string) {
+      const draft = await getDraft(ctx, (await createDraft(ctx, {
+        confidence: 0.9, reasoning: 'Issued sale', model: 'fake-model', preRegistrationId: id,
+        payload: {
+          entry_date: '2026-08-20', description: 'Venta B2001',
+          lines: [{ account_code: '1120', debit: 1160 }, { account_code: '4100', credit: 1000 }, { account_code: '2125', credit: 160 }],
+        },
+      })).id);
+      return { id: draft!.id, done: approveDraft(ctx, draft!.id, reviewer, undefined, canonicalDraftHash(draft!.payload, draft!.origin)) };
+    }
+    let live: { uuid: string; number: string };
+
+    beforeAll(async () => {
+      const { uuid } = await stranded(SALE_1160);
+      live = { uuid, number: (await post(uuid)).invoice.number };
+      expect((await born(uuid)).lines).toEqual(SALE);
+    });
+
+    it.each<{ name: string; relations: () => Edit[]; code: string; refusal: () => RegExp }>([
+      {
+        name: 'relations 04 (of a live invoice) and 07: it applies an advance',
+        relations: () => [related('07', uuidv4()), related('04', live.uuid.toLowerCase())],
+        code: 'VALIDATION_ERROR', refusal: () => /applies an advance \(TipoRelacion 07\)/,
+      },
+      {
+        name: 'relations 02 and 04 (of a live invoice): it substitutes that invoice',
+        relations: () => [related('04', live.uuid.toLowerCase()), related('02', uuidv4())],
+        code: 'ISSUED_CFDI_SUBSTITUTES_INVOICE', refusal: () => new RegExp(`substitutes.*${live.number} \\(sent\\)`),
+      },
+      {
+        name: 'one node, relation 07, as before at the hand door',
+        relations: () => [related('07', uuidv4())],
+        code: 'VALIDATION_ERROR', refusal: () => /applies an advance \(TipoRelacion 07\)/,
+      },
+      {
+        name: 'one node, relation 04 of a live invoice, as before at the hand door',
+        relations: () => [related('04', live.uuid)],
+        code: 'ISSUED_CFDI_SUBSTITUTES_INVOICE', refusal: () => new RegExp(`substitutes.*${live.number} \\(sent\\)`),
+      },
+    ])('$name; cfdi post and the approval of its draft refuse, and nothing is written', async ({ relations, code, refusal }) => {
+      const { uuid, id } = await stranded([...SALE_1160, ...relations()]);
+      const before = await ledger();
+      for (const dryRun of [false, true]) {
+        const byHand = await post(uuid, undefined, dryRun).catch((e: unknown) => e);
+        expect(byHand).toMatchObject({ code });
+        expect((byHand as Error).message).toMatch(refusal());
+      }
+      expect(await ledger()).toEqual(before);
+
+      const draft = await approve(id);
+      const atApproval = await draft.done.catch((e: unknown) => e);
+      expect(atApproval).toMatchObject({ code });
+      expect((atApproval as Error).message).toMatch(refusal());
+      expect(await ledger()).toEqual(before);
+      expect((await getDraft(ctx, draft.id))?.status).toBe('pending_review');
+      await rejectDraft(ctx, draft.id, reviewer, 'Not a new sale');
+    });
+
+    it('two nodes that name no live invoice and apply no advance post the sale at each door', async () => {
+      const relations = () => [related('04', uuidv4()), related('02', uuidv4())];
+      const byHand = await stranded([...SALE_1160, ...relations()]);
+      await post(byHand.uuid);
+      expect((await born(byHand.uuid)).lines).toEqual(SALE);
+
+      const drafted = await stranded([...SALE_1160, ...relations()]);
+      await (await approve(drafted.id)).done;
+      expect((await born(drafted.uuid)).lines).toEqual(SALE);
+    });
   });
 
   // MNE-001-418: the terminal command over the door, and the messages that send an issued CFDI to it.

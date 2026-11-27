@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import type { CFDIParsed } from './cfdi-parser.js';
+import type { CFDIParsed, CfdiRelation } from './cfdi-parser.js';
 import type { UnwithheldFeesPolicy } from './withholding-law.js';
 
 // ============================================================
@@ -123,8 +123,12 @@ export interface CfdiFacts {
   // Complements and relations
   complementos: string[];
   docsRelacionados: DoctoRelacionado[];
-  tipoRelacion?: string;
-  uuidsRelacionados: string[];
+  /**
+   * Every CfdiRelacionados node, in the order of the file: CFDI 4.0 admits
+   * several, each with its TipoRelacion (`cfdv40.xsd:39`). Read it through
+   * `relationsOf`, `hasRelation` and `relatedUuids`, never by its first node.
+   */
+  relations: CfdiRelation[];
 
   // Other
   usoCfdi?: string;
@@ -171,7 +175,6 @@ export function extractFacts(cfdi: CFDIParsed, entityRfc: string): CfdiFacts {
 
   const tax = breakdownTaxes(cfdi);
   const pagos = extractPagos(cfdi);
-  const rel = extractRelacionados(cfdi);
 
   return {
     uuid: cfdi.timbreFiscalDigital?.uuid ?? '',
@@ -199,8 +202,7 @@ export function extractFacts(cfdi: CFDIParsed, entityRfc: string): CfdiFacts {
 
     complementos: cfdi.complementos.map((c) => c.type),
     docsRelacionados: pagos,
-    tipoRelacion: rel.tipoRelacion,
-    uuidsRelacionados: rel.uuids,
+    relations: cfdi.cfdiRelacionados,
 
     usoCfdi: cfdi.receptor.usoCFDI,
     esAnticipo: detectAnticipo(cfdi),
@@ -386,15 +388,33 @@ function ivaDeLaParcialidad(dr: Record<string, unknown>): number | undefined {
 }
 
 /**
- * CfdiRelacionados: the TipoRelacion changes the meaning of an egreso
- * (07 = advance payment application, 03 = return, 04 = substitution). It
- * comes from the parser because it is a sibling of Comprobante, not a
- * complement.
+ * The relations as facts carry them. The ones stored before MNE-001-895
+ * (`cfdi_classifications.facts`) kept the single node the parser read then, as
+ * `tipoRelacion` and `uuidsRelacionados`.
  */
-function extractRelacionados(cfdi: CFDIParsed): { tipoRelacion?: string; uuids: string[] } {
-  const rel = cfdi.cfdiRelacionados;
-  if (!rel) return { uuids: [] };
-  return { tipoRelacion: rel.tipoRelacion || undefined, uuids: rel.uuids };
+type WithRelations = { relations?: CfdiRelation[]; tipoRelacion?: string; uuidsRelacionados?: string[] };
+
+/**
+ * CfdiRelacionados: the TipoRelacion changes the meaning of a CFDI (07 =
+ * advance payment application, 03 = return, 04 = substitution), and one CFDI
+ * can carry several nodes. Facts in the stored shape of one node are read as a
+ * list of one.
+ */
+export function relationsOf(f: WithRelations): CfdiRelation[] {
+  if (f.relations) return f.relations;
+  const uuids = f.uuidsRelacionados ?? [];
+  return f.tipoRelacion || uuids.length > 0 ? [{ tipoRelacion: f.tipoRelacion ?? '', uuids }] : [];
+}
+
+/** Whether any node carries this TipoRelacion. */
+export const hasRelation = (f: WithRelations, tipo: string): boolean =>
+  relationsOf(f).some((r) => r.tipoRelacion === tipo);
+
+/** The UUIDs named under any of `tipos`, in the order of the file; under every node when none is given. */
+export function relatedUuids(f: WithRelations, ...tipos: string[]): string[] {
+  return relationsOf(f)
+    .filter((r) => tipos.length === 0 || tipos.includes(r.tipoRelacion))
+    .flatMap((r) => r.uuids);
 }
 
 function detectAnticipo(cfdi: CFDIParsed): boolean {

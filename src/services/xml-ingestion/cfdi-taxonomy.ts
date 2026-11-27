@@ -1,4 +1,4 @@
-import { TIPO_RELACION, type CfdiFacts } from './cfdi-facts.js';
+import { TIPO_RELACION, hasRelation, type CfdiFacts } from './cfdi-facts.js';
 
 // ============================================================
 // CFDI TAXONOMY → ACCOUNTING TREATMENT
@@ -279,7 +279,7 @@ export const CASES: CfdiCase[] = [
     label: 'Advance payment application (received)',
     tipos: ['E'],
     directions: ['recibido'],
-    when: (f) => f.tipoRelacion === TIPO_RELACION.APLICACION_ANTICIPO,
+    when: (f) => hasRelation(f, TIPO_RELACION.APLICACION_ANTICIPO),
     posting: [
       { role: 'cxp', side: 'debit', amount: A.total, description: 'Cancellation by advance application' },
       { role: 'anticipo_proveedores', side: 'credit', amount: A.subtotalNeto, description: 'Application of the advance' },
@@ -296,7 +296,7 @@ export const CASES: CfdiCase[] = [
     label: 'Substitution of a cancelled CFDI (received)',
     tipos: ['E'],
     directions: ['recibido'],
-    when: (f) => f.tipoRelacion === TIPO_RELACION.SUSTITUCION,
+    when: (f) => hasRelation(f, TIPO_RELACION.SUSTITUCION),
     posting: null,
     requiresLinkage: true,
     notes:
@@ -330,7 +330,7 @@ export const CASES: CfdiCase[] = [
     label: 'Advance payment application (issued)',
     tipos: ['E'],
     directions: ['emitido'],
-    when: (f) => f.tipoRelacion === TIPO_RELACION.APLICACION_ANTICIPO,
+    when: (f) => hasRelation(f, TIPO_RELACION.APLICACION_ANTICIPO),
     posting: [
       { role: 'anticipo_clientes', side: 'debit', amount: A.subtotalNeto, description: 'Application of the customer advance' },
       { role: 'iva_trasladado', side: 'debit', amount: A.ivaTrasladado, description: 'Reversal of the advance VAT', omitIfZero: true },

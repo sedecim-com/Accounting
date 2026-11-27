@@ -86,9 +86,17 @@ export interface CFDIParsed {
    * CfdiRelacionados is a sibling of Comprobante, it does NOT live inside
    * <cfdi:Complemento>: looking for it among the complements never finds it,
    * and without the TipoRelacion an egreso applying an advance payment (07)
-   * is indistinguishable from a return (03).
+   * is indistinguishable from a return (03). CFDI 4.0 admits several nodes
+   * (`cfdv40.xsd:39`, maxOccurs="unbounded"), each with its own TipoRelacion:
+   * every one is kept, in the order of the file; no node is an empty list.
    */
-  cfdiRelacionados?: { tipoRelacion: string; uuids: string[] };
+  cfdiRelacionados: CfdiRelation[];
+}
+
+/** One CfdiRelacionados node: its TipoRelacion and the UUIDs it names. */
+export interface CfdiRelation {
+  tipoRelacion: string;
+  uuids: string[];
 }
 
 /**
@@ -186,19 +194,21 @@ export class CFDIParser {
     return cfdi;
   }
 
-  /** Reads the sibling CfdiRelacionados node (one or several UUIDs). */
+  /** Reads every sibling CfdiRelacionados node, each with one or several UUIDs. */
   private parseCfdiRelacionados(
-    node: Record<string, unknown> | undefined
-  ): { tipoRelacion: string; uuids: string[] } | undefined {
-    if (!node) return undefined;
-    const relNode = node.CfdiRelacionado;
-    const rels = Array.isArray(relNode) ? relNode : relNode ? [relNode] : [];
-    return {
-      tipoRelacion: String(node['@_TipoRelacion'] ?? ''),
-      uuids: (rels as Array<Record<string, unknown>>)
-        .map((r) => String(r['@_UUID'] ?? ''))
-        .filter(Boolean),
-    };
+    nodes: Record<string, unknown> | Array<Record<string, unknown>> | undefined
+  ): CfdiRelation[] {
+    if (!nodes) return [];
+    return (Array.isArray(nodes) ? nodes : [nodes]).map((node) => {
+      const relNode = node.CfdiRelacionado;
+      const rels = Array.isArray(relNode) ? relNode : relNode ? [relNode] : [];
+      return {
+        tipoRelacion: String(node['@_TipoRelacion'] ?? ''),
+        uuids: (rels as Array<Record<string, unknown>>)
+          .map((r) => String(r['@_UUID'] ?? ''))
+          .filter(Boolean),
+      };
+    });
   }
 
   private parseConceptos(conceptosNode: Record<string, unknown> | undefined): CFDIConcepto[] {

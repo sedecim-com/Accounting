@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { ErrorMessageKey } from '../../utils/errors.js';
 import type { CfdiFacts } from './cfdi-facts.js';
-import { TIPO_RELACION } from './cfdi-facts.js';
+import { TIPO_RELACION, relationsOf } from './cfdi-facts.js';
 
 // ============================================================
 // THE RECEIVED CREDIT NOTE (MNE-001-489, #692)
@@ -77,9 +77,12 @@ export function refusalOf(note: CfdiFacts, bills: readonly RelatedBill[]): Error
   if (note.direction !== 'recibido') {
     return refuse('not_received', { issuer: note.emisorRfc, receiver: note.receptorRfc });
   }
-  const relation = note.tipoRelacion ?? '';
-  if (note.tipo !== 'E' || (relation !== TIPO_RELACION.NOTA_CREDITO && relation !== TIPO_RELACION.DEVOLUCION)) {
-    return refuse('not_credit_note', { type: note.tipo, relation: relation || '-' });
+  // A CFDI 4.0 can carry several relation nodes (cfdv40.xsd:39): the note is one only when every node says so.
+  const relations = [...new Set(relationsOf(note).map((r) => r.tipoRelacion))];
+  const creditNote = relations.length > 0 &&
+    relations.every((r) => r === TIPO_RELACION.NOTA_CREDITO || r === TIPO_RELACION.DEVOLUCION);
+  if (note.tipo !== 'E' || !creditNote) {
+    return refuse('not_credit_note', { type: note.tipo, relation: relations.join(', ') || '-' });
   }
   if (note.esMonedaExtranjera) return refuse('note_foreign_currency', { currency: note.moneda });
   const otherTaxes = [note.iepsTrasladado, note.impuestosLocalesTrasladados, note.isrRetenido, note.ivaRetenido, note.impuestosLocalesRetenidos];
