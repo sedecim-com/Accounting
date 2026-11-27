@@ -6,7 +6,8 @@ import {
 import { construirBalanzaXml, type DatosDeBalanza } from '../../../src/services/sat/anexo24/balanza-xml.js';
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { officialXsdRefusal } from '../../../src/services/sat/anexo24/official-xsd.js';
-import { xsdFindings } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
+import { xsdFindings, xsdFindingWithoutFile } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
+import { textIn, ValidationError } from '../../../src/utils/errors.js';
 
 // ============================================================
 // MNE-001-666 (#608) · A generated Anexo 24 file is deliverable only when the
@@ -48,6 +49,20 @@ const balance = (over: Partial<DatosDeBalanza> = {}): string =>
     ...over,
   });
 
+/**
+ * Valid bytes with one attribute value replaced: since MNE-001-775 the builder
+ * refuses, by its own key, everything this schema rejects, so a file the XSD
+ * must judge and refuse is no longer one the builder writes.
+ */
+const withAttribute = (xml: string, attribute: string, from: string, to: string): string => {
+  const out = xml.replace(`${attribute}="${from}"`, `${attribute}="${to}"`);
+  expect(out).not.toBe(xml);
+  return out;
+};
+
+/** A valid balance whose RFC has month 99, which the official XSD rejects. */
+const month99 = () => withAttribute(balance(), 'RFC', 'AAA010101AAA', 'AAA019901AAA');
+
 const chartAccount = (over: Partial<CuentaParaCatalogo> = {}): CuentaParaCatalogo => ({
   code: '100',
   name: 'Activo',
@@ -77,8 +92,7 @@ describe('the gate a generator passes its finished file through', () => {
   });
 
   it('refuses a file the XSD rejects, with the validator own line and the schema it judged by', () => {
-    // Month 99: the builder's own RFC check takes any six digits, the schema does not.
-    const refusal = officialXsdRefusal(balance({ rfc: 'AAA019901AAA' }), 'trialBalance');
+    const refusal = officialXsdRefusal(month99(), 'trialBalance');
     expect(refusal).toMatchObject({ reason: 'rejected', statusCode: 422 });
     expect(refusal?.messageKey).toMatchObject({
       key: 'anexo24.xsd.rejected',
@@ -102,8 +116,12 @@ describe('the gate a generator passes its finished file through', () => {
 
   it('shows the first five lines, each cut at 300 characters, and counts the rest', () => {
     // Eight accounts whose NumCta has 101 characters: eight maxLength errors.
-    const long = ['1', '2', '3', '4', '5', '6', '7', '8'].map((d) => account(d.repeat(101)));
-    const refusal = officialXsdRefusal(balance({ cuentas: long }), 'trialBalance');
+    const digits = ['1', '2', '3', '4', '5', '6', '7', '8'];
+    const long = digits.reduce(
+      (xml, d) => withAttribute(xml, 'NumCta', d, d.repeat(101)),
+      balance({ cuentas: digits.map(account) })
+    );
+    const refusal = officialXsdRefusal(long, 'trialBalance');
     const params = refusal?.messageKey?.params as { errors: string; more: number };
     expect(params.more).toBe(3);
     expect(params.errors.match(/line \d+: /g)).toHaveLength(5);
@@ -162,7 +180,7 @@ describe('balance check · the xsd check (MNE-001-774)', () => {
   });
 
   it('a balance the XSD rejects is one blocking finding of the whole file, by key', () => {
-    const found = xsdFindings(balance({ rfc: 'AAA019901AAA' }));
+    const found = xsdFindings(month99());
     expect(found.map((h) => [h.check, h.severity, h.referencia, h.messageKey?.key])).toEqual([
       ['xsd', 'blocking', '', 'anexo24.xsd.rejected'],
     ]);
@@ -174,5 +192,23 @@ describe('balance check · the xsd check (MNE-001-774)', () => {
     expect(found.map((h) => [h.check, h.severity, h.messageKey?.key])).toEqual([
       ['xsd', 'blocking', 'anexo24.xsd.not_validated'],
     ]);
+  });
+
+  it('a builder refusal by key is the cause, in the language the finding is read in (MNE-001-775)', () => {
+    let refused: unknown;
+    try {
+      balance({ rfc: 'AAA019901AAA' });
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused).toBeInstanceOf(ValidationError);
+    const found = xsdFindingWithoutFile((refused as ValidationError).messageKey ?? 'not keyed');
+    expect([found.check, found.severity, found.messageKey?.key]).toEqual(['xsd', 'blocking', 'anexo24.xsd.not_built']);
+    const key = found.messageKey;
+    if (key === undefined) throw new Error('the finding has no key');
+    expect(found.detalle).toMatch(/^No file was built .*: The entity RFC «AAA019901AAA» is not one/);
+    expect(textIn(key, 'es')).toMatch(/^No se construyó ningún archivo .*: El RFC de la entidad «AAA019901AAA» no es/);
+    // A prose cause (the serializer's) still travels as written.
+    expect(xsdFindingWithoutFile('texto tal cual').detalle).toMatch(/: texto tal cual$/);
   });
 });

@@ -8434,6 +8434,38 @@ export const ES: Record<keyof typeof EN, string> = {
     'No se construyó ningún archivo que comprobar contra el XSD del SAT ({schema}), así que `balance generate` ' +
     'también lo rechaza: {cause}',
   // --- end of MNE-001-774 ---
+  // --- e-accounting balance · the builder's own rules (MNE-001-775, #608) ---
+  'anexo24.balance.rfc':
+    'El RFC de la entidad «{rfc}» no es uno que el XSD del SAT (BalanzaComprobacion_1_3.xsd) acepte: 3 o 4 ' +
+    'letras, la fecha como AAMMDD (el primer dígito del mes 0-1, el del día 0-3) y una homoclave de 3. La ' +
+    'balanza del Anexo 24 la presenta un contribuyente mexicano; una entidad identificada con EIN u otro número ' +
+    'no puede presentarla.',
+  'anexo24.balance.month':
+    'Mes «{month}» no es válido: el Anexo 24 admite 01..12, y 13 para la balanza de cierre.',
+  'anexo24.balance.year': 'Anio {year} está fuera del rango que el esquema admite ({min}..{max}).',
+  'anexo24.balance.amended_without_date':
+    'Una balanza complementaria (TipoEnvio C) necesita FechaModBal, la fecha de la modificación: sin ella la ' +
+    'autoridad no sabe qué presentación se está corrigiendo.',
+  'anexo24.balance.normal_with_date':
+    'FechaModBal sólo va en una balanza complementaria; ésta es normal (TipoEnvio N). Presentar una normal con ' +
+    'fecha de modificación declara dos cosas que se contradicen.',
+  'anexo24.balance.modified_date':
+    'FechaModBal «{date}» no es una fecha que el XSD del SAT acepte: un día real, AAAA-MM-DD, del 2015-01-01 en ' +
+    'adelante.',
+  'anexo24.balance.no_accounts':
+    'La balanza {month}/{year} no tiene ninguna cuenta que declarar. Un archivo sin nodos Ctas afirma ante la ' +
+    'autoridad que en ese periodo no hubo contabilidad.',
+  'anexo24.balance.account_number_length':
+    'La cuenta «{account}» tiene un NumCta de {length, plural, one {# carácter} other {# caracteres}}; el XSD ' +
+    'del SAT admite de 1 a 100 y rechaza el archivo entero.',
+  'anexo24.balance.repeated_account':
+    'NumCta repetido en la balanza: {accounts}. Dos nodos Ctas con el mismo número declaran dos saldos para una ' +
+    'sola cuenta, y la autoridad se queda con uno de los dos.',
+  'anexo24.balance.amount_out_of_range':
+    'La cuenta {account} declara {column} {amount}, fuera de lo que el XSD del SAT admite para un importe ' +
+    '(t_Importe: mayor que -9999999999999999999999.99 y hasta 9999999999999999999999.99): rechaza el archivo ' +
+    'entero.',
+  // --- end of MNE-001-775 ---
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',

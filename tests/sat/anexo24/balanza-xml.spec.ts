@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import {
   construirBalanzaXml,
   nombreDelArchivo,
@@ -8,6 +12,7 @@ import {
 import { catalogoDesdeXml } from '../../../src/services/sat/anexo24/balanza-service.js';
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { ValidationError } from '../../../src/utils/errors.js';
+import { OFFICIAL_SCHEMAS, XSD_ROOT } from '../../../src/services/sat/anexo24/official-xsd.js';
 
 // ============================================================
 // F07b · EL ARCHIVO QUE SE ENTREGA.
@@ -121,13 +126,13 @@ describe('lo que se niega antes de construir nada', () => {
   it('una balanza sin una sola cuenta', () => {
     // Se acepta y declara que en ese periodo no hubo contabilidad, que es peor
     // que un error.
-    expect(() => construirBalanzaXml(datos({ cuentas: [] }))).toThrow(/ninguna cuenta/);
+    expect(() => construirBalanzaXml(datos({ cuentas: [] }))).toThrow(/no account to declare/);
   });
 
   it('dos nodos Ctas con el mismo NumCta', () => {
     expect(() =>
       construirBalanzaXml(datos({ cuentas: [cta(), cta({ account_id: 'otro' })] }))
-    ).toThrow(/repetido/);
+    ).toThrow(/Repeated NumCta/);
   });
 });
 
@@ -216,5 +221,164 @@ describe('catalogoDesdeXml', () => {
     expect(() => catalogoDesdeXml('<Catalogo><Ctas NumCta="1"></Catalogo>')).toThrow(
       ValidationError
     );
+  });
+});
+
+// ============================================================
+// MNE-001-775 (#608) · Each hand-written rule says what BalanzaComprobacion
+// 1.3 says, so the refusal names the account or the datum before the XSD gate
+// of #982 names an XML line. The six cases are #982's, measured there with the
+// builders and xmllint; each comes with the boundary the schema accepts.
+// ============================================================
+
+/** The builder's refusal of `d`, or a failure when it built the file. */
+function refusalOf(d: DatosDeBalanza): ValidationError {
+  try {
+    construirBalanzaXml(d);
+  } catch (err) {
+    if (err instanceof ValidationError) return err;
+    throw err;
+  }
+  throw new Error('the builder built a file the schema rejects');
+}
+
+describe('the hand-written rules say what the schema says (MNE-001-775)', () => {
+  it('RFC: the date digits are the schema pattern, month 99 and day 99 are refused naming the RFC', () => {
+    for (const rfc of ['AAA019901AAA', 'AAA010199AAA']) {
+      const e = refusalOf(datos({ rfc }));
+      expect(e.messageKey).toEqual({ key: 'anexo24.balance.rfc', params: { rfc } });
+      expect(e.message).toContain(`«${rfc}»`);
+    }
+    // The schema takes a month digit 0-1 and a day digit 0-3, whatever follows.
+    expect(construirBalanzaXml(datos({ rfc: 'AAA011939AAA' }))).toContain('RFC="AAA011939AAA"');
+    expect(construirBalanzaXml(datos({ rfc: 'AAAA010101AA1' }))).toContain('RFC="AAAA010101AA1"');
+  });
+
+  it('FechaModBal: a real day on or after 2015-01-01, naming the date', () => {
+    const amended = (modified: string) => datos({ tipoEnvio: 'C', fechaModBal: modified });
+    for (const day of ['2014-12-31', '2026-13-45', '2026-02-29']) {
+      expect(refusalOf(amended(day)).messageKey).toEqual({
+        key: 'anexo24.balance.modified_date',
+        params: { date: day },
+      });
+    }
+    expect(construirBalanzaXml(amended('2015-01-01'))).toContain('FechaModBal="2015-01-01"');
+    expect(construirBalanzaXml(amended('2024-02-29'))).toContain('FechaModBal="2024-02-29"');
+  });
+
+  it('NumCta: 1 to 100 characters, counted as the schema counts them, naming the account', () => {
+    const long = '9'.repeat(101);
+    expect(refusalOf(datos({ cuentas: [cta({ num_cta: long })] })).messageKey).toEqual({
+      key: 'anexo24.balance.account_number_length',
+      params: { account: long, length: 101 },
+    });
+    expect(refusalOf(datos({ cuentas: [cta({ num_cta: '' })] })).messageKey?.params).toEqual({
+      account: '',
+      length: 0,
+    });
+    // 100 «ñ» are 100 characters to the schema, whatever String.length says.
+    expect(construirBalanzaXml(datos({ cuentas: [cta({ num_cta: 'ñ'.repeat(100) })] }))).toContain('ñ'.repeat(100));
+  });
+
+  it('amounts: t_Importe admits 22 integer digits, and the refusal names the account and the column', () => {
+    const big = '12345678901234567890123.0000';
+    expect(refusalOf(datos({ cuentas: [cta({ saldo_ini_mayor: big })] })).messageKey).toEqual({
+      key: 'anexo24.balance.amount_out_of_range',
+      params: { account: '1120', column: 'SaldoIni', amount: '12345678901234567890123.00' },
+    });
+    // minExclusive: the negative of the maximum is out, one cent above it is in.
+    expect(
+      refusalOf(datos({ cuentas: [cta({ haber: '-9999999999999999999999.99' })] })).messageKey?.params
+    ).toMatchObject({ column: 'Haber' });
+    const edge = construirBalanzaXml(
+      datos({ cuentas: [cta({ debe: '9999999999999999999999.99', haber: '-9999999999999999999999.98' })] })
+    );
+    expect(edge).toContain('Debe="9999999999999999999999.99"');
+  });
+
+  it('the rules that were already the schema speak by key too', () => {
+    expect(refusalOf(datos({ rfc: '12-3456789' })).messageKey?.key).toBe('anexo24.balance.rfc');
+    expect(refusalOf(datos({ mes: '14' })).messageKey).toEqual({ key: 'anexo24.balance.month', params: { month: '14' } });
+    expect(refusalOf(datos({ anio: 1999 })).messageKey?.key).toBe('anexo24.balance.year');
+    expect(refusalOf(datos({ tipoEnvio: 'C' })).messageKey?.key).toBe('anexo24.balance.amended_without_date');
+    expect(refusalOf(datos({ fechaModBal: '2026-04-01' })).messageKey?.key).toBe('anexo24.balance.normal_with_date');
+    expect(refusalOf(datos({ cuentas: [] })).messageKey?.key).toBe('anexo24.balance.no_accounts');
+    expect(
+      refusalOf(datos({ cuentas: [cta(), cta({ account_id: 'b', num_cta: '4100' }), cta({ account_id: 'c' })] }))
+        .messageKey
+    ).toEqual({ key: 'anexo24.balance.repeated_account', params: { accounts: '1120' } });
+  });
+});
+
+describe('the hand-written rules and the official XSD agree (MNE-001-775)', () => {
+  // Each document is a valid balance with ONE attribute replaced in its
+  // bytes, so the schema judges exactly the value the builder judged. All of
+  // them go to ONE xmllint process.
+  const base = construirBalanzaXml(datos());
+  const amendedBase = construirBalanzaXml(datos({ tipoEnvio: 'C', fechaModBal: '2026-04-01' }));
+  const cases: Array<{ name: string; data: DatosDeBalanza; xml: string }> = [];
+  const rfc = (v: string) =>
+    cases.push({ name: `RFC ${v}`, data: datos({ rfc: v }), xml: base.replace('RFC="AAA010101AAA"', `RFC="${v}"`) });
+  const date = (v: string) =>
+    cases.push({
+      name: `FechaModBal ${v}`,
+      data: datos({ tipoEnvio: 'C', fechaModBal: v }),
+      xml: amendedBase.replace('FechaModBal="2026-04-01"', `FechaModBal="${v}"`),
+    });
+  const accountNumber = (v: string) =>
+    cases.push({
+      name: `NumCta of ${[...v].length}`,
+      data: datos({ cuentas: [cta({ num_cta: v })] }),
+      xml: base.replace('NumCta="1120"', `NumCta="${v}"`),
+    });
+  const openingBalance = (v: string) =>
+    cases.push({
+      name: `SaldoIni ${v}`,
+      data: datos({ cuentas: [cta({ saldo_ini_mayor: v })] }),
+      xml: base.replace('SaldoIni="4500.00"', `SaldoIni="${v}"`),
+    });
+  ['AAA019901AAA', 'AAA010199AAA', 'AAA011939AAA', 'AAAA010101AA1'].forEach(rfc);
+  ['2014-12-31', '2026-13-45', '2026-02-29', '2015-01-01', '2024-02-29'].forEach(date);
+  ['9'.repeat(101), '9'.repeat(100), 'ñ'.repeat(100)].forEach(accountNumber);
+  [
+    '12345678901234567890123.00',
+    '9999999999999999999999.99',
+    '-9999999999999999999999.99',
+    '-9999999999999999999999.98',
+  ].forEach(openingBalance);
+
+  it('for every case, the builder refuses exactly when the schema rejects', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'mne-001-775-'));
+    try {
+      const files = cases.map((c, i) => {
+        const file = path.join(dir, `${i}.xml`);
+        writeFileSync(file, c.xml);
+        return file;
+      });
+      const run = spawnSync(
+        'xmllint',
+        ['--nonet', '--noout', '--schema', path.join(XSD_ROOT, OFFICIAL_SCHEMAS.trialBalance), ...files],
+        { encoding: 'utf8', maxBuffer: Infinity }
+      );
+      expect(run.error, 'xmllint must be on the PATH').toBeUndefined();
+      const verdicts = cases.map((c, i) => {
+        const schemaRejects = run.stderr.includes(`${files[i]} fails to validate`);
+        expect(schemaRejects || run.stderr.includes(`${files[i]} validates`), c.name).toBe(true);
+        let builderRefuses = false;
+        try {
+          construirBalanzaXml(c.data);
+        } catch (err) {
+          if (!(err instanceof ValidationError)) throw err;
+          builderRefuses = true;
+        }
+        return [c.name, builderRefuses, schemaRejects];
+      });
+      // Every case, the boundaries too, says the same both ways.
+      expect(verdicts.filter(([, b, s]) => b !== s)).toEqual([]);
+      // And the table holds both verdicts: 8 rejections, 8 acceptances.
+      expect(verdicts.filter(([, , s]) => s)).toHaveLength(8);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

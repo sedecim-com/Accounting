@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import { AppError } from '../../../utils/errors.js';
+import { AppError, type KeyedText } from '../../../utils/errors.js';
 import { xsdVerdictOf, type XsdVerdict } from '../xsd-verdict.js';
 
 // ============================================================
@@ -95,7 +95,8 @@ const SHOWN_CHARACTERS = 300;
 export class OfficialXsdRefusal extends AppError {
   constructor(
     readonly reason: 'rejected' | 'not_validated' | 'not_built',
-    params: Record<string, string | number>
+    params: Record<string, string | number>,
+    lists?: KeyedText['lists']
   ) {
     const key =
       reason === 'rejected'
@@ -103,7 +104,7 @@ export class OfficialXsdRefusal extends AppError {
         : reason === 'not_validated'
           ? 'anexo24.xsd.not_validated'
           : 'anexo24.xsd.not_built';
-    super(422, 'VALIDATION_ERROR', { key, params });
+    super(422, 'VALIDATION_ERROR', { key, params, ...(lists ? { lists } : {}) });
     this.name = 'OfficialXsdRefusal';
   }
 }

@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import * as path from 'node:path';
 import type { DescuadreDeCuenta } from '../../reporting/report-service.js';
-import type { ErrorMessageKey } from '../../../utils/errors.js';
+import type { KeyedText } from '../../../utils/errors.js';
 import { DECIMALES_IMPORTE_ANEXO24, importeAnexo24 } from './xml.js';
 import { OFFICIAL_SCHEMAS, OfficialXsdRefusal, officialXsdRefusal } from './official-xsd.js';
 
@@ -110,6 +110,13 @@ export function formatearImporte(valor: Decimal | string): string {
 }
 
 /**
+ * The sign change is exact for every amount the schema admits (22 integer
+ * digits) and past it: decimal.js's default precision, 20 significant digits,
+ * rounded a larger one before the schema's amount range was checked (MNE-001-775).
+ */
+const Exact = Decimal.clone({ precision: 40 });
+
+/**
  * EL SIGNO, QUE ES DONDE ESTÁ LA TRAMPA.
  *
  * El mayor lleva un solo eje: deudor positivo. Una venta de 7 000 deja la
@@ -126,10 +133,10 @@ export function formatearImporte(valor: Decimal | string): string {
 export function importesDeclarados(c: CuentaDeBalanza): ImportesDeclarados {
   const signo = c.natur === 'A' ? -1 : 1;
   return {
-    SaldoIni: formatearImporte(new Decimal(c.saldo_ini_mayor).times(signo)),
+    SaldoIni: formatearImporte(new Exact(c.saldo_ini_mayor).times(signo).toFixed()),
     Debe: formatearImporte(c.debe),
     Haber: formatearImporte(c.haber),
-    SaldoFin: formatearImporte(new Decimal(c.saldo_fin_mayor).times(signo)),
+    SaldoFin: formatearImporte(new Exact(c.saldo_fin_mayor).times(signo).toFixed()),
   };
 }
 
@@ -208,7 +215,7 @@ export interface HallazgoBalanza {
   /** El porqué, en español y CON LA CIFRA que falla dentro. */
   detalle: string;
   /** When set, the screen renders the catalogue text; `detalle` holds its English (#608). */
-  messageKey?: ErrorMessageKey;
+  messageKey?: KeyedText;
 }
 
 /** El catálogo contra el que se coteja la balanza. */
@@ -446,10 +453,16 @@ export function xsdFindings(xml: string): HallazgoBalanza[] {
  * `xsd` when there are no bytes to judge: the builder refused them (an RFC with
  * no RFC shape, no account to declare, `C` without FechaModBal…), and
  * `balance generate` refuses for the same `cause`. Blocking, never clean.
+ * A keyed cause travels as a one-item list, so it renders in the language of
+ * the frame (MNE-001-775); a prose one, the serializer's, as written.
  */
-export function xsdFindingWithoutFile(cause: string): HallazgoBalanza {
+export function xsdFindingWithoutFile(cause: string | KeyedText): HallazgoBalanza {
   const schema = path.basename(OFFICIAL_SCHEMAS.trialBalance);
-  return xsdFinding(new OfficialXsdRefusal('not_built', { schema, cause }));
+  return xsdFinding(
+    typeof cause === 'string'
+      ? new OfficialXsdRefusal('not_built', { schema, cause })
+      : new OfficialXsdRefusal('not_built', { schema }, { cause: { join: '', items: [cause] } })
+  );
 }
 
 type DataCheck = Exclude<BalanzaCheckName, 'xsd'>;
