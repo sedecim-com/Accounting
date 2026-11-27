@@ -34,7 +34,7 @@ for key in DATABASE_URL MIGRATION_DATABASE_URL TEST_ADMIN_DATABASE_URL; do
   [ -z "$value" ] || export "$key=$value"
 done
 
-GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map manifest integration restore isolation eval commit-subjects"
+GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map manifest build integration restore isolation eval commit-subjects"
 
 VERBOSE=0
 INTEGRATION=1
@@ -157,6 +157,18 @@ run_gate repo-map         npx tsx scripts/repo-map.ts --check
 # becomes its ci annotation then. Until that day CI sees a stale manifest through
 # tests/cli/command-manifest.spec.ts, inside the unit gate.
 run_gate manifest         npx tsx scripts/command-manifest.ts --check
+
+# The built program (MNE-001-970): a clean `npm run build`, then the binary a
+# firm installs answers --version, --help, doctor and one read on a database of
+# its own. No step of ci.yml runs it yet: that line sits in a critical path and
+# is the owner's to add, and this comment becomes its ci annotation then.
+if have_db_admin && command -v psql >/dev/null 2>&1; then
+  run_gate build          bash scripts/smoke-dist.sh
+elif have_db_admin; then
+  skip_gate build         "psql is not installed"
+else
+  skip_gate build         "$(no_db_reason)"
+fi
 
 # ci: npm run test:integration -- --coverage
 # (CI also provisions roles with scripts/provision-roles.sql; without them 7 attack cases report as skipped)
