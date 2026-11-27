@@ -14,6 +14,8 @@ import {
 } from '../../src/services/payroll/common/gl-posting-service.js';
 import { approveDraft, canonicalDraftHash, getDraft, resolveReviewer, type DraftPayload } from '../../src/ai/draft-service.js';
 import { resolveEntity } from '../../src/ai/context.js';
+import type { ClosablePeriod } from '../../src/ai/close-service.js';
+import { conductClose } from '../../src/services/accounting/closing-conductor.js';
 import { planMonthlyProvisions, runMonthlyProvisions } from '../../src/services/accruals/provisions-run.js';
 import { drainAttestations, reverseJournalEntry } from '../../src/services/accounting/posting.js';
 
@@ -48,6 +50,8 @@ const OVER = 'Aguinaldo paid over its provision';
 type Earning = { earning_type: string; amount: number; cfdi_clave_sat: string };
 const salary = (amount: number): Earning => ({ earning_type: 'salary', amount, cfdi_clave_sat: '001' });
 const yearEndBonus = (amount: number): Earning => ({ earning_type: 'aguinaldo', amount, cfdi_clave_sat: '002' });
+const vacationDays = (amount: number): Earning => ({ earning_type: 'vacaciones', amount, cfdi_clave_sat: '001' });
+const premium = (amount: number): Earning => ({ earning_type: 'prima_vacacional', amount, cfdi_clave_sat: '021' });
 
 interface Company {
   f: Fixture;
@@ -56,7 +60,7 @@ interface Company {
 }
 
 /** A company with one worker and the pay period 1 to 15 December, paid on the 15th. */
-async function company(f: Fixture): Promise<Company> {
+async function company(f: Fixture, annualSalary = '365000.00'): Promise<Company> {
   await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
   await seedPayrollAccountMapping(f.entityId, f.tenantId, 'MX', f.userId);
   const scheduleId = uuidv4();
@@ -71,9 +75,9 @@ async function company(f: Fixture): Promise<Company> {
        hire_date, status, country_code, rfc, curp, nss, sbc, annual_salary, riesgo_puesto,
        tipo_regimen_sat, pay_schedule_id, salary_type, currency_code)
      VALUES ($1, $2, $3, $5, 'Trabajador', 'De Prueba', '2024-01-01', 'active', 'MX',
-       'XAXX010101000', 'XAXX010101HDFXXX01', '12345678901', '1049.3200', '365000.00', '01',
+       'XAXX010101000', 'XAXX010101HDFXXX01', '12345678901', '1049.3200', $6, '01',
        '02', $4, 'salary', 'MXN')`,
-    [employeeId, f.tenantId, f.entityId, scheduleId, `C-${employeeId.slice(0, 8)}`]
+    [employeeId, f.tenantId, f.entityId, scheduleId, `C-${employeeId.slice(0, 8)}`, annualSalary]
   );
   const periodId = uuidv4();
   await query(
@@ -84,11 +88,12 @@ async function company(f: Fixture): Promise<Company> {
   return { f, employeeId, periodId };
 }
 
-/** The run of 15 December, calculated and approved. */
-async function runOfThe15th(c: Company, bonus: number): Promise<string> {
+/** The run of 15 December, calculated and approved: the fortnight's salary and a year-end bonus, or the earnings given. */
+async function runOfThe15th(c: Company, bonus: number | Earning[]): Promise<string> {
+  const earnings = typeof bonus === 'number' ? [salary(15000), yearEndBonus(bonus)] : bonus;
   const input = {
     tenant_id: c.f.tenantId, pay_period_id: c.periodId, run_type: 'regular' as const, created_by: c.f.userId,
-    employee_inputs: [{ employee_id: c.employeeId, earnings: [salary(15000), yearEndBonus(bonus)] }],
+    employee_inputs: [{ employee_id: c.employeeId, earnings }],
   };
   const scope = entityScope(c.f.tenantId, c.f.entityId);
   const runId = await createPayRun(input, scope);
@@ -98,7 +103,7 @@ async function runOfThe15th(c: Company, bonus: number): Promise<string> {
 }
 
 /** The run of 15 December, posted: its entry and the id of that entry. */
-async function payOnThe15th(c: Company, bonus: number): Promise<{ entry: PayRunEntry; entryId: string }> {
+async function payOnThe15th(c: Company, bonus: number | Earning[]): Promise<{ entry: PayRunEntry; entryId: string }> {
   const posted = await postPayRunEntry(await runOfThe15th(c, bonus), c.f.userId, c.f.tenantId, c.f.entityId);
   return { entry: posted.entry, entryId: posted.journalEntryId };
 }
@@ -154,6 +159,19 @@ function debitsTo(c: Company, entry: PayRunEntry, role: string): Record<string, 
   );
 }
 
+/** December closed by the conductor, stopped before its second step: what the accrual step says it did. */
+async function closeStepDetail(c: Company): Promise<string | undefined> {
+  const period = await query<ClosablePeriod>(
+    `SELECT fp.id, fp.period_name, fp.period_number, fp.start_date::text, fp.end_date::text, fp.status,
+            fy.year_number, false AS overdue
+       FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
+      WHERE fp.id = $1`,
+    [c.f.periodos[12]]
+  );
+  const run = await conductClose(await resolveEntity(c.f.entityId), period.rows[0], { userId: c.f.userId, stopAt: 'amortize-prepaids' });
+  return run.steps.find((x) => x.step === 'accrue-benefits')?.detail;
+}
+
 async function decemberRow(c: Company): Promise<{ bonus: string; over: string | null } | undefined> {
   const r = await query<{ bonus: string; over: string | null }>(
     `SELECT s.aguinaldo_amount::text AS bonus,
@@ -174,6 +192,8 @@ let large: Company;
 let reworded: Company;
 let waiting: Company;
 let unconsumed: Company;
+let others: Company;
+let advance: Company;
 
 beforeAll(async () => {
   const root = await crearInquilino('MNE-001-878 · paid before the close');
@@ -190,6 +210,11 @@ beforeAll(async () => {
   await closeThrough(reworded, 11);
   await closeThrough(waiting, 11);
   await closeThrough(unconsumed, 11);
+  others = await company(await crearEntidadHermana(root, 'MNE-001-878 · vacations and premium paid over'));
+  // 365.00 a day: every figure of this company is in whole cents.
+  advance = await company(await crearEntidadHermana(root, 'MNE-001-878 · the month paid in advance'), '133225.00');
+  await closeThrough(others, 11);
+  await closeThrough(advance, 11);
 }, 300_000);
 
 afterAll(async () => {
@@ -366,5 +391,82 @@ describe('the excess is measured from facts, not from the text of a line', () =>
     expect(plan.aguinaldo).toBe(DECEMBER_ALONE);
     expect(plan.paidOverProvision).toEqual([]);
     expect(plan.pendingPayRuns).toEqual([runId]);
+
+    // The close accrues December whole (1,273.9726 + 1,358.9041 + 339.7260) and names the run.
+    expect(await closeStepDetail(waiting)).toBe(
+      `1 accrued, 0 skipped, 2972.6027 provisioned; 1 pay run(s) of the month still in review, not taken off: ${runId}`
+    );
+  }, 120_000);
+});
+
+// Sixteen vacation days and their premium of 25 %, eleven closes (334 days):
+//   vacations   1,000 × 16 × 334/365 = 14,641.0959     December 1,358.9041
+//   premium     1,000 ×  4 × 334/365 =  3,660.2740     December   339.7260
+describe('vacation days and their premium paid over their provisions', () => {
+  it('each provision takes its own excess off its own accrual, and the close says what it did not take off', async () => {
+    const { entry } = await payOnThe15th(others, [salary(15000), vacationDays(16000), premium(4000)]);
+    // To the nearest cent: 14,641.10 and 3,660.27 consumed, 1,358.90 and 339.73 over.
+    expect(debitsTo(others, entry, 'provision_vacaciones')).toEqual({ 'Vacation days paid against their provision': '14641.10' });
+    expect(debitsTo(others, entry, 'provision_prima_vacacional')).toEqual({ 'Vacation premium paid against its provision': '3660.27' });
+    expect(debitsTo(others, entry, 'sueldos_gasto')).toEqual({
+      'Gross wages': '15000.00',
+      'Vacation days paid over their provision': '1358.90',
+      'Vacation premium paid over its provision': '339.73',
+    });
+
+    // Vacations: 2203 is 0.0041 in debit, so of December's 1,358.9041 the
+    // 0.0041 brings it to zero and 1,358.90 comes off. Premium: 2204 still
+    // holds 0.0040, so 339.73 − 0.0040 = 339.7260 is over it: all of December.
+    // The bonus was not paid: its 1,273.9726 accrue whole.
+    const plan = await planMonthlyProvisions(others.f.entityId, others.f.periodos[12]);
+    expect([plan.aguinaldo, plan.vacaciones, plan.prima_vacacional, plan.total])
+      .toEqual([DECEMBER_ALONE, '0.0041', '0.0000', '1273.9767']);
+    expect(plan.paidOverProvision).toEqual([
+      { benefit: 'vacaciones', excess: '1358.9000', subtracted: '1358.9000', left: '0.0000' },
+      { benefit: 'prima_vacacional', excess: '339.7300', subtracted: '339.7260', left: '0.0040' },
+    ]);
+
+    expect(await closeStepDetail(others)).toBe(
+      '1 accrued, 0 skipped, 1273.9767 provisioned; vacaciones: 1358.9000 taken off, paid over its provision; ' +
+        'prima_vacacional: 339.7260 taken off, paid over its provision (0.0040 not taken off)'
+    );
+    expect(await owed(others, 'provision_vacaciones')).toBe('0.0000');
+    expect(await owed(others, 'provision_prima_vacacional')).toBe('0.0040');
+    expect(await owed(others, 'provision_aguinaldo')).toBe('15000.0000');
+  }, 120_000);
+});
+
+// 365.00 a day (133,225.00 a year), eleven closes: bonus 365 × 15 × 334/365 =
+// 5,010.00, vacations 365 × 16 × 334/365 = 5,344.00, premium 1,336.00. The
+// whole year is 5,475.00, 5,840.00 and 1,460.00: December is 465.00, 496.00
+// and 124.00.
+describe('the whole year of the three benefits paid on the 15th', () => {
+  it('December is wholly paid: no row and no entry are written, the worker is named with the reason, and a second close says the same', async () => {
+    const { entry } = await payOnThe15th(advance, [salary(5475), yearEndBonus(5475), vacationDays(5840), premium(1460)]);
+    expect(debitsTo(advance, entry, 'sueldos_gasto')).toEqual({
+      'Gross wages': '5475.00',
+      'Aguinaldo paid over its provision': '465.00',
+      'Vacation days paid over their provision': '496.00',
+      'Vacation premium paid over its provision': '124.00',
+    });
+
+    for (const attempt of ['first', 'second']) {
+      const plan = await planMonthlyProvisions(advance.f.entityId, advance.f.periodos[12]);
+      expect(plan.rows, attempt).toEqual([]);
+      expect(plan.skipped.map((x) => [x.worker.id, x.reason]), attempt).toEqual([[advance.employeeId, 'paid-over-provision']]);
+      expect(plan.total, attempt).toBe('0.0000');
+      const r = await close(advance, 12);
+      expect([r.processed, r.skipped, r.journalEntryId, r.total], attempt).toEqual([0, 1, null, '0.0000']);
+      expect(r.paidOverProvision, attempt).toEqual([
+        { benefit: 'aguinaldo', excess: '465.0000', subtracted: '465.0000', left: '0.0000' },
+        { benefit: 'vacaciones', excess: '496.0000', subtracted: '496.0000', left: '0.0000' },
+        { benefit: 'prima_vacacional', excess: '124.0000', subtracted: '124.0000', left: '0.0000' },
+      ]);
+    }
+    expect(await decemberRow(advance)).toBeUndefined();
+    // Each provision was consumed whole by the run, and December added nothing.
+    for (const role of ['provision_aguinaldo', 'provision_vacaciones', 'provision_prima_vacacional']) {
+      expect(await owed(advance, role), role).toBe('0.0000');
+    }
   }, 120_000);
 });
