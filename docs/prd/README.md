@@ -10,7 +10,7 @@ Un arreglo, una deuda o una tarea de la ruta al MVP que ya tiene issue con DoR *
 | 2. Entrevista con quienes lo piden | Respuestas sin «depende»; preguntas abiertas con dueño | La issue épica |
 | 3. PRD | Requisitos `RF-nn` y `RNF-nn` con criterio de aceptación | `docs/prd/PRD-<nnn>-<slug>.md` |
 | 4. System design | Límite del repo, contratos, datos, fallas | `docs/design/SD-<nnn>-<slug>.md` |
-| 5. Backlog | Tareas atómicas `MNE-<nnn>-<mm>` | `docs/backlog/PRD-<nnn>.json` y su vista generada; una issue por tarea |
+| 5. Backlog | Tareas atómicas `MNE-<nnn>-<mmm>`: tres dígitos, y cuatro desde la 1000, sin ceros a la izquierda | `docs/backlog/PRD-<nnn>.json` y su vista generada; una issue por tarea |
 
 El prefijo `MNE` es el `id_prefix` de `catalog-info.yaml`. Si una tarea cae en otro repo, lleva el prefijo de ese repo y el mismo número de PRD, así la cadena queda trazable.
 

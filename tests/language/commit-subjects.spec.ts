@@ -168,6 +168,13 @@ describe('the shapes the format rule rejects', () => {
     expect(judgeSubject('I22:commits are born English').reason).toBe('no-space-after-code');
   });
 
+  // «MNE-001-1000» is twelve characters: the longest code the prefix rule reads.
+  it('reads a four-digit task id as the code, not as a word of the subject', () => {
+    expect(judgeSubject('MNE-001-1000:the id takes four digits').reason).toBe('no-space-after-code');
+    expect(judgeSubject('MNE-001-1000: fix typo').reason).toBe('too-few-words');
+    expect(judgeSubject('MNE-001-1000: the task id takes four digits (#1070)').ok).toBe(true);
+  });
+
   it('a subject too short to say what changed', () => {
     expect(judgeSubject('fix typo').reason).toBe('too-few-words');
   });

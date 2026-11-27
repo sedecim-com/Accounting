@@ -97,6 +97,13 @@ describe('what makes a task atomic', () => {
   it('rejects a malformed id', () => {
     expect(errorsOf([task('1')]).join()).toMatch(/must look like MNE-001-nnn/);
   });
+
+  it('takes a four-digit id from 1000 on, and one spelling per number: no two digits, no five, no padding to four', () => {
+    expect(errorsOf([task('999'), task('1000'), task('9999')])).toEqual([]);
+    for (const bad of ['99', '10000', '0999', '0861']) {
+      expect(errorsOf([task(bad)]), bad).toEqual([expect.stringMatching(new RegExp(`^MNE-001-${bad}: the id must look like`))]);
+    }
+  });
 });
 
 describe('the schedule block', () => {
@@ -187,6 +194,26 @@ describe('the rendered view', () => {
     expect(view).toMatch(/\| MNE-001-003 \| task 003 \| [^\n]* \| RF-01 \| 2 → R2 \| Must \|/);
     expect(view).toContain('Al cerrar sale **R1 · uno** y **R2 · dos**.');
     expect(view).not.toMatch(/## Etapa|La etapa siguiente/);
+  });
+
+  it('past 999 the ids keep file order, whole: in the sprint tables, the dependency column and the traceability row', () => {
+    // As strings, 1000 and 1001 sort before 998; and the last three characters of 1000 are «000».
+    const tasks = [
+      task('998', { lane: 'B' }),
+      task('999'),
+      task('1000', { depends_on: ['MNE-001-999'] }),
+      task('1001', { status: 'done' }),
+    ];
+    const b = backlog(tasks, { perLane: 1 });
+    expect(validate(b, REQS, '001')).toEqual([]);
+    const s = schedule(b);
+    expect(tasks.map((t) => s.get(t.id))).toEqual([1, 1, 2, 0]);
+    const view = render(b, s);
+    expect(view).toContain('| RF-01 | 998, 999, 1000, 1001 | S2 | S2 |');
+    expect(view).toMatch(/### S2 [^\n]*\n\n[^\n]*\n\n[^\n]*\n[^\n]*\n\| MNE-001-1000 \| task 1000 \| [^\n]* \| A \| MNE-001-999 \| 100 \|\n/);
+    expect(view).toContain('| MNE-001-1001 | task 1001 |');
+    expect(view.indexOf('| MNE-001-998 |')).toBeLessThan(view.indexOf('| MNE-001-999 |'));
+    expect(view.indexOf('| MNE-001-999 |')).toBeLessThan(view.indexOf('| MNE-001-1000 |'));
   });
 
   it('numbers the sprints from first_open_sprint: done work is the sprint before, open work starts on the start date', () => {
@@ -302,6 +329,12 @@ describe('the suggested sprint', () => {
     const b = backlog(tasks, { perLane: 10 });
     expect(validate(b, REQS, '001')).toEqual([]);
     expect(new Set(schedule(b).values())).toEqual(new Set([1]));
+  });
+
+  it('a full lane takes 999 before 1000: the tie is broken by file order, never by comparing ids as text', () => {
+    const ids = ['998', '999', '1000', '1001'];
+    const s = schedule(backlog(ids.map((id) => task(id)), { perLane: 1 }));
+    expect(ids.map((id) => s.get(`MNE-001-${id}`))).toEqual([1, 2, 3, 4]);
   });
 
   it('respects the lane capacity', () => {
