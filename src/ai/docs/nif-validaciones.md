@@ -29,7 +29,7 @@ algo, y para saber qué NO se valida solo (y por tanto exige tu criterio).
 |---|---|---|
 | `accountType` | Cargo/abono contra-natural (p. ej. gasto abonado) | NIF A-5. Un movimiento contra-natural suele ser cuenta equivocada o una corrección — y las correcciones van por REVERSA, no editando (NIF B-1) |
 | `nifSubstance` | Ingreso abonado en póliza que menciona "anticipo" | NIF D-1: el anticipo de cliente es PASIVO hasta transferir el control; reconocerlo como ingreso adelanta utilidades |
-| `nifSubstance` | Póliza manual a cuentas de capital contable | NIF C-11: los movimientos de capital derivan de actos formales — verifica que exista el acta o acuerdo |
+| `nifSubstance` | Cualquier línea a una cuenta de capital contable (la regla no distingue la póliza manual de la automática) | NIF C-11: los movimientos de capital derivan de actos formales — verifica que exista el acta o acuerdo |
 | `periodStatus` | Posteo a periodo futuro o en soft_close | NIF A-1, cap. 20, devengación |
 
 ## Validaciones de la capa de IA (antes de crear el borrador)
@@ -48,15 +48,24 @@ algo, y para saber qué NO se valida solo (y por tanto exige tu criterio).
 | Decisión | Por qué no se automatiza | Norma de referencia |
 |---|---|---|
 | Gasto vs activo fijo | El umbral de capitalización es política de la empresa | NIF C-6 define QUÉ es PPyE; el umbral práctico no lo fija ninguna norma |
-| Devengar un gasto plurianual | Requiere saber el periodo de cobertura real | NIF A-1, cap. 20, asociación de costos con ingresos |
+| El periodo de cobertura de un gasto plurianual | Lo dice una persona al registrar el calendario con `prepaid create`. Desde ahí la amortización de cada mes ya no es criterio: la postea el motor (`prepaid run`, o `closing run`) | NIF A-1, cap. 20, asociación de costos con ingresos; NIF C-5 |
 | Inventario vs costo directo | Depende del sistema de inventarios de la entidad | NIF C-4 |
 | Estimación de cuentas incobrables | Juicio sobre pérdidas crediticias esperadas | NIF C-3 |
-| Provisiones (aguinaldo, PTU, garantías) | Estimación de monto y probabilidad | NIF C-9 y D-3 |
+| Provisiones de garantías, litigios y otras de monto o fecha inciertos | Estimación de monto y probabilidad; no hay motor | NIF C-9 |
 | Reconocer un ingreso por avance de obra | Medición del grado de cumplimiento | NIF D-1/D-2 |
 
 Cuando el usuario te pida uno de estos registros, hazlo como borrador con tu
 mejor propuesta, cita la norma aplicable, y deja explícito qué parte es
 estimación o política que él debe confirmar.
+
+Dos provisiones NO están en esa lista, porque tienen motor. **Aguinaldo,
+vacaciones y prima vacacional** se devengan cada mes (`payroll accrue`, o
+`closing run`). La **PTU** del ejercicio tiene motor al cierre (`ptu close`):
+parte de tres cifras que captura el contador, deja un borrador y hoy se niega
+porque falta el porcentaje en `legal_parameters`. Qué hace cada motor, y qué
+normas no tienen ninguno, está en la tabla «Lo que este sistema devenga, y lo
+que declara no devengar» de `nif-registro`: léela antes de decirle al usuario
+que el sistema calcula algo.
 
 ## Correcciones de errores (NIF B-1) — regla de oro del sistema
 
