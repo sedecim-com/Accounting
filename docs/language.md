@@ -116,7 +116,7 @@ A *(closed)* lane has no baseline: its ceiling is its target, and `--check` refu
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | per file | 0 |
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | per file | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ | per file | 0 |
-| `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | 0 | 0 |
+| `docs-english-pages-untwinned` | docs/ and root pages published in English with no .es.md twin | per file | 0 |
 | `docs-spanish-twins-stale` | docs/ and root Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | per file | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family *(closed)* | 0 | 0 |
