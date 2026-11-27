@@ -449,6 +449,30 @@ const CARD_COLUMNS = new Set(['accumulated_depreciation', 'current_book_value', 
 const asTheRunReadIt = (asset: FixedAsset): string =>
   JSON.stringify(Object.entries(asset).filter(([column]) => !CARD_COLUMNS.has(column)));
 
+/** What the close box says of each state that takes an asset out of the run, in this order. */
+const OUT_OF_USE: ReadonlyArray<readonly [status: string, said: string]> = [
+  ['inactive', 'retired (inactive), not depreciated'],
+  ['fully_depreciated', 'fully depreciated'],
+  ['disposed', 'disposed'],
+];
+
+/**
+ * MNE-001-880 · The assets of the register that are not in use, named by
+ * state: they owe nothing, and an asset held out of depreciation is seen at
+ * every close. Null when every asset is in use.
+ */
+export function assetsOutOfUseNote(
+  assets: ReadonlyArray<{ asset_number: string; status: string }>
+): string | null {
+  const parts = OUT_OF_USE.flatMap(([status, said]) => {
+    const numbers = assets.filter((a) => a.status === status).map((a) => a.asset_number);
+    if (numbers.length === 0) return [];
+    const more = numbers.length > NAMED_IN_NOTE ? ` (+${numbers.length - NAMED_IN_NOTE} more)` : '';
+    return [`${numbers.length} asset(s) ${said}: ${numbers.slice(0, NAMED_IN_NOTE).join(', ')}${more}`];
+  });
+  return parts.length > 0 ? parts.join('; ') : null;
+}
+
 /**
  * La corrida mensual: un renglón de calendario y un asiento por activo activo.
  *

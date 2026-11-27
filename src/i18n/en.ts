@@ -902,6 +902,40 @@ export const EN = {
     '  An asset registered by units of production, which the monthly run skips:\n' +
     '    mnemosine asset edit AF-2025-00003 --method straight_line --reason "No production capture; straight line over its life"',
   // ---- end of MNE-001-880 ----
+  // ---- MNE-001-880, part 2 · asset retire: an asset is left inactive, and --undo brings it back (issue #1069) ----
+  'error.VALIDATION_ERROR.asset.retire_not_active':
+    '{asset} is {status}, not active: there is nothing to retire.{status, select, inactive { To bring it back: mnemosine asset retire {asset} --undo --reason "...".} other {}} Nothing was changed.',
+  /** `today` is the day in the entity's time zone (`zona_horaria`). */
+  'error.VALIDATION_ERROR.asset.retire_effective_future':
+    'The retirement cannot take effect on {effective}: today is {today} in the entity\'s time zone, and a retired asset stops depreciating at once. Run this command on that day. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.retire_effective_before_service':
+    '{asset} cannot be retired as of {effective}: its depreciation starts on {start}. An asset that was never in service is corrected with `asset edit`. Nothing was changed.',
+  'error.VALIDATION_ERROR.asset.retire_undo_not_retired':
+    '{asset} is {status} and the last change of its state is not an `asset retire`: there is nothing to undo. Nothing was changed.',
+  'assets.asset.retire.effective_or_undo':
+    'Say which: --effective <date> retires the asset, --undo brings back one that was retired. Not both, and not neither.',
+  'assets.asset.retire.done':
+    '{asset} is retired as of {effective}: the monthly run no longer takes it, and its card keeps what was posted. To bring it back: mnemosine asset retire {asset} --undo --reason "...".',
+  /** `months` lists each month with the number of its entry in brackets. */
+  'assets.asset.retire.standing':
+    '{count, plural, one {# month} other {# months}} already posted on or after that date {count, plural, one {stands} other {stand}}: {months}. Nothing already posted is changed: reverse by hand what should not have been posted (mnemosine entry reverse <number> --reason "...").',
+  'assets.asset.retire.undone':
+    '{asset} is in use again (it was retired as of {effective}): the monthly run takes it from the next month it runs. Nothing was posted for the months it skipped.',
+  'assets.asset.retire.unposted':
+    '{count, plural, one {# month has} other {# months have}} no depreciation for it: {months}. Catching them up is yours: run each one (mnemosine depreciation post --period <month>).',
+  'help.asset.retire.description':
+    'Retire an asset that must not depreciate any more: the monthly run stops taking it; --undo brings it back — writes no journal entry',
+  'help.asset.retire.option.effective':
+    'the day it stops being depreciated (YYYY-MM-DD): not after today, not before it was in service; kept in the audit row',
+  'help.asset.retire.option.undo': 'bring back an asset this command retired; the months it skipped are not posted',
+  'help.asset.retire.footer':
+    'Months already posted stand: a retirement never changes or reverses them. To sell or scrap the asset with its gain or loss, `asset dispose` is coming.\n' +
+    '\nExamples:\n' +
+    '  A truck out of service since the 20th; see the effect first, writing nothing:\n' +
+    '    mnemosine asset retire AF-2026-00007 --effective 2026-08-20 --reason "Engine seized; kept for parts" --dry-run\n' +
+    '  Back in service: the run takes it again, and the months skipped are named, not posted:\n' +
+    '    mnemosine asset retire AF-2026-00007 --undo --reason "Engine rebuilt"',
+  // ---- end of MNE-001-880, part 2 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */

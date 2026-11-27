@@ -249,7 +249,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
       }
     });
 
-  const retire = describeCommand(mem.command('retire').aliases(['retira']), 'help.memory.retire.description');
+  const retire = describeCommand(mem.command('retire').aliases(['retira', 'retirar']), 'help.memory.retire.description');
   argumentByKey(retire, '<id>', 'help.memory.retire.argument.id');
   optionByKey(retire, '-u, --user <email>', 'help.memory.retire.option.user');
   // El motivo es lo que convierte «lo apagué» en rastro auditable, y es lo

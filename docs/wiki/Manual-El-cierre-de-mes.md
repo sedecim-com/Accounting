@@ -148,6 +148,15 @@ mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Costo mal tecleado
 
 Si ya tiene meses contabilizados se niega y nombra sus pólizas: reversa esas pólizas, corrige el activo y vuelve a contabilizar esos meses con `depreciation post`. Lo ya contabilizado nunca se cambia. Si corriges la fecha de adquisición, el inicio de la depreciación la sigue, salvo que des `--in-service`. Un activo por unidades de producción, que la corrida omite, sale de ahí con `asset edit <activo> --method straight_line --reason "..."`.
 
+Un activo que ya no debe depreciarse y sigue en la empresa (parado, fuera de servicio) se retira con `asset retire`: queda inactivo, la corrida deja de tomarlo y esta partida lo nombra como retirado sin dejarla abierta. Si todos los activos registrados están fuera de uso (retirados o totalmente depreciados) la partida sale completa y los nombra; sólo el registro vacío sigue diciendo «no se pudo comprobar».
+
+```bash
+mnemosine asset retire AF-2026-00007 --effective 2026-08-20 --reason "Motor desbielado; se conserva para refacciones"
+mnemosine asset retire AF-2026-00007 --undo --reason "Motor reconstruido"
+```
+
+La fecha no puede ser posterior a hoy ni anterior a la entrada en servicio, y queda en la bitácora con el motivo. Los meses ya contabilizados se quedan como están: el comando los nombra y, si alguno no debió contabilizarse, lo reversas tú. `--undo` sólo devuelve un activo retirado con este comando; no contabiliza los meses que se saltó, los nombra para que los corras con `depreciation post`. Retirar no es vender ni desechar: no saca el costo de libros.
+
 Un aviso que todavía no se entera: cuando la ingesta capitaliza un CFDI como activo fijo, el aviso que viaja con el documento dice que el sistema no registra el activo ni calcula su depreciación. La segunda mitad ya no es cierta —el camino es `asset create` y `depreciation post`, arriba—; la primera sí: la ingesta no da de alta el activo en el registro, eso lo haces tú.
 
 ### 5. `Trial balance balanced` — **BLOQUEA**

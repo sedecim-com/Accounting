@@ -86,6 +86,12 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'reopen'     : 'reabrir',
   'restore'    : 'restaurar',
   'resume'     : 'reanudar',
+  // Deliberate amendment (2026-11-27, MNE-001-880 · #1069): `asset retire`
+  // stops an asset from depreciating as of a day, keeps it in the register
+  // and can be undone. `archive` hides master data from use and has no date;
+  // the disposal to come takes the cost out of the books with its gain or
+  // loss; `cancel` ends a document. The task's acceptance names the leaf.
+  'retire'     : 'retirar',
   'retry'      : 'reintentar',
   // G4b · el barrido de las entregas salientes vencidas. NO es `retry`, que
   // ya existe y reintenta UNA entrega nombrada: `sweep` recorre todas las que

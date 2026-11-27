@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 262 of 418 subcommands
+  spelling is `-T` at the root and `-t` on the 263 of 419 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -1159,7 +1159,7 @@ Options:
   -h, --help          display help for command
 ```
 
-### `mnemosine memory retire` (alias: retira)
+### `mnemosine memory retire` (alias: retira, retirar)
 
 ```
 Usage: mnemosine memory retire|retira [options] <id>
@@ -7126,18 +7126,23 @@ Usage: mnemosine asset|activo [options] [command]
 Fixed asset register: the ledger of what the company owns and depreciates
 
 Options:
-  -h, --help                     display help for command
+  -h, --help                        display help for command
 
 Commands:
-  create|crear [options] <name>  Register a fixed asset with its class, dates,
-                                 cost and accounts — writes no journal entry
-  edit|editar [options] <asset>  Correct an asset that has no depreciation
-                                 posted yet: cost, salvage, life, methods, dates
-                                 and accounts, with an audit row — writes no
-                                 journal entry
-  category|categoria             Asset classes: useful life, LISR rate and the
-                                 three default accounts
-  help [command]                 display help for command
+  create|crear [options] <name>     Register a fixed asset with its class,
+                                    dates, cost and accounts — writes no journal
+                                    entry
+  edit|editar [options] <asset>     Correct an asset that has no depreciation
+                                    posted yet: cost, salvage, life, methods,
+                                    dates and accounts, with an audit row —
+                                    writes no journal entry
+  retire|retirar [options] <asset>  Retire an asset that must not depreciate any
+                                    more: the monthly run stops taking it;
+                                    --undo brings it back — writes no journal
+                                    entry
+  category|categoria                Asset classes: useful life, LISR rate and
+                                    the three default accounts
+  help [command]                    display help for command
 ```
 
 ### `mnemosine asset create` (alias: crear)
@@ -7243,6 +7248,42 @@ Examples:
     mnemosine asset edit AF-2026-00007 --cost 489000.00 --reason "Cost mistyped; the invoice says 489,000.00" --dry-run
   An asset registered by units of production, which the monthly run skips:
     mnemosine asset edit AF-2025-00003 --method straight_line --reason "No production capture; straight line over its life"
+```
+
+### `mnemosine asset retire` (alias: retirar)
+
+```
+Usage: mnemosine asset retire|retirar [options] <asset>
+
+Retire an asset that must not depreciate any more: the monthly run stops taking
+it; --undo brings it back — writes no journal entry
+
+Arguments:
+  asset                                    the asset: its number in the register, or its id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --effective <date>                       the day it stops being depreciated (YYYY-MM-DD): not after today, not before it was in service; kept in the audit row
+  --undo                                   bring back an asset this command retired; the months it skipped are not posted
+  --reason <text>                          justification recorded in the audit trail (required)
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Months already posted stand: a retirement never changes or reverses them. To sell or scrap the asset with its gain or loss, `asset dispose` is coming.
+
+Examples:
+  A truck out of service since the 20th; see the effect first, writing nothing:
+    mnemosine asset retire AF-2026-00007 --effective 2026-08-20 --reason "Engine seized; kept for parts" --dry-run
+  Back in service: the run takes it again, and the months skipped are named, not posted:
+    mnemosine asset retire AF-2026-00007 --undo --reason "Engine rebuilt"
 ```
 
 ### `mnemosine asset category` (alias: categoria)
