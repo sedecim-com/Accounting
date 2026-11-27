@@ -8,6 +8,7 @@ import {
   esConvencionDeVacaciones,
   esProvisionCero,
   mesDeCalendario,
+  spreadPaidExcess,
   tramosDeDevengo,
   type EntradaProvisionMensual,
 } from '../../../src/services/accruals/provisions-math.js';
@@ -800,5 +801,34 @@ describe('lo que no se calcula', () => {
     expect(r.tramos).toEqual([]);
     expect(r.total).toBe('0.0000');
     expect(esProvisionCero(r)).toBe(true);
+  });
+});
+
+// MNE-001-878 (#111), part 2. What the month's pay runs paid over a provision
+// comes off the month's accrual of that benefit. Figures by hand: December of
+// a worker at 1,000.00 a day accrues 15,000.0000 − 13,726.0274 = 1,273.9726.
+describe('spreadPaidExcess: what the pay runs already expensed comes off the accrual, never below zero', () => {
+  it('one worker: the 1,273.97 paid over the provision leaves 0.0026 to accrue', () => {
+    expect(spreadPaidExcess(['1273.9726'], '1273.97')).toEqual(['1273.9700']);
+  });
+
+  it('an excess over the month\'s accrual takes the whole accrual and no more', () => {
+    expect(spreadPaidExcess(['1273.9726'], '6273.97')).toEqual(['1273.9726']);
+  });
+
+  it('several workers share it in proportion to what each accrues', () => {
+    // 300 over 1,500: a fifth of each.
+    expect(spreadPaidExcess(['1000.0000', '500.0000'], '300')).toEqual(['200.0000', '100.0000']);
+  });
+
+  it('the parts add up to the excess to the last decimal', () => {
+    // A third each of 100: 33.3333, 66.6667 and 100.0000 accumulated.
+    expect(spreadPaidExcess(['100.0000', '100.0000', '100.0000'], '100')).toEqual(['33.3333', '33.3334', '33.3333']);
+  });
+
+  it('nothing over, or nothing accrued, takes nothing off', () => {
+    expect(spreadPaidExcess(['1273.9726', '10.0000'], '0')).toEqual(['0.0000', '0.0000']);
+    expect(spreadPaidExcess(['1273.9726'], '-5')).toEqual(['0.0000']);
+    expect(spreadPaidExcess(['0.0000'], '5')).toEqual(['0.0000']);
   });
 });

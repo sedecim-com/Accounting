@@ -242,6 +242,8 @@ async function buildPayRunEntry(
   // DR: Wages expense (gross), less what the run pays of a benefit its
   // provision already carries (MNE-001-878): that part is debited to the
   // provision, or the benefit would be expensed at the close and again here.
+  // What the provision could not take is wages too, in a line of its own
+  // that the accrual of the month reads back.
   const provisionCharges = await provisionChargesOfRun(client, {
     payRunId,
     tenantId,
@@ -254,7 +256,8 @@ async function buildPayRunEntry(
   // Negative earnings left the gross under the benefits paid: they reduce the expense.
   else if (wages.lessThan(0)) credit(accounts.wages_expense, wages.abs().toFixed(2), wagesLine);
   for (const c of provisionCharges) {
-    debit({ id: c.accountId, code: c.accountCode }, c.amount.toFixed(2), c.description);
+    const account = c.accountId === null ? accounts.wages_expense : { id: c.accountId, code: c.accountCode as string };
+    debit(account, c.amount.toFixed(2), c.description);
   }
 
   // DR: Payroll tax expense (employer-only taxes)

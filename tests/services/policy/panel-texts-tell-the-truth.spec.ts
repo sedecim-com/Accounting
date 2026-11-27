@@ -15,6 +15,7 @@ import { REQUIRED_ACCOUNTS, ROLE_MAP } from '../../../src/services/xml-ingestion
 import { CATALOGO_UNIVERSAL } from '../../../src/services/accounting/chart-seed.js';
 import { t } from '../../../src/i18n/index.js';
 import { yearMonthsSealedBox, yearSealNeedsSealedMonths } from '../../../src/services/accounting/period-close.js';
+import { ACCRUED_BENEFITS } from '../../../src/services/payroll/common/benefit-payment.js';
 
 // ============================================================
 // THE PANEL TEXT SAYS WHAT THE CODE DOES (T21b · #301, MNE-001-073)
@@ -345,14 +346,14 @@ describe('benefit_payment_against_provision — the text names its reader, its e
   });
 
   it('the earning types and the roles the text names are the ones the reader pairs, and the roles are seeded', () => {
-    expect(s.impact).toMatch(/of type aguinaldo, pto \(vacation days\) and prima_vacacional/);
+    expect(s.impact).toMatch(/of type aguinaldo, pto or vacaciones \(vacation days\) and prima_vacacional/);
     expect(s.impact).toMatch(/provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204/);
-    for (const [earning, constant, role, code] of [
-      ['aguinaldo', 'ROL_AGUINALDO', 'provision_aguinaldo', '2202'],
-      ['pto', 'ROL_VACACIONES', 'provision_vacaciones', '2203'],
-      ['prima_vacacional', 'ROL_PRIMA', 'provision_prima_vacacional', '2204'],
+    for (const [role, earningTypes, code] of [
+      ['provision_aguinaldo', ['aguinaldo'], '2202'],
+      ['provision_vacaciones', ['pto', 'vacaciones'], '2203'],
+      ['provision_prima_vacacional', ['prima_vacacional'], '2204'],
     ] as const) {
-      expect(reader(), earning).toContain(`{ earningType: '${earning}', role: ${constant},`);
+      expect(ACCRUED_BENEFITS.find((b) => b.role === role)?.earningTypes, role).toEqual(earningTypes);
       expect(ROLE_MAP[role], role).toBe(code);
     }
   });
