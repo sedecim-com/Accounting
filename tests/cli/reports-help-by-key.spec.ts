@@ -34,7 +34,13 @@ const FAMILIES: Record<string, string> = {
 };
 
 const VIEWS: MessageParams = { views: REPORTING_VIEWS.join(', ') };
-const METHODS: MessageParams = { methods: Object.values(DepreciationMethod).join(', ') };
+// MNE-001-881: the help offers what a registration takes, so units of
+// production is not in the list (`asset create` refuses it by key).
+const METHODS: MessageParams = {
+  methods: Object.values(DepreciationMethod)
+    .filter((m) => m !== DepreciationMethod.UNITS_OF_PRODUCTION)
+    .join(', '),
+};
 
 const option = (path: string, long: string) => node(path).options.find((o) => o.long === long);
 

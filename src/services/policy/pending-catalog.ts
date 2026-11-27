@@ -2825,6 +2825,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 45,
   },
   {
+    // MNE-001-878 (#111) · The close accrues the year-end bonus, vacations and
+    // the vacation premium against 2202-2204 and the pay-run entry debited the
+    // whole gross to wages: the benefit was expensed twice. Reader:
+    // `readBenefitPayment` (payroll/common/benefit-payment.ts), through the
+    // entry of `pay-run post`.
+    key: 'benefit_payment_against_provision',
+    textKey: 'benefit_payment_against_provision',
+    category: 'contable',
+    question:
+      'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
+    impact:
+      'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+    options: [
+      { value: 'consume_provision', label: 'Against the provision: the payment settles what the close accrued, and only the excess is expense' },
+      { value: 'expense_on_payment', label: 'Expense when paid: only for a firm that does not accrue these benefits' },
+    ],
+    defaultValue: 'consume_provision',
+    defaultRationale:
+      'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
+    whyAsking:
+      'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
+    whatIDo:
+      'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+    ifSkipped: 'The payment consumes the provision first, and only the excess is expense.',
+    priority: 45,
+  },
+  {
     // T13 · Se añade al final, que es donde crece el catálogo.
     //
     // LA MITAD QUE NO SE PREGUNTA. La balanza y el estado de resultados

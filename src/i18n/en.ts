@@ -860,6 +860,14 @@ export const EN = {
   'error.VALIDATION_ERROR.depreciation.policy_convention_unknown':
     'The policy `convencion_primer_mes` is set to "{value}", which is neither of the two possible conventions ({known}). Correct it with `mnemosine pending reopen convencion_primer_mes` (if it was already defined) and then `mnemosine pending define convencion_primer_mes` before running the depreciation.',
   'error.VALIDATION_ERROR.depreciation.tenant_unknown': 'The tenant of entity {entityId} could not be determined.',
+  // ---- MNE-001-881 · units of production: refused at registration, skipped by the run (issue #1069) ----
+  /** `asset create`: `book` says which of the two methods asked for it, `book` or `tax`. */
+  'error.VALIDATION_ERROR.asset.units_of_production_unsupported':
+    'The {book, select, tax {tax} other {book}} depreciation method cannot be units_of_production yet: nothing captures the production of the period, so the monthly run could not compute a single row for this asset. Choose another method (straight_line when none is given). Nothing was registered.',
+  /** `depreciation post`: one line per asset the run skipped because it depreciates by units of production. */
+  'assets.depreciation.skipped_units_of_production':
+    '{asset} was skipped and nothing was posted for it: it depreciates by units of production, and the production of {period} cannot be captured yet. Book its charge by hand (mnemosine entry create); the close counts it under `depreciacion_faltante_al_cierre`.',
+  // ---- end of MNE-001-881 ----
 
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. `applies_advance` is the receivables core's, at both doors (MNE-001-895). */
@@ -2645,6 +2653,27 @@ export const EN = {
     'With every pay run, next to the payroll that caused it',
   'policy.employer_contribution_accrual.option.mensual_al_cierre':
     'Once a month, matching how they are actually paid',
+
+  // ---- MNE-001-878 (#111): a benefit paid in a pay run consumes its provision ----
+  'policy.benefit_payment_against_provision.question':
+    'When a pay run pays aguinaldo, vacation days or vacation premium, does the payment settle the provision the close accrued, or is it expense when paid?',
+  'policy.benefit_payment_against_provision.impact':
+    'It decides what the entry of `pay-run post` debits for the earning lines of type aguinaldo, pto (vacation days) and prima_vacacional; benefit-payment.ts reads it when a run pays one of them. With "consume_provision" each is debited to its provision (the accounts of the roles provision_aguinaldo, provision_vacaciones and provision_prima_vacacional: 2202, 2203 and 2204 in the seeded chart) up to what the provision holds, only the excess is wages expense, and what is not paid stays in the provision. With "expense_on_payment" the whole gross is wages expense: it is for a firm that does not accrue these benefits, and the entry is refused while the provision of a benefit the run pays carries a balance. Vacation days paid inside the salary line are not seen: itemize them as pto. Entries already posted are not changed.',
+  'policy.benefit_payment_against_provision.rationale':
+    'Under NIF D-3 a short-term benefit is expensed as the worker earns it, against a liability, and paying it settles that liability. A firm that accrues at the close and also expenses the payment counts the benefit twice and keeps a liability it no longer owes; consuming the provision first does neither, the conservative option of ADR-0006. A firm that does not accrue has no provision to consume, and both answers give it the same entry.',
+  'policy.benefit_payment_against_provision.why':
+    'The monthly close accrues these benefits to expense (`payroll accrue`). When a run pays them I cannot tell on my own whether your firm keeps that accrual: some firms accrue every month, others expense the benefit in the month it is paid.',
+  'policy.benefit_payment_against_provision.what':
+    'With "consume_provision" I debit each benefit paid to its provision, up to what it holds on the pay date less what pay-run drafts awaiting review will take, and the rest to wages expense. With "expense_on_payment" I debit the whole gross to wages expense, and I refuse the entry while the provision of a benefit the run pays carries a balance.',
+  'policy.benefit_payment_against_provision.if_skipped':
+    'The payment consumes the provision first, and only the excess is expense.',
+  'policy.benefit_payment_against_provision.option.consume_provision':
+    'Against the provision: the payment settles what the close accrued, and only the excess is expense',
+  'policy.benefit_payment_against_provision.option.expense_on_payment':
+    'Expense when paid: only for a firm that does not accrue these benefits',
+  'payroll.benefit_payment.expensed_while_accrued':
+    'The policy {key} says a benefit is expense when paid, and this run pays one whose provision (account {account}) carries {balance} accrued: expensing the payment would count the benefit twice. Nothing was written. Answer {key} with consume_provision in mnemosine pending, or reverse the accrual first if the firm does not accrue.',
+  // ---- end of MNE-001-878 ----
 
   'policy.archived_accounts_in_reports.question':
     'Once an account is archived, does it keep its row in a trial balance where it has nothing to show?',

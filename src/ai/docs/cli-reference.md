@@ -7112,8 +7112,8 @@ Options:
   --salvage <amount>                       residual value at the end of its life (default 0)
   --life-years <n>                         useful life in years
   --life-months <n>                        useful life in months; years are the ceiling of months over twelve
-  --method <method>                        BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
-  --tax-method <method>                    TAX depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
+  --method <method>                        BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs
+  --tax-method <method>                    TAX depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, macrs
   --asset-account <id>                     GL account the cost sits in (defaults from the class)
   --accum-account <id>                     accumulated depreciation account (defaults from the class)
   --expense-account <id>                   depreciation expense account (defaults from the class)
