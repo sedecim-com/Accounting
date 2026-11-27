@@ -3152,6 +3152,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 61,
   },
   {
+    // MNE-001-947 (#1079) · The date of the mirror `bill void` posts. The
+    // entry is the same under either answer; the answer decides its month.
+    // Reader: `voidBill` (ap/bill-service.ts), once for each void.
+    key: 'bill_void_mirror_date',
+    textKey: 'bill_void_mirror_date',
+    category: 'contable',
+    question: 'An approved vendor bill is voided: which date does the mirror of its entry carry?',
+    impact:
+      'Governs `bill void`; bill-service.ts reads it once for each void. Under either answer the mirror takes back every line of the bill\'s entry: the expense, the payable and the IVA parked in 1135. ' +
+      'With "void_date" the mirror is dated the day of the void in the entity\'s time zone, as `invoice void` dates its own, so no month already closed or declared moves. ' +
+      'With "bill_date" the mirror is dated the day of the bill\'s entry, so the bill\'s month reads as if the bill had never been; when no open period holds that day, the key cfdi_periodo_cerrado decides, and only its answer "periodo_actual" dates the mirror the day of the void: under any other answer the void is refused and nothing is written.',
+    options: [
+      { value: 'void_date', label: 'The day of the void, as `invoice void` does' },
+      { value: 'bill_date', label: 'The day of the bill\'s entry, as if the bill had never been' },
+    ],
+    defaultValue: 'void_date',
+    defaultRationale:
+      'A posted entry is corrected by a reversal and never edited (NIF B-1, as migration 041 and the accounting manual of this system carry it), and the reversal is an act of the day it is made. ' +
+      'Dating the mirror that day changes no month already closed or declared, the conservative option of ADR-0006. ' +
+      'A CFDI can be cancelled until the month the annual return of its year is due (CFF art. 29-A, as the payables manual of this system quotes it), so a cancellation can arrive after the bill\'s month was declared. ' +
+      'Reading the cancelled CFDI as never issued and dating the mirror with the bill is also accepted; in a month already declared it takes an amended return (CFF art. 32).',
+    whyAsking:
+      'When a vendor cancels a CFDI you already approved, some firms take the expense out on the day they learn of it; others take it out of the month it was booked in and amend that month. The entry is the same either way.',
+    whatIDo:
+      'With "void_date" I date the mirror the day you void the bill. With "bill_date" I date it the day of the bill\'s entry, and when that period is not open I follow cfdi_periodo_cerrado.',
+    ifSkipped: 'I date the mirror the day of the void.',
+    priority: 62,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live

@@ -6225,6 +6225,30 @@
     },
     {
       "class": "policy-key",
+      "where": "bill_void_mirror_date",
+      "es": "bill_void_mirror_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-947): which date the mirror of a voided vendor bill's entry carries."
+    },
+    {
+      "class": "policy-value",
+      "where": "bill_void_mirror_date/void_date",
+      "es": "void_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the mirror is dated the day of the void, as `invoice void` dates its own."
+    },
+    {
+      "class": "policy-value",
+      "where": "bill_void_mirror_date/bill_date",
+      "es": "bill_date",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the mirror is dated the day of the bill's entry, and a period that is not open follows cfdi_periodo_cerrado."
+    },
+    {
+      "class": "policy-key",
       "where": "year_seal_with_unsealed_months",
       "es": "year_seal_with_unsealed_months",
       "en": null,
